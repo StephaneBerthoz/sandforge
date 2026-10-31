@@ -91,6 +91,9 @@ export interface SeedWizardState {
   executionResult: SeedExecutionResult | undefined;
   /** The template the last run was built from, saved by "Save as template". */
   lastTemplate: SeedTemplate | null;
+  /** Whether the run mutes the target's automation, as the Execute step's box is left. */
+  muteAutomation: boolean;
+  setMuteAutomation: (mute: boolean) => void;
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
   /** Overall completion 0-100, from the live operation:progress stream. */

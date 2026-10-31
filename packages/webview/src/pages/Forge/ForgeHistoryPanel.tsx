@@ -160,6 +160,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   );
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
+  /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   /**
    * When the undo that brought back what the confirmed run's removal found
    * gone ended, as the panel writes it: the removal takes every record the
@@ -257,6 +259,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       includeChanged,
       ...(sweep ? { sweep: true } : {}),
       ...(againAfter !== null ? { again: true } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(null);
   };
@@ -323,6 +326,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           onClick={() => {
             setIncludeChanged(false);
             setSweep(false);
+            setMuteAutomation(false);
             setAgainAfter(undoneOn);
             setConfirming(entry);
           }}
@@ -343,6 +347,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           onClick={() => {
             setIncludeChanged(false);
             setSweep(false);
+            setMuteAutomation(false);
             setAgainAfter(null);
             setConfirming(entry);
           }}
@@ -372,6 +377,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           onClick={() => {
             setIncludeChanged(false);
             setSweep(true);
+            setMuteAutomation(false);
             setAgainAfter(null);
             setConfirming(entry);
           }}
@@ -561,6 +567,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         onIncludeChangedChange={setIncludeChanged}
         sweep={sweep}
         onSweepChange={setSweep}
+        muteAutomation={muteAutomation}
+        onMuteAutomationChange={setMuteAutomation}
         {...(againAfter !== null ? { againAfter } : {})}
         onClose={() => setConfirming(null)}
         onConfirm={confirmRemoval}

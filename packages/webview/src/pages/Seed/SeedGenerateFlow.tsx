@@ -269,6 +269,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               automation={state.selectedOrgId ? wizardAutomation : undefined}
               orgName={wizardOrgName}
               records={wizardRecords}
+              mute={{ checked: state.muteAutomation, onChange: state.setMuteAutomation }}
             />
           )}
 

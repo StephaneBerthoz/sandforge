@@ -123,6 +123,7 @@ const baseQuickSeed: QuickSeedState = {
   customizedCounts: {},
   selectedOrgId: '',
   locale: '',
+  muteAutomation: false,
   isRunning: false,
   executionResult: undefined,
   objectProgress: [],
@@ -134,6 +135,7 @@ const baseQuickSeed: QuickSeedState = {
   setCount: vi.fn(),
   selectOrg: vi.fn(),
   setLocale: vi.fn(),
+  setMuteAutomation: vi.fn(),
   execute: vi.fn(),
   cancel: vi.fn(),
   reset: vi.fn(),
@@ -336,6 +338,103 @@ describe('QuickSeedFlow', () => {
         false,
       );
       expect(posted('seed:automation')).toHaveLength(1);
+    });
+
+    it('offers on the confirmation the box that mutes what a set of the org silences, ticking the run', () => {
+      const setMuteAutomation = vi.fn();
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        setMuteAutomation,
+      };
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+      const [asked] = posted('seed:automation') as unknown as Array<{ id: string }>;
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-mute',
+              type: 'seed:automation:response',
+              timestamp: Date.now(),
+              correlationId: asked.id,
+              payload: {
+                orgId: 'org-1',
+                objects: ['Account', 'Contact'],
+                preview: {
+                  org: 'dev1',
+                  objectsRead: ['Account', 'Contact'],
+                  objects: [
+                    {
+                      objectApiName: 'Contact',
+                      entries: [
+                        {
+                          kind: 'flow',
+                          name: 'Welcome Email',
+                          when: 'after',
+                          emails: 0,
+                          messages: [],
+                          creates: [],
+                          afterCommit: false,
+                          bypasses: [{ name: 'Skip_Welcome', held: false }],
+                          keptQuiet: false,
+                          unread: false,
+                        },
+                      ],
+                    },
+                  ],
+                  emailsPerRecord: [],
+                  alertsAsSingle: false,
+                  bypasses: [{ permission: 'Skip_Welcome', permissionSet: 'Welcome_Bypass' }],
+                  bypassesHeld: [],
+                  unread: [],
+                  blinded: false,
+                  conditionsNotRead: 0,
+                },
+              },
+            },
+          }),
+        );
+      });
+
+      expect(screen.getByTestId('seed-automation-mute-silenced-Contact').textContent).toBe(
+        'Contact: Flow: Welcome Email · bypass Skip_Welcome',
+      );
+      fireEvent.click(screen.getByTestId('seed-automation-mute-toggle'));
+      expect(setMuteAutomation).toHaveBeenCalledWith(true);
+    });
+
+    it('says in its results what the run muted of the org’s automation', () => {
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'results',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        executionResult: {
+          templateId: 'tpl-1',
+          operationId: 'op-1',
+          status: 'success',
+          objectResults: [],
+          totalRecordsCreated: 0,
+          totalRecordsFailed: 0,
+          duration: 1000,
+          timestamp: '2026-10-31T00:00:00.000Z',
+          mutedAutomation: {
+            state: 'nothing',
+            assigned: [],
+            held: [],
+            permissions: [],
+            silenced: [],
+            stillRan: [],
+          },
+        },
+      };
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      expect(screen.getByTestId('quick-seed-result-muted-said').textContent).toMatch(
+        /^Nothing could be muted in .+: the run went ahead as without the option\.$/,
+      );
     });
 
     it('starts the run on Start once an org is chosen, and not before', () => {

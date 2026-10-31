@@ -39,6 +39,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ]),
   forge: page(() => import('./pages/Forge/ForgePage'), 'ForgePage', [
     'ai',
+    'automationMute',
     'emptyState',
     'errors',
     'forge',
@@ -49,6 +50,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'runResults',
   ]),
   frozen: page(() => import('./pages/Frozen/FrozenPage'), 'FrozenPage', [
+    'automationMute',
     'errors',
     'frozen',
     'howTo',
@@ -57,6 +59,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'runResults',
   ]),
   checkpoint: page(() => import('./pages/Checkpoint/CheckpointPage'), 'CheckpointPage', [
+    'automationMute',
     'checkpoint',
     'emptyState',
     'errors',
@@ -112,6 +115,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   help: page(() => import('./pages/Help/HelpPage'), 'HelpPage', ['help', 'howTo', 'moduleSummary']),
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [
+    'automationMute',
     'emptyState',
     'errors',
     'grappe',
@@ -125,6 +129,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'seed',
   ]),
   sync: page(() => import('./pages/Sync/SyncPage'), 'SyncPage', [
+    'automationMute',
     'emptyState',
     'errors',
     'grappe',
@@ -137,6 +142,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'syncParts',
   ]),
   autopilot: page(() => import('./pages/Autopilot/AutopilotPage'), 'AutopilotPage', [
+    'automationMute',
     'autopilot',
     'emptyState',
     'errors',

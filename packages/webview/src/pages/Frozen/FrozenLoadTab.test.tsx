@@ -279,6 +279,26 @@ describe('FrozenLoadTab', () => {
       expect(screen.getByText(/may hold masks such as \*\*\*\*1234/)).toBeDefined();
     });
 
+    it('offers beside Load the box that mutes the target’s automation, and asks the load alone to once ticked', () => {
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      expect((screen.getByTestId('frozen-load-mute-toggle') as HTMLInputElement).checked).toBe(
+        false,
+      );
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      fireEvent.click(screen.getByTestId('frozen-load-mute-toggle'));
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev' }],
+        // Its preview writes nothing, and mutes nothing.
+        ['frozen:load:preview', { targetOrgId: 'org-dev' }],
+        ['frozen:load', { targetOrgId: 'org-dev', muteAutomation: true }],
+      ]);
+    });
+
     it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
       for (const encryptedNotKept of [[], ['Contact.SSN__c']]) {
         useFrozenStore.setState({ status: WITH_COVERAGE(encryptedNotKept) });
@@ -327,6 +347,44 @@ describe('FrozenLoadTab', () => {
           'Left out, encrypted in this org: Contact.SSN__c (2).',
         );
       }
+      // Not asked to mute, the report says nothing of it.
+      expect(screen.queryByTestId('frozen-load-report-muted')).toBeNull();
+    });
+
+    it('says in the report what the load muted of the target’s automation', () => {
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Data_Load'],
+            held: [],
+            permissions: ['Load_Data'],
+            silenced: [],
+            stillRan: [],
+            released: false,
+          },
+        },
+      });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-load-report-muted-said').textContent).toMatch(
+        /^Data_Load was assigned to the user the run wrote as in /,
+      );
+      expect(screen.getByTestId('frozen-load-report-muted-not-released')).toBeDefined();
     });
   });
 

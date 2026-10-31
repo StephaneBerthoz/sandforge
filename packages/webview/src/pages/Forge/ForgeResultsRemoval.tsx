@@ -59,6 +59,8 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
+  /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
     responseType: 'forge:undo:response',
     errorType: 'forge:undo:error',
@@ -105,7 +107,12 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
 
   const confirmRemoval = (): void => {
     if (!entry) return;
-    removal.mutate({ forgeId: run.forgeId, includeChanged, ...(sweep ? { sweep: true } : {}) });
+    removal.mutate({
+      forgeId: run.forgeId,
+      includeChanged,
+      ...(sweep ? { sweep: true } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
+    });
     setConfirming(false);
   };
 
@@ -128,6 +135,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         onClick={() => {
           setIncludeChanged(false);
           setSweep(false);
+          setMuteAutomation(false);
           setConfirming(true);
         }}
         data-testid="forge-results-remove"
@@ -153,6 +161,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         onClick={() => {
           setIncludeChanged(false);
           setSweep(true);
+          setMuteAutomation(false);
           setConfirming(true);
         }}
         data-testid="forge-results-sweep"
@@ -194,6 +203,8 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         onIncludeChangedChange={setIncludeChanged}
         sweep={sweep}
         onSweepChange={setSweep}
+        muteAutomation={muteAutomation}
+        onMuteAutomationChange={setMuteAutomation}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
       />

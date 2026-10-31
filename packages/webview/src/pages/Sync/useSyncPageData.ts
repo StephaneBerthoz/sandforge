@@ -203,6 +203,13 @@ export interface SyncPageData {
   handleRemoveTransform: (index: number) => void;
   /** Set one setting of a transform rule, as typed in its input. */
   handleChangeTransformConfig: (index: number, key: string, value: string) => void;
+  /**
+   * Whether the run mutes the target's automation through its own bypass,
+   * as the box beside Run is left: off unless ticked, sent with the
+   * wizard's Run alone.
+   */
+  muteAutomation: boolean;
+  setMuteAutomation: (mute: boolean) => void;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
   /** Simulate the sync with current configuration: read, compare, write nothing. */
@@ -533,6 +540,8 @@ export function useSyncPageData(): SyncPageData {
 
   /** Set when the run is fired, so elapsed time is real rather than a literal 0. */
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
+  /** The box beside Run: the run mutes the target's automation, through its own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
 
   // Bridge query: the objects the source's user may read, and once the target
   // is picked, those the target takes — what its user may create is read
@@ -941,7 +950,10 @@ export function useSyncPageData(): SyncPageData {
     setSavedRunLabel(null);
     setSyncStartedAt(Date.now());
     setCurrentStep(4);
-    executeMutation.mutate({ config: config as unknown as Record<string, unknown> });
+    executeMutation.mutate({
+      config: config as unknown as Record<string, unknown>,
+      ...(muteAutomation ? { muteAutomation: true } : {}),
+    });
   };
 
   /**
@@ -1097,6 +1109,8 @@ export function useSyncPageData(): SyncPageData {
     handleAddTransform,
     handleRemoveTransform,
     handleChangeTransformConfig,
+    muteAutomation,
+    setMuteAutomation,
     handleExecute,
     handleSimulate,
     handleSaveConfig,

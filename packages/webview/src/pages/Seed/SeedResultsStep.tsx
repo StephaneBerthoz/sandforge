@@ -17,6 +17,7 @@ import { SeedOpenRecord } from './SeedOpenRecord';
 import { SeedObjectBadge } from './SeedObjectBadge';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import type { ObjectLabels } from '../../utils/objectLabels';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   success: 'success',
@@ -155,6 +156,13 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
               {t('seed.executionTime')}: {(executionResult.duration / 1000).toFixed(1)}s
             </span>
           </div>
+
+          {/* What the run muted of the org's automation, when its box was ticked. */}
+          <MutedAutomationResult
+            muted={executionResult.mutedAutomation}
+            org={orgName}
+            testId="seed-result-muted"
+          />
 
           {/* Per-object results */}
           {executionResult.objectResults.map((obj) => (

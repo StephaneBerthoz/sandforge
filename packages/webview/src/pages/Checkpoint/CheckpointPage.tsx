@@ -31,6 +31,7 @@ import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
 import {
@@ -223,6 +224,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const [run, setRun] = useState<PageRun | null>(null);
   const [undoAsked, setUndoAsked] = useState<UndoAsked | null>(null);
   const [undoAcceptsAutomation, setUndoAcceptsAutomation] = useState(false);
+  const [undoMutesAutomation, setUndoMutesAutomation] = useState(false);
   const [stopComparing, setStopComparing] = useState<OrgCheckpoint | null>(null);
 
   const listQuery = useBridgeQuery<CheckpointListResponse['payload']>('checkpoint:list', {
@@ -302,6 +304,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   // org's last rewind; it starts unticked every time.
   const askUndo = (asked: UndoAsked): void => {
     setUndoAcceptsAutomation(false);
+    setUndoMutesAutomation(false);
     setUndoAsked(asked);
   };
   const confirmUndo = (): void => {
@@ -310,6 +313,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       checkpointId: undoAsked.checkpoint.checkpointId,
       rewindId: undoAsked.rewindId,
       acceptAutomation: undoAcceptsAutomation,
+      ...(undoMutesAutomation ? { muteAutomation: true } : {}),
     });
     setRun({ kind: 'undo', rewindId: undoAsked.rewindId, checkpoint: undoAsked.checkpoint });
     setPreviewing(null);
@@ -355,6 +359,16 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
         />
         <span>{t('checkpoint.undo.acceptAutomation', { org: orgName })}</span>
       </label>
+      {/* The undo's confirmation reads nothing of the org: what a mute
+          silences is read as the undo starts, and its result says it. */}
+      <AutomationMuteBox
+        offer="atStart"
+        checked={undoMutesAutomation}
+        onChange={setUndoMutesAutomation}
+        org={orgName}
+        testId="checkpoint-undo-mute"
+        className="mt-2"
+      />
     </DangerConfirm>
   );
 
@@ -426,6 +440,15 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           setPreviewing(null);
         }}
         onRewind={rewind}
+        muteBox={(offer, checked, onChange) => (
+          <AutomationMuteBox
+            offer={offer}
+            checked={checked}
+            onChange={onChange}
+            org={orgName}
+            testId="checkpoint-preview-automation-mute"
+          />
+        )}
       />
     );
   }

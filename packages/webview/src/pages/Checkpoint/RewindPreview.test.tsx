@@ -30,7 +30,19 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => host.current?.api,
 }));
 
-import { RewindPreview, type RewindAcceptances } from './RewindPreview';
+import { RewindPreview, type MuteBoxOf, type RewindAcceptances } from './RewindPreview';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+
+/** The box that mutes what the rewind fires, as the Checkpoints page draws it. */
+const MUTE_BOX: MuteBoxOf = (offer, checked, onChange) => (
+  <AutomationMuteBox
+    offer={offer}
+    checked={checked}
+    onChange={onChange}
+    org="DEV-SB"
+    testId="checkpoint-preview-automation-mute"
+  />
+);
 import { rewindTotals } from './rewindPreviewFacts';
 
 const ID = 'ck-20261020-140512-a1b2';
@@ -44,7 +56,7 @@ function renderPreview(checkpoint: OrgCheckpoint = readyCheckpoint(), withRewind
       org={developerOrg()}
       checkpoint={checkpoint}
       onClose={onClose}
-      {...(withRewind ? { onRewind } : {})}
+      {...(withRewind ? { onRewind, muteBox: MUTE_BOX } : {})}
     />,
   );
   return { onClose, onRewind };
@@ -1020,6 +1032,110 @@ describe('RewindPreview', () => {
     answerPreview();
     expect(screen.queryByTestId('checkpoint-preview-emails-uncounted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('checkpoint-preview-accept-automation')).not.toBeInTheDocument();
+  });
+
+  describe('the box that mutes what the rewind fires', () => {
+    /** A flow on the account's update a set of the org silences: all the rewind fires on it. */
+    const MUTABLE: ForgeTargetAutomation = {
+      ...AUTOMATION,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Touch',
+              label: 'Account touch',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Touch', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Touch',
+          permissionSets: [{ name: 'Touch_Bypass', label: 'Touch bypass', grants: 1 }],
+        },
+      ],
+    };
+
+    it('is offered, off, beside what fires, only when a set of the org silences some of it', () => {
+      renderPreview();
+      answerPreview({ automation: AUTOMATION });
+      expect(screen.queryByTestId('checkpoint-preview-automation-mute')).not.toBeInTheDocument();
+      cleanup();
+
+      renderPreview();
+      answerPreview({ automation: MUTABLE });
+      expect(screen.getByTestId('checkpoint-preview-automation-mute-toggle')).not.toBeChecked();
+      expect(
+        screen.getByTestId('checkpoint-preview-automation-mute-silenced-Account').textContent,
+      ).toBe('Account: Flow: Account touch · bypass Skip_Touch');
+    });
+
+    it('is not offered on a preview that starts no rewind, as the Automation page’s Rewind step shows it', () => {
+      renderPreview(readyCheckpoint(), false);
+      answerPreview({ automation: MUTABLE });
+      expect(screen.getByTestId('checkpoint-preview-automation')).toBeInTheDocument();
+      expect(screen.queryByTestId('checkpoint-preview-automation-mute')).not.toBeInTheDocument();
+      // What fires is accepted as ever there.
+      expect(screen.getByTestId('checkpoint-preview-accept-automation')).toBeInTheDocument();
+    });
+
+    it('rewinds unmuted unless ticked, and asks then no acceptance for what it silences', () => {
+      const { onRewind } = renderPreview();
+      answerPreview({ automation: MUTABLE });
+      // What fires is to be accepted, as ever, unless it is muted.
+      expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+      expect(screen.getByTestId('checkpoint-preview-accept-automation')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+      expect(screen.queryByTestId('checkpoint-preview-accept-automation')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+      confirmRewind();
+      expect(onRewind).toHaveBeenCalledWith(
+        {
+          previewId: 'pv-1',
+          acceptAutomation: false,
+          acceptNoUndo: false,
+          acceptRecreate: false,
+          acceptOutside: false,
+          acceptUnseen: false,
+          muteAutomation: true,
+        },
+        expect.anything(),
+      );
+    });
+
+    it('still asks acceptance for what still runs once muted', () => {
+      const { onRewind } = renderPreview();
+      answerPreview({
+        automation: {
+          ...MUTABLE,
+          objects: [
+            ...MUTABLE.objects,
+            {
+              objectApiName: 'Contact',
+              flows: [],
+              triggers: [{ name: 'ContactGone', events: ['beforeDelete'] }],
+            },
+          ],
+        },
+      });
+      fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+
+      expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
+      fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+      confirmRewind();
+      expect(onRewind).toHaveBeenCalledWith(
+        expect.objectContaining({ acceptAutomation: true, muteAutomation: true }),
+        expect.anything(),
+      );
+    });
   });
 
   it('lifts a refusal of the automation once its box is ticked', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
+import '../../i18n';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { useFrozenMutation, useFrozenPushChannels } from './useFrozenBridge';
 import type { BridgeMutationState } from '../../hooks/useBridgeMutation';
@@ -18,7 +19,14 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 /** Deliver a `frozen:load:error` correlated to `correlationId`. */
-function loadError(correlationId: string): void {
+function loadError(
+  correlationId: string,
+  payload: Record<string, unknown> = {
+    message: 'Load failed',
+    code: 'LOAD_ERROR',
+    retryable: false,
+  },
+): void {
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -27,7 +35,7 @@ function loadError(correlationId: string): void {
           type: 'frozen:load:error',
           timestamp: Date.now(),
           correlationId,
-          payload: { message: 'Load failed', code: 'LOAD_ERROR', retryable: false },
+          payload,
         },
       }),
     );
@@ -115,6 +123,35 @@ describe('useFrozenMutation', () => {
       retryable: false,
     });
     expect(result.current.loading).toBe(false);
+  });
+});
+
+describe('useFrozenMutation, a load asked to mute that could not be', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useFrozenStore.setState({ lastError: null });
+  });
+
+  it('records it in the interface language, the org’s answer after its own words', () => {
+    const { result } = renderHook(() => useFrozenMutation<{ ok: boolean }>('frozen:load'));
+    act(() => {
+      result.current.mutate({ targetOrgId: 'org-dev', muteAutomation: true });
+    });
+    const sent = mockPostMessage.mock.calls[0][0] as { payload: { id: string } };
+
+    loadError(sent.payload.id, {
+      message: 'The permission sets to assign could not be read (INVALID_SESSION_ID).',
+      code: 'MUTE_FAILED',
+      retryable: false,
+    });
+
+    expect(useFrozenStore.getState().lastError).toEqual({
+      source: 'frozen:load',
+      message:
+        "The target's automation couldn't be muted, so nothing was written: The permission sets to assign could not be read (INVALID_SESSION_ID).",
+      code: 'MUTE_FAILED',
+      retryable: false,
+    });
   });
 });
 

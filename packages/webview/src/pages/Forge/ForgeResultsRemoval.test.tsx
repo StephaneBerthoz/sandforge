@@ -200,6 +200,163 @@ describe('ForgeResultsRemoval', () => {
     expect(sentAll('forge:undo')).toEqual([]);
   });
 
+  describe('the box that mutes what the removal fires', () => {
+    /** What the target runs as the account goes: a flow a set of it silences, and a trigger. */
+    function readMutable(): void {
+      answer('forge:undo-automation:request', 'forge:undo-automation:response', {
+        forgeId: 'forge-on-screen',
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_Goodbye',
+                  label: 'Account goodbye',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+                },
+              ],
+              triggers: [{ name: 'AccountCleanup', events: ['afterDelete'] }],
+            },
+          ],
+          bypassGrants: [
+            {
+              permission: 'Skip_Flows',
+              permissionSets: [{ name: 'Skip_Automation', label: 'Skip automation', grants: 1 }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 5,
+        },
+        drafted: [],
+      });
+    }
+
+    it('is offered unticked once the read finds what a set silences, and the removal goes unmuted then', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      expect(screen.queryByTestId('forge-removal-automation-mute')).toBeNull();
+      readMutable();
+
+      expect(screen.getByTestId('forge-removal-automation-mute-silenced-Account').textContent).toBe(
+        'Account: Flow: Account goodbye · bypass Skip_Flows',
+      );
+      expect(
+        screen.getByTestId('forge-removal-automation-mute-still-runs-Account').textContent,
+      ).toBe('Account: Apex trigger: AccountCleanup · nothing in it tests a bypass');
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        { forgeId: 'forge-on-screen', includeChanged: false },
+      ]);
+    });
+
+    it('mutes the removal once ticked', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      readMutable();
+      fireEvent.click(screen.getByTestId('forge-removal-automation-mute-toggle'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        { forgeId: 'forge-on-screen', includeChanged: false, muteAutomation: true },
+      ]);
+    });
+
+    it('is not offered when nothing the removal fires has a bypass a set holds', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      answer('forge:undo-automation:request', 'forge:undo-automation:response', {
+        forgeId: 'forge-on-screen',
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['afterDelete'] }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 5,
+        },
+        drafted: [],
+      });
+
+      expect(screen.getByTestId('forge-removal-automation-delete-Account')).toBeDefined();
+      expect(screen.queryByTestId('forge-removal-automation-mute')).toBeNull();
+    });
+
+    it('says a mute the org refused in the interface language, nothing removed', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      confirmRemoval();
+      answer('forge:undo', 'forge:undo:error', {
+        message:
+          "The target's automation cannot be muted: the user the run writes as cannot assign permission sets (neither Assign Permission Sets nor Manage Users). Nothing was assigned.",
+        code: 'MUTE_NO_RIGHT',
+        retryable: false,
+      });
+
+      expect(screen.getByTestId('forge-results-remove-error').textContent).toContain(
+        "The target's automation can't be muted: the user the run writes as can't assign permission sets (that takes Assign Permission Sets or Manage Users), or the org wouldn't say. Nothing was assigned and nothing written.",
+      );
+    });
+
+    it('says what the removal muted under what it did', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      confirmRemoval();
+      answer('forge:undo', 'forge:undo:response', {
+        operationId: 'op-1',
+        result: {
+          forgeId: 'forge-on-screen',
+          status: 'success',
+          includeChanged: false,
+          objects: [],
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Skip_Automation'],
+            held: [],
+            permissions: ['Skip_Flows'],
+            silenced: [
+              {
+                objectApiName: 'Account',
+                kind: 'flow',
+                name: 'Account goodbye',
+                permission: 'Skip_Flows',
+              },
+            ],
+            stillRan: [
+              {
+                objectApiName: 'Account',
+                kind: 'trigger',
+                name: 'AccountCleanup',
+                why: 'noBypass',
+              },
+            ],
+            released: true,
+          },
+        },
+      });
+
+      expect(screen.getByTestId('forge-removal-result-muted-said').textContent).toBe(
+        'Skip_Automation was assigned to the user the run wrote as in DEV-SANDBOX, for the run alone.',
+      );
+      expect(screen.getByTestId('forge-removal-result-muted-still-ran-Account').textContent).toBe(
+        'Account: Apex trigger: AccountCleanup · nothing in it tests a bypass',
+      );
+    });
+  });
+
   it('sends the run, never its records, once the org name is typed', () => {
     render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
 

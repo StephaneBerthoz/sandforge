@@ -17,7 +17,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => stableApi,
 }));
 
-import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
+import { refusedForEmails, seedMutePlanOf, useSeedAutomation } from './useSeedAutomation';
 
 /** Every message of `type` the hook sent through the bridge. */
 function sentAll(type: string): Array<BaseMessage & { payload: Record<string, unknown> }> {
@@ -149,5 +149,105 @@ describe('refusedForEmails', () => {
     expect(refusedForEmails({ preview: PREVIEW }, { Account: 25, Contact: 6 })).toBe(true);
     expect(refusedForEmails({ preview: PREVIEW }, { Account: 25, Contact: 5 })).toBe(false);
     expect(refusedForEmails({ preview: null }, { Contact: 75 })).toBe(false);
+  });
+});
+
+describe('seedMutePlanOf', () => {
+  /** An entry of the preview, a flow after the save unless told. */
+  const entry = (
+    over: Partial<SeedAutomationPreview['objects'][number]['entries'][number]>,
+  ): SeedAutomationPreview['objects'][number]['entries'][number] => ({
+    kind: 'flow',
+    name: 'Welcome',
+    when: 'after',
+    emails: 0,
+    messages: [],
+    creates: [],
+    afterCommit: false,
+    bypasses: [],
+    keptQuiet: false,
+    unread: false,
+    ...over,
+  });
+  const preview = (
+    entries: SeedAutomationPreview['objects'][number]['entries'],
+    bypasses: SeedAutomationPreview['bypasses'],
+  ): SeedAutomationPreview => ({
+    org: 'dev',
+    objectsRead: ['Contact'],
+    objects: [{ objectApiName: 'Contact', entries }],
+    emailsPerRecord: [],
+    alertsAsSingle: false,
+    bypasses,
+    bypassesHeld: [],
+    unread: [],
+    blinded: false,
+    conditionsNotRead: 0,
+  });
+
+  it('silences what a bypass the user lacks keeps quiet through the set that holds it, each set once', () => {
+    const plan = seedMutePlanOf(
+      preview(
+        [
+          entry({ name: 'Welcome', bypasses: [{ name: 'Skip_Flows', held: false }] }),
+          entry({
+            kind: 'workflowRule',
+            name: 'Notify',
+            bypasses: [{ name: 'skip_flows', held: false }],
+          }),
+          entry({
+            kind: 'process',
+            name: 'Escalate',
+            bypasses: [{ name: 'Skip_PB', held: false }],
+          }),
+        ],
+        [
+          { permission: 'Skip_Flows', permissionSet: 'Automation_Bypass' },
+          { permission: 'Skip_PB', permissionSet: 'Automation_Bypass' },
+        ],
+      ),
+    );
+
+    expect(plan.assign).toEqual([
+      {
+        permissionSet: 'Automation_Bypass',
+        label: 'Automation_Bypass',
+        permissions: ['Skip_Flows', 'Skip_PB'],
+      },
+    ]);
+    expect(plan.silenced.map((silenced) => [silenced.name, silenced.permission])).toEqual([
+      ['Welcome', 'Skip_Flows'],
+      ['Notify', 'skip_flows'],
+      ['Escalate', 'Skip_PB'],
+    ]);
+    expect(plan.stillRuns).toEqual([]);
+  });
+
+  it('leaves running a trigger, what no set holds the bypass of, what was not read, and what tests none', () => {
+    const plan = seedMutePlanOf(
+      preview(
+        [
+          entry({ kind: 'trigger', name: 'ContactTrigger', bypasses: [{ name: 'Skip_Flows' }] }),
+          entry({ name: 'Orphan', bypasses: [{ name: 'No_Set', held: false }] }),
+          entry({ name: 'Unread', unread: true }),
+          entry({ name: 'Plain' }),
+          // Quiet already for the user: in neither list.
+          entry({ name: 'Quiet', keptQuiet: true, bypasses: [{ name: 'Skip_Flows', held: true }] }),
+        ],
+        [
+          { permission: 'Skip_Flows', permissionSet: 'Automation_Bypass' },
+          { permission: 'No_Set' },
+        ],
+      ),
+    );
+
+    expect(plan.assign).toEqual([]);
+    expect(plan.silenced).toEqual([]);
+    expect(plan.stillRuns.map((still) => [still.name, still.why])).toEqual([
+      ['ContactTrigger', 'noBypass'],
+      ['Orphan', 'noPermissionSet'],
+      ['Unread', 'notRead'],
+      ['Plain', 'noBypass'],
+    ]);
   });
 });

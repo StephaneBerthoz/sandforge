@@ -133,6 +133,8 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   const objectCounts = useAutopilotStore((s) => s.objectCounts);
   const complianceFramework = useAutopilotStore((s) => s.complianceFramework);
   const neutralizeContactPoints = useAutopilotStore((s) => s.neutralizeContactPoints);
+  const muteAutomation = useAutopilotStore((s) => s.muteAutomation);
+  const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const graph = useAutopilotStore((s) => s.graph);
   const plan = useAutopilotStore((s) => s.plan);
   const errors = useAutopilotStore((s) => s.errors);
@@ -463,6 +465,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             onFrameworkChange={handleFrameworkChange}
             neutralizeContactPoints={neutralizeContactPoints}
             onNeutralizeChange={(on) => useAutopilotStore.getState().setNeutralizeContactPoints(on)}
+            mute={{
+              checked: muteAutomation,
+              onChange: (mute) => useAutopilotStore.getState().setMuteAutomation(mute),
+              org: targetOrg?.alias || targetOrg?.username || (targetOrgId ?? ''),
+            }}
             planning={planMutation.loading}
             isExecuting={isExecuting}
             error={planMutation.error ?? lastError}

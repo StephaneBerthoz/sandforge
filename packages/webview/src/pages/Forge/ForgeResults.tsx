@@ -62,6 +62,7 @@ import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
 import { ForgeResultsVerify } from './ForgeResultsVerify';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { useForgeRunGateStore } from './runGate';
 import { createdTargets, objectResultsCsv, rootCopyOf } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -636,7 +637,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       useForgeStore.getState().resetNodeStatuses();
       // Why the run before stopped at its gate is that run's: this one has its own.
       useForgeRunGateStore.getState().clear();
-      const { graph: retried, anonymizationRules, fileCopy } = useForgeStore.getState();
+      const {
+        graph: retried,
+        anonymizationRules,
+        fileCopy,
+        muteAutomation,
+      } = useForgeStore.getState();
       if (!retried) return;
       // A fix the retry runs with is the run's configuration from then on: its
       // results, a template saved from them and a retry of it carry the fix.
@@ -657,6 +663,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             }
           : {}),
         retryOf: result.forgeId,
+        // Muted as the run it retries was asked to be, from Review's box.
+        ...(muteAutomation ? { muteAutomation: true } : {}),
       });
       useForgeStore.getState().setExecutionRequestId(requestId);
       useForgeStore.getState().markRetry(from);
@@ -685,10 +693,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     useForgeRunGateStore.getState().clear();
     const resumed = useForgeStore.getState().graph;
     if (!resumed) return;
+    // Muted as the run it takes up was asked to be, from Review's box: the
+    // extension's journal does not keep the choice.
+    const { muteAutomation } = useForgeStore.getState();
     const requestId = sendBridgeMessage<ForgeResumeRunRequest['payload']>('forge:resume-run', {
       forgeId: result.forgeId,
       graph: resumed,
       config,
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     useForgeStore.getState().setExecutionRequestId(requestId);
     useForgeStore.getState().markRetry(from);
@@ -874,6 +886,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </Button>
         </div>
       )}
+      {/* What the run muted of the target's automation, when Review's box
+          asked it to: the sets assigned for it, what they silenced and what
+          still ran. */}
+      <MutedAutomationResult
+        muted={result?.mutedAutomation}
+        org={targetOrgName ?? config?.targetOrgId ?? ''}
+        testId="forge-results-muted"
+      />
       {rootCopy && (
         <div className="flex flex-wrap items-center gap-2" data-testid="forge-results-open-root">
           <Button

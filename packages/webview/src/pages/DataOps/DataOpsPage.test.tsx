@@ -600,21 +600,21 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
   });
 
-  it('should open the cleanup scan on the cleanup tab, for the selected org', () => {
+  it('should open the cleanup scan on the cleanup tab, for the selected org', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Cleanup'));
     // A coming-soon notice stood here while no scan produced a recommendation.
-    expect(screen.getByTestId('cleanup-panel')).toBeDefined();
+    expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
     expect(screen.queryByTestId('dataops-cleanup-soon')).toBeNull();
   });
 
-  it('should open the inventory and the subject requests on the compliance tab', () => {
+  it('should open the inventory and the subject requests on the compliance tab', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByRole('tab', { name: 'Compliance' }));
     // A coming-soon notice stood here while nothing handled a data subject request.
-    expect(screen.getByTestId('compliance-panel')).toBeDefined();
+    expect(await screen.findByTestId('compliance-panel')).toBeDefined();
     expect(screen.getByTestId('dsr-section')).toBeDefined();
     expect(screen.queryByTestId('dataops-gdpr-soon')).toBeNull();
   });
@@ -629,12 +629,12 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('dataops-no-org')).toBeDefined();
   });
 
-  it('should open the quality scan on the quality tab, for the selected org', () => {
+  it('should open the quality scan on the quality tab, for the selected org', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Quality'));
     // A coming-soon notice stood here while nothing produced a quality result.
-    expect(screen.getByTestId('quality-panel')).toBeDefined();
+    expect(await screen.findByTestId('quality-panel')).toBeDefined();
     expect(screen.queryByTestId('dataops-quality-soon')).toBeNull();
   });
 
@@ -925,28 +925,28 @@ describe('DataOpsPage', () => {
       expect(screen.queryByTestId('anonymize-panel')).toBeNull();
     });
 
-    it('should not skeleton the cleanup or compliance tab on the backup or template queries', () => {
+    it('should not skeleton the cleanup or compliance tab on the backup or template queries', async () => {
       mockBackupsQueryState = loading();
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
       fireEvent.click(screen.getByText('Cleanup'));
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
-      expect(screen.getByTestId('cleanup-panel')).toBeDefined();
+      expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
 
       fireEvent.click(screen.getByRole('tab', { name: 'Compliance' }));
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
-      expect(screen.getByTestId('compliance-panel')).toBeDefined();
+      expect(await screen.findByTestId('compliance-panel')).toBeDefined();
     });
 
-    it('should not skeleton the quality tab on the backup or template queries', () => {
+    it('should not skeleton the quality tab on the backup or template queries', async () => {
       mockBackupsQueryState = loading();
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
       fireEvent.click(screen.getByText('Quality'));
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
-      expect(screen.getByTestId('quality-panel')).toBeDefined();
+      expect(await screen.findByTestId('quality-panel')).toBeDefined();
     });
   });
   describe('anonymize safety', () => {

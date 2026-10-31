@@ -1,5 +1,11 @@
 import { useMemo } from 'react';
-import type { SeedAutomationPreview } from '@sandforge/shared';
+import type {
+  MuteAssignment,
+  MutePlan,
+  MutedAutomationSilenced,
+  MutedAutomationStillRunning,
+  SeedAutomationPreview,
+} from '@sandforge/shared';
 import { seedEmailEstimates, seedEmailsRefused } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 
@@ -47,6 +53,57 @@ export function refusedForEmails(
     automation.preview !== null &&
     seedEmailsRefused(seedEmailEstimates(automation.preview, records))
   );
+}
+
+/**
+ * What a seed asked to mute the org's automation would do, planned from the
+ * confirmation's read, as the extension plans it from its own: each flow,
+ * process or workflow rule the records fire whose condition tests a bypass
+ * the user the seed writes as lacks, and that a permission set of the org
+ * holds, is silenced by that set; an Apex trigger, an entry whose condition
+ * was not read, or one with no such set still runs. What a bypass the user
+ * holds keeps quiet is in neither. The preview names a bypass's set alone,
+ * not who installed a flow: one a managed package installed is told by the
+ * run's result.
+ */
+export function seedMutePlanOf(preview: SeedAutomationPreview): MutePlan {
+  const setOf = new Map(
+    preview.bypasses.flatMap((way) =>
+      way.permissionSet ? [[way.permission.toLowerCase(), way.permissionSet] as const] : [],
+    ),
+  );
+  const assign: MuteAssignment[] = [];
+  const silenced: MutedAutomationSilenced[] = [];
+  const stillRuns: MutedAutomationStillRunning[] = [];
+  for (const object of preview.objects) {
+    for (const entry of object.entries) {
+      if (entry.keptQuiet) continue;
+      const named = { objectApiName: object.objectApiName, kind: entry.kind, name: entry.name };
+      const lacking =
+        entry.kind === 'trigger' ? [] : entry.bypasses.filter((bypass) => bypass.held !== true);
+      const silencing = lacking.find((bypass) => setOf.has(bypass.name.toLowerCase()));
+      if (silencing) {
+        const permissionSet = setOf.get(silencing.name.toLowerCase()) ?? '';
+        const chosen = assign.find((set) => set.permissionSet === permissionSet);
+        // A custom permission's name is told apart from another's whatever its case.
+        const sameName = (permission: string): boolean =>
+          permission.toLowerCase() === silencing.name.toLowerCase();
+        if (!chosen) {
+          assign.push({ permissionSet, label: permissionSet, permissions: [silencing.name] });
+        } else if (!chosen.permissions.some(sameName)) {
+          chosen.permissions.push(silencing.name);
+        }
+        silenced.push({ ...named, permission: silencing.name });
+        continue;
+      }
+      stillRuns.push({
+        ...named,
+        why: lacking.length > 0 ? 'noPermissionSet' : entry.unread ? 'notRead' : 'noBypass',
+      });
+    }
+  }
+  for (const set of assign) set.permissions.sort((a, b) => a.localeCompare(b));
+  return { assign, silenced, stillRuns };
 }
 
 /**

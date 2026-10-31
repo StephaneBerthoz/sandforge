@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import '../../i18n';
 import type { OrgCheckpoint, RewindResult as RewindOutcome } from '@sandforge/shared';
@@ -104,6 +104,38 @@ describe('RewindResult', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(onRewindAgain).not.toHaveBeenCalled();
+  });
+
+  it('says what the rewind muted of the org’s automation, under its first line, and nothing unasked', () => {
+    renderResult();
+    expect(screen.queryByTestId('checkpoint-result-muted')).toBeNull();
+    cleanup();
+
+    renderResult({
+      ...rewindResult(),
+      mutedAutomation: {
+        state: 'muted',
+        assigned: ['Touch_Bypass'],
+        held: [],
+        permissions: ['Skip_Touch'],
+        silenced: [
+          {
+            objectApiName: 'Account',
+            kind: 'flow',
+            name: 'Account touch',
+            permission: 'Skip_Touch',
+          },
+        ],
+        stillRan: [],
+        released: true,
+      },
+    });
+    expect(screen.getByTestId('checkpoint-result-muted-said').textContent).toBe(
+      'Touch_Bypass was assigned to the user the run wrote as in DEV-SB, for the run alone.',
+    );
+    expect(screen.getByTestId('checkpoint-result-muted-released').textContent).toBe(
+      'Taken back as the run ended.',
+    );
   });
 
   it('says object by object what it brought back, gave back and deleted, in the rewind’s words', () => {

@@ -46,6 +46,12 @@ export interface QuickSeedState {
    * Salesforce writes one (`fr_FR`): '' for the org's own, the default.
    */
   locale: string;
+  /**
+   * Whether the run mutes the org's automation through its own bypass, as
+   * the confirmation's box is left: off unless ticked, unticked again for
+   * every template.
+   */
+  muteAutomation: boolean;
   /** Whether execution is in flight. */
   isRunning: boolean;
   /** Execution result. */
@@ -74,6 +80,8 @@ export interface QuickSeedState {
   selectOrg: (orgId: string) => void;
   /** Choose the locale the run draws in; '' for the org's own. Kept for the next template. */
   setLocale: (locale: string) => void;
+  /** Tick or untick the box that mutes the org's automation for the run. */
+  setMuteAutomation: (mute: boolean) => void;
   /** Trigger seed execution. */
   execute: () => void;
   /**
@@ -106,6 +114,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const [customizedCounts, setCustomizedCounts] = useState<Record<string, number>>({});
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [locale, setLocale] = useState('');
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -165,6 +174,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     (template: SeedTemplate, counts: Record<string, number> = {}) => {
       setSelectedTemplate(template);
       setCustomizedCounts(counts);
+      setMuteAutomation(false);
       /* The org is preselected, so that a first seed is a click on Start:
          the one whoever opened this flow named, on the first template only;
          else the one chosen for an earlier template; else the org selected in
@@ -251,8 +261,9 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
       template: template as unknown as Record<string, unknown>,
       // The org's own locale unless one was chosen: the extension reads it.
       ...(locale ? { locale } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, locale, executeMutation]);
+  }, [selectedTemplate, selectedOrgId, customizedCounts, locale, muteAutomation, executeMutation]);
 
   const sendMessage = useSendMessage();
   const operationId = progress ? runId : null;
@@ -308,6 +319,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     customizedCounts,
     selectedOrgId,
     locale,
+    muteAutomation,
     isRunning,
     executionResult,
     objectProgress,
@@ -319,6 +331,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     setCount,
     selectOrg,
     setLocale,
+    setMuteAutomation,
     execute,
     cancel,
     reset,

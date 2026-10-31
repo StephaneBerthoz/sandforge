@@ -166,6 +166,28 @@ describe('useSyncPageData', () => {
     expect(result.current.overallPercent).toBe(25);
   });
 
+  it('mutes the target’s automation for the run only once the box beside Run is ticked', () => {
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleSourceOrgChange('org-1');
+      result.current.handleTargetOrgChange('org-2');
+      result.current.handleAddObject('Account');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.muteAutomation).toBe(false);
+    expect(execution.mutate.mock.calls[0][0]).not.toHaveProperty('muteAutomation');
+
+    act(() => {
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(execution.mutate.mock.calls[1][0]).toMatchObject({ muteAutomation: true });
+  });
+
   it('sends the transform rule with the settings typed for it', () => {
     // TransformBuilder's inputs were handed a no-op, so a prefix, a replacement
     // or a truncate length never left the page: every value-based rule reached

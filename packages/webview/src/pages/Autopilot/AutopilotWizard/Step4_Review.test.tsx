@@ -34,6 +34,23 @@ describe('Step4_Review', () => {
     expect(onNeutralizeChange).toHaveBeenCalledWith(false);
   });
 
+  it('offers, off, the box that mutes the target’s automation, read as the run starts', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<Step4Review {...defaultProps} />);
+    expect(screen.queryByTestId('step4-mute')).toBeNull();
+
+    rerender(
+      <Step4Review {...defaultProps} mute={{ checked: false, onChange, org: 'QA-SANDBOX' }} />,
+    );
+    const toggle = screen.getByTestId('step4-mute-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('step4-mute-at-start').textContent).toMatch(
+      /^What it silences is read from QA-SANDBOX as the run starts/,
+    );
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
   it('keeps the compliance framework behind an Advanced disclosure, which picks another', () => {
     const onFrameworkChange = vi.fn();
     render(<Step4Review {...defaultProps} onFrameworkChange={onFrameworkChange} />);

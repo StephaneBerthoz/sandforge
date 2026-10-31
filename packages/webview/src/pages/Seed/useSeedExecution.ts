@@ -31,6 +31,12 @@ export interface SeedExecutionState {
    * the wizard.
    */
   lastTemplate: SeedTemplate | null;
+  /**
+   * Whether the run mutes the target's automation through its own bypass, as
+   * the box beside what the org runs is left: off unless ticked.
+   */
+  muteAutomation: boolean;
+  setMuteAutomation: (mute: boolean) => void;
   /** Trigger seed execution with the current configuration. */
   handleExecute: () => void;
   /** Per-object progress entries derived from selected objects and volumes. */
@@ -79,6 +85,7 @@ export function useSeedExecution(
   const [executionCompletedStep, setExecutionCompletedStep] = useState<number | null>(null);
   /** Set when the run is fired, so elapsed time is real rather than hardcoded 0. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [muteAutomation, setMuteAutomation] = useState(false);
 
   const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
@@ -215,6 +222,7 @@ export function useSeedExecution(
       template: template as unknown as Record<string, unknown>,
       // The org's own locale unless one was chosen: the extension reads it.
       ...(locale ? { locale } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
   }, [
     selectedOrgId,
@@ -224,6 +232,7 @@ export function useSeedExecution(
     sent,
     recordTypeChoices,
     locale,
+    muteAutomation,
     executeSeedMutation,
   ]);
 
@@ -271,6 +280,8 @@ export function useSeedExecution(
     isRunning,
     executionResult,
     lastTemplate,
+    muteAutomation,
+    setMuteAutomation,
     handleExecute,
     objectProgress,
     overallPercent: progress?.percentage ?? 0,

@@ -16,12 +16,15 @@ import {
   bypassAssignmentsOf,
   bypassPermissionsOf,
   heldBypassPermissionsOf,
+  mutePlanOf,
   removalRisksOf,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import type { MuteOffer } from '../../utils/muteOffer';
 
 /** The heading of each write of a run, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeRunWrite, string>> = {
@@ -85,6 +88,27 @@ const OFFSET_UNITS: Readonly<Record<string, string>> = {
   Months: 'month',
 };
 
+/**
+ * What a run of the graph would mute of the target's automation, planned from
+ * Review's read: what its inserts fire, and its updates — a lookup filled in
+ * once its record exists, a status given back —, on the objects it still
+ * writes. Which objects a run writes a second time is the extension's to
+ * know, and it plans the mute again from its own read as the run starts:
+ * every update is counted here, and the run's result says what it muted.
+ * Null before the read.
+ */
+export function forgeRunMuteOffer(
+  automation: ForgeTargetAutomation | null,
+  leftOut: ReadonlySet<string>,
+): MuteOffer | null {
+  if (!automation) return null;
+  return mutePlanOf(
+    automation,
+    (objectApiName, write) =>
+      !leftOut.has(objectApiName) && (write === 'insert' || write === 'update'),
+  );
+}
+
 /** Props for {@link ReviewAutomationTab}. */
 export interface ReviewAutomationTabProps {
   /** What the target runs, once `forge:automation:response` answered; null before. */
@@ -112,6 +136,18 @@ export interface ReviewAutomationTabProps {
   onReadAgain?: () => void;
   /** The read asked for with {@link onReadAgain} is on its way. */
   readingAgain?: boolean;
+  /**
+   * The mute of the target's automation the run would make, planned from
+   * this read (`forgeRunMuteOffer`), whether it is ticked, and its toggle.
+   * Without it, no box is offered.
+   */
+  mute?: {
+    offer: MuteOffer | null;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+    /** The target org, as the user knows it. */
+    org: string;
+  };
 }
 
 /**
@@ -134,6 +170,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   target,
   onReadAgain,
   readingAgain = false,
+  mute,
 }) => {
   const { t } = useTranslation();
   const readAgain = onReadAgain ? (
@@ -190,6 +227,15 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             ? t('forgeRun.review.automation.nothingSeen')
             : t('forgeRun.review.automation.none', { count: written })}
       </p>
+      {mute && (
+        <AutomationMuteBox
+          offer={mute.offer}
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={mute.org}
+          testId="automation-mute"
+        />
+      )}
       {toAssign.length > 0 && (
         <div
           data-testid="automation-bypass"

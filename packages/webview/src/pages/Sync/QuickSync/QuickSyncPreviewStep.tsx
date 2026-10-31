@@ -15,6 +15,8 @@ import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
 import { SyncRunRemoval } from '../syncRemovalParts';
 import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
+import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
+import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -37,6 +39,8 @@ export interface QuickSyncPreviewStepProps {
   targetOrgId?: string;
   /** Open the history entry of the run of this operation id; absent, the results offer no way there. */
   onOpenHistory?: (operationId: string) => void;
+  /** Whether the run mutes the target's automation, and the box's toggle; no box without. */
+  mute?: { checked: boolean; onChange: (mute: boolean) => void; org: string };
 }
 
 const statusVariant: Record<string, BadgeVariant> = {
@@ -64,6 +68,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   sourceOrgId = '',
   targetOrgId = '',
   onOpenHistory,
+  mute,
 }) => {
   const { t } = useTranslation();
 
@@ -112,6 +117,12 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             Quick Sync inserts every record, so a wrong pick or a run started
             twice was taken back only from the History tab, which nothing here
             named. */}
+        {/* What the run muted of the target's automation, when its box was ticked. */}
+        <MutedAutomationResult
+          muted={result.mutedAutomation}
+          org={mute?.org ?? targetOrgId}
+          testId="quick-sync-result-muted"
+        />
         {result.created && (
           <SyncRunRemoval runId={result.created.runId} testId="quick-sync-result-removal" />
         )}
@@ -254,6 +265,18 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           objects={preview.objects.map((obj) => obj.objectApiName)}
           context="quickSync"
           testId="quick-sync-earlier-copies"
+        />
+      )}
+
+      {/* The run's gate reads what the target runs as it starts: the box says
+          what muting does, the results what it did. */}
+      {preview && mute && (
+        <AutomationMuteBox
+          offer="atStart"
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={mute.org}
+          testId="quick-sync-mute"
         />
       )}
 

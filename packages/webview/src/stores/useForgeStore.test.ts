@@ -1356,6 +1356,34 @@ describe('useForgeStore', () => {
       });
     });
 
+    it('says a mute refused before the first write in the interface language, the org’s reason kept', () => {
+      // The host words it in English: "The target is a production org: …".
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'The target is a production org: its automation is never muted there.',
+        code: 'MUTE_PRODUCTION',
+        retryable: true,
+      });
+      expect(getState().runError).toEqual({
+        message:
+          "The target's automation is never muted on a production org, nor on one that can't be told from one: nothing was assigned and nothing written. Run it without muting.",
+        code: 'MUTE_PRODUCTION',
+        stoppedRun: null,
+      });
+    });
+
+    it('keeps what the org answered of a permission set it would not assign', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'The permission sets to assign could not be read (INVALID_SESSION_ID).',
+        code: 'MUTE_FAILED',
+        retryable: true,
+      });
+      expect(getState().runError?.message).toBe(
+        "The target's automation couldn't be muted, so nothing was written: The permission sets to assign could not be read (INVALID_SESSION_ID).",
+      );
+    });
+
     it('keeps no code when the error carries none', () => {
       runOnScreen();
       post('forge:execute:error', 'wv-run-1', { message: 'Insert failed', code: '' });

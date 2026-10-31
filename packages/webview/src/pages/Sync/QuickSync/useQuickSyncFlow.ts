@@ -33,6 +33,12 @@ export interface QuickSyncFlowState {
   runOperationId: string | null;
   /** Error message if any step failed. */
   error: string | null;
+  /**
+   * Whether the run mutes the target's automation through its own bypass, as
+   * the box beside Go is left: off unless ticked, and not kept across a
+   * reload, as nothing of a run under way is.
+   */
+  muteAutomation: boolean;
 }
 
 /** Draft state persisted across webview reloads. */
@@ -61,6 +67,8 @@ export interface QuickSyncFlowActions {
   goToObjects: () => void;
   /** Navigate to the preview step and fetch preview data. */
   goToPreview: () => void;
+  /** Tick or untick the box that mutes the target's automation for the run. */
+  setMuteAutomation: (mute: boolean) => void;
   /** Execute the Quick Sync. */
   execute: () => void;
   /** Reset all state to initial. */
@@ -105,6 +113,9 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
    */
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [muteAutomation, setMuteAutomation] = useState(false);
+  /** The box as Go found it: the run is sent once its configuration is prepared. */
+  const muteAsked = useRef(false);
 
   /**
    * A persisted `executing` step is a corpse from a webview killed mid-run:
@@ -155,7 +166,10 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   // Relay the prepared SyncConfig to the real execution flow
   useEffect(() => {
     if (prepareMutation.data) {
-      syncMutateRef.current({ config: prepareMutation.data.syncConfig });
+      syncMutateRef.current({
+        config: prepareMutation.data.syncConfig,
+        ...(muteAsked.current ? { muteAutomation: true } : {}),
+      });
     }
   }, [prepareMutation.data]);
 
@@ -254,6 +268,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   }, [canGoToPreview, draft, previewMutation, setStep, setError]);
 
   const execute = useCallback(() => {
+    muteAsked.current = muteAutomation;
     setIsExecuting(true);
     setError(null);
     setStep('executing');
@@ -265,7 +280,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
         parentObjects: draft.parentObjects,
       },
     });
-  }, [draft, prepareMutation, setIsExecuting, setError, setStep]);
+  }, [draft, muteAutomation, prepareMutation, setIsExecuting, setError, setStep]);
 
   const reset = useCallback(() => {
     setDraft(INITIAL_DRAFT);
@@ -274,6 +289,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setResult(null);
     setIsExecuting(false);
     setError(null);
+    setMuteAutomation(false);
     previewMutation.reset();
     prepareMutation.reset();
     syncMutation.reset();
@@ -300,6 +316,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     isExecuting,
     runOperationId: syncMutation.loading ? syncMutation.requestId : null,
     error,
+    muteAutomation,
   };
 
   return {
@@ -311,6 +328,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     addParentObject,
     goToObjects,
     goToPreview,
+    setMuteAutomation,
     execute,
     reset,
     canGoToObjects,

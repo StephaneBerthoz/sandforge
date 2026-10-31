@@ -66,7 +66,11 @@
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
       "seedWriteDeclined": "The seed was cancelled before it wrote anything. Nothing was written to the target org.",
       "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended.",
-      "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended."
+      "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended.",
+      "muteProduction": "The target's automation is never muted on a production org, nor on one that can't be told from one: nothing was assigned and nothing written. Run it without muting.",
+      "muteNoRight": "The target's automation can't be muted: the user the run writes as can't assign permission sets (that takes Assign Permission Sets or Manage Users), or the org wouldn't say. Nothing was assigned and nothing written.",
+      "muteFailed": "The target's automation couldn't be muted, so nothing was written: {{reason}}",
+      "muteCheckpoint": "The org's automation couldn't be muted, so nothing was written: {{reason}}"
     },
     "list": {
       "separator": ", ",
@@ -3981,7 +3985,8 @@
         "leaveOutLabel_other": "Leave out {{object}} and the {{count}} objects only it reaches",
         "leftOut": "Left out of the run: {{objects}}.",
         "putBack": "Put them back"
-      }
+      },
+      "muting": "Execute mutes the target's automation, as ticked on the Automation tab."
     },
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
     "cappedRead": "Stopped at {{limit}} per object: {{objects}}. The source holds more rows than were cloned — raise Records per object to clone them.",
@@ -6209,6 +6214,45 @@
         "alreadyKept": "“{{name}}” is kept on this machine already, the same: it was left as it is.",
         "done": "Done"
       }
+    }
+  },
+  "automationMute": {
+    "box": {
+      "label": "Mute the target's automation for this run — through its own bypass",
+      "assigns_one": "Assigns the permission set {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes it back as the run ends.",
+      "assigns_other": "Assigns the permission sets {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes them back as the run ends.",
+      "silences": "Silenced for the run:",
+      "stillRuns": "Still runs:",
+      "atStart": "What it silences is read from {{org}} as the run starts: the permission sets holding the bypasses its flows, processes and workflow rules test are assigned to the user the run writes as, for this run alone, and taken back as it ends. The run then asks only about what still runs, and its result says what was muted.",
+      "never": "Nothing is deactivated and no other user is touched. Refused on a production org and for a user who can't assign permission sets: the run then writes nothing."
+    },
+    "bypass": "bypass {{permission}}",
+    "kind": {
+      "flow": "Flow: {{name}}",
+      "trigger": "Apex trigger: {{name}}",
+      "process": "Process: {{name}}",
+      "workflowRule": "Workflow rule: {{name}}"
+    },
+    "why": {
+      "noBypass": "nothing in it tests a bypass",
+      "managedPackage": "installed by a managed package",
+      "notRead": "its condition couldn't be read",
+      "noPermissionSet": "no permission set holds its bypass"
+    },
+    "result": {
+      "title": "Muting the target's automation",
+      "assigned_one": "{{sets}} was assigned to the user the run wrote as in {{org}}, for the run alone.",
+      "assigned_other": "{{sets}} were assigned to the user the run wrote as in {{org}}, for the run alone.",
+      "allHeld": "Nothing was assigned: the user the run wrote as in {{org}} already held every permission set it needed.",
+      "held": "Already held, neither assigned nor taken back: {{sets}}.",
+      "released": "Taken back as the run ended.",
+      "notReleased": "Not all taken back yet: the next run on this machine that mutes {{org}} takes back what is left once the lease ends ({{date}}).",
+      "notReleasedNoDate": "Not all taken back yet: the next run on this machine that mutes {{org}} takes back what is left once the lease ends.",
+      "nothing": "Nothing could be muted in {{org}}: the run went ahead as without the option.",
+      "planned_one": "A real run would assign the user it writes as in {{org}} the permission set holding {{bypasses}}, for the run alone; this one assigned nothing.",
+      "planned_other": "A real run would assign the user it writes as in {{org}} the permission sets holding {{bypasses}}, for the run alone; this one assigned nothing.",
+      "silenced": "Silenced:",
+      "stillRan": "Still ran:"
     }
   }
 }

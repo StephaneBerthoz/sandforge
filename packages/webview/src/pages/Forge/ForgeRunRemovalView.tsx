@@ -22,6 +22,8 @@ import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
 import { ForgeRemovalSweep, ForgeRunSweepResult } from './ForgeRemovalSweep';
 
@@ -268,6 +270,14 @@ export interface ForgeRunRemovalConfirmProps {
    * the run's removals left.
    */
   againAfter?: string;
+  /**
+   * Whether the removal mutes the target's automation through its own
+   * bypass, as the box beside what it fires is left, and its toggle: off
+   * unless ticked, offered only when a bypass silences something it fires.
+   * Absent, no box is offered.
+   */
+  muteAutomation?: boolean;
+  onMuteAutomationChange?: (mute: boolean) => void;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -297,6 +307,8 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   sweep = false,
   onSweepChange,
   againAfter,
+  muteAutomation = false,
+  onMuteAutomationChange,
   onClose,
   onConfirm,
 }) => {
@@ -346,6 +358,19 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
         org={org}
         targetOrgId={run?.targetOrgId}
         again={again}
+        {...(onMuteAutomationChange
+          ? {
+              muteBox: (offer) => (
+                <AutomationMuteBox
+                  offer={offer}
+                  checked={muteAutomation}
+                  onChange={onMuteAutomationChange}
+                  org={org}
+                  testId="forge-removal-automation-mute"
+                />
+              ),
+            }
+          : {})}
       />
       <label className="flex items-center gap-2 mt-2 cursor-pointer">
         <input
@@ -427,7 +452,13 @@ export interface ForgeRunRemovalResultProps {
   /** What the removal did, and the removal whose leftovers it took up, if any. */
   result: Pick<
     ForgeUndoResult,
-    'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten' | 'notLookedFor' | 'sweep'
+    | 'status'
+    | 'objects'
+    | 'leftBy'
+    | 'mayHaveBeenWritten'
+    | 'notLookedFor'
+    | 'sweep'
+    | 'mutedAutomation'
   >;
   /** The org it removed from, as the user knows it. */
   org: string;
@@ -551,6 +582,12 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         </p>
       )}
       {result.sweep && <ForgeRunSweepResult result={result.sweep} org={org} />}
+      {/* What the removal muted of what it fired, when its box was ticked. */}
+      <MutedAutomationResult
+        muted={result.mutedAutomation}
+        org={org}
+        testId="forge-removal-result-muted"
+      />
     </section>
   );
 };

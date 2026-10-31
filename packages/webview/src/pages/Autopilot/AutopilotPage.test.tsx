@@ -251,6 +251,19 @@ describe('AutopilotPage', () => {
     expect(mockExecuteMutate).toHaveBeenCalledWith({ grappeThreshold: 0, keepContactPoints: true });
   });
 
+  it('mutes the target’s automation for the run only once the review’s box is ticked', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'review',
+      selectedObjects: ['Account'],
+      muteAutomation: true,
+    };
+    render(<AutopilotPage />);
+    expect(screen.getByTestId('step4-mute-at-start')).toBeDefined();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    expect(mockExecuteMutate).toHaveBeenCalledWith({ grappeThreshold: 0, muteAutomation: true });
+  });
+
   it('hands the keyboard to the running view’s heading when Execute takes the wizard away', () => {
     // Execute leaves with the wizard, and the focus it held fell to the page.
     mockAutopilotState = {

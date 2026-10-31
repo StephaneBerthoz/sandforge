@@ -66,7 +66,11 @@
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
       "seedWriteDeclined": "Der Seed wurde abgebrochen, bevor er etwas schrieb. In die Ziel-Org wurde nichts geschrieben.",
       "backupBusy": "Eine Sicherung oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Sicherungen, sobald der Vorgang beendet ist.",
-      "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist."
+      "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist.",
+      "muteProduction": "Die Automatisierungen der Ziel-Org werden in einer Produktions-Org nie stummgeschaltet, auch nicht in einer, die sich von einer solchen nicht unterscheiden lässt: Nichts wurde zugewiesen und nichts geschrieben. Führen Sie den Durchlauf ohne Stummschalten aus.",
+      "muteNoRight": "Die Automatisierungen der Ziel-Org können nicht stummgeschaltet werden: Der Benutzer, als der der Durchlauf schreibt, darf keine Berechtigungssätze zuweisen (dafür braucht es „Berechtigungssätze zuweisen“ oder „Benutzer verwalten“), oder die Org hat es nicht verraten. Nichts wurde zugewiesen und nichts geschrieben.",
+      "muteFailed": "Die Automatisierungen der Ziel-Org konnten nicht stummgeschaltet werden, daher wurde nichts geschrieben: {{reason}}",
+      "muteCheckpoint": "Die Automatisierungen der Org konnten nicht stummgeschaltet werden, daher wurde nichts geschrieben: {{reason}}"
     },
     "list": {
       "separator": ", ",
@@ -3981,7 +3985,8 @@
         "leaveOutLabel_other": "{{object}} und die {{count}} Objekte auslassen, die nur es erreicht",
         "leftOut": "Aus dem Lauf ausgelassen: {{objects}}.",
         "putBack": "Wieder aufnehmen"
-      }
+      },
+      "muting": "Ausführen schaltet die Automatisierungen der Ziel-Org stumm, wie auf dem Tab „Automatisierung“ angehakt."
     },
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
     "cappedRead": "Bei {{limit}} pro Objekt angehalten: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — erhöhen Sie Datensätze pro Objekt, um sie zu klonen.",
@@ -6209,6 +6214,45 @@
         "alreadyKept": "„{{name}}“ ist auf diesem Rechner bereits gespeichert, unverändert: Er wurde so belassen.",
         "done": "Fertig"
       }
+    }
+  },
+  "automationMute": {
+    "box": {
+      "label": "Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten – über ihren eigenen Bypass",
+      "assigns_one": "Weist den Berechtigungssatz {{sets}} dem Benutzer zu, als der der Durchlauf in {{org}} schreibt, nur für diesen Durchlauf, und entzieht ihn wieder, wenn der Durchlauf endet.",
+      "assigns_other": "Weist die Berechtigungssätze {{sets}} dem Benutzer zu, als der der Durchlauf in {{org}} schreibt, nur für diesen Durchlauf, und entzieht sie wieder, wenn der Durchlauf endet.",
+      "silences": "Für den Durchlauf stummgeschaltet:",
+      "stillRuns": "Läuft trotzdem:",
+      "atStart": "Was stummgeschaltet wird, wird beim Start des Durchlaufs aus {{org}} gelesen: Die Berechtigungssätze mit den Bypässen, die ihre Flows, Prozesse und Workflow-Regeln prüfen, werden dem Benutzer zugewiesen, als der der Durchlauf schreibt, nur für diesen Durchlauf, und an seinem Ende wieder entzogen. Der Durchlauf fragt dann nur nach dem, was trotzdem läuft, und sein Ergebnis sagt, was stummgeschaltet wurde.",
+      "never": "Nichts wird deaktiviert, und kein anderer Benutzer wird berührt. Abgelehnt in einer Produktions-Org und für einen Benutzer, der keine Berechtigungssätze zuweisen darf: Der Durchlauf schreibt dann nichts."
+    },
+    "bypass": "Bypass {{permission}}",
+    "kind": {
+      "flow": "Flow: {{name}}",
+      "trigger": "Apex-Trigger: {{name}}",
+      "process": "Prozess: {{name}}",
+      "workflowRule": "Workflow-Regel: {{name}}"
+    },
+    "why": {
+      "noBypass": "nichts darin prüft einen Bypass",
+      "managedPackage": "von einem verwalteten Paket installiert",
+      "notRead": "ihre Bedingung konnte nicht gelesen werden",
+      "noPermissionSet": "kein Berechtigungssatz enthält ihren Bypass"
+    },
+    "result": {
+      "title": "Automatisierungen der Ziel-Org stummgeschaltet",
+      "assigned_one": "{{sets}} wurde dem Benutzer zugewiesen, als der der Durchlauf in {{org}} schrieb, nur für den Durchlauf.",
+      "assigned_other": "{{sets}} wurden dem Benutzer zugewiesen, als der der Durchlauf in {{org}} schrieb, nur für den Durchlauf.",
+      "allHeld": "Nichts wurde zugewiesen: Der Benutzer, als der der Durchlauf in {{org}} schrieb, hatte jeden nötigen Berechtigungssatz bereits.",
+      "held": "Bereits vorhanden, weder zugewiesen noch entzogen: {{sets}}.",
+      "released": "Am Ende des Durchlaufs wieder entzogen.",
+      "notReleased": "Noch nicht alles entzogen: Der nächste Durchlauf auf diesem Rechner, der {{org}} stummschaltet, entzieht den Rest, sobald die Leihfrist abläuft ({{date}}).",
+      "notReleasedNoDate": "Noch nicht alles entzogen: Der nächste Durchlauf auf diesem Rechner, der {{org}} stummschaltet, entzieht den Rest, sobald die Leihfrist abläuft.",
+      "nothing": "In {{org}} konnte nichts stummgeschaltet werden: Der Durchlauf lief wie ohne die Option.",
+      "planned_one": "Ein echter Durchlauf würde dem Benutzer, als der er in {{org}} schreibt, den Berechtigungssatz mit {{bypasses}} zuweisen, nur für den Durchlauf; dieser hat nichts zugewiesen.",
+      "planned_other": "Ein echter Durchlauf würde dem Benutzer, als der er in {{org}} schreibt, die Berechtigungssätze mit {{bypasses}} zuweisen, nur für den Durchlauf; dieser hat nichts zugewiesen.",
+      "silenced": "Stummgeschaltet:",
+      "stillRan": "Lief trotzdem:"
     }
   }
 }

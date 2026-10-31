@@ -374,6 +374,38 @@ describe('useQuickSyncFlow', () => {
     expect(mockSyncMutate).toHaveBeenCalledWith({ config: fakeSyncConfig });
   });
 
+  it('relays the run muted once the box beside Go was ticked as Go was pressed', () => {
+    persistedValues = { quickSyncDraft: filledDraft, quickSyncStep: 'preview' };
+    const { result, rerender } = renderHook(() => useQuickSyncFlow());
+    expect(result.current.state.muteAutomation).toBe(false);
+
+    act(() => {
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockPrepareState.data = { syncConfig: fakeSyncConfig, objectCount: 1 };
+    rerender();
+
+    expect(mockSyncMutate).toHaveBeenCalledWith({
+      config: fakeSyncConfig,
+      muteAutomation: true,
+    });
+  });
+
+  it('starts every Quick Sync with the box unticked', () => {
+    persistedValues = { quickSyncDraft: filledDraft, quickSyncStep: 'preview' };
+    const { result } = renderHook(() => useQuickSyncFlow());
+    act(() => {
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.state.muteAutomation).toBe(false);
+  });
+
   it('completes the flow when sync:execute returns the execution result', () => {
     mockSyncState.data = fakeResult as unknown as Record<string, unknown>;
     const { result } = renderHook(() => useQuickSyncFlow());

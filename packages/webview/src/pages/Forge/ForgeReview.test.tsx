@@ -89,6 +89,11 @@ const NO_FILES = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
 let mockFileCopy = { ...NO_FILES };
 /** Why the plan could not be made, as the store holds it. */
 let mockPlanError: string | null = null;
+/** Review's box that mutes the target's automation, as the store holds it. */
+let mockMuteAutomation = false;
+const mockSetMuteAutomation = vi.fn((mute: boolean) => {
+  mockMuteAutomation = mute;
+});
 const mockAnonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
   phone: 'mask',
@@ -121,6 +126,10 @@ vi.mock('../../stores/useForgeStore', () => {
       return mockFileCopy;
     },
     setFileCopy: vi.fn(),
+    get muteAutomation() {
+      return mockMuteAutomation;
+    },
+    setMuteAutomation: (mute: boolean) => mockSetMuteAutomation(mute),
     plan: null,
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
@@ -204,6 +213,8 @@ describe('ForgeReview', () => {
     mockConfig = { ...defaultConfig };
     mockMetadataDiffs = [];
     mockFileCopy = { ...NO_FILES };
+    mockMuteAutomation = false;
+    mockSetMuteAutomation.mockClear();
     useForgeViewStore.setState({ setting: 'auto', choice: null });
     mockGaps = { metadata: [], simulation: [], rehearsal: [] };
   });
@@ -939,6 +950,72 @@ describe('ForgeReview', () => {
       expect(screen.queryByTestId('automation-bypass')).toBeNull();
       expect(screen.getByTestId('automation-bypass-held').textContent).toContain('Load_Data');
       expect(screen.getByTestId('automation-read-again').textContent).toBe('Read again');
+    });
+
+    describe('the box that mutes what the run fires', () => {
+      /** A flow on the account's insert a set of the target silences. */
+      const mutable = {
+        ...automation,
+        objectsRead: ['Account'],
+        objects: [
+          {
+            ...createdFlow('Account'),
+            flows: [
+              {
+                ...createdFlow('Account').flows[0],
+                permissions: [{ name: 'Load_Data', bypass: true, held: false }],
+              },
+            ],
+          },
+        ],
+        bypassGrants: [
+          {
+            permission: 'Load_Data',
+            permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+          },
+        ],
+      };
+
+      it('is offered on the Automation tab when a set silences what the run fires, and ticks the store', () => {
+        render(<ForgeReview />);
+        sendFromExtension('forge:automation:response', { automation: mutable });
+        fireEvent.click(screen.getByTestId('tab-automation'));
+
+        expect(screen.getByTestId('automation-mute-assigns').textContent).toContain('Data_Load');
+        fireEvent.click(screen.getByTestId('automation-mute-toggle'));
+        expect(mockSetMuteAutomation).toHaveBeenCalledWith(true);
+      });
+
+      it('says beside Execute, from any tab, that the run mutes once it is ticked', () => {
+        mockMuteAutomation = true;
+        render(<ForgeReview />);
+        sendFromExtension('forge:automation:response', { automation: mutable });
+
+        expect(screen.getByTestId('forge-mute-execute-hint').textContent).toBe(
+          "Execute mutes the target's automation, as ticked on the Automation tab.",
+        );
+        expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toContain(
+          'forge-mute-execute-hint',
+        );
+        expect(mockSetMuteAutomation).not.toHaveBeenCalled();
+      });
+
+      it('is unticked, whatever tab is shown, once a read finds nothing it can silence', () => {
+        mockMuteAutomation = true;
+        render(<ForgeReview />);
+        // Before the read, the choice stands.
+        expect(mockSetMuteAutomation).not.toHaveBeenCalled();
+
+        sendFromExtension('forge:automation:response', { automation });
+
+        expect(mockSetMuteAutomation).toHaveBeenCalledWith(false);
+      });
+
+      it('says nothing beside Execute while it is not ticked', () => {
+        render(<ForgeReview />);
+        sendFromExtension('forge:automation:response', { automation: mutable });
+        expect(screen.queryByTestId('forge-mute-execute-hint')).toBeNull();
+      });
     });
 
     it('stops saying it is reading again once that read fails, and offers it again', () => {

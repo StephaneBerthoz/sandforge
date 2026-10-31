@@ -2,7 +2,15 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CheckCircle } from 'lucide-react';
-import { blindedBy, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
+import {
+  blindedBy,
+  firedOnRemovalStepsOf,
+  mutedAutomationOf,
+  mutePermissionsOf,
+  mutePlanOf,
+  removalStepsBypassesOf,
+  removalStepsWrites,
+} from '@sandforge/shared';
 import type {
   CheckpointEmails,
   CheckpointPlanSelectionResponse,
@@ -24,6 +32,7 @@ import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { muteOffered, type MuteOffer } from '../../utils/muteOffer';
 import { listWords } from '../../utils/listWords';
 import {
   dateTimeFormat,
@@ -213,6 +222,11 @@ export interface RewindAcceptances {
    * of every object.
    */
   objects?: string[];
+  /**
+   * Mute the org's automation for the rewind, through its own bypass, as the
+   * box beside what it fires was ticked; absent, nothing is muted.
+   */
+  muteAutomation?: true;
 }
 
 /** Props for {@link RewindPreview}. */
@@ -229,7 +243,22 @@ export interface RewindPreviewProps {
    * from there. Without it the preview offers no Rewind.
    */
   onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
+  /**
+   * The box that mutes what the rewind fires, beside it, drawn by the page
+   * that starts the rewind (`AutomationMuteBox`) from the offer this preview
+   * plans of its read: whether it is ticked, and its toggle. Without it, no
+   * box is offered, and the rewind is not asked to mute: the Automation
+   * page's Rewind step shows this preview, and runs no mute.
+   */
+  muteBox?: MuteBoxOf;
 }
+
+/** Draws the box that mutes a rewind's automation from the offer of a preview. */
+export type MuteBoxOf = (
+  offer: MuteOffer | null,
+  checked: boolean,
+  onChange: (mute: boolean) => void,
+) => React.ReactNode;
 
 /** The boxes of a preview, ticked for that preview alone: one read again starts unticked. */
 interface Ticked {
@@ -282,6 +311,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   checkpoint,
   onClose,
   onRewind,
+  muteBox,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
@@ -343,6 +373,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
         readingAgain={preview.loading}
         onReadAgain={preview.refetch}
         onRewind={onRewind}
+        {...(muteBox ? { muteBox } : {})}
       />
     );
   }
@@ -433,6 +464,7 @@ interface PreviewBodyProps {
   readingAgain: boolean;
   onReadAgain: () => void;
   onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
+  muteBox?: MuteBoxOf;
 }
 
 /** What a rewind would do, as the org answered: see {@link RewindPreview}. */
@@ -444,6 +476,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   readingAgain,
   onReadAgain,
   onRewind,
+  muteBox,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
@@ -461,6 +494,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   });
   // What Rewind accepted as it was pressed, while the org's name is typed.
   const [confirming, setConfirming] = useState<RewindAcceptances | null>(null);
+  // The box beside what the rewind fires: mute it, through the org's own
+  // bypass. Not among the boxes that lift a refusal: ticked, it asks for
+  // something more of the org, which may refuse it.
+  const [mute, setMute] = useState(false);
   const tick = (box: keyof Ticked, value: boolean): void =>
     setTicked((was) => ({ ...was, [box]: value }));
 
@@ -523,12 +560,23 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const shown: RemovalAutomationShown | undefined = automation
     ? { automation, entries: fired, bypasses: removalStepsBypassesOf(automation, steps) }
     : undefined;
+  // What the rewind's writes fire that a bypass silences, planned as the
+  // extension plans it: offered beside what fires.
+  const muteOffer = automation ? mutePlanOf(automation, removalStepsWrites(steps)) : null;
+  const muting = muteBox !== undefined && mute && muteOffer !== null && muteOffered(muteOffer);
+  // Muted, the rewind asks acceptance only for what still runs, as its gate
+  // does: what the bypasses keep quiet is read as held.
+  const gated =
+    automation && muteOffer && muting
+      ? mutedAutomationOf(automation, mutePermissionsOf(muteOffer))
+      : automation;
+  const stillFires = gated ? firedOnRemovalStepsOf(gated, steps) : [];
   // A part of the automation the org would not let be read may run as well
   // as what was read: it is accepted as automation found. So is what sends
   // emails that could not be counted, as Sync and Autopilot ask for it.
   const automationFound =
     automation !== undefined &&
-    (fired.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
+    (stillFires.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
   const outside = outsideLines(counted);
   const remade = recreateLines(counted);
   // Read object by object: what the deletions take along out of the user's
@@ -572,6 +620,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       acceptOutside: selecting ? ticked.outside : outside.length > 0 && (!picked || ticked.outside),
       acceptUnseen: unseen.length > 0 && ticked.unseen,
       ...(selecting ? { objects: picks } : {}),
+      ...(muting ? { muteAutomation: true as const } : {}),
     });
   };
   const confirmed = (): void => {
@@ -808,6 +857,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             error={null}
             reading={readingAgain}
             onReadAgain={onReadAgain}
+            {...(muteBox ? { after: muteBox(muteOffer, mute, setMute) } : {})}
           />
           {emails && emails.length > 0 && <Emails emails={emails} orgName={orgName} />}
           {/* Said whether or not anything else sends: a package's flow is never read. */}

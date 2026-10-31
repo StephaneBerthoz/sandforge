@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react';
+// The i18next singleton, as useMessageResponse reads it: hook tests mock react-i18next.
+import i18n from 'i18next';
 
 import type {
   FrozenControlReport,
@@ -11,6 +13,7 @@ import type { BridgeMutationState } from '../../hooks/useBridgeMutation';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { BaseMessage } from '@sandforge/shared';
 import { useFrozenStore } from '../../stores/useFrozenStore';
+import { muteRefusalWords } from '../../utils/muteRefusal';
 
 /** Error payload shape of the `frozen:*:error` channels. */
 interface FrozenErrorPayload {
@@ -71,9 +74,14 @@ export function useFrozenMutation<T>(
   useMessageListener(`${requestType}:error`, (msg: BaseMessage) => {
     if (mutation.requestId === null || msg.correlationId !== mutation.requestId) return;
     const payload = (msg as BaseMessage & { payload?: FrozenErrorPayload }).payload;
+    // A load asked to mute that could not be is said in the interface
+    // language: the host words it in English.
+    const muteWords = i18n.isInitialized
+      ? muteRefusalWords(payload?.code, payload?.message, (key, options) => i18n.t(key, options))
+      : undefined;
     setLastError({
       source: requestType,
-      message: payload?.message ?? 'Unknown error',
+      message: muteWords ?? payload?.message ?? 'Unknown error',
       code: payload?.code ?? 'UNKNOWN',
       retryable: payload?.retryable ?? false,
     });

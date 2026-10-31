@@ -646,6 +646,32 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it.each([
+      ['MUTE_PRODUCTION', 'common.refusal.muteProduction', false],
+      ['MUTE_NO_RIGHT', 'common.refusal.muteNoRight', false],
+      ['MUTE_FAILED', 'common.refusal.muteFailed', true],
+      ['MUTE', 'common.refusal.muteCheckpoint', true],
+    ] as const)(
+      'says a run refused as %s, asked to mute the target’s automation, in the interface language',
+      (code, key, keepsReason) => {
+        const said = 'The target would not say who the run writes as (INVALID_SESSION_ID).';
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse('org:error', { message: said, code }, 'req-1');
+        });
+
+        expect(result.current.errorCode).toBe(code);
+        expect(result.current.error).toBe(
+          keepsReason ? i18n.t(key, { reason: said }) : i18n.t(key),
+        );
+        expect(result.current.error).not.toBe(said);
+      },
+    );
+
     it('says a seed its emails stopped in the interface language, with the figures and the ways out', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
       act(() => {

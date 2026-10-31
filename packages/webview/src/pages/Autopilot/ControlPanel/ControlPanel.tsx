@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AutopilotStopLeftover } from '@sandforge/shared';
+import type { AutopilotStopLeftover, MutedAutomation } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { useSendMessage } from '../../../hooks/useMessageBus';
 import { buildMessage } from '../../../bridge/messageHelpers';
@@ -9,6 +9,8 @@ import { LiveStats } from './LiveStats';
 import { NodeDetail } from './NodeDetail';
 import { AnonymizationPreview } from './AnonymizationPreview';
 import { ComplianceStatus } from './ComplianceStatus';
+import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
+import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Tab identifiers for the control panel. */
 type ControlTab = 'stats' | 'node' | 'anonymization' | 'compliance';
@@ -32,6 +34,11 @@ export interface ControlPanelProps {
    * and never sent: the stop came first.
    */
   emailsHeldForTheirTask?: number;
+  /**
+   * What the run muted of the target's automation once it ended, when it
+   * was asked to: said above the tabs, as a stopped run's leftovers are.
+   */
+  mutedAutomation?: MutedAutomation;
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
@@ -40,8 +47,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   notWritten,
   leftByStop = [],
   emailsHeldForTheirTask = 0,
+  mutedAutomation,
 }) => {
   const { t } = useTranslation();
+  const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
+  const target = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId));
   const [activeTab, setActiveTab] = useState<ControlTab>('stats');
   /** The run Stop was sent for: its button waits for the run to end. */
   const [stopSentFor, setStopSentFor] = useState<string | null>(null);
@@ -191,6 +201,16 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </ul>
             </>
           )}
+        </div>
+      )}
+
+      {mutedAutomation && (
+        <div className="px-4 py-2 border-b border-(--sf-border)">
+          <MutedAutomationResult
+            muted={mutedAutomation}
+            org={target?.alias || target?.username || (targetOrgId ?? '')}
+            testId="control-muted"
+          />
         </div>
       )}
 

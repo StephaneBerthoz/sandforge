@@ -657,6 +657,32 @@ describe('SyncPage', () => {
       expect(ran.id).toBe(saved.id);
     });
 
+    it('offers beside Run the box that mutes the target’s automation, off, and runs muted once ticked', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      const toggle = screen.getByTestId('sync-mute-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(screen.getByTestId('sync-mute-at-start').textContent).toMatch(
+        /^What it silences is read from .+ as the run starts/,
+      );
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByTestId('sync-run'));
+
+      expect(mockExecuteMutate.mock.calls[0][0]).toMatchObject({ muteAutomation: true });
+    });
+
     it('runs a configuration that is not the one saved under a fresh id', () => {
       draft.value = {
         currentStep: 4,
@@ -1788,6 +1814,29 @@ describe('SyncPage execute step for assistive technology', () => {
     const idle = mockExecuteMutationState;
     afterEach(() => {
       mockExecuteMutationState = idle;
+    });
+
+    it('says on the results what the run muted of the target’s automation', () => {
+      mockExecuteMutationState = {
+        ...idle,
+        data: {
+          ...historyEntry.result,
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Data_Load'],
+            held: [],
+            permissions: ['Load_Data'],
+            silenced: [],
+            stillRan: [],
+            released: true,
+          },
+        },
+      };
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-result-muted-said').textContent).toMatch(
+        /^Data_Load was assigned to the user the run wrote as in /,
+      );
     });
 
     it('calls it cancelled on the results step, not partial', () => {

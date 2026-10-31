@@ -8,6 +8,7 @@
     "automation.maskingWherePlaceholder",
     "automation.rewindCheckpointOption",
     "automation.timeout",
+    "automationMute.kind.flow",
     "checkpoint.preview.person",
     "checkpoint.transfer.importDialog.madeByValue",
     "common.itemCount_one",

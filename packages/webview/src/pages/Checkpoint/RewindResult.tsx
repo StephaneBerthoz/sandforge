@@ -31,6 +31,7 @@ import {
   residualGroups,
   residualTotal,
 } from './rewindPreviewFacts';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 
 /**
  * The words of a rewind's result for records Undo couldn't bring back, by reason: each
@@ -344,6 +345,13 @@ export const RewindResult: React.FC<RewindResultProps> = ({
         checkpoint={checkpoint}
         result={result}
         userNames={userNames}
+      />
+      {/* What the rewind or the undo muted of the org's automation, when its
+          box was ticked. */}
+      <MutedAutomationResult
+        muted={result.mutedAutomation}
+        org={orgName}
+        testId="checkpoint-result-muted"
       />
       {scope && (others.records > 0 || othersRead) && (
         <p data-testid="checkpoint-result-not-rewound">

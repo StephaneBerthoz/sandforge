@@ -45,6 +45,8 @@ export interface SeedExecuteStepProps {
   orgName?: string;
   /** The records the run creates, by object. */
   records?: Readonly<Record<string, number>>;
+  /** Whether the run mutes the org's automation, and the box's toggle, beside what it runs. */
+  mute?: { checked: boolean; onChange: (mute: boolean) => void };
 }
 
 /**
@@ -74,6 +76,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   automation,
   orgName = '',
   records = {},
+  mute,
 }) => {
   const { t, i18n } = useTranslation();
   const persona = useSeedWizardStore((s) => s.selectedPersona);
@@ -178,7 +181,12 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           make it send, before the run: past what it has left, it waits. */}
       {automation && !isRunning && (
         <div className="mb-2">
-          <SeedAutomationNotice automation={automation} orgName={orgName} records={records} />
+          <SeedAutomationNotice
+            automation={automation}
+            orgName={orgName}
+            records={records}
+            {...(mute ? { mute } : {})}
+          />
         </div>
       )}
 

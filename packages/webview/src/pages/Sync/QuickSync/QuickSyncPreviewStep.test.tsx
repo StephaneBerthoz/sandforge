@@ -153,6 +153,47 @@ describe('QuickSyncPreviewStep', () => {
     expect(btn.textContent).toContain('Sync Now');
   });
 
+  it('offers beside Go the box that mutes the target’s automation, read as the run starts', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<QuickSyncPreviewStep {...defaultProps} />);
+    expect(screen.queryByTestId('quick-sync-mute')).toBeNull();
+
+    rerender(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        mute={{ checked: false, onChange, org: 'DEV-SANDBOX' }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-mute-at-start').textContent).toMatch(
+      /^What it silences is read from DEV-SANDBOX as the run starts/,
+    );
+    fireEvent.click(screen.getByTestId('quick-sync-mute-toggle'));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('says in the results what the run muted', () => {
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{
+          ...mockResult,
+          mutedAutomation: {
+            state: 'nothing',
+            assigned: [],
+            held: [],
+            permissions: [],
+            silenced: [],
+            stillRan: [],
+          },
+        }}
+        mute={{ checked: true, onChange: vi.fn(), org: 'DEV-SANDBOX' }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-result-muted-said').textContent).toBe(
+      'Nothing could be muted in DEV-SANDBOX: the run went ahead as without the option.',
+    );
+  });
+
   it('shows progress bar during execution', () => {
     render(<QuickSyncPreviewStep {...defaultProps} isExecuting={true} />);
 

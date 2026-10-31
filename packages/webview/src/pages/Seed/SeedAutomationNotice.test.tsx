@@ -102,6 +102,72 @@ afterEach(async () => {
 });
 
 describe('SeedAutomationNotice', () => {
+  describe('the box that mutes what the records fire', () => {
+    it('is offered, off, under what runs, once a set of the org silences some of it', () => {
+      const onChange = vi.fn();
+      render(
+        <SeedAutomationNotice
+          automation={read(trapPreview())}
+          orgName="my-dev-org"
+          records={CRM}
+          mute={{ checked: false, onChange }}
+        />,
+      );
+
+      expect(screen.getByTestId('seed-automation-mute-assigns').textContent).toBe(
+        'Assigns the permission set Trap_Bypass to the user the run writes as in my-dev-org, for this run alone, and takes it back as the run ends.',
+      );
+      expect(
+        within(screen.getByTestId('seed-automation-mute-silenced'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Contact: Workflow rule: Contact_Welcome · bypass Trap_Bypass_Flow',
+        'Contact: Flow: Welcome Email · bypass Trap_Bypass_Flow',
+      ]);
+      expect(screen.getByTestId('seed-automation-mute-still-runs').textContent).toContain(
+        'Contact: Flow: Follow Up Task · nothing in it tests a bypass',
+      );
+      fireEvent.click(screen.getByTestId('seed-automation-mute-toggle'));
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it('is not offered when the user holds the bypass, nor when no set holds it, nor without its owner', () => {
+      const held = trapPreview({
+        objects: trapPreview().objects.map((object) => ({
+          ...object,
+          entries: object.entries.map((entry) =>
+            entry.bypasses.length > 0
+              ? { ...entry, keptQuiet: true, bypasses: [{ name: 'Trap_Bypass_Flow', held: true }] }
+              : entry,
+          ),
+        })),
+        bypasses: [],
+        bypassesHeld: ['Trap_Bypass_Flow'],
+      });
+      const mute = { checked: false, onChange: vi.fn() };
+      const { rerender } = render(
+        <SeedAutomationNotice automation={read(held)} orgName="org" records={CRM} mute={mute} />,
+      );
+      expect(screen.queryByTestId('seed-automation-mute')).toBeNull();
+
+      rerender(
+        <SeedAutomationNotice
+          automation={read(trapPreview({ bypasses: [{ permission: 'Trap_Bypass_Flow' }] }))}
+          orgName="org"
+          records={CRM}
+          mute={mute}
+        />,
+      );
+      expect(screen.queryByTestId('seed-automation-mute')).toBeNull();
+
+      rerender(
+        <SeedAutomationNotice automation={read(trapPreview())} orgName="org" records={CRM} />,
+      );
+      expect(screen.queryByTestId('seed-automation-mute')).toBeNull();
+    });
+  });
+
   it('says the org is being read, and holds nothing back meanwhile', () => {
     render(
       <SeedAutomationNotice

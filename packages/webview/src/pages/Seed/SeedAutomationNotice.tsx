@@ -11,7 +11,8 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { listWords } from '../../utils/listWords';
-import type { SeedAutomationState } from './useSeedAutomation';
+import { seedMutePlanOf, type SeedAutomationState } from './useSeedAutomation';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 
 /** What runs, by kind. */
 const KIND_KEYS: Readonly<Record<SeedAutomationEntry['kind'], string>> = {
@@ -42,6 +43,12 @@ export interface SeedAutomationNoticeProps {
   orgName: string;
   /** The records the seed creates, by object: what the emails are counted from. */
   records: Readonly<Record<string, number>>;
+  /**
+   * Whether the seed mutes the org's automation through its own bypass, and
+   * the box's toggle: offered under what runs when a bypass silences some of
+   * it. Absent, no box.
+   */
+  mute?: { checked: boolean; onChange: (mute: boolean) => void };
 }
 
 /** The ways out of an estimate past what is left: the bypasses that quiet its senders, and which. */
@@ -81,6 +88,7 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
   automation,
   orgName,
   records,
+  mute,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -322,6 +330,15 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
         {t('seed.automation.title', { org })}
       </h3>
       {body && <div aria-busy={automation.loading || undefined}>{body}</div>}
+      {mute && (
+        <AutomationMuteBox
+          offer={automation.preview ? seedMutePlanOf(automation.preview) : null}
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={org}
+          testId="seed-automation-mute"
+        />
+      )}
       {readAgain}
     </section>
   );

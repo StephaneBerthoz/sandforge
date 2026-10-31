@@ -49,6 +49,33 @@ describe('ControlPanel', () => {
     };
   });
 
+  it('says, once the run ended, what it muted of the target’s automation, and nothing before', () => {
+    const { rerender } = render(<ControlPanel />);
+    expect(screen.queryByTestId('control-muted')).toBeNull();
+
+    rerender(
+      <ControlPanel
+        mutedAutomation={{
+          state: 'muted',
+          assigned: ['Data_Load'],
+          held: [],
+          permissions: ['Load_Data'],
+          silenced: [],
+          stillRan: [
+            { objectApiName: 'Account', kind: 'trigger', name: 'AccountTrigger', why: 'noBypass' },
+          ],
+          released: true,
+        }}
+      />,
+    );
+    expect(screen.getByTestId('control-muted-said').textContent).toMatch(
+      /^Data_Load was assigned to the user the run wrote as in .*, for the run alone\.$/,
+    );
+    expect(screen.getByTestId('control-muted-still-ran-Account').textContent).toBe(
+      'Account: Apex trigger: AccountTrigger · nothing in it tests a bypass',
+    );
+  });
+
   it('should render without crashing', () => {
     render(<ControlPanel />);
     expect(screen.getByTestId('control-panel')).toBeDefined();

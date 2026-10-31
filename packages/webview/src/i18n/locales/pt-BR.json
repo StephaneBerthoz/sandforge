@@ -66,7 +66,11 @@
       "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
       "seedWriteDeclined": "O seed foi cancelado antes de gravar qualquer coisa. Nada foi gravado na org de destino.",
       "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar.",
-      "autopilotRunning": "Uma execução do Autopilot ainda está gravando nesta org de destino, e nada mais foi iniciado: as Operações ao vivo do Monitor mostram em que ponto ela está. Inicie outra quando ela terminar."
+      "autopilotRunning": "Uma execução do Autopilot ainda está gravando nesta org de destino, e nada mais foi iniciado: as Operações ao vivo do Monitor mostram em que ponto ela está. Inicie outra quando ela terminar.",
+      "muteProduction": "As automações do destino nunca são silenciadas em uma org de produção, nem em uma que não se possa distinguir de uma: nada foi atribuído nem gravado. Execute sem silenciar.",
+      "muteNoRight": "Não é possível silenciar as automações do destino: o usuário com o qual a execução grava não pode atribuir conjuntos de permissões (é preciso Atribuir conjuntos de permissões ou Gerenciar usuários), ou a org não quis dizer. Nada foi atribuído nem gravado.",
+      "muteFailed": "Não foi possível silenciar as automações do destino, então nada foi gravado: {{reason}}",
+      "muteCheckpoint": "Não foi possível silenciar as automações da org, então nada foi gravado: {{reason}}"
     },
     "list": {
       "separator": ", ",
@@ -3981,7 +3985,8 @@
         "leaveOutLabel_other": "Deixar de fora {{object}} e os {{count}} objetos que só ele alcança",
         "leftOut": "Deixados de fora da execução: {{objects}}.",
         "putBack": "Incluí-los de novo"
-      }
+      },
+      "muting": "Executar silencia as automações do destino, como marcado na guia Automação."
     },
     "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
     "cappedRead": "Parado em {{limit}} por objeto: {{objects}}. A origem tem mais linhas do que foram clonadas — aumente Registros por objeto para cloná-las.",
@@ -6209,6 +6214,45 @@
         "alreadyKept": "“{{name}}” já está guardado nesta máquina, igual: foi deixado como estava.",
         "done": "Concluído"
       }
+    }
+  },
+  "automationMute": {
+    "box": {
+      "label": "Silenciar as automações do destino nesta execução — pelo próprio bypass dele",
+      "assigns_one": "Atribui o conjunto de permissões {{sets}} ao usuário com o qual a execução grava em {{org}}, só para esta execução, e o retira quando a execução termina.",
+      "assigns_other": "Atribui os conjuntos de permissões {{sets}} ao usuário com o qual a execução grava em {{org}}, só para esta execução, e os retira quando a execução termina.",
+      "silences": "Silenciados durante a execução:",
+      "stillRuns": "Rodam mesmo assim:",
+      "atStart": "O que ela silencia é lido de {{org}} quando a execução começa: os conjuntos de permissões que contêm os bypasses testados pelos fluxos, processos e regras de fluxo de trabalho são atribuídos ao usuário com o qual a execução grava, só para esta execução, e retirados ao final. A execução então pergunta só pelo que roda mesmo assim, e o resultado diz o que foi silenciado.",
+      "never": "Nada é desativado e nenhum outro usuário é afetado. Recusado em uma org de produção e para um usuário que não pode atribuir conjuntos de permissões: a execução então não grava nada."
+    },
+    "bypass": "pelo bypass {{permission}}",
+    "kind": {
+      "flow": "Fluxo: {{name}}",
+      "trigger": "Gatilho Apex: {{name}}",
+      "process": "Processo: {{name}}",
+      "workflowRule": "Regra de fluxo de trabalho: {{name}}"
+    },
+    "why": {
+      "noBypass": "nada nela testa um bypass",
+      "managedPackage": "instalada por um pacote gerenciado",
+      "notRead": "não foi possível ler a condição",
+      "noPermissionSet": "nenhum conjunto de permissões contém o bypass"
+    },
+    "result": {
+      "title": "Automações do destino silenciadas",
+      "assigned_one": "{{sets}} foi atribuído ao usuário com o qual a execução gravou em {{org}}, só para a execução.",
+      "assigned_other": "{{sets}} foram atribuídos ao usuário com o qual a execução gravou em {{org}}, só para a execução.",
+      "allHeld": "Nada foi atribuído: o usuário com o qual a execução gravou em {{org}} já tinha todos os conjuntos de permissões necessários.",
+      "held": "Já atribuídos, nem atribuídos nem retirados pela execução: {{sets}}.",
+      "released": "Retirado quando a execução terminou.",
+      "notReleased": "Ainda não foi tudo retirado: a próxima execução nesta máquina que silenciar {{org}} retira o que sobrou quando a concessão vencer ({{date}}).",
+      "notReleasedNoDate": "Ainda não foi tudo retirado: a próxima execução nesta máquina que silenciar {{org}} retira o que sobrou quando a concessão vencer.",
+      "nothing": "Nada pôde ser silenciado em {{org}}: a execução seguiu como sem a opção.",
+      "planned_one": "Uma execução real atribuiria ao usuário com o qual grava em {{org}} o conjunto de permissões que contém {{bypasses}}, só para a execução; esta não atribuiu nada.",
+      "planned_other": "Uma execução real atribuiria ao usuário com o qual grava em {{org}} os conjuntos de permissões que contêm {{bypasses}}, só para a execução; esta não atribuiu nada.",
+      "silenced": "Silenciados:",
+      "stillRan": "Rodaram mesmo assim:"
     }
   }
 }

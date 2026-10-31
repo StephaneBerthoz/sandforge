@@ -11,7 +11,13 @@ import type {
   SyncRemovalResult,
   SyncRunRemovalInfo,
 } from '@sandforge/shared';
-import { backAfterRemoval, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
+import {
+  backAfterRemoval,
+  firedOnRemovalStepsOf,
+  mutePlanOf,
+  removalStepsBypassesOf,
+  removalStepsWrites,
+} from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -38,6 +44,7 @@ import {
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 
 /**
  * How long a removal may keep the card waiting: Production Guard may wait on a
@@ -109,14 +116,17 @@ const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> =
  * records back from the recycle bin, and nothing said what their
  * `after undelete` triggers would run. Read again when the user asks; the
  * read shown stays until the answer lands. A removal of every record the run
- * created (`again`) reads what fires on the objects of each.
+ * created (`again`) reads what fires on the objects of each. Where a bypass
+ * silences something of it, the box that mutes it for the removal is offered
+ * under it, planned from the same steps.
  */
 const SyncRemovalAutomation: React.FC<{
   runId: string;
   org: string;
   targetOrgId: string;
   again: boolean;
-}> = ({ runId, org, targetOrgId, again }) => {
+  mute: { checked: boolean; onChange: (checked: boolean) => void };
+}> = ({ runId, org, targetOrgId, again, mute }) => {
   const read = useBridgeMutation<AutomationAnswer>('sync:remove:automation', {
     responseType: 'sync:remove:automation:response',
     errorType: 'sync:remove:automation:error',
@@ -150,6 +160,8 @@ const SyncRemovalAutomation: React.FC<{
           bypasses: removalStepsBypassesOf(answer.automation, answer.steps),
         }
       : undefined;
+  const offer =
+    shown && answer ? mutePlanOf(answer.automation, removalStepsWrites(answer.steps)) : null;
   return (
     <RemovalAutomationView
       testId="sync-removal-automation"
@@ -160,6 +172,15 @@ const SyncRemovalAutomation: React.FC<{
       error={read.error}
       reading={read.loading}
       onReadAgain={readAgain}
+      after={
+        <AutomationMuteBox
+          offer={offer}
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={org}
+          testId="sync-removal-automation-mute"
+        />
+      }
     />
   );
 };
@@ -359,6 +380,8 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
+  /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const info = useBridgeQuery<{ info: SyncRunRemovalInfo | null }>(
     'sync:removal:info',
     { runId },
@@ -441,6 +464,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
         onClick={() => {
           setIncludeChanged(false);
           setSweep(false);
+          setMuteAutomation(false);
           setConfirming(true);
         }}
         data-testid={again ? 'sync-removal-remove-again' : 'sync-removal-remove'}
@@ -461,6 +485,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
       ...(includeChanged ? { includeChanged: true } : {}),
       ...(sweep ? { sweep: true } : {}),
       ...(again ? { again: true } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
   };
@@ -683,6 +708,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, r
           org={org}
           targetOrgId={kept.targetOrgId}
           again={again}
+          mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
         />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input

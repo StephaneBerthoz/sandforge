@@ -485,6 +485,67 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  it('mutes the removal once the box beside what it fires is ticked, and not before', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+    const read = sent('forge:undo-automation:request');
+    if (!read) throw new Error("no 'forge:undo-automation:request' was sent");
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'resp-automation',
+            type: 'forge:undo-automation:response',
+            timestamp: Date.now(),
+            correlationId: read.id,
+            payload: {
+              forgeId: 'forge-removable',
+              automation: {
+                objectsRead: ['Account'],
+                objects: [
+                  {
+                    objectApiName: 'Account',
+                    flows: [
+                      {
+                        apiName: 'Account_Goodbye',
+                        label: 'Account goodbye',
+                        timing: 'beforeSave',
+                        startsOn: 'delete',
+                        condition: 'read',
+                        permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+                      },
+                    ],
+                    triggers: [],
+                  },
+                ],
+                bypassGrants: [
+                  {
+                    permission: 'Skip_Flows',
+                    permissionSets: [{ name: 'Skip_Automation', label: 'Skip', grants: 1 }],
+                  },
+                ],
+                unread: [],
+                conditionsNotRead: 0,
+                conditionsBound: 25,
+                requests: 3,
+              },
+              drafted: [],
+            },
+          },
+        }),
+      );
+    });
+    fireEvent.click(screen.getByTestId('forge-removal-automation-mute-toggle'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: false,
+      muteAutomation: true,
+    });
+  });
+
   it('offers the sweep alone for a run whose records went, and says what it took', () => {
     const removed: ForgeExecutionResult = {
       ...REMOVABLE_RUN,

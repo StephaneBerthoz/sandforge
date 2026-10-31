@@ -4,7 +4,7 @@ import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
 import type { ForgeConfig, ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { ReviewAutomationTab } from './ReviewAutomationTab';
+import { ReviewAutomationTab, forgeRunMuteOffer } from './ReviewAutomationTab';
 
 /** The run Review is about to start. */
 const RUN: ForgeConfig = {
@@ -188,6 +188,94 @@ describe('ReviewAutomationTab', () => {
     expect(within(bypass).getByTestId('bypass-assistant-Skip_All').textContent).toContain(
       'No permission set of the target org holds Skip_All',
     );
+  });
+
+  describe('the box that mutes what the run fires', () => {
+    /** A flow on insert a set of the target silences, and a trigger nothing silences. */
+    const MUTABLE = automation({
+      objects: [
+        {
+          objectApiName: 'Case',
+          flows: [flow({ permissions: [{ name: 'Case_BypassFlow', bypass: true, held: false }] })],
+          triggers: [{ name: 'CaseTrigger', events: ['afterInsert'] }],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Case_BypassFlow',
+          permissionSets: [{ name: 'Bypass_Flows', label: 'Bypass flows', grants: 1 }],
+        },
+      ],
+    });
+
+    /** The tab with its box, planned from `read` as Review plans it. */
+    function withBox(
+      read: ForgeTargetAutomation,
+      checked = false,
+      onChange = vi.fn(),
+      leftOut: ReadonlySet<string> = new Set(),
+    ) {
+      return render(
+        <ReviewAutomationTab
+          automation={read}
+          leftOut={leftOut}
+          mute={{ offer: forgeRunMuteOffer(read, leftOut), checked, onChange, org: 'DEV-SANDBOX' }}
+        />,
+      );
+    }
+
+    it('is offered, unticked, beside what fires, with the set it assigns, what it silences and what still runs', () => {
+      const onChange = vi.fn();
+      withBox(MUTABLE, false, onChange);
+
+      expect((screen.getByTestId('automation-mute-toggle') as HTMLInputElement).checked).toBe(
+        false,
+      );
+      expect(screen.getByTestId('automation-mute-assigns').textContent).toBe(
+        'Assigns the permission set Bypass_Flows to the user the run writes as in DEV-SANDBOX, for this run alone, and takes it back as the run ends.',
+      );
+      expect(screen.getByTestId('automation-mute-silenced-Case').textContent).toBe(
+        'Case: Flow: Case notify customer · bypass Case_BypassFlow',
+      );
+      expect(screen.getByTestId('automation-mute-still-runs-Case').textContent).toBe(
+        'Case: Apex trigger: CaseTrigger · nothing in it tests a bypass',
+      );
+      fireEvent.click(screen.getByTestId('automation-mute-toggle'));
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it('is not offered when the user holds the bypass already, or nothing fires has one', () => {
+      const held = automation({
+        objects: [
+          {
+            objectApiName: 'Case',
+            flows: [flow({ permissions: [{ name: 'Case_BypassFlow', bypass: true, held: true }] })],
+            triggers: [{ name: 'CaseTrigger', events: ['afterInsert'] }],
+          },
+        ],
+        bypassGrants: MUTABLE.bypassGrants,
+      });
+      const { unmount } = withBox(held);
+      expect(screen.queryByTestId('automation-mute')).toBeNull();
+      unmount();
+
+      // A bypass no permission set holds silences nothing either.
+      withBox({
+        ...MUTABLE,
+        bypassGrants: [{ permission: 'Case_BypassFlow', permissionSets: [] }],
+      });
+      expect(screen.queryByTestId('automation-mute')).toBeNull();
+    });
+
+    it('leaves out an object the user left out of the run, and is not offered once none is left', () => {
+      withBox(MUTABLE, false, vi.fn(), new Set(['Case']));
+      expect(screen.queryByTestId('automation-mute')).toBeNull();
+    });
+
+    it('is not offered without its owner', () => {
+      render(<ReviewAutomationTab automation={MUTABLE} />);
+      expect(screen.queryByTestId('automation-mute')).toBeNull();
+    });
   });
 
   describe('reading the target again', () => {

@@ -126,6 +126,29 @@ describe('startForgeRun', () => {
     expect(executePayload()?.files).toEqual({ maxFileSizeMB: 4, acceptedAsIs: true });
   });
 
+  it('mutes the target’s automation only once Review’s box is ticked, and never for a simulation', () => {
+    startForgeRun();
+    expect(executePayload()).not.toHaveProperty('muteAutomation');
+
+    useForgeStore.getState().setMuteAutomation(true);
+    startForgeRun();
+    expect(executePayload()).toMatchObject({ muteAutomation: true });
+
+    // A simulation assigns nothing: it is not asked to.
+    startForgeRun({ dryRun: true });
+    expect(executePayload()).not.toHaveProperty('muteAutomation');
+  });
+
+  it('starts every new clone with the box unticked', () => {
+    useForgeStore.getState().setMuteAutomation(true);
+    useForgeStore.getState().setConfig(CONFIG);
+    expect(useForgeStore.getState().muteAutomation).toBe(false);
+
+    useForgeStore.getState().setMuteAutomation(true);
+    useForgeStore.getState().forgeAgain();
+    expect(useForgeStore.getState().muteAutomation).toBe(false);
+  });
+
   it('sends nothing while the files of an anonymized run wait to be accepted as they are', () => {
     useForgeStore.getState().setFileCopy({ enabled: true, acceptedAsIs: false });
 

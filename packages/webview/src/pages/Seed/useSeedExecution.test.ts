@@ -217,6 +217,31 @@ describe('useSeedExecution', () => {
     expect(run()).not.toHaveProperty('locale');
   });
 
+  it('mutes the org’s automation for the run only once the box beside what it runs is ticked', () => {
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 5, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(bridge.mutate.mock.calls[0][0]).not.toHaveProperty('muteAutomation');
+
+    act(() => {
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.muteAutomation).toBe(true);
+    expect(bridge.mutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-1', muteAutomation: true });
+  });
+
   it('sends no lookup rule to an object the run does not seed', () => {
     const configs: ObjectFieldConfig[] = [
       {

@@ -66,7 +66,11 @@
       "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire.",
       "seedWriteDeclined": "Le seed a été annulé avant d'écrire quoi que ce soit. Rien n'a été écrit dans l'org cible.",
       "backupBusy": "Une sauvegarde ou une restauration de cette org est en cours : supprimez ses sauvegardes une fois qu'elle est terminée.",
-      "autopilotRunning": "Une exécution Autopilot écrit encore dans cette org cible, et rien d'autre n'a été lancé : les Opérations en cours du Moniteur montrent où elle en est. Lancez-en une autre une fois qu'elle est terminée."
+      "autopilotRunning": "Une exécution Autopilot écrit encore dans cette org cible, et rien d'autre n'a été lancé : les Opérations en cours du Moniteur montrent où elle en est. Lancez-en une autre une fois qu'elle est terminée.",
+      "muteProduction": "Les automatisations de la cible ne sont jamais rendues muettes sur une org de production, ni sur une org qu'on ne peut pas distinguer d'une org de production : rien n'a été attribué ni écrit. Lancez-la sans les rendre muettes.",
+      "muteNoRight": "Les automatisations de la cible ne peuvent pas être rendues muettes : l'utilisateur sous lequel l'exécution écrit ne peut pas attribuer d'ensembles d'autorisations (il faut Attribuer des ensembles d'autorisations ou Gérer les utilisateurs), ou l'org n'a pas voulu le dire. Rien n'a été attribué ni écrit.",
+      "muteFailed": "Les automatisations de la cible n'ont pas pu être rendues muettes, donc rien n'a été écrit : {{reason}}",
+      "muteCheckpoint": "Les automatisations de l'org n'ont pas pu être rendues muettes, donc rien n'a été écrit : {{reason}}"
     },
     "list": {
       "separator": ", ",
@@ -3981,7 +3985,8 @@
         "leaveOutLabel_other": "Laisser de côté {{object}} et les {{count}} objets qu'il est seul à atteindre",
         "leftOut": "Laissés de côté : {{objects}}.",
         "putBack": "Les remettre"
-      }
+      },
+      "muting": "Exécuter rend muettes les automatisations de la cible, comme coché dans l'onglet Automatisation."
     },
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
     "cappedRead": "Arrêté à {{limit}} par objet : {{objects}}. La source contient plus de lignes que ce qui a été cloné — augmentez Enregistrements / objet pour les cloner.",
@@ -6209,6 +6214,45 @@
         "alreadyKept": "« {{name}} » est déjà conservé sur cette machine, identique : il a été laissé tel quel.",
         "done": "Terminé"
       }
+    }
+  },
+  "automationMute": {
+    "box": {
+      "label": "Rendre muettes les automatisations de la cible pour cette exécution — par son propre contournement",
+      "assigns_one": "Attribue l'ensemble d'autorisations {{sets}} à l'utilisateur sous lequel l'exécution écrit dans {{org}}, pour cette exécution seulement, et le retire à la fin de l'exécution.",
+      "assigns_other": "Attribue les ensembles d'autorisations {{sets}} à l'utilisateur sous lequel l'exécution écrit dans {{org}}, pour cette exécution seulement, et les retire à la fin de l'exécution.",
+      "silences": "Rendus muets pour l'exécution :",
+      "stillRuns": "S'exécutent quand même :",
+      "atStart": "Ce qu'elle rend muet est lu dans {{org}} au démarrage de l'exécution : les ensembles d'autorisations qui portent les contournements testés par ses Flows, processus et règles de workflow sont attribués à l'utilisateur sous lequel l'exécution écrit, pour cette exécution seulement, et retirés à sa fin. L'exécution ne demande alors que ce qui s'exécute quand même, et son résultat dit ce qui a été rendu muet.",
+      "never": "Rien n'est désactivé et aucun autre utilisateur n'est touché. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien."
+    },
+    "bypass": "contournement {{permission}}",
+    "kind": {
+      "flow": "Flow : {{name}}",
+      "trigger": "Déclencheur Apex : {{name}}",
+      "process": "Processus : {{name}}",
+      "workflowRule": "Règle de workflow : {{name}}"
+    },
+    "why": {
+      "noBypass": "rien n'y teste de contournement",
+      "managedPackage": "installé par un package géré",
+      "notRead": "sa condition n'a pas pu être lue",
+      "noPermissionSet": "aucun ensemble d'autorisations ne porte son contournement"
+    },
+    "result": {
+      "title": "Automatisations de la cible rendues muettes",
+      "assigned_one": "{{sets}} a été attribué à l'utilisateur sous lequel l'exécution a écrit dans {{org}}, pour l'exécution seulement.",
+      "assigned_other": "{{sets}} ont été attribués à l'utilisateur sous lequel l'exécution a écrit dans {{org}}, pour l'exécution seulement.",
+      "allHeld": "Rien n'a été attribué : l'utilisateur sous lequel l'exécution a écrit dans {{org}} avait déjà chaque ensemble d'autorisations nécessaire.",
+      "held": "Déjà détenus, ni attribués ni retirés : {{sets}}.",
+      "released": "Retiré à la fin de l'exécution.",
+      "notReleased": "Pas encore tout retiré : la prochaine exécution sur cette machine qui rend muette {{org}} retire ce qui reste une fois le bail échu ({{date}}).",
+      "notReleasedNoDate": "Pas encore tout retiré : la prochaine exécution sur cette machine qui rend muette {{org}} retire ce qui reste une fois le bail échu.",
+      "nothing": "Rien n'a pu être rendu muet dans {{org}} : l'exécution s'est faite comme sans l'option.",
+      "planned_one": "Une vraie exécution attribuerait à l'utilisateur sous lequel elle écrit dans {{org}} l'ensemble d'autorisations qui porte {{bypasses}}, pour l'exécution seulement ; celle-ci n'a rien attribué.",
+      "planned_other": "Une vraie exécution attribuerait à l'utilisateur sous lequel elle écrit dans {{org}} les ensembles d'autorisations qui portent {{bypasses}}, pour l'exécution seulement ; celle-ci n'a rien attribué.",
+      "silenced": "Rendus muets :",
+      "stillRan": "Se sont exécutés quand même :"
     }
   }
 }

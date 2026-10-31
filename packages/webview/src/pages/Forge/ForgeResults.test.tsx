@@ -236,6 +236,8 @@ let mockResult = makeMockResult();
 let mockStatusesBeyondGraph: Record<string, string> = {};
 /** The run's choice to copy the files of its records, as Review held it. */
 let mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+/** Review's box that mutes the target's automation, as the run on screen was started with it. */
+let mockMuteAutomation = false;
 /** Why the run shown stopped, when an error ended it, and the run it had written. */
 let mockRunError: { message: string; stoppedRun: { forgeId: string } | null } | null = null;
 const mockResetNodeStatuses = vi.fn(() => {
@@ -294,6 +296,7 @@ vi.mock('../../stores/useForgeStore', () => {
         logs: mockLogs,
         anonymizationRules: RUN_RULES,
         fileCopy: mockFileCopy,
+        muteAutomation: mockMuteAutomation,
         statusesBeyondGraph: mockStatusesBeyondGraph,
         runError: mockRunError,
         stoppedAt: null,
@@ -317,6 +320,7 @@ describe('ForgeResults', () => {
     mockResult = makeMockResult();
     mockStatusesBeyondGraph = {};
     mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+    mockMuteAutomation = false;
     mockRunError = null;
     mockConfig = RUN_CONFIG;
     useForgeRunGateStore.getState().clear();
@@ -1177,6 +1181,67 @@ describe('ForgeResults', () => {
       expect(mockResetNodeStatuses).toHaveBeenCalledTimes(1);
       expect(mockMarkRetry).toHaveBeenCalledTimes(1);
       expect(mockSetPhase).toHaveBeenCalledWith('execution');
+    });
+
+    it('retries and resumes muted as the run was started from Review, and unmuted otherwise', () => {
+      failedRun();
+      const { unmount } = render(<ForgeResults />);
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+      expect(sent<Record<string, unknown>>('forge:execute')[0]).not.toHaveProperty(
+        'muteAutomation',
+      );
+      unmount();
+
+      mockMuteAutomation = true;
+      failedRun();
+      const retried = render(<ForgeResults />);
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+      expect(sent<Record<string, unknown>>('forge:execute')[1]).toMatchObject({
+        retryOf: 'forge-partial',
+        muteAutomation: true,
+      });
+      retried.unmount();
+
+      mockResult = {
+        ...makeMockResult(),
+        forgeId: 'forge-stopped',
+        cancelled: true,
+        resumable: true,
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      fireEvent.click(screen.getByTestId('forge-resume'));
+      expect(sent<Record<string, unknown>>('forge:resume-run')[0]).toMatchObject({
+        forgeId: 'forge-stopped',
+        muteAutomation: true,
+      });
+    });
+
+    it('says what the run muted of the target’s automation, and nothing of a run that was not asked to', () => {
+      const { unmount } = render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-muted')).toBeNull();
+      unmount();
+
+      mockResult = {
+        ...makeMockResult(),
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Data_Load'],
+          held: [],
+          permissions: ['Load_Data'],
+          silenced: [
+            { objectApiName: 'Account', kind: 'flow', name: 'Welcome', permission: 'Load_Data' },
+          ],
+          stillRan: [],
+          released: true,
+        },
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-muted-said').textContent).toMatch(
+        /^Data_Load was assigned to the user the run wrote as in /,
+      );
+      expect(screen.getByTestId('forge-results-muted-released').textContent).toBe(
+        'Taken back as the run ended.',
+      );
     });
 
     it('offers no resume for a run the extension does not say can be taken up, nor for a simulation', () => {

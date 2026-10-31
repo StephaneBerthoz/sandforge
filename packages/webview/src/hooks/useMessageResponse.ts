@@ -7,6 +7,7 @@ import i18n from 'i18next';
 import { panelWordingOf, type BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
+import { muteRefusalWords } from '../utils/muteRefusal';
 
 /**
  * Options for the useMessageResponse hook.
@@ -80,7 +81,8 @@ const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
  * them as they came, in every language. The reason the guard gave stays as it
  * gave it, after the translated sentence. Before i18next is initialised the
  * host's own words are kept. A masking template DataOps no longer finds is
- * said here too, and an Autopilot request its module was not loaded for.
+ * said here too, an Autopilot request its module was not loaded for, and a
+ * run that could not mute the target's automation (`muteRefusalWords`).
  */
 function guardRefusal(
   code: string | null,
@@ -169,7 +171,9 @@ function guardRefusal(
   if (code === 'AUTOPILOT_CONFIRMATION_UNAVAILABLE') {
     return i18n.t('common.refusal.autopilotConfirmationUnavailable');
   }
-  return undefined;
+  // A run asked to mute the target's automation that could not be: nothing
+  // was assigned and nothing written, and the host said why in English.
+  return muteRefusalWords(code, message, (key, options) => i18n.t(key, options));
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, act, within } from '@testing-library/react';
 import type {
   BaseMessage,
   ForgeTargetAutomation,
@@ -780,6 +780,87 @@ describe('SyncRunRemoval', () => {
       ]);
       expect(screen.getByTestId('sync-removal-automation-bringBack-Case')).toBeTruthy();
       expect(sentAll('sync:remove')).toEqual([]);
+    });
+
+    /** The same read, the contact's flow quiet for a user holding a bypass a set of the target holds. */
+    const MUTABLE: ForgeTargetAutomation = {
+      ...AUTOMATION,
+      objects: AUTOMATION.objects.map((object) =>
+        object.objectApiName === 'Contact'
+          ? {
+              ...object,
+              flows: object.flows.map((flow) => ({
+                ...flow,
+                permissions: [{ name: 'Skip_Audit', bypass: true, held: false }],
+              })),
+            }
+          : object,
+      ),
+      bypassGrants: [
+        {
+          permission: 'Skip_Audit',
+          permissionSets: [{ name: 'Audit_Bypass', label: 'Audit bypass', grants: 1 }],
+        },
+      ],
+    };
+
+    it('offers the box that mutes it only once a set silences something a step fires', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      answer('sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-1',
+        automation: AUTOMATION,
+        steps: STEPS,
+      });
+      expect(screen.queryByTestId('sync-removal-automation-mute')).toBeNull();
+      cleanup();
+
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      answer('sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-1',
+        automation: MUTABLE,
+        steps: STEPS,
+      });
+
+      expect(screen.getByTestId('sync-removal-automation-mute-silenced-Contact').textContent).toBe(
+        'Contact: Flow: Contact audit · bypass Skip_Audit',
+      );
+      // The trigger after the case's undelete and before the account's delete still run.
+      expect(screen.getByTestId('sync-removal-automation-mute-still-runs').textContent).toContain(
+        'Case: Apex trigger: CaseRestore',
+      );
+      expect(screen.getByTestId('sync-removal-automation-mute-still-runs').textContent).toContain(
+        'Account: Apex trigger: AccountGuard',
+      );
+    });
+
+    it('sends the removal muted once ticked, and unmuted otherwise', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      confirmRemoval();
+      expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1' });
+      cleanup();
+
+      mockPostMessage.mockClear();
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      answer('sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-1',
+        automation: MUTABLE,
+        steps: STEPS,
+      });
+      fireEvent.click(screen.getByTestId('sync-removal-automation-mute-toggle'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('sync:remove').pop()?.payload).toEqual({
+        runId: 'run-1',
+        muteAutomation: true,
+      });
     });
 
     it('says nothing fires when nothing does', () => {

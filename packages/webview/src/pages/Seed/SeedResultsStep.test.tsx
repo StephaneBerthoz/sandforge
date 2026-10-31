@@ -145,6 +145,51 @@ describe('SeedResultsStep', () => {
     expect(asked.map((message) => message.payload)).toEqual([{ runId: 'op-1' }]);
   });
 
+  it('says what the run muted of the org’s automation, and nothing of a run not asked to', () => {
+    const { rerender } = render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([objectResult()])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+    expect(screen.queryByTestId('seed-result-muted')).toBeNull();
+
+    rerender(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={{
+          ...executionResult([objectResult()]),
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Trap_Bypass'],
+            held: [],
+            permissions: ['Trap_Bypass_Flow'],
+            silenced: [
+              {
+                objectApiName: 'Contact',
+                kind: 'workflowRule',
+                name: 'Contact_Welcome',
+                permission: 'Trap_Bypass_Flow',
+              },
+            ],
+            stillRan: [],
+            released: true,
+          },
+        }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+    expect(screen.getByTestId('seed-result-muted-said').textContent).toBe(
+      'Trap_Bypass was assigned to the user the run wrote as in dev1, for the run alone.',
+    );
+    expect(screen.getByTestId('seed-result-muted-silenced-Contact').textContent).toBe(
+      'Contact: Workflow rule: Contact_Welcome · bypass Trap_Bypass_Flow',
+    );
+  });
+
   it('opens first a created account in the org the run wrote to, Seed Again after it', () => {
     // The results said how many records were written and led nowhere near them.
     render(

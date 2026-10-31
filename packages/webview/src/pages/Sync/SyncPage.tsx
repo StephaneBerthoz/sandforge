@@ -58,6 +58,8 @@ import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -285,6 +287,8 @@ export const SyncPage: React.FC = () => {
     handleAddTransform,
     handleRemoveTransform,
     handleChangeTransformConfig,
+    muteAutomation,
+    setMuteAutomation,
     handleExecute,
     handleSimulate,
     handleSaveConfig,
@@ -342,9 +346,8 @@ export const SyncPage: React.FC = () => {
   }));
   // The saved configuration is named after the pair it runs between, which is
   // what the schedule picker shows; it is data, not a label to translate.
-  const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${
-    targetOrg?.alias || targetOrg?.username || targetOrgId
-  }`;
+  const targetOrgName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${targetOrgName}`;
   const conflictOptions: { value: SyncConflictStrategy; label: string }[] =
     OFFERED_CONFLICT_STRATEGIES.map((value) => ({
       value,
@@ -953,6 +956,15 @@ export const SyncPage: React.FC = () => {
                 )}
                 {!busy && (
                   <>
+                    {/* The run's gate reads what the target runs as it starts:
+                        the box says what muting does, the results what it did. */}
+                    <AutomationMuteBox
+                      offer="atStart"
+                      checked={muteAutomation}
+                      onChange={setMuteAutomation}
+                      org={targetOrgName}
+                      testId="sync-mute"
+                    />
                     <p className="text-xs text-text-secondary">{t('sync.simulation.hint')}</p>
                     <div className="flex items-center gap-(--sf-space-2)">
                       <Button
@@ -1057,6 +1069,13 @@ export const SyncPage: React.FC = () => {
                         </span>
                       )}
                     </div>
+                    {/* What the run muted of the target's automation, when the
+                        box beside Run was ticked. */}
+                    <MutedAutomationResult
+                      muted={result.mutedAutomation}
+                      org={targetOrgName}
+                      testId="sync-result-muted"
+                    />
                     {result.objectResults.some((obj) => obj.files) && (
                       <SyncFilesSummary
                         outcomes={result.objectResults.flatMap((obj) =>

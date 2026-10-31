@@ -7,6 +7,7 @@ import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
 import { Badge } from '../../../components/ui/Badge';
 import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
+import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Props for the QuickSyncFlow component. */
 export interface QuickSyncFlowProps {
@@ -26,6 +27,9 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
   const { t } = useTranslation();
   const flow = useQuickSyncFlow();
   const { state } = flow;
+  /** The target, as the box that mutes its automation names it. */
+  const target = useOrgStore((s) => s.orgs.find((o) => o.id === state.targetOrgId));
+  const targetOrgName = target?.alias || target?.username || state.targetOrgId;
 
   const steps = [
     { id: 'orgs' as const, label: t('quickSync.orgs') },
@@ -149,6 +153,11 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
             onBack={() => flow.goToObjects()}
             sourceOrgId={state.sourceOrgId}
             targetOrgId={state.targetOrgId}
+            mute={{
+              checked: state.muteAutomation,
+              onChange: flow.setMuteAutomation,
+              org: targetOrgName,
+            }}
             {...(onOpenHistory ? { onOpenHistory } : {})}
           />
         )}

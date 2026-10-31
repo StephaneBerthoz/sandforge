@@ -20,6 +20,7 @@ import type {
 import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shared';
 import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
+import { muteRefusalWords } from '../utils/muteRefusal';
 import type { ForgeGapChoice, ForgeKeptDecision } from '../utils/forgeGapDecisions';
 import {
   withGapDecision,
@@ -384,6 +385,7 @@ const INITIAL_STATE = {
   anonymizationPresetId: '',
   anonymizeFieldChoices: null as ForgeAnonymizeFieldChoice[] | null,
   fileCopy: { ...NO_FILE_COPY },
+  muteAutomation: false,
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
   stoppedAt: null as number | null,
@@ -473,6 +475,16 @@ export interface ForgeState {
    * turned on again, it is asked for again.
    */
   setFileCopy: (change: Partial<ForgeFileCopyChoice>) => void;
+  /**
+   * Whether the run mutes the target's automation through its own bypass, as
+   * Review's box was left (`AutomationMuteBox`): sent with Execute, and with
+   * a retry or a resume of the run started so. Kept apart from `config`, as
+   * the files are: a template or a past run never brings it back, and a new
+   * clone starts with it off.
+   */
+  muteAutomation: boolean;
+  /** Tick or untick Review's box. */
+  setMuteAutomation: (mute: boolean) => void;
   /**
    * Id of the forge:execute request that started the run on screen, or null.
    * The extension correlates the run's progress, result and error to it.
@@ -832,6 +844,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       gapReads: {},
       result: null,
       fileCopy: { ...NO_FILE_COPY },
+      muteAutomation: false,
       discoveryId: null,
       discoveryError: null,
       directDiscoveryId: null,
@@ -912,6 +925,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       const next = { ...state.fileCopy, ...change };
       return { fileCopy: next.enabled ? next : { ...next, acceptedAsIs: false } };
     });
+  },
+
+  setMuteAutomation(muteAutomation: boolean): void {
+    set({ muteAutomation });
   },
 
   setGraph(graph: ForgeGraph): void {
@@ -1463,6 +1480,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       runClock: null,
       stopRequestedAt: null,
       fileCopy: { ...NO_FILE_COPY },
+      muteAutomation: false,
       discoveryId: null,
       discoveryError: null,
       directDiscoveryId: null,
@@ -1539,18 +1557,22 @@ function takeRunMessage(event: MessageEvent): void {
     store.finishRun(data.correlationId, payload?.result);
   } else {
     const payload = (data.payload ?? {}) as { message?: unknown; code?: unknown; result?: unknown };
-    const message =
-      typeof payload.message === 'string' && payload.message !== ''
-        ? payload.message
-        : i18n.t('forge.executeFailed');
-    const stoppedRun =
-      payload.result && typeof payload.result === 'object'
-        ? (payload.result as ForgeExecutionResult)
-        : undefined;
     // The code says what kind of failure it was, whatever words the message
     // has: dropped here, nothing past the store could tell a refusal before
     // the run from a failure during it.
     const code = typeof payload.code === 'string' && payload.code !== '' ? payload.code : undefined;
+    const said =
+      typeof payload.message === 'string' && payload.message !== '' ? payload.message : undefined;
+    // A mute refused before the first write, in the interface language: the
+    // host words it in English.
+    const message =
+      muteRefusalWords(code, said, (key, options) => i18n.t(key, options)) ??
+      said ??
+      i18n.t('forge.executeFailed');
+    const stoppedRun =
+      payload.result && typeof payload.result === 'object'
+        ? (payload.result as ForgeExecutionResult)
+        : undefined;
     store.failRun(data.correlationId, message, stoppedRun, code);
   }
 }

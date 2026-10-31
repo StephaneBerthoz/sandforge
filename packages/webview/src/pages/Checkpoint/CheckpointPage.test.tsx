@@ -481,6 +481,53 @@ describe('CheckpointPage', () => {
       });
     });
 
+    it('undoes muted once the box of its confirmation is ticked, read as the undo starts', () => {
+      render(<CheckpointPage />);
+      answerList([
+        listEntry(
+          readyCheckpoint({
+            lastRewind: {
+              rewindId: 'rw-20261022-100000-beef',
+              endedAt: '2026-10-22T12:05:00.000Z',
+              undoUntil: '2026-11-06T10:05:00.000Z',
+            },
+          }),
+          { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+        ),
+      ]);
+      fireEvent.click(screen.getByTestId(`checkpoint-undo-${ID}`));
+      expect(screen.getByTestId('checkpoint-undo-mute-toggle')).not.toBeChecked();
+      expect(screen.getByTestId('checkpoint-undo-mute-at-start').textContent).toMatch(
+        /^What it silences is read from DEV-SB as the run starts/,
+      );
+      fireEvent.click(screen.getByTestId('checkpoint-undo-mute-toggle'));
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        checkpointId: ID,
+        rewindId: 'rw-20261022-100000-beef',
+        acceptAutomation: false,
+        muteAutomation: true,
+      });
+    });
+
+    it('says a rewind whose mute the org refused in the interface language, nothing written', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await rewind();
+      act(() =>
+        host.current?.answer('checkpoint:rewind', 'checkpoint:error', {
+          message:
+            'The target is a production org: its automation is never muted there. Nothing was written.',
+          code: 'MUTE',
+          retryable: false,
+        }),
+      );
+
+      expect(screen.getByTestId('checkpoint-run-error').textContent).toContain(
+        "The org's automation couldn't be muted, so nothing was written: The target is a production org",
+      );
+    });
+
     it('stops comparing fields chosen from the list, and lists the org again', async () => {
       render(<CheckpointPage />);
       answerList();

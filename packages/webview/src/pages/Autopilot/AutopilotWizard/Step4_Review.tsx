@@ -11,6 +11,7 @@ import { Button } from '../../../components/ui/Button';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
 import { CompliancePicker } from './CompliancePicker';
+import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -40,6 +41,11 @@ export interface Step4ReviewProps {
   readonly neutralizeContactPoints: boolean;
   /** Tick or untick the neutralization. */
   readonly onNeutralizeChange: (on: boolean) => void;
+  /**
+   * Whether the run mutes the target's automation through its own bypass,
+   * the box's toggle, and the target as the user knows it; no box without.
+   */
+  readonly mute?: { checked: boolean; onChange: (mute: boolean) => void; org: string };
   /** Whether the plan is being built again, after another framework was picked. */
   readonly planning?: boolean;
   /** Whether execution is in progress */
@@ -73,6 +79,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   onFrameworkChange,
   neutralizeContactPoints,
   onNeutralizeChange,
+  mute,
   planning = false,
   isExecuting,
   error,
@@ -154,6 +161,18 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           {t('autopilot.step4.contactPointsHint')}
         </p>
       </div>
+
+      {/* The run's gate reads what the target runs as it starts: the box says
+          what muting does, the run's end what it did. */}
+      {mute && (
+        <AutomationMuteBox
+          offer="atStart"
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={mute.org}
+          testId="step4-mute"
+        />
+      )}
 
       <details
         className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"

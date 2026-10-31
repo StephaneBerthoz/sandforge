@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
@@ -9,6 +9,7 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
   ExecutionPlan,
+  MutedAutomation,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../stores/useAutopilotStore';
@@ -20,11 +21,23 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutopilotWizard } from './AutopilotWizard';
-import { AutopilotGraph } from './AutopilotGraph';
 import { ControlPanel } from './ControlPanel';
 import { ComplianceReport } from './ComplianceReport';
 import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 import { useGrappeStore } from '../../stores/useGrappeStore';
+import { withEnglish } from '../../i18n/englishNamespaces';
+
+/**
+ * The run's graph, in a chunk of its own fetched once the run starts: React
+ * Flow, 167 kB, was parsed before the wizard painted, which draws no graph,
+ * and took the page past its first-paint budget. Its words are the page's.
+ */
+const AutopilotGraph = lazy(() =>
+  withEnglish(() => import('./AutopilotGraph'), [])().then((module) => ({
+    default: module.AutopilotGraph,
+  })),
+);
 
 /** Wrapper that only mounts GrappeProgressPanel when grappe is active. */
 const AutopilotGrappePanel: React.FC = () => {
@@ -51,6 +64,8 @@ export const AutopilotPage: React.FC = () => {
   const [leftByStop, setLeftByStop] = useState<AutopilotStopLeftover[]>([]);
   /** The emails a stopped run held back for their task and never sent. */
   const [emailsHeldForTheirTask, setEmailsHeldForTheirTask] = useState(0);
+  /** What the run muted of the target's automation, said once it ended. */
+  const [mutedAutomation, setMutedAutomation] = useState<MutedAutomation | undefined>(undefined);
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -156,9 +171,11 @@ export const AutopilotPage: React.FC = () => {
         notWritten?: string[];
         leftByStop?: AutopilotStopLeftover[];
         emailsHeldForTheirTask?: number;
+        mutedAutomation?: MutedAutomation;
       };
     }
   >('autopilot:completed', (msg) => {
+    setMutedAutomation(msg.payload.mutedAutomation);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
@@ -200,6 +217,7 @@ export const AutopilotPage: React.FC = () => {
     setNotWritten(undefined);
     setLeftByStop([]);
     setEmailsHeldForTheirTask(0);
+    setMutedAutomation(undefined);
     const store = useAutopilotStore.getState();
     const plan = store.plan;
     store.setExecutionStatus('executing');
@@ -217,6 +235,8 @@ export const AutopilotPage: React.FC = () => {
     executeMutation.mutate({
       grappeThreshold: 0,
       ...(store.neutralizeContactPoints === false ? { keepContactPoints: true } : {}),
+      // The target's automation muted through its own bypass, as ticked there too.
+      ...(store.muteAutomation ? { muteAutomation: true } : {}),
     });
   }, [executeMutation]);
 
@@ -349,7 +369,19 @@ export const AutopilotPage: React.FC = () => {
             className="w-[60%] overflow-hidden border-r border-(--sf-border)"
             data-testid="autopilot-graph-area"
           >
-            <AutopilotGraph />
+            <PartBoundary className="h-full w-full" data-testid="autopilot-graph-failed">
+              <Suspense
+                fallback={
+                  <div
+                    className="h-full w-full"
+                    aria-busy="true"
+                    data-testid="autopilot-graph-loading"
+                  />
+                }
+              >
+                <AutopilotGraph />
+              </Suspense>
+            </PartBoundary>
           </div>
           <div className="w-[40%] overflow-hidden">
             <ControlPanel
@@ -357,6 +389,7 @@ export const AutopilotPage: React.FC = () => {
               notWritten={notWritten}
               leftByStop={leftByStop}
               emailsHeldForTheirTask={emailsHeldForTheirTask}
+              mutedAutomation={mutedAutomation}
             />
           </div>
         </div>

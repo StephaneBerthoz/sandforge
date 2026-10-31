@@ -23,6 +23,7 @@ import {
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
 import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 
 /**
  * How long a removal may keep the card waiting: Production Guard may wait on a
@@ -150,6 +151,8 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
+  /** The confirmation's box: the removal mutes what it fires, through the org's own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const info = useBridgeQuery<{ info: SeedRunRemovalInfo | null }>(
     'seed:removal:info',
     { runId },
@@ -228,6 +231,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         onClick={() => {
           setIncludeChanged(false);
           setSweep(false);
+          setMuteAutomation(false);
           setConfirming(true);
         }}
         data-testid={again ? 'seed-removal-remove-again' : 'seed-removal-remove'}
@@ -248,6 +252,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
       ...(includeChanged ? { includeChanged: true } : {}),
       ...(sweep ? { sweep: true } : {}),
       ...(again ? { again: true } : {}),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
   };
@@ -343,6 +348,16 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           {t('runRemoval.removeSweep')}
         </label>
         {sweep && confirming && <SeedRemovalSweep runId={runId} org={org} />}
+        {/* The confirmation reads nothing of what the deletes fire: what a
+            mute silences is read as the removal starts, and its result says it. */}
+        <AutomationMuteBox
+          offer="atStart"
+          checked={muteAutomation}
+          onChange={setMuteAutomation}
+          org={org}
+          testId="seed-removal-mute"
+          className="mt-2"
+        />
       </DangerConfirm>
     </section>
   );

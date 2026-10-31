@@ -20,7 +20,8 @@ import { ReviewPlanTab } from './ReviewPlanTab';
 import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
-import { ReviewAutomationTab } from './ReviewAutomationTab';
+import { ReviewAutomationTab, forgeRunMuteOffer } from './ReviewAutomationTab';
+import { muteOffered } from '../../utils/muteOffer';
 import { ReviewGapsTab, useUndecidedBlockingGaps } from './ReviewGapsTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
@@ -209,6 +210,19 @@ export const ForgeReview: React.FC = () => {
       setAutomationReading(false);
     }, []),
   );
+
+  /**
+   * What the run would mute of the target's automation, from the read: the
+   * box beside it is offered only when a bypass silences something, and is
+   * unticked once a read again, or an object left out, leaves nothing to
+   * silence — wherever the tab stands, as Execute may be pressed from any.
+   */
+  const muteAutomation = useForgeStore((s) => s.muteAutomation);
+  const setMuteAutomation = useForgeStore((s) => s.setMuteAutomation);
+  const muteOffer = useMemo(() => forgeRunMuteOffer(automation, leftOut), [automation, leftOut]);
+  useEffect(() => {
+    if (automation && muteAutomation && !muteOffered(muteOffer)) setMuteAutomation(false);
+  }, [automation, muteAutomation, muteOffer, setMuteAutomation]);
 
   /** What fires as the run inserts its records, on the objects it still writes. */
   const firedAtInsert = useMemo(
@@ -433,6 +447,12 @@ export const ForgeReview: React.FC = () => {
                 leftOut={leftOut}
                 onReadAgain={readAutomationAgain}
                 readingAgain={automationReading}
+                mute={{
+                  offer: muteOffer,
+                  checked: muteAutomation,
+                  onChange: setMuteAutomation,
+                  org: targetOrg?.alias ?? config?.targetOrgId ?? '',
+                }}
                 {...(targetOrg?.alias && targetOrg.username
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}
@@ -488,6 +508,17 @@ export const ForgeReview: React.FC = () => {
           >
             {t('forgeRun.simulation.action')}
           </button>
+          {/* Ticked on the Automation tab, the mute goes with Execute from
+              whichever tab it is pressed: said beside it. */}
+          {muteAutomation && (
+            <p
+              id="forge-mute-execute-hint"
+              data-testid="forge-mute-execute-hint"
+              className="text-xs text-text-secondary"
+            >
+              {t('forgeRun.review.muting')}
+            </p>
+          )}
           {undecidedBlocking > 0 && (
             <div className="flex items-center gap-2" data-testid="forge-gaps-undecided">
               <p id="forge-gaps-execute-hint" className="text-xs text-text-primary">
@@ -511,6 +542,7 @@ export const ForgeReview: React.FC = () => {
               [
                 filesBlocked ? 'forge-files-execute-hint' : '',
                 undecidedBlocking > 0 ? 'forge-gaps-execute-hint' : '',
+                muteAutomation ? 'forge-mute-execute-hint' : '',
               ]
                 .filter(Boolean)
                 .join(' ') || undefined

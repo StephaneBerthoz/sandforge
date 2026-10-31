@@ -23,6 +23,7 @@ import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import type { QuickSeedState } from './useQuickSeed';
 import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 
 /** Props for the QuickSeedFlow component. */
 export interface QuickSeedFlowProps {
@@ -182,6 +183,10 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   automation={automation}
                   orgName={runOrgName}
                   records={records}
+                  mute={{
+                    checked: quickSeed.muteAutomation,
+                    onChange: quickSeed.setMuteAutomation,
+                  }}
                 />
               )}
 
@@ -283,6 +288,13 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
                 </span>
               </div>
+
+              {/* What the run muted of the org's automation, when its box was ticked. */}
+              <MutedAutomationResult
+                muted={quickSeed.executionResult.mutedAutomation}
+                org={runOrgName}
+                testId="quick-seed-result-muted"
+              />
 
               {quickSeed.executionResult.objectResults.map((obj) => (
                 <Card key={obj.objectApiName}>

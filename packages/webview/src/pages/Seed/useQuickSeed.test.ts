@@ -311,6 +311,34 @@ describe('useQuickSeed', () => {
     expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', locale: 'ja_JP' });
   });
 
+  it('mutes the org’s automation only once the confirmation’s box is ticked, unticked for every template', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[0][0]).not.toHaveProperty('muteAutomation');
+
+    act(() => {
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', muteAutomation: true });
+
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+    expect(result.current.muteAutomation).toBe(false);
+  });
+
   it('keeps the locale chosen for the next template, as it keeps the org', () => {
     const { result } = renderHook(() => useQuickSeed());
     act(() => {

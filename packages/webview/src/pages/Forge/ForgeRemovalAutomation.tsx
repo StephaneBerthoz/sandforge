@@ -9,9 +9,11 @@ import {
   bypassAssignmentsOf,
   firedOnRemovalOf,
   heldBypassPermissionsOf,
+  mutePlanOf,
   removalBypassesOf,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import type { MuteOffer } from '../../utils/muteOffer';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { BypassAssistant, ReadAgainButton } from './BypassAssistant';
 
@@ -105,6 +107,13 @@ export interface RemovalAutomationViewProps {
   /** Whether a read is on its way. */
   reading: boolean;
   onReadAgain: () => void;
+  /**
+   * Drawn at the end of the section, under what fires: the box that mutes it
+   * for the act, which its owner draws (`AutomationMuteBox`) from the offer
+   * it planned. The view holds none of the box's words: the Automation page's
+   * Rewind step shows this section, and offers no mute.
+   */
+  after?: React.ReactNode;
 }
 
 /**
@@ -113,7 +122,8 @@ export interface RemovalAutomationViewProps {
  * and rule that fires, and why — or that nothing does; what could not be
  * read; and, for a bypass the user does not hold, the permission set that
  * would keep it quiet and the command that assigns it. The read shown stays
- * while the one asked for again is on its way.
+ * while the one asked for again is on its way. Where something a bypass
+ * silences fires, the box that mutes it for the act is offered under it.
  */
 export const RemovalAutomationView: React.FC<RemovalAutomationViewProps> = ({
   testId,
@@ -124,6 +134,7 @@ export const RemovalAutomationView: React.FC<RemovalAutomationViewProps> = ({
   error,
   reading,
   onReadAgain,
+  after,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -219,6 +230,7 @@ export const RemovalAutomationView: React.FC<RemovalAutomationViewProps> = ({
         {t(words.title, { org })}
       </h4>
       {body}
+      {after}
     </section>
   );
 };
@@ -233,6 +245,11 @@ export interface ForgeRemovalAutomationProps {
   targetOrgId: string | undefined;
   /** The removal takes every record the run created (`again`): read on the objects of each. */
   again?: boolean;
+  /**
+   * The box that mutes what the removal fires, drawn by the confirmation from
+   * the offer planned of this read (null before it answers); no box without.
+   */
+  muteBox?: (offer: MuteOffer | null) => React.ReactNode;
 }
 
 /**
@@ -257,6 +274,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   org,
   targetOrgId,
   again = false,
+  muteBox,
 }) => {
   const read = useBridgeMutation<RemovalAutomationAnswer>('forge:undo-automation:request', {
     responseType: 'forge:undo-automation:response',
@@ -297,6 +315,16 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
           bypasses: removalBypassesOf(answer.automation, answer.drafted),
         }
       : undefined;
+  // What the removal's deletes fire, and the updates that set an activated
+  // order back to Draft first: what the extension plans its mute from.
+  const offer =
+    shown && answer
+      ? mutePlanOf(
+          answer.automation,
+          (objectApiName, write) =>
+            write === 'delete' || (write === 'update' && answer.drafted.includes(objectApiName)),
+        )
+      : null;
   return (
     <RemovalAutomationView
       testId="forge-removal-automation"
@@ -307,6 +335,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
       error={read.error}
       reading={read.loading}
       onReadAgain={readAgain}
+      {...(muteBox ? { after: muteBox(offer) } : {})}
     />
   );
 };

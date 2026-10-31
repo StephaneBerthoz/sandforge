@@ -74,6 +74,7 @@ const INITIAL_STATE = {
   objectCounts: {} as Record<string, number>,
   complianceFramework: 'none' as ComplianceFrameworkType,
   neutralizeContactPoints: true,
+  muteAutomation: false,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
   rules: [] as AutopilotAnonymizationRule[],
@@ -108,6 +109,11 @@ export interface AutopilotState {
    * as a Forge run does. On unless unticked on the review step.
    */
   neutralizeContactPoints: boolean;
+  /**
+   * Whether the run mutes the target's automation through its own bypass:
+   * off unless ticked on the review step.
+   */
+  muteAutomation: boolean;
   /** Dependency graph built from metadata scan */
   graph: AutopilotGraph | null;
   /** Execution plan derived from the graph */
@@ -141,6 +147,8 @@ export interface AutopilotState {
   setComplianceFramework: (framework: ComplianceFrameworkType) => void;
   /** Neutralize emails and phone numbers, or keep them as read */
   setNeutralizeContactPoints: (on: boolean) => void;
+  /** Mute the target's automation for the run, or not */
+  setMuteAutomation: (mute: boolean) => void;
   /** Set the dependency graph */
   setGraph: (graph: AutopilotGraph | null) => void;
   /** Set the execution plan */
@@ -223,6 +231,10 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
 
   setNeutralizeContactPoints(on: boolean): void {
     set({ neutralizeContactPoints: on });
+  },
+
+  setMuteAutomation(muteAutomation: boolean): void {
+    set({ muteAutomation });
   },
 
   setGraph(graph: AutopilotGraph | null): void {

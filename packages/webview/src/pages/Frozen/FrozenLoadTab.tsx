@@ -32,6 +32,8 @@ import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 
 /**
  * The code the extension refuses a reload with, before anything is written,
@@ -160,6 +162,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const setTargetOrgId = useFrozenStore((s) => s.setTargetOrgId);
   const [pilot, setPilot] = useState(false);
   const [reload, setReload] = useState(false);
+  /** The box beside Load: the load mutes the target's automation, through its own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const [writeEncrypted, setWriteEncrypted] = useState(false);
   // A dataset whose manifest does not say its extraction left out the
   // encrypted fields it read masked may hold their masks: its load leaves out
@@ -248,7 +252,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     setLoadReport(null);
     setVerdict(null);
     previewMutation.reset();
-    loadMutation.mutate(loadOptions());
+    // Only the load mutes: its preview writes nothing.
+    loadMutation.mutate({ ...loadOptions(), ...(muteAutomation ? { muteAutomation: true } : {}) });
   };
 
   const plan = previewMutation.data?.plan;
@@ -481,6 +486,15 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               </p>
             </div>
           )}
+          {/* The load's gate reads what the target runs as it starts: the box
+              says what muting does, the report what it did. */}
+          <AutomationMuteBox
+            offer="atStart"
+            checked={muteAutomation}
+            onChange={setMuteAutomation}
+            org={targetName}
+            testId="frozen-load-mute"
+          />
           <div className="flex items-center gap-2">
             <Button
               variant="primary"
@@ -863,6 +877,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {Math.round(loadReport.durationMs / 1000)}s
                 </span>
               </div>
+              {/* What the load muted of the target's automation, when its box was ticked. */}
+              <MutedAutomationResult
+                muted={loadReport.mutedAutomation}
+                org={orgs.find((o) => o.id === loadReport.orgId)?.alias ?? loadReport.orgId}
+                testId="frozen-load-report-muted"
+              />
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <KPICard
                   icon="database"

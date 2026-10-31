@@ -147,6 +147,41 @@ describe('SeedRunRemoval', () => {
     expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', includeChanged: true });
   });
 
+  it('offers in the confirmation the box that mutes what the deletes fire, read as the removal starts, off', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('seed-removal-remove'));
+
+    expect((screen.getByTestId('seed-removal-mute-toggle') as HTMLInputElement).checked).toBe(
+      false,
+    );
+    expect(screen.getByTestId('seed-removal-mute-at-start').textContent).toMatch(
+      /^What it silences is read from DEV-SANDBOX as the run starts/,
+    );
+    fireEvent.click(screen.getByTestId('seed-removal-mute-toggle'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', muteAutomation: true });
+  });
+
+  it('says a mute refused on a production org in the interface language', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    confirmRemoval();
+
+    answer('seed:remove', 'seed:remove:error', {
+      message:
+        'The target is a production org: its automation is never muted there, whatever the setting says. Nothing was assigned; run without the option.',
+      code: 'MUTE_PRODUCTION',
+      retryable: false,
+    });
+
+    expect(screen.getByTestId('seed-removal-error').textContent).toContain(
+      "The target's automation is never muted on a production org",
+    );
+  });
+
   it('says what the removal took, and reads again what the run kept', () => {
     render(<SeedRunRemoval runId="op-1" />);
     answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
