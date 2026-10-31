@@ -167,7 +167,7 @@ test.describe('Keyboard and screen reader — the one-click Seed', () => {
     const useThis = page
       .getByTestId('template-card-prebuilt-minimal-demo')
       .getByTestId('btn-use-template');
-    await expect(useThis).toHaveAccessibleName(/^Use This: /);
+    await expect(useThis).toHaveAccessibleName(/^Use this: /);
 
     await useThis.focus();
     await page.keyboard.press('Enter');
@@ -203,7 +203,7 @@ test.describe('Keyboard and screen reader — the one-click Seed', () => {
     });
     await expect(page.getByTestId('quick-seed-result-summary')).toBeFocused();
     await expect(page.getByTestId('quick-seed-result-status')).toHaveText(
-      /^Seed Complete\. Written: 10 of \d+\.$/,
+      /^Seed complete\. Written: 10 of \d+\.$/,
     );
   });
 

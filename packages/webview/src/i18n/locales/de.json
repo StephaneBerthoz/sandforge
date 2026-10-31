@@ -725,7 +725,7 @@
     "stepResults": "Ergebnisse",
     "advancedSettings": "Erweiterte Einstellungen",
     "exportCsv": "CSV exportieren",
-    "seedAgain": "Seed wiederholen",
+    "seedAgain": "Seed wiederholen…",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
@@ -737,7 +737,7 @@
       },
       "minimalDemo": {
         "name": "Minimale Demo",
-        "description": "Leichtgewichtige Demo-Vorlage mit nur Accounts, Kontakten und Opportunities. Ideal für schnelle Demos und Tests."
+        "description": "50 Accounts mit je 2 Kontakten und 4 Opportunities: 350 Datensätze, unter 1 MB."
       },
       "crmStarter": {
         "name": "CRM-Starter",
@@ -765,8 +765,7 @@
       "selectOrg": "Ziel-Org auswählen",
       "templateSelected": "Vorlage: {{name}}",
       "startSeeding": "Seed starten",
-      "backToGallery": "Zurück zur Galerie",
-      "seedAgain": "Seed wiederholen"
+      "backToGallery": "Zurück zur Galerie"
     },
     "csv": {
       "dropzone": {
@@ -925,10 +924,11 @@
         "title": "Quell- und Ziel-Org auswählen",
         "sourceLabel": "Quell-Org",
         "targetLabel": "Ziel-Org",
-        "targetHint": "Datensätze werden IN diese Org geklont",
+        "targetHint": "Die Datensätze werden in diese Org geklont",
         "direction": "Quelle zu Ziel",
         "selectSource": "Quell-Org auswählen...",
-        "sameOrgWarning": "Quell- und Ziel-Org sind identisch"
+        "sameOrgWarning": "Quell- und Ziel-Org sind identisch",
+        "selectTarget": "Ziel-Org auswählen..."
       },
       "objectSelector": {
         "title": "Objekte zum Klonen auswählen",
@@ -979,12 +979,12 @@
         "insertedOf_other": "{{inserted}}/{{count}} eingefügt"
       },
       "wizard": {
-        "stepSource": "Quell-Org",
         "stepObjects": "Objekte wählen",
         "stepPreview": "Vorschau",
         "stepExecute": "Ausführen",
-        "needsBothOrgs": "Der Klonvorgang braucht eine Quell-Org und eine Ziel-Org. Er schreibt in die in SandForge ausgewählte Org: Wählen Sie eine auf der Seite Organisationen.",
-        "targetChanged": "Die Ziel-Org wurde nach der Vorschau geändert. Ein Klonvorgang schreibt nur in die Org, für die seine Vorschau erstellt wurde: Erstellen Sie die Vorschau erneut, um in die jetzt ausgewählte Org zu klonen."
+        "needsBothOrgs": "Das Klonen braucht eine Quell-Org und eine Ziel-Org: Wählen Sie beide im ersten Schritt.",
+        "targetChanged": "Die Ziel-Org wurde nach der Vorschau geändert. Ein Klonvorgang schreibt nur in die Org, für die seine Vorschau erstellt wurde: Erstellen Sie die Vorschau erneut, um in die jetzt ausgewählte Org zu klonen.",
+        "stepOrgs": "Orgs"
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Klonen abgebrochen: Der Schreibvorgang in der Produktion wurde nicht bestätigt.",
@@ -1002,7 +1002,7 @@
     },
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox mit realistischen Testdaten",
-      "step2": "Vorlage oder Modus wählen: KI, CSV, Klonen",
+      "step2": "Eine Vorlage wählen, oder Daten generieren, CSV-Upload oder Von Org klonen",
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
     },
@@ -1105,7 +1105,7 @@
     "scenario": {
       "section": {
         "title": "Testdaten für einen Agentforce-Agenten",
-        "subtitle": "Ein Geschäftsszenario als Accounts, Kontakte, Kundenvorgänge mit ihrer Historie und Knowledge-Artikel, die zusammenpassen, und die Tests des Agenten, die danach fragen. Kein KI-Schlüssel nötig."
+        "subtitle": "Ein Geschäftsszenario als Accounts, Kontakte, Kundenvorgänge mit ihrer Historie und Knowledge-Artikel, die zusammenpassen, und die Tests des Agenten, die danach fragen. Die mitgelieferten Pakete brauchen keinen KI-Schlüssel; das Entwerfen aus eigenem Text nutzt Ihren Anthropic-Schlüssel."
       },
       "card": {
         "badge": "Agentforce-Testszenario",
@@ -1195,8 +1195,6 @@
       },
       "confirm": {
         "title": "Seed von {{name}}",
-        "seed": "Startwert",
-        "seedHint": "Derselbe Startwert schreibt dieselben Namen. Zwei Läufe in einer Org brauchen zwei Startwerte, sonst kollidieren die URL-Namen ihrer Artikel.",
         "preparing": "Kundenvorgangsstatus und Knowledge der Org werden gelesen…",
         "issues": "Das Szenario kann nicht kompiliert werden:",
         "objects": "Was der Lauf schreibt",
@@ -1205,9 +1203,11 @@
         "tests_other": "{{count}} Tests für den Agenten.",
         "statusOrg": "Offene Kundenvorgänge werden als {{open}} geschrieben, geschlossene als {{closed}}: die eigenen Status der Org.",
         "statusDefault": "Die Org hat ihre Kundenvorgangsstatus nicht genannt ({{reason}}): Kundenvorgänge werden als New und Closed geschrieben.",
-        "gates": "Die Prüfungen des Seeds gelten: Production Guard, bevor in eine Produktions-Org geschrieben wird, dann Datenspeicher, Automatisierung und E-Mails, Duplikatsregeln und Ihr Start.",
+        "gates": "Vor dem Schreiben geprüft: Production Guard, Speicher, Automatisierung und E-Mails, Duplikatsregeln.",
         "notInV1": "In dieser Version nicht geschrieben: E-Mails, Messaging-Sitzungen, Sprachanrufe und Chat-Transkripte.",
-        "start": "Seed des Szenarios starten"
+        "start": "Seed des Szenarios starten",
+        "variant": "Variante",
+        "variantHint": "Nehmen Sie eine andere Zahl, um dieses Szenario ein zweites Mal in dieselbe Org zu schreiben: Dieselbe Zahl schreibt dieselben Namen."
       },
       "knowledge": {
         "absent": "Diese Org hat kein Knowledge: Die Artikel werden übersprungen. Die Tests, die aus Knowledge antworten, werden geschrieben, und der Agent hat keinen Artikel zum Zitieren.",

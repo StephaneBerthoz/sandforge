@@ -1063,7 +1063,7 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
     await expect(page.getByTestId('quick-seed-confirm')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByTestId('quick-seed-org-selector')).toHaveValue('org-src-1');
-    await expect(page.getByRole('button', { name: 'Start Seeding' })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Start seeding' })).toHaveCount(1);
     await page.getByTestId('quick-seed-count-Contact').fill('10');
     // The cases a relation places under the contacts follow them; products
     // set to 0 are left out, with their prices and the line items on them.
@@ -1144,6 +1144,65 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
     await page.getByRole('button', { name: 'Open a created Account in DevSandbox' }).click();
     const open = await bridge.waitForMessage('seed:open-record', { timeout: 10_000 });
     expect(open.payload).toEqual({ runId: operationId, recordId: '001000000000001AAA' });
+  });
+});
+
+test.describe('Seed — a template seeded again from its results', () => {
+  test('Seed again… goes back to the confirmation, its counts and org kept, and sends nothing until Start', async ({
+    page,
+  }) => {
+    // It wrote the template again at once, with no confirmation: after a
+    // partial run, what had succeeded went into the org twice.
+    const bridge = await openSeedStart(page);
+    const cards = page.getByTestId('template-gallery').locator('[data-testid^="template-card-"]');
+    await cards.first().getByTestId('btn-use-template').click();
+    await page.getByTestId('quick-seed-count-Contact').fill('10');
+    await page.getByTestId('quick-seed-org-selector').selectOption('org-tgt-1');
+    await page.getByTestId('btn-quick-seed-start').click();
+    const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    await respondToAll(page, 'seed:execute', 'seed:execute:response', {
+      templateId: 'prebuilt-crm-starter',
+      operationId: String(request.id),
+      status: 'partial',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 25,
+          recordsFailed: 0,
+          createdIds: ['001000000000001AAA'],
+          errors: [],
+        },
+        {
+          objectApiName: 'Contact',
+          recordsCreated: 0,
+          recordsFailed: 10,
+          createdIds: [],
+          errors: Array.from({ length: 10 }, () => 'REQUIRED_FIELD_MISSING: [LastName]'),
+        },
+      ],
+      totalRecordsCreated: 25,
+      totalRecordsFailed: 10,
+      duration: 2_000,
+      timestamp: '2026-10-31T08:00:00.000Z',
+    });
+    const again = page.getByTestId('btn-seed-again-quick');
+    await expect(again).toHaveText('Seed again…');
+    const automationReads = (await outgoing(page, 'seed:automation')).length;
+
+    await again.click();
+
+    await expect(page.getByTestId('quick-seed-confirm')).toBeVisible();
+    // What the org runs and the emails it has left are read again for this run.
+    await expect
+      .poll(async () => (await outgoing(page, 'seed:automation')).length)
+      .toBeGreaterThan(automationReads);
+    await expect(page.getByRole('heading', { name: 'Template: CRM Starter' })).toBeFocused();
+    await expect(page.getByTestId('quick-seed-count-Contact')).toHaveValue('10');
+    await expect(page.getByTestId('quick-seed-org-selector')).toHaveValue('org-tgt-1');
+    expect(await outgoing(page, 'seed:execute')).toHaveLength(1);
+
+    await page.getByTestId('btn-quick-seed-start').click();
+    await expect.poll(async () => (await outgoing(page, 'seed:execute')).length).toBe(2);
   });
 });
 
@@ -1391,15 +1450,18 @@ test.describe('Seed — the objects of the wizard', () => {
 /** Both sandboxes, neither connected: no org is selected, so a clone has no target. */
 const NONE_SELECTED = MOCK_ORGS.map((org) => ({ ...org, status: 'expired' }));
 
-/** What the Clone wizard says of a missing target, on its first two steps. */
+/** What the Clone wizard says on its objects step once its target is gone. */
 const NEEDS_BOTH_ORGS =
-  'The clone needs a source org and a target org. It writes to the org selected in SandForge: ' +
-  'pick one on the Organizations page.';
+  'The clone needs a source org and a target org: choose both on the first step.';
 
 test.describe('Seed Clone — with no org selected', () => {
-  test('never asks for the preview, and says why on both steps', async ({ page }) => {
-    // Sent with an empty target, the preview came back as the bridge's
-    // refusal, shown as it was written: "Invalid payload — targetOrgId: …".
+  test('picks its target on the first step, which waits for it, and never asks for a preview without one', async ({
+    page,
+  }) => {
+    // The step said to select the target and showed it read-only: with none
+    // selected, it sent the user to the Organizations page. Sent with an
+    // empty target, the preview came back as the bridge's refusal, shown as
+    // it was written: "Invalid payload — targetOrgId: …".
     const bridge = new MockBridge();
     await bridge.setup(page);
     await page.addInitScript(() => {
@@ -1409,16 +1471,31 @@ test.describe('Seed Clone — with no org selected', () => {
     await bridge.seedOrgs(NONE_SELECTED);
     await page.getByTestId('mode-card-clone').click();
 
-    await expect(page.getByTestId('clone-no-target')).toHaveText(NEEDS_BOTH_ORGS);
+    const target = page.getByTestId('clone-target-select');
+    await expect(target).toHaveValue('');
+    await expect(page.getByText('Organizations page')).toHaveCount(0);
     await page.getByTestId('clone-source-select').selectOption('org-src-1');
     await bridge.waitForMessage('seed:clone:describe-source', { timeout: 10_000 });
     await respondToAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
       objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
     });
-    await page.getByTestId('clone-wizard-next').click();
+    const next = page.getByTestId('clone-wizard-next');
+    await expect(next).toBeDisabled();
+    // Every org but the source.
+    await expect(target.locator('option:not([value=""])')).toHaveText(['QASandbox [SANDBOX]']);
+
+    await target.selectOption('org-tgt-1');
+    await expect(next).toBeEnabled();
+    // The org picked here is the org picked everywhere.
+    expect((await outgoing(page, 'org:select')).map((m) => m.payload)).toEqual([
+      { orgId: 'org-tgt-1' },
+    ]);
+    await next.click();
     await page.getByTestId('clone-obj-check-Account').check();
 
-    await expect(page.getByTestId('clone-wizard-next')).toBeDisabled();
+    // The target goes: its org is no longer in the list.
+    await bridge.seedOrgs(NONE_SELECTED.filter((org) => org.id !== 'org-tgt-1'));
+    await expect(next).toBeDisabled();
     await expect(page.getByTestId('clone-needs-both-orgs')).toHaveText(NEEDS_BOTH_ORGS);
     expect(await outgoing(page, 'seed:clone:preview')).toEqual([]);
   });

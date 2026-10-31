@@ -13,6 +13,12 @@ export interface TemplateCardProps {
   onUseThis: (item: TemplateGalleryItem) => void;
 }
 
+/**
+ * The tag every built-in template carries. Shown, it was on every card of the
+ * gallery and told none of them apart.
+ */
+const BUILT_IN_TAG = 'prebuilt';
+
 /** Renders a single seed template as a card in the gallery grid. */
 export const TemplateCard: React.FC<TemplateCardProps> = ({ item, onUseThis }) => {
   const { t } = useTranslation();
@@ -31,11 +37,13 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({ item, onUseThis }) =
                 {t('seed.gallery.recommended')}
               </Badge>
             )}
-            {item.tags.map((tag) => (
-              <Badge key={tag} variant="default">
-                {tag}
-              </Badge>
-            ))}
+            {item.tags
+              .filter((tag) => tag !== BUILT_IN_TAG)
+              .map((tag) => (
+                <Badge key={tag} variant="default">
+                  {tag}
+                </Badge>
+              ))}
           </div>
         }
       />

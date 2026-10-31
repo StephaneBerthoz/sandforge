@@ -639,7 +639,7 @@
       "hint": "The people, companies, addresses and phone numbers the seed writes are drawn for this locale."
     },
     "title": "Seed Data",
-    "selectOrg": "Select Target Org",
+    "selectOrg": "Select target org",
     "selectOrgDesc": "Choose the org where data will be seeded",
     "selectObjects": "Select Objects",
     "selectObjectsDesc": "Choose objects to seed with data",
@@ -706,14 +706,14 @@
     "totalRecords": "Total Records",
     "saveAsTemplate": "Save as Template",
     "templateSaved": "Template saved. Pick it from the gallery next time.",
-    "recordsCreated": "Records Created",
-    "recordsFailed": "Records Failed",
-    "executionTime": "Execution Time",
+    "recordsCreated": "Records created",
+    "recordsFailed": "Records failed",
+    "executionTime": "Execution time",
     "noObjects": "No objects selected",
     "running": "Seeding data...",
-    "complete": "Seed Complete",
-    "partial": "Partially Complete",
-    "failed": "Seed Failed",
+    "complete": "Seed complete",
+    "partial": "Partially complete",
+    "failed": "Seed failed",
     "records": "records",
     "sequencePattern": "PREFIX-{n}",
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
@@ -725,7 +725,7 @@
     "stepResults": "Results",
     "advancedSettings": "Advanced Settings",
     "exportCsv": "Export CSV",
-    "seedAgain": "Seed Again",
+    "seedAgain": "Seed again…",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
@@ -737,7 +737,7 @@
       },
       "minimalDemo": {
         "name": "Minimal Demo",
-        "description": "Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing."
+        "description": "50 accounts, each with 2 contacts and 4 opportunities: 350 records, under 1 MB."
       },
       "crmStarter": {
         "name": "CRM Starter",
@@ -755,18 +755,17 @@
       "objects_other": "{{count}} objects",
       "records_one": "{{count}} record",
       "records_other": "{{count}} records",
-      "useThis": "Use This",
+      "useThis": "Use this",
       "templateMissing": "This saved template no longer exists.",
       "recommended": "Start here",
-      "useThisNamed": "Use This: {{name}}"
+      "useThisNamed": "Use this: {{name}}"
     },
     "quickSeed": {
       "title": "Quick Seed",
       "selectOrg": "Select target org",
       "templateSelected": "Template: {{name}}",
-      "startSeeding": "Start Seeding",
-      "backToGallery": "Back to Gallery",
-      "seedAgain": "Seed Again"
+      "startSeeding": "Start seeding",
+      "backToGallery": "Back to gallery"
     },
     "csv": {
       "dropzone": {
@@ -812,8 +811,8 @@
         "stepMap": "Map Columns",
         "stepValidate": "Validate",
         "stepExecute": "Execute",
-        "selectOrg": "Select Target Org",
-        "selectObject": "Select Target Object",
+        "selectOrg": "Select target org",
+        "selectObject": "Select target object",
         "cancel": "Cancel",
         "next": "Next",
         "back": "Back",
@@ -922,13 +921,14 @@
     },
     "clone": {
       "sourcePicker": {
-        "title": "Select Source & Target Orgs",
-        "sourceLabel": "Source Org",
-        "targetLabel": "Target Org",
-        "targetHint": "Records will be cloned TO this org",
-        "direction": "Source to Target",
+        "title": "Select source and target orgs",
+        "sourceLabel": "Source org",
+        "targetLabel": "Target org",
+        "targetHint": "Records are cloned into this org",
+        "direction": "Source to target",
         "selectSource": "Select a source org...",
-        "sameOrgWarning": "Source and target orgs are the same"
+        "sameOrgWarning": "Source and target orgs are the same",
+        "selectTarget": "Select a target org..."
       },
       "objectSelector": {
         "title": "Select Objects to Clone",
@@ -979,12 +979,12 @@
         "insertedOf_other": "{{inserted}}/{{count}} inserted"
       },
       "wizard": {
-        "stepSource": "Source Org",
-        "stepObjects": "Select Objects",
+        "stepObjects": "Select objects",
         "stepPreview": "Preview",
         "stepExecute": "Execute",
-        "needsBothOrgs": "The clone needs a source org and a target org. It writes to the org selected in SandForge: pick one on the Organizations page.",
-        "targetChanged": "The target org changed after the preview. A clone writes only to the org its preview was made for: preview again to clone into the org selected now."
+        "needsBothOrgs": "The clone needs a source org and a target org: choose both on the first step.",
+        "targetChanged": "The target org changed after the preview. A clone writes only to the org its preview was made for: preview again to clone into the org selected now.",
+        "stepOrgs": "Orgs"
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clone cancelled: the production write was not confirmed.",
@@ -1002,7 +1002,7 @@
     },
     "emptyState": {
       "title": "Fill your sandbox with realistic test data",
-      "step2": "Pick a template or a mode: AI, CSV, Clone",
+      "step2": "Pick a template, or Generate data, CSV Upload or Clone from Org",
       "step3": "Choose objects and record volumes",
       "step4": "Execute and review the results"
     },
@@ -1105,7 +1105,7 @@
     "scenario": {
       "section": {
         "title": "Test data for an Agentforce agent",
-        "subtitle": "A business scenario written as accounts, contacts, cases with their history and Knowledge articles that agree with each other, and the agent's tests that ask about them. No AI key needed."
+        "subtitle": "A business scenario written as accounts, contacts, cases with their history and Knowledge articles that agree with each other, and the agent's tests that ask about them. The shipped packs need no AI key; drafting from your own text uses your Anthropic key."
       },
       "card": {
         "badge": "Agentforce test scenario",
@@ -1195,8 +1195,6 @@
       },
       "confirm": {
         "title": "Seed {{name}}",
-        "seed": "Seed",
-        "seedHint": "The same seed writes the same names. Two runs in one org need two seeds, or their articles' URL names collide.",
         "preparing": "Reading the org's case statuses and Knowledge…",
         "issues": "The scenario cannot be compiled:",
         "objects": "What the run writes",
@@ -1205,9 +1203,11 @@
         "tests_other": "{{count}} tests for the agent.",
         "statusOrg": "Open cases are written as {{open}} and closed ones as {{closed}}: the org's own statuses.",
         "statusDefault": "The org would not say its case statuses ({{reason}}): cases are written as New and Closed.",
-        "gates": "The seed's gates hold: Production Guard before a production org is written to, then data storage, automation and emails, duplicate rules, and your Start.",
+        "gates": "Checked before writing: Production Guard, storage, automation and emails, duplicate rules.",
         "notInV1": "Not written in this version: emails, messaging sessions, voice calls and chat transcripts.",
-        "start": "Seed the scenario"
+        "start": "Seed the scenario",
+        "variant": "Variant",
+        "variantHint": "Use another number to seed this scenario a second time in the same org: the same number writes the same names."
       },
       "knowledge": {
         "absent": "This org has no Knowledge: the articles are skipped. The tests that answer from Knowledge are written, and the agent will have no article to cite.",
@@ -3197,11 +3197,11 @@
       "tip": "Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them."
     },
     "seed": {
-      "step1": "Under Quick Seed from Template, press Use This on CRM Starter, marked Start here.",
+      "step1": "Under Quick Seed from Template, press Use this on CRM Starter, marked Start here.",
       "step2": "Check the counts under Record Count, and pick the org under Select target org.",
-      "step3": "Press Start Seeding and follow each object's progress until the results show.",
+      "step3": "Press Start seeding and follow each object's progress until the results show.",
       "step4": "On the results, press Open a created Account in your org to see the records.",
-      "tip": "Nothing is written before Start Seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back."
+      "tip": "Nothing is written before Start seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back."
     },
     "checkpoint": {
       "step1": "Pick a sandbox, scratch org or Developer Edition in the org list at the top.",

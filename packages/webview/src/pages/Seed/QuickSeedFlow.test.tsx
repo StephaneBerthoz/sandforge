@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { productionOrg } from '../Checkpoint/testing/checkpointFixtures';
@@ -138,6 +139,7 @@ const baseQuickSeed: QuickSeedState = {
   setMuteAutomation: vi.fn(),
   execute: vi.fn(),
   cancel: vi.fn(),
+  seedAgain: vi.fn(),
   reset: vi.fn(),
   setError: vi.fn(),
 };
@@ -170,7 +172,7 @@ describe('QuickSeedFlow', () => {
       expect((screen.getByTestId('quick-seed-count-Contact') as HTMLInputElement).value).toBe('20');
       expect(screen.getByTestId('quick-seed-org-selector')).toBeDefined();
       expect(within(card).getByText('70 records')).toBeDefined();
-      expect(screen.getAllByRole('button', { name: 'Start Seeding' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: 'Start seeding' })).toHaveLength(1);
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
@@ -613,6 +615,39 @@ describe('QuickSeedFlow', () => {
       expect(screen.getByTestId('btn-seed-again-quick')).toBeDefined();
     });
 
+    it('goes back on Seed again… to the confirmation, and runs nothing', () => {
+      // It wrote another full copy of the template at once, with no
+      // confirmation, after a partial run as after a whole one.
+      const seedAgain = vi.fn();
+      const execute = vi.fn();
+      render(<QuickSeedFlow quickSeed={{ ...results, seedAgain, execute }} orgs={mockOrgs} />);
+
+      const again = screen.getByTestId('btn-seed-again-quick');
+      expect(again.textContent).toBe(en.seed.seedAgain);
+      fireEvent.click(again);
+
+      expect(seedAgain).toHaveBeenCalledTimes(1);
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('names the outcome and its figures in sentence case, as the rest of the results', () => {
+      render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...results,
+            executionResult: { ...mockExecutionResult, status: 'partial', totalRecordsFailed: 3 },
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+
+      const summary = screen.getByTestId('quick-seed-result-summary');
+      expect(summary.textContent).toContain('Partially complete');
+      expect(summary.textContent).toContain('Records created: 150');
+      expect(summary.textContent).toContain('Records failed: 3');
+      expect(summary.textContent).toContain('Execution time: 5.0s');
+    });
+
     it('opens first a created account in the org the run wrote to, naming the run and the record', () => {
       // The payoff was one step away and not offered: nothing led to the data.
       render(<QuickSeedFlow quickSeed={results} orgs={mockOrgs} />);
@@ -796,7 +831,7 @@ describe('QuickSeedFlow', () => {
 
       const status = screen.getByTestId('quick-seed-result-status');
       expect(status.getAttribute('role')).toBe('status');
-      expect(status.textContent).toBe('Seed Complete. Written: 150 of 150.');
+      expect(status.textContent).toBe('Seed complete. Written: 150 of 150.');
     });
 
     it('says a cancelled run stopped, with what it wrote of what it planned', () => {

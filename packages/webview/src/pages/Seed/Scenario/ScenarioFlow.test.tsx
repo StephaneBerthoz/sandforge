@@ -8,6 +8,7 @@ import type {
 } from '@sandforge/shared';
 import { RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
 
 const mockPostMessage = vi.fn();
 const stableApi = {
@@ -308,5 +309,31 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
 
     expect(screen.getByTestId('scenario-issues').textContent).toContain('options.articleBodyField');
     expect((screen.getByTestId('btn-scenario-start') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('names the number its draws start from Variant, says when to change it, and prepares the run with it', () => {
+    // Labelled "Seed" under "Seed Retail orders", it read as the module, and
+    // nothing said to change it before a second run in the same org.
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+
+    const variant = screen.getByLabelText(en.seed.scenario.confirm.variant);
+    expect(variant).toBe(screen.getByTestId('scenario-seed'));
+    expect(screen.queryByLabelText('Seed')).toBeNull();
+    const hint = document.getElementById(variant.getAttribute('aria-describedby') ?? '');
+    expect(hint?.textContent).toBe(en.seed.scenario.confirm.variantHint);
+    expect(screen.getByTestId('scenario-plan').textContent).toContain(
+      'Checked before writing: Production Guard, storage, automation and emails, duplicate rules.',
+    );
+
+    fireEvent.change(variant, { target: { value: '2' } });
+    expect(sent('seed:scenario:prepare').pop()?.payload).toMatchObject({ seed: 2 });
   });
 });

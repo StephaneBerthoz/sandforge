@@ -90,6 +90,12 @@ export interface QuickSeedState {
    * the run has reported progress, as it is not registered until then.
    */
   cancel: () => void;
+  /**
+   * From the results, back to the confirmation of the same template, its
+   * counts, org and locale kept and the box that mutes unticked: nothing is
+   * written before its Start.
+   */
+  seedAgain: () => void;
   /** Back to the gallery. The org chosen stays chosen for the next template. */
   reset: () => void;
   /** Set or clear error. */
@@ -105,7 +111,8 @@ export interface QuickSeedOptions {
 /**
  * Hook managing the Quick Seed state machine.
  *
- * Phases: idle -> confirm -> executing -> results.
+ * Phases: idle -> confirm -> executing -> results, and from the results back
+ * to confirm for another run of the template.
  * Uses the template's field rules directly as Smart Suggest defaults.
  */
 export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
@@ -272,6 +279,28 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     sendMessage(buildMessage<{ operationId: string }>('execution:abort', { operationId }));
   }, [operationId, sendMessage]);
 
+  /*
+   * Seed again on the results ran the template again at once: another full
+   * copy written with no confirmation, the emails the first run had used not
+   * counted again, and after a partial run what had succeeded doubled. It
+   * goes back to the confirmation instead, which reads the org's automation
+   * and emails again before its Start. The mute is a choice of each run, made
+   * on its confirmation; the org stays only while it is still connected.
+   */
+  const seedAgain = useCallback(() => {
+    if (!selectedTemplate) return;
+    const orgs = useOrgStore.getState().orgs;
+    setSelectedOrgId((chosen) =>
+      orgs.some((org) => org.id === chosen && org.status === 'connected') ? chosen : '',
+    );
+    setMuteAutomation(false);
+    setExecutionResult(undefined);
+    setError(null);
+    setElapsedMs(0);
+    executeMutation.reset();
+    setPhase('confirm');
+  }, [selectedTemplate, executeMutation]);
+
   const reset = useCallback(() => {
     setPhase('idle');
     setSelectedTemplate(null);
@@ -334,6 +363,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     setMuteAutomation,
     execute,
     cancel,
+    seedAgain,
     reset,
     setError,
   };

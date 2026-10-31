@@ -5123,18 +5123,20 @@ for (const theme of SCANNED_THEMES) {
       });
     }
 
-    test('Seed Clone with no org selected, saying on both steps why it cannot preview', async ({
+    test('Seed Clone with no org selected, its target picked on the first step, and the objects step saying why once it is gone', async ({
       page,
     }) => {
-      // Neither org connected: nothing is selected, so the clone has no target.
+      // Neither org connected: nothing is selected, so the clone has no target
+      // until one is picked beside the source.
+      const expired = MOCK_ORGS.map((org) => ({ ...org, status: 'expired' }));
       await navigateToModule(bridge, page, 'seed', 'panel-app', { theme });
-      await bridge.seedOrgs(MOCK_ORGS.map((org) => ({ ...org, status: 'expired' })));
+      await bridge.seedOrgs(expired);
       await page.getByTestId('mode-card-clone').click();
-      await page.waitForSelector('[data-testid="clone-no-target"]', { timeout: 10_000 });
+      await page.waitForSelector('[data-testid="clone-target-select"]', { timeout: 10_000 });
       const atSource = await checkAccessibility(page);
       expectNoViolations(atSource);
       expect(
-        await contrastMeasuredIn(page, atSource, '[data-testid="clone-no-target"]'),
+        await contrastMeasuredIn(page, atSource, '[data-testid="clone-target-column"]'),
       ).toBeGreaterThan(0);
 
       await page.getByTestId('clone-source-select').selectOption(DEV_SANDBOX.id);
@@ -5142,8 +5144,17 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'seed:clone:describe-source', 'seed:clone:describe-source:response', {
         objects: [{ apiName: 'Account', label: 'Account', recordCount: -1 }],
       });
+      await page.getByTestId('clone-target-select').selectOption(QA_SANDBOX.id);
+      await page.waitForSelector('[data-testid="clone-target-column"] [data-testid="org-badge"]', {
+        timeout: 10_000,
+      });
+      const bothPicked = await checkAccessibility(page);
+      expectNoViolations(bothPicked);
+
       await page.getByTestId('clone-wizard-next').click();
       await page.getByTestId('clone-obj-check-Account').check();
+      // The target's org is gone from the list.
+      await bridge.seedOrgs(expired.filter((org) => org.id !== QA_SANDBOX.id));
       await page.waitForSelector('[data-testid="clone-needs-both-orgs"]', { timeout: 10_000 });
       const results = await checkAccessibility(page);
       expectNoViolations(results);

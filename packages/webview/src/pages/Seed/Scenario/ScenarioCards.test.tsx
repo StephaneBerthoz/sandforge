@@ -3,6 +3,12 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { BaseMessage, SeedScenarioPackEntry } from '@sandforge/shared';
 import { BUILT_IN_SCENARIO_PACKS, RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
+import fr from '../../../i18n/locales/fr.json';
+import de from '../../../i18n/locales/de.json';
+import es from '../../../i18n/locales/es.json';
+import ptBR from '../../../i18n/locales/pt-BR.json';
+import ja from '../../../i18n/locales/ja.json';
 
 const mockPostMessage = vi.fn();
 const stableApi = {
@@ -127,5 +133,20 @@ describe('ScenarioCards', () => {
     fireEvent.click(screen.getByTestId('btn-draft-scenario'));
 
     expect(onDraft).toHaveBeenCalled();
+  });
+
+  it('says that the shipped packs need no AI key and that the draft uses the Anthropic one, in every language', () => {
+    // It ended "No AI key needed." above the draft card, which fails without
+    // an Anthropic key in Settings > AI.
+    render(<ScenarioCards onPick={vi.fn()} onDraft={vi.fn()} />);
+    expect(screen.getByTestId('seed-scenarios').querySelector('p')?.textContent).toMatch(
+      /The shipped packs need no AI key; drafting from your own text uses your Anthropic key\.$/,
+    );
+
+    for (const [language, catalogue] of Object.entries({ en, fr, de, es, 'pt-BR': ptBR, ja })) {
+      // The key the draft asks for when there is none, named as its refusal names it.
+      expect(catalogue.seed.scenario.draft.notConfigured, language).toContain('Anthropic');
+      expect(catalogue.seed.scenario.section.subtitle, language).toContain('Anthropic');
+    }
   });
 });

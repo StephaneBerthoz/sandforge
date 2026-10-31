@@ -639,7 +639,7 @@
       "hint": "As pessoas, empresas, endereços e números de telefone que o seed grava são gerados para esta localidade."
     },
     "title": "Gerar dados",
-    "selectOrg": "Selecionar Org de destino",
+    "selectOrg": "Selecionar org de destino",
     "selectOrgDesc": "Escolha a org onde os dados serão gerados",
     "selectObjects": "Selecionar objetos",
     "selectObjectsDesc": "Escolha os objetos para popular com dados",
@@ -725,7 +725,7 @@
     "stepResults": "Resultados",
     "advancedSettings": "Configurações avançadas",
     "exportCsv": "Exportar CSV",
-    "seedAgain": "Executar Seed novamente",
+    "seedAgain": "Executar Seed novamente…",
     "templates": {
       "salesCloudStarter": {
         "name": "Kit inicial do Sales Cloud",
@@ -737,7 +737,7 @@
       },
       "minimalDemo": {
         "name": "Demo mínima",
-        "description": "Modelo de demo leve com apenas contas, contatos e oportunidades. Perfeito para demos rápidas e testes."
+        "description": "50 contas, cada uma com 2 contatos e 4 oportunidades: 350 registros, menos de 1 MB."
       },
       "crmStarter": {
         "name": "Kit inicial de CRM",
@@ -765,8 +765,7 @@
       "selectOrg": "Selecionar org de destino",
       "templateSelected": "Modelo: {{name}}",
       "startSeeding": "Iniciar Seed",
-      "backToGallery": "Voltar à galeria",
-      "seedAgain": "Executar Seed novamente"
+      "backToGallery": "Voltar à galeria"
     },
     "csv": {
       "dropzone": {
@@ -925,10 +924,11 @@
         "title": "Selecionar orgs de origem e destino",
         "sourceLabel": "Org de origem",
         "targetLabel": "Org de destino",
-        "targetHint": "Registros serão clonados PARA esta org",
+        "targetHint": "Os registros são clonados nesta org",
         "direction": "Origem para destino",
         "selectSource": "Selecionar org de origem...",
-        "sameOrgWarning": "Orgs de origem e destino são as mesmas"
+        "sameOrgWarning": "Orgs de origem e destino são as mesmas",
+        "selectTarget": "Selecionar org de destino..."
       },
       "objectSelector": {
         "title": "Selecionar objetos para clonar",
@@ -979,12 +979,12 @@
         "insertedOf_other": "{{inserted}}/{{count}} inseridos"
       },
       "wizard": {
-        "stepSource": "Org de origem",
         "stepObjects": "Selecionar objetos",
         "stepPreview": "Pré-visualização",
         "stepExecute": "Executar",
-        "needsBothOrgs": "A clonagem precisa de uma org de origem e de uma org de destino. Ela grava na org selecionada no SandForge: escolha uma na página Organizações.",
-        "targetChanged": "A org de destino mudou depois da pré-visualização. Uma clonagem só grava na org para a qual sua pré-visualização foi feita: refaça a pré-visualização para clonar na org selecionada agora."
+        "needsBothOrgs": "A clonagem precisa de uma org de origem e de uma org de destino: escolha as duas na primeira etapa.",
+        "targetChanged": "A org de destino mudou depois da pré-visualização. Uma clonagem só grava na org para a qual sua pré-visualização foi feita: refaça a pré-visualização para clonar na org selecionada agora.",
+        "stepOrgs": "Orgs"
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonagem cancelada: a gravação em produção não foi confirmada.",
@@ -1002,7 +1002,7 @@
     },
     "emptyState": {
       "title": "Preencha sua sandbox com dados de teste realistas",
-      "step2": "Escolha um template ou um modo: IA, CSV, Clonar",
+      "step2": "Escolha um modelo, ou Gerar dados, Upload CSV ou Clonar de Org",
       "step3": "Escolha objetos e volumes de registros",
       "step4": "Execute e revise os resultados"
     },
@@ -1105,7 +1105,7 @@
     "scenario": {
       "section": {
         "title": "Dados de teste para um agente do Agentforce",
-        "subtitle": "Um cenário de negócio escrito como contas, contatos, casos com seu histórico e artigos do Knowledge coerentes entre si, e os testes do agente que perguntam sobre eles. Nenhuma chave de IA necessária."
+        "subtitle": "Um cenário de negócio escrito como contas, contatos, casos com seu histórico e artigos do Knowledge coerentes entre si, e os testes do agente que perguntam sobre eles. Os pacotes incluídos não precisam de chave de IA; redigir a partir do seu próprio texto usa a sua chave da Anthropic."
       },
       "card": {
         "badge": "Cenário de teste do Agentforce",
@@ -1195,8 +1195,6 @@
       },
       "confirm": {
         "title": "Seed de {{name}}",
-        "seed": "Semente",
-        "seedHint": "A mesma semente escreve os mesmos nomes. Duas execuções em uma org precisam de duas sementes, senão os nomes de URL dos artigos colidem.",
         "preparing": "Lendo os status de caso e o Knowledge da org…",
         "issues": "O cenário não pode ser compilado:",
         "objects": "O que a execução escreve",
@@ -1205,9 +1203,11 @@
         "tests_other": "{{count}} testes para o agente.",
         "statusOrg": "Os casos abertos são escritos como {{open}} e os fechados como {{closed}}: os status da própria org.",
         "statusDefault": "A org não informou seus status de caso ({{reason}}): os casos são escritos como New e Closed.",
-        "gates": "Os controles do seed valem: Production Guard antes de gravar em uma org de produção, depois armazenamento de dados, automações e e-mails, regras de duplicidade e o seu início.",
+        "gates": "Verificado antes de gravar: Production Guard, armazenamento, automações e e-mails, regras de duplicidade.",
         "notInV1": "Não escritos nesta versão: e-mails, sessões de mensagens, chamadas de voz e transcrições de chat.",
-        "start": "Iniciar o seed do cenário"
+        "start": "Iniciar o seed do cenário",
+        "variant": "Variante",
+        "variantHint": "Use outro número para gravar este cenário uma segunda vez na mesma org: o mesmo número grava os mesmos nomes."
       },
       "knowledge": {
         "absent": "Esta org não tem Knowledge: os artigos são ignorados. Os testes que respondem a partir do Knowledge são escritos, e o agente não terá artigo para citar.",

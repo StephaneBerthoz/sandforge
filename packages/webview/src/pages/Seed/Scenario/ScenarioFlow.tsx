@@ -149,12 +149,15 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                 placeholder={t('seed.quickSeed.selectOrg')}
                 data-testid="scenario-org-selector"
               />
+              {/* The draws' seed, named Variant: labelled "Seed" under "Seed
+                  Retail orders", it read as the module, not as the number to
+                  change before a second run in the same org. */}
               <Input
                 id="scenario-seed"
                 type="number"
                 min={0}
-                label={t('seed.scenario.confirm.seed')}
-                hint={t('seed.scenario.confirm.seedHint')}
+                label={t('seed.scenario.confirm.variant')}
+                hint={t('seed.scenario.confirm.variantHint')}
                 value={scenario.seed}
                 onChange={(e) => {
                   const value = Number(e.target.value);

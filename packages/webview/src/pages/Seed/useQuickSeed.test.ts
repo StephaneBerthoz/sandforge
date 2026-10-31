@@ -355,6 +355,67 @@ describe('useQuickSeed', () => {
     expect(result.current.locale).toBe('de_DE');
   });
 
+  it('goes back from the results to the confirmation on Seed again, sending nothing until Start', () => {
+    // Seed again ran the template once more at once: a second full copy in
+    // the org, with no confirmation and no new read of its emails.
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-456' })] });
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, { Account: 7 });
+      result.current.selectOrg('org-456');
+      result.current.setLocale('fr_FR');
+      result.current.setMuteAutomation(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, data: { status: 'partial' } };
+    rerender();
+    expect(result.current.phase).toBe('results');
+    mockReset.mockClear();
+
+    act(() => {
+      result.current.seedAgain();
+    });
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockReset).toHaveBeenCalled();
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.executionResult).toBeUndefined();
+    expect(result.current.selectedTemplate).toBe(mockTemplate);
+    expect(result.current.customizedCounts).toEqual({ Account: 7 });
+    expect(result.current.selectedOrgId).toBe('org-456');
+    expect(result.current.locale).toBe('fr_FR');
+    // The mute is asked again of each run, on its own confirmation.
+    expect(result.current.muteAutomation).toBe(false);
+
+    mockMutationState = { ...mockMutationState, data: null };
+    rerender();
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate).toHaveBeenCalledTimes(2);
+    expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', locale: 'fr_FR' });
+    expect(mockMutate.mock.calls[1][0]).not.toHaveProperty('muteAutomation');
+  });
+
+  it('leaves the org to choose again on Seed again once it has lost its connection', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-456' })] });
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-456', status: 'expired' })] });
+
+    act(() => {
+      result.current.seedAgain();
+    });
+
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.selectedOrgId).toBe('');
+  });
+
   it('reset returns to the gallery, clearing the template but keeping the org chosen', () => {
     const { result } = renderHook(() => useQuickSeed());
 

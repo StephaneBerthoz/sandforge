@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { sendBridgeMessage } from '../../../bridge/sendBridgeMessage';
 import { useOperationCancel } from '../../../hooks/useOperationCancel';
 import { useLatestRef } from '../../../hooks/useLatestRef';
 import { Button } from '../../../components/ui/Button';
@@ -18,7 +19,7 @@ import type { CloneStep } from './useClone';
 
 /** Clone wizard step definitions. */
 const CLONE_STEPS: WizardStep[] = [
-  { id: 'source', labelKey: 'seed.clone.wizard.stepSource' },
+  { id: 'source', labelKey: 'seed.clone.wizard.stepOrgs' },
   { id: 'objects', labelKey: 'seed.clone.wizard.stepObjects' },
   { id: 'preview', labelKey: 'seed.clone.wizard.stepPreview' },
   { id: 'execute', labelKey: 'seed.clone.wizard.stepExecute' },
@@ -50,7 +51,7 @@ export interface CloneWizardProps {
 
 /**
  * Four-step wizard for the clone operation:
- * 1. Source Org -- pick the source org
+ * 1. Orgs -- pick the source org and the target org
  * 2. Select Objects -- choose which objects to clone with optional WHERE filters
  * 3. Preview -- view record counts, insert order, sample data
  * 4. Execute & Results -- progress tracking and final results
@@ -63,9 +64,24 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const selectOrg = useOrgStore((s) => s.selectOrg);
   const targetOrgId = selectedOrgId ?? '';
 
   const clone = useClone(targetOrgId, initialSourceOrgId);
+
+  /*
+   * The target is the org selected in SandForge, picked on the first step:
+   * the org picked here is the org picked everywhere, as Checkpoints' and
+   * Monitor's are. Picked after a preview, it sets that preview aside, which
+   * says why.
+   */
+  const selectTarget = useCallback(
+    (id: string) => {
+      selectOrg(id);
+      sendBridgeMessage('org:select', { orgId: id });
+    },
+    [selectOrg],
+  );
 
   /*
    * The clone runs in the extension under the id of its request, which a
@@ -96,8 +112,9 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
   /** Determine if the user can advance to the next step. */
   const canGoNext = (): boolean => {
     switch (clone.step) {
+      // Both orgs are picked on the first step, which says to pick them.
       case 'source':
-        return !!clone.sourceOrgId && clone.sourceObjects.length > 0;
+        return bothOrgs && clone.sourceObjects.length > 0;
       case 'objects':
         return clone.selectedObjects.length > 0 && bothOrgs;
       case 'preview':
@@ -171,13 +188,14 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
         onFinish={handleFinish}
         testIdPrefix="clone"
       >
-        {/* Step 1: Source Org */}
+        {/* Step 1: Orgs */}
         {clone.step === 'source' && (
           <CloneSourcePicker
             sourceOrgId={clone.sourceOrgId}
             targetOrgId={targetOrgId}
             orgs={orgs}
             onSourceSelected={clone.handleSourceOrgSelected}
+            onTargetSelected={selectTarget}
             loading={clone.loadingSource}
           />
         )}
@@ -192,7 +210,8 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
               onWhereClauseChange={clone.handleWhereClauseChange}
               loading={clone.loadingSource}
             />
-            {/* Why Next stays off: the preview it sends needs both orgs. */}
+            {/* Why Next stays off: the preview it sends needs both orgs, and
+                the target was lost since the first step (the org removed). */}
             {!bothOrgs && (
               <p
                 className="mt-(--sf-space-2) text-xs text-(--sf-text-secondary)"

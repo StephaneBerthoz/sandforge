@@ -328,13 +328,15 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 >
                   {t('seed.quickSeed.backToGallery')}
                 </Button>
+                {/* Back to the confirmation, as the wizard's goes back to its
+                    first step: it wrote the template again at once. */}
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={quickSeed.execute}
+                  onClick={quickSeed.seedAgain}
                   data-testid="btn-seed-again-quick"
                 >
-                  {t('seed.quickSeed.seedAgain')}
+                  {t('seed.seedAgain')}
                 </Button>
               </div>
 

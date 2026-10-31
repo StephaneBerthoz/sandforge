@@ -725,7 +725,7 @@
     "stepResults": "Résultats",
     "advancedSettings": "Paramètres avancés",
     "exportCsv": "Exporter CSV",
-    "seedAgain": "Relancer le Seed",
+    "seedAgain": "Relancer le Seed…",
     "templates": {
       "salesCloudStarter": {
         "name": "Kit de démarrage Sales Cloud",
@@ -737,7 +737,7 @@
       },
       "minimalDemo": {
         "name": "Démo minimale",
-        "description": "Modèle de démo léger avec seulement Comptes, Contacts et Opportunités. Idéal pour les démos rapides et les tests."
+        "description": "50 comptes, chacun avec 2 contacts et 4 opportunités : 350 enregistrements, moins de 1 Mo."
       },
       "crmStarter": {
         "name": "Kit de démarrage CRM",
@@ -765,8 +765,7 @@
       "selectOrg": "Choisir l'org cible",
       "templateSelected": "Modèle : {{name}}",
       "startSeeding": "Lancer le seed",
-      "backToGallery": "Retour à la galerie",
-      "seedAgain": "Relancer le seed"
+      "backToGallery": "Retour à la galerie"
     },
     "csv": {
       "dropzone": {
@@ -925,10 +924,11 @@
         "title": "Sélectionner les orgs source et cible",
         "sourceLabel": "Org source",
         "targetLabel": "Org cible",
-        "targetHint": "Les enregistrements seront clones DANS cette org",
+        "targetHint": "Les enregistrements sont clonés dans cette org",
         "direction": "Source vers cible",
         "selectSource": "Sélectionner une org source...",
-        "sameOrgWarning": "Les orgs source et cible sont identiques"
+        "sameOrgWarning": "Les orgs source et cible sont identiques",
+        "selectTarget": "Sélectionner une org cible..."
       },
       "objectSelector": {
         "title": "Sélectionner les objets à cloner",
@@ -979,12 +979,12 @@
         "insertedOf_other": "{{inserted}}/{{count}} insérés"
       },
       "wizard": {
-        "stepSource": "Org source",
         "stepObjects": "Sélection objets",
         "stepPreview": "Aperçu",
         "stepExecute": "Exécution",
-        "needsBothOrgs": "Le clonage a besoin d'une org source et d'une org cible. Il écrit dans l'org sélectionnée dans SandForge : choisissez-en une sur la page Organisations.",
-        "targetChanged": "L'org cible a changé après l'aperçu. Un clonage n'écrit que dans l'org pour laquelle son aperçu a été fait : refaites l'aperçu pour cloner dans l'org sélectionnée maintenant."
+        "needsBothOrgs": "Le clonage a besoin d'une org source et d'une org cible : choisissez-les à la première étape.",
+        "targetChanged": "L'org cible a changé après l'aperçu. Un clonage n'écrit que dans l'org pour laquelle son aperçu a été fait : refaites l'aperçu pour cloner dans l'org sélectionnée maintenant.",
+        "stepOrgs": "Orgs"
       },
       "error": {
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonage annulé : l'écriture en production n'a pas été confirmée.",
@@ -1002,7 +1002,7 @@
     },
     "emptyState": {
       "title": "Remplissez votre sandbox de données de test réalistes",
-      "step2": "Choisissez un modèle ou un mode : IA, CSV, Clone",
+      "step2": "Choisissez un modèle, ou Générer des données, Import CSV ou Cloner depuis une org",
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
     },
@@ -1105,7 +1105,7 @@
     "scenario": {
       "section": {
         "title": "Données de test pour un agent Agentforce",
-        "subtitle": "Un scénario métier écrit en comptes, contacts, requêtes avec leur historique et articles Knowledge cohérents entre eux, et les tests de l'agent qui portent dessus. Aucune clé IA nécessaire."
+        "subtitle": "Un scénario métier écrit en comptes, contacts, requêtes avec leur historique et articles Knowledge cohérents entre eux, et les tests de l'agent qui portent dessus. Les paquets fournis ne demandent aucune clé IA ; rédiger depuis votre propre texte utilise votre clé Anthropic."
       },
       "card": {
         "badge": "Scénario de test Agentforce",
@@ -1195,8 +1195,6 @@
       },
       "confirm": {
         "title": "Seed de {{name}}",
-        "seed": "Graine",
-        "seedHint": "La même graine écrit les mêmes noms. Deux exécutions dans une org demandent deux graines, sinon les noms d'URL de leurs articles se heurtent.",
         "preparing": "Lecture des statuts de requête et de Knowledge de l'org…",
         "issues": "Le scénario ne peut pas être compilé :",
         "objects": "Ce que l'exécution écrit",
@@ -1205,9 +1203,11 @@
         "tests_other": "{{count}} tests pour l'agent.",
         "statusOrg": "Les requêtes ouvertes sont écrites en {{open}} et les fermées en {{closed}} : les statuts de l'org.",
         "statusDefault": "L'org n'a pas dit ses statuts de requête ({{reason}}) : les requêtes sont écrites en New et Closed.",
-        "gates": "Les garde-fous du seed s'appliquent : Production Guard avant toute écriture dans une org de production, puis stockage de données, automatisations et e-mails, règles de doublons, et votre lancement.",
+        "gates": "Vérifié avant d'écrire : Production Guard, stockage, automatisations et e-mails, règles de doublons.",
         "notInV1": "Pas écrits dans cette version : e-mails, sessions de messagerie, appels vocaux et transcriptions de chat.",
-        "start": "Lancer le seed du scénario"
+        "start": "Lancer le seed du scénario",
+        "variant": "Variante",
+        "variantHint": "Indiquez un autre nombre pour écrire ce scénario une deuxième fois dans la même org : le même nombre écrit les mêmes noms."
       },
       "knowledge": {
         "absent": "Cette org n'a pas Knowledge : les articles sont ignorés. Les tests de réponse depuis Knowledge sont écrits, et l'agent n'aura pas d'article à citer.",

@@ -30,6 +30,28 @@ let executeAnswer: CloneExecutionResult | null = null;
 /** `execution:abort`, which the running step's Stop sends. */
 const mockAbortMutate = vi.fn();
 
+/* What the wizard posts outside its mutations: the org picked as its target. */
+const mockPostMessage = vi.fn();
+const vscodeApi = {
+  postMessage: mockPostMessage,
+  getState: () => undefined,
+  setState: () => undefined,
+};
+vi.mock('../../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => vscodeApi,
+  getVscodeApi: () => vscodeApi,
+}));
+
+/** The messages the wizard posted, unwrapped from their envelope. */
+function posted(type: string): Array<{ type: string; payload: Record<string, unknown> }> {
+  return mockPostMessage.mock.calls
+    .map(
+      ([envelope]) =>
+        (envelope as { payload: { type: string; payload: Record<string, unknown> } }).payload,
+    )
+    .filter((message) => message.type === type);
+}
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'execution:abort') {
@@ -121,6 +143,7 @@ describe('CloneWizard', () => {
     mockPreviewReset.mockClear();
     mockExecuteMutate.mockClear();
     mockExecuteReset.mockClear();
+    mockPostMessage.mockClear();
   });
 
   it('should render the clone wizard container', () => {
@@ -178,13 +201,40 @@ describe('CloneWizard', () => {
       fireEvent.click(screen.getByTestId('clone-obj-check-Account'));
     }
 
-    it('is not sent without a target org, and the objects step says why', () => {
+    it('picks the target on the first step, which waits for it, and the target picked is the org selected everywhere', () => {
+      // The step said to select the target and showed it read-only: with
+      // none selected, it sent the user to the Organizations page.
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+      render(<CloneWizard onBack={vi.fn()} />);
+      describedObjects = { objects: [{ apiName: 'Account', label: 'Account' }] };
+      fireEvent.change(screen.getByTestId('clone-source-select'), { target: { value: 'org-2' } });
+
+      const next = screen.getByTestId('clone-wizard-next');
+      expect(next.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.change(screen.getByTestId('clone-target-select'), { target: { value: 'org-1' } });
+
+      expect(useOrgStore.getState().selectedOrgId).toBe('org-1');
+      expect(posted('org:select').map((message) => message.payload)).toEqual([{ orgId: 'org-1' }]);
+      expect(screen.getByTestId('clone-wizard-next').getAttribute('aria-disabled')).toBeNull();
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      fireEvent.click(screen.getByTestId('clone-obj-check-Account'));
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      expect(mockPreviewMutate).toHaveBeenCalledWith({
+        sourceOrgId: 'org-2',
+        targetOrgId: 'org-1',
+        objects: [{ objectApiName: 'Account' }],
+      });
+    });
+
+    it('is not sent once its target is gone, and the objects step says why', () => {
       // With no org selected the preview went out with an empty target, and
       // the wizard showed the bridge's refusal as it was written:
       // "Invalid payload — targetOrgId: …".
-      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
       render(<CloneWizard onBack={vi.fn()} />);
       pickSourceAndAccount();
+      act(() => {
+        useOrgStore.setState({ selectedOrgId: null });
+      });
 
       const next = screen.getByTestId('clone-wizard-next');
       expect(next.getAttribute('aria-disabled')).toBe('true');
@@ -387,6 +437,36 @@ describe('CloneWizard', () => {
         targetOrgId: 'org-3',
         objects: [{ objectApiName: 'Account' }],
       });
+    });
+
+    it('sets the preview aside, saying why, once another target is picked on the first step', () => {
+      const uat: SalesforceOrg = { ...mockOrgs[1], id: 'org-3', alias: 'uat' };
+      useOrgStore.setState({ orgs: [...mockOrgs, uat] });
+      previewShown();
+      fireEvent.click(screen.getByTestId('clone-wizard-back'));
+      fireEvent.click(screen.getByTestId('clone-wizard-back'));
+
+      const target = screen.getByTestId('clone-target-select') as HTMLSelectElement;
+      const offered = Array.from(target.options)
+        .map((option) => option.value)
+        .filter((value) => value !== '');
+      // The source is not offered as the target.
+      expect(offered).toEqual(['org-1', 'org-3']);
+      fireEvent.change(target, { target: { value: 'org-3' } });
+
+      expect(screen.getByTestId('clone-error').textContent).toContain(
+        en.seed.clone.wizard.targetChanged,
+      );
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      expect(screen.queryByTestId('clone-preview-execute')).toBeNull();
+      expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      expect(mockPreviewMutate).toHaveBeenLastCalledWith({
+        sourceOrgId: 'org-2',
+        targetOrgId: 'org-3',
+        objects: [{ objectApiName: 'Account' }],
+      });
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
     });
 
     it('runs the clone on Next from its preview, and shows it running', () => {

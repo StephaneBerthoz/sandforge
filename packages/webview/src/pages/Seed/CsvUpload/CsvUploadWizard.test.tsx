@@ -124,6 +124,16 @@ describe('CsvUploadWizard', () => {
     expect(screen.getByTestId('csv-object-selector')).toBeDefined();
   });
 
+  it('names its org and object pickers as Quick Seed names its org picker, in sentence case', () => {
+    // "Select Target Org" here, "Select target org" on Quick Seed.
+    render(<CsvUploadWizard onBack={onBack} />);
+    expect(screen.getByLabelText('Select target org')).toBe(screen.getByTestId('csv-org-selector'));
+    fireEvent.change(screen.getByTestId('csv-org-selector'), { target: { value: 'org-1' } });
+    expect(screen.getByLabelText('Select target object')).toBe(
+      screen.getByTestId('csv-object-selector'),
+    );
+  });
+
   it('should call onBack when cancel button is clicked', () => {
     render(<CsvUploadWizard onBack={onBack} />);
     fireEvent.click(screen.getByTestId('csv-cancel-button'));

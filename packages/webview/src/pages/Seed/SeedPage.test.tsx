@@ -2,12 +2,21 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+import ja from '../../i18n/locales/ja.json';
 import { OrgSafetyTier, RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
 import type { QuickSeedOptions, QuickSeedState } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { SeedPage } from './SeedPage';
+
+/** The six catalogues, by language. */
+const SEED_LOCALES = { en, fr, de, es, 'pt-BR': ptBR, ja };
 
 const mockOrgs: SalesforceOrg[] = [
   {
@@ -274,6 +283,7 @@ vi.mock('./useQuickSeed', async (importOriginal) => {
             setMuteAutomation: vi.fn(),
             execute: vi.fn(),
             cancel: vi.fn(),
+            seedAgain: vi.fn(),
             reset: vi.fn(),
             setError: vi.fn(),
           }
@@ -308,7 +318,7 @@ vi.mock('./TemplateGallery', () => ({
       {/* A card as the real gallery draws one: its button is what the
           keyboard comes back to. */}
       <div data-testid="template-card-prebuilt-minimal-demo">
-        <button data-testid="btn-use-template">Use This: Minimal Demo</button>
+        <button data-testid="btn-use-template">Use this: Minimal Demo</button>
       </div>
       <button
         data-testid="mock-template-select"
@@ -474,6 +484,23 @@ describe('SeedPage', () => {
       'Connect an org (sign in with your browser)',
     );
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
+  it('names on its empty state the ways to seed as the page names them, in every language', () => {
+    // It said "a mode: AI, CSV, Clone", and no way to seed is called AI.
+    render(<SeedPage />);
+    expect(screen.getByTestId('empty-step-1').textContent).toContain(
+      'Pick a template, or Generate data, CSV Upload or Clone from Org',
+    );
+
+    for (const [language, catalogue] of Object.entries(SEED_LOCALES)) {
+      const { step2 } = catalogue.seed.emptyState;
+      const { generate, csv, clone } = catalogue.seed.modeSelect;
+      for (const way of [generate, csv, clone]) {
+        expect(step2, `${language}: ${way}`).toContain(way);
+      }
+      expect(step2, language).not.toMatch(/\b(AI|IA|KI)\b/);
+    }
   });
 
   it('opens on the template gallery, the other ways to seed listed under it', () => {
@@ -784,7 +811,7 @@ describe('SeedPage', () => {
     expect((screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement).value).toBe(
       'org-2',
     );
-    expect(screen.getAllByRole('button', { name: 'Start Seeding' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Start seeding' })).toHaveLength(1);
     expect(screen.queryByTestId('template-gallery')).toBeNull();
   });
   it('hands the keyboard back to the card a template was picked from, once Back leaves its confirmation', () => {

@@ -25,8 +25,8 @@ A new Developer Edition, a Trailhead playground or a fresh scratch org is all yo
 
 1. **Connect your org**: click the SandForge icon in the Activity Bar. With no org registered yet, the launcher's **Connect your first org** card imports the orgs the Salesforce CLI already holds, or signs you in through your browser.
 2. **Open Seed**: with one sandbox, scratch org or Developer Edition org connected, the launcher's **Fill \<alias\> with demo data** opens Seed's template gallery on it, as **Seed** under Modules does.
-3. **Pick a template**: **CRM Starter**, marked _Start here_, comes first: accounts with their contacts, products priced in the standard price book, opportunities with their line items, and cases, about 300 records, which a Developer Edition's 5 MB of data storage holds. Click **Use This**, then check its record counts and the org, already selected.
-4. Click **Start Seeding**. Nothing is written before; a seed that would not fit in the org's data storage, or would make its automation send more emails than the org has left today, is refused before its first record.
+3. **Pick a template**: **CRM Starter**, marked _Start here_, comes first: accounts with their contacts, products priced in the standard price book, opportunities with their line items, and cases, about 300 records, which a Developer Edition's 5 MB of data storage holds. Click **Use this**, then check its record counts and the org, already selected.
+4. Click **Start seeding**. Nothing is written before; a seed that would not fit in the org's data storage, or would make its automation send more emails than the org has left today, is refused before its first record.
 5. **Take it back whenever you want**: **What this run created**, on the results, or **Earlier seeds**, under the gallery, removes what the seed wrote.
 
 ![Seed — the template gallery that fills an empty dev org, CRM Starter first](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/seed.png)
