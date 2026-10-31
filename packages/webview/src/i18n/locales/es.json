@@ -1358,7 +1358,7 @@
       },
       "casesAttachments": {
         "name": "Casos + comentarios",
-        "description": "Sincronizar casos de servicio con sus comentarios: los archivos y adjuntos no se transfieren"
+        "description": "Sincronizar casos de servicio con sus comentarios; marque Copiar los archivos de estos registros para llevar sus archivos"
       }
     },
     "realtime": {
@@ -1709,9 +1709,6 @@
       "withoutField_one": "{{field}}, omitido en {{count}} registro: {{refusedBy}}.",
       "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}."
     },
-    "firstStepTitle": "Comience con Sync",
-    "firstStepDesc": "Transfiera datos entre sus orgs Salesforce en 3 clics con Sync rápido",
-    "startQuickSync": "Iniciar Sync rápido",
     "transformIntro": "Cada regla cambia un solo campo de {{object}} en cada registro que escribe la ejecución. Los campos sin regla se escriben tal como se leyeron.",
     "transformForObject": "Reglas de",
     "transformNeedsFieldNote": "Una regla sin campo se creó antes de que las reglas nombraran un campo, y cambiaría cada campo de cada registro: elija en su fila el campo que cambia. Simular y Ejecutar la sincronización siguen desactivados hasta que cada regla nombre su campo.",
@@ -1883,7 +1880,7 @@
       "nameLabel": "Nombre de la configuración de Sync",
       "action": "Guardar como configuración de Sync",
       "saving": "Guardando…",
-      "nameHint": "Póngale un nombre para guardarla: dos configuraciones de Sync guardadas nunca comparten nombre.",
+      "nameHint": "Póngale un nombre para guardarla: se rechaza un nombre que ya tiene otra configuración de Sync guardada.",
       "saved": "Guardada como la configuración de Sync «{{name}}»: la página Sync la muestra con sus configuraciones guardadas y una programación puede ejecutarla.",
       "nameRequired": "Dé un nombre a la configuración y luego guárdela.",
       "duplicateName": "Ya hay una configuración de Sync guardada con el nombre «{{name}}». Elija otro nombre: no se guardó nada.",
@@ -3220,7 +3217,7 @@
       "step1": "En la pestaña Sync, haga clic en Iniciar Sync rápido.",
       "step2": "Elija la Org de origen y la Org de destino, y haga clic en Siguiente.",
       "step3": "Elija objetos en Objetos sugeridos o con la búsqueda, y haga clic en Siguiente.",
-      "step4": "Revise Total de registros en la Vista previa y haga clic en Sincronizar ahora.",
+      "step4": "Revise las orgs y Total de registros en la Vista previa y haga clic en Sincronizar en, que nombra la org de destino.",
       "tip": "Un Sync rápido inserta todos los registros cada vez; fuera de producción, sus resultados ofrecen Quitar lo que creó esta ejecución."
     },
     "autopilot": {
@@ -5233,7 +5230,7 @@
   },
   "quickSync": {
     "title": "Sync rápido",
-    "subtitle": "De prod a sandbox en 3 clics",
+    "subtitle": "Copie los objetos elegidos de una org a otra en tres pantallas; se inserta cada registro.",
     "start": "Iniciar Sync rápido",
     "backToWizard": "Volver al asistente completo",
     "selectOrgs": "Seleccione las orgs de origen y destino",
@@ -5244,9 +5241,7 @@
     "totalRecords": "Total de registros",
     "totalApiCalls": "Llamadas API estimadas",
     "estimatedDuration": "Duración estimada",
-    "go": "Sincronizar ahora",
     "executing": "Sincronizando...",
-    "complete": "Sync completado",
     "objectCount_one": "{{count}} objeto",
     "objectCount_other": "{{count}} objetos",
     "parentDependency": "Dependencia padre",
@@ -5263,7 +5258,9 @@
     "orgs": "Orgs",
     "objects": "Objetos",
     "openHistory": "Ver esta ejecución en el historial",
-    "againInserts": "Si se vuelve a ejecutar, un Sync rápido inserta estos registros una segunda vez: elimine primero lo que creó esta ejecución, o haga un upsert sobre un ID externo en el asistente completo."
+    "againInserts": "Si se vuelve a ejecutar, un Sync rápido inserta estos registros una segunda vez: elimine primero lo que creó esta ejecución, o haga un upsert sobre un ID externo en el asistente completo.",
+    "syncInto": "Sincronizar en {{target}}",
+    "insertsNeutralized": "Inserta cada registro; los correos y los números de teléfono se neutralizan."
   },
   "pagination": {
     "navigation": "Paginación",

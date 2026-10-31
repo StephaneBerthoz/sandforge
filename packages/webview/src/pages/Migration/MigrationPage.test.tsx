@@ -364,7 +364,7 @@ describe('MigrationPage — saving the import and opening it in Sync', () => {
     fireEvent.change(screen.getByLabelText('External ID — Contact'), {
       target: { value: 'Ext_Key__c' },
     });
-    fireEvent.change(screen.getByLabelText('Batch Size — Contact'), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('Batch size — Contact'), { target: { value: '50' } });
     fireEvent.change(screen.getByLabelText('WHERE clause — Contact'), {
       target: { value: 'LastName != null' },
     });

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { MigrationSaveSyncConfigResponse, SyncConfig } from '@sandforge/shared';
+import { syncConfigNameTaken } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -211,10 +212,9 @@ export class MigrationHandler implements DomainHandler {
         return;
       }
       const store = new SyncConfigStore(this.deps.configStore);
-      const taken = store
-        .list()
-        .some((saved) => saved.name.trim().toLowerCase() === name.toLowerCase());
-      if (taken) {
+      // The rule the Sync page's save keeps: the configuration saved here is
+      // always a new one.
+      if (syncConfigNameTaken(store.list(), name)) {
         answer({ success: false, code: 'DUPLICATE_NAME' });
         return;
       }

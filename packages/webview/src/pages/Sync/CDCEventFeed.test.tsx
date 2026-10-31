@@ -102,8 +102,9 @@ describe('CDCEventFeed', () => {
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
-    const checkIcon = row.querySelector('.codicon-check');
-    expect(checkIcon).not.toBeNull();
+    // Drawn: on the codicon font, which never reaches a webview, the span
+    // painted nothing.
+    expect(row.querySelector('[data-testid="icon-check"]')?.tagName.toLowerCase()).toBe('svg');
   });
 
   it('should render error status indicator for events with errors', () => {
@@ -111,32 +112,25 @@ describe('CDCEventFeed', () => {
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
-    const errorIcon = row.querySelector('.codicon-error');
-    expect(errorIcon).not.toBeNull();
+    expect(row.querySelector('[data-testid="icon-error"]')?.tagName.toLowerCase()).toBe('svg');
   });
 
   it.each([
-    ['applied', 'codicon-check', 'Written to the target'],
-    ['watched', 'codicon-eye', 'Watched only, not written'],
-    [
-      'kept-target',
-      'codicon-shield',
-      'Not written: the target record was edited after this change',
-    ],
-    ['held', 'codicon-question', 'Held for a decision on the Conflicts tab'],
-    [
-      'deletes-off',
-      'codicon-circle-slash',
-      'Deletion not applied: deletes are off for this object',
-    ],
-    ['own-write', 'codicon-reply', 'Written by this session; not applied again'],
+    ['applied', 'check', 'Written to the target'],
+    ['watched', 'eye', 'Watched only, not written'],
+    ['kept-target', 'shield', 'Not written: the target record was edited after this change'],
+    ['held', 'question', 'Held for a decision on the Conflicts tab'],
+    ['deletes-off', 'circle-slash', 'Deletion not applied: deletes are off for this object'],
+    ['own-write', 'reply', 'Written by this session; not applied again'],
   ] as const)('says in words what became of a %s change', (outcome, icon, words) => {
     useCDCLiveStore.getState().pushEvents([makeMockEvent(1, { outcome })]);
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
     expect(row.getAttribute('data-outcome')).toBe(outcome);
-    expect(row.querySelector(`.${icon}`)?.getAttribute('title')).toBe(words);
+    const drawn = row.querySelector('[data-testid="cdc-event-outcome-icon"]');
+    expect(drawn?.getAttribute('title')).toBe(words);
+    expect(drawn?.querySelector(`svg[data-testid="icon-${icon}"]`)).not.toBeNull();
     expect(row.textContent).toContain(words);
   });
 
@@ -149,7 +143,7 @@ describe('CDCEventFeed', () => {
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
-    expect(row.querySelector('.codicon-error')?.getAttribute('title')).toBe(
+    expect(row.querySelector('[data-testid="cdc-event-outcome-icon"]')?.getAttribute('title')).toBe(
       'ENTITY_IS_LOCKED: the record is locked',
     );
     expect(row.textContent).toContain('Not written: ENTITY_IS_LOCKED: the record is locked');

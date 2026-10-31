@@ -17,7 +17,7 @@ export interface SyncTemplatePickerProps {
 
 /**
  * Displays pre-built sync templates as selectable cards.
- * Each card shows the template name, description, object list, and a "Use This" button.
+ * Each card shows the template name, description, object list, and a "Use this" button.
  */
 export const SyncTemplatePicker: React.FC<SyncTemplatePickerProps> = ({ onApply, className }) => {
   const { t } = useTranslation();

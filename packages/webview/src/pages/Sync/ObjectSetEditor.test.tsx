@@ -103,7 +103,7 @@ describe('ObjectSetEditor', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText('Object Set (2)')).toBeDefined();
+    expect(screen.getByText('Object set (2)')).toBeDefined();
   });
 
   it('should show empty state when no entries', () => {
@@ -149,15 +149,15 @@ describe('ObjectSetEditor', () => {
       'Object',
       'Operation',
       'External ID',
-      'Batch Size',
+      'Batch size',
       'WHERE clause',
-      'Remove Object',
+      'Remove object',
     ]);
     // Each row's boxes sit in the column their header names.
     const row = screen.getByTestId('object-entry-Contact');
     const cells = Array.from(row.querySelectorAll('td'));
     expect(cells).toHaveLength(headers.length);
-    expect(within(cells[3]).getByLabelText('Batch Size — Contact')).toBeDefined();
+    expect(within(cells[3]).getByLabelText('Batch size — Contact')).toBeDefined();
     expect(within(cells[4]).getByLabelText('WHERE clause — Contact')).toBeDefined();
   });
 
@@ -173,7 +173,7 @@ describe('ObjectSetEditor', () => {
     );
     const remove = screen.getByTestId('remove-obj-Account');
     expect(remove.textContent).toBe('');
-    expect(remove.getAttribute('title')).toBe('Remove Object — Account');
+    expect(remove.getAttribute('title')).toBe('Remove object — Account');
     expect(within(remove).getByTestId('icon-trash')).toBeDefined();
   });
 
@@ -274,20 +274,20 @@ describe('ObjectSetEditor accessible names', () => {
   it('names the row inputs after their object', () => {
     renderEditor();
     expect(screen.getByLabelText('External ID — Account')).toBeDefined();
-    expect(screen.getByLabelText('Batch Size — Account')).toBeDefined();
+    expect(screen.getByLabelText('Batch size — Account')).toBeDefined();
     expect(screen.getByLabelText('WHERE clause — Contact')).toBeDefined();
   });
 
   it('names each remove button after its object', () => {
     renderEditor();
-    expect(screen.getByRole('button', { name: 'Remove Object — Account' })).toBeDefined();
-    expect(screen.getByRole('button', { name: 'Remove Object — Contact' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Remove object — Account' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Remove object — Contact' })).toBeDefined();
   });
 
   it('names the add-object select from its placeholder, which is not the button beside it', () => {
     renderEditor();
     expect(screen.getByLabelText('Choose an object…').tagName).toBe('SELECT');
-    expect(screen.getByTestId('add-object-btn').textContent).toBe('Add Object');
+    expect(screen.getByTestId('add-object-btn').textContent).toBe('Add object');
   });
 
   it('translates the WHERE clause placeholder instead of hardcoding English', () => {

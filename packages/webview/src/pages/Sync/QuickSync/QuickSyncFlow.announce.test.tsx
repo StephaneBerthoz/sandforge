@@ -20,6 +20,7 @@ vi.mock('./useQuickSyncFlow', () => ({
     addObject: vi.fn(),
     removeObject: vi.fn(),
     addParentObject: vi.fn(),
+    goToOrgs: vi.fn(),
     goToObjects: vi.fn(),
     goToPreview: vi.fn(),
     setMuteAutomation: vi.fn(),

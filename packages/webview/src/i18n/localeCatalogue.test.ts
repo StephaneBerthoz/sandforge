@@ -155,6 +155,11 @@ describe('French copy carries its accents', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('says an empty object set is "configuré"', () => {
+    // "configure" is a French verb too, so the word cannot join the list above.
+    expect(lookup(fr, 'syncParts.noObjects')).toBe('Aucun objet configuré');
+  });
+
   it('has no unaccented form in the Marketplace manifest', () => {
     const nls = JSON.parse(
       readFileSync(join(SRC, '..', '..', 'extension', 'package.nls.fr.json'), 'utf8'),
@@ -207,6 +212,14 @@ describe('a language names one thing with one word', () => {
     expect(offenders('fr', /\btemplates?\b/i)).toEqual([]);
     // Positive control: the walk reads the values that name one.
     expect(offenders('fr', /\bmodèles?\b/i).length).toBeGreaterThan(5);
+  });
+
+  /* Quick Sync's way back read "Retour au wizard complet", where every other
+     value says "assistant". */
+  it('French names a wizard "assistant"', () => {
+    expect(offenders('fr', /\bwizards?\b/i)).toEqual([]);
+    expect(lookup(load('fr'), 'quickSync.backToWizard')).toBe("Retour à l'assistant complet");
+    expect(offenders('fr', /\bassistants?\b/i).length).toBeGreaterThan(5);
   });
 
   /* The panels were masculine, and the Marketplace listing and the walkthrough

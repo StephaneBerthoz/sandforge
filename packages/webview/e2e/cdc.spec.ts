@@ -463,12 +463,17 @@ test.describe('Real-time CDC — receiving events', () => {
 
     const failed = page.getByTestId('cdc-event-row-0');
     await expect(failed).toBeVisible({ timeout: 10_000 });
-    await expect(failed.locator('.codicon-error')).toHaveAttribute(
+    // Each outcome drawn, where the codicon span it was painted nothing.
+    const failedIcon = failed.getByTestId('cdc-event-outcome-icon');
+    await expect(failedIcon).toHaveAttribute(
       'title',
       'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating is required',
     );
+    await expect(failedIcon.locator('svg[data-testid="icon-error"]')).toBeVisible();
     await expect(failed).toContainText('Not written: FIELD_CUSTOM_VALIDATION_EXCEPTION');
-    await expect(page.getByTestId('cdc-event-row-1').locator('.codicon-check')).toHaveCount(1);
+    await expect(
+      page.getByTestId('cdc-event-row-1').locator('svg[data-testid="icon-check"]'),
+    ).toBeVisible();
     await expect(page.getByTestId('cdc-event-row-2')).toHaveAttribute('data-outcome', 'watched');
     await expect(page.getByTestId('cdc-event-row-2')).toContainText('Watched only, not written');
   });

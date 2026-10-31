@@ -252,10 +252,14 @@ vi.mock('../../components/ui/VirtualList', () => ({
 
 /** The draft the page reopens on; a test that needs a wizard step sets it. */
 const draft = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+/** What Quick Sync reopens on, by its keys; a test that opens it sets them. */
+const quickSyncPersisted = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock('../../hooks/useWebviewPersistedState', () => ({
-  useWebviewPersistedState: (_key: string, defaultValue: unknown) => [
-    draft.value ?? defaultValue,
+  useWebviewPersistedState: (key: string, defaultValue: unknown) => [
+    key.startsWith('quickSync')
+      ? (quickSyncPersisted.value[key] ?? defaultValue)
+      : (draft.value ?? defaultValue),
     vi.fn(),
   ],
 }));
@@ -1289,11 +1293,35 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('sync-step-indicator').children.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('should show guided first step card on initial state with 2 orgs', () => {
+  it('offers Quick Sync by one card, on the first step alone, saying what it does', () => {
+    // Two stacked cards started the same flow under two names, "in 3 clicks",
+    // and one of them stayed above Review and Results.
     useOrgStore.setState({ orgs: mockOrgs });
-    render(<SyncPage />);
-    expect(screen.getByTestId('guided-first-step-card')).toBeDefined();
-    expect(screen.getByText('Get Started with Sync')).toBeDefined();
+    const { unmount } = render(<SyncPage />);
+    expect(screen.getAllByTestId('quick-sync-card')).toHaveLength(1);
+    expect(screen.queryByTestId('guided-first-step-card')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Start Quick Sync' })).toHaveLength(1);
+    expect(screen.getByTestId('quick-sync-card').textContent).toContain(
+      'Copy chosen objects from one org to another in three screens; every record is inserted.',
+    );
+    unmount();
+
+    for (const currentStep of [3, 5]) {
+      draft.value = {
+        currentStep,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [],
+        mappings: [],
+        transforms: [],
+      };
+      const step = render(<SyncPage />);
+      expect(screen.queryByTestId('quick-sync-card'), `step ${String(currentStep)}`).toBeNull();
+      step.unmount();
+    }
   });
 
   it('should display error from bridge hook', () => {
@@ -1925,7 +1953,7 @@ describe('SyncPage execute step for assistive technology', () => {
 
       const summary = screen.getByTestId('sync-result-summary');
       expect(summary.textContent).toContain('Cancelled');
-      expect(summary.textContent).not.toContain('Partially Complete');
+      expect(summary.textContent).not.toContain('Partially complete');
     });
   });
 });
@@ -2172,7 +2200,7 @@ describe('SyncPage Run now on a saved configuration', () => {
     rerender(<SyncPage />);
 
     expect(screen.getByTestId('sync-saved-run').textContent).toMatch(
-      /^Saved configuration: Nightly accounts · /,
+      /^Saved configuration: Nightly accounts$/,
     );
     // Its Pause and Cancel are the page's, as for the wizard's own run.
     expect(screen.getByTestId('sync-cancel')).toBeDefined();
@@ -2186,7 +2214,7 @@ describe('SyncPage Run now on a saved configuration', () => {
     expect(screen.queryByTestId('sync-run')).toBeNull();
     expect(screen.queryByTestId('sync-simulate')).toBeNull();
     expect(screen.getByTestId('sync-saved-run').textContent).toMatch(
-      /^Saved configuration: Nightly accounts · /,
+      /^Saved configuration: Nightly accounts$/,
     );
   });
 
@@ -2291,6 +2319,234 @@ describe('SyncPage Run now on a saved configuration', () => {
       expect(screen.getByTestId('tab-sync').getAttribute('aria-selected')).toBe('true');
     } finally {
       schedulesUnreadable.value = false;
+    }
+  });
+});
+
+/** The aliases the page header names, in order. */
+function headerAliases(): Array<string | null> {
+  return Array.from(
+    screen.getByTestId('page-header-actions').querySelectorAll('[data-testid="org-badge-alias"]'),
+  ).map((alias) => alias.textContent);
+}
+
+describe('SyncPage header while Quick Sync is open', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    // The wizard's draft left on one pair...
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+    // ...and Quick Sync on its preview between the same orgs the other way.
+    quickSyncPersisted.value = {
+      quickSyncDraft: {
+        sourceOrgId: 'org-2',
+        targetOrgId: 'org-1',
+        selectedObjects: ['Account'],
+        parentObjects: [],
+      },
+      quickSyncStep: 'preview',
+    };
+  });
+  afterEach(() => {
+    quickSyncPersisted.value = {};
+    draft.value = null;
+  });
+
+  it('names the pair Quick Sync copies between, not the wizard draft’s', () => {
+    // It named the wizard's pair above Quick Sync's button: none with no
+    // draft, another pair with one.
+    render(<SyncPage />);
+    expect(headerAliases()).toEqual(['dev1', 'dev2']);
+    expect(
+      screen
+        .getByTestId('page-header-actions')
+        .querySelector('svg[data-testid="icon-arrow-right"]'),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId('quick-sync-start-btn'));
+
+    expect(headerAliases()).toEqual(['dev2', 'dev1']);
+    expect(screen.getByTestId('quick-sync-go-btn').textContent).toBe('Sync into dev1');
+
+    // Back to the wizard, the header is the wizard's again.
+    fireEvent.click(screen.getByTestId('quick-sync-back-to-wizard'));
+    expect(headerAliases()).toEqual(['dev1', 'dev2']);
+  });
+
+  it('names the pair Quick Sync copies between when the wizard has no draft', () => {
+    draft.value = null;
+    render(<SyncPage />);
+    expect(headerAliases()).toEqual([]);
+
+    fireEvent.click(screen.getByTestId('quick-sync-start-btn'));
+
+    expect(headerAliases()).toEqual(['dev2', 'dev1']);
+  });
+});
+
+describe('SyncPage saving a configuration under a name', () => {
+  /** Review of a configuration between dev1 and dev2. */
+  const review = {
+    currentStep: 3,
+    direction: 'source_to_target',
+    mode: 'full',
+    conflictStrategy: 'source_wins',
+    sourceOrgId: 'org-1',
+    targetOrgId: 'org-2',
+    objectEntries: [
+      {
+        objectApiName: 'Account',
+        operation: 'insert',
+        externalIdField: '',
+        batchSize: 200,
+        where: '',
+      },
+    ],
+    mappings: [],
+    transforms: [],
+  };
+
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    draft.value = review;
+    savedConfigList.value = [];
+    mockSaveConfigMutate.mockClear();
+    mockSaveConfigMutationState = {
+      mutate: mockSaveConfigMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  });
+  afterEach(() => {
+    savedConfigList.value = [];
+    draft.value = null;
+  });
+
+  /** The configuration the last save sent. */
+  function lastSent(): { id: string; name: string } {
+    const calls = mockSaveConfigMutate.mock.calls;
+    return (calls[calls.length - 1][0] as { config: { id: string; name: string } }).config;
+  }
+
+  it('proposes the pair as its name, under the button Migration saves with', () => {
+    render(<SyncPage />);
+
+    const name = screen.getByLabelText('Name of the Sync configuration') as HTMLInputElement;
+    expect(name.value).toBe('dev1 → dev2');
+    const save = screen.getByTestId('sync-save-config');
+    expect(save.textContent).toBe('Save as a Sync configuration');
+    fireEvent.click(save);
+    expect(lastSent().name).toBe('dev1 → dev2');
+  });
+
+  it('numbers the name proposed when a saved configuration already has it', () => {
+    // The wizard saved every configuration under its pair's name, which
+    // Migration then refused as taken.
+    savedConfigList.value = [
+      { id: 'cfg-a', name: 'dev1 → dev2', description: '', updatedAt: '2026-10-01T00:00:00Z' },
+      { id: 'cfg-b', name: 'DEV1 → DEV2 (2)', description: '', updatedAt: '2026-10-02T00:00:00Z' },
+    ];
+    render(<SyncPage />);
+
+    const name = screen.getByLabelText('Name of the Sync configuration') as HTMLInputElement;
+    expect(name.value).toBe('dev1 → dev2 (3)');
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    expect(lastSent().name).toBe('dev1 → dev2 (3)');
+  });
+
+  it('saves under the name typed, and refuses to save under none', () => {
+    render(<SyncPage />);
+    const name = screen.getByLabelText('Name of the Sync configuration');
+
+    fireEvent.change(name, { target: { value: '  Nightly accounts ' } });
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    expect(lastSent().name).toBe('Nightly accounts');
+
+    fireEvent.change(name, { target: { value: '  ' } });
+    expect((screen.getByTestId('sync-save-config') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('keeps the name of the configuration it saved while it stays the same', () => {
+    // Saved, its own name is in the list read back: saving it again is not
+    // a second configuration, and the name proposed stays its own.
+    const { rerender } = render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    const first = lastSent();
+    mockSaveConfigMutationState = {
+      ...mockSaveConfigMutationState,
+      data: { success: true, id: first.id },
+    };
+    savedConfigList.value = [
+      { id: first.id, name: first.name, description: '', updatedAt: '2026-10-01T00:00:00Z' },
+    ];
+    rerender(<SyncPage />);
+
+    const name = screen.getByLabelText('Name of the Sync configuration') as HTMLInputElement;
+    expect(name.value).toBe('dev1 → dev2');
+    expect(screen.getByTestId('sync-config-saved')).toBeDefined();
+  });
+
+  it('says the name was refused as another configuration’s, and that nothing was saved', () => {
+    const { rerender } = render(<SyncPage />);
+    fireEvent.change(screen.getByLabelText('Name of the Sync configuration'), {
+      target: { value: 'Nightly accounts' },
+    });
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    mockSaveConfigMutationState = {
+      ...mockSaveConfigMutationState,
+      data: { success: false, id: lastSent().id, code: 'DUPLICATE_NAME' },
+    };
+    rerender(<SyncPage />);
+
+    expect(screen.getByRole('alert').textContent).toBe(
+      'A saved Sync configuration is already named “Nightly accounts”. Pick another name: nothing was saved.',
+    );
+    expect(screen.queryByTestId('sync-config-saved')).toBeNull();
+
+    // Another name typed, the refusal of the first goes.
+    fireEvent.change(screen.getByLabelText('Name of the Sync configuration'), {
+      target: { value: 'Nightly accounts, again' },
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('saves under that name from the execute step too, where files wait for a save', () => {
+    draft.value = { ...review, currentStep: 4, files: { maxFileSizeMB: 10, maxRunMB: 100 } };
+    render(<SyncPage />);
+
+    const save = screen.getByTestId('sync-files-save');
+    expect(save.textContent).toBe('Save as a Sync configuration');
+    fireEvent.click(save);
+    expect(lastSent().name).toBe('dev1 → dev2');
+  });
+
+  it('says the wizard’s results in the words Quick Sync says them', () => {
+    // "Sync Complete" and "Total Processed" on the Sync tab, "Sync complete"
+    // on Quick Sync's: one key per outcome now.
+    draft.value = { ...review, currentStep: 5 };
+    mockExecuteMutationState = {
+      ...mockExecuteMutationState,
+      data: { ...historyEntry.result, totalSkipped: 0 },
+    };
+    try {
+      render(<SyncPage />);
+      const summary = screen.getByTestId('sync-result-summary');
+      expect(summary.textContent).toContain('Sync complete');
+      expect(summary.textContent).toContain('Total processed: 1');
+      expect(summary.textContent).toContain('Total success: 1');
+    } finally {
+      mockExecuteMutationState = { ...mockExecuteMutationState, data: null };
     }
   });
 });

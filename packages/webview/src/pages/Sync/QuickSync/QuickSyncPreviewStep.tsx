@@ -17,6 +17,9 @@ import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
+import { OrgBadge } from '../../../components/ui/OrgBadge';
+import { Icon } from '../../../components/ui/Icon';
+import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -52,8 +55,9 @@ const statusVariant: Record<string, BadgeVariant> = {
 /**
  * Quick Sync Screen 3: Preview and execute.
  *
- * Before execution: shows preview data with object breakdown, record counts,
- * API call estimates, and a prominent "Sync Now" button.
+ * Before execution: the two orgs, the preview data with object breakdown,
+ * record counts and API call estimates, and a prominent button naming the
+ * target it writes into.
  * During execution: shows a progress bar.
  * After execution: reuses the SyncPage Step6 results pattern.
  */
@@ -71,6 +75,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   mute,
 }) => {
   const { t } = useTranslation();
+  const orgs = useOrgStore((s) => s.orgs);
+  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
+  const targetOrg = orgs.find((o) => o.id === targetOrgId);
+  const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
 
   // During execution
   if (isExecuting) {
@@ -95,7 +103,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           ) : (
             <Badge variant={statusVariant[result.status]}>
               {result.status === 'success'
-                ? t('quickSync.complete')
+                ? t('syncParts.complete')
                 : result.status === 'partial'
                   ? t('syncParts.partial')
                   : t('syncParts.failed')}
@@ -203,6 +211,19 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
     <div className="flex flex-col gap-4" data-testid="quick-sync-preview-step">
       <p className="text-xs text-(--sf-text-secondary)">{t('quickSync.preview')}</p>
 
+      {/* The orgs it copies between, on the screen that runs it: the preview
+          listed objects and counts, and its notice said "these orgs". */}
+      {(sourceOrg || targetOrg) && (
+        <div
+          className="flex flex-wrap items-center gap-(--sf-space-2)"
+          data-testid="quick-sync-preview-orgs"
+        >
+          {sourceOrg && <OrgBadge org={sourceOrg} />}
+          {sourceOrg && targetOrg && <Icon name="arrow-right" className="text-text-secondary" />}
+          {targetOrg && <OrgBadge org={targetOrg} />}
+        </div>
+      )}
+
       {preview && (
         <>
           {/* Summary bar */}
@@ -280,13 +301,19 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
         />
       )}
 
+      {/* What the run does, said before it: the results said both only
+          afterwards. */}
+      <p className="text-xs text-text-primary" data-testid="quick-sync-inserts-note">
+        {t('quickSync.insertsNeutralized')}
+      </p>
+
       {/* Navigation */}
       <div className="flex justify-between mt-2">
         <Button variant="ghost" onClick={onBack} data-testid="quick-sync-preview-back">
           {t('quickSync.back')}
         </Button>
         <Button variant="primary" size="lg" onClick={onExecute} data-testid="quick-sync-go-btn">
-          {t('quickSync.go')}
+          {t('quickSync.syncInto', { target: targetName })}
         </Button>
       </div>
     </div>

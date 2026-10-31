@@ -778,6 +778,108 @@ describe('SyncOpsHandler', () => {
       expect(response.payload.configs[0].name).toBe('List Config');
     });
 
+    describe('the name a configuration is saved under', () => {
+      /** Save `config`, and the answer the page is sent. */
+      async function save(
+        id: string,
+        config: Record<string, unknown>,
+      ): Promise<{ type: string; payload: { success: boolean; id: string; code?: string } }> {
+        const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+        postToWebview.mockClear();
+        await handler.handle(
+          inboundRequest({
+            id,
+            type: 'sync:config:save',
+            timestamp: Date.now(),
+            payload: { config },
+          } as BaseMessage & { payload: { config: Record<string, unknown> } }),
+        );
+        return postToWebview.mock.calls[0][0] as {
+          type: string;
+          payload: { success: boolean; id: string; code?: string };
+        };
+      }
+
+      /** The saved configurations, by id and name, as the list answers them. */
+      async function listed(): Promise<Array<{ id: string; name: string }>> {
+        const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+        postToWebview.mockClear();
+        await handler.handle(
+          inboundRequest({ id: 'req-list-names', type: 'sync:config:list', timestamp: 1 }),
+        );
+        const answer = postToWebview.mock.calls[0][0] as {
+          payload: { configs: Array<{ id: string; name: string }> };
+        };
+        return answer.payload.configs
+          .map(({ id, name }) => ({ id, name }))
+          .sort((a, b) => (a.id < b.id ? -1 : 1));
+      }
+
+      it('refuses a new configuration a name another saved one has, and stores nothing', async () => {
+        // The wizard named every configuration after its pair of orgs; only
+        // Migration's save refused a name already taken.
+        await save('save-first', {
+          ...validSyncConfig(),
+          id: 'cfg-a',
+          name: 'DevSandbox → QASandbox',
+        });
+
+        const answer = await save('save-second', {
+          ...validSyncConfig(),
+          id: 'cfg-b',
+          name: '  devsandbox → QASANDBOX ',
+        });
+
+        expect(answer.type).toBe('sync:config:save:response');
+        expect(answer.payload).toEqual({ success: false, id: 'cfg-b', code: 'DUPLICATE_NAME' });
+        expect(await listed()).toEqual([{ id: 'cfg-a', name: 'DevSandbox → QASandbox' }]);
+      });
+
+      it('saves a new configuration under a name no other has', async () => {
+        await save('save-first', {
+          ...validSyncConfig(),
+          id: 'cfg-a',
+          name: 'DevSandbox → QASandbox',
+        });
+
+        const answer = await save('save-second', {
+          ...validSyncConfig(),
+          id: 'cfg-b',
+          name: 'DevSandbox → QASandbox (2)',
+        });
+
+        expect(answer.payload).toEqual({ success: true, id: 'cfg-b' });
+        expect(await listed()).toEqual([
+          { id: 'cfg-a', name: 'DevSandbox → QASandbox' },
+          { id: 'cfg-b', name: 'DevSandbox → QASandbox (2)' },
+        ]);
+      });
+
+      it('saves a configuration again under its own name, and refuses renaming it to another’s', async () => {
+        await save('save-a', { ...validSyncConfig(), id: 'cfg-a', name: 'Nightly accounts' });
+        await save('save-b', { ...validSyncConfig(), id: 'cfg-b', name: 'Nightly contacts' });
+
+        const again = await save('save-a-again', {
+          ...validSyncConfig(),
+          id: 'cfg-a',
+          name: 'Nightly accounts',
+          mode: 'full',
+        });
+        expect(again.payload).toEqual({ success: true, id: 'cfg-a' });
+
+        const renamed = await save('save-a-renamed', {
+          ...validSyncConfig(),
+          id: 'cfg-a',
+          name: 'nightly contacts',
+        });
+        expect(renamed.payload).toEqual({ success: false, id: 'cfg-a', code: 'DUPLICATE_NAME' });
+        expect(await listed()).toEqual([
+          { id: 'cfg-a', name: 'Nightly accounts' },
+          { id: 'cfg-b', name: 'Nightly contacts' },
+        ]);
+      });
+    });
+
     it('handles sync:config:load and responds with config or null', async () => {
       const msg: InboundRequest & { payload: { id: string } } = inboundRequest({
         id: 'req-load',

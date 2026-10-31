@@ -5,6 +5,7 @@ import { Select } from '../../../components/ui/Select';
 import { OrgBadge } from '../../../components/ui/OrgBadge';
 import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { Button } from '../../../components/ui/Button';
+import { Icon } from '../../../components/ui/Icon';
 
 /** Props for the QuickSyncOrgStep component. */
 export interface QuickSyncOrgStepProps {
@@ -61,10 +62,9 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
           data-testid="quick-sync-source-select"
         />
 
-        <span
-          className="codicon codicon-arrow-right text-lg text-text-secondary pb-1.5"
-          aria-hidden="true"
-        />
+        <span className="text-lg text-text-secondary pb-1.5" aria-hidden="true">
+          <Icon name="arrow-right" />
+        </span>
 
         <Select
           label={t('quickSync.targetOrg')}
@@ -79,9 +79,7 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
       {(sourceOrg || targetOrg) && (
         <div className="flex flex-wrap items-center gap-3" data-testid="quick-sync-org-badges">
           {sourceOrg && <OrgBadge org={sourceOrg} />}
-          {sourceOrg && targetOrg && (
-            <span className="codicon codicon-arrow-right text-text-secondary" aria-hidden="true" />
-          )}
+          {sourceOrg && targetOrg && <Icon name="arrow-right" className="text-text-secondary" />}
           {targetOrg && <OrgBadge org={targetOrg} />}
         </div>
       )}

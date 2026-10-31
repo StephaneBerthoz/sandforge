@@ -165,14 +165,15 @@ export const SYNC_OPPS_PRODUCTS: SyncTemplateConfig = {
  *
  * Insert order: Account -> Contact -> Case -> CaseComment.
  *
- * No 'Attachment' (nor ContentVersion / Document): Sync has no blob-transfer
- * stage. The record would be queried like any other, then handed to a writer
- * that routes anything over 200 records through Bulk API 2.0, which rejects
- * base64 — so listing it promised a payload the engine cannot carry and broke
- * the run past 200 attachments. Files travel again once a
- * ContentVersion/ContentDocumentLink stage exists (its own change, never
- * through Bulk). The exported name and templateId are kept so saved
- * configurations keep resolving.
+ * No 'Attachment' (nor ContentVersion / Document) among its objects: listed
+ * as an object, a file is queried like any record and handed to a writer that
+ * routes anything over 200 records through Bulk API 2.0, which rejects base64,
+ * so it broke the run past 200 attachments. A record's files travel with it
+ * instead, by the files stage of a saved configuration (`files`, "Copy the
+ * files of these records" on the first step), which copies the latest version
+ * of each file linked to a record written, and its legacy attachments, never
+ * through Bulk. The description says to tick it. The exported name and
+ * templateId are kept so saved configurations keep resolving.
  */
 export const SYNC_CASES_ATTACHMENTS: SyncTemplateConfig = {
   templateId: 'prebuilt-sync-cases-attachments',

@@ -1358,7 +1358,7 @@
       },
       "casesAttachments": {
         "name": "Requêtes + commentaires",
-        "description": "Synchroniser les requêtes de service avec leurs commentaires — les fichiers et pièces jointes ne sont pas transférés"
+        "description": "Synchroniser les requêtes de service avec leurs commentaires ; cochez Copier les fichiers de ces enregistrements pour emporter leurs fichiers"
       }
     },
     "realtime": {
@@ -1709,9 +1709,6 @@
       "withoutField_one": "{{field}}, retiré de {{count}} enregistrement : {{refusedBy}}.",
       "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
     },
-    "firstStepTitle": "Démarrer avec Sync",
-    "firstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Sync rapide",
-    "startQuickSync": "Lancer Sync rapide",
     "transformIntro": "Chaque règle change un seul champ de {{object}}, dans chaque enregistrement que la synchronisation écrit. Les champs sans règle sont écrits tels qu'ils ont été lus.",
     "transformForObject": "Règles de",
     "transformNeedsFieldNote": "Une règle sans champ date d'avant les règles qui nomment un champ, et modifierait chaque champ de chaque enregistrement : choisissez sur sa ligne le champ qu'elle modifie. Simuler et Lancer la synchronisation restent désactivés tant que chaque règle ne nomme pas son champ.",
@@ -1747,7 +1744,7 @@
     "batchSize": "Taille de lot",
     "addObject": "Ajouter un objet",
     "removeObject": "Retirer l'objet",
-    "noObjects": "Aucun objet configure",
+    "noObjects": "Aucun objet configuré",
     "unwritableNote": "Non sélectionnables : {{objects}}. L'org cible n'a pas ces objets, ou l'utilisateur avec lequel SandForge écrit ne peut ni créer ni modifier leurs enregistrements.",
     "unwritableOption": {
       "notInTarget": "{{object}} — absent de l'org cible",
@@ -1883,7 +1880,7 @@
       "nameLabel": "Nom de la configuration Sync",
       "action": "Enregistrer comme configuration Sync",
       "saving": "Enregistrement…",
-      "nameHint": "Nommez-la pour l'enregistrer : deux configurations Sync enregistrées ne partagent jamais un nom.",
+      "nameHint": "Nommez-la pour l'enregistrer : un nom qu'une autre configuration Sync enregistrée porte déjà est refusé.",
       "saved": "Enregistrée comme configuration Sync « {{name}} » : la page Sync la liste avec ses configurations enregistrées, et une planification peut l'exécuter.",
       "nameRequired": "Donnez un nom à la configuration, puis enregistrez-la.",
       "duplicateName": "Une configuration Sync enregistrée s'appelle déjà « {{name}} ». Choisissez un autre nom : rien n'a été enregistré.",
@@ -3220,7 +3217,7 @@
       "step1": "Dans l'onglet Sync, cliquez sur Démarrer le Sync rapide.",
       "step2": "Choisissez l'Org source et l'Org cible, puis cliquez sur Suivant.",
       "step3": "Choisissez des objets parmi les Objets suggérés ou par la recherche, puis cliquez sur Suivant.",
-      "step4": "Vérifiez Total enregistrements dans l'Aperçu, puis cliquez sur Synchroniser.",
+      "step4": "Vérifiez les orgs et Total enregistrements dans l'Aperçu, puis cliquez sur Synchroniser vers, qui nomme l'org cible.",
       "tip": "Un Sync rapide insère tous les enregistrements à chaque fois ; hors production, ses résultats proposent Retirer ce que cette exécution a créé."
     },
     "autopilot": {
@@ -5233,9 +5230,9 @@
   },
   "quickSync": {
     "title": "Sync rapide",
-    "subtitle": "Prod vers sandbox en 3 clics",
+    "subtitle": "Copiez les objets choisis d'une org à une autre en trois écrans ; chaque enregistrement est inséré.",
     "start": "Démarrer le Sync rapide",
-    "backToWizard": "Retour au wizard complet",
+    "backToWizard": "Retour à l'assistant complet",
     "selectOrgs": "Sélectionnez les orgs source et cible",
     "selectObjects": "Sélectionnez les objets à synchroniser",
     "suggestedObjects": "Objets suggérés",
@@ -5244,9 +5241,7 @@
     "totalRecords": "Total enregistrements",
     "totalApiCalls": "Appels API estimés",
     "estimatedDuration": "Durée estimée",
-    "go": "Synchroniser",
     "executing": "Synchronisation...",
-    "complete": "Synchronisation terminée",
     "objectCount_one": "{{count}} objet",
     "objectCount_other": "{{count}} objets",
     "parentDependency": "Dépendance parent",
@@ -5263,7 +5258,9 @@
     "orgs": "Orgs",
     "objects": "Objets",
     "openHistory": "Voir cette exécution dans l'historique",
-    "againInserts": "Relancé, un Sync rapide insère ces enregistrements une seconde fois : retirez d'abord ce que cette exécution a créé, ou faites un upsert sur un ID externe dans l'assistant complet."
+    "againInserts": "Relancé, un Sync rapide insère ces enregistrements une seconde fois : retirez d'abord ce que cette exécution a créé, ou faites un upsert sur un ID externe dans l'assistant complet.",
+    "syncInto": "Synchroniser vers {{target}}",
+    "insertsNeutralized": "Insère chaque enregistrement ; les e-mails et les numéros de téléphone sont neutralisés."
   },
   "pagination": {
     "navigation": "Pagination",

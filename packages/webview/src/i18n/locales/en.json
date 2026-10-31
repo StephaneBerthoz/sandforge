@@ -1345,7 +1345,7 @@
     "selectAndConfigure": "Select Orgs & Objects",
     "templates": {
       "title": "Quick Start Templates",
-      "useThis": "Use This",
+      "useThis": "Use this",
       "objectCount_one": "{{count}} object",
       "objectCount_other": "{{count}} objects",
       "accountHierarchy": {
@@ -1358,7 +1358,7 @@
       },
       "casesAttachments": {
         "name": "Cases + Comments",
-        "description": "Sync service cases with their comments — files and attachments are not transferred"
+        "description": "Sync service cases with their comments; tick Copy the files of these records to bring their files"
       }
     },
     "realtime": {
@@ -1709,9 +1709,6 @@
       "withoutField_one": "{{field}}, left out of {{count}} record: {{refusedBy}}.",
       "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}."
     },
-    "firstStepTitle": "Get Started with Sync",
-    "firstStepDesc": "Transfer data between your Salesforce orgs in 3 clicks with Quick Sync",
-    "startQuickSync": "Start Quick Sync",
     "transformIntro": "Each rule changes one field of {{object}} in every record the run writes. Fields without a rule are written as read.",
     "transformForObject": "Rules for",
     "transformNeedsFieldNote": "A rule without a field was made before rules named one, and would change every field of every record: pick on its row the field it changes. Simulate and Run the sync stay off until every rule names its field.",
@@ -1741,12 +1738,12 @@
     }
   },
   "syncParts": {
-    "objectSet": "Object Set",
+    "objectSet": "Object set",
     "operation": "Operation",
     "externalId": "External ID",
-    "batchSize": "Batch Size",
-    "addObject": "Add Object",
-    "removeObject": "Remove Object",
+    "batchSize": "Batch size",
+    "addObject": "Add object",
+    "removeObject": "Remove object",
     "noObjects": "No objects configured",
     "unwritableNote": "Not selectable: {{objects}}. The target org has not these objects, or the user SandForge writes as may neither create nor edit their records there.",
     "unwritableOption": {
@@ -1759,13 +1756,13 @@
       "upsert": "Upsert",
       "delete": "Delete"
     },
-    "complete": "Sync Complete",
-    "partial": "Partially Complete",
-    "failed": "Sync Failed",
-    "totalProcessed": "Total Processed",
-    "totalSuccess": "Total Success",
-    "totalFailed": "Total Failed",
-    "totalSkipped": "Total Skipped",
+    "complete": "Sync complete",
+    "partial": "Partially complete",
+    "failed": "Sync failed",
+    "totalProcessed": "Total processed",
+    "totalSuccess": "Total success",
+    "totalFailed": "Total failed",
+    "totalSkipped": "Total skipped",
     "savedConfigs": {
       "title": "Saved configurations",
       "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written.",
@@ -1883,7 +1880,7 @@
       "nameLabel": "Name of the Sync configuration",
       "action": "Save as a Sync configuration",
       "saving": "Saving…",
-      "nameHint": "Name it to save it: no two saved Sync configurations share a name.",
+      "nameHint": "Name it to save it: a name another saved Sync configuration has is refused.",
       "saved": "Saved as the Sync configuration “{{name}}”: the Sync page lists it with its saved configurations, and a schedule can run it.",
       "nameRequired": "Give the configuration a name, then save it.",
       "duplicateName": "A saved Sync configuration is already named “{{name}}”. Pick another name: nothing was saved.",
@@ -3220,7 +3217,7 @@
       "step1": "On the Sync tab, click Start Quick Sync.",
       "step2": "Choose the Source org and the Target org, then click Next.",
       "step3": "Pick objects under Suggested objects or by search, then click Next.",
-      "step4": "Check Total records in the Preview, then click Sync Now.",
+      "step4": "Check the orgs and Total records in the Preview, then click Sync into, which names the target org.",
       "tip": "A Quick Sync inserts every record each time it runs; outside production, its results offer Remove what this run created."
     },
     "autopilot": {
@@ -5233,7 +5230,7 @@
   },
   "quickSync": {
     "title": "Quick Sync",
-    "subtitle": "Prod to sandbox in 3 clicks",
+    "subtitle": "Copy chosen objects from one org to another in three screens; every record is inserted.",
     "start": "Start Quick Sync",
     "backToWizard": "Back to full wizard",
     "selectOrgs": "Select source and target orgs",
@@ -5244,9 +5241,7 @@
     "totalRecords": "Total records",
     "totalApiCalls": "Estimated API calls",
     "estimatedDuration": "Estimated duration",
-    "go": "Sync Now",
     "executing": "Syncing...",
-    "complete": "Sync complete",
     "objectCount_one": "{{count}} object",
     "objectCount_other": "{{count}} objects",
     "parentDependency": "Parent dependency",
@@ -5263,7 +5258,9 @@
     "orgs": "Orgs",
     "objects": "Objects",
     "openHistory": "See this run in History",
-    "againInserts": "Run again, a Quick Sync inserts these records a second time: remove what this run created first, or upsert them on an External ID in the full wizard."
+    "againInserts": "Run again, a Quick Sync inserts these records a second time: remove what this run created first, or upsert them on an External ID in the full wizard.",
+    "syncInto": "Sync into {{target}}",
+    "insertsNeutralized": "Inserts every record; emails and phone numbers are neutralized."
   },
   "pagination": {
     "navigation": "Pagination",

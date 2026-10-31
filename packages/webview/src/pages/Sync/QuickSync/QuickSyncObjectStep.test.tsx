@@ -186,6 +186,44 @@ describe('QuickSyncObjectStep', () => {
     expect(screen.getByTestId('remove-object-Contact')).toBeDefined();
   });
 
+  it('draws the remove button of each object, named after it', () => {
+    // On the codicon font, which never reaches a webview, the button was an
+    // empty box beside each badge.
+    const onRemoveObject = vi.fn();
+    render(
+      <QuickSyncObjectStep
+        {...defaultProps}
+        selectedObjects={['Account']}
+        onRemoveObject={onRemoveObject}
+      />,
+    );
+
+    const remove = screen.getByRole('button', { name: 'Remove Account' });
+    expect(remove.querySelector('svg[data-testid="icon-close"]')).not.toBeNull();
+    expect(remove.className).not.toContain('codicon');
+    fireEvent.click(remove);
+    expect(onRemoveObject).toHaveBeenCalledWith('Account');
+  });
+
+  it('draws the icon of the banner that offers a parent', () => {
+    mockDetectState.data = {
+      suggestions: [
+        {
+          childObject: 'Contact',
+          parentObject: 'Account',
+          lookupField: 'AccountId',
+          relationshipType: 'lookup',
+          suggestedInsertOrder: 0,
+        },
+      ],
+    };
+    render(<QuickSyncObjectStep {...defaultProps} selectedObjects={['Contact']} />);
+
+    expect(
+      screen.getByTestId('relationship-banner').querySelector('svg[data-testid="icon-info"]'),
+    ).not.toBeNull();
+  });
+
   it('next button disabled when no objects selected', () => {
     render(<QuickSyncObjectStep {...defaultProps} canGoNext={false} />);
 

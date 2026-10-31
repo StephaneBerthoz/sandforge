@@ -1,7 +1,33 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import '../../../i18n';
-import type { BaseMessage, QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  QuickSyncPreview,
+  SalesforceOrg,
+  SyncExecutionResult,
+} from '@sandforge/shared';
+import { useOrgStore } from '../../../stores/useOrgStore';
+
+/** A connected sandbox of that id and alias. */
+function org(id: string, alias: string): SalesforceOrg {
+  return {
+    id,
+    alias,
+    username: `user@${alias.toLowerCase()}.example`,
+    instanceUrl: `https://${alias.toLowerCase()}.example.my.salesforce.com`,
+    orgId: '00D000000000000',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '62.0', edition: 'Developer Edition', features: [] },
+    status: 'connected',
+    lastConnected: '2026-10-01T00:00:00Z',
+    tags: [],
+  };
+}
 
 const mockPostMessage = vi.fn();
 
@@ -145,12 +171,30 @@ describe('QuickSyncPreviewStep', () => {
     expect(objects).toContain('7 estimated API calls');
   });
 
-  it('shows Sync Now button when not executing', () => {
+  it('names the two orgs on the screen that runs it, and the target on its button', () => {
+    // The screen that held Sync Now named no org: the header showed the
+    // wizard's pair, or none, and the notice said "these orgs".
+    useOrgStore.setState({ orgs: [org('org-src', 'DevSandbox'), org('org-tgt', 'QASandbox')] });
+    render(<QuickSyncPreviewStep {...defaultProps} sourceOrgId="org-src" targetOrgId="org-tgt" />);
+
+    const pair = screen.getByTestId('quick-sync-preview-orgs');
+    expect(
+      within(pair)
+        .getAllByTestId('org-badge-alias')
+        .map((alias) => alias.textContent),
+    ).toEqual(['DevSandbox', 'QASandbox']);
+    expect(within(pair).getByTestId('icon-arrow-right').tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId('quick-sync-go-btn').textContent).toBe('Sync into QASandbox');
+    useOrgStore.setState({ orgs: [] });
+  });
+
+  it('says before the run that it inserts every record and neutralizes emails and phones', () => {
+    // The results said both, once the records were written.
     render(<QuickSyncPreviewStep {...defaultProps} />);
 
-    const btn = screen.getByTestId('quick-sync-go-btn');
-    expect(btn).toBeDefined();
-    expect(btn.textContent).toContain('Sync Now');
+    expect(screen.getByTestId('quick-sync-inserts-note').textContent).toBe(
+      'Inserts every record; emails and phone numbers are neutralized.',
+    );
   });
 
   it('offers beside Go the box that mutes the target’s automation, read as the run starts', () => {
@@ -301,10 +345,10 @@ describe('QuickSyncPreviewStep', () => {
 
     const summary = screen.getByTestId('quick-sync-result-summary');
     expect(summary.textContent).toContain('Cancelled');
-    expect(summary.textContent).not.toContain('Partially Complete');
+    expect(summary.textContent).not.toContain('Partially complete');
   });
 
-  it('calls onExecute when Sync Now button is clicked', () => {
+  it('calls onExecute when its Sync into button is clicked', () => {
     const onExecute = vi.fn();
     render(<QuickSyncPreviewStep {...defaultProps} onExecute={onExecute} />);
 

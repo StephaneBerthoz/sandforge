@@ -145,19 +145,14 @@ describe('SyncSchedulePanel', () => {
 
       const list = screen.getByTestId('sync-saved-configs');
       expect(list.querySelectorAll('li')).toHaveLength(2);
-      // Named after the configuration and the time it was saved, as the
-      // picker lists it: two saved under one name are told apart.
-      const run = screen.getByRole('button', {
-        name: /^Run Nightly accounts · 2024-01-0\d .+ now$/,
-      });
+      // Named after the configuration, as the picker lists it: a name no
+      // other saved one has needs no time beside it.
+      const run = screen.getByRole('button', { name: 'Run Nightly accounts now' });
       expect(run.textContent).toBe('Run now');
 
       fireEvent.click(run);
 
-      expect(onRunConfig).toHaveBeenCalledWith(
-        'cfg-2',
-        expect.stringMatching(/^Nightly accounts · 2024-01-0\d /),
-      );
+      expect(onRunConfig).toHaveBeenCalledWith('cfg-2', 'Nightly accounts');
       // Nothing is sent from here: the page runs it.
       expect(mockVSCodeApi.postMessage).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'sync:execute' }),
@@ -217,7 +212,7 @@ describe('SyncSchedulePanel', () => {
       expect(screen.queryByTestId('reset-delta-cfg-1')).toBeNull();
       expect(screen.queryByTestId('reset-delta-cfg-2')).toBeNull();
       expect(
-        screen.getByRole('button', { name: /^Run Running delta · .+ in full next time$/ }),
+        screen.getByRole('button', { name: 'Run Running delta in full next time' }),
       ).toBeDefined();
     });
 
@@ -238,8 +233,8 @@ describe('SyncSchedulePanel', () => {
         payload: { success: true, id: 'cfg-3', cleared: 2 },
       });
 
-      expect(screen.getByTestId('reset-delta-done').textContent).toMatch(
-        /^The next run of Running delta · .+ reads everything\.$/,
+      expect(screen.getByTestId('reset-delta-done').textContent).toBe(
+        'The next run of Running delta reads everything.',
       );
       expect(savedConfigs.refetch).toHaveBeenCalled();
     });
@@ -471,12 +466,14 @@ describe('SyncSchedulePanel', () => {
     expect(values).not.toContain('cfg-default');
   });
 
-  it('tells apart two configurations saved under the same pair of orgs', () => {
-    // A changed configuration is saved as a new entry under the same name, and
-    // nothing deletes the older one: the picker has to show which is which.
+  it('tells apart two configurations saved under the same pair of orgs, and names the others alone', () => {
+    // The wizard saved each changed configuration as a new entry under its
+    // pair's name, and nothing deletes the older one: the picker has to show
+    // which is which. A name no other has is listed as it is.
     savedConfigs.value = [
       saved('cfg-new', 'dev1 \u2192 dev2', '2024-03-02T10:15:30Z'),
       saved('cfg-old', 'dev1 \u2192 dev2', '2024-03-01T08:00:00Z'),
+      saved('cfg-named', 'dev1 \u2192 dev2 (2)', '2024-03-03T08:00:00Z'),
     ];
     useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')] });
     render(<SyncSchedulePanel />);
@@ -484,10 +481,11 @@ describe('SyncSchedulePanel', () => {
 
     const picker = screen.getByLabelText('Sync configuration') as HTMLSelectElement;
     const labels = Array.from(picker.options).map((o) => o.textContent ?? '');
-    expect(labels).toHaveLength(2);
-    expect(labels[0]).toContain('dev1 \u2192 dev2');
-    expect(labels[1]).toContain('dev1 \u2192 dev2');
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).toMatch(/^dev1 \u2192 dev2 \u00b7 2024-03-0\d /);
+    expect(labels[1]).toMatch(/^dev1 \u2192 dev2 \u00b7 2024-03-0\d /);
     expect(labels[0]).not.toBe(labels[1]);
+    expect(labels[2]).toBe('dev1 \u2192 dev2 (2)');
   });
 
   it('cannot create a schedule while no configuration has been saved', () => {

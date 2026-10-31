@@ -9,7 +9,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 1. On the Sync tab, click Start Quick Sync.
 2. Choose the Source org and the Target org, then click Next.
 3. Pick objects under Suggested objects or by search, then click Next.
-4. Check Total records in the Preview, then click Sync Now.
+4. Check the orgs and Total records in the Preview, then click Sync into, which names the target org.
 
 **Tip:** A Quick Sync inserts every record each time it runs; outside production, its results offer Remove what this run created.
 
@@ -144,15 +144,21 @@ Before execution, the Review step shows:
 - Each object, in the order the run writes it, with what it does -- insert, upsert on its key, update or delete by the source record's Id -- and why one is written later than listed ("Written after Contact, which its ContactId names"); and, when an object inserts, whether each run inserts every record again (a configuration not saved) or leaves what an earlier run copied as it is (a saved one); when an object updates or upserts, that what it writes over is kept first and put back by removing the run
 - PII warnings if sensitive fields are detected in the sync scope
 - A **Sankey Flow Diagram** visualizing data flow from source objects through mappings to target objects
-- A **Save** button, which stores the reviewed configuration under the two orgs it
-  runs between. The configuration is checked as a run started by hand is, so one
-  asking for _target to source_, for incremental or CDC, or for manual
+- A **Name of the Sync configuration** field and a **Save as a Sync
+  configuration** button, the field and the button Migration saves with, under
+  the same rule: a new configuration under a name another saved one has
+  (whatever its case) is refused, nothing stored, and the page says so. The
+  field proposes the two orgs the configuration runs between, followed by
+  (2), (3)… when a saved configuration already has that name; a name typed
+  over it is kept. The configuration is checked as a run started by hand is,
+  so one asking for _target to source_, for incremental or CDC, or for manual
   conflict review is refused and nothing is stored. While the Sync page stays
-  open, saving the same configuration again updates its entry. Once the orgs,
-  objects, mappings, transforms or strategy change, or after the page is
-  reopened, saving creates a new entry, so a schedule built on the first keeps
-  running what it was built on. The saved confirmation disappears as soon as the configuration on screen
-  differs from the one saved.
+  open, saving the same configuration again updates its entry, under its own
+  name or a new one no other has. Once the orgs, objects, mappings, transforms
+  or strategy change, or after the page is reopened, saving creates a new
+  entry, so a schedule built on the first keeps running what it was built on,
+  and the name proposed moves to the next free number. The saved confirmation
+  disappears as soon as the configuration on screen differs from the one saved.
 
 ### Saved configurations
 
@@ -170,9 +176,11 @@ Before execution, the Review step shows:
 
 ### Schedules
 
-- A schedule runs a **saved** configuration, chosen from the ones the Save button
-  stored. Each is listed by its name and the time it was saved, since a changed
-  configuration is saved under the same name as the one before it. Until one exists, the Schedules tab says so, and a schedule can be
+- A schedule runs a **saved** configuration, chosen from the ones **Save as a
+  Sync configuration** stored, on the Sync page or on Migration. Each is listed
+  by its name; configurations saved before names were checked may share one
+  (the wizard saved each changed configuration under its pair's name), and
+  those are listed with the time each was saved beside it. Until one exists, the Schedules tab says so, and a schedule can be
   neither created nor edited: there is no default configuration behind one.
 - Editing a schedule whose configuration has since been deleted opens with no
   configuration picked, says the previous one no longer exists, and cannot be

@@ -17,6 +17,8 @@ import type {
   SyncTemplateConfig,
   SyncConfigSaveResponse,
   SyncConfigLoadResponse,
+  SyncConfigListResponse,
+  SyncConfigNamed,
   SyncSimulationResult,
   SyncFileCopyOption,
   SyncWriteOrder,
@@ -246,6 +248,16 @@ export interface SyncPageData {
   savedRunStarting: boolean;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
   configSaved: boolean;
+  /** The saved configurations, by id and name, read on Review and Execute: the names a save may not take. */
+  savedConfigs: readonly SyncConfigNamed[];
+  /**
+   * The id a save of the configuration on screen goes under while it is the
+   * one last sent to be saved, whose name is then its own; null when a save
+   * would create another entry.
+   */
+  saveReuseId: string | null;
+  /** The name the host refused as another saved configuration's, nothing saved; null otherwise. */
+  saveRefusedName: string | null;
   /** The order a run writes the objects in, read on Review; null until the extension answers. */
   writeOrder: SyncWriteOrder | null;
   /** Whether that order is being read. */
@@ -340,6 +352,9 @@ const EMPTY_MAPPINGS: FieldMapping[] = [];
 
 /** No object the target takes none of: one list, so the picker's props stay the same. */
 const NO_UNWRITABLE: NonNullable<SyncDescribeGlobalResponse['payload']['unwritable']> = [];
+
+/** No saved configuration read yet: one list, so the name proposed stays the same. */
+const NO_SAVED_CONFIGS: readonly SyncConfigNamed[] = [];
 
 /** The bounds of each file cap, in MB, as the extension checks them. */
 const FILE_CAP_BOUNDS: Readonly<Record<keyof SyncFileCopyOption, number>> = {
@@ -664,7 +679,11 @@ export function useSyncPageData(): SyncPageData {
    * twice updates one entry, and saving a different pair, strategy or object
    * set creates another instead of repointing a schedule built on the first.
    */
-  const [lastSaved, setLastSaved] = useState<{ id: string; fingerprint: string } | null>(null);
+  const [lastSaved, setLastSaved] = useState<{
+    id: string;
+    fingerprint: string;
+    name: string;
+  } | null>(null);
   const configFingerprint = JSON.stringify({
     sourceOrgId,
     targetOrgId,
@@ -1016,6 +1035,34 @@ export function useSyncPageData(): SyncPageData {
       : null;
 
   /**
+   * The saved configurations' names, read where a save is offered: Review,
+   * and Execute when files wait for one. The wizard named every
+   * configuration after its pair of orgs and saved each changed one as a new
+   * entry under that name, which Migration then refused as taken; the name
+   * proposed now is one no other saved configuration has.
+   */
+  const savedConfigsQuery = useBridgeQuery<SyncConfigListResponse['payload']>(
+    'sync:config:list',
+    undefined,
+    { responseType: 'sync:config:list:response', skip: currentStep !== 3 && currentStep !== 4 },
+  );
+  const savedConfigs = savedConfigsQuery.data?.configs ?? NO_SAVED_CONFIGS;
+  const saveAnswer = saveConfigMutation.loading ? null : saveConfigMutation.data;
+  // Saved, the name is taken from now on: the list is read again.
+  const refetchSavedConfigs = useLatestRef(savedConfigsQuery.refetch);
+  useEffect(() => {
+    if (saveAnswer?.success === true) refetchSavedConfigs.current();
+  }, [saveAnswer, refetchSavedConfigs]);
+  const saveReuseId = lastSaved?.fingerprint === configFingerprint ? lastSaved.id : null;
+  const saveRefusedName =
+    saveAnswer?.success === false &&
+    saveAnswer.code === 'DUPLICATE_NAME' &&
+    lastSaved !== null &&
+    saveAnswer.id === lastSaved.id
+      ? lastSaved.name
+      : null;
+
+  /**
    * Files are copied by a saved configuration only, which keeps which file it
    * copied where: the extension refuses a run, and a simulation, of one that
    * is not saved. The page warned and sent the run all the same, to be
@@ -1164,14 +1211,15 @@ export function useSyncPageData(): SyncPageData {
   /**
    * Save the wizard's configuration so a schedule can run it later. The host
    * applies the same refusals as a run started by hand, so a configuration
-   * that cannot run cannot be stored either.
+   * that cannot run cannot be stored either, and refuses a new one a name
+   * another saved configuration has, as Migration's save does.
    */
   const handleSaveConfig = (name: string) => {
     if (!sourceOrgId || !targetOrgId) return;
     setError(null);
 
     const id = lastSaved?.fingerprint === configFingerprint ? lastSaved.id : crypto.randomUUID();
-    setLastSaved({ id, fingerprint: configFingerprint });
+    setLastSaved({ id, fingerprint: configFingerprint, name });
     const config = buildConfig(id, name, 'Saved from the SandForge sync wizard');
     saveConfigMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
@@ -1273,6 +1321,9 @@ export function useSyncPageData(): SyncPageData {
     savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved: savedIdOnScreen !== null,
+    savedConfigs,
+    saveReuseId,
+    saveRefusedName,
     writeOrder: writeOrderQuery.data?.order ?? null,
     writeOrderLoading: writeOrderQuery.loading,
     writeOrderUnread: writeOrderQuery.error !== null,

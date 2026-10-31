@@ -10079,6 +10079,56 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync review naming the configuration it saves, numbered past a name taken, then refused one another has', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(
+        bridge,
+        page,
+        theme,
+        { currentStep: 3, direction: 'source_to_target', conflictStrategy: 'source_wins' },
+        'sync-step-review',
+      );
+      await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
+      await answerAll(page, 'sync:config:list', 'sync:config:list:response', {
+        configs: [
+          {
+            id: 'cfg-pair',
+            name: 'DevSandbox → QASandbox',
+            description: '',
+            updatedAt: '2026-10-01T09:00:00.000Z',
+          },
+          {
+            id: 'cfg-nightly',
+            name: 'Nightly accounts',
+            description: '',
+            updatedAt: '2026-10-02T09:00:00.000Z',
+          },
+        ],
+      });
+      const name = page.getByLabel('Name of the Sync configuration');
+      await expect(name).toHaveValue('DevSandbox → QASandbox (2)');
+      await expect(page.getByTestId('sync-save-config')).toHaveText('Save as a Sync configuration');
+      await expectReadable(page, theme);
+
+      await name.fill('Nightly accounts');
+      await page.getByTestId('sync-save-config').click();
+      const save = await bridge.waitForMessage('sync:config:save', { timeout: 10_000 });
+      const sent = (save.payload as { config: { id: string; name: string } }).config;
+      expect(sent.name).toBe('Nightly accounts');
+      await bridge.respond(
+        'sync:config:save:response',
+        { success: false, id: sent.id, code: 'DUPLICATE_NAME' },
+        String(save.id),
+      );
+      await expect(page.getByTestId('sync-step-review').getByRole('alert')).toHaveText(
+        'A saved Sync configuration is already named “Nightly accounts”. Pick another name: nothing was saved.',
+      );
+      await expect(page.getByTestId('sync-config-saved')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync results of a simulation measured before its first write, past the daily emails, with records an earlier run copied', async ({
       page,
     }) => {
@@ -10255,6 +10305,105 @@ for (const theme of STATE_THEMES) {
         },
       });
       await page.getByTestId('quick-sync-earlier-copies').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Quick Sync preview naming its two orgs, in the header too while the wizard’s draft is on the other way round', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(
+        (args: { source: string; target: string }) => {
+          const host = window as unknown as {
+            acquireVsCodeApi: () => { setState: (state: unknown) => void };
+            __SANDFORGE_MODULE__?: string;
+          };
+          host.acquireVsCodeApi().setState({
+            // The wizard's draft left from the target to the source...
+            syncDraft: {
+              currentStep: 0,
+              direction: 'source_to_target',
+              mode: 'full',
+              conflictStrategy: 'source_wins',
+              sourceOrgId: args.target,
+              targetOrgId: args.source,
+              objectEntries: [],
+              mappingsByObject: {},
+              transforms: [],
+            },
+            // ...and Quick Sync on its preview from the source to the target.
+            quickSyncDraft: {
+              sourceOrgId: args.source,
+              targetOrgId: args.target,
+              selectedObjects: ['Contact', 'Account'],
+              parentObjects: ['Account'],
+            },
+            quickSyncStep: 'preview',
+            quickSyncPreview: {
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  recordCount: 2,
+                  estimatedApiCalls: 1,
+                  isParentDependency: true,
+                },
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 30,
+                  estimatedApiCalls: 1,
+                  isParentDependency: false,
+                },
+              ],
+              totalRecords: 32,
+              totalApiCalls: 2,
+              estimatedDurationSec: 2,
+            },
+          });
+          host.__SANDFORGE_MODULE__ = 'sync';
+        },
+        { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+      );
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      const header = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
+      await expect(header).toHaveText([QA_SANDBOX.alias, DEV_SANDBOX.alias]);
+      // One way into Quick Sync on the first step.
+      await expect(page.getByTestId('quick-sync-card')).toHaveCount(1);
+      await expect(page.getByTestId('guided-first-step-card')).toHaveCount(0);
+
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-preview-step').waitFor({ timeout: 10_000 });
+      await expect(header).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+      await expect(
+        page.getByTestId('quick-sync-preview-orgs').getByTestId('org-badge-alias'),
+      ).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+      await expect(page.getByTestId('quick-sync-inserts-note')).toHaveText(
+        'Inserts every record; emails and phone numbers are neutralized.',
+      );
+      await expect(page.getByTestId('quick-sync-go-btn')).toHaveText(
+        `Sync into ${QA_SANDBOX.alias}`,
+      );
+
+      await expectReadable(page, theme);
+
+      // Back to the objects, then to the orgs: nothing picked is lost, and
+      // each object's remove button is drawn.
+      await page.getByTestId('quick-sync-preview-back').click();
+      await page.getByTestId('quick-sync-object-step').waitFor({ timeout: 10_000 });
+      await page.getByTestId('quick-sync-object-back').click();
+      await page.getByTestId('quick-sync-org-step').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('quick-sync-source-select')).toHaveValue(DEV_SANDBOX.id);
+      await expect(page.getByTestId('quick-sync-target-select')).toHaveValue(QA_SANDBOX.id);
+      await page.getByTestId('quick-sync-org-next').click();
+      await page.getByTestId('quick-sync-object-step').waitFor({ timeout: 10_000 });
+      await expect(
+        page
+          .getByRole('button', { name: 'Remove Contact' })
+          .locator('svg[data-testid="icon-close"]'),
+      ).toHaveCount(1);
+      await expect(page.getByRole('button', { name: 'Remove Account' })).toBeVisible();
 
       await expectReadable(page, theme);
     });

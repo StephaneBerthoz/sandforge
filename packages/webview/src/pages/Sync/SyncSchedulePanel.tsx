@@ -23,6 +23,7 @@ import type {
   SyncConfigSummary,
   SyncScheduleEntry,
 } from '@sandforge/shared';
+import { syncConfigNameTaken } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { formatStoredDate } from '../../utils/formatters';
 
@@ -52,14 +53,18 @@ export const LastResultBadge: React.FC<{
   return <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge>;
 };
 
+type SavedConfigSummary = SyncConfigListResponse['payload']['configs'][number];
+
 /**
- * The picker label of a saved configuration. A changed configuration is saved
- * as a new entry under the same name as the one before it, so the name alone
- * can list the same text twice; the time it was saved tells them apart.
+ * The picker label of a saved configuration: its name. A configuration is now
+ * saved under a name no other has, but the wizard used to save each changed
+ * configuration as a new entry under its pair's name, and those entries are
+ * still there: where two share a name, the time each was saved tells them
+ * apart.
  */
-function configLabel(config: SyncConfigListResponse['payload']['configs'][number]): string {
+function configLabel(config: SavedConfigSummary, all: readonly SavedConfigSummary[]): string {
   const savedAt = new Date(config.updatedAt);
-  return Number.isNaN(savedAt.getTime())
+  return !syncConfigNameTaken(all, config.name, config.id) || Number.isNaN(savedAt.getTime())
     ? config.name
     : `${config.name} · ${format(savedAt, 'yyyy-MM-dd HH:mm:ss')}`;
 }
@@ -317,15 +322,15 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   useMessageListener<SyncConfigSaveResponse>('sync:config:save:response', (msg) => {
     if (msg.payload.success) refetchConfigs();
   });
-  const availableConfigs = useMemo(
-    () => (configsQuery.data?.configs ?? []).map((c) => ({ id: c.id, name: configLabel(c) })),
-    [configsQuery.data],
-  );
+  const availableConfigs = useMemo(() => {
+    const configs = configsQuery.data?.configs ?? [];
+    return configs.map((c) => ({ id: c.id, name: configLabel(c, configs) }));
+  }, [configsQuery.data]);
   const savedConfigRows = useMemo(
     () =>
-      (configsQuery.data?.configs ?? []).map((c): SavedConfigRow => ({
+      (configsQuery.data?.configs ?? []).map((c, _index, configs): SavedConfigRow => ({
         id: c.id,
-        name: configLabel(c),
+        name: configLabel(c, configs),
         mode: c.mode,
         propagateDeletes: c.propagateDeletes,
         watermarks: c.watermarks,

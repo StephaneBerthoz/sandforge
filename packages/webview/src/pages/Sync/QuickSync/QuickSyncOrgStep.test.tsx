@@ -139,4 +139,26 @@ describe('QuickSyncOrgStep', () => {
 
     expect(screen.getByTestId('quick-sync-org-badges')).toBeDefined();
   });
+
+  it('draws the arrow from the source to the target, between the pickers and the badges', () => {
+    // Both were codicon spans, empty in a webview.
+    const { container } = render(
+      <QuickSyncOrgStep
+        sourceOrgId="org-1"
+        targetOrgId="org-2"
+        onSourceChange={vi.fn()}
+        onTargetChange={vi.fn()}
+        onNext={vi.fn()}
+        canGoNext={true}
+      />,
+    );
+
+    expect(container.querySelectorAll('svg[data-testid="icon-arrow-right"]')).toHaveLength(2);
+    expect(
+      screen
+        .getByTestId('quick-sync-org-badges')
+        .querySelector('svg[data-testid="icon-arrow-right"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('.codicon')).toBeNull();
+  });
 });

@@ -1358,7 +1358,7 @@
       },
       "casesAttachments": {
         "name": "Kundenvorgänge + Kommentare",
-        "description": "Service-Kundenvorgänge mit ihren Kommentaren synchronisieren — Dateien und Anhänge werden nicht übertragen"
+        "description": "Service-Kundenvorgänge mit ihren Kommentaren synchronisieren; aktivieren Sie Die Dateien dieser Datensätze kopieren, um ihre Dateien mitzunehmen"
       }
     },
     "realtime": {
@@ -1709,9 +1709,6 @@
       "withoutField_one": "{{field}}, bei {{count}} Datensatz weggelassen: {{refusedBy}}.",
       "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
     },
-    "firstStepTitle": "Erste Schritte mit Sync",
-    "firstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
-    "startQuickSync": "Schnell-Sync starten",
     "transformIntro": "Jede Regel ändert ein einziges Feld von {{object}} in jedem Datensatz, den der Lauf schreibt. Felder ohne Regel werden so geschrieben, wie sie gelesen wurden.",
     "transformForObject": "Regeln für",
     "transformNeedsFieldNote": "Eine Regel ohne Feld stammt aus der Zeit, bevor Regeln ein Feld nannten, und würde jedes Feld jedes Datensatzes ändern: Wählen Sie in ihrer Zeile das Feld, das sie ändert. Simulieren und Synchronisierung starten bleiben deaktiviert, bis jede Regel ihr Feld nennt.",
@@ -1883,7 +1880,7 @@
       "nameLabel": "Name der Sync-Konfiguration",
       "action": "Als Sync-Konfiguration speichern",
       "saving": "Wird gespeichert…",
-      "nameHint": "Geben Sie einen Namen ein, um sie zu speichern: Zwei gespeicherte Sync-Konfigurationen teilen nie einen Namen.",
+      "nameHint": "Geben Sie einen Namen ein, um sie zu speichern: Ein Name, den eine andere gespeicherte Sync-Konfiguration bereits trägt, wird abgelehnt.",
       "saved": "Als Sync-Konfiguration „{{name}}“ gespeichert: Die Sync-Seite listet sie mit ihren gespeicherten Konfigurationen, und ein Zeitplan kann sie ausführen.",
       "nameRequired": "Geben Sie der Konfiguration einen Namen und speichern Sie sie dann.",
       "duplicateName": "Eine gespeicherte Sync-Konfiguration heißt bereits „{{name}}“. Wählen Sie einen anderen Namen: Es wurde nichts gespeichert.",
@@ -3220,7 +3217,7 @@
       "step1": "Klicken Sie auf dem Tab Sync auf Schnell-Sync starten.",
       "step2": "Wählen Sie die Quell-Org und die Ziel-Org, dann klicken Sie auf Weiter.",
       "step3": "Wählen Sie Objekte unter Vorgeschlagene Objekte oder über die Suche aus, dann klicken Sie auf Weiter.",
-      "step4": "Prüfen Sie Datensätze gesamt in der Vorschau, dann klicken Sie auf Jetzt synchronisieren.",
+      "step4": "Prüfen Sie die Orgs und Datensätze gesamt in der Vorschau, dann klicken Sie auf In … synchronisieren, das die Ziel-Org nennt.",
       "tip": "Ein Schnell-Sync fügt bei jedem Lauf alle Datensätze ein; außer in einer Produktions-Org bieten seine Ergebnisse die Schaltfläche Entfernen, was dieser Lauf erstellt hat."
     },
     "autopilot": {
@@ -5233,7 +5230,7 @@
   },
   "quickSync": {
     "title": "Schnell-Sync",
-    "subtitle": "Von Prod zu Sandbox in 3 Klicks",
+    "subtitle": "Gewählte Objekte in drei Schritten von einer Org in eine andere kopieren; jeder Datensatz wird eingefügt.",
     "start": "Schnell-Sync starten",
     "backToWizard": "Zurück zum vollständigen Assistenten",
     "selectOrgs": "Quell- und Ziel-Orgs auswählen",
@@ -5244,9 +5241,7 @@
     "totalRecords": "Datensätze gesamt",
     "totalApiCalls": "Geschätzte API-Aufrufe",
     "estimatedDuration": "Geschätzte Dauer",
-    "go": "Jetzt synchronisieren",
     "executing": "Synchronisierung läuft...",
-    "complete": "Sync abgeschlossen",
     "objectCount_one": "{{count}} Objekt",
     "objectCount_other": "{{count}} Objekte",
     "parentDependency": "Übergeordnete Abhängigkeit",
@@ -5263,7 +5258,9 @@
     "orgs": "Orgs",
     "objects": "Objekte",
     "openHistory": "Diesen Lauf im Verlauf ansehen",
-    "againInserts": "Erneut gestartet, fügt ein Schnell-Sync diese Datensätze ein zweites Mal ein: Entfernen Sie zuerst, was dieser Lauf erstellt hat, oder führen Sie im vollständigen Assistenten einen Upsert über eine externe ID aus."
+    "againInserts": "Erneut gestartet, fügt ein Schnell-Sync diese Datensätze ein zweites Mal ein: Entfernen Sie zuerst, was dieser Lauf erstellt hat, oder führen Sie im vollständigen Assistenten einen Upsert über eine externe ID aus.",
+    "syncInto": "In {{target}} synchronisieren",
+    "insertsNeutralized": "Fügt jeden Datensatz ein; E-Mail-Adressen und Telefonnummern werden neutralisiert."
   },
   "pagination": {
     "navigation": "Seitennavigation",

@@ -190,10 +190,14 @@ export interface SyncConfigResetDeltaRequest extends BaseMessage {
   payload: { id: string };
 }
 
-/** Response for sync config save. */
+/**
+ * Response for sync config save. Refused with `DUPLICATE_NAME`, nothing
+ * stored, when the name is another saved configuration's and the id is new,
+ * or a saved configuration is renamed to it: the rule Migration's save keeps.
+ */
 export interface SyncConfigSaveResponse extends BaseMessage {
   type: 'sync:config:save:response';
-  payload: { success: boolean; id: string };
+  payload: { success: boolean; id: string; code?: 'DUPLICATE_NAME' };
 }
 
 /** Response for sync config load. */

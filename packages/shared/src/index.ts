@@ -356,6 +356,12 @@ export {
   type PipelineSeedStepConfig,
 } from './utils/pipelineStepRules.js';
 export { pipelineWriteVerdict, type PipelineWriteVerdict } from './utils/pipelineWriteVerdict.js';
+export {
+  freeSyncConfigName,
+  syncConfigNameRefused,
+  syncConfigNameTaken,
+  type SyncConfigNamed,
+} from './utils/sync-config-names.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

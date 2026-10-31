@@ -32,13 +32,25 @@ describe('SyncTemplatePicker', () => {
     expect(badges.length).toBe(3);
   });
 
-  it('should call onApply with the correct template when Use This is clicked', () => {
+  it('says where the files of the cases come from, which it said were never transferred', () => {
+    // The first step's "Copy the files of these records" copies them.
+    render(<SyncTemplatePicker onApply={vi.fn()} />);
+    expect(
+      screen.getByText(
+        'Sync service cases with their comments; tick Copy the files of these records to bring their files',
+      ),
+    ).toBeDefined();
+    expect(screen.getByTestId('sync-template-picker').textContent).not.toContain('not transferred');
+  });
+
+  it('should call onApply with the correct template when Use this is clicked', () => {
     const onApply = vi.fn();
     render(<SyncTemplatePicker onApply={onApply} />);
 
     const firstButton = screen.getByTestId(
       `sync-template-apply-${PREBUILT_SYNC_TEMPLATES[0].templateId}`,
     );
+    expect(firstButton.textContent).toBe('Use this');
     fireEvent.click(firstButton);
 
     expect(onApply).toHaveBeenCalledTimes(1);

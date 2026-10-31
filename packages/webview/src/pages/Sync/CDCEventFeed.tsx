@@ -4,6 +4,8 @@ import type { RealTimeEventOutcome } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { VirtualList } from '../../components/ui/VirtualList';
+import { Icon } from '../../components/ui/Icon';
+import type { IconName } from '../../components/ui/Icon';
 import { useCDCLiveStore } from '../../stores/useCDCLiveStore';
 import type { CDCFeedEvent } from '../../stores/useCDCLiveStore';
 import { formatRelativeTime } from '../../utils/formatters';
@@ -22,15 +24,15 @@ const MAX_VISIBLE_IDS = 2;
 /** Ring buffer capacity. */
 const RING_BUFFER_CAPACITY = 5000;
 
-/** The icon of each outcome; its words come from `sync.realtime.outcome.*`. */
-const OUTCOME_ICONS: Record<RealTimeEventOutcome, string> = {
-  applied: 'codicon-check text-status-success',
-  failed: 'codicon-error text-status-error',
-  watched: 'codicon-eye text-(--sf-text-secondary)',
-  'kept-target': 'codicon-shield text-status-warning',
-  held: 'codicon-question text-status-warning',
-  'deletes-off': 'codicon-circle-slash text-(--sf-text-secondary)',
-  'own-write': 'codicon-reply text-(--sf-text-secondary)',
+/** The icon of each outcome and its colour; its words come from `sync.realtime.outcome.*`. */
+const OUTCOME_ICONS: Record<RealTimeEventOutcome, { icon: IconName; className: string }> = {
+  applied: { icon: 'check', className: 'text-status-success' },
+  failed: { icon: 'error', className: 'text-status-error' },
+  watched: { icon: 'eye', className: 'text-(--sf-text-secondary)' },
+  'kept-target': { icon: 'shield', className: 'text-status-warning' },
+  held: { icon: 'question', className: 'text-status-warning' },
+  'deletes-off': { icon: 'circle-slash', className: 'text-(--sf-text-secondary)' },
+  'own-write': { icon: 'reply', className: 'text-(--sf-text-secondary)' },
 };
 
 /**
@@ -87,10 +89,13 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       {/* What became of it: an icon, its words for a screen reader, the reason on hover */}
       <span className="w-[20px] shrink-0 text-center">
         <span
-          className={`codicon ${OUTCOME_ICONS[outcome]}`}
+          className={OUTCOME_ICONS[outcome].className}
           title={event.error ?? outcomeLabel}
           aria-hidden="true"
-        />
+          data-testid="cdc-event-outcome-icon"
+        >
+          <Icon name={OUTCOME_ICONS[outcome].icon} />
+        </span>
         <span className="sr-only">
           {event.error ? `${outcomeLabel}: ${event.error}` : outcomeLabel}
         </span>

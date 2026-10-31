@@ -316,6 +316,73 @@ describe('useQuickSyncFlow', () => {
     expect(mockSyncReset).toHaveBeenCalledTimes(1);
   });
 
+  it('goes back to the orgs step keeping the orgs and every object picked', () => {
+    // Back on the objects step reset the whole flow: going back to change the
+    // target lost the source, the target and the objects.
+    persistedValues = {
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        selectedObjects: ['Contact', 'Account'],
+        parentObjects: ['Account'],
+      },
+      quickSyncStep: 'objects',
+    };
+    const { result, rerender } = renderHook(() => useQuickSyncFlow());
+
+    act(() => {
+      result.current.goToOrgs();
+    });
+    rerender();
+
+    expect(result.current.state.step).toBe('orgs');
+    expect(mockSetDraft).not.toHaveBeenCalled();
+    expect(result.current.state.sourceOrgId).toBe('org-1');
+    expect(result.current.state.targetOrgId).toBe('org-2');
+    expect(result.current.state.selectedObjects).toEqual(['Contact', 'Account']);
+    expect(result.current.state.parentObjects).toEqual(['Account']);
+    expect(mockPreviewReset).not.toHaveBeenCalled();
+
+    // Another target keeps the objects: they are the source's.
+    act(() => {
+      result.current.setTargetOrg('org-3');
+    });
+    rerender();
+    expect(result.current.state.selectedObjects).toEqual(['Contact', 'Account']);
+
+    // The same source picked again keeps them too.
+    act(() => {
+      result.current.setSourceOrg('org-1');
+    });
+    rerender();
+    expect(result.current.state.selectedObjects).toEqual(['Contact', 'Account']);
+    expect(result.current.state.parentObjects).toEqual(['Account']);
+  });
+
+  it('empties the objects picked when another source is set, keeping the target', () => {
+    persistedValues = {
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        selectedObjects: ['Contact', 'Account'],
+        parentObjects: ['Account'],
+      },
+      quickSyncStep: 'orgs',
+    };
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    act(() => {
+      result.current.setSourceOrg('org-3');
+    });
+
+    expect(mockSetDraft).toHaveBeenCalledWith({
+      sourceOrgId: 'org-3',
+      targetOrgId: 'org-2',
+      selectedObjects: [],
+      parentObjects: [],
+    });
+  });
+
   /* ---------------------------------------------------------------- */
   /* Bridge contract: payloads sent and responses consumed             */
   /* ---------------------------------------------------------------- */
@@ -470,7 +537,7 @@ describe('useQuickSyncFlow', () => {
     rerender();
     expect(mockSetPreview).toHaveBeenCalledWith(fakePreview);
 
-    // 3. User clicks "Sync Now" → prepare request with nested config
+    // 3. User clicks "Sync into …" → prepare request with nested config
     act(() => {
       result.current.execute();
     });

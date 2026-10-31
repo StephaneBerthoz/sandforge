@@ -24,6 +24,7 @@ import {
   sanitizeSoqlObjectName,
   guardTierOf,
   recordWriteHeaders,
+  syncConfigNameRefused,
 } from '@sandforge/shared';
 import type { OrgTypeAndEdition } from '@sandforge/shared';
 import type {
@@ -662,7 +663,11 @@ export class SyncOpsHandler implements DomainHandler {
 
   /**
    * Save a sync configuration. One a transform rule of which names no field
-   * is refused: a schedule of it could only ever be refused.
+   * is refused: a schedule of it could only ever be refused. A new one under
+   * a name another saved configuration has, or a saved one renamed to it, is
+   * refused by the code the page words, as Migration's save refuses it: the
+   * wizard named every configuration after its pair of orgs, and Migration
+   * then refused that name as taken.
    */
   private async handleConfigSave(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -681,6 +686,16 @@ export class SyncOpsHandler implements DomainHandler {
     }
     try {
       const config = parsed.config as unknown as SyncConfig;
+      if (syncConfigNameRefused(this.syncConfigStore.list(), config.id, config.name)) {
+        const refused = buildResponse(this.deps, msg, 'sync:config:save:response', {
+          success: false,
+          id: config.id,
+          code: 'DUPLICATE_NAME',
+        });
+        this.deps.broker.postToWebview(refused);
+        this.deps.log(`[TX] ${refused.type} id=${refused.id} DUPLICATE_NAME`);
+        return;
+      }
       this.syncConfigStore.save(config);
       const response = buildResponse(this.deps, msg, 'sync:config:save:response', {
         success: true,

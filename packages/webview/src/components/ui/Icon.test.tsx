@@ -134,12 +134,6 @@ const STILL_ON_THE_CODICON_FONT = [
   'pages/Compare/DiffGroupAccordion.tsx',
   'pages/Monitor/HealthScoreCard.tsx',
   'pages/Monitor/JobsTable.tsx',
-  'pages/Sync/CDCEventFeed.tsx',
-  'pages/Sync/QuickSync/QuickSyncCard.tsx',
-  'pages/Sync/QuickSync/QuickSyncFlow.tsx',
-  'pages/Sync/QuickSync/QuickSyncObjectStep.tsx',
-  'pages/Sync/QuickSync/QuickSyncOrgStep.tsx',
-  'pages/Sync/SyncPage.tsx',
 ];
 
 describe('Icon', () => {

@@ -1,12 +1,14 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuickSyncFlow } from './useQuickSyncFlow';
 import { QuickSyncOrgStep } from './QuickSyncOrgStep';
 import { QuickSyncObjectStep } from './QuickSyncObjectStep';
 import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
 import { Badge } from '../../../components/ui/Badge';
+import { Icon } from '../../../components/ui/Icon';
 import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
+import { useLatestRef } from '../../../hooks/useLatestRef';
 import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Props for the QuickSyncFlow component. */
@@ -15,6 +17,11 @@ export interface QuickSyncFlowProps {
   onBack: () => void;
   /** Open the history entry of a run the flow made, by its operation id. */
   onOpenHistory?: (operationId: string) => void;
+  /**
+   * The orgs the flow copies between, as they are picked: what the page's
+   * header names while the flow is open, in place of the wizard's pair.
+   */
+  onPairChange?: (sourceOrgId: string, targetOrgId: string) => void;
 }
 
 /**
@@ -23,10 +30,24 @@ export interface QuickSyncFlowProps {
  * Renders a step indicator and conditionally renders the appropriate
  * step component based on the current flow state.
  */
-export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHistory }) => {
+export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
+  onBack,
+  onOpenHistory,
+  onPairChange,
+}) => {
   const { t } = useTranslation();
   const flow = useQuickSyncFlow();
   const { state } = flow;
+
+  /*
+   * The page's header names the pair this flow copies between. It named the
+   * wizard's above the button that runs Quick Sync: none with no wizard
+   * draft, another pair with one left on it.
+   */
+  const pairChanged = useLatestRef(onPairChange);
+  useEffect(() => {
+    pairChanged.current?.(state.sourceOrgId, state.targetOrgId);
+  }, [pairChanged, state.sourceOrgId, state.targetOrgId]);
   /** The target, as the box that mutes its automation names it. */
   const target = useOrgStore((s) => s.orgs.find((o) => o.id === state.targetOrgId));
   const targetOrgName = target?.alias || target?.username || state.targetOrgId;
@@ -42,7 +63,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
 
   /*
    * Each screen is drawn in place of the last, with the button that moved on
-   * (Next, Sync Now): the keyboard goes to the screen, named after what it
+   * (Next, Sync into …): the keyboard goes to the screen, named after what it
    * shows, as the wizard's steps take it.
    */
   const flowRef = useRef<HTMLDivElement>(null);
@@ -69,7 +90,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
             outcome: result.cancelled
               ? t('home.opStatus.cancelled')
               : result.status === 'success'
-                ? t('quickSync.complete')
+                ? t('syncParts.complete')
                 : result.status === 'partial'
                   ? t('syncParts.partial')
                   : t('syncParts.failed'),
@@ -88,7 +109,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
         className="inline-flex items-center gap-1 text-xs text-(--sf-text-link) hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent) self-start"
         data-testid="quick-sync-back-to-wizard"
       >
-        <span className="codicon codicon-arrow-left" aria-hidden="true" />
+        <Icon name="arrow-left" />
         {t('quickSync.backToWizard')}
       </button>
 
@@ -96,12 +117,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
       <div className="flex items-center gap-2" data-testid="quick-sync-step-indicator">
         {steps.map((s, i) => (
           <React.Fragment key={s.id}>
-            {i > 0 && (
-              <span
-                className="codicon codicon-chevron-right text-[10px] text-text-secondary"
-                aria-hidden="true"
-              />
-            )}
+            {i > 0 && <Icon name="chevron-right" className="text-[10px] text-text-secondary" />}
             <Badge variant={i === activeIndex ? 'info' : i < activeIndex ? 'success' : 'default'}>
               {s.label}
             </Badge>
@@ -138,7 +154,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
             onAddParentObject={flow.addParentObject}
             onNext={flow.goToPreview}
             canGoNext={flow.canGoToPreview}
-            onBack={() => flow.reset()}
+            onBack={flow.goToOrgs}
           />
         )}
 

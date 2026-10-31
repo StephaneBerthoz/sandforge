@@ -53,7 +53,7 @@ interface QuickSyncDraft {
 export interface QuickSyncFlowActions {
   /** Current flow state. */
   state: QuickSyncFlowState;
-  /** Set the source org. */
+  /** Set the source org; another source than the one set empties the objects picked. */
   setSourceOrg: (orgId: string) => void;
   /** Set the target org. */
   setTargetOrg: (orgId: string) => void;
@@ -63,6 +63,8 @@ export interface QuickSyncFlowActions {
   removeObject: (apiName: string) => void;
   /** Add a parent object dependency. */
   addParentObject: (apiName: string) => void;
+  /** Back to the orgs step, the orgs and the objects picked kept. */
+  goToOrgs: () => void;
   /** Navigate to the objects step. */
   goToObjects: () => void;
   /** Navigate to the preview step and fetch preview data. */
@@ -194,9 +196,19 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     }
   }, [syncMutation.data, syncMutation.error, setResult, setIsExecuting, setStep, setError]);
 
+  /*
+   * The objects picked are the source's: another source empties them, and
+   * the same one picked again keeps them. Back on the objects step used to
+   * reset the whole flow, so going back to change the target lost the orgs
+   * and every object picked.
+   */
   const setSourceOrg = useCallback(
     (orgId: string) => {
-      setDraft({ ...draft, sourceOrgId: orgId });
+      setDraft(
+        orgId === draft.sourceOrgId
+          ? { ...draft, sourceOrgId: orgId }
+          : { ...draft, sourceOrgId: orgId, selectedObjects: [], parentObjects: [] },
+      );
       setError(null);
     },
     [draft, setDraft, setError],
@@ -246,6 +258,11 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   const canGoToObjects =
     draft.sourceOrgId !== '' && draft.targetOrgId !== '' && draft.sourceOrgId !== draft.targetOrgId;
   const canGoToPreview = draft.selectedObjects.length > 0;
+
+  const goToOrgs = useCallback(() => {
+    setStep('orgs');
+    setError(null);
+  }, [setStep, setError]);
 
   const goToObjects = useCallback(() => {
     if (canGoToObjects) {
@@ -326,6 +343,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     addObject,
     removeObject,
     addParentObject,
+    goToOrgs,
     goToObjects,
     goToPreview,
     setMuteAutomation,

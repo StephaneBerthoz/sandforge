@@ -1,14 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../../i18n';
 import { QuickSyncCard } from './QuickSyncCard';
 
 describe('QuickSyncCard', () => {
-  it('renders title and subtitle', () => {
+  it('renders its title and says what Quick Sync does', () => {
+    // "Prod to sandbox in 3 clicks" was untrue: any pair of orgs works, and
+    // the path takes three screens and about seven actions.
     render(<QuickSyncCard onStart={vi.fn()} />);
 
     expect(screen.getByText('Quick Sync')).toBeDefined();
-    expect(screen.getByText('Prod to sandbox in 3 clicks')).toBeDefined();
+    expect(
+      screen.getByText(
+        'Copy chosen objects from one org to another in three screens; every record is inserted.',
+      ),
+    ).toBeDefined();
+  });
+
+  it('draws its lightning bolt, which the icon font left blank', () => {
+    render(<QuickSyncCard onStart={vi.fn()} />);
+
+    const icon = within(screen.getByTestId('quick-sync-card')).getByTestId('icon-zap');
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    expect(icon.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('renders start button', () => {

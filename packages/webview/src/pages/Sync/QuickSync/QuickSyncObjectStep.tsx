@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SmartObjectSuggestion, RelationshipSuggestion } from '@sandforge/shared';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
+import { Icon } from '../../../components/ui/Icon';
 import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 
@@ -169,7 +170,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
           className="flex items-center gap-3 p-3 rounded-lg bg-status-info/10 border border-status-info/40"
           data-testid="relationship-banner"
         >
-          <span className="codicon codicon-info text-status-info" aria-hidden="true" />
+          <Icon name="info" className="text-status-info" />
           <span className="text-xs flex-1 text-text-primary">
             {t('quickSync.addParent', {
               parent: relationshipBanner.parentObject,
@@ -244,13 +245,18 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                       <span className="ml-1 text-[8px]">({t('quickSync.parentDependency')})</span>
                     )}
                   </Badge>
+                  {/* Named for a screen reader, drawn for the eye: on the
+                      icon font, which never reaches a webview, the button
+                      was an empty box. */}
                   <button
                     type="button"
                     onClick={() => onRemoveObject(name)}
-                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
+                    className="inline-flex items-center justify-center rounded-sm text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
                     aria-label={t('a11y.removeObject', { object: name })}
                     data-testid={`remove-object-${name}`}
-                  />
+                  >
+                    <Icon name="close" />
+                  </button>
                 </div>
               );
             })}

@@ -1,7 +1,7 @@
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SyncConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
-import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB } from '@sandforge/shared';
+import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB, freeSyncConfigName } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -31,7 +31,6 @@ import { useSyncPageData, OFFERED_CONFLICT_STRATEGIES } from './useSyncPageData'
 import type { ObjectSetEntry } from './ObjectSetEditor';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
-import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import {
   ConflictListPanel,
@@ -49,6 +48,8 @@ import '../../stores/useCDCLiveStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
+import { Icon } from '../../components/ui/Icon';
+import { Input } from '../../components/ui/Input';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
 import { SyncReviewObjects } from './SyncReviewObjects';
@@ -238,6 +239,14 @@ export const SyncPage: React.FC = () => {
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
+  /** The orgs Quick Sync copies between, as its flow reports them: what the header names while it is open. */
+  const [quickSyncPair, setQuickSyncPair] = React.useState<{
+    sourceOrgId: string;
+    targetOrgId: string;
+  } | null>(null);
+  /** The name typed for the configuration a save stores; null while the one proposed stands. */
+  const [configNameDraft, setConfigNameDraft] = React.useState<string | null>(null);
+  const configNameId = React.useId();
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
   const deltaHintId = React.useId();
   const deletesHintId = React.useId();
@@ -315,6 +324,9 @@ export const SyncPage: React.FC = () => {
     openedConfigLabel,
     savedRunStarting,
     configSaved,
+    savedConfigs,
+    saveReuseId,
+    saveRefusedName,
     writeOrder,
     writeOrderLoading,
     writeOrderUnread,
@@ -369,10 +381,30 @@ export const SyncPage: React.FC = () => {
     value: org.id,
     label: orgOptionLabel(org, t),
   }));
-  // The saved configuration is named after the pair it runs between, which is
-  // what the schedule picker shows; it is data, not a label to translate.
+  // The name proposed for a saved configuration is the pair it runs between,
+  // numbered from (2) when another saved configuration has it; it is data,
+  // not a label to translate. A name typed over it is kept.
   const targetOrgName = targetOrg?.alias || targetOrg?.username || targetOrgId;
-  const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${targetOrgName}`;
+  const pairName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${targetOrgName}`;
+  const configName =
+    configNameDraft ?? freeSyncConfigName(savedConfigs, pairName, saveReuseId ?? undefined);
+  const configNameUsable = configName.trim() !== '';
+  /** The host's refusal of the name, while the field still holds that name. */
+  const configNameRefusal =
+    saveRefusedName !== null && saveRefusedName === configName.trim()
+      ? t('migration.saveSync.duplicateName', { name: saveRefusedName })
+      : undefined;
+  const handleSaveNamed = () => {
+    if (configNameUsable) handleSaveConfig(configName.trim());
+  };
+  // While Quick Sync is open, the header names its pair: it named the
+  // wizard's, or none, above the button that runs Quick Sync.
+  const headerSource = quickSyncActive
+    ? orgs.find((o) => o.id === quickSyncPair?.sourceOrgId)
+    : sourceOrg;
+  const headerTarget = quickSyncActive
+    ? orgs.find((o) => o.id === quickSyncPair?.targetOrgId)
+    : targetOrg;
   const conflictOptions: { value: SyncConflictStrategy; label: string }[] =
     OFFERED_CONFLICT_STRATEGIES.map((value) => ({
       value,
@@ -393,14 +425,11 @@ export const SyncPage: React.FC = () => {
           // both: on one, the German header ran 43 pixels past an 800-pixel
           // panel once each badge named its type in a word.
           <div className="flex flex-wrap items-center justify-end gap-(--sf-space-2)">
-            {sourceOrg && <OrgBadge org={sourceOrg} />}
-            {sourceOrg && targetOrg && (
-              <span
-                className="codicon codicon-arrow-right text-(--sf-text-secondary)"
-                aria-hidden="true"
-              />
+            {headerSource && <OrgBadge org={headerSource} />}
+            {headerSource && headerTarget && (
+              <Icon name="arrow-right" className="text-(--sf-text-secondary)" />
             )}
-            {targetOrg && <OrgBadge org={targetOrg} />}
+            {headerTarget && <OrgBadge org={headerTarget} />}
           </div>
         }
       />
@@ -495,25 +524,19 @@ export const SyncPage: React.FC = () => {
           </PartBoundary>
         )}
 
-        {/* Sync tab (default) */}
+        {/* Sync tab (default). One way into Quick Sync, on the first step
+          alone: two cards there started it under two names, and one of them
+          stayed above every later step, Review and Results included. */}
         {activeTab === 'sync' && !quickSyncActive && currentStep === 0 && (
-          <GuidedFirstStepCard
-            variant="sync"
-            icon="sync"
-            titleKey="sync.firstStepTitle"
-            descKey="sync.firstStepDesc"
-            actionKey="sync.startQuickSync"
-            onAction={() => setQuickSyncActive(true)}
-          />
-        )}
-
-        {activeTab === 'sync' && !quickSyncActive && (
           <QuickSyncCard onStart={() => setQuickSyncActive(true)} />
         )}
 
         {activeTab === 'sync' && quickSyncActive && (
           <QuickSyncFlow
             onBack={() => setQuickSyncActive(false)}
+            onPairChange={(source, target) =>
+              setQuickSyncPair({ sourceOrgId: source, targetOrgId: target })
+            }
             // The run's entry on the History tab: what it wrote, and its removal.
             onOpenHistory={(operationId) => {
               useSyncHistoryStore.getState().openRun(operationId);
@@ -926,16 +949,28 @@ export const SyncPage: React.FC = () => {
 
                 {/* A schedule runs a saved configuration by id, so this is where
                   one is created: the review step holds the configuration the
-                  user has just read through. */}
+                  user has just read through. Named as Migration names its
+                  own, under the same rule and the same button: the wizard
+                  took no name and gave every configuration its pair's. */}
+                <Input
+                  id={configNameId}
+                  label={t('migration.saveSync.nameLabel')}
+                  value={configName}
+                  onChange={(e) => setConfigNameDraft(e.target.value)}
+                  hint={t('migration.saveSync.nameHint')}
+                  error={configNameRefusal}
+                  maxLength={200}
+                  data-testid="sync-config-name"
+                />
                 <div className="flex items-center gap-(--sf-space-2)">
                   <button
                     type="button"
                     className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover) disabled:opacity-50"
-                    onClick={() => handleSaveConfig(configName)}
-                    disabled={!sourceOrgId || !targetOrgId}
+                    onClick={handleSaveNamed}
+                    disabled={!sourceOrgId || !targetOrgId || !configNameUsable}
                     data-testid="sync-save-config"
                   >
-                    {t('common.save')}
+                    {t('migration.saveSync.action')}
                   </button>
                   {configSaved && (
                     <span
@@ -982,12 +1017,13 @@ export const SyncPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => handleSaveConfig(configName)}
+                      onClick={handleSaveNamed}
+                      disabled={!configNameUsable}
                       aria-describedby={filesNeedSaveId}
                       className="shrink-0"
                       data-testid="sync-files-save"
                     >
-                      {t('common.save')}
+                      {t('migration.saveSync.action')}
                     </Button>
                   </div>
                 )}
@@ -1015,6 +1051,16 @@ export const SyncPage: React.FC = () => {
                       {t('sync.transformOpenStep')}
                     </Button>
                   </div>
+                )}
+                {/* Saved under the name Review holds, which the host refused. */}
+                {!busy && filesNeedSave && configNameRefusal && (
+                  <p
+                    className="text-xs text-status-error"
+                    role="alert"
+                    data-testid="sync-files-save-refused"
+                  >
+                    {configNameRefusal}
+                  </p>
                 )}
                 {!busy && (
                   <>

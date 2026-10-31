@@ -1358,7 +1358,7 @@
       },
       "casesAttachments": {
         "name": "Casos + comentários",
-        "description": "Sincronizar casos de atendimento com seus comentários — arquivos e anexos não são transferidos"
+        "description": "Sincronizar casos de atendimento com seus comentários; marque Copiar os arquivos destes registros para levar seus arquivos"
       }
     },
     "realtime": {
@@ -1709,9 +1709,6 @@
       "withoutField_one": "{{field}}, omitido em {{count}} registro: {{refusedBy}}.",
       "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}."
     },
-    "firstStepTitle": "Primeiros passos com o Sync",
-    "firstStepDesc": "Transfira dados entre suas orgs Salesforce em 3 cliques com o Sync rápido",
-    "startQuickSync": "Iniciar Sync rápido",
     "transformIntro": "Cada regra muda um único campo de {{object}} em cada registro que a execução escreve. Os campos sem regra são escritos como foram lidos.",
     "transformForObject": "Regras de",
     "transformNeedsFieldNote": "Uma regra sem campo foi criada antes de as regras nomearem um campo, e alteraria cada campo de cada registro: escolha na linha dela o campo que ela altera. Simular e Executar a sincronização ficam desativados até que cada regra nomeie seu campo.",
@@ -1883,7 +1880,7 @@
       "nameLabel": "Nome da configuração do Sync",
       "action": "Salvar como configuração do Sync",
       "saving": "Salvando…",
-      "nameHint": "Dê um nome para salvá-la: duas configurações do Sync salvas nunca compartilham um nome.",
+      "nameHint": "Dê um nome para salvá-la: um nome que outra configuração do Sync salva já tem é recusado.",
       "saved": "Salva como a configuração do Sync “{{name}}”: a página Sync a lista com suas configurações salvas, e um agendamento pode executá-la.",
       "nameRequired": "Dê um nome à configuração e depois salve-a.",
       "duplicateName": "Já existe uma configuração do Sync salva com o nome “{{name}}”. Escolha outro nome: nada foi salvo.",
@@ -3220,7 +3217,7 @@
       "step1": "Na aba Sync, clique em Iniciar Sync rápido.",
       "step2": "Escolha a Org de origem e a Org de destino e clique em Próximo.",
       "step3": "Escolha objetos em Objetos sugeridos ou pela busca e clique em Próximo.",
-      "step4": "Confira Total de registros na Pré-visualização e clique em Sincronizar agora.",
+      "step4": "Confira as orgs e Total de registros na Pré-visualização e clique em Sincronizar em, que nomeia a org de destino.",
       "tip": "Um Sync rápido insere todos os registros a cada execução; fora de produção, os resultados oferecem Remover o que esta execução criou."
     },
     "autopilot": {
@@ -5233,7 +5230,7 @@
   },
   "quickSync": {
     "title": "Sync rápido",
-    "subtitle": "Da produção à sandbox em 3 cliques",
+    "subtitle": "Copie os objetos escolhidos de uma org para outra em três telas; cada registro é inserido.",
     "start": "Iniciar Sync rápido",
     "backToWizard": "Voltar ao assistente completo",
     "selectOrgs": "Selecione as orgs de origem e destino",
@@ -5244,9 +5241,7 @@
     "totalRecords": "Total de registros",
     "totalApiCalls": "Chamadas de API estimadas",
     "estimatedDuration": "Duração estimada",
-    "go": "Sincronizar agora",
     "executing": "Sincronizando...",
-    "complete": "Sync concluído",
     "objectCount_one": "{{count}} objeto",
     "objectCount_other": "{{count}} objetos",
     "parentDependency": "Dependência de pai",
@@ -5263,7 +5258,9 @@
     "orgs": "Orgs",
     "objects": "Objetos",
     "openHistory": "Ver esta execução no histórico",
-    "againInserts": "Executado de novo, um Sync rápido insere estes registros uma segunda vez: remova primeiro o que esta execução criou, ou faça um upsert sobre um ID externo no assistente completo."
+    "againInserts": "Executado de novo, um Sync rápido insere estes registros uma segunda vez: remova primeiro o que esta execução criou, ou faça um upsert sobre um ID externo no assistente completo.",
+    "syncInto": "Sincronizar em {{target}}",
+    "insertsNeutralized": "Insere cada registro; e-mails e números de telefone são neutralizados."
   },
   "pagination": {
     "navigation": "Paginação",

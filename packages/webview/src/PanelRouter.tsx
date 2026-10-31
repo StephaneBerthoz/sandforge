@@ -135,6 +135,9 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'grappe',
     'howTo',
     'list',
+    // The name field and the button its Review saves with are Migration's:
+    // one rule and one text for the two pages that save a configuration.
+    'migration',
     'pagination',
     'quickSync',
     'runResults',
