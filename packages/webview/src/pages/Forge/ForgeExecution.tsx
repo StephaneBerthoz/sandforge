@@ -564,41 +564,49 @@ export const ForgeExecution: React.FC = () => {
             variant="default"
           />
         </div>
-
-        {/* Control buttons: a run that stopped has nothing left to pause or
-            abort, and its way on is with its error, above; one that is
-            stopping has nothing left to do but answer. */}
-        {!stopped && (
-          <div className={cn('flex items-center gap-3')}>
-            <Button
-              variant="secondary"
-              size="md"
-              icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
-              onClick={handlePauseToggle}
-              disabled={stopping}
-              data-testid="forge-pause-button"
-            >
-              {isPaused ? t('forgeRun.resume') : t('forgeRun.pause')}
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              icon={<Square size={14} />}
-              onClick={handleAbort}
-              disabled={stopping}
-              data-testid="forge-abort-button"
-            >
-              {t('forgeRun.abort')}
-            </Button>
-          </div>
-        )}
       </m.div>
+
+      {/* Control buttons: a run that stopped has nothing left to pause or
+          stop, and its way on is with its error, above; one that is
+          stopping has nothing left to do but answer. They stay at the
+          bottom of the panel as the screen scrolls: under the graph's fixed
+          height and the counters, Stop the run sat below the fold of a
+          720-pixel panel while the run was writing. */}
+      {!stopped && (
+        <div
+          data-testid="forge-execution-buttons"
+          className="sticky bottom-0 z-10 flex items-center gap-3 bg-(--sf-bg-primary) py-2"
+        >
+          <Button
+            variant="secondary"
+            size="md"
+            icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
+            onClick={handlePauseToggle}
+            disabled={stopping}
+            data-testid="forge-pause-button"
+          >
+            {isPaused ? t('forgeRun.resume') : t('forgeRun.pause')}
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            icon={<Square size={14} />}
+            onClick={handleAbort}
+            disabled={stopping}
+            data-testid="forge-abort-button"
+          >
+            {/* Named as its confirmation names it: it said Abort, the
+                question Stop the run, and Frozen's load Cancel run. */}
+            {t('common.stopRun')}
+          </Button>
+        </div>
+      )}
 
       <DangerConfirm
         open={showAbortConfirm}
         onClose={() => setShowAbortConfirm(false)}
         onConfirm={handleAbortConfirm}
-        title={t('forgeRun.abort')}
+        title={t('common.stopRun')}
         description={t('forgeRun.abortConfirm')}
         // Stopping writes nothing: a question, not a word to type.
         confirmLabel={t('common.stopRun')}

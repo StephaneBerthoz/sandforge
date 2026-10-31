@@ -37,6 +37,37 @@ export function isPiiField(fieldName: string): boolean {
   return PII_FIELD_PATTERNS.some((p) => p.test(fieldName));
 }
 
+/** The catalogue keys a starter template's name and description are said by. */
+export interface StarterTemplateKeys {
+  name: string;
+  description: string;
+}
+
+/**
+ * The keys of each starter template, by its id. Their names and descriptions
+ * were drawn as `@sandforge/shared` holds them, in English in every language;
+ * the shared copy stays the fallback for an id this table does not know.
+ */
+const STARTER_TEMPLATE_KEYS: Readonly<Record<string, StarterTemplateKeys>> = {
+  'builtin:account-360': {
+    name: 'forge.starter.account360.name',
+    description: 'forge.starter.account360.description',
+  },
+  'builtin:case-workflow': {
+    name: 'forge.starter.caseWorkflow.name',
+    description: 'forge.starter.caseWorkflow.description',
+  },
+  'builtin:lead-to-opp': {
+    name: 'forge.starter.leadToOpp.name',
+    description: 'forge.starter.leadToOpp.description',
+  },
+};
+
+/** The keys a starter template is said by, or null for any other template. */
+export function starterTemplateKeys(id: string): StarterTemplateKeys | null {
+  return STARTER_TEMPLATE_KEYS[id] ?? null;
+}
+
 /**
  * The cap on each object Smart gives a run from a SOQL query, whose objects
  * past the one after FROM are read from their whole tables. A clone of one

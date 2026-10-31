@@ -383,6 +383,22 @@ describe('ForgeInput', () => {
     expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
   });
 
+  it('says in plain words how wide discovery may go and what Smart reads, its number written the English way', () => {
+    // The Objects hint said "depth says how far, this says how wide"; the
+    // Smart one said "no cap" then "up to 50 000 rows", a French separator
+    // in English.
+    render(<ForgeInput />);
+
+    expect(document.getElementById('forge-max-nodes-hint')?.textContent).toBe(
+      '— Max objects discovery may include (empty ones not counted).',
+    );
+    const smart = screen.getByTestId('forge-record-limit-smart-hint').textContent ?? '';
+    expect(smart).toBe(
+      'Smart: reads only what the record reaches, at most 50,000 rows per object, and asks before a large write.',
+    );
+    expect(smart).not.toContain('no cap');
+  });
+
   it('names the SOQL query field, whose placeholder was all a screen reader had', () => {
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
@@ -722,13 +738,14 @@ describe('ForgeInput', () => {
     expect(config.recordId).toBe('001XXXXXXXXXXXXXXX');
   });
 
-  it('should show em-dash for estimated objects when no preview is loaded', () => {
+  it('draws no root record line before a record is previewed', () => {
     render(<ForgeInput />);
-    const estObjects = screen.getByTestId('est-objects');
-    expect(estObjects.textContent).toBe('\u2014');
+    expect(screen.queryByTestId('forge-root-record')).toBeNull();
   });
 
-  it('should show preview-derived data when preview is loaded', async () => {
+  it('says of a previewed record its object and field count, and no estimate of a graph not yet discovered', async () => {
+    // One Account of a large org showed "Est. Records 180000 / 180.00 MB" and
+    // "Objects 1": the root object's whole table, for a clone of a few rows.
     render(<ForgeInput />);
 
     // Simulate preview response
@@ -748,6 +765,9 @@ describe('ForgeInput', () => {
                 { name: 'Industry', value: 'Tech' },
                 { name: 'Phone', value: '555-1234' },
               ],
+              estimatedRecordCount: 180000,
+              totalFieldCount: 63,
+              estimatedSize: 180,
             },
           },
         }),
@@ -755,9 +775,20 @@ describe('ForgeInput', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('est-objects').textContent).toBe('1');
-      expect(screen.getByTestId('est-fields').textContent).toBe('3');
+      expect(screen.getByTestId('forge-root-record').textContent).toBe(
+        'Root record · Account · 63 fields',
+      );
     });
+    const panel = screen.getByTestId('forge-root-record').parentElement as HTMLElement;
+    expect(panel.textContent).not.toContain('180');
+    expect(panel.textContent).not.toContain('MB');
+    expect(screen.queryByText('Estimated Graph')).toBeNull();
+    expect(screen.queryByTestId('est-objects')).toBeNull();
+    // The banner told the user to anonymize "to protect sensitive data", as if
+    // the phone number went out raw: it says what goes as it is instead.
+    expect(screen.getByTestId('forge-pii-warning').textContent).toContain(
+      'Names, addresses and other personal fields go as they are; Anonymize PII masks them.',
+    );
   });
 
   it('should pass plain 18-char ID as-is when discovering', () => {
@@ -819,14 +850,10 @@ describe('ForgeInput', () => {
       const button = screen.getByTestId('forge-clone-directly-btn');
       const hint = screen.getByTestId('forge-clone-directly-hint');
       expect(button.getAttribute('aria-describedby')).toBe(hint.id);
-      expect(hint.textContent).toContain('without stopping on the graph or on Review');
-      expect(hint.textContent).toContain('The metadata diff between the two orgs is not run.');
-      expect(hint.textContent).toContain(
-        'The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first.',
-      );
-      // Review asks about the gaps no decision was taken on; Clone directly reads none.
-      expect(hint.textContent).toContain(
-        'The gaps the target org holds against the rows — a field only it requires, a validation rule, a record type — are not read, and none is decided: the rows they refuse are refused.',
+      // One sentence, not the six that were the largest block of the screen:
+      // what it skips, and the automation it still puts to the user.
+      expect(hint.textContent).toBe(
+        'Discovers and clones in one go, without Review: no gaps decided, no metadata diff; what the target runs on insert is still put to you first.',
       );
     });
 

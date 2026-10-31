@@ -20,8 +20,8 @@ export interface ForgeLivePreviewPanelProps {
 }
 
 /**
- * Right-hand live preview panel: record preview card (or placeholder),
- * estimated graph stats, and the PII warning banner.
+ * Right-hand live preview panel: record preview card (or placeholder), the
+ * root record's object and field count, and the PII warning banner.
  */
 export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
   preview,
@@ -30,12 +30,14 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
   anonymize,
   onClosePreview,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const piiFieldCount = useMemo(
     () => preview?.fields.filter((f) => isPiiField(f.name)).length ?? 0,
     [preview],
   );
+  /** Every field of the root object, as its describe counts them. */
+  const rootFieldCount = preview ? (preview.totalFieldCount ?? preview.fields.length) : 0;
 
   return (
     <div className="flex flex-col gap-3 p-4 rounded-lg bg-surface-2 border border-subtle">
@@ -98,36 +100,27 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
         </div>
       )}
 
-      {/* Estimated graph stats */}
-      <div className="rounded-lg border border-subtle bg-surface-1 p-3">
-        <div className="text-[10px] text-text-secondary mb-2">{t('forge.estimatedGraph')}</div>
-        <div className="grid grid-cols-2 gap-2 text-center">
-          <div>
-            <div className="text-lg font-bold text-hue-forge" data-testid="est-objects">
-              {preview ? '1' : '—'}
-            </div>
-            <div className="text-[9px] text-text-secondary">{t('forge.objects')}</div>
-          </div>
-          <div>
-            <div className="text-lg font-bold text-hue-forge" data-testid="est-fields">
-              {preview ? String(preview.totalFieldCount ?? preview.fields?.length ?? 0) : '—'}
-            </div>
-            <div className="text-[9px] text-text-secondary">{t('forge.fields')}</div>
-          </div>
-          <div>
-            <div className="text-lg font-bold text-status-success" data-testid="est-size">
-              {preview?.estimatedSize != null ? `${preview.estimatedSize.toFixed(2)} MB` : '—'}
-            </div>
-            <div className="text-[9px] text-text-secondary">{t('forge.estSize')}</div>
-          </div>
-          <div>
-            <div className="text-lg font-bold text-status-warning" data-testid="est-records">
-              {preview?.estimatedRecordCount != null ? String(preview.estimatedRecordCount) : '—'}
-            </div>
-            <div className="text-[9px] text-text-secondary">{t('forge.estRecords')}</div>
-          </div>
-        </div>
-      </div>
+      {/* The root record, and only that: the graph is not known before
+          discovery. An "Estimated Graph" box stood here, counting one object,
+          the root object's whole table as its records and that table's size
+          — 180,000 records and 180 MB for one Account of a large org, when
+          the clone copies a few dozen rows. Discovery already says its counts
+          are the source tables' for a one-record clone. */}
+      {preview && (
+        <p
+          className="rounded-lg border border-subtle bg-surface-1 p-3 text-xs text-text-primary"
+          data-testid="forge-root-record"
+        >
+          {t('forge.rootRecordSummary', {
+            object: preview.objectLabel,
+            count: rootFieldCount,
+            // In the panel's language, read off i18next: the formatters
+            // module would add some 22 kB to what Forge parses before it
+            // paints, for one figure.
+            formatted: rootFieldCount.toLocaleString(i18n.resolvedLanguage ?? i18n.language),
+          })}
+        </p>
+      )}
 
       {/* PII warning banner */}
       {piiFieldCount > 0 && !anonymize && (

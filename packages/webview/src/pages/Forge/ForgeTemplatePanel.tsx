@@ -10,6 +10,7 @@ import type { ForgeTemplatesManager } from './useForgeTemplates';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { TemplateTargetOutcome } from './useForgeForm';
 import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
+import { starterTemplateKeys } from './forgeUtils';
 import type { TemplateFileRefusal } from './forgeTemplateFile';
 
 /** Props for the ForgeTemplatePanel component. */
@@ -95,51 +96,61 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           {t('forge.starterTemplates')}
         </div>
       )}
-      {/* Builtin templates — read-only, no edit/delete */}
-      {BUILTIN_FORGE_TEMPLATES.map((tpl) => (
-        <button
-          key={tpl.id}
-          type="button"
-          data-testid={`forge-template-builtin-${tpl.id}`}
-          aria-pressed={selectedTemplate === tpl.id}
-          onClick={() => {
-            setApplied(null);
-            onSelectTemplate(tpl.id);
-          }}
-          className={cn(
-            'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors text-left',
-            // The border marks the selection; the tint stays light enough for the
-            // badges' own tints to be laid over it.
-            selectedTemplate === tpl.id
-              ? 'border-forge bg-forge/5 text-text-primary'
-              : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
-          )}
-        >
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium">{tpl.name}</span>
-              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-forge/10 text-hue-forge font-semibold uppercase tracking-wider">
-                {t('forge.starterBadge')}
-              </span>
-              {tpl.config.maxRecordsPerObject != null && (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-status-warning/10 text-status-warning font-mono">
-                  ≤ {tpl.config.maxRecordsPerObject}/obj
+      {/* Builtin templates — read-only, no edit/delete. Said by their keys:
+          drawn as the shared module holds them, they were English paragraphs
+          in every language. */}
+      {BUILTIN_FORGE_TEMPLATES.map((tpl) => {
+        const keys = starterTemplateKeys(tpl.id);
+        const name = keys ? t(keys.name) : tpl.name;
+        const description = keys ? t(keys.description) : tpl.description;
+        return (
+          <button
+            key={tpl.id}
+            type="button"
+            data-testid={`forge-template-builtin-${tpl.id}`}
+            aria-pressed={selectedTemplate === tpl.id}
+            onClick={() => {
+              setApplied(null);
+              onSelectTemplate(tpl.id);
+            }}
+            className={cn(
+              'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors text-left',
+              // The border marks the selection; the tint stays light enough for the
+              // badges' own tints to be laid over it.
+              selectedTemplate === tpl.id
+                ? 'border-forge bg-forge/5 text-text-primary'
+                : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
+            )}
+          >
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{name}</span>
+                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-forge/10 text-hue-forge font-semibold uppercase tracking-wider">
+                  {t('forge.starterBadge')}
+                </span>
+                {tpl.config.maxRecordsPerObject != null && (
+                  <span
+                    data-testid={`forge-template-cap-${tpl.id}`}
+                    className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm bg-status-warning/10 text-status-warning font-mono"
+                  >
+                    {t('forge.starterCap', { max: tpl.config.maxRecordsPerObject })}
+                  </span>
+                )}
+              </div>
+              {description && (
+                <span
+                  className={cn(
+                    'block text-xs mt-0.5',
+                    selectedTemplate === tpl.id ? 'text-text-primary' : 'text-text-secondary',
+                  )}
+                >
+                  {description}
                 </span>
               )}
             </div>
-            {tpl.description && (
-              <span
-                className={cn(
-                  'block text-xs mt-0.5',
-                  selectedTemplate === tpl.id ? 'text-text-primary' : 'text-text-secondary',
-                )}
-              >
-                {tpl.description}
-              </span>
-            )}
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
 
       <div className="flex items-center justify-between gap-2 mt-2">
         <div className="text-[10px] text-text-secondary uppercase tracking-widest">

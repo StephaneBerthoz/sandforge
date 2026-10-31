@@ -43,6 +43,33 @@ describe('builtin forge templates', () => {
     ]);
   });
 
+  it('names in its description no object its object list leaves out', () => {
+    // Case Workflow promised CaseHistory, which its list rightly leaves out:
+    // a field history row cannot be inserted. Every object any template
+    // copies, plus the history and file objects none may, is checked against
+    // the words of each description, a plural read as its object.
+    const known = new Set([
+      ...Object.values(BUILTIN_TEMPLATE_OBJECTS).flat(),
+      'CaseHistory',
+      'AccountHistory',
+      'OpportunityHistory',
+      'LeadHistory',
+      ...BLOB_OBJECTS,
+    ]);
+    const singular = (word: string): string =>
+      word.endsWith('ies') ? `${word.slice(0, -3)}y` : word.replace(/s$/, '');
+    const promised: string[] = [];
+    for (const template of BUILTIN_FORGE_TEMPLATES) {
+      const copied = getBuiltinTemplateObjects(template.id);
+      for (const word of (template.description ?? '').match(/[A-Za-z]+/g) ?? []) {
+        const object = known.has(word) ? word : singular(word);
+        if (known.has(object) && !copied.includes(object))
+          promised.push(`${template.id} -> ${object}`);
+      }
+    }
+    expect(promised).toEqual([]);
+  });
+
   it('returns an empty list for an unknown template id', () => {
     expect(getBuiltinTemplateObjects('builtin:nope')).toEqual([]);
   });

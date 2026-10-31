@@ -474,8 +474,10 @@ export const ForgeReview: React.FC = () => {
 
       <ReviewFilesOption />
 
-      {/* Action bar */}
-      <div className="flex items-center justify-between gap-3">
+      {/* Action bar. Its row is the buttons' own: a check's caption hangs
+          under its button, and the lines said beside them sit level with the
+          buttons, not with the captions. */}
+      <div className="flex items-start justify-between gap-3">
         <button
           data-testid="back-button"
           onClick={() => setPhase('discovery')}
@@ -483,7 +485,7 @@ export const ForgeReview: React.FC = () => {
         >
           {t('forgeRun.review.back', '\u2190 Back to Discovery')}
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-start justify-end gap-3">
           {/* The platform's own verdict on a sample of the rows, every write
               rolled back: beside Simulate, which checks them here. */}
           <ForgeRehearseAction />
@@ -491,36 +493,50 @@ export const ForgeReview: React.FC = () => {
             <p
               id="forge-files-execute-hint"
               data-testid="forge-files-execute-hint"
-              className="text-xs text-text-secondary"
+              className="flex min-h-9 items-center text-xs text-text-secondary"
             >
               {t('forgeRun.files.asIsNeeded')}
             </p>
           )}
           {/* A simulation reads and checks every record as Execute's run
-              would, through the write stage, and writes nothing. */}
-          <button
-            type="button"
-            data-testid="simulate-button"
-            onClick={handleSimulate}
-            disabled={!graph || !config || filesBlocked}
-            aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
-            className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {t('forgeRun.simulation.action')}
-          </button>
+              would, through the write stage, and writes nothing: said under
+              it, beside Rehearse's caption, which sends rows to the target. */}
+          <div className="flex flex-col items-center gap-1">
+            <button
+              type="button"
+              data-testid="simulate-button"
+              onClick={handleSimulate}
+              disabled={!graph || !config || filesBlocked}
+              aria-describedby={
+                filesBlocked
+                  ? 'forge-simulate-caption forge-files-execute-hint'
+                  : 'forge-simulate-caption'
+              }
+              className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('forgeRun.simulation.action')}
+            </button>
+            <p
+              id="forge-simulate-caption"
+              data-testid="forge-simulate-caption"
+              className="max-w-[12rem] text-center text-[10px] text-text-secondary"
+            >
+              {t('forgeRun.simulation.caption')}
+            </p>
+          </div>
           {/* Ticked on the Automation tab, the mute goes with Execute from
               whichever tab it is pressed: said beside it. */}
           {muteAutomation && (
             <p
               id="forge-mute-execute-hint"
               data-testid="forge-mute-execute-hint"
-              className="text-xs text-text-secondary"
+              className="flex min-h-9 items-center text-xs text-text-secondary"
             >
               {t('forgeRun.review.muting')}
             </p>
           )}
           {undecidedBlocking > 0 && (
-            <div className="flex items-center gap-2" data-testid="forge-gaps-undecided">
+            <div className="flex min-h-9 items-center gap-2" data-testid="forge-gaps-undecided">
               <p id="forge-gaps-execute-hint" className="text-xs text-text-primary">
                 {t('forgeRun.review.undecidedGaps', { count: undecidedBlocking })}
               </p>

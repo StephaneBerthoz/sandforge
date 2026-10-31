@@ -1,6 +1,6 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Lock, Ban, Sparkles, PhoneOff } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from '../../theme';
 
 /** Props for the ForgeOptionToggles component. */
@@ -24,10 +24,30 @@ export interface ForgeOptionTogglesProps {
 }
 
 /**
+ * The box drawn at the head of a chip: empty when off, checked when on. The
+ * chips said their state by a border colour alone, and off they all looked
+ * alike. The input is a checkbox, so its state is announced already; the box
+ * is for the eye and hidden from screen readers.
+ */
+const ChipBox: React.FC<{ checked: boolean; testId: string }> = ({ checked, testId }) => (
+  <span
+    aria-hidden="true"
+    data-testid={testId}
+    data-checked={checked ? 'true' : 'false'}
+    className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border border-current"
+  >
+    {checked && <Check size={11} strokeWidth={3} />}
+  </span>
+);
+
+/**
  * Option toggle chips: anonymize PII, skip empty objects, auto-fetch parents,
  * and keep emails and phone numbers as they are — off by default, every
  * address then written under `.invalid` and every number as a fictional one.
- * On, a warning says who the target's automation may then reach.
+ * On, a warning says who the target's automation may then reach. Under the
+ * chips, what each privacy choice does, said where it is made: the PII
+ * banner told the user to anonymize to protect sensitive data, as if emails
+ * went out raw, when they are neutralized unless Keep is ticked.
  */
 export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
   anonymize,
@@ -41,6 +61,8 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
 }) => {
   const { t } = useTranslation();
   const warningId = useId();
+  const anonymizeHintId = useId();
+  const contactPointsHintId = useId();
 
   return (
     <div className="flex flex-col gap-2">
@@ -62,9 +84,10 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
             checked={anonymize}
             onChange={(e) => onAnonymizeChange(e.target.checked)}
             data-testid="forge-anonymize-toggle"
+            aria-describedby={anonymizeHintId}
             className="sr-only"
           />
-          <Lock size={14} />
+          <ChipBox checked={anonymize} testId="forge-anonymize-box" />
           {t('forge.anonymizePII')}
         </label>
         <label
@@ -82,7 +105,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
             data-testid="forge-skip-empty-toggle"
             className="sr-only"
           />
-          <Ban size={14} />
+          <ChipBox checked={skipEmpty} testId="forge-skip-empty-box" />
           {t('forge.skipEmpty')}
         </label>
         <label
@@ -104,7 +127,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
             data-testid="forge-expand-orphan-parents-toggle"
             className="sr-only"
           />
-          <Sparkles size={14} />
+          <ChipBox checked={expandOrphanParents} testId="forge-expand-orphan-parents-box" />
           {t('forge.expandOrphanParents', 'Auto-fetch parents')}
         </label>
         <label
@@ -121,12 +144,22 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
             checked={keepContactPoints}
             onChange={(e) => onKeepContactPointsChange(e.target.checked)}
             data-testid="forge-keep-contact-points-toggle"
-            aria-describedby={keepContactPoints ? warningId : undefined}
+            aria-describedby={
+              keepContactPoints ? `${contactPointsHintId} ${warningId}` : contactPointsHintId
+            }
             className="sr-only"
           />
-          <PhoneOff size={14} />
+          <ChipBox checked={keepContactPoints} testId="forge-keep-contact-points-box" />
           {t('runResults.contactPoints.keep')}
         </label>
+      </div>
+      <div className="flex flex-col gap-0.5 text-[10px] text-text-secondary">
+        <p id={anonymizeHintId} data-testid="forge-anonymize-hint">
+          {t('forge.anonymizeHint')}
+        </p>
+        <p id={contactPointsHintId} data-testid="forge-contact-points-default">
+          {t('runResults.contactPoints.neutralizedUnlessKept')}
+        </p>
       </div>
       {/* Said beside the choice, not only on hover: the records then reach the
           target's automation with the addresses and numbers of real people. */}

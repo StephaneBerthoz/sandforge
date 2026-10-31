@@ -218,7 +218,12 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         <div id={`${idBase}-counts`}>
           <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
             <span>
-              {t('forgeRun.node.records', { records: recordCount.toLocaleString(uiLocale()) })}
+              {/* The count picks the form: handed only the formatted string,
+                  every graph read "1 records". */}
+              {t('forgeRun.node.records', {
+                count: recordCount,
+                records: recordCount.toLocaleString(uiLocale()),
+              })}
             </span>
             <span>~{estimatedSizeMB.toFixed(1)} MB</span>
           </div>

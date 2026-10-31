@@ -16,6 +16,8 @@
     "common.recordErrors.group",
     "dataops.frameworks.pci_dss",
     "forge.soqlPlaceholder",
+    "forge.starter.account360.name",
+    "forge.starter.leadToOpp.name",
     "forgeRun.node.errors_one",
     "frozen.manifest.version",
     "grappe.partitionCount_one",

@@ -1642,6 +1642,55 @@ async function discoverForgeGraph(
   await page.getByTestId('forge-discovery').waitFor({ timeout: 10_000 });
 }
 
+/** Scroll the panel back to its top, where a screen is first read. */
+async function scrollPanelToTop(page: Page): Promise<void> {
+  await page.getByTestId('panel-app').evaluate((panel) => {
+    panel.scrollTop = 0;
+  });
+}
+
+/**
+ * Whether the element `testId` is whole inside the window and the topmost
+ * thing at its centre: in sight and clickable without scrolling.
+ */
+async function inSight(page: Page, testId: string): Promise<boolean> {
+  return page.getByTestId(testId).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight) return false;
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && element.contains(hit);
+  });
+}
+
+/**
+ * Scroll the panel up until the element `testId` starts in a row of axe's
+ * 200-pixel grid below the row where the graph pane `graph` ends.
+ *
+ * axe files an element under the grid cells its box covers once clipped by
+ * its overflow-hidden ancestors, then tests a point against its whole box.
+ * React Flow's viewport, scaled past its pane, is so filed in the row where
+ * the pane ends and reported over any text in that row: "overlapped by
+ * another element", and the text's contrast goes unmeasured, though the text
+ * is on top. Reached at the end of a page that scrolls no further, Review's
+ * files warning sat in that row.
+ */
+async function outOfGraphCellRow(page: Page, testId: string, graph: string): Promise<void> {
+  await page.evaluate(
+    ({ testId: id, graph: pane }) => {
+      const panel = document.querySelector('[data-testid="panel-app"]') as HTMLElement;
+      const element = document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+      const graphPane = document.querySelector(`[data-testid="${pane}"]`) as HTMLElement;
+      const row = (y: number) => Math.floor(y / 200);
+      for (let step = 0; step < 100; step += 1) {
+        const top = element.getBoundingClientRect().top;
+        if (row(top) > row(graphPane.getBoundingClientRect().bottom)) return;
+        panel.scrollTop -= 4;
+      }
+    },
+    { testId, graph },
+  );
+}
+
 /** The test id of the Forge graph's pane. */
 const FORGE_GRAPH = 'live-graph';
 
@@ -2028,6 +2077,64 @@ for (const theme of SCANNED_THEMES) {
           '[data-testid="forge-keep-contact-points-warning"]',
         ),
       ).toBeGreaterThan(0);
+    });
+
+    test('Forge record preview naming its root record, with what Anonymize PII masks and what becomes of emails and phones', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-input-record').fill('003000000000001AAA');
+      // The preview is asked for after a debounce, and asked again by a
+      // second mount in development: every request is answered until the
+      // line shows.
+      await expect
+        .poll(
+          async () => {
+            await answerAll(page, 'forge:preview', 'forge:preview:response', {
+              objectApiName: 'Contact',
+              objectLabel: 'Contact',
+              recordId: '003000000000001AAA',
+              fields: [
+                { name: 'Name', value: 'Sample Person' },
+                { name: 'Email', value: 'sample@example.invalid' },
+                { name: 'MailingStreet', value: '1 Sample Street' },
+              ],
+              estimatedRecordCount: 180000,
+              totalFieldCount: 52,
+              estimatedSize: 180,
+            });
+            return page.getByTestId('forge-root-record').isVisible();
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      // An "Estimated Graph" box said 180000 records and 180.00 MB here: the
+      // root object's whole table, for a clone of a few rows.
+      await expect(page.getByTestId('forge-root-record')).toHaveText(
+        'Root record · Contact · 52 fields',
+      );
+      await expect(page.getByText('180.00 MB')).toHaveCount(0);
+      await expect(page.getByTestId('forge-pii-warning')).toContainText(
+        'Names, addresses and other personal fields go as they are; Anonymize PII masks them.',
+      );
+      await expect(page.getByTestId('forge-anonymize-box')).toHaveAttribute(
+        'data-checked',
+        'false',
+      );
+      await page.getByTestId('forge-contact-points-default').scrollIntoViewIfNeeded();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      for (const testId of [
+        'forge-root-record',
+        'forge-pii-warning',
+        'forge-anonymize-hint',
+        'forge-contact-points-default',
+      ]) {
+        expect(
+          await contrastMeasuredIn(page, results, `[data-testid="${testId}"]`),
+          testId,
+        ).toBeGreaterThan(0);
+      }
     });
 
     test('Forge AI tab with no provider set up', async ({ page }) => {
@@ -2755,7 +2862,9 @@ for (const theme of SCANNED_THEMES) {
     }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       await page.getByTestId('forge-input-record').fill(fakeId('001', 1));
-      await expect(page.getByTestId('forge-record-limit-smart-hint')).toContainText('no cap');
+      await expect(page.getByTestId('forge-record-limit-smart-hint')).toContainText(
+        'reads only what the record reaches',
+      );
       await page.getByTestId('forge-target-org').click();
       await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
       await page.getByTestId('forge-discover-btn').click();
@@ -3170,7 +3279,9 @@ for (const theme of SCANNED_THEMES) {
       await startForgeRun(bridge, page, theme);
       await page.getByTestId('forge-abort-button').click();
 
-      await expectPlainStopQuestion(page, 'Abort');
+      // The button said Abort and its question Stop the run: one name now.
+      await expect(page.getByTestId('forge-abort-button')).toHaveText('Stop the run');
+      await expectPlainStopQuestion(page, 'Stop the run');
       await expectReadable(page, theme);
       await page.getByRole('button', { name: 'Stop the run' }).click();
       await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
@@ -3347,6 +3458,48 @@ for (const theme of SCANNED_THEMES) {
       await graphFitted(page, FORGE_GRAPH);
       expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(300);
       expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge discovery and run keeping their buttons in sight in a 720-pixel panel, and Review’s checks each saying what it does', async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await discoverForgeGraph(bridge, page, theme);
+      await graphFitted(page, FORGE_GRAPH);
+      // Under the graph's fixed 60vh, Review & Execute sat below the fold,
+      // only its top edge showing; measured from the top of the screen.
+      await scrollPanelToTop(page);
+      expect(await inSight(page, 'forge-execute-btn')).toBe(true);
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // Rehearse and Simulate sat side by side, alike, their difference in a
+      // hover title.
+      await expect(page.getByTestId('forge-simulate-caption')).toHaveText(
+        'Checks every record here, sends nothing.',
+      );
+      await expect(page.getByTestId('forge-rehearse-caption')).toHaveText(
+        'The target tries a sample, rolled back; costs API calls.',
+      );
+      await page.getByTestId('forge-simulate-caption').scrollIntoViewIfNeeded();
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      for (const testId of ['forge-simulate-caption', 'forge-rehearse-caption']) {
+        expect(
+          await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`),
+          testId,
+        ).toBeGreaterThan(0);
+      }
+
+      await page.getByTestId('execute-button').click();
+      await page.getByTestId('forge-execution').waitFor({ timeout: 10_000 });
+      await graphFitted(page, FORGE_GRAPH);
+      // Stop the run sat under the graph and the counters, below the fold
+      // while the run was writing.
+      await scrollPanelToTop(page);
+      expect(await inSight(page, 'forge-abort-button')).toBe(true);
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -4233,6 +4386,7 @@ for (const theme of SCANNED_THEMES) {
       await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
       await expect(page.getByTestId('execute-button')).toBeDisabled();
       await toMiddle(page, 'forge-files-as-is');
+      await outOfGraphCellRow(page, 'forge-files-as-is', FORGE_GRAPH);
       const asked = await checkAccessibility(page, reviewScan);
       expectNoViolations(asked);
       expect(

@@ -513,10 +513,10 @@ describe('ForgeExecution', () => {
     expect(mockSetStoppedAt).not.toHaveBeenCalled();
     expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPING...');
     expect(screen.getByTestId('forge-execution-stopping').textContent).toBe(
-      'Abort asked: the run stops once the step under way is done, then says what it wrote.',
+      'Stop asked: the run stops once the step under way is done, then says what it wrote.',
     );
     expect(screen.getByTestId('forge-progress-status').textContent).toBe(
-      'Abort asked: the run stops once the step under way is done, then says what it wrote.',
+      'Stop asked: the run stops once the step under way is done, then says what it wrote.',
     );
     // Nothing left to pause or abort again, and no time left to estimate.
     expect(screen.getByTestId('forge-pause-button').hasAttribute('disabled')).toBe(true);
@@ -534,7 +534,7 @@ describe('ForgeExecution', () => {
   describe('an abort the run does not answer', () => {
     /** What the screen says once the wait for the answer is over. */
     const UNANSWERED =
-      'The run has not answered the abort yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.';
+      'The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.';
 
     beforeEach(() => {
       vi.useFakeTimers();
@@ -630,11 +630,26 @@ describe('ForgeExecution', () => {
     expect(screen.getByTestId('logstream')).toBeDefined();
   });
 
-  it('should render abort button', () => {
+  it('names its stop button as the question it opens names the stop', () => {
+    // It said Abort, its question Stop the run, and Frozen's load Cancel run.
     render(<ForgeExecution />);
-    const abortBtn = screen.getByTestId('forge-abort-button');
-    expect(abortBtn).toBeDefined();
-    expect(abortBtn.textContent).toContain('Abort');
+    const stopButton = screen.getByTestId('forge-abort-button');
+    expect(stopButton.textContent).toBe('Stop the run');
+
+    fireEvent.click(stopButton);
+    expect(screen.getByRole('dialog', { name: 'Stop the run' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Stop the run' })).toBeTruthy();
+  });
+
+  it('keeps Pause and Stop the run in a row that stays at the bottom of the panel', () => {
+    // Under the graph's fixed height and the counters, the stop sat below the
+    // fold of a 720-pixel panel while the run was writing.
+    render(<ForgeExecution />);
+    const row = screen.getByTestId('forge-execution-buttons');
+    expect(row.className).toContain('sticky');
+    expect(row.className).toContain('bottom-0');
+    expect(row.contains(screen.getByTestId('forge-abort-button'))).toBe(true);
+    expect(row.contains(screen.getByTestId('forge-pause-button'))).toBe(true);
   });
 
   it('should render log filter buttons', () => {

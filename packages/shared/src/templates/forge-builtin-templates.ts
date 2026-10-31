@@ -14,7 +14,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
     id: 'builtin:account-360',
     name: 'Account 360',
     description:
-      'Clone an Account with its Contacts, Opportunities, and Cases (up to 100/object). Best for CRM developers exploring a full customer view.',
+      'Clones an Account with its Contacts, Opportunities and Cases. For CRM developers exploring a full customer view.',
     config: {
       inputMode: 'record',
       depth: 'custom',
@@ -32,8 +32,11 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
   {
     id: 'builtin:case-workflow',
     name: 'Case Workflow',
+    // No CaseHistory: field history rows cannot be inserted, so the object
+    // list below leaves them out, and the description named an object the
+    // template never copies.
     description:
-      'Clone a Case with its Account, Contact, EmailMessages, CaseHistory, and CaseComments (up to 50/object). Best for Service Cloud developers debugging support flows.',
+      'Clones a Case with its Account, Contact, EmailMessages and CaseComments; field history is not copied. For Service Cloud developers debugging support processes.',
     config: {
       inputMode: 'record',
       depth: 'custom',
@@ -52,7 +55,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
     id: 'builtin:lead-to-opp',
     name: 'Lead → Opportunity',
     description:
-      'Clone a Lead with its Campaign, converted Account/Contact, and resulting Opportunity (up to 100/object). Best for Sales Cloud developers testing lead-to-opp transitions.',
+      'Clones a Lead with its Campaign, its converted Account and Contact, and the resulting Opportunity. For Sales Cloud developers testing lead conversion.',
     config: {
       inputMode: 'record',
       depth: 'custom',

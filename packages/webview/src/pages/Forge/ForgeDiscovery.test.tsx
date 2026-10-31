@@ -231,6 +231,17 @@ describe('ForgeDiscovery', () => {
     expect(mockSetPhase).toHaveBeenCalledWith('review');
   });
 
+  it('keeps its stats and its actions at the bottom of the panel as the screen scrolls', () => {
+    // Under the graph's fixed height, Review & Execute sat below the fold of
+    // a 720-pixel panel, only its top edge showing.
+    render(<ForgeDiscovery />);
+    const footer = screen.getByTestId('forge-discovery-footer');
+    expect(footer.className).toContain('sticky');
+    expect(footer.className).toContain('bottom-0');
+    expect(footer.contains(screen.getByTestId('forge-execute-btn'))).toBe(true);
+    expect(footer.contains(screen.getByTestId('forge-stats-bar'))).toBe(true);
+  });
+
   it('should display stats bar with correct counts', () => {
     render(<ForgeDiscovery />);
     const statsBar = screen.getByTestId('forge-stats-bar');

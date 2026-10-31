@@ -3170,7 +3170,7 @@
       "step2": "En la pestaña Registro, pegue un ID de registro o URL de Salesforce y haga clic en Descubrir grafo.",
       "step3": "Cuando termine el descubrimiento, haga clic en Revisar y ejecutar.",
       "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
-      "tip": "Simular, junto a Ejecutar Forge, no escribe nada; Eliminar los registros que creó esta ejecución, al terminar y en Ejecuciones recientes, los borra."
+      "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Ejecuciones recientes, los borra."
     },
     "seed": {
       "step1": "En Seed rápido desde plantilla, pulse Usar esta en la plantilla Kit inicial de CRM, marcada Empiece aquí.",
@@ -3430,7 +3430,7 @@
     "soqlQuery": "Consulta SOQL",
     "depth": "Profundidad",
     "depthDirect": "Solo directos",
-    "depthFull": "Árbol completo",
+    "depthFull": "Profundo (5 niveles)",
     "depthCustom": "Profundidad personalizada",
     "sourceOrg": "Org de origen",
     "targetOrg": "Org de destino",
@@ -3443,7 +3443,6 @@
     "executeFailed": "La ejecución de Forge ha fallado",
     "objects": "Objetos",
     "estSize": "Tamaño est.",
-    "estRecords": "Registros est.",
     "deleteTemplate": "Eliminar",
     "closePreview": "Cerrar vista previa",
     "fields": "Campos",
@@ -3467,13 +3466,12 @@
     "refreshPreview": "Actualizar vista previa",
     "noOrgSelected": "Seleccione una org de origen para previsualizar",
     "livePreview": "Vista previa en vivo",
-    "estimatedGraph": "Grafo estimado",
     "piiWarning_one": "{{count}} campo PII detectado",
     "piiWarning_other": "{{count}} campos PII detectados",
-    "piiWarningHint": "Habilite Anonimizar PII para proteger datos sensibles",
+    "piiWarningHint": "Los nombres, las direcciones y otros campos personales se copian tal cual; Anonimizar PII los enmascara.",
     "direct": {
       "action": "Clonar directamente",
-      "hint": "Descubre el grafo y luego clona lo que contiene tal como la revisión lo envía por defecto, sin detenerse en el grafo ni en la revisión. No se ejecuta la comparación de metadatos entre las dos orgs. Los Flows y desencadenadores de Apex que la org de destino ejecuta al insertar los registros se leen igualmente antes de la ejecución, y los que se activan se le presentan primero. Para ver primero lo que una ejecución escribiría y lo que el destino rechazaría, use Simular en la revisión. Las discrepancias que la org de destino opone a las filas — un campo que solo ella exige, una regla de validación, un tipo de registro — no se leen, y ninguna se decide: las filas que rechazan se rechazan. Descubrir grafo y luego la pestaña Discrepancias de la revisión las deciden."
+      "hint": "Descubre y clona de una vez, sin la revisión: ninguna discrepancia decidida, sin comparación de metadatos; lo que el destino ejecuta al insertar se le presenta igualmente primero."
     },
     "editTemplate": "Editar",
     "deleteTemplateConfirm": "¿Está seguro de que desea eliminar esta plantilla?",
@@ -3485,10 +3483,10 @@
     "recordLimit": "Registros por objeto",
     "recordLimitHint": "Limite cuántas filas se clonan por objeto. Menor = más rápido y seguro en orgs grandes.",
     "objectCap": "Objetos",
-    "objectCapHint": "cuántos objetos con registros puede alcanzar el descubrimiento, sin contar las tablas vacías; la profundidad dice hasta dónde, esto hasta qué anchura",
+    "objectCapHint": "Máximo de objetos que el descubrimiento puede incluir (los vacíos no cuentan).",
     "objectCapDefault": "Predeterminado (50)",
     "recordLimitSmart": "Inteligente (según la entrada)",
-    "recordLimitSmartRecord": "Inteligente: sin límite. La clonación de un registro solo lee lo que el registro alcanza, hasta 50 000 filas por objeto, y pregunta antes de escribir un gran volumen.",
+    "recordLimitSmartRecord": "Inteligente: solo lee lo que el registro alcanza, como máximo 50.000 filas por objeto, y pregunta antes de una escritura grande.",
     "recordLimitSmartSoql": "Inteligente: {{limit}} por objeto. Una ejecución desde una consulta lee los demás objetos de sus tablas completas.",
     "recordLimitAll": "Todos",
     "recordLimitOpt10": "10 / objeto (muestra)",
@@ -3580,6 +3578,24 @@
       "review": "Revisión",
       "execution": "Ejecución",
       "results": "Resultados"
+    },
+    "rootRecordSummary_one": "Registro raíz · {{object}} · {{formatted}} campo",
+    "rootRecordSummary_other": "Registro raíz · {{object}} · {{formatted}} campos",
+    "anonymizeHint": "Anonimizar PII enmascara nombres, direcciones y otros campos personales.",
+    "starterCap": "≤ {{max}} / objeto",
+    "starter": {
+      "account360": {
+        "name": "Cuenta 360",
+        "description": "Clona una cuenta con sus contactos, oportunidades y casos. Para desarrolladores de CRM que exploran la vista completa de un cliente."
+      },
+      "caseWorkflow": {
+        "name": "Ciclo de un caso",
+        "description": "Clona un caso con su cuenta, su contacto, sus mensajes de correo electrónico y sus comentarios de caso; el historial de campos no se copia. Para desarrolladores de Service Cloud que depuran procesos de soporte."
+      },
+      "leadToOpp": {
+        "name": "Candidato → Oportunidad",
+        "description": "Clona un candidato con su campaña, la cuenta y el contacto resultantes de su conversión y la oportunidad que resulta. Para desarrolladores de Sales Cloud que prueban la conversión de candidatos."
+      }
     }
   },
   "forgeRun": {
@@ -3596,7 +3612,8 @@
       "linked": "Vinculadas a un registro que la org destino ya contiene, como las vincula la ejecución: {{linked}}.",
       "nothing": "Ensayo terminado: la ejecución no crea ninguna fila y no se envió nada.",
       "declined": "Ensayo cancelado en su confirmación. No se envió nada al destino.",
-      "error": "No se pudo hacer el ensayo: {{error}}"
+      "error": "No se pudo hacer el ensayo: {{error}}",
+      "caption": "El destino prueba una muestra, revertida; consume llamadas a la API."
     },
     "forging": "FORJANDO...",
     "paused": "EN PAUSA",
@@ -3604,8 +3621,8 @@
     "finishingNote": "Todos los objetos del grafo están resueltos. La ejecución está terminando; sus resultados llegarán en cuanto acabe.",
     "aborted": "CANCELADO",
     "stopping": "DETENIENDO...",
-    "stoppingNote": "Cancelación solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
-    "stopUnanswered": "La ejecución aún no ha respondido a la cancelación. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Ejecuciones recientes» en cuanto la ejecución responda.",
+    "stoppingNote": "Detención solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
+    "stopUnanswered": "La ejecución aún no ha respondido a la detención. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Ejecuciones recientes» en cuanto la ejecución responda.",
     "backToStart": "Volver al inicio",
     "stopped": "DETENIDO",
     "done": "Hecho",
@@ -3614,8 +3631,7 @@
     "failed": "Fallido",
     "pause": "Pausar",
     "resume": "Reanudar",
-    "abort": "Detener",
-    "abortConfirm": "¿Detener la ejecución? Se detiene en cuanto termina el paso en curso, y lo que ya escribió se queda en la org de destino.",
+    "abortConfirm": "La ejecución se detiene en cuanto termina el paso en curso, y lo que ya escribió se queda en la org de destino.",
     "elapsed": "Transcurrido",
     "discovery": "Descubrimiento de grafo",
     "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
@@ -3697,7 +3713,7 @@
     "retryWithParentsHint": "Obtener los padres que faltan y reintentar vuelve a ejecutar el clon con «Obtener padres automáticamente» activado: los padres que el clon no lee por sí mismo también se copian, y luego se escribe lo que esta ejecución no pudo escribir, vinculado a lo que sí escribió. Corrige un campo obligatorio que quedó vacío cuando ese campo es una búsqueda.",
     "saveIdMapCsv": "Guardar correspondencia de Ids (CSV)",
     "saveResultsCsv": "Guardar resultados (CSV)",
-    "saveResultJson": "Guardar resultado (JSON)",
+    "saveResultJson": "Guardar resultados (JSON)",
     "anonymizedFields": "Campos anonimizados",
     "tableView": "Vista de tabla",
     "graphView": "Vista de grafo",
@@ -4014,13 +4030,14 @@
       "unidentified_other": "{{count}} sin identificar — contados como fallidos, y sus registros hijos perdieron el vínculo"
     },
     "node": {
-      "records": "{{records}} registros",
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonables)",
       "notMeasured": "Volumen aún sin medir",
       "showDetails": "Mostrar los detalles de {{object}}",
       "stopped": "Detenido antes de terminar",
       "errors_one": "{{count}} error",
-      "errors_other": "{{count}} errores"
+      "errors_other": "{{count}} errores",
+      "records_one": "{{records}} registro",
+      "records_other": "{{records}} registros"
     },
     "nodeStatus": {
       "idle": "Sin iniciar",
@@ -4056,7 +4073,8 @@
       "running": "Simulación: cada registro leído pasa por la etapa de escritura como en una ejecución real, y no se escribe nada en el destino.",
       "done": "Simulación, no se escribió nada. Estas cifras son lo que una ejecución real insertaría, vincularía, retendría y haría fallar; lo que el destino rechazaría o cambiaría en los registros se lista en la revisión.",
       "gapsFound": "Diferencias encontradas con el destino: {{gaps}}",
-      "wouldInsert": "Se insertarían"
+      "wouldInsert": "Se insertarían",
+      "caption": "Comprueba aquí cada registro, no envía nada."
     },
     "gaps": {
       "notRead": "Todavía no se ha leído nada. Simule la ejecución, o ensáyela, para saber qué rechazaría o cambiaría el destino en sus filas.",
@@ -5028,7 +5046,8 @@
       "values_other": "{{count}} valores",
       "keep": "Mantener los correos y los números de teléfono tal como están",
       "keepWarning": "Los correos y los números de teléfono se escribirán tal como los tiene el origen: los Flows, los triggers y las alertas por correo de la org de destino podrán entonces enviar correos o SMS a personas reales.",
-      "keepHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie."
+      "keepHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie.",
+      "neutralizedUnlessKept": "Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están."
     },
     "encryptedLeftOut": "{{fields}}: campos cifrados que el usuario con el que SandForge lee la org de origen ve enmascarados, al no tener el permiso View Encrypted Data. Se dejan fuera de cada registro escrito, en lugar de copiarse enmascarados.",
     "writtenWithoutFields": {

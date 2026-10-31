@@ -3170,7 +3170,7 @@
       "step2": "On the Record tab, paste a Record ID or Salesforce URL, then click Discover Graph.",
       "step3": "When discovery ends, click Review & Execute.",
       "step4": "Click Execute Forge, then read the Inserted card once the run ends.",
-      "tip": "Simulate, beside Execute Forge, writes nothing; Remove the records this run created, after the run and in Recent runs, deletes them."
+      "tip": "Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them."
     },
     "seed": {
       "step1": "Under Quick Seed from Template, press Use This on CRM Starter, marked Start here.",
@@ -3430,7 +3430,7 @@
     "soqlQuery": "SOQL query",
     "depth": "Depth",
     "depthDirect": "Direct only",
-    "depthFull": "Full tree",
+    "depthFull": "Deep (5 levels)",
     "depthCustom": "Custom depth",
     "sourceOrg": "Source Org",
     "targetOrg": "Target Org",
@@ -3443,7 +3443,6 @@
     "executeFailed": "Forge execution failed",
     "objects": "Objects",
     "estSize": "Est. Size",
-    "estRecords": "Est. Records",
     "deleteTemplate": "Delete",
     "closePreview": "Close preview",
     "fields": "Fields",
@@ -3467,13 +3466,12 @@
     "refreshPreview": "Refresh preview",
     "noOrgSelected": "Select a source org to preview",
     "livePreview": "Live Preview",
-    "estimatedGraph": "Estimated Graph",
     "piiWarning_one": "{{count}} PII field detected",
     "piiWarning_other": "{{count}} PII fields detected",
-    "piiWarningHint": "Enable Anonymize PII to protect sensitive data",
+    "piiWarningHint": "Names, addresses and other personal fields go as they are; Anonymize PII masks them.",
     "direct": {
       "action": "Clone directly",
-      "hint": "Discovers the graph, then clones what it finds as Review sends it by default, without stopping on the graph or on Review. The metadata diff between the two orgs is not run. The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first. To see first what a run would write and what the target would refuse, use Simulate on Review. The gaps the target org holds against the rows — a field only it requires, a validation rule, a record type — are not read, and none is decided: the rows they refuse are refused. Discover Graph, then the Gaps tab on Review, decides them."
+      "hint": "Discovers and clones in one go, without Review: no gaps decided, no metadata diff; what the target runs on insert is still put to you first."
     },
     "editTemplate": "Edit",
     "deleteTemplateConfirm": "Are you sure you want to delete this template?",
@@ -3485,10 +3483,10 @@
     "recordLimit": "Records per object",
     "recordLimitHint": "Cap how many rows are cloned per object. Lower = faster, safer on big orgs.",
     "objectCap": "Objects",
-    "objectCapHint": "how many objects holding records discovery may reach, empty tables aside; depth says how far, this says how wide",
+    "objectCapHint": "Max objects discovery may include (empty ones not counted).",
     "objectCapDefault": "Default (50)",
     "recordLimitSmart": "Smart (set by the input)",
-    "recordLimitSmartRecord": "Smart: no cap. A clone of one record reads only what the record reaches, up to 50 000 rows of an object, and asks before it writes a large volume.",
+    "recordLimitSmartRecord": "Smart: reads only what the record reaches, at most 50,000 rows per object, and asks before a large write.",
     "recordLimitSmartSoql": "Smart: {{limit}} per object. A run from a query reads the other objects from their whole tables.",
     "recordLimitAll": "All",
     "recordLimitOpt10": "10 / object (sample)",
@@ -3580,6 +3578,24 @@
       "review": "Review",
       "execution": "Run",
       "results": "Results"
+    },
+    "rootRecordSummary_one": "Root record · {{object}} · {{formatted}} field",
+    "rootRecordSummary_other": "Root record · {{object}} · {{formatted}} fields",
+    "anonymizeHint": "Anonymize PII masks names, addresses and other personal fields.",
+    "starterCap": "≤ {{max}} / object",
+    "starter": {
+      "account360": {
+        "name": "Account 360",
+        "description": "Clones an Account with its Contacts, Opportunities and Cases. For CRM developers exploring a full customer view."
+      },
+      "caseWorkflow": {
+        "name": "Case Workflow",
+        "description": "Clones a Case with its Account, Contact, EmailMessages and CaseComments; field history is not copied. For Service Cloud developers debugging support processes."
+      },
+      "leadToOpp": {
+        "name": "Lead → Opportunity",
+        "description": "Clones a Lead with its Campaign, its converted Account and Contact, and the resulting Opportunity. For Sales Cloud developers testing lead conversion."
+      }
     }
   },
   "forgeRun": {
@@ -3596,7 +3612,8 @@
       "linked": "Linked to a record the target org already holds, as the run links them: {{linked}}.",
       "nothing": "Rehearsal done: the run creates no row, and nothing was sent.",
       "declined": "Rehearsal cancelled at its confirmation. Nothing was sent to the target.",
-      "error": "The rehearsal could not run: {{error}}"
+      "error": "The rehearsal could not run: {{error}}",
+      "caption": "The target tries a sample, rolled back; costs API calls."
     },
     "forging": "FORGING...",
     "paused": "PAUSED",
@@ -3604,8 +3621,8 @@
     "finishingNote": "Every object on the graph has settled. The run is finishing; its results follow once it is done.",
     "aborted": "ABORTED",
     "stopping": "STOPPING...",
-    "stoppingNote": "Abort asked: the run stops once the step under way is done, then says what it wrote.",
-    "stopUnanswered": "The run has not answered the abort yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.",
+    "stoppingNote": "Stop asked: the run stops once the step under way is done, then says what it wrote.",
+    "stopUnanswered": "The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.",
     "backToStart": "Back to the start",
     "stopped": "STOPPED",
     "done": "Done",
@@ -3614,8 +3631,7 @@
     "failed": "Failed",
     "pause": "Pause",
     "resume": "Resume",
-    "abort": "Abort",
-    "abortConfirm": "Abort the run? It stops once the step under way is done, and what it has written stays in the target org.",
+    "abortConfirm": "The run stops once the step under way is done, and what it has written stays in the target org.",
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
@@ -3646,9 +3662,9 @@
     "objectsSkipped": "Objects skipped",
     "idRemaps": "ID Remaps",
     "successRate": "Success Rate",
-    "saveTemplate": "Save as Template",
-    "copyReport": "Copy Report",
-    "forgeAgain": "Forge Again",
+    "saveTemplate": "Save as template",
+    "copyReport": "Copy report",
+    "forgeAgain": "Forge again",
     "object": "Object",
     "status": "Status",
     "errors": "Errors",
@@ -3685,8 +3701,8 @@
     "apiCallsEstimated": "Estimated API Calls",
     "apiCallsSoFar": "API Calls So Far",
     "exportJson": "Copy JSON",
-    "retryFailed": "Retry Failed",
-    "retryFailedHint": "Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.",
+    "retryFailed": "Retry failed",
+    "retryFailedHint": "Retry failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.",
     "retryStopped": "Write the rest",
     "retryStoppedHint": "Write the rest runs the clone again: what this run did not write before it stopped is written, linked to what it did write, which is not written a second time.",
     "resumeRun": "Resume where it stopped",
@@ -3697,7 +3713,7 @@
     "retryWithParentsHint": "Fetch the missing parents and retry runs the clone again with Auto-fetch parents on: the parents the clone does not read on its own are copied too, then what this run could not write is written, linked to what it did write. It fixes a required field left empty when that field is a lookup.",
     "saveIdMapCsv": "Save Id map (CSV)",
     "saveResultsCsv": "Save results (CSV)",
-    "saveResultJson": "Save result (JSON)",
+    "saveResultJson": "Save results (JSON)",
     "anonymizedFields": "Anonymized Fields",
     "tableView": "Table View",
     "graphView": "Graph View",
@@ -4014,13 +4030,14 @@
       "unidentified_other": "{{count}} not identified — counted as failed, and their children lost the link"
     },
     "node": {
-      "records": "{{records}} records",
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
       "notMeasured": "Size not measured yet",
       "showDetails": "Show the details of {{object}}",
       "stopped": "Stopped before its end",
       "errors_one": "{{count}} error",
-      "errors_other": "{{count}} errors"
+      "errors_other": "{{count}} errors",
+      "records_one": "{{records}} record",
+      "records_other": "{{records}} records"
     },
     "nodeStatus": {
       "idle": "Not started",
@@ -4056,7 +4073,8 @@
       "running": "Simulation: every record read goes through the write stage as a real run would take it, and nothing is written to the target.",
       "done": "Simulation, nothing was written. These counts are what a real run would insert, link, hold back and fail; what the target would refuse or change in the records is listed on Review.",
       "gapsFound": "Gaps found against the target: {{gaps}}",
-      "wouldInsert": "Would be inserted"
+      "wouldInsert": "Would be inserted",
+      "caption": "Checks every record here, sends nothing."
     },
     "gaps": {
       "notRead": "Nothing has been read yet. Simulate the run, or rehearse it, to find what the target would refuse or change in its rows.",
@@ -5028,7 +5046,8 @@
       "values_other": "{{count}} values",
       "keep": "Keep emails and phone numbers as they are",
       "keepWarning": "Emails and phone numbers will be written as the source holds them: the target org's flows, triggers and email alerts may then email or text real people.",
-      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one."
+      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one.",
+      "neutralizedUnlessKept": "Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are."
     },
     "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
     "writtenWithoutFields": {

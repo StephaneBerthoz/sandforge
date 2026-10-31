@@ -68,31 +68,41 @@ export const ForgeRehearseAction: React.FC = () => {
   const running = rehearsal.status === 'running';
   const line = statusLine(t, rehearsal);
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       <p
         id="forge-rehearse-status"
         data-testid="forge-rehearse-status"
         role="status"
         aria-live="polite"
-        className={`max-w-md text-xs ${rehearsal.status === 'error' ? 'text-status-error' : 'text-text-secondary'}`}
+        className={`flex min-h-9 max-w-md items-center text-xs ${rehearsal.status === 'error' ? 'text-status-error' : 'text-text-secondary'}`}
       >
         {line}
       </p>
-      <button
-        type="button"
-        data-testid="rehearse-button"
-        onClick={rehearsal.rehearse}
-        disabled={!graph || !config || running}
-        aria-busy={running}
-        aria-describedby="forge-rehearse-hint forge-rehearse-status"
-        title={t('forgeRun.rehearsal.hint')}
-        className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {t('forgeRun.rehearsal.action')}
-      </button>
-      <span id="forge-rehearse-hint" className="sr-only">
-        {t('forgeRun.rehearsal.hint')}
-      </span>
+      {/* What it does and what it costs, said under it: it sat beside
+          Simulate, the same outlined button, with its difference in a hover
+          title and an sr-only line, though it creates rows in the target and
+          costs API calls. */}
+      <div className="flex flex-col items-center gap-1">
+        <button
+          type="button"
+          data-testid="rehearse-button"
+          onClick={rehearsal.rehearse}
+          disabled={!graph || !config || running}
+          aria-busy={running}
+          aria-describedby="forge-rehearse-hint forge-rehearse-status"
+          title={t('forgeRun.rehearsal.hint')}
+          className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {t('forgeRun.rehearsal.action')}
+        </button>
+        <p
+          id="forge-rehearse-hint"
+          data-testid="forge-rehearse-caption"
+          className="max-w-[12rem] text-center text-[10px] text-text-secondary"
+        >
+          {t('forgeRun.rehearsal.caption')}
+        </p>
+      </div>
     </div>
   );
 };

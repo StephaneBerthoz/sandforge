@@ -13,7 +13,7 @@ Forge needs two orgs: one that holds the records, and one to fill. With a single
 3. When discovery ends, click Review & Execute.
 4. Click Execute Forge, then read the Inserted card once the run ends.
 
-**Tip:** Simulate, beside Execute Forge, writes nothing; Remove the records this run created, after the run and in Recent runs, deletes them.
+**Tip:** Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them.
 
 <!-- how-to:end -->
 
@@ -50,7 +50,7 @@ The main Forge journey, end to end — from a real record to a populated sandbox
      → "Record" tab → input "Record ID or Salesforce URL"
        (e.g. an Account from your UAT / partial-copy org)
 3. Tune the options, on the same form, above "Discover Graph":
-     • Depth: "Direct only" / "Full tree" / "Custom depth"
+     • Depth: "Direct only" / "Deep (5 levels)" / "Custom depth"
      • "Records per object" — cap rows per object (Smart / 10…1000 / All);
        Smart caps nothing of one record's graph and 100 of a SOQL run, and
        Results, a simulation and the confirmation before the write name

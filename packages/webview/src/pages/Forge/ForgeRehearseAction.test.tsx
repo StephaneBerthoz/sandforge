@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeRehearsal } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
 
 const mockPostMessage = vi.fn();
 const stableApi = {
@@ -201,9 +203,43 @@ describe('ForgeRehearseAction', () => {
     expect(button.getAttribute('aria-describedby')).toBe(
       'forge-rehearse-hint forge-rehearse-status',
     );
-    expect(document.getElementById('forge-rehearse-hint')?.textContent).toContain(
-      'Has the target judge a sample of the rows',
-    );
+    expect(button.getAttribute('title')).toContain('Has the target judge a sample of the rows');
     expect(screen.getByRole('status')).toBe(screen.getByTestId('forge-rehearse-status'));
   });
+
+  it('says under the button, in sight, that the target tries a sample and that it costs API calls', () => {
+    // Beside Simulate, the same outlined button, its difference was in a
+    // hover title and an sr-only line, though it creates rows in the target.
+    render(<ForgeRehearseAction />);
+    const caption = screen.getByTestId('forge-rehearse-caption');
+    expect(caption.textContent).toBe('The target tries a sample, rolled back; costs API calls.');
+    expect(caption.id).toBe('forge-rehearse-hint');
+    expect(caption.className).not.toContain('sr-only');
+  });
+});
+
+describe('ForgeRehearseAction in French and German', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it.each([
+    ['fr', fr, 'Essai à blanc', /^Répéter$/],
+    ['de', de, 'Probelauf', /^Proben$/],
+  ] as const)(
+    'names the button in %s as a dry run, not as a repeat or as samples',
+    async (lng, catalogue, label, ambiguous) => {
+      // Beside Simulate and Execute, "Répéter" read first as "Repeat", and
+      // "Proben" as the plural noun "samples", which its own hint used.
+      i18n.addResourceBundle(lng, 'translation', catalogue, true, true);
+      await i18n.changeLanguage(lng);
+      render(<ForgeRehearseAction />);
+      const button = screen.getByTestId('rehearse-button');
+      expect(button.textContent).toBe(label);
+      expect(button.textContent).not.toMatch(ambiguous);
+      expect(screen.getByTestId('forge-rehearse-caption').textContent).toBe(
+        catalogue.forgeRun.rehearsal.caption,
+      );
+    },
+  );
 });

@@ -27,8 +27,17 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { soqlRootFilter } from './forgeUtils';
+import { soqlRootFilter, starterTemplateKeys } from './forgeUtils';
 import { extractRecordId } from '../../utils/recordId';
+
+/** A starter template's name in the panel's language, as its Template tab says it. */
+function starterName(
+  t: ReturnType<typeof useTranslation>['t'],
+  template: { id: string; name: string },
+): string {
+  const keys = starterTemplateKeys(template.id);
+  return keys ? t(keys.name) : template.name;
+}
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
@@ -632,10 +641,9 @@ export const ForgeInput: React.FC = () => {
               )}
             >
               <Sparkles size={12} />
-              {t('forge.quickStartTemplate', 'Quick start ({{name}})').replace(
-                '{{name}}',
-                form.builtinTplCandidate.name,
-              )}
+              {t('forge.quickStartTemplate', {
+                name: starterName(t, form.builtinTplCandidate),
+              })}
             </button>
           )}
 

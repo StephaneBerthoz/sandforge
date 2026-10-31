@@ -883,6 +883,18 @@ describe('ForgeResults', () => {
     expect(btn).toBeDefined();
   });
 
+  it('labels the results row in sentence case, both saves of the results in the plural', () => {
+    // "Copy Report", "Forge Again" and "Save as Template" sat beside "Copy
+    // JSON" and "Save results (CSV)", and "Save result (JSON)" beside it.
+    render(<ForgeResults />);
+    const label = (testId: string) => screen.getByTestId(testId).textContent;
+    expect(label('forge-copy-report')).toBe('Copy report');
+    expect(label('forge-again')).toBe('Forge again');
+    expect(label('forge-save-template')).toBe('Save as template');
+    expect(label('forge-save-results-csv')).toBe('Save results (CSV)');
+    expect(label('forge-save-result-json')).toBe('Save results (JSON)');
+  });
+
   describe('save as template', () => {
     function openForm(): void {
       render(<ForgeResults />);
@@ -1307,7 +1319,7 @@ describe('ForgeResults', () => {
 
       const hint = screen.getByTestId('forge-retry-failed-hint');
       expect(hint.textContent).toBe(
-        'Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.',
+        'Retry failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.',
       );
       expect(screen.getByTestId('forge-retry-failed').getAttribute('aria-describedby')).toBe(
         hint.id,
@@ -1409,7 +1421,7 @@ describe('ForgeResults', () => {
       });
       render(<ForgeResults />);
 
-      expect(screen.getByTestId('forge-retry-failed').textContent).toBe('Retry Failed');
+      expect(screen.getByTestId('forge-retry-failed').textContent).toBe('Retry failed');
     });
   });
 

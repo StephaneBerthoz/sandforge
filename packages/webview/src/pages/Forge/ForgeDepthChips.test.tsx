@@ -20,6 +20,22 @@ function renderCustom(onCustomDepthChange = vi.fn()) {
 }
 
 describe('ForgeDepthChips', () => {
+  it('names the five-level depth by what it is, not a full tree a custom depth goes past', () => {
+    // "Full tree" meant 5 levels, while Custom depth goes up to 10.
+    render(
+      <ForgeDepthChips
+        depth="direct"
+        customDepth={3}
+        onDepthChange={vi.fn()}
+        onCustomDepthChange={vi.fn()}
+        onDepthKeyDown={vi.fn()}
+        depthRefs={{ current: {} }}
+      />,
+    );
+    expect(screen.getByTestId('forge-depth-full').textContent).toBe('Deep (5 levels)');
+    expect(MAX_CUSTOM_DEPTH).toBeGreaterThan(5);
+  });
+
   it('names the custom depth field', () => {
     // A number box with no label: a screen reader announced "spin button, 3".
     render(

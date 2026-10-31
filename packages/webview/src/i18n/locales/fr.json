@@ -3170,7 +3170,7 @@
       "step2": "Dans l'onglet Enregistrement, remplissez le champ ID d'enregistrement ou URL Salesforce, puis cliquez sur Découvrir le graphe.",
       "step3": "Une fois la découverte terminée, cliquez sur Revoir et exécuter.",
       "step4": "Cliquez sur Exécuter le Forge, puis lisez la carte Insérés une fois l'exécution terminée.",
-      "tip": "Simuler, à côté d'Exécuter le Forge, n'écrit rien ; Supprimer les enregistrements créés par cette exécution, proposé à la fin et dans Exécutions récentes, les efface."
+      "tip": "Simuler n'écrit rien ; Essai à blanc écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans Exécutions récentes, les efface."
     },
     "seed": {
       "step1": "Sous Seed rapide depuis un modèle, cliquez sur Utiliser dans la carte Kit de démarrage CRM, marquée Commencez ici.",
@@ -3430,7 +3430,7 @@
     "soqlQuery": "Requête SOQL",
     "depth": "Profondeur",
     "depthDirect": "Direct uniquement",
-    "depthFull": "Arbre complet",
+    "depthFull": "Profond (5 niveaux)",
     "depthCustom": "Profondeur personnalisée",
     "sourceOrg": "Org source",
     "targetOrg": "Org cible",
@@ -3443,7 +3443,6 @@
     "executeFailed": "L'exécution du Forge a échoué",
     "objects": "Objets",
     "estSize": "Taille est.",
-    "estRecords": "Enreg. est.",
     "deleteTemplate": "Supprimer",
     "closePreview": "Fermer l'aperçu",
     "fields": "Champs",
@@ -3467,13 +3466,12 @@
     "refreshPreview": "Rafraîchir l'aperçu",
     "noOrgSelected": "Sélectionnez une org source pour l'aperçu",
     "livePreview": "Aperçu en direct",
-    "estimatedGraph": "Graphe estimé",
     "piiWarning_one": "{{count}} champ PII détecté",
     "piiWarning_other": "{{count}} champs PII détectés",
-    "piiWarningHint": "Activez l'anonymisation PII pour protéger les données sensibles",
+    "piiWarningHint": "Les noms, les adresses et les autres champs personnels partent tels quels ; Anonymiser les PII les masque.",
     "direct": {
       "action": "Cloner directement",
-      "hint": "Découvre le graphe, puis clone ce qu'il contient tel que la revue l'envoie par défaut, sans s'arrêter sur le graphe ni sur la revue. La comparaison des métadonnées entre les deux organisations n'est pas lancée. Les Flows et les déclencheurs Apex que l'org cible exécute à l'insertion des enregistrements sont tout de même lus avant le clonage, et ceux qui se déclenchent vous sont soumis d'abord. Pour voir d'abord ce qu'un clonage écrirait et ce que la cible refuserait, utilisez Simuler dans la revue. Les écarts que l'org cible oppose aux lignes — un champ qu'elle seule exige, une règle de validation, un type d'enregistrement — ne sont pas lus, et aucun n'est tranché : les lignes qu'ils refusent sont refusées. Découvrir le graphe, puis l'onglet Écarts de la revue, les tranche."
+      "hint": "Découvre et clone d'un seul tenant, sans la revue : aucun écart tranché, pas de comparaison des métadonnées ; ce que la cible exécute à l'insertion vous est tout de même soumis d'abord."
     },
     "editTemplate": "Modifier",
     "deleteTemplateConfirm": "Voulez-vous vraiment supprimer ce modèle ?",
@@ -3485,10 +3483,10 @@
     "recordLimit": "Enregistrements / objet",
     "recordLimitHint": "Limite le nombre de lignes clonées par objet. Plus bas = plus rapide, plus sûr sur les grosses orgs.",
     "objectCap": "Objets",
-    "objectCapHint": "combien d'objets contenant des enregistrements la découverte peut atteindre, tables vides à part ; la profondeur dit jusqu'où, ceci dit jusqu'à quelle largeur",
+    "objectCapHint": "Nombre maximal d'objets que la découverte peut inclure (les objets vides ne comptent pas).",
     "objectCapDefault": "Par défaut (50)",
     "recordLimitSmart": "Automatique (selon l'entrée)",
-    "recordLimitSmartRecord": "Automatique : sans limite. Le clonage d'un enregistrement ne lit que ce que l'enregistrement atteint, jusqu'à 50 000 lignes par objet, et demande avant d'écrire un gros volume.",
+    "recordLimitSmartRecord": "Automatique : ne lit que ce que l'enregistrement atteint, au plus 50 000 lignes par objet, et demande avant une écriture volumineuse.",
     "recordLimitSmartSoql": "Automatique : {{limit}} par objet. Une exécution depuis une requête lit les autres objets dans leur table entière.",
     "recordLimitAll": "Tout",
     "recordLimitOpt10": "10 / objet (échantillon)",
@@ -3580,23 +3578,42 @@
       "review": "Revue",
       "execution": "Exécution",
       "results": "Résultats"
+    },
+    "rootRecordSummary_one": "Enregistrement racine · {{object}} · {{formatted}} champ",
+    "rootRecordSummary_other": "Enregistrement racine · {{object}} · {{formatted}} champs",
+    "anonymizeHint": "Anonymiser les PII masque les noms, les adresses et les autres champs personnels.",
+    "starterCap": "≤ {{max}} / objet",
+    "starter": {
+      "account360": {
+        "name": "Compte 360",
+        "description": "Clone un compte avec ses contacts, ses opportunités et ses requêtes. Pour les développeurs CRM qui explorent la vue complète d'un client."
+      },
+      "caseWorkflow": {
+        "name": "Cycle d'une requête",
+        "description": "Clone une requête avec son compte, son contact, ses messages e-mail et ses commentaires de requête ; l'historique des champs n'est pas copié. Pour les développeurs Service Cloud qui déboguent des processus de support."
+      },
+      "leadToOpp": {
+        "name": "Piste → Opportunité",
+        "description": "Clone une piste avec sa campagne, le compte et le contact issus de sa conversion, et l'opportunité qui en résulte. Pour les développeurs Sales Cloud qui testent la conversion des pistes."
+      }
     }
   },
   "forgeRun": {
     "rehearsal": {
-      "action": "Répéter",
+      "action": "Essai à blanc",
       "hint": "Fait juger par la cible un échantillon des lignes : elles y sont créées et chaque écriture est annulée. Vous confirmez d'abord dans VS Code les appels que cela coûte.",
-      "reading": "Répétition : lecture des lignes comme le ferait l'exécution…",
-      "readingObject": "Répétition : lecture des lignes comme le ferait l'exécution ({{object}})…",
-      "confirming_one": "Répétition : confirmez dans VS Code le {{count}} appel composite qu'elle coûte.",
-      "confirming_other": "Répétition : confirmez dans VS Code les {{count}} appels composites qu'elle coûte.",
-      "rehearsing": "Répétition : appel {{call}} sur {{calls}}, annulé à sa fin…",
-      "done": "Répétition terminée, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
-      "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} non répétées.",
+      "reading": "Essai à blanc : lecture des lignes comme le ferait l'exécution…",
+      "readingObject": "Essai à blanc : lecture des lignes comme le ferait l'exécution ({{object}})…",
+      "confirming_one": "Essai à blanc : confirmez dans VS Code le {{count}} appel composite qu'il coûte.",
+      "confirming_other": "Essai à blanc : confirmez dans VS Code les {{count}} appels composites qu'il coûte.",
+      "rehearsing": "Essai à blanc : appel {{call}} sur {{calls}}, annulé à sa fin…",
+      "done": "Essai à blanc terminé, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
+      "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} hors de l'essai à blanc.",
       "linked": "Liées à un enregistrement que l'org cible contient déjà, comme l'exécution les lie : {{linked}}.",
-      "nothing": "Répétition terminée : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
-      "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
-      "error": "La répétition n'a pas pu se faire : {{error}}"
+      "nothing": "Essai à blanc terminé : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
+      "declined": "Essai à blanc annulé à sa confirmation. Rien n'a été envoyé à la cible.",
+      "error": "L'essai à blanc n'a pas pu se faire : {{error}}",
+      "caption": "La cible essaie un échantillon, annulé ensuite ; coûte des appels API."
     },
     "forging": "FORGEAGE...",
     "paused": "EN PAUSE",
@@ -3604,8 +3621,8 @@
     "finishingNote": "Tous les objets du graphe sont traités. L'exécution se termine ; ses résultats suivront dès qu'elle aura fini.",
     "aborted": "ANNULÉ",
     "stopping": "ARRÊT EN COURS...",
-    "stoppingNote": "Annulation demandée : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
-    "stopUnanswered": "L'exécution n'a pas encore répondu à l'annulation. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Exécutions récentes » dès qu'elle répond.",
+    "stoppingNote": "Arrêt demandé : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
+    "stopUnanswered": "L'exécution n'a pas encore répondu à la demande d'arrêt. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Exécutions récentes » dès qu'elle répond.",
     "backToStart": "Revenir au début",
     "stopped": "ARRÊTÉ",
     "done": "Terminés",
@@ -3614,8 +3631,7 @@
     "failed": "Échoués",
     "pause": "Pause",
     "resume": "Reprendre",
-    "abort": "Interrompre",
-    "abortConfirm": "Interrompre l'exécution ? Elle s'arrête une fois l'étape en cours terminée, et ce qu'elle a écrit reste dans l'org cible.",
+    "abortConfirm": "L'exécution s'arrête une fois l'étape en cours terminée, et ce qu'elle a écrit reste dans l'org cible.",
     "elapsed": "Écoulé",
     "discovery": "Découverte du graphe",
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
@@ -3697,7 +3713,7 @@
     "retryWithParentsHint": "Récupérer les parents manquants et retenter relance le clone avec « Récupérer les parents automatiquement » activé : les parents que le clone ne lit pas de lui-même sont copiés aussi, puis ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit. Cela corrige un champ obligatoire resté vide quand ce champ est une référence.",
     "saveIdMapCsv": "Enregistrer la correspondance des Ids (CSV)",
     "saveResultsCsv": "Enregistrer les résultats (CSV)",
-    "saveResultJson": "Enregistrer le résultat (JSON)",
+    "saveResultJson": "Enregistrer les résultats (JSON)",
     "anonymizedFields": "Champs anonymisés",
     "tableView": "Vue tableau",
     "graphView": "Vue graphe",
@@ -4014,13 +4030,14 @@
       "unidentified_other": "{{count}} non identifiés — comptés en échec, et leurs enregistrements enfants ont perdu le lien"
     },
     "node": {
-      "records": "{{records}} enregistrements",
       "fieldsCloneable": "{{total}} champs ({{cloneable}} clonables)",
       "notMeasured": "Volume pas encore mesuré",
       "showDetails": "Afficher le détail de {{object}}",
       "stopped": "Arrêté avant sa fin",
       "errors_one": "{{count}} erreur",
-      "errors_other": "{{count}} erreurs"
+      "errors_other": "{{count}} erreurs",
+      "records_one": "{{records}} enregistrement",
+      "records_other": "{{records}} enregistrements"
     },
     "nodeStatus": {
       "idle": "Non démarré",
@@ -4056,15 +4073,16 @@
       "running": "Simulation : chaque enregistrement lu passe par l'étape d'écriture comme dans un clonage réel, et rien n'est écrit dans la cible.",
       "done": "Simulation, rien n'a été écrit. Ces chiffres sont ce qu'un clonage réel insérerait, lierait, retiendrait et ferait échouer ; ce que la cible refuserait ou modifierait dans les enregistrements est listé dans la revue.",
       "gapsFound": "Écarts trouvés avec la cible : {{gaps}}",
-      "wouldInsert": "Seraient insérés"
+      "wouldInsert": "Seraient insérés",
+      "caption": "Vérifie ici chaque enregistrement, n'envoie rien."
     },
     "gaps": {
-      "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou répétez-la, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
+      "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou faites-en un essai à blanc, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
       "readBy": "Lu : {{sources}}.",
       "readName": {
         "metadata": "les métadonnées de la cible",
         "simulation": "la simulation",
-        "rehearsal": "la répétition"
+        "rehearsal": "l'essai à blanc"
       },
       "none": "Ce qui a été lu ne retient rien contre ces lignes.",
       "unread": "Non lu par {{read}} : {{part}} — {{reason}}",
@@ -4076,7 +4094,7 @@
       "source": {
         "metadata": "Lu dans les métadonnées de la cible",
         "simulation": "Trouvé par la simulation",
-        "rehearsal": "Refusé par la plateforme lors de la répétition"
+        "rehearsal": "Refusé par la plateforme lors de l'essai à blanc"
       },
       "kind": {
         "picklist_value_refused": "Valeur de liste de sélection que le type d'enregistrement refuse",
@@ -4094,8 +4112,8 @@
         "duplicate_rule": "Règle de doublons",
         "api_budget": "Quota quotidien de requêtes API",
         "object_not_createable": "Objet que l'utilisateur avec lequel le clonage écrit ne peut pas créer dans la cible",
-        "rehearsal_refusal": "Refusé lors de la répétition",
-        "rehearsal_update_refusal": "Mise à jour refusée lors de la répétition"
+        "rehearsal_refusal": "Refusé lors de l'essai à blanc",
+        "rehearsal_update_refusal": "Mise à jour refusée lors de l'essai à blanc"
       },
       "rows_one": "{{count}} ligne",
       "rows_other": "{{count}} lignes",
@@ -5028,7 +5046,8 @@
       "values_other": "{{count}} valeurs",
       "keep": "Conserver les e-mails et les numéros de téléphone tels quels",
       "keepWarning": "Les e-mails et les numéros de téléphone seront écrits tels que la source les contient : les Flows, les triggers et les alertes e-mail de l'org cible pourront alors écrire ou envoyer des SMS à de vraies personnes.",
-      "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne."
+      "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne.",
+      "neutralizedUnlessKept": "Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels."
     },
     "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués.",
     "writtenWithoutFields": {

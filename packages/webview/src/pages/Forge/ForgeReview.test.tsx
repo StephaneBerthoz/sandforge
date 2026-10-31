@@ -339,6 +339,18 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('simulate-button').textContent).toBe('Simulate');
   });
 
+  it('says under Simulate what it does, and names the button by it', () => {
+    // Beside Rehearse, the same outlined button, Simulate said nothing of
+    // how the two differ.
+    render(<ForgeReview />);
+    const caption = screen.getByTestId('forge-simulate-caption');
+    expect(caption.textContent).toBe('Checks every record here, sends nothing.');
+    expect(screen.getByTestId('simulate-button').getAttribute('aria-describedby')).toBe(caption.id);
+    expect(screen.getByTestId('forge-rehearse-caption').textContent).toBe(
+      'The target tries a sample, rolled back; costs API calls.',
+    );
+  });
+
   it('sends the method chosen for each PII category with the run', () => {
     mockAnonymizationRules.phone = 'redact';
     try {

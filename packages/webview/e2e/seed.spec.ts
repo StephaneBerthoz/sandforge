@@ -367,9 +367,11 @@ test.describe('Forge — input form', () => {
     await expect(preview).toContainText('Acme Corp');
     await expect(preview).toContainText('Technology');
 
-    // The estimate card reads the same payload: three fields, no counts sent.
-    await expect(page.getByTestId('est-objects')).toHaveText('1');
-    await expect(page.getByTestId('est-fields')).toHaveText('3');
+    // The root record line reads the same payload: three fields, no counts
+    // sent, and no estimate of a graph not discovered yet.
+    await expect(page.getByTestId('forge-root-record')).toHaveText(
+      'Root record · Account · 3 fields',
+    );
   });
 
   test('warns about PII fields while anonymize is off', async ({ page }) => {

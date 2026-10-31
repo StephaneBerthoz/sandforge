@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BUILTIN_FORGE_TEMPLATES } from '@sandforge/shared';
 import type { ForgeTemplate } from '@sandforge/shared';
 import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ForgeTemplatePanel } from './ForgeTemplatePanel';
 import type { ForgeTemplatesManager } from './useForgeTemplates';
 
@@ -69,6 +70,37 @@ function renderPanel(m: ForgeTemplatesManager, selectedTemplate = '') {
 }
 
 describe('ForgeTemplatePanel', () => {
+  describe('starter templates', () => {
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('says each starter template, and its cap, in the language the panel is set to', async () => {
+      // Their names, descriptions and "≤ 50/obj" were the shared module's
+      // English in every language.
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      renderPanel(manager());
+
+      const caseWorkflow = screen.getByTestId('forge-template-builtin-builtin:case-workflow');
+      expect(caseWorkflow.textContent).toContain(fr.forge.starter.caseWorkflow.name);
+      expect(caseWorkflow.textContent).toContain(fr.forge.starter.caseWorkflow.description);
+      expect(caseWorkflow.textContent).not.toContain('Case Workflow');
+      expect(screen.getByTestId('forge-template-cap-builtin:case-workflow').textContent).toBe(
+        '≤ 50 / objet',
+      );
+      const account = screen.getByTestId('forge-template-builtin-builtin:account-360');
+      expect(account.textContent).toContain(fr.forge.starter.account360.description);
+    });
+
+    it('promises no CaseHistory from Case Workflow, whose objects leave it out', () => {
+      renderPanel(manager());
+      const caseWorkflow = screen.getByTestId('forge-template-builtin-builtin:case-workflow');
+      expect(caseWorkflow.textContent).not.toContain('CaseHistory');
+      expect(caseWorkflow.textContent).toContain('field history is not copied');
+    });
+  });
+
   it('marks which starter template is selected, for a screen reader too', () => {
     const starter = BUILTIN_FORGE_TEMPLATES[0];
     const { onSelectTemplate } = renderPanel(manager(), starter.id);

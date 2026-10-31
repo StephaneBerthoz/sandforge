@@ -435,95 +435,108 @@ export const ForgeDiscovery: React.FC = () => {
         />
       </m.div>
 
-      {/* Stats bar */}
-      <m.div
-        variants={slideUp}
-        data-testid="forge-stats-bar"
-        className="flex items-center gap-6 rounded-lg border border-subtle bg-surface-1 px-4 py-3"
+      {/* The stats and the actions, kept together at the bottom of the panel
+          as the screen scrolls: under the graph's fixed height, Review &
+          Execute sat below the fold of a 720-pixel panel, only its top edge
+          showing. */}
+      <div
+        data-testid="forge-discovery-footer"
+        className="sticky bottom-0 z-10 flex flex-col gap-4 bg-(--sf-bg-primary) pb-2"
       >
-        <div className="flex items-center gap-1.5 text-sm">
-          <Box size={14} className="text-text-secondary" />
-          <span className="text-text-secondary">{t('forge.objects')}:</span>
-          <span className="font-medium text-text-primary" data-testid="stat-objects">
-            {stats.objectCount}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 text-sm">
-          <Database size={14} className="text-text-secondary" />
-          <span className="text-text-secondary">
-            {t(oneRecord ? 'forgeRun.recordsInSourceTables' : 'forgeRun.records')}:
-          </span>
-          <span className="font-medium text-text-primary" data-testid="stat-records">
-            {stats.recordCount}
-          </span>
-        </div>
-        {/* A clone of one record reads only what the record reaches: a size
+        {/* Stats bar */}
+        <m.div
+          variants={slideUp}
+          data-testid="forge-stats-bar"
+          className="flex items-center gap-6 rounded-lg border border-subtle bg-surface-1 px-4 py-3"
+        >
+          <div className="flex items-center gap-1.5 text-sm">
+            <Box size={14} className="text-text-secondary" />
+            <span className="text-text-secondary">{t('forge.objects')}:</span>
+            <span className="font-medium text-text-primary" data-testid="stat-objects">
+              {stats.objectCount}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-sm">
+            <Database size={14} className="text-text-secondary" />
+            <span className="text-text-secondary">
+              {t(oneRecord ? 'forgeRun.recordsInSourceTables' : 'forgeRun.records')}:
+            </span>
+            <span className="font-medium text-text-primary" data-testid="stat-records">
+              {stats.recordCount}
+            </span>
+          </div>
+          {/* A clone of one record reads only what the record reaches: a size
             and a duration reckoned from whole tables said "~40 min" of a
             clone of one case's graph. */}
-        {oneRecord ? (
-          <p className="text-xs text-text-secondary" data-testid="stat-source-tables">
-            {t('forgeRun.preview.readsWhatTheRecordReaches')}
-          </p>
-        ) : (
-          <>
-            <div className="flex items-center gap-1.5 text-sm">
-              <HardDrive size={14} className="text-text-secondary" />
-              <span className="text-text-secondary">{t('forge.estSize')}:</span>
-              <span className="font-medium text-text-primary" data-testid="stat-size">
-                {stats.estSize}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-sm">
-              <Clock size={14} className="text-text-secondary" />
-              <span className="text-text-secondary">{t('forgeRun.estDuration')}:</span>
-              <span className="font-medium text-text-primary" data-testid="stat-duration">
-                {stats.estDuration}
-              </span>
-            </div>
-          </>
-        )}
-      </m.div>
+          {oneRecord ? (
+            <p className="text-xs text-text-secondary" data-testid="stat-source-tables">
+              {t('forgeRun.preview.readsWhatTheRecordReaches')}
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 text-sm">
+                <HardDrive size={14} className="text-text-secondary" />
+                <span className="text-text-secondary">{t('forge.estSize')}:</span>
+                <span className="font-medium text-text-primary" data-testid="stat-size">
+                  {stats.estSize}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-sm">
+                <Clock size={14} className="text-text-secondary" />
+                <span className="text-text-secondary">{t('forgeRun.estDuration')}:</span>
+                <span className="font-medium text-text-primary" data-testid="stat-duration">
+                  {stats.estDuration}
+                </span>
+              </div>
+            </>
+          )}
+        </m.div>
 
-      {/* Action bar */}
-      <m.div variants={slideUp} className="flex items-center justify-between">
-        <Button
-          data-testid="forge-back-btn"
-          variant="ghost"
-          onClick={handleBack}
-          icon={<ArrowLeft size={14} />}
+        {/* Action bar */}
+        <m.div
+          variants={slideUp}
+          data-testid="forge-discovery-actions"
+          className="flex items-center justify-between"
         >
-          {t('common.back')}
-        </Button>
-        {/* Select All / Deselect All */}
-        <div className="flex items-center gap-2">
           <Button
-            data-testid="forge-select-all"
+            data-testid="forge-back-btn"
             variant="ghost"
-            size="sm"
-            onClick={() => setNodesIncluded(listedNodeNames, true)}
-            icon={<CheckSquare size={14} />}
+            onClick={handleBack}
+            icon={<ArrowLeft size={14} />}
           >
-            {t('forgeRun.selectAll')}
+            {t('common.back')}
           </Button>
+          {/* Select All / Deselect All */}
+          <div className="flex items-center gap-2">
+            <Button
+              data-testid="forge-select-all"
+              variant="ghost"
+              size="sm"
+              onClick={() => setNodesIncluded(listedNodeNames, true)}
+              icon={<CheckSquare size={14} />}
+            >
+              {t('forgeRun.selectAll')}
+            </Button>
+            <Button
+              data-testid="forge-deselect-all"
+              variant="ghost"
+              size="sm"
+              onClick={() => setNodesIncluded(listedNodeNames, false)}
+              icon={<XSquare size={14} />}
+            >
+              {t('forgeRun.deselectAll')}
+            </Button>
+          </div>
           <Button
-            data-testid="forge-deselect-all"
-            variant="ghost"
-            size="sm"
-            onClick={() => setNodesIncluded(listedNodeNames, false)}
-            icon={<XSquare size={14} />}
+            data-testid="forge-execute-btn"
+            variant="primary"
+            onClick={handleExecute}
+            icon={<Play size={14} />}
           >
-            {t('forgeRun.deselectAll')}
+            {t('forgeRun.reviewAndExecute')}
           </Button>
-        </div>
-        <Button
-          data-testid="forge-execute-btn"
-          variant="primary"
-          onClick={handleExecute}
-          icon={<Play size={14} />}
-        >
-          {t('forgeRun.reviewAndExecute')}
-        </Button>
-      </m.div>
+        </m.div>
+      </div>
     </m.div>
   );
 };

@@ -3170,7 +3170,7 @@
       "step2": "Fügen Sie auf dem Tab Datensatz eine Datensatz-ID oder Salesforce-URL ein und klicken Sie auf Graph ermitteln.",
       "step3": "Klicken Sie nach Abschluss der Ermittlung auf Überprüfen & Ausführen.",
       "step4": "Klicken Sie auf Forge ausführen und lesen Sie nach dem Durchlauf die Karte Eingefügt ab.",
-      "tip": "Simulieren, neben Forge ausführen, schreibt nichts; Die von diesem Durchlauf erstellten Datensätze entfernen, nach dem Durchlauf und unter Letzte Durchläufe, löscht sie."
+      "tip": "Simulieren schreibt nichts; Probelauf schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Letzte Durchläufe, löscht sie."
     },
     "seed": {
       "step1": "Klicken Sie unter Schnell-Seed aus Vorlage bei CRM-Starter, markiert mit Hier beginnen, auf Diese verwenden.",
@@ -3430,7 +3430,7 @@
     "soqlQuery": "SOQL-Abfrage",
     "depth": "Tiefe",
     "depthDirect": "Nur direkt",
-    "depthFull": "Vollständiger Baum",
+    "depthFull": "Tief (5 Ebenen)",
     "depthCustom": "Benutzerdefinierte Tiefe",
     "sourceOrg": "Quell-Org",
     "targetOrg": "Ziel-Org",
@@ -3443,7 +3443,6 @@
     "executeFailed": "Forge-Ausführung fehlgeschlagen",
     "objects": "Objekte",
     "estSize": "Gesch. Größe",
-    "estRecords": "Gesch. Datensätze",
     "deleteTemplate": "Löschen",
     "closePreview": "Vorschau schließen",
     "fields": "Felder",
@@ -3467,13 +3466,12 @@
     "refreshPreview": "Vorschau aktualisieren",
     "noOrgSelected": "Wählen Sie eine Quell-Org für die Vorschau",
     "livePreview": "Live-Vorschau",
-    "estimatedGraph": "Geschätzter Graph",
     "piiWarning_one": "{{count}} PII-Feld erkannt",
     "piiWarning_other": "{{count}} PII-Felder erkannt",
-    "piiWarningHint": "Aktivieren Sie „PII anonymisieren“, um sensible Daten zu schützen",
+    "piiWarningHint": "Namen, Adressen und andere personenbezogene Felder werden unverändert übertragen; „PII anonymisieren“ maskiert sie.",
     "direct": {
       "action": "Direkt klonen",
-      "hint": "Ermittelt den Graphen und klont dann, was er enthält, so wie die Überprüfung es standardmäßig sendet, ohne beim Graphen oder bei der Überprüfung anzuhalten. Der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt. Die Flows und Apex-Trigger, die die Ziel-Org beim Einfügen der Datensätze ausführt, werden trotzdem vor dem Lauf gelesen, und was davon ausgelöst wird, wird Ihnen zuerst vorgelegt. Um zuerst zu sehen, was ein Lauf schreiben und was das Ziel ablehnen würde, verwenden Sie Simulieren in der Überprüfung. Die Abweichungen, die die Ziel-Org den Zeilen entgegenhält — ein Feld, das nur sie verlangt, eine Validierungsregel, ein Datensatztyp —, werden nicht gelesen, und über keine wird entschieden: Die Zeilen, die sie ablehnen, werden abgelehnt. Graph ermitteln und dann die Registerkarte Abweichungen der Überprüfung entscheiden darüber."
+      "hint": "Ermittelt und klont in einem Zug, ohne Überprüfung: keine Abweichung entschieden, kein Metadatenvergleich; was das Ziel beim Einfügen ausführt, wird Ihnen trotzdem zuerst vorgelegt."
     },
     "editTemplate": "Bearbeiten",
     "deleteTemplateConfirm": "Möchten Sie diese Vorlage wirklich löschen?",
@@ -3485,10 +3483,10 @@
     "recordLimit": "Datensätze pro Objekt",
     "recordLimitHint": "Begrenzen Sie, wie viele Zeilen pro Objekt geklont werden. Niedriger = schneller und sicherer bei großen Orgs.",
     "objectCap": "Objekte",
-    "objectCapHint": "wie viele Objekte mit Datensätzen die Erkennung erreichen darf, leere Tabellen ausgenommen; die Tiefe sagt wie weit, dies wie breit",
+    "objectCapHint": "Höchstzahl der Objekte, die die Ermittlung aufnehmen darf (leere zählen nicht).",
     "objectCapDefault": "Standard (50)",
     "recordLimitSmart": "Automatisch (je nach Eingabe)",
-    "recordLimitSmartRecord": "Automatisch: keine Grenze. Der Klon eines Datensatzes liest nur, was der Datensatz erreicht, bis zu 50 000 Zeilen pro Objekt, und fragt, bevor er ein großes Volumen schreibt.",
+    "recordLimitSmartRecord": "Automatisch: liest nur, was der Datensatz erreicht, höchstens 50.000 Zeilen pro Objekt, und fragt vor einem großen Schreibvorgang.",
     "recordLimitSmartSoql": "Automatisch: {{limit}} pro Objekt. Ein Lauf aus einer Abfrage liest die übrigen Objekte aus ihren ganzen Tabellen.",
     "recordLimitAll": "Alle",
     "recordLimitOpt10": "10 / Objekt (Stichprobe)",
@@ -3580,23 +3578,42 @@
       "review": "Überprüfung",
       "execution": "Ausführung",
       "results": "Ergebnisse"
+    },
+    "rootRecordSummary_one": "Stammdatensatz · {{object}} · {{formatted}} Feld",
+    "rootRecordSummary_other": "Stammdatensatz · {{object}} · {{formatted}} Felder",
+    "anonymizeHint": "„PII anonymisieren“ maskiert Namen, Adressen und andere personenbezogene Felder.",
+    "starterCap": "≤ {{max}} / Objekt",
+    "starter": {
+      "account360": {
+        "name": "Account 360",
+        "description": "Klont einen Account mit seinen Kontakten, Opportunities und Kundenvorgängen. Für CRM-Entwickler, die die Gesamtsicht eines Kunden erkunden."
+      },
+      "caseWorkflow": {
+        "name": "Ablauf eines Kundenvorgangs",
+        "description": "Klont einen Kundenvorgang mit seinem Account, seinem Kontakt, seinen E-Mail-Nachrichten und Kundenvorgangskommentaren; der Feldverlauf wird nicht kopiert. Für Service-Cloud-Entwickler, die Supportprozesse debuggen."
+      },
+      "leadToOpp": {
+        "name": "Lead → Opportunity",
+        "description": "Klont einen Lead mit seiner Kampagne, dem bei der Konvertierung entstandenen Account und Kontakt sowie der daraus entstandenen Opportunity. Für Sales-Cloud-Entwickler, die die Lead-Konvertierung testen."
+      }
     }
   },
   "forgeRun": {
     "rehearsal": {
-      "action": "Proben",
+      "action": "Probelauf",
       "hint": "Lässt das Ziel eine Stichprobe der Zeilen beurteilen: Sie werden dort angelegt, und jeder Schreibvorgang wird zurückgesetzt. Die Aufrufe, die das kostet, bestätigen Sie zuerst in VS Code.",
-      "reading": "Generalprobe: Die Zeilen werden gelesen, wie der Lauf sie liest…",
-      "readingObject": "Generalprobe: Die Zeilen werden gelesen, wie der Lauf sie liest ({{object}})…",
-      "confirming_one": "Generalprobe: Bestätigen Sie in VS Code den {{count}} Composite-Aufruf, den sie kostet.",
-      "confirming_other": "Generalprobe: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die sie kostet.",
-      "rehearsing": "Generalprobe: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
-      "done": "Generalprobe beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
-      "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht geprobt.",
+      "reading": "Probelauf: Die Zeilen werden gelesen, wie der Lauf sie liest…",
+      "readingObject": "Probelauf: Die Zeilen werden gelesen, wie der Lauf sie liest ({{object}})…",
+      "confirming_one": "Probelauf: Bestätigen Sie in VS Code den {{count}} Composite-Aufruf, den er kostet.",
+      "confirming_other": "Probelauf: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die er kostet.",
+      "rehearsing": "Probelauf: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
+      "done": "Probelauf beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
+      "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht im Probelauf.",
       "linked": "Mit einem Datensatz verknüpft, den die Ziel-Org bereits enthält, wie der Lauf sie verknüpft: {{linked}}.",
-      "nothing": "Generalprobe beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
-      "declined": "Generalprobe bei ihrer Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
-      "error": "Die Generalprobe konnte nicht laufen: {{error}}"
+      "nothing": "Probelauf beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
+      "declined": "Probelauf bei seiner Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
+      "error": "Der Probelauf konnte nicht laufen: {{error}}",
+      "caption": "Das Ziel testet eine Stichprobe, zurückgesetzt; kostet API-Aufrufe."
     },
     "forging": "SCHMIEDET...",
     "paused": "PAUSIERT",
@@ -3604,8 +3621,8 @@
     "finishingNote": "Alle Objekte im Graphen sind abgeschlossen. Der Lauf wird beendet; die Ergebnisse folgen, sobald er fertig ist.",
     "aborted": "ABGEBROCHEN",
     "stopping": "WIRD ANGEHALTEN...",
-    "stoppingNote": "Abbruch angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
-    "stopUnanswered": "Der Lauf hat auf den Abbruch noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Letzte Durchläufe“, sobald er antwortet.",
+    "stoppingNote": "Stopp angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
+    "stopUnanswered": "Der Lauf hat auf den Stopp noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Letzte Durchläufe“, sobald er antwortet.",
     "backToStart": "Zurück zum Anfang",
     "stopped": "ANGEHALTEN",
     "done": "Fertig",
@@ -3614,8 +3631,7 @@
     "failed": "Fehlgeschlagen",
     "pause": "Pause",
     "resume": "Fortsetzen",
-    "abort": "Anhalten",
-    "abortConfirm": "Lauf anhalten? Er hält an, sobald der laufende Schritt beendet ist, und was er geschrieben hat, bleibt in der Ziel-Org.",
+    "abortConfirm": "Der Lauf hält an, sobald der laufende Schritt beendet ist, und was er geschrieben hat, bleibt in der Ziel-Org.",
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
@@ -3697,7 +3713,7 @@
     "retryWithParentsHint": "„Fehlende übergeordnete abrufen und wiederholen“ führt den Klon erneut aus, mit „Übergeordnete automatisch abrufen“ eingeschaltet: Die übergeordneten Datensätze, die der Klon nicht von selbst liest, werden mitkopiert, dann wird geschrieben, was dieser Lauf nicht schreiben konnte, verknüpft mit dem, was er geschrieben hat. Das behebt ein leer gebliebenes Pflichtfeld, wenn dieses Feld eine Suche ist.",
     "saveIdMapCsv": "Id-Zuordnung speichern (CSV)",
     "saveResultsCsv": "Ergebnisse speichern (CSV)",
-    "saveResultJson": "Ergebnis speichern (JSON)",
+    "saveResultJson": "Ergebnisse speichern (JSON)",
     "anonymizedFields": "Anonymisierte Felder",
     "tableView": "Tabellenansicht",
     "graphView": "Graph-Ansicht",
@@ -4014,13 +4030,14 @@
       "unidentified_other": "{{count}} nicht identifiziert — als fehlgeschlagen gezählt, ihre untergeordneten Datensätze haben die Verknüpfung verloren"
     },
     "node": {
-      "records": "{{records}} Datensätze",
       "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
       "notMeasured": "Umfang noch nicht ermittelt",
       "showDetails": "Details zu {{object}} anzeigen",
       "stopped": "Vor seinem Ende angehalten",
       "errors_one": "{{count}} Fehler",
-      "errors_other": "{{count}} Fehler"
+      "errors_other": "{{count}} Fehler",
+      "records_one": "{{records}} Datensatz",
+      "records_other": "{{records}} Datensätze"
     },
     "nodeStatus": {
       "idle": "Nicht gestartet",
@@ -4056,15 +4073,16 @@
       "running": "Simulation: Jeder gelesene Datensatz durchläuft die Schreibphase wie bei einem echten Lauf, und nichts wird in das Ziel geschrieben.",
       "done": "Simulation, nichts wurde geschrieben. Diese Zahlen zeigen, was ein echter Lauf einfügen, verknüpfen, zurückhalten und verfehlen würde; was das Ziel an den Datensätzen ablehnen oder ändern würde, steht in der Überprüfung.",
       "gapsFound": "Gefundene Abweichungen zum Ziel: {{gaps}}",
-      "wouldInsert": "Würden eingefügt"
+      "wouldInsert": "Würden eingefügt",
+      "caption": "Prüft hier jeden Datensatz, sendet nichts."
     },
     "gaps": {
-      "notRead": "Noch nichts gelesen. Simulieren Sie den Durchlauf oder proben Sie ihn, um herauszufinden, was das Ziel in seinen Zeilen ablehnen oder ändern würde.",
+      "notRead": "Noch nichts gelesen. Simulieren Sie den Durchlauf oder starten Sie einen Probelauf, um herauszufinden, was das Ziel in seinen Zeilen ablehnen oder ändern würde.",
       "readBy": "Gelesen: {{sources}}.",
       "readName": {
         "metadata": "die Metadaten des Ziels",
         "simulation": "die Simulation",
-        "rehearsal": "die Probe"
+        "rehearsal": "der Probelauf"
       },
       "none": "Im Gelesenen spricht nichts gegen diese Zeilen.",
       "unread": "Nicht gelesen von {{read}}: {{part}} – {{reason}}",
@@ -4076,7 +4094,7 @@
       "source": {
         "metadata": "Aus den Metadaten des Ziels gelesen",
         "simulation": "Von der Simulation gefunden",
-        "rehearsal": "Von der Plattform in der Probe abgelehnt"
+        "rehearsal": "Von der Plattform im Probelauf abgelehnt"
       },
       "kind": {
         "picklist_value_refused": "Auswahllistenwert, den der Datensatztyp ablehnt",
@@ -4094,8 +4112,8 @@
         "duplicate_rule": "Duplikatregel",
         "api_budget": "Tägliches API-Anfragekontingent",
         "object_not_createable": "Objekt, das der Benutzer, mit dem der Klon schreibt, im Ziel nicht erstellen darf",
-        "rehearsal_refusal": "In der Probe abgelehnt",
-        "rehearsal_update_refusal": "In der Probe abgelehnte Aktualisierung"
+        "rehearsal_refusal": "Im Probelauf abgelehnt",
+        "rehearsal_update_refusal": "Im Probelauf abgelehnte Aktualisierung"
       },
       "rows_one": "{{count}} Zeile",
       "rows_other": "{{count}} Zeilen",
@@ -5028,7 +5046,8 @@
       "values_other": "{{count}} Werte",
       "keep": "E-Mails und Telefonnummern unverändert lassen",
       "keepWarning": "E-Mails und Telefonnummern werden so geschrieben, wie die Quelle sie enthält: Flows, Trigger und E-Mail-Benachrichtigungen der Ziel-Org können dann echten Personen E-Mails oder SMS senden.",
-      "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht."
+      "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht.",
+      "neutralizedUnlessKept": "E-Mails und Telefonnummern werden neutralisiert (.invalid, fiktive Nummern), es sei denn, Sie aktivieren „E-Mails und Telefonnummern unverändert lassen“."
     },
     "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert.",
     "writtenWithoutFields": {

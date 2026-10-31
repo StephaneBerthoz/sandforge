@@ -49,12 +49,19 @@ function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<Pro
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
-      const template = key
-        .split('.')
-        .reduce<unknown>(
-          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
-          en as unknown,
-        );
+      // A key handed a count is read under its plural form, as i18next does.
+      const count = options?.count;
+      const lookUp = (path: string): unknown =>
+        path
+          .split('.')
+          .reduce<unknown>(
+            (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+            en as unknown,
+          );
+      const template =
+        typeof count === 'number'
+          ? (lookUp(`${key}_${new Intl.PluralRules('en').select(count)}`) ?? lookUp(key))
+          : lookUp(key);
       if (typeof template !== 'string') return key;
       return template.replace(/\{\{(\w+)\}\}/g, (_, name) => String(options?.[name] ?? ''));
     },
@@ -78,6 +85,13 @@ describe('ProgressNode', () => {
     render(<ProgressNode {...makeNodeProps({ recordCount: 1500, estimatedSizeMB: 1.5 })} />);
     expect(screen.getByText(/1.?500 records/)).toBeDefined();
     expect(screen.getByText('~1.5 MB')).toBeDefined();
+  });
+
+  it('writes one record in the singular', () => {
+    // Every graph of one record's clone read "1 records" on its root.
+    render(<ProgressNode {...makeNodeProps({ recordCount: 1 })} />);
+    expect(screen.getByText('1 record')).toBeDefined();
+    expect(screen.queryByText('1 records')).toBeNull();
   });
 
   it('should render field counts with cloneable', () => {
