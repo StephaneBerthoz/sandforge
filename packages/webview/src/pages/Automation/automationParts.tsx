@@ -13,11 +13,10 @@ import type { RewindStepConfirmProps } from './RewindStepConfirm';
  */
 
 const LoadedRewindStepConfirm = lazy(() =>
-  withEnglish(() => import('./RewindStepConfirm'), [
-    'checkpoint',
-    'orgAutomation',
-    'runRemoval',
-  ])().then((module) => ({
+  withEnglish(
+    () => import('./RewindStepConfirm'),
+    ['checkpoint', 'orgAutomation', 'runRemoval'],
+  )().then((module) => ({
     default: module.RewindStepConfirm,
   })),
 );
