@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useId, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, m } from 'framer-motion';
@@ -111,6 +111,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   const isMatch = !asksToType || typed === confirmText;
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const promptId = useId();
   const styles = variantStyles[variant];
 
   const handleConfirm = useCallback(() => {
@@ -232,7 +233,10 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                         {/* One translated sentence rather than three glued
                             fragments: languages that put the literal first or
                             last need the <code> to move with it. */}
-                        <p className="text-xs text-(--vscode-editor-foreground,#d4d4d4) mt-3">
+                        <p
+                          id={promptId}
+                          className="text-xs text-(--vscode-editor-foreground,#d4d4d4) mt-3"
+                        >
                           <Trans
                             i18nKey="common.typeToConfirm"
                             t={t}
@@ -263,8 +267,10 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                             'border border-(--vscode-input-border,#3c3c3c)',
                             'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
                           )}
-                          placeholder={confirmText}
-                          aria-label={t('common.confirm')}
+                          // No placeholder: the word to type, in grey, made the
+                          // empty field look filled in while Confirm stayed
+                          // disabled. The sentence above names the field.
+                          aria-labelledby={promptId}
                           data-testid="danger-input"
                         />
                       </>

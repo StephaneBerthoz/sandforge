@@ -4,7 +4,7 @@ import { m } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '../../theme';
 import { slideUp } from '../../motion/presets';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { ProgressBar } from './ProgressBar';
 import { Sparkline } from './Sparkline';
 
@@ -13,8 +13,8 @@ export type KPICardVariant = 'default' | 'success' | 'warning' | 'error';
 
 /** Props for the KPICard component. */
 export interface KPICardProps {
-  /** Codicon name for the card icon. */
-  icon: string;
+  /** Name of the card's icon. */
+  icon: IconName;
   /** Text label describing the KPI. */
   label: string;
   /** Main displayed value. */
@@ -97,8 +97,10 @@ export const KPICard: React.FC<KPICardProps> = ({
     >
       {/* Header row: icon + label + trend arrow */}
       <div className="mb-3 flex items-center gap-2">
+        {/* Decorative: the label beside it names the card, and an icon named
+            by the same label had a screen reader read it twice. */}
         <span className={accentClass}>
-          <Icon name={icon} label={label} />
+          <Icon name={icon} />
         </span>
         <span className="text-sm font-medium text-text-secondary">{label}</span>
         {trendIndicator && (

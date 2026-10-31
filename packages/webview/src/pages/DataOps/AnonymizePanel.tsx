@@ -12,6 +12,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { DataTable } from '../../components/ui/DataTable';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { AnonymizationTemplateEditor, ruleTypeLabel } from './AnonymizationTemplateEditor';
@@ -391,7 +392,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
 
       {!editing && templates.length === 0 && (
         <EmptyState
-          icon="🔒"
+          icon={<Icon name="lock" />}
           title={t('dataops.noTemplates')}
           description={t('dataops.anonymizeDesc')}
         />

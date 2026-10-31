@@ -2,13 +2,13 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardBody } from './Card';
 import { Button } from './Button';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { cn } from '../../theme';
 
 /** Props for the GuidedFirstStepCard component. */
 export interface GuidedFirstStepCardProps {
-  /** Codicon name for the icon. */
-  icon: string;
+  /** Name of the card's icon. */
+  icon: IconName;
   /** i18n key for the card title. */
   titleKey: string;
   /** i18n key for the card description. */

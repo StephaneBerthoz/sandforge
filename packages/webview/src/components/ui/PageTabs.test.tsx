@@ -4,7 +4,7 @@ import { PageTabs } from './PageTabs';
 import type { PageTab } from './PageTabs';
 
 const tabs: PageTab[] = [
-  { id: 'overview', label: 'Overview', icon: 'dashboard' },
+  { id: 'overview', label: 'Overview', icon: 'pulse' },
   { id: 'details', label: 'Details' },
   { id: 'alerts', label: 'Alerts', badge: 5 },
 ];
@@ -66,16 +66,19 @@ describe('PageTabs', () => {
   });
 
   /* --- icon rendering --- */
-  it('should render icon when tab has icon prop', () => {
+  it('draws the icon of a tab that has one, an SVG the tab’s name leaves out', () => {
     render(<PageTabs tabs={tabs} activeTab="overview" onTabChange={vi.fn()} />);
-    expect(screen.getByTestId('icon-dashboard')).toBeDefined();
+
+    const icon = screen.getByTestId('icon-pulse');
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId('page-tab-overview').contains(icon)).toBe(true);
+    expect(screen.getByRole('tab', { name: 'Overview' })).toBeDefined();
   });
 
   it('should not render icon when tab has no icon prop', () => {
     render(<PageTabs tabs={tabs} activeTab="overview" onTabChange={vi.fn()} />);
     const detailsTab = screen.getByTestId('page-tab-details');
-    const icons = detailsTab.querySelectorAll('.codicon');
-    expect(icons).toHaveLength(0);
+    expect(detailsTab.querySelectorAll('svg')).toHaveLength(0);
   });
 
   /* --- badge rendering --- */

@@ -57,6 +57,13 @@ describe('DangerConfirm — translated confirm prompt', () => {
     expect(code.parentElement?.textContent).toBe('Saisissez DELETE pour confirmer :');
   });
 
+  it('names the field by the French sentence, not by the English word Confirm', () => {
+    renderIn('fr');
+    expect(screen.getByRole('textbox', { name: 'Saisissez DELETE pour confirmer :' })).toBe(
+      screen.getByTestId('danger-input'),
+    );
+  });
+
   it('keeps the interpolation placeholder in every locale', () => {
     for (const locale of ['en', 'fr']) {
       const value = instance.getResource(locale, 'translation', 'common.typeToConfirm') as string;

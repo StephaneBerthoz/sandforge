@@ -10,6 +10,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Spinner } from '../../components/ui/Spinner';
 import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
@@ -324,7 +325,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         <div className="flex-1 flex flex-col min-h-0">
           {!activeConversationId ? (
             <EmptyState
-              icon="comment-discussion"
+              icon={<Icon name="comment-discussion" />}
               title={t('ai.selectOrCreate', 'Select or create a conversation')}
               description={t(
                 'ai.startDescription',

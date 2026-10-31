@@ -136,6 +136,21 @@ describe('Dialog', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('role')).toBeNull();
   });
+
+  // Tailwind's preflight sets every margin to 0, the margin a modal <dialog>
+  // centres itself with: it opened in the panel's top-left corner. Where it
+  // lands is measured in Chromium (e2e/axe-accessibility.spec.ts); jsdom lays
+  // nothing out, so this holds the class that gives the margin back.
+  it('gives back the automatic margin a modal dialog is centred by', () => {
+    render(
+      <Dialog open onClose={vi.fn()} title="Edit org" className="max-w-lg">
+        <p>Body</p>
+      </Dialog>,
+    );
+    const classes = screen.getByRole('dialog').className.split(/\s+/);
+    expect(classes).toContain('m-auto');
+    expect(classes).toContain('max-w-lg');
+  });
 });
 
 describe('Dialog and the keyboard', () => {

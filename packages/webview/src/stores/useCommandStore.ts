@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { IconName } from '../components/ui/Icon';
 
 /** A single command palette item. */
 export interface CommandItem {
@@ -8,8 +9,8 @@ export interface CommandItem {
   label: string;
   /** Category group for the command. */
   group: 'actions' | 'orgs' | 'recent' | 'navigate';
-  /** Codicon name for the item icon. */
-  icon?: string;
+  /** Name of the item's icon. */
+  icon?: IconName;
   /** Action to execute when selected. */
   action: () => void;
   /** Extra keywords for search matching. */

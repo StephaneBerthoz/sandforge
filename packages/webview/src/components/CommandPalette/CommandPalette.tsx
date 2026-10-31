@@ -11,7 +11,7 @@ import { useCommandStore } from '../../stores/useCommandStore';
 import { useAppStore, ALL_ROUTES } from '../../stores/useAppStore';
 import type { ModuleRoute } from '../../stores/useAppStore';
 import type { CommandItem } from '../../stores/useCommandStore';
-import { Icon } from '../ui/Icon';
+import { Icon, type IconName } from '../ui/Icon';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
 /** Maximum number of recent searches to store. */
@@ -21,7 +21,7 @@ const MAX_RECENT_SEARCHES = 5;
 const RECENT_SEARCHES_KEY = 'sf-command-palette-recent';
 
 /** Route-to-icon mapping for navigation items. */
-const ROUTE_ICONS: Record<string, string> = {
+const ROUTE_ICONS: Record<string, IconName> = {
   home: 'home',
   orgs: 'plug',
   forge: 'flame',

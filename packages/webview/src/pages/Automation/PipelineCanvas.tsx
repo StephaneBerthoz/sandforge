@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { PipelineStep, PipelineStepType, PipelineSyncConfigInfo } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { stepBlocker } from './stepRunnability';
 import type { StepPlace } from './stepRunnability';
 
@@ -64,7 +65,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
     return (
       <div data-testid="pipeline-canvas">
         <EmptyState
-          icon="link"
+          icon={<Icon name="link" />}
           title={t('automation.dragStep')}
           description={t('automation.connectSteps')}
         />

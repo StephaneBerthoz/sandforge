@@ -10,6 +10,7 @@ import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
@@ -535,7 +536,7 @@ export const AutomationPage: React.FC = () => {
               ) : (
                 !marketplaceLoading && (
                   <EmptyState
-                    icon="package"
+                    icon={<Icon name="package" />}
                     title={t('automation.noMarketplaceTemplates')}
                     description={t('automation.noMarketplaceTemplatesDesc')}
                   />

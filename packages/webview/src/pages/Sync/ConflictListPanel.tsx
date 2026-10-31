@@ -11,6 +11,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { Badge } from '../../components/ui/Badge';
 import { usePagination } from '../../hooks/usePagination';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** Conflict type display map keyed by ConflictType. */
@@ -118,7 +119,7 @@ export const ConflictListPanel: React.FC = () => {
     return (
       <div data-testid="conflict-list-panel">
         <EmptyState
-          icon="warning"
+          icon={<Icon name="check" />}
           title={t('sync.conflictResolution.title')}
           description={t('sync.conflictResolution.noConflicts')}
         />

@@ -7,7 +7,12 @@ export type EmptyStateModule =
 
 /** EmptyState component props. */
 export interface EmptyStateProps {
-  icon?: React.ReactNode;
+  /**
+   * An icon element (`<Icon name="history" />`), never a name: the string
+   * was printed as text, and empty pages read "link", "zap" or
+   * "comment-discussion" in large grey letters above their title.
+   */
+  icon?: React.ReactElement;
   title: string;
   description?: string;
   action?: React.ReactNode;
@@ -226,8 +231,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         </div>
       )}
 
-      {/* Custom icon fallback */}
-      {!module && icon && (
+      {/* Custom icon fallback: an element only, so a name that slipped past
+          the type is not printed as a word. */}
+      {!module && React.isValidElement(icon) && (
         <div className="text-3xl text-(--vscode-descriptionForeground,#868686) mb-3">{icon}</div>
       )}
 

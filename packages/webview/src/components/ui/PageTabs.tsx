@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '../../theme';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { handleTabListKeyDown } from './tabListKeys';
 
 /** Single tab definition for PageTabs. */
@@ -9,8 +9,8 @@ export interface PageTab {
   id: string;
   /** Display label. */
   label: string;
-  /** Optional codicon name for tab icon. */
-  icon?: string;
+  /** Optional name of the tab's icon. */
+  icon?: IconName;
   /** Optional badge count displayed next to the label. */
   badge?: number;
 }
@@ -29,7 +29,7 @@ export interface PageTabsProps {
 
 /**
  * Full-width horizontal tab bar for module pages.
- * Renders codicon icons, labels, and optional badge counts with
+ * Renders icons, labels, and optional badge counts with
  * an accent underline on the active tab.
  */
 export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange, className }) => {

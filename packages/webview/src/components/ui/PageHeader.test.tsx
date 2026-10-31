@@ -30,14 +30,19 @@ describe('PageHeader', () => {
     expect(screen.queryByTestId('page-header-subtitle')).toBeNull();
   });
 
-  it('should render icon when provided', () => {
-    render(<PageHeader title="Dashboard" icon="dashboard" />);
-    expect(screen.getByTestId('icon-dashboard')).toBeDefined();
+  it('draws its icon beside the heading, an SVG a screen reader skips for the heading says it', () => {
+    render(<PageHeader title="Monitor" icon="pulse" />);
+
+    const icon = screen.getByTestId('icon-pulse');
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    expect(icon.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.queryByRole('img', { name: 'Monitor' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Monitor' })).toBeDefined();
   });
 
   it('should not render icon when not provided', () => {
     render(<PageHeader title="Dashboard" />);
-    expect(screen.queryByTestId('icon-dashboard')).toBeNull();
+    expect(screen.queryByTestId('icon-pulse')).toBeNull();
   });
 
   it('should render actions when provided', () => {

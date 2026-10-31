@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { EmptyState } from './EmptyState';
+import { Icon } from './Icon';
 
 describe('EmptyState', () => {
   it('should render title', () => {
@@ -16,6 +17,23 @@ describe('EmptyState', () => {
   it('should render icon when provided', () => {
     render(<EmptyState title="Empty" icon={<span data-testid="icon">icon</span>} />);
     expect(screen.getByTestId('icon')).toBeDefined();
+  });
+
+  it('draws an icon handed as an element, an SVG a screen reader skips', () => {
+    render(<EmptyState title="No backups yet" icon={<Icon name="save" />} />);
+
+    const icon = screen.getByTestId('icon-save');
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    expect(icon.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.getByTestId('empty-state').textContent).toBe('No backups yet');
+  });
+
+  it('refuses an icon name, which it used to print as a word above the title', () => {
+    // @ts-expect-error -- an icon is an element, never its name
+    render(<EmptyState title="Drag a step here" icon="link" />);
+
+    expect(screen.getByTestId('empty-state').textContent).toBe('Drag a step here');
+    expect(screen.queryByText('link')).toBeNull();
   });
 
   it('should render action slot', () => {

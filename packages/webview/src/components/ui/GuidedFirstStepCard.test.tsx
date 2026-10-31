@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
 
 describe('GuidedFirstStepCard', () => {
   const defaultProps = {
-    icon: 'sync',
+    icon: 'sync' as const,
     titleKey: 'sync.firstStepTitle',
     descKey: 'sync.firstStepDesc',
     actionKey: 'sync.startQuickSync',

@@ -1903,6 +1903,43 @@ for (const theme of SCANNED_THEMES) {
       await expectReadable(page, theme);
     });
 
+    // Tailwind's preflight set the margin a modal <dialog> centres itself
+    // with to 0: every dialog built on components/ui/Dialog opened stuck in
+    // the panel's top-left corner, while the typed confirmations opened in
+    // the middle. The Edit dialog stands for them all.
+    test('Organizations edit dialog opens in the middle of the panel, not in its top-left corner', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
+      await bridge.seedOrgs(
+        MOCK_ORGS.map((org) => ({
+          ...org,
+          appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
+        })),
+      );
+      await page.getByText('Edit').first().click();
+      const dialog = page.locator('dialog[open]');
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+
+      const box = await dialog.boundingBox();
+      const viewport = page.viewportSize();
+      if (box === null || viewport === null) throw new Error('the dialog or the page has no size');
+      const left = box.x;
+      const right = viewport.width - (box.x + box.width);
+      const top = box.y;
+      const bottom = viewport.height - (box.y + box.height);
+      expect(left, 'room on its left').toBeGreaterThan(16);
+      expect(
+        Math.abs(left - right),
+        `left ${String(left)}, right ${String(right)}`,
+      ).toBeLessThanOrEqual(2);
+      expect(top, 'room above it').toBeGreaterThan(16);
+      expect(
+        Math.abs(top - bottom),
+        `top ${String(top)}, bottom ${String(bottom)}`,
+      ).toBeLessThanOrEqual(2);
+    });
+
     test('Organizations disconnect asking whether the org’s backups on this machine go with it', async ({
       page,
     }) => {

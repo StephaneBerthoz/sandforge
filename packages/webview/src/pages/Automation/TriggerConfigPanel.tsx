@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 import { getLocalTimezone, getTimezones } from '../Sync/CronScheduleBuilder';
 
@@ -252,7 +253,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
 
       {triggers.length === 0 && (
         <EmptyState
-          icon="zap"
+          icon={<Icon name="zap" />}
           title={t('automation.triggers')}
           description={t('automation.addTrigger')}
         />

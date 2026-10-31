@@ -206,7 +206,7 @@ describe('CommandPalette', () => {
         id: 'custom-action',
         label: 'Custom Action',
         group: 'actions',
-        icon: 'star',
+        icon: 'zap',
         action,
       },
     ]);

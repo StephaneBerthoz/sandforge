@@ -606,7 +606,7 @@ export const DataOpsPage: React.FC = () => {
         // IS selected — and named by the badge two elements to the right —
         // reads as "no org chosen" on a page that is about to write to one.
         subtitle={currentOrg ? undefined : t('dataops.selectOrg')}
-        icon="tools"
+        icon="wrench"
         actions={
           currentOrg ? (
             <OrgBadge

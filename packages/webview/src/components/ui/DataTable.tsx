@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { m } from 'framer-motion';
 import { cn } from '../../theme';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { staggerContainer, fadeIn } from '../../motion/presets';
 
 /** Column definition for the DataTable component. */
@@ -128,7 +128,7 @@ export function DataTable<T extends Record<string, unknown>>({
     return 'text-left';
   };
 
-  const getSortIcon = (columnKey: string): string | null => {
+  const getSortIcon = (columnKey: string): IconName | null => {
     if (!sort || sort.key !== columnKey) return null;
     return sort.direction === 'asc' ? 'chevron-up' : 'chevron-down';
   };
@@ -203,9 +203,10 @@ export function DataTable<T extends Record<string, unknown>>({
               >
                 {col.header}
                 {getSortIcon(col.key) ? (
-                  <Icon name={getSortIcon(col.key) as string} className="text-xs" />
+                  <Icon name={getSortIcon(col.key) as IconName} className="text-xs" />
                 ) : (
-                  <Icon name="arrow-swap" className="text-xs opacity-30" />
+                  // Up and down: what a click on a column not sorted yet does.
+                  <Icon name="arrow-up-down" className="text-xs opacity-30" />
                 )}
               </button>
             ) : (

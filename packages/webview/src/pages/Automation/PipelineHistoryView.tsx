@@ -10,6 +10,7 @@ import type {
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { formatDuration } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
 
@@ -125,7 +126,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
     return (
       <div data-testid="pipeline-history">
         <EmptyState
-          icon="📜"
+          icon={<Icon name="history" />}
           title={t('automation.noHistory')}
           description={t('automation.history')}
         />

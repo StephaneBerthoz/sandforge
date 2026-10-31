@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { BackupPartialNote } from './BackupPanel';
 
@@ -210,7 +211,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
 
       {restorableBackups.length === 0 && !isRestoring && (
         <EmptyState
-          icon="📦"
+          icon={<Icon name="package" />}
           title={t('dataops.selectBackup')}
           description={t('dataops.restoreDesc')}
         />

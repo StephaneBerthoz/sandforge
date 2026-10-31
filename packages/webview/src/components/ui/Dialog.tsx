@@ -83,7 +83,11 @@ export const Dialog: React.FC<DialogProps> = ({
     <dialog
       ref={dialogRef}
       className={cn(
-        'rounded-lg p-0 backdrop:bg-black/50',
+        // `m-auto` gives back the margin a modal <dialog> centres itself
+        // with, which Tailwind's preflight sets to 0 on every element: every
+        // dialog opened stuck in the panel's top-left corner, while the
+        // typed confirmations opened in the middle.
+        'm-auto rounded-lg p-0 backdrop:bg-black/50',
         'bg-(--vscode-editor-background,#1e1e1e)',
         'text-(--vscode-editor-foreground,#d4d4d4)',
         'border border-(--vscode-panel-border,#3c3c3c)',

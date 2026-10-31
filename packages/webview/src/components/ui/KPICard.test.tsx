@@ -4,17 +4,21 @@ import { KPICard } from './KPICard';
 
 describe('KPICard', () => {
   it('should render with data-testid', () => {
-    render(<KPICard icon="dashboard" label="API Calls" value={1234} />);
+    render(<KPICard icon="pulse" label="API Calls" value={1234} />);
     expect(screen.getByTestId('kpi-card')).toBeDefined();
   });
 
-  it('should render the icon', () => {
-    render(<KPICard icon="dashboard" label="API Calls" value={1234} />);
-    expect(screen.getByTestId('icon-dashboard')).toBeDefined();
+  it('draws its icon as an SVG a screen reader skips, the label beside it naming the card', () => {
+    render(<KPICard icon="pulse" label="API Calls" value={1234} />);
+
+    const icon = screen.getByTestId('icon-pulse');
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    expect(icon.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.queryByRole('img', { name: 'API Calls' })).toBeNull();
   });
 
   it('should render the label', () => {
-    render(<KPICard icon="dashboard" label="API Calls" value={1234} />);
+    render(<KPICard icon="pulse" label="API Calls" value={1234} />);
     expect(screen.getByText('API Calls')).toBeDefined();
   });
 
@@ -50,13 +54,13 @@ describe('KPICard', () => {
   });
 
   it('should apply custom className', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} className="my-custom-class" />);
+    render(<KPICard icon="pulse" label="Test" value={0} className="my-custom-class" />);
     const card = screen.getByTestId('kpi-card');
     expect(card.className).toContain('my-custom-class');
   });
 
   it('should default to "default" variant', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} />);
+    render(<KPICard icon="pulse" label="Test" value={0} />);
     const card = screen.getByTestId('kpi-card');
     expect(card).toBeDefined();
   });
@@ -74,23 +78,23 @@ describe('KPICard', () => {
   });
 
   it('should not render sparkline when sparklineData is not provided', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} />);
+    render(<KPICard icon="pulse" label="Test" value={0} />);
     expect(screen.queryByTestId('kpi-sparkline')).toBeNull();
   });
 
   it('should render sparkline when sparklineData has 2+ points', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} sparklineData={[10, 20, 30, 40]} />);
+    render(<KPICard icon="pulse" label="Test" value={0} sparklineData={[10, 20, 30, 40]} />);
     expect(screen.getByTestId('kpi-sparkline')).toBeDefined();
     expect(screen.getByTestId('sparkline')).toBeDefined();
   });
 
   it('should not render sparkline when sparklineData has only 1 point', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} sparklineData={[50]} />);
+    render(<KPICard icon="pulse" label="Test" value={0} sparklineData={[50]} />);
     expect(screen.queryByTestId('kpi-sparkline')).toBeNull();
   });
 
   it('should show trend arrow for up direction', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} trendDirection="up" />);
+    render(<KPICard icon="pulse" label="Test" value={0} trendDirection="up" />);
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
@@ -98,7 +102,7 @@ describe('KPICard', () => {
   });
 
   it('should show trend arrow for down direction', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} trendDirection="down" />);
+    render(<KPICard icon="pulse" label="Test" value={0} trendDirection="down" />);
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
@@ -106,7 +110,7 @@ describe('KPICard', () => {
   });
 
   it('should show trend arrow for stable direction', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} trendDirection="stable" />);
+    render(<KPICard icon="pulse" label="Test" value={0} trendDirection="stable" />);
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
@@ -115,47 +119,47 @@ describe('KPICard', () => {
   });
 
   it('should not show trend arrow when trendDirection is not provided', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} />);
+    render(<KPICard icon="pulse" label="Test" value={0} />);
     expect(screen.queryByTestId('trend-arrow')).toBeNull();
   });
 
   it('should show trend warning text', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} trendWarning="Limit reached in ~2h" />);
+    render(<KPICard icon="pulse" label="Test" value={0} trendWarning="Limit reached in ~2h" />);
     const warning = screen.getByTestId('trend-warning');
     expect(warning).toBeDefined();
     expect(warning.textContent).toBe('Limit reached in ~2h');
   });
 
   it('should not show trend warning when not provided', () => {
-    render(<KPICard icon="dashboard" label="Test" value={0} />);
+    render(<KPICard icon="pulse" label="Test" value={0} />);
     expect(screen.queryByTestId('trend-warning')).toBeNull();
   });
 
   it('should apply accentClassName prop to icon wrapper when provided', () => {
     const { container } = render(
-      <KPICard icon="dashboard" label="Test" value={0} accentClassName="text-hue-forge" />,
+      <KPICard icon="pulse" label="Test" value={0} accentClassName="text-hue-forge" />,
     );
-    const iconWrapper = container.querySelector('[data-testid="icon-dashboard"]')?.parentElement;
+    const iconWrapper = container.querySelector('[data-testid="icon-pulse"]')?.parentElement;
     expect(iconWrapper?.className).toContain('text-hue-forge');
   });
 
   it('should use accentClassName prop over variant color', () => {
     const { container } = render(
       <KPICard
-        icon="dashboard"
+        icon="pulse"
         label="Test"
         value={0}
         variant="error"
         accentClassName="text-hue-forge"
       />,
     );
-    const iconWrapper = container.querySelector('[data-testid="icon-dashboard"]')?.parentElement;
+    const iconWrapper = container.querySelector('[data-testid="icon-pulse"]')?.parentElement;
     expect(iconWrapper?.className).toContain('text-hue-forge');
     expect(iconWrapper?.className).not.toContain('text-status-error');
   });
 
   it('should apply tabular-nums class to value element', () => {
-    render(<KPICard icon="dashboard" label="Test" value={1234} />);
+    render(<KPICard icon="pulse" label="Test" value={1234} />);
     const valueEl = screen.getByTestId('kpi-value');
     expect(valueEl.className).toContain('tabular-nums');
   });

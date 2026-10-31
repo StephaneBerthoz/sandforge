@@ -123,6 +123,19 @@ describe('DangerConfirm', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  // The word to type sat in the field as its placeholder, in grey: the empty
+  // field read as filled in while Confirm stayed disabled, and the field's
+  // only name was "Confirm", the button's.
+  it('leaves its field empty to the eye, named by the sentence that says what to type', () => {
+    render(<DangerConfirm {...baseProps} />);
+
+    const field = screen.getByRole('textbox', { name: 'Type DELETE to confirm:' });
+    expect(field).toBe(screen.getByTestId('danger-input'));
+    expect((field as HTMLInputElement).value).toBe('');
+    expect(field.hasAttribute('placeholder')).toBe(false);
+    expect(screen.queryByRole('textbox', { name: 'Confirm' })).toBeNull();
+  });
+
   it('does not keep the typed text when its parent closes and reopens it', () => {
     // A parent that closes the dialog itself — a refresh removing what the
     // confirmation was about — never runs handleClose, so `typed` survived and

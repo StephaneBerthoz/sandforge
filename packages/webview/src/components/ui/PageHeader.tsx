@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 
 /** Props for the PageHeader component. */
 export interface PageHeaderProps {
@@ -9,8 +9,8 @@ export interface PageHeaderProps {
   title: string;
   /** Optional subtitle displayed below the title. */
   subtitle?: string;
-  /** Codicon name displayed to the left of the title. */
-  icon?: string;
+  /** Name of the icon displayed to the left of the title. */
+  icon?: IconName;
   /** Action elements rendered on the right side of the header. */
   actions?: React.ReactNode;
   /** Breadcrumb segments displayed above the title. */
@@ -78,7 +78,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       {/* Title row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center" style={{ gap: 'var(--sf-space-2)' }}>
-          {icon && <Icon name={icon} className="text-lg" label={title} />}
+          {/* Decorative: the heading beside it says the title, which the
+              icon, named by the title too, made a screen reader say twice. */}
+          {icon && <Icon name={icon} className="text-lg" />}
           <div>
             {/* Focusable from code, never from Tab: the panel hands it the
                 focus when it moves to this page (useRouteFocus), so a screen

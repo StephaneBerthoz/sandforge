@@ -6,6 +6,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Icon } from '../../components/ui/Icon';
 import { RunStopControl } from './RunStopControl';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 
@@ -146,7 +147,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
 
       {backups.length === 0 && (
         <EmptyState
-          icon="save"
+          icon={<Icon name="save" />}
           title={t('dataops.noBackups')}
           description={t('dataops.backupDesc')}
         />
