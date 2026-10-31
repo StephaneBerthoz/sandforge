@@ -41,6 +41,7 @@ import { useElapsedSince } from '../../hooks/useElapsedSince';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
+import type { SyncTransformRule } from './TransformBuilder';
 import { runSettingsOf, writesOverHeld } from './heldRecordChoice';
 
 /** Draft state safe to persist (no credentials, no execution results). */
@@ -72,7 +73,13 @@ interface SyncDraftState {
    * the draft does not name.
    */
   mappingsByObject: Record<string, FieldMapping[]>;
-  transforms: TransformRule[];
+  /**
+   * Transform rules, each with the field it changes and the object it was
+   * made for. A draft saved before rules named a field holds rules with
+   * neither: they run on every field of every object, as they did then, and
+   * the step says so.
+   */
+  transforms: SyncTransformRule[];
 }
 
 /** PII warning entry for display. */
@@ -179,8 +186,8 @@ export interface SyncPageData {
   setMappedObject: (objectApiName: string) => void;
   /** Set field mappings directly (used by auto-match). */
   setMappings: (m: FieldMapping[]) => void;
-  /** Transform rules to apply during sync. */
-  transforms: TransformRule[];
+  /** Transform rules to apply during sync, each with the object it was made for. */
+  transforms: SyncTransformRule[];
   /** Handler to change source org selection. */
   handleSourceOrgChange: (orgId: string) => void;
   /** Handler to change target org selection. */
@@ -197,8 +204,8 @@ export interface SyncPageData {
   handleRemoveMapping: (index: number) => void;
   /** Change the mapping type for a specific mapping. */
   handleMappingTypeChange: (index: number, type: MappingType) => void;
-  /** Add a transform rule of the given type. */
-  handleAddTransform: (type: TransformRuleType) => void;
+  /** Add a transform rule of the given type on a field of the object the step shows. */
+  handleAddTransform: (type: TransformRuleType, field: string) => void;
   /** Remove a transform rule by index. */
   handleRemoveTransform: (index: number) => void;
   /** Set one setting of a transform rule, as typed in its input. */
@@ -379,6 +386,22 @@ function isTextTransformConfigKey(key: string): key is TextTransformConfigKey {
 }
 
 /**
+ * The rules an object's write carries: those made for it, and those of a
+ * draft saved before rules named a field, which ran on every object and still
+ * do. Every object of the run was sent every rule, so a rule made on one
+ * object's field changed the field of that name on all of them. Sent without
+ * the object they were made for: the boundary refuses a key it does not know.
+ */
+function transformRulesOf(
+  objectApiName: string,
+  rules: readonly SyncTransformRule[],
+): TransformRule[] {
+  return rules
+    .filter((rule) => rule.objectApiName === undefined || rule.objectApiName === objectApiName)
+    .map(({ objectApiName: _madeFor, ...rule }) => rule);
+}
+
+/**
  * Extracts all data-fetching logic, bridge queries, mutations, and derived state
  * from SyncPage into a single composable hook.
  *
@@ -525,7 +548,9 @@ export function useSyncPageData(): SyncPageData {
     },
     [mappedObject],
   );
-  const [transforms, setTransforms] = useState<TransformRule[]>(initialDraft.current.transforms);
+  const [transforms, setTransforms] = useState<SyncTransformRule[]>(
+    initialDraft.current.transforms,
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Auto-save draft on any form state change
@@ -776,11 +801,20 @@ export function useSyncPageData(): SyncPageData {
   }, [objectEntries, mappedObject]);
 
   const describeFields = useLatestRef(fieldsMutation.mutate);
+  // The transforms step names fields of its object too. It describes only
+  // an object the mapping step has not just described between the same orgs.
+  const describedObject = useLatestRef(fieldsMutation.data?.objectApiName);
+  const describedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (currentStep === 1 && sourceOrgId && targetOrgId && mappedObject) {
-      describeFields.current({ sourceOrgId, targetOrgId, objectApiName: mappedObject });
+    if (currentStep !== 1 && currentStep !== 2) return;
+    if (!sourceOrgId || !targetOrgId || !mappedObject) return;
+    const asked = JSON.stringify([sourceOrgId, targetOrgId, mappedObject]);
+    if (currentStep === 2 && describedFor.current === asked) {
+      if (describedObject.current === mappedObject) return;
     }
-  }, [currentStep, sourceOrgId, targetOrgId, mappedObject, describeFields]);
+    describedFor.current = asked;
+    describeFields.current({ sourceOrgId, targetOrgId, objectApiName: mappedObject });
+  }, [currentStep, sourceOrgId, targetOrgId, mappedObject, describeFields, describedObject]);
 
   const handleSourceOrgChange = useCallback((orgId: string) => {
     setSourceOrgId(orgId);
@@ -805,7 +839,12 @@ export function useSyncPageData(): SyncPageData {
     ]);
   };
   const handleRemoveObject = (index: number) => {
+    const removed = objectEntries[index]?.objectApiName;
     setObjectEntries((prev) => prev.filter((_, i) => i !== index));
+    // Its rules go with it: kept, they came back on an object added again.
+    if (removed !== undefined) {
+      setTransforms((prev) => prev.filter((rule) => rule.objectApiName !== removed));
+    }
   };
   const handleObjectChange = (
     index: number,
@@ -826,8 +865,9 @@ export function useSyncPageData(): SyncPageData {
   const handleMappingTypeChange = (index: number, type: MappingType) => {
     setMappings((prev) => prev.map((m, i) => (i === index ? { ...m, type } : m)));
   };
-  const handleAddTransform = (type: TransformRuleType) => {
-    setTransforms((prev) => [...prev, { type, config: {} }]);
+  const handleAddTransform = (type: TransformRuleType, field: string) => {
+    if (!field || !mappedObject) return;
+    setTransforms((prev) => [...prev, { type, field, objectApiName: mappedObject, config: {} }]);
   };
   const handleRemoveTransform = (index: number) => {
     setTransforms((prev) => prev.filter((_, i) => i !== index));
@@ -904,7 +944,7 @@ export function useSyncPageData(): SyncPageData {
       where: entry.where || undefined,
       // Each object carries the mappings drawn for it, and nothing else.
       fieldMappings: mappingsByObject[entry.objectApiName] ?? [],
-      transformRules: transforms,
+      transformRules: transformRulesOf(entry.objectApiName, transforms),
       excludedFields: [],
       addOnFields: [],
       insertOrder: index,

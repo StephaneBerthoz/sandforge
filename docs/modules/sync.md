@@ -93,19 +93,38 @@ The Field Mapping step is optional: an object with no mapping has its fields wit
 
 ### Transforms
 
-The Transform Builder lets you add data transformation rules that run during sync:
+The Transforms step changes chosen fields on their way to the target, and says
+on the page what a rule changes:
 
-- String transforms (uppercase, lowercase, trim, regex replace)
-- Date and number formatting
+- Each rule names one field of one object. Pick the object (when the run has
+  more than one), the field and the rule, then click **Add rule**. The rule
+  changes that field alone, in every record of that object the run writes; the
+  other fields, and the other objects, are written as read
+- The fields offered are the object's fields in the target that the rule can
+  change: text fields for uppercase, lowercase, trim, truncate, prefix, suffix,
+  replace and regex replace; date fields for Format date; number fields for
+  Format number and the formula rule; any field but a checkbox for Default
+  value. `Id` and the External ID the object's write matches on are neither
+  offered nor changed, so a prefix or a truncate cannot send the write to a
+  record that does not exist
+- An empty field stays empty under every rule but Default value, the one meant
+  for it, and a text rule leaves a number or a checkbox as read. Replace with
+  nothing to find changes nothing. Format date reads the day in UTC, as
+  Salesforce gives it
 - A formula rule substitutes the field value into the token `VALUE` and
-  evaluates the arithmetic; a field that is not a number, or a formula without
-  `VALUE`, is left as it is. There is no conditional rule
-- Every rule you add applies to all fields of all objects in the run, except
-  `Id` and the external ID the run matches on, which are left as they are so a
-  prefix or a truncate cannot send the write to a record that does not exist.
-  Per-mapping rules exist in the configuration format, but no screen sets them
-- Value mapping takes a table of replacements the builder has no box for, so a
-  rule of that type leaves every value as it is
+  evaluates the arithmetic; a field that is not a number, a formula without
+  `VALUE`, one it cannot work out, or a division by zero leaves the value as
+  read. There is no conditional rule
+- A rule saved before rules named a field, in a saved configuration or a draft
+  left on the page, names none: it still applies to all fields of all objects
+  in the run, except `Id` and the External ID the write matches on, and the
+  step marks it **Every field**. Remove it and add it again on the field it is
+  meant for
+- Value mapping is not offered: it takes a table of replacements the step has
+  no box for. A configuration imported from an SFDMU export.json carries each
+  field's values mapping as a value mapping rule naming that field, which
+  changes that field alone. Per-mapping rules exist in the configuration
+  format, but no screen sets them
 
 ### Review and Sankey Flow
 

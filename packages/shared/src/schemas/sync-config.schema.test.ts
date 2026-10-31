@@ -321,6 +321,73 @@ describe('transformRuleSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('keeps the field a rule names', () => {
+    // Dropped by the parse, the rule reached the run without it and changed
+    // every field of every record.
+    expect(transformRuleSchema.parse({ type: 'uppercase', field: 'Name', config: {} })).toEqual({
+      type: 'uppercase',
+      field: 'Name',
+      config: {},
+    });
+  });
+
+  it('still takes a rule saved before rules named a field, and leaves it without one', () => {
+    const rule = transformRuleSchema.parse({ type: 'trim', config: {} });
+
+    expect(rule).toEqual({ type: 'trim', config: {} });
+    expect('field' in rule).toBe(false);
+  });
+
+  it('refuses a key it does not know rather than dropping it', () => {
+    // `fields` for `field`: dropped, the rule would run on every field.
+    const parsed = transformRuleSchema.safeParse({
+      type: 'uppercase',
+      fields: 'Name',
+      config: {},
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it('refuses a field that is not an API name', () => {
+    for (const field of ['', 'Name, Phone', '1Name', 'Account.Name']) {
+      expect(transformRuleSchema.safeParse({ type: 'trim', field, config: {} }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('carries the field of each rule through a whole configuration, and back as saved', () => {
+    const config = {
+      name: 'Accounts',
+      sourceOrgId: VALID_UUID_A,
+      targetOrgId: VALID_UUID_B,
+      direction: 'source_to_target',
+      mode: 'full',
+      objects: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          fieldMappings: [],
+          transformRules: [
+            { type: 'uppercase', field: 'Name', config: {} },
+            { type: 'trim', config: {} },
+          ],
+          excludedFields: [],
+        },
+      ],
+      conflictStrategy: 'source_wins',
+    };
+
+    const parsed = syncConfigSchema.parse(config);
+    const again = syncConfigSchema.parse(JSON.parse(JSON.stringify(parsed)));
+
+    expect(again.objects[0].transformRules).toEqual([
+      { type: 'uppercase', field: 'Name', config: {} },
+      { type: 'trim', config: {} },
+    ]);
+  });
 });
 
 describe('syncFileCopyOptionSchema', () => {

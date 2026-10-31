@@ -25,9 +25,11 @@ export class TransformPipeline {
   }
 
   /**
-   * Apply all transform rules defined on a SyncObjectConfig to every field of a record.
-   * Object-level transform rules are applied to all fields. Per-field transform rules
-   * defined in fieldMappings are applied to their respective fields only.
+   * Apply the transform rules of a SyncObjectConfig to a record. A rule that
+   * names a field changes that field alone; one that names none — as a
+   * configuration saved before rules named a field holds it — runs on every
+   * field. Per-field transform rules defined in fieldMappings are applied to
+   * their respective fields only.
    */
   transformRecord(
     record: Record<string, unknown>,
@@ -35,15 +37,19 @@ export class TransformPipeline {
   ): Record<string, unknown> {
     const result: Record<string, unknown> = { ...record };
 
-    // An object-level rule runs over every field of the record. The field a
-    // write matches on is not one of them: a prefix or a truncate on it would
-    // upsert new records under a key the target has never seen, and the run
-    // would report every one of them as written.
-    const matchField = objectConfig.externalIdField ?? 'Id';
+    // The field a write matches on is never changed, even by a rule that
+    // names it: a prefix or a truncate on it would upsert new records under a
+    // key the target has never seen, and the run would report every one of
+    // them as written.
+    const matchField = (objectConfig.externalIdField ?? 'Id').toLowerCase();
+    const changeable = (key: string): boolean => {
+      const name = key.toLowerCase();
+      return name !== matchField && name !== 'id';
+    };
 
     for (const rule of objectConfig.transformRules) {
-      for (const key of Object.keys(result)) {
-        if (key === matchField || key === 'Id') continue;
+      for (const key of keysOf(result, rule)) {
+        if (!changeable(key)) continue;
         result[key] = applyRule(result[key], rule.type, rule.config);
       }
     }
@@ -65,39 +71,61 @@ export class TransformPipeline {
   }
 }
 
+/**
+ * The keys of `record` a rule changes: the one its field names, matched as
+ * Salesforce matches an API name, whatever its case, or every key when it
+ * names none. A field the record does not carry is not added: an update would
+ * write the rule's value over what the target holds there, and a real-time
+ * change carries only the fields that changed.
+ */
+function keysOf(record: Record<string, unknown>, rule: TransformRule): string[] {
+  if (rule.field === undefined) return Object.keys(record);
+  const wanted = rule.field.toLowerCase();
+  return Object.keys(record).filter((key) => key.toLowerCase() === wanted);
+}
+
 type RuleHandler = (value: unknown, config: TransformRuleConfig) => unknown;
 
+/**
+ * A rule that rewrites text. Any other value — an empty field (null), a
+ * number, a checkbox — is left as it is: `String(value ?? '')` turned every
+ * null into "", so an Uppercase or a Trim wrote an empty text into every field
+ * the source had left empty, numbers, dates and lookups among them.
+ */
+function onText(rewrite: (text: string, config: TransformRuleConfig) => unknown): RuleHandler {
+  return (value, config) => (typeof value === 'string' ? rewrite(value, config) : value);
+}
+
+/** A number, or a text that reads as one. An empty field is no number: it is not 0. */
+function numberOf(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const num = Number(value);
+  return Number.isNaN(num) ? undefined : num;
+}
+
 const RULE_HANDLERS: Record<TransformRuleType, RuleHandler> = {
-  uppercase: (value) => String(value ?? '').toUpperCase(),
+  uppercase: onText((text) => text.toUpperCase()),
 
-  lowercase: (value) => String(value ?? '').toLowerCase(),
+  lowercase: onText((text) => text.toLowerCase()),
 
-  trim: (value) => String(value ?? '').trim(),
+  trim: onText((text) => text.trim()),
 
-  truncate: (value, config) => {
-    const str = String(value ?? '');
-    const length = config.length ?? str.length;
-    return str.slice(0, length);
-  },
+  truncate: onText((text, config) => text.slice(0, config.length ?? text.length)),
 
-  prefix: (value, config) => `${config.prefix ?? ''}${String(value ?? '')}`,
+  prefix: onText((text, config) => `${config.prefix ?? ''}${text}`),
 
-  suffix: (value, config) => `${String(value ?? '')}${config.suffix ?? ''}`,
+  suffix: onText((text, config) => `${text}${config.suffix ?? ''}`),
 
-  replace: (value, config) => {
-    const str = String(value ?? '');
-    const search = config.search ?? '';
-    const replacement = config.replace ?? '';
-    return str.split(search).join(replacement);
-  },
+  // An empty search matches between every two characters: "Acme" with "-"
+  // for nothing became "A-c-m-e". A rule with nothing to find changes nothing.
+  replace: onText((text, config) =>
+    config.search ? text.split(config.search).join(config.replace ?? '') : text,
+  ),
 
-  regex_replace: (value, config) => {
-    const str = String(value ?? '');
-    const pattern = config.regex ?? '';
-    const replacement = config.replace ?? '';
-    const regex = new RegExp(pattern, 'g');
-    return str.replace(regex, replacement);
-  },
+  regex_replace: onText((text, config) =>
+    config.regex ? text.replace(new RegExp(config.regex, 'g'), config.replace ?? '') : text,
+  ),
 
   map_value: (value, config) => {
     const str = String(value ?? '');
@@ -112,15 +140,11 @@ const RULE_HANDLERS: Record<TransformRuleType, RuleHandler> = {
     return value;
   },
 
-  format_date: (value, config) => {
-    const dateStr = String(value ?? '');
-    const format = config.dateFormat ?? 'YYYY-MM-DD';
-    return formatDate(dateStr, format);
-  },
+  format_date: onText((text, config) => formatDate(text, config.dateFormat ?? 'YYYY-MM-DD')),
 
   format_number: (value, config) => {
-    const num = Number(value);
-    if (isNaN(num)) {
+    const num = numberOf(value);
+    if (num === undefined) {
       return value;
     }
     const format = config.numberFormat ?? '0';
@@ -143,7 +167,10 @@ function applyRule(value: unknown, type: TransformRuleType, config: TransformRul
 
 /**
  * Format a date string according to a simple format pattern.
- * Supports YYYY, MM, DD tokens.
+ * Supports YYYY, MM, DD tokens. The day is read in UTC, as Salesforce gives
+ * a date (midnight UTC once parsed) and a date-time: read in the machine's
+ * time zone, every date of a run started west of Greenwich was written the
+ * day before.
  */
 function formatDate(dateStr: string, format: string): string {
   const date = new Date(dateStr);
@@ -151,9 +178,9 @@ function formatDate(dateStr: string, format: string): string {
     return dateStr;
   }
 
-  const year = date.getFullYear().toString();
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const day = date.getDate().toString().padStart(2, '0');
+  const year = date.getUTCFullYear().toString();
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const day = date.getUTCDate().toString().padStart(2, '0');
 
   return format.replace('YYYY', year).replace('MM', month).replace('DD', day);
 }
@@ -174,13 +201,15 @@ function formatNumber(num: number, format: string): string {
 /**
  * Evaluate a simple formula expression.
  * Supports basic VALUE reference that refers to the current field value.
+ * A formula it cannot evaluate leaves the value as read: it returned the
+ * expression's text ("250*1.1+2"), which a number field refuses.
  */
 function evaluateSimpleFormula(value: unknown, formula: string): unknown {
   if (formula.includes('VALUE')) {
-    const numValue = Number(value);
-    if (!isNaN(numValue)) {
+    const numValue = numberOf(value);
+    if (numValue !== undefined) {
       const expression = formula.replace(/VALUE/g, numValue.toString());
-      return safeEvaluateArithmetic(expression);
+      return safeEvaluateArithmetic(expression) ?? value;
     }
   }
   return value;
@@ -188,13 +217,13 @@ function evaluateSimpleFormula(value: unknown, formula: string): unknown {
 
 /**
  * Safely evaluate a basic arithmetic expression (addition, subtraction, multiplication, division).
- * Returns the original string if the expression cannot be evaluated.
+ * Returns undefined if the expression cannot be evaluated, a division by zero among them.
  */
-function safeEvaluateArithmetic(expression: string): unknown {
+function safeEvaluateArithmetic(expression: string): number | undefined {
   const cleaned = expression.replace(/\s/g, '');
   const match = /^(-?\d+(?:\.\d+)?)([-+*/])(-?\d+(?:\.\d+)?)$/.exec(cleaned);
   if (!match) {
-    return expression;
+    return undefined;
   }
 
   const left = Number(match[1]);
@@ -209,8 +238,8 @@ function safeEvaluateArithmetic(expression: string): unknown {
     case '*':
       return left * right;
     case '/':
-      return right === 0 ? 0 : left / right;
+      return right === 0 ? undefined : left / right;
     default:
-      return expression;
+      return undefined;
   }
 }

@@ -835,6 +835,15 @@ export const SyncPage: React.FC = () => {
             {currentStep === 2 && (
               <TransformBuilder
                 rules={transforms}
+                objects={objectEntries.map((entry) => entry.objectApiName)}
+                objectApiName={mappedObject}
+                onObjectChange={setMappedObject}
+                fields={targetFields}
+                fieldsLoading={fieldsLoading}
+                matchField={
+                  objectEntries.find((entry) => entry.objectApiName === mappedObject)
+                    ?.externalIdField
+                }
                 onAddRule={handleAddTransform}
                 onRemoveRule={handleRemoveTransform}
                 onChangeConfig={handleChangeTransformConfig}

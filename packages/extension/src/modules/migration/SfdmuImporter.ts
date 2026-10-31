@@ -193,7 +193,7 @@ export class SfdmuImporter {
    */
   private convertObject(obj: SfdmuScriptObject, index: number): SyncObjectConfig {
     const fieldMappings = this.convertFieldMappings(obj.fieldMapping);
-    const transformRules = this.convertValuesMapping(obj.valuesMapping);
+    const transformRules = this.convertValuesMapping(obj.valuesMapping, fieldMappings);
 
     return {
       objectApiName: obj.objectName,
@@ -228,26 +228,39 @@ export class SfdmuImporter {
   }
 
   /**
-   * Convert SFDMU values mappings to SandForge TransformRule[].
+   * Convert SFDMU values mappings to SandForge TransformRule[]: one Map Value
+   * rule per field, naming that field. The field was dropped once grouped, and
+   * each rule ran on every field of the record: a mapping of "New" to "Open"
+   * meant for Status rewrote any other field that read "New".
+   *
+   * The rule runs once the record is mapped, on the target's field names, so
+   * a field the export renames is named as the target calls it.
    * @param mappings - SFDMU values mapping items
+   * @param fieldMappings - The object's field mappings, already converted
    * @returns Converted TransformRule array
    */
-  private convertValuesMapping(mappings: SfdmuValuesMappingItem[]): TransformRule[] {
+  private convertValuesMapping(
+    mappings: SfdmuValuesMappingItem[],
+    fieldMappings: FieldMapping[],
+  ): TransformRule[] {
     if (mappings.length === 0) {
       return [];
     }
 
     const grouped = new Map<string, Record<string, string>>();
     for (const m of mappings) {
-      const existing = grouped.get(m.fieldName) ?? {};
+      const renamed = fieldMappings.find((f) => f.sourceField === m.fieldName);
+      const field = renamed?.targetField ?? m.fieldName;
+      const existing = grouped.get(field) ?? {};
       existing[m.rawValue] = m.mappedValue;
-      grouped.set(m.fieldName, existing);
+      grouped.set(field, existing);
     }
 
     const rules: TransformRule[] = [];
-    for (const [, valueMap] of grouped) {
+    for (const [field, valueMap] of grouped) {
       rules.push({
         type: 'map_value',
+        field,
         config: { valueMap },
       });
     }

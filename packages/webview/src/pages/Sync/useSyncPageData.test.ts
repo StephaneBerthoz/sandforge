@@ -50,7 +50,10 @@ const execution = vi.hoisted(() => ({
  * on every render, so an effect that listed the mutation among its triggers
  * would fire again on each render.
  */
-const describeFields = vi.hoisted(() => ({ mutate: vi.fn() }));
+const describeFields = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  data: null as Record<string, unknown> | null,
+}));
 
 /** State of the sync:simulate mutation, as {@link execution} is of the run's. */
 const simulation = vi.hoisted(() => ({
@@ -112,7 +115,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
           : requestType === 'sync:describe-fields'
             ? (payload?: Record<string, unknown>) => describeFields.mutate(payload)
             : vi.fn(),
-      data: null,
+      data: requestType === 'sync:describe-fields' ? describeFields.data : null,
       loading: requestType === 'sync:execute' ? execution.loading : false,
       error: null,
       reset: vi.fn(),
@@ -146,6 +149,7 @@ describe('useSyncPageData', () => {
     simulation.requestId = null;
     simulation.data = null;
     saving.data = null;
+    describeFields.data = null;
   });
 
   it('shows the progress of the sync it started, not of another run reporting at the same time', () => {
@@ -214,7 +218,9 @@ describe('useSyncPageData', () => {
       result.current.handleSourceOrgChange('org-1');
       result.current.handleTargetOrgChange('org-2');
       result.current.handleAddObject('Account');
-      result.current.handleAddTransform('prefix');
+    });
+    act(() => {
+      result.current.handleAddTransform('prefix', 'Name');
     });
     act(() => {
       result.current.handleChangeTransformConfig(0, 'prefix', 'X-');
@@ -224,10 +230,125 @@ describe('useSyncPageData', () => {
     });
 
     const sent = execution.mutate.mock.calls[0][0] as {
-      config: { objects: { transformRules: { type: string; config: { prefix?: string } }[] }[] };
+      config: { objects: { transformRules: Record<string, unknown>[] }[] };
     };
-    expect(sent.config.objects[0].transformRules[0].type).toBe('prefix');
-    expect(sent.config.objects[0].transformRules[0].config.prefix).toBe('X-');
+    // The field it names goes with it, the object it was made for does not:
+    // the boundary refuses a key it does not know.
+    expect(sent.config.objects[0].transformRules).toEqual([
+      { type: 'prefix', field: 'Name', config: { prefix: 'X-' } },
+    ]);
+  });
+
+  /** Two objects, the first one's rules made on the transforms step. */
+  function twoObjects() {
+    const hook = renderHook(() => useSyncPageData());
+    act(() => {
+      hook.result.current.handleSourceOrgChange('org-1');
+      hook.result.current.handleTargetOrgChange('org-2');
+      hook.result.current.handleAddObject('Account');
+      hook.result.current.handleAddObject('Contact');
+    });
+    return hook;
+  }
+
+  /** The rules each object of the configuration sent was given, by object. */
+  function sentRules(): Record<string, unknown> {
+    const sent = execution.mutate.mock.calls.at(-1)?.[0] as {
+      config: { objects: { objectApiName: string; transformRules: unknown[] }[] };
+    };
+    return Object.fromEntries(
+      sent.config.objects.map((object) => [object.objectApiName, object.transformRules]),
+    );
+  }
+
+  it('sends a rule with the object it was made for, and no other', () => {
+    // Every object of the run was sent every rule: an Uppercase made on
+    // Account's Description changed Contact's Description too.
+    const { result } = twoObjects();
+    act(() => {
+      result.current.handleAddTransform('uppercase', 'Description');
+    });
+    act(() => {
+      result.current.setMappedObject('Contact');
+    });
+    act(() => {
+      result.current.handleAddTransform('trim', 'LastName');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    expect(sentRules()).toEqual({
+      Account: [{ type: 'uppercase', field: 'Description', config: {} }],
+      Contact: [{ type: 'trim', field: 'LastName', config: {} }],
+    });
+  });
+
+  it('sends a rule of a draft saved before rules named a field to every object, as it ran then', () => {
+    draft.value = {
+      currentStep: 2,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+        { objectApiName: 'Contact', operation: 'insert', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [{ type: 'trim', config: {} }],
+    };
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    expect(sentRules()).toEqual({
+      Account: [{ type: 'trim', config: {} }],
+      Contact: [{ type: 'trim', config: {} }],
+    });
+  });
+
+  it('adds no rule on no field', () => {
+    const { result } = twoObjects();
+
+    act(() => {
+      result.current.handleAddTransform('uppercase', '');
+    });
+
+    expect(result.current.transforms).toEqual([]);
+  });
+
+  it('takes an object’s rules away with the object', () => {
+    const { result } = twoObjects();
+    act(() => {
+      result.current.handleAddTransform('uppercase', 'Name');
+    });
+    act(() => {
+      result.current.handleRemoveObject(0);
+    });
+
+    expect(result.current.transforms).toEqual([]);
+  });
+
+  it('describes on the transforms step the object picked there, and not again the one just described', () => {
+    describeFields.data = { objectApiName: 'Account', sourceFields: [], targetFields: [] };
+    const { result } = twoObjects();
+    act(() => result.current.setCurrentStep(1));
+    expect(describeFields.mutate).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.setCurrentStep(2));
+    expect(describeFields.mutate).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.setMappedObject('Contact'));
+    expect(describeFields.mutate).toHaveBeenCalledTimes(2);
+    expect(describeFields.mutate).toHaveBeenLastCalledWith({
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectApiName: 'Contact',
+    });
   });
 
   it('sends a truncate length as the number the schema expects', () => {
@@ -239,7 +360,9 @@ describe('useSyncPageData', () => {
       result.current.handleSourceOrgChange('org-1');
       result.current.handleTargetOrgChange('org-2');
       result.current.handleAddObject('Account');
-      result.current.handleAddTransform('truncate');
+    });
+    act(() => {
+      result.current.handleAddTransform('truncate', 'Name');
     });
     act(() => {
       result.current.handleChangeTransformConfig(0, 'length', '5');
@@ -263,7 +386,9 @@ describe('useSyncPageData', () => {
       result.current.handleSourceOrgChange('org-1');
       result.current.handleTargetOrgChange('org-2');
       result.current.handleAddObject('Account');
-      result.current.handleAddTransform('truncate');
+    });
+    act(() => {
+      result.current.handleAddTransform('truncate', 'Name');
     });
     act(() => {
       result.current.handleChangeTransformConfig(0, 'length', '5.7');

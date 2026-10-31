@@ -8,7 +8,7 @@
  * is offered now, for the changes real-time replication holds, and a run no
  * longer has a manual strategy at all. It also called
  * transforms "configurable per-field or per-object", while the only rules a
- * screen can produce are object-level ones that rewrite every field of every
+ * screen could produce were object-level ones that rewrote every field of every
  * record. And nothing said that Grappe's threshold is measured with one
  * `SELECT COUNT()` per object, sent before the run and paid for out of the
  * org's daily API budget.
@@ -35,6 +35,7 @@ const SYNC_PAGE = source('packages/webview/src/pages/Sync/SyncPage.tsx');
 const SYNC_HANDLER = source('packages/extension/src/bridge/handlers/SyncOpsHandler.ts');
 const TRANSFORM_PIPELINE = source('packages/extension/src/modules/sync/TransformPipeline.ts');
 const TRANSFORM_BUILDER = source('packages/webview/src/pages/Sync/TransformBuilder.tsx');
+const SFDMU_IMPORTER = source('packages/extension/src/modules/migration/SfdmuImporter.ts');
 const SYNC_ORCHESTRATOR = source('packages/extension/src/modules/sync/SyncOrchestrator.ts');
 const PUBLISHING_OBJECTS = source('packages/extension/src/modules/realtime/publishingObjects.ts');
 const BULK_EXECUTOR = source('packages/extension/src/core/engine/BulkApiExecutor.ts');
@@ -186,17 +187,27 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain("A managed package's objects, such as Vlocity's");
   });
 
-  it('says a transform rule reaches every field but the one the write matches on', () => {
-    // Positive control: the rule loop walks every key of the record, and skips
-    // the two the write is addressed by.
-    expect(TRANSFORM_PIPELINE).toContain('for (const rule of objectConfig.transformRules)');
-    expect(TRANSFORM_PIPELINE).toContain('for (const key of Object.keys(result))');
+  it('says a transform rule changes the one field it names, and an earlier one every field but the key', () => {
+    // Positive control: a rule walks the key its field names, every key when
+    // it names none, and skips the two the write is addressed by; the page
+    // sends each object the rules made for it.
+    expect(TRANSFORM_PIPELINE).toContain('for (const key of keysOf(result, rule))');
     expect(TRANSFORM_PIPELINE).toContain(
-      "const matchField = objectConfig.externalIdField ?? 'Id';",
+      'if (rule.field === undefined) return Object.keys(record);',
     );
-    expect(TRANSFORM_PIPELINE).toContain("if (key === matchField || key === 'Id') continue;");
+    expect(TRANSFORM_PIPELINE).toContain(
+      "const matchField = (objectConfig.externalIdField ?? 'Id').toLowerCase();",
+    );
+    expect(TRANSFORM_PIPELINE).toContain("return name !== matchField && name !== 'id';");
+    expect(SYNC_PAGE_DATA).toContain(
+      'transformRules: transformRulesOf(entry.objectApiName, transforms),',
+    );
 
-    expect(DOC).toContain('applies to all fields of all objects in the run, except');
+    expect(DOC).toContain(
+      'The rule\n  changes that field alone, in every record of that object the run writes',
+    );
+    expect(DOC).toContain('applies to all fields of all objects\n  in the run, except');
+    expect(DOC).not.toContain('Every rule you add applies to all fields');
     expect(DOC).not.toContain('Configurable per-field or per-object');
   });
 
@@ -211,17 +222,19 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).not.toContain('Conditional logic');
   });
 
-  it('says a value mapping rule has no box to fill and so does nothing', () => {
-    // Positive control: the type is offered, and the builder's settings table
-    // has no entry for it, so the rule can only go out with an empty config.
-    expect(TRANSFORM_BUILDER).toContain("'map_value'");
-    const configFields = /const CONFIG_FIELDS: Record<string, string\[\]> = \{([^}]*)\}/.exec(
+  it('says value mapping is not offered, and an SFDMU import carries it on its field', () => {
+    // Positive control: the type is not among the rules a new one may be,
+    // and the importer names the field of each values mapping.
+    const offered = /const TRANSFORM_TYPES: TransformRuleType\[\] = \[([^\]]*)\]/.exec(
       TRANSFORM_BUILDER,
     );
-    expect(configFields).not.toBeNull();
-    expect(configFields?.[1]).not.toContain('map_value');
+    expect(offered).not.toBeNull();
+    expect(offered?.[1]).toContain("'default_value'");
+    expect(offered?.[1]).not.toContain('map_value');
+    expect(SFDMU_IMPORTER).toContain("type: 'map_value',\n        field,");
 
-    expect(DOC).toContain('Value mapping takes a table of replacements');
+    expect(DOC).toContain('Value mapping is not offered: it takes a table of replacements');
+    expect(DOC).toContain("field's values mapping as a value mapping rule naming that field");
   });
 
   it('says a write past 200 records goes in one Bulk API job with every field its rows carry, each row answered', () => {

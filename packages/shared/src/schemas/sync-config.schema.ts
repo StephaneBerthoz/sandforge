@@ -26,8 +26,13 @@ export const transformRuleConfigSchema = z.object({
   formula: z.string().optional(),
 });
 
-/** Transform rule schema */
-export const transformRuleSchema = z.object({
+/**
+ * Transform rule schema. Strict: a key it does not know is refused, not
+ * dropped. Parsing dropped `field` before the schema named it, and a rule
+ * meant for one field went on to run on every field of every record; a
+ * misspelt key would do the same, silently.
+ */
+export const transformRuleSchema = z.strictObject({
   type: z.enum([
     'uppercase',
     'lowercase',
@@ -43,6 +48,12 @@ export const transformRuleSchema = z.object({
     'format_number',
     'custom_formula',
   ]),
+  /** The target field the rule changes; absent, every field (see `TransformRule.field`). */
+  field: z
+    .string()
+    .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Invalid field API name')
+    .max(80)
+    .optional(),
   config: transformRuleConfigSchema,
 });
 

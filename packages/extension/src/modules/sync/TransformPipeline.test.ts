@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TransformPipeline } from './TransformPipeline';
 import type { TransformRule, SyncObjectConfig } from '@sandforge/shared';
 
@@ -171,6 +171,168 @@ describe('TransformPipeline', () => {
       expect(result).toEqual(record);
     });
   });
+  describe('a rule that names a field', () => {
+    it('changes that field alone, and the others are written as read', () => {
+      // Each rule ran over every key of the record: an Uppercase meant for
+      // Name rewrote Description, Industry and every other text with it.
+      const config = createObjectConfig({
+        transformRules: [{ type: 'uppercase', field: 'Name', config: {} }],
+      });
+      const record = {
+        Id: '001S1',
+        Name: 'acme',
+        Description: 'kept as typed',
+        Industry: 'acme',
+        Phone: null,
+        NumberOfEmployees: 250,
+      };
+
+      expect(pipeline.transformRecord(record, config)).toEqual({
+        ...record,
+        Name: 'ACME',
+      });
+    });
+
+    it('finds its field whatever the case it is named in, as Salesforce does', () => {
+      const config = createObjectConfig({
+        transformRules: [
+          { type: 'map_value', field: 'status', config: { valueMap: { New: 'Open' } } },
+        ],
+      });
+
+      expect(pipeline.transformRecord({ Subject: 'New', Status: 'New' }, config)).toEqual({
+        Subject: 'New',
+        Status: 'Open',
+      });
+    });
+
+    it('adds nothing when the record does not carry the field', () => {
+      // A real-time change carries only what changed, and an update would
+      // write the default over what the target holds.
+      const config = createObjectConfig({
+        transformRules: [
+          { type: 'default_value', field: 'Rating', config: { defaultValue: 'Warm' } },
+        ],
+      });
+
+      expect(pipeline.transformRecord({ Name: 'Acme' }, config)).toEqual({ Name: 'Acme' });
+    });
+
+    it('leaves the key the write matches on and Id as they are, even when it names them', () => {
+      const config = createObjectConfig({
+        externalIdField: 'Ext_Id__c',
+        transformRules: [
+          { type: 'prefix', field: 'Ext_Id__c', config: { prefix: 'X-' } },
+          { type: 'prefix', field: 'Id', config: { prefix: 'X-' } },
+        ],
+      });
+
+      expect(
+        pipeline.transformRecord({ Id: '001S1', Ext_Id__c: 'KEY-1', Name: 'Acme' }, config),
+      ).toEqual({ Id: '001S1', Ext_Id__c: 'KEY-1', Name: 'Acme' });
+    });
+
+    it('runs alongside a rule saved without a field, which keeps its effect on every field', () => {
+      const config = createObjectConfig({
+        transformRules: [
+          { type: 'trim', config: {} },
+          { type: 'uppercase', field: 'Name', config: {} },
+        ],
+      });
+
+      expect(pipeline.transformRecord({ Name: '  acme ', Industry: ' tech ' }, config)).toEqual({
+        Name: 'ACME',
+        Industry: 'tech',
+      });
+    });
+  });
+
+  describe('an empty field', () => {
+    it.each(['uppercase', 'lowercase', 'trim', 'truncate', 'prefix', 'suffix', 'replace'] as const)(
+      'stays empty under %s, never ""',
+      (type) => {
+        // String(value ?? '') wrote "" into every field the source left empty.
+        const rule: TransformRule = {
+          type,
+          config: { length: 3, prefix: 'X-', suffix: '-X', search: 'a', replace: 'b' },
+        };
+
+        expect(pipeline.transform(null, [rule])).toBeNull();
+        expect(pipeline.transform(undefined, [rule])).toBeUndefined();
+      },
+    );
+
+    it('stays empty under a date, a number or a formula rule', () => {
+      expect(pipeline.transform(null, [{ type: 'format_date', config: {} }])).toBeNull();
+      expect(pipeline.transform(null, [{ type: 'format_number', config: {} }])).toBeNull();
+      expect(pipeline.transform('', [{ type: 'format_number', config: {} }])).toBe('');
+      expect(
+        pipeline.transform(null, [{ type: 'custom_formula', config: { formula: 'VALUE + 1' } }]),
+      ).toBeNull();
+    });
+
+    it('is still filled by a default value, the rule meant for it', () => {
+      expect(
+        pipeline.transform(null, [{ type: 'default_value', config: { defaultValue: 'N/A' } }]),
+      ).toBe('N/A');
+    });
+
+    it('leaves a number and a checkbox as they are under a text rule', () => {
+      const rules: TransformRule[] = [{ type: 'uppercase', config: {} }];
+
+      expect(pipeline.transform(250, rules)).toBe(250);
+      expect(pipeline.transform(false, rules)).toBe(false);
+    });
+  });
+
+  describe('a rule with nothing to apply', () => {
+    it('changes nothing when Replace has nothing to find', () => {
+      // An empty search matched between every two characters: "A-c-m-e".
+      expect(pipeline.transform('Acme', [{ type: 'replace', config: { replace: '-' } }])).toBe(
+        'Acme',
+      );
+      expect(
+        pipeline.transform('Acme', [
+          { type: 'regex_replace', config: { regex: '', replace: '-' } },
+        ]),
+      ).toBe('Acme');
+    });
+
+    it('leaves the number as read when the formula cannot be worked out', () => {
+      // It returned the expression's text, which a number field refuses.
+      expect(
+        pipeline.transform(250, [
+          { type: 'custom_formula', config: { formula: 'VALUE * 1.1 + 2' } },
+        ]),
+      ).toBe(250);
+      expect(
+        pipeline.transform(250, [{ type: 'custom_formula', config: { formula: 'VALUE / 0' } }]),
+      ).toBe(250);
+      expect(
+        pipeline.transform('250', [{ type: 'custom_formula', config: { formula: 'VALUE * 2' } }]),
+      ).toBe(500);
+    });
+  });
+
+  describe('a date', () => {
+    const zone = process.env.TZ;
+    afterEach(() => {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    });
+
+    it('keeps its day on a machine west of Greenwich', () => {
+      // Read in the machine's zone, 2026-03-15 was written 2026-03-14 there.
+      process.env.TZ = 'America/Los_Angeles';
+      const rules: TransformRule[] = [
+        { type: 'format_date', config: { dateFormat: 'DD/MM/YYYY' } },
+      ];
+
+      expect(pipeline.transform('2026-03-15', rules)).toBe('15/03/2026');
+      expect(pipeline.transform('2026-03-15T23:30:00.000+0000', rules)).toBe('15/03/2026');
+    });
+  });
+
   describe('the field a write matches on', () => {
     it('is left alone by an object-level rule', () => {
       const config = createObjectConfig({

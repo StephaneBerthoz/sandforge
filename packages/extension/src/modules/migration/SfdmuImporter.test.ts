@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
+import { syncConfigSchema } from '@sandforge/shared';
 import { SfdmuImporter, sfdmuExportSchema } from './SfdmuImporter';
 import type { FileReader, SfdmuExport } from './SfdmuImporter';
 
@@ -121,12 +124,59 @@ describe('SfdmuImporter', () => {
 
       const result = await importer.import('/path/to/export.json');
 
-      expect(result.objects[0].transformRules).toHaveLength(1);
-      expect(result.objects[0].transformRules[0].type).toBe('map_value');
-      expect(result.objects[0].transformRules[0].config.valueMap).toEqual({
-        Tech: 'Technology',
-        Fin: 'Financial Services',
-      });
+      expect(result.objects[0].transformRules).toEqual([
+        {
+          type: 'map_value',
+          field: 'Industry',
+          config: { valueMap: { Tech: 'Technology', Fin: 'Financial Services' } },
+        },
+      ]);
+    });
+
+    it('gives each field its own value mapping, naming the field', async () => {
+      // Grouped by field and the field then dropped, every group ran on every
+      // field of the record: "New" meant for Status became "Open" in Subject.
+      const reader = createMockFileReader(
+        readFileSync(join(__dirname, 'fixtures', 'export.json'), 'utf8'),
+      );
+
+      const result = await new SfdmuImporter(reader).import('/path/to/export.json');
+
+      expect(result.objects[0].transformRules).toEqual([
+        {
+          type: 'map_value',
+          field: 'Status',
+          config: { valueMap: { New: 'Open', Escalated: 'Working' } },
+        },
+      ]);
+    });
+
+    it('names a field the export renames as the target calls it, where the rule runs', async () => {
+      const exportData = createRealisticSfdmuExport();
+      exportData.objects[0].valuesMapping = [
+        { fieldName: 'BillingCity', rawValue: 'Paris', mappedValue: 'PARIS' },
+        { fieldName: 'Industry', rawValue: 'Tech', mappedValue: 'Technology' },
+      ];
+      const importer = new SfdmuImporter(createMockFileReader(JSON.stringify(exportData)));
+
+      const result = await importer.import('/path/to/export.json');
+
+      // BillingCity is written to ShippingCity; the rule runs on the mapped record.
+      expect(result.objects[0].transformRules.map((rule) => rule.field)).toEqual([
+        'ShippingCity',
+        'Industry',
+      ]);
+    });
+
+    it('converts to a configuration the sync schema takes whole, each rule with its field', async () => {
+      const reader = createMockFileReader(
+        readFileSync(join(__dirname, 'fixtures', 'export.json'), 'utf8'),
+      );
+      const config = await new SfdmuImporter(reader).import('/path/to/export.json');
+
+      const parsed = syncConfigSchema.parse(config);
+
+      expect(parsed.objects[0].transformRules[0].field).toBe('Status');
     });
 
     it('should preserve excluded fields', async () => {

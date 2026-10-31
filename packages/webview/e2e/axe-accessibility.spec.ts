@@ -10343,6 +10343,62 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync transforms step: a rule on one field of the object, one saved before rules named a field, and the next one being added', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(
+        bridge,
+        page,
+        theme,
+        {
+          currentStep: 2,
+          direction: 'source_to_target',
+          conflictStrategy: 'source_wins',
+          objectEntries: [
+            {
+              objectApiName: 'Account',
+              operation: 'upsert',
+              externalIdField: 'Legacy_Key__c',
+              batchSize: 200,
+              where: '',
+            },
+            {
+              objectApiName: 'Contact',
+              operation: 'insert',
+              externalIdField: '',
+              batchSize: 200,
+              where: '',
+            },
+          ],
+          transforms: [
+            {
+              type: 'prefix',
+              field: 'Description',
+              objectApiName: 'Account',
+              config: { prefix: 'QA-' },
+            },
+            { type: 'trim', config: {} },
+          ],
+        },
+        'transform-builder',
+      );
+      await bridge.waitForMessage('sync:describe-fields', { timeout: 10_000 });
+      await answerAll(page, 'sync:describe-fields', 'sync:describe-fields:response', {
+        objectApiName: 'Account',
+        sourceFields: [],
+        targetFields: [
+          { apiName: 'Name', label: 'Account Name', type: 'string' },
+          { apiName: 'Description', label: 'Description', type: 'textarea' },
+          { apiName: 'Legacy_Key__c', label: 'Legacy Key', type: 'string' },
+        ],
+      });
+      await page.getByTestId('add-transform-field').selectOption('Name');
+      await expect(page.getByTestId('transform-1-every-field')).toHaveText('Every field');
+      await expect(page.getByTestId('transform-every-field-note')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync results of a run that copied files, some skipped past the caps and one failed', async ({
       page,
     }) => {

@@ -1,0 +1,15 @@
+{
+  "objects": [
+    {
+      "query": "SELECT Id, Subject, Status, Origin, Description, Legacy_Key__c FROM Case",
+      "operation": "Upsert",
+      "externalId": "Legacy_Key__c",
+      "objectName": "Case",
+      "valuesMapping": [
+        { "fieldName": "Status", "rawValue": "New", "mappedValue": "Open" },
+        { "fieldName": "Status", "rawValue": "Escalated", "mappedValue": "Working" }
+      ]
+    }
+  ],
+  "apiVersion": "62.0"
+}

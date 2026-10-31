@@ -280,6 +280,94 @@ test.describe('Sync panel — simulate, then run', () => {
   });
 });
 
+/** Answer the last describe the page asked for `objectApiName`, once it is asked. */
+async function answerDescribe(
+  bridge: MockBridge,
+  objectApiName: string,
+  targetFields: Array<{ apiName: string; label: string; type: string }>,
+): Promise<void> {
+  await expect
+    .poll(async () =>
+      (await bridge.getMessages('sync:describe-fields')).some(
+        (m) => (m.payload as { objectApiName?: string }).objectApiName === objectApiName,
+      ),
+    )
+    .toBe(true);
+  await bridge.respond('sync:describe-fields:response', {
+    objectApiName,
+    sourceFields: targetFields,
+    targetFields,
+  });
+}
+
+test.describe('Sync panel — transforms', () => {
+  test('a rule changes the field picked on its object, and the run is sent each object’s own rules', async ({
+    page,
+  }) => {
+    // The step was a bare list of rules, each sent to every object and run on
+    // every field of every record.
+    const bridge = await openSyncOnDraft(page, {
+      ...READY_DRAFT,
+      currentStep: 2,
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objectEntries: [
+        ...READY_DRAFT.objectEntries,
+        {
+          objectApiName: 'Contact',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+    });
+    await expect(page.getByTestId('transform-intro')).toHaveText(
+      'Each rule changes one field of Account in every record the run writes. Fields without a rule are written as read.',
+    );
+    await answerDescribe(bridge, 'Account', [
+      { apiName: 'Name', label: 'Account Name', type: 'string' },
+      { apiName: 'Legacy_Key__c', label: 'Legacy Key', type: 'string' },
+      { apiName: 'NumberOfEmployees', label: 'Employees', type: 'int' },
+    ]);
+
+    // The key the upsert matches on is not offered, nor a number for a text rule.
+    const field = page.getByTestId('add-transform-field');
+    await expect(field.locator('option:not([disabled])')).toHaveText(['Account Name (Name)']);
+    await field.selectOption('Name');
+    await page.getByTestId('add-transform-btn').click();
+    await expect(page.getByTestId('transform-0-field')).toHaveText('Name');
+
+    await page.getByTestId('transform-object').selectOption('Contact');
+    await answerDescribe(bridge, 'Contact', [
+      { apiName: 'LastName', label: 'Last Name', type: 'string' },
+    ]);
+    await expect(page.getByTestId('transform-none')).toHaveText(
+      'No rule on Contact: its fields are written as read.',
+    );
+    await page.getByTestId('add-transform-type').selectOption('trim');
+    await page.getByTestId('add-transform-field').selectOption('LastName');
+    await page.getByTestId('add-transform-btn').click();
+    await expect(page.getByTestId('transform-1-field')).toHaveText('LastName');
+
+    const results = await checkAccessibility(page);
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+
+    for (let step = 0; step < 2; step++) await page.getByTestId('sync-wizard-next').click();
+    await page.getByTestId('sync-run').click();
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    const objects = (
+      run.payload as {
+        config: { objects: Array<{ objectApiName: string; transformRules: unknown[] }> };
+      }
+    ).config.objects;
+    expect(Object.fromEntries(objects.map((o) => [o.objectApiName, o.transformRules]))).toEqual({
+      Account: [{ type: 'uppercase', field: 'Name', config: {} }],
+      Contact: [{ type: 'trim', field: 'LastName', config: {} }],
+    });
+  });
+});
+
 /** A configuration as `sync:config:load` reads it back: saved from Migration, say. */
 const SAVED_CONFIG = {
   id: 'cfg-saved',

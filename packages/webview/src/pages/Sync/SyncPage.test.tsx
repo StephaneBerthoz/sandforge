@@ -1452,8 +1452,8 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    const length = within(screen.getByTestId('transform-0')).getByPlaceholderText(
-      'length',
+    const length = within(screen.getByTestId('transform-0')).getByLabelText(
+      'Characters kept',
     ) as HTMLInputElement;
     fireEvent.change(length, { target: { value: '5' } });
 
@@ -1477,8 +1477,8 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    const length = within(screen.getByTestId('transform-0')).getByPlaceholderText(
-      'length',
+    const length = within(screen.getByTestId('transform-0')).getByLabelText(
+      'Characters kept',
     ) as HTMLInputElement;
     fireEvent.change(length, { target: { value: '5' } });
     fireEvent.change(length, { target: { value: '5.' } });
