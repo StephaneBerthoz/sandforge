@@ -47,6 +47,7 @@ import type {
   ForgeUndoStatus,
   SeedRelation,
   SeedTemplate,
+  StorageRoomNotCounted,
 } from '@sandforge/shared';
 import {
   DEFAULT_ROBUSTNESS_CONFIG,
@@ -115,7 +116,20 @@ import { seedTemplatePayloadSchema } from '../src/bridge/validatePayload.js';
 import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/seedRecordTypes.js';
 import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
-import { seedStorageBytes, seedStorageGate } from '../src/modules/seed/seedStorage.js';
+import {
+  seedFitBudgetOf,
+  seedStorageBytes,
+  seedStorageGate,
+} from '../src/modules/seed/seedStorage.js';
+import {
+  fitSeedTemplate,
+  fittedTemplate,
+  seedRoomOf,
+  seedWritesOf,
+  type SeedFit,
+  type SeedFitCaps,
+} from '../src/modules/seed/seedFit.js';
+import { STORAGE_RECOUNT_SECONDS } from '../src/modules/forge/fitBudget.js';
 import {
   bypassesToAssign,
   emailCheckLines,
@@ -234,6 +248,30 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --dry-run, says what would be muted and
                          assigns nothing                   (default: off)
+  --fit share            seed the largest share of every count that fits
+                         the data storage the target has left: each object
+                         about that share of its records, at least one, a
+                         child no more than the parents kept can hold, rows a
+                         template gives kept whole. It may take 80 % of what
+                         the target says it has left, half a MB off first for
+                         the rounding of what it says, less room for what its
+                         flows still running create under the records (what
+                         --mute-automation keeps quiet creates nothing); what
+                         its Apex triggers create is named, not counted. Its
+                         writes leave a tenth of the day's API requests. The
+                         counts are said object by object, then the gate is
+                         met again by them; a seed that cannot be cut to fit
+                         is refused, exit 1. With --dry-run, says the counts
+                         and what they meet, and the summary's JSON carries
+                         them as fit                       (default: off)
+  --fit-cap <Object>=<n> | <n>
+                         at most n records of that object, or of every object
+                         another --fit-cap does not name; repeat for more. Its
+                         children follow it. Caps alone that leave the seed
+                         past what fits refuse it; with --fit share, the
+                         share is taken of what the caps leave
+  --fit-within <MB>      with --fit or --fit-cap: take no more than this many
+                         MB, whatever the target has left
   --seed <n>             draw as the run that printed this seed did: the
                          same command with the same seed plans and writes
                          the same numbers. Every run prints its seed
@@ -281,7 +319,8 @@ and what the target runs as they are created (its flows, Apex triggers,
 processes and workflow rules, what of them sends emails or creates records,
 the custom permissions that keep them quiet), with the emails the records make
 it send against what it has left today. A real run past either is refused, and
-writes nothing; a dry run says it would be.
+writes nothing; a dry run says it would be. Past the storage or the API
+requests, it says the counts --fit share would seed.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
@@ -467,6 +506,18 @@ interface CliArgs {
   locale?: string;
   /** Per object, the record types its records take, by API name. */
   recordTypes: Record<string, string[]>;
+  /** The fit asked of the run (`--fit`, `--fit-cap`, `--fit-within`); absent when none was. */
+  fit?: CliFit;
+}
+
+/** A fit to the target's storage, as the command line asks it. */
+export interface CliFit {
+  /** `--fit share`. */
+  share: boolean;
+  /** `--fit-cap`, by object, and for every object not named. */
+  caps?: SeedFitCaps;
+  /** `--fit-within`. */
+  withinMB?: number;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -703,8 +754,82 @@ const RUN_FLAGS: CommandFlags = {
     '--where',
     '--parent-limit',
     '--parent-ids',
+    '--fit',
+    '--fit-cap',
+    '--fit-within',
   ],
 };
+
+/** The most records an object of a seed takes, and so the largest cap. */
+const MAX_OBJECT_RECORDS = 100_000;
+
+/**
+ * The fit the line asks (`--fit share`, `--fit-cap`, `--fit-within`), or
+ * nothing when it asks none; a line that does not read is refused by name.
+ * Whether a capped object is one the seed writes is known once its template
+ * is: checked there.
+ */
+export function fitOfArgs(
+  args: readonly string[],
+  refuse: (line: string) => never,
+): CliFit | undefined {
+  const values = (flag: string): string[] =>
+    args.flatMap((arg, i) => (arg === flag && i + 1 < args.length ? [args[i + 1]] : []));
+  const asked = (flag: string): boolean => args.includes(flag);
+  const share = values('--fit');
+  if (asked('--fit') && (share.length !== 1 || share[0] !== 'share')) {
+    refuse(`--fit takes share, once, not "${share.join(' ')}".`);
+  }
+  const caps: { all?: number; objects: Record<string, number> } = { objects: {} };
+  for (const raw of values('--fit-cap')) {
+    const match = /^(?:([A-Za-z][A-Za-z0-9_]{0,79})=)?(\d{1,6})$/.exec(raw);
+    const count = match ? Number(match[2]) : NaN;
+    if (!match || count < 1 || count > MAX_OBJECT_RECORDS) {
+      refuse(
+        `--fit-cap wants "<Object>=<n>" or "<n>", n a whole number from 1 to ` +
+          `${MAX_OBJECT_RECORDS}, not "${raw}".`,
+      );
+    }
+    const objectApiName = (match as RegExpExecArray)[1];
+    if (objectApiName === undefined) {
+      if (caps.all !== undefined) refuse('--fit-cap <n> caps every object: give it once.');
+      caps.all = count;
+    } else {
+      if (caps.objects[objectApiName] !== undefined) {
+        refuse(`--fit-cap ${objectApiName}: give each object one cap.`);
+      }
+      caps.objects[objectApiName] = count;
+    }
+  }
+  const capped = caps.all !== undefined || Object.keys(caps.objects).length > 0;
+  let withinMB: number | undefined;
+  if (asked('--fit-within')) {
+    const [raw] = values('--fit-within');
+    withinMB = Number(raw);
+    if (!asked('--fit') && !capped) refuse('--fit-within goes with --fit share or --fit-cap.');
+    if (
+      raw === undefined ||
+      !/^\d+(?:\.\d+)?$/.test(raw) ||
+      withinMB <= 0 ||
+      withinMB > 1_000_000
+    ) {
+      refuse(`--fit-within takes a number of MB above 0, up to 1000000, not "${raw ?? ''}".`);
+    }
+  }
+  if (!asked('--fit') && !capped) return undefined;
+  return {
+    share: asked('--fit'),
+    ...(capped
+      ? {
+          caps: {
+            ...(caps.all !== undefined ? { all: caps.all } : {}),
+            ...(Object.keys(caps.objects).length > 0 ? { objects: caps.objects } : {}),
+          },
+        }
+      : {}),
+    ...(withinMB !== undefined ? { withinMB } : {}),
+  };
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -868,6 +993,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
     recordTypes[objectApiName] = [...new Set(names.split(','))];
   }
+  const fit = fitOfArgs(args, refuse);
 
   return {
     target,
@@ -886,6 +1012,7 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(seed !== undefined ? { seed } : {}),
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
+    ...(fit ? { fit } : {}),
   };
 }
 
@@ -1464,6 +1591,111 @@ export function dryRunGatesJson(
   };
 }
 
+/** What a fit leaves out of the room it keeps, as a line names it. */
+function notCountedWords(entry: StorageRoomNotCounted): string {
+  switch (entry.kind) {
+    case 'trigger':
+      return `what Apex trigger ${entry.name} on ${entry.objectApiName} creates`;
+    case 'notRead':
+      return `what "${entry.name}" on ${entry.objectApiName} creates: it was not read`;
+    case 'share':
+      return `the ${entry.name} rows the flows of ${entry.objectApiName} create`;
+  }
+}
+
+/** A share, as a line says it: a percentage, rounded down to a tenth. */
+function shareWords(share: number): string {
+  return `${Math.floor(share * 1000) / 10} %`;
+}
+
+/**
+ * What the run says of a fit before it writes: the share and what held it,
+ * the budget and its terms, each object's records of the template's, what
+ * the room left out, and what the fitted seed takes. `applied` for the fit
+ * the run seeds; otherwise the counts --fit share would seed.
+ *
+ * @param words.roomUnread - Why no room was kept: the target's automation was not read.
+ * @param words.muted - Whether the run's mute keeps some of that automation quiet.
+ */
+export function seedFitLines(
+  fit: SeedFit,
+  target: string,
+  words: { applied: boolean; roomUnread?: string; muted?: boolean },
+): string[] {
+  const { proposal } = fit;
+  const budget = proposal.budget;
+  const head = words.applied ? 'fit' : '--fit share would seed';
+  if (proposal.cannotFit !== undefined) {
+    return [`${head}: the seed cannot be fitted: ${proposal.cannotFit}`];
+  }
+  if (fit.heldBy === 'whole') {
+    return [
+      `${head}: the seed fits as it is, ${fit.records} records, about ` +
+        `${formatMB(proposal.estimateMB)} MB: nothing cut`,
+    ];
+  }
+  const fits = formatMB(budget.budgetMB + budget.automationMB);
+  const held =
+    fit.heldBy === 'apiRequests'
+      ? `the largest whose writes leave ${target} a tenth of its daily API requests`
+      : fit.heldBy === 'within'
+        ? `the largest that fits the ${budget.withinMB ?? fits} MB asked (--fit-within)`
+        : `the largest that fits ${fits} MB: ${budget.share * 100} % of the ${budget.remainingMB} MB ` +
+          `${target} says it has left of ${budget.maxMB}, ${budget.roundingMB} MB kept first for ` +
+          'the rounding of what it says';
+  const room =
+    words.roomUnread !== undefined
+      ? `no room kept for what its automation creates: it could not be read (${words.roomUnread})`
+      : budget.automationMB > 0
+        ? `${formatMB(budget.automationMB)} MB of it kept for what its flows still running create ` +
+          'under these records'
+        : 'nothing kept for its flows: none still running creates records under these' +
+          (words.muted ? ' (--mute-automation keeps the others quiet)' : '');
+  const width = Math.max(...proposal.objects.map((o) => o.objectApiName.length));
+  return [
+    fit.heldBy === 'caps'
+      ? `${head}: the caps asked, within the ${fits} MB that fit; ${room}`
+      : `${head}: share ${shareWords(proposal.share)}, ${held}; ${room}`,
+    ...proposal.objects.map(
+      (o) =>
+        `  ${o.objectApiName.padEnd(width)}  ${o.after} of ${o.before}` +
+        (o.keptWhole === 'rows'
+          ? '  (kept whole: the rows the template gives)'
+          : o.keptWhole === 'byKey'
+            ? '  (kept whole: each under the parent row its key names)'
+            : ''),
+    ),
+    ...(budget.notCounted ?? []).map((entry) => `  not counted: ${notCountedWords(entry)}`),
+    `  fitted seed: ${fit.records} records, about ${formatMB(proposal.estimateMB)} MB` +
+      (budget.automationMB > 0 ? ' with what its flows create under them' : '') +
+      `, ${fit.requests} API requests`,
+    `  ${target} counts a load in what it says it has left up to ${STORAGE_RECOUNT_SECONDS} ` +
+      'seconds after it: a run started sooner after another may read room it no longer has',
+  ];
+}
+
+/**
+ * What the summary's JSON says of a fit: the proposal, what held it, the
+ * records and requests it comes to, what was asked, and whether the run
+ * seeded it (`applied`) or a dry run past the storage or the requests only
+ * proposes it. Exported so it can be tested.
+ */
+export function fitJson(
+  fit: SeedFit,
+  applied: boolean,
+  asked: CliFit | undefined,
+): Record<string, unknown> {
+  return {
+    applied,
+    ...fit.proposal,
+    heldBy: fit.heldBy,
+    records: fit.records,
+    requests: fit.requests,
+    ...(asked?.caps ? { caps: asked.caps } : {}),
+    ...(asked?.withinMB !== undefined ? { withinMB: asked.withinMB } : {}),
+  };
+}
+
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
@@ -1696,25 +1928,30 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     };
   }
 
-  // The data storage the records take against what the target has left,
-  // before the first write, as the panel holds a seed: a dry run says what a
-  // real run would meet, and a real run past it writes nothing.
-  const storage = await seedStorageGate(conn, template, personObjects, args.target);
-  log(storageLine(storage.check, args.target));
-  if (storage.refusal) {
-    if (!args.dryRun) throw new Error(storage.refusal);
-    log(`  a real run would be refused: ${storage.refusal}`);
+  // An object --fit-cap names is one the seed writes: a cap on another is a
+  // bad line, as a --record-type is.
+  for (const objectApiName of Object.keys(args.fit?.caps?.objects ?? {})) {
+    if (!template.objects.some((object) => object.objectApiName === objectApiName)) {
+      process.stderr.write(`--fit-cap ${objectApiName}: the seed writes no ${objectApiName}.\n`);
+      process.exit(2);
+    }
   }
-  // Asked to mute, the run plans it from what the target runs on the objects
-  // it writes before it counts their emails, which then leave out what the
-  // mute keeps quiet. Refused on a production org or for a user who cannot
-  // assign, a real run writes nothing; a dry run says so, and assigns nothing.
+  // What the target runs on the objects the seed writes, read once and
+  // first, as the panel reads it: the mute is planned from it, the emails
+  // counted from it, and the room its flows take under the records from what
+  // of it still runs, before the storage is held against what they take.
+  const read: ForgeTargetAutomation | { unread: string } = await targetAutomationReader(conn)
+    .read(
+      args.target,
+      template.objects.map((object) => object.objectApiName),
+    )
+    .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+  // Asked to mute, the run plans it from that read before it counts the
+  // emails, which then leave out what the mute keeps quiet. Refused on a
+  // production org or for a user who cannot assign, a real run writes
+  // nothing; a dry run says so, and assigns nothing.
   let mute: RunMute | undefined;
   if (args.muteAutomation) {
-    const objects = template.objects.map((object) => object.objectApiName);
-    const read = await targetAutomationReader(conn)
-      .read(args.target, objects)
-      .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
     try {
       mute = await muteForRun(async () => muteOrgOf(conn), read, {
         writes: (_objectApiName, write) => write === 'insert' || write === 'update',
@@ -1725,14 +1962,83 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(`  a real run would be refused: ${err.message}`);
     }
   }
+  // What still runs of it once the mute's plan holds, nothing assigned, and
+  // the room what it creates takes under the records: what a fit keeps.
+  const room = seedRoomOf(read, mute?.plan, seedWritesOf(template, scenario !== undefined));
+  const fitWords = {
+    ...(room.unread !== undefined ? { roomUnread: room.unread } : {}),
+    muted: (mute?.plan?.assign.length ?? 0) > 0,
+  };
+
+  // The data storage the records take against what the target has left,
+  // before the first write, as the panel holds a seed: a dry run says what a
+  // real run would meet, and a real run past it writes nothing.
+  let storage = await seedStorageGate(conn, template, personObjects, args.target);
+  /** The fit asked, or the one a refusal for the storage or the requests proposes. */
+  let fit: { applied: boolean; fit: SeedFit } | undefined;
+  if (args.fit) {
+    const budget = seedFitBudgetOf(storage, args.fit.withinMB);
+    if ('unread' in budget) {
+      const refusal =
+        `The seed was refused before it wrote anything: it cannot be fitted to ${args.target}, ` +
+        `whose data storage left could not be read (${budget.unread}). Nothing was written.`;
+      if (!args.dryRun) throw new Error(refusal);
+      log(`  a real run would be refused: ${refusal}`);
+    } else {
+      const fitted = fitSeedTemplate({
+        template,
+        personObjects,
+        budget,
+        room: room.room,
+        ask: args.fit,
+      });
+      fit = { applied: true, fit: fitted };
+      for (const line of seedFitLines(fitted, args.target, { applied: true, ...fitWords })) {
+        log(line);
+      }
+      if (fitted.proposal.cannotFit !== undefined) {
+        const refusal =
+          'The seed was refused before it wrote anything: it cannot be fitted to ' +
+          `${args.target}: ${fitted.proposal.cannotFit}. Nothing was written.`;
+        if (!args.dryRun) throw new Error(refusal);
+        log(`  a real run would be refused: ${refusal}`);
+      } else if (fitted.heldBy !== 'whole') {
+        // The counts fitted, the gate is met again by them, its /limits read
+        // again: a fit is never a pass, and an org that lost room since
+        // refuses the seed again. Caps that fit are counts fitted too.
+        template = fittedTemplate(template, fitted.proposal);
+        storage = await seedStorageGate(conn, template, personObjects, args.target);
+      }
+    }
+  }
+  log(storageLine(storage.check, args.target));
+  if (storage.refusal) {
+    // Unasked, what --fit share would seed: computed from what was read.
+    if (!args.fit && storage.refusedFor !== 'checkpoint') {
+      const budget = seedFitBudgetOf(storage);
+      if (!('unread' in budget)) {
+        const proposed = fitSeedTemplate({ template, personObjects, budget, room: room.room });
+        fit = { applied: false, fit: proposed };
+        for (const line of seedFitLines(proposed, args.target, { applied: false, ...fitWords })) {
+          log(`  ${line}`);
+        }
+      }
+    }
+    if (!args.dryRun) throw new Error(storage.refusal);
+    log(`  a real run would be refused: ${storage.refusal}`);
+  }
   // What the target runs as these records are created, and the emails they
   // make it send, before the first write: a seed of 75 contacts left a
-  // Developer Edition at -60 of its 15 single emails a day.
+  // Developer Edition at -60 of its 15 single emails a day. A run that mutes
+  // counts what still runs, what its mute keeps quiet held quiet.
   const automation = await seedAutomationCheck({
     target: args.target,
     objects: template.objects,
-    readAutomation: async (objects) =>
-      mute?.automation ?? targetAutomationReader(conn).read(args.target, objects),
+    readAutomation: async () => {
+      const given = mute?.automation ?? read;
+      if (typeof given.unread === 'string') throw new Error(given.unread);
+      return given as ForgeTargetAutomation;
+    },
     readLimits: () => readEmailLimits(conn),
   });
   for (const line of automation.lines) log(line);
@@ -1993,6 +2299,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // runs: an environment holds several seeds to one day's storage
           // and requests, which each seed alone fits.
           ...(args.dryRun ? dryRunGatesJson(template, personObjects, storage) : {}),
+          // The fit the run seeded, or, a dry run past the storage or the
+          // requests, the counts --fit share would seed: the counts to write
+          // in an environment's file, which is never fitted for it.
+          ...(fit ? { fit: fitJson(fit.fit, fit.applied, args.fit) } : {}),
           // What a real run's mute would assign, silence, leave running and
           // lift beside, as the dry run's lines say it.
           ...(args.dryRun ? dryRunMuteOf(mute) : {}),

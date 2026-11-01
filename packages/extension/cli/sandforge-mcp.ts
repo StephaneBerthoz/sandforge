@@ -346,36 +346,59 @@ export const TOOLS: readonly ServedTool[] = [
       'with generated rows (objects), as sandforge-seed --json does. Run it with dryRun: true ' +
       'first: it reads the org and writes nothing, and says what a real run would meet — the data ' +
       "storage it takes, the emails the org's automation would send, what runs as the records are " +
-      'created. dryRun: false writes, a production org refused, and needs confirm. The answer ' +
-      'names the run file, which run_remove with module "seed" takes the run back from.',
+      'created. Past the storage the org has left, it says the counts that fit; fit: "share" ' +
+      'seeds them, the largest share of every count that fits, and fitWithinMB holds the run to ' +
+      'fewer MB still. dryRun: false writes, a production org refused, and needs confirm. The ' +
+      'answer names the run file, which run_remove with module "seed" takes the run back from.',
     readOnly: false,
     destructive: false,
-    args: z.strictObject({
-      org: alias('The org to fill: its sf CLI alias.'),
-      template: z
-        .string()
-        .regex(TEMPLATE_ID, 'a template id, as seed_templates gives them')
-        .optional()
-        .describe('A built-in template, by the id seed_templates gives; or give objects.'),
-      objects: z
-        .array(
-          z.strictObject({
-            objectApiName: z.string().regex(API_NAME, 'an object API name'),
-            count: z.number().int().min(1).max(100_000),
-          }),
-        )
-        .min(1)
-        .max(50)
-        .optional()
-        .describe(
-          'Objects and how many records each gets, in insert order, their fields drawn by the ' +
-            'faker; or give template.',
-        ),
-      dryRun: z
-        .boolean()
-        .describe('true: read the org and say what a run would do, writing nothing.'),
-      confirm: confirmOf('org').optional(),
-    }),
+    args: z
+      .strictObject({
+        org: alias('The org to fill: its sf CLI alias.'),
+        template: z
+          .string()
+          .regex(TEMPLATE_ID, 'a template id, as seed_templates gives them')
+          .optional()
+          .describe('A built-in template, by the id seed_templates gives; or give objects.'),
+        objects: z
+          .array(
+            z.strictObject({
+              objectApiName: z.string().regex(API_NAME, 'an object API name'),
+              count: z.number().int().min(1).max(100_000),
+            }),
+          )
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            'Objects and how many records each gets, in insert order, their fields drawn by the ' +
+              'faker; or give template.',
+          ),
+        dryRun: z
+          .boolean()
+          .describe('true: read the org and say what a run would do, writing nothing.'),
+        fit: z
+          .enum(['share'])
+          .optional()
+          .describe(
+            '"share": seed the largest share of every count that fits the data storage the org ' +
+              'has left, each object about that share of its records, a child no more than its ' +
+              'parents kept hold, room kept for what its flows still running create. The answer ' +
+              'says the counts, object by object; give it to a write only once the person using ' +
+              'you has seen them in a dry run.',
+          ),
+        fitWithinMB: z
+          .number()
+          .min(0.01)
+          .max(1_000_000)
+          .optional()
+          .describe('With fit: take no more than this many MB, whatever the org has left.'),
+        confirm: confirmOf('org').optional(),
+      })
+      .refine((args) => args.fitWithinMB === undefined || args.fit !== undefined, {
+        message: 'fitWithinMB goes with fit: "share"',
+        path: ['fitWithinMB'],
+      }),
     writesTo: (args) => (args.dryRun ? undefined : args.org),
     writes: 'creates the records of the seed in it',
     readFirst: 'a dry run of the same seed says what it would write and meet',
@@ -388,6 +411,8 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.template !== undefined ? ['--template', args.template] : []),
         ...(args.objects ?? []).flatMap((o) => ['--object', `${o.objectApiName}:${o.count}`]),
         ...(args.dryRun ? ['--dry-run'] : []),
+        ...(args.fit !== undefined ? ['--fit', args.fit] : []),
+        ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
         '--json',
       ],
     }),

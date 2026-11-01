@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CRM_STARTER, DATA_STORAGE_NOT_TOLD, SALES_CLOUD_STARTER } from '@sandforge/shared';
-import { seedRequestsEstimate, seedStorageBytes, seedStorageGate } from './seedStorage';
+import {
+  seedFitBudgetOf,
+  seedRequestsEstimate,
+  seedStorageBytes,
+  seedStorageGate,
+} from './seedStorage';
 
 const KB = 1024;
 const MB = 1024 * KB;
@@ -132,5 +137,64 @@ describe('seedStorageGate', () => {
     expect(gate.refusal).toBeUndefined();
     expect(gate.check).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
     expect(gate.api).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
+  });
+});
+
+describe('seedFitBudgetOf', () => {
+  it('fits to what the gate read of the target, with no read more, its own requests leaving a tenth of the day', async () => {
+    const transport = limits(5, 5, { Max: 15_000, Remaining: 2_000 });
+    const gate = await seedStorageGate(transport, SALES_CLOUD_STARTER, [], 'my-dev-org');
+
+    const budget = seedFitBudgetOf(gate);
+    expect(transport.request).toHaveBeenCalledTimes(1);
+    expect(budget).toEqual({
+      bytes: Math.floor(0.8 * (5 - 0.5) * MB),
+      terms: { remainingMB: 5, maxMB: 5, share: 0.8, roundingMB: 0.5, limitedBy: 'storage' },
+      runRequests: 2_000 - 1_500,
+    });
+    expect(seedFitBudgetOf(gate, 1)).toMatchObject({
+      bytes: 1 * MB,
+      terms: { withinMB: 1, limitedBy: 'within' },
+    });
+  });
+
+  it('leaves room in the requests for the checkpoint taken first, which a fit does not scale', async () => {
+    const gate = await seedStorageGate(
+      limits(5, 5, { Max: 15_000, Remaining: 2_000 }),
+      SALES_CLOUD_STARTER,
+      [],
+      'my-dev-org',
+      {
+        state: 'planned',
+        estimate: { records: 38, apiRequests: 68, apiRequestsLeft: 1_932, seconds: 44, bytes: 2e6 },
+        objects: ['Account'],
+        added: [],
+        notHeld: [],
+        keepDays: 7,
+      },
+    );
+    expect(seedFitBudgetOf(gate)).toMatchObject({ runRequests: 2_000 - 1_500 - 68 });
+  });
+
+  it('has nothing to fit to when the org will not say its storage, and no bound on requests it will not say', async () => {
+    const unread = await seedStorageGate(
+      { request: vi.fn(async () => Promise.reject(new Error('API_DISABLED'))) },
+      SALES_CLOUD_STARTER,
+      [],
+      'my-dev-org',
+    );
+    expect(seedFitBudgetOf(unread)).toEqual({ unread: 'API_DISABLED' });
+
+    const noRequests = await seedStorageGate(
+      { request: vi.fn(async () => ({ DataStorageMB: { Max: 5, Remaining: 5 } })) },
+      SALES_CLOUD_STARTER,
+      [],
+      'my-dev-org',
+    );
+    expect(seedFitBudgetOf(noRequests)).toMatchObject({
+      bytes: Math.floor(3.6 * MB),
+      requestsUnread: expect.any(String),
+    });
+    expect(seedFitBudgetOf(noRequests)).not.toHaveProperty('runRequests');
   });
 });

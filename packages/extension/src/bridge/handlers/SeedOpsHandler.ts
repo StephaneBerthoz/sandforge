@@ -105,7 +105,8 @@ import {
   type WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
-import { seedStorageGate } from '../../modules/seed/seedStorage.js';
+import { seedFitBudgetOf, seedStorageGate } from '../../modules/seed/seedStorage.js';
+import { seedFitProposalOf, seedRoomOf, seedWritesOf } from '../../modules/seed/seedFit.js';
 import {
   API_BUDGET_EXCEEDED,
   confirmationApiOf,
@@ -441,26 +442,29 @@ export class SeedOpsHandler implements DomainHandler {
    *
    * @param transport - The org's connection, which reads its limits.
    * @param org - The org, as the panel names it.
+   * @param given - What was read of the org already, or why it could not be:
+   *   a run's gate reads it once, before its storage, and a run that mutes
+   *   hands what still runs, what its mute keeps quiet held quiet.
    */
   private readAutomation(
     orgId: string,
     transport: Parameters<typeof readEmailLimits>[0],
     objects: readonly string[],
     org: string,
-    muted?: ForgeTargetAutomation,
+    given?: ForgeTargetAutomation | { unread: string },
   ): Promise<SeedAutomationRead> {
     const reader = this.targetAutomation;
     return readSeedAutomation({
       org,
       objects,
-      // A run that mutes counts the emails of what still runs: the read its
-      // mute was planned from, with what it keeps quiet held quiet.
       readAutomation: (names) =>
-        muted
-          ? Promise.resolve(muted)
-          : new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
+        given === undefined
+          ? new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
               reader.read(orgId, names),
-            ),
+            )
+          : typeof given.unread === 'string'
+            ? Promise.reject(new Error(given.unread))
+            : Promise.resolve(given as ForgeTargetAutomation),
       readLimits: () => readEmailLimits(transport),
     });
   }
@@ -1235,7 +1239,14 @@ export class SeedOpsHandler implements DomainHandler {
     const failure: OperationFailureContext = { module: 'seed', operation: msg.type };
 
     try {
-      const cleared = await this.clearSeed(parsed, operationId, failure, PANEL_QUESTIONS);
+      // A scenario's run publishes its articles once written: written again.
+      const cleared = await this.clearSeed(
+        parsed,
+        operationId,
+        failure,
+        PANEL_QUESTIONS,
+        scenario !== undefined,
+      );
       if ('refusal' in cleared) {
         // Settle the in-flight useBridgeMutation listener on seed:error (same
         // dual-channel contract as sync — without it the mutation spun until
@@ -1312,15 +1323,22 @@ export class SeedOpsHandler implements DomainHandler {
    * page's channels or as the step's failure. A refusal of the guard is
    * thrown, as every write path throws it.
    *
+   * What the org runs is read first, and the mute planned from it, before
+   * the storage: a refusal for the storage or the requests carries the
+   * counts that fit (`fit`), room kept for what still runs of the org's
+   * automation, computed from what was read for the refusal.
+   *
    * @param asked - The seed as it was asked for.
    * @param failure - The run's failure context, given the objects it writes.
    * @param questions - Who answers the question before the first write.
+   * @param publishes - Whether the run publishes its articles once written (a scenario's).
    */
   private async clearSeed(
     asked: SeedAsked,
     operationId: string,
     failure: OperationFailureContext,
     questions: SeedQuestions,
+    publishes = false,
   ): Promise<SeedCleared | { refusal: SeedRefusal }> {
     // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
     // setting when the webview omitted them.
@@ -1369,62 +1387,27 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.log(`[WARN] seed:execute ${operationId}: ${line}`);
     };
 
-    // The storage the records take against what the org has left, before the
-    // guard is asked and before anything is written: a template three times
-    // a Developer Edition's 5 MB filled the org part way through its run.
     const org = this.deps.orgManager.getOrg(payload.orgId);
-    const storage = await seedStorageGate(
-      conn,
-      kinds.template,
-      kinds.personObjects,
-      org?.alias ?? payload.orgId,
-    );
-    if (storage.check.verdict === 'unread') {
-      warn(
-        `the data storage the org has left could not be read (${storage.check.unread}): ` +
-          'whether the records fit is not known',
-      );
-    }
-    if (storage.refusal) {
-      const code =
-        storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
-      recordWriteRun(this.deps, {
-        action: 'seed_execute',
-        module: 'seed',
-        operationId,
-        orgId: payload.orgId,
-        outcome: 'stopped',
-        code,
-      });
-      const check = storage.check;
-      return {
-        refusal: {
-          code,
-          message: storage.refusal,
-          extraPayload:
-            check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
-              ? {}
-              : {
-                  estimateMB: Number(formatMB(check.estimateMB)),
-                  remainingMB: check.remainingMB,
-                  maxMB: check.maxMB,
-                  org: org?.alias ?? payload.orgId,
-                },
-          failed: { authored: true },
-        },
-      };
-    }
-
-    // The emails the records make the org send, against what it has left
-    // today, read with what it runs as they are created, before the guard is
-    // asked and before anything is written: a seed of 75 contacts left a
-    // Developer Edition at -60 of its 15 single emails, its workflow rule
-    // emailing each one. A read that fails is said, and holds nothing back.
     const orgName = org?.alias || org?.username || payload.orgId;
     const written = kinds.template.objects.map((o) => ({
       objectApiName: o.objectApiName,
       recordCount: o.recordCount,
     }));
+    // What the org runs as the records are created, read once and first: the
+    // mute is planned from it, the emails counted from it, and the room its
+    // flows take under the records from what of it still runs, before the
+    // storage is held against what the records take — a refusal for the
+    // storage then proposes counts that fit, room for those flows kept,
+    // without a read more. A read that fails is said, and holds nothing back.
+    const reader = this.targetAutomation;
+    const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+      .withTimeout('seed automation', () =>
+        reader.read(
+          payload.orgId,
+          written.map((o) => o.objectApiName),
+        ),
+      )
+      .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
     // Asked to mute, the seed plans it from what the target runs on the
     // objects it creates; refused on a production org or for a user who
     // cannot assign, it writes nothing. The lease is taken before its first
@@ -1432,15 +1415,6 @@ export class SeedOpsHandler implements DomainHandler {
     let mute: RunMute | undefined;
     // The panel's request may ask it; a pipeline's Seed step never does.
     if ('muteAutomation' in asked && asked.muteAutomation === true) {
-      const reader = this.targetAutomation;
-      const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-        .withTimeout('seed automation', () =>
-          reader.read(
-            payload.orgId,
-            written.map((o) => o.objectApiName),
-          ),
-        )
-        .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
       try {
         mute = await muteForRun(async () => muteOrgOf(conn), read, {
           ...this.muteLeases,
@@ -1467,12 +1441,81 @@ export class SeedOpsHandler implements DomainHandler {
       }
     }
     if (mute) payload.mute = mute;
+    // What still runs of it once the mute's plan holds, nothing assigned, and
+    // the room what it creates takes under the records: what a fit keeps.
+    const stillRunning = seedRoomOf(read, mute?.plan, seedWritesOf(kinds.template, publishes));
+
+    // The storage the records take against what the org has left, before the
+    // guard is asked and before anything is written: a template three times
+    // a Developer Edition's 5 MB filled the org part way through its run.
+    const storage = await seedStorageGate(
+      conn,
+      kinds.template,
+      kinds.personObjects,
+      org?.alias ?? payload.orgId,
+    );
+    if (storage.check.verdict === 'unread') {
+      warn(
+        `the data storage the org has left could not be read (${storage.check.unread}): ` +
+          'whether the records fit is not known',
+      );
+    }
+    if (storage.refusal) {
+      const code =
+        storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'stopped',
+        code,
+      });
+      const check = storage.check;
+      // The counts that fit, by share, from the same /limits, room kept for
+      // what the flows that still run create: for the person to apply, after
+      // which the seed meets its gate again. A checkpoint's refusal is not
+      // one a smaller seed answers.
+      const fit =
+        storage.refusedFor === 'checkpoint'
+          ? undefined
+          : seedFitProposalOf(
+              seedFitBudgetOf(storage),
+              kinds.template,
+              kinds.personObjects,
+              stillRunning.room,
+            );
+      return {
+        refusal: {
+          code,
+          message: storage.refusal,
+          extraPayload: {
+            ...(check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
+              ? {}
+              : {
+                  estimateMB: Number(formatMB(check.estimateMB)),
+                  remainingMB: check.remainingMB,
+                  maxMB: check.maxMB,
+                  org: org?.alias ?? payload.orgId,
+                }),
+            ...(fit ? { fit } : {}),
+          },
+          failed: { authored: true },
+        },
+      };
+    }
+
+    // The emails the records make the org send, against what it has left
+    // today, counted from what it runs as they are created, before the guard
+    // is asked and before anything is written: a seed of 75 contacts left a
+    // Developer Edition at -60 of its 15 single emails, its workflow rule
+    // emailing each one. A run that mutes counts what still runs.
     const automation = await this.readAutomation(
       payload.orgId,
       conn,
       written.map((o) => o.objectApiName),
       orgName,
-      mute?.automation,
+      mute?.automation ?? read,
     );
     const emails = seedEmailGate(automation, written, orgName);
     for (const line of emails.unknown ?? []) warn(line);

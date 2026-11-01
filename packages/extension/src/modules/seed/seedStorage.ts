@@ -23,8 +23,10 @@ import {
   storageRefusal,
   type ApiBudgetCheck,
   type LimitsTransport,
+  type RunRequestParts,
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
+import { fitBudgetOf, type FitBudget } from '../forge/fitBudget.js';
 
 /** Records past which a seed sends an object as a Bulk API job (`seedInsert`'s default). */
 const SEED_BULK_THRESHOLD = 200;
@@ -152,4 +154,40 @@ export async function seedStorageGate(
   return overBudget
     ? { check, api, refusal: overBudget, refusedFor: 'apiRequests' }
     : { check, api };
+}
+
+/**
+ * The budget a fit of the seed is held to, from what its gate read of the
+ * target — the data storage and the daily API requests of one `/limits` —
+ * so the counts a refusal proposes cost no read more. The requests of the
+ * checkpoint taken first are counted beside the seed's own, which the fit
+ * leaves room for: it scales the seed's records, not the checkpoint.
+ *
+ * @param withinMB - The most MB asked of the fit (`--fit-within`), beside what the target has left.
+ * @returns Nothing to fit to when the target would not say its storage.
+ */
+export function seedFitBudgetOf(
+  gate: Pick<SeedStorageGate, 'check' | 'api'>,
+  withinMB?: number,
+): FitBudget | { unread: string } {
+  const { check, api } = gate;
+  const parts: Partial<RunRequestParts> = api.parts ?? {};
+  const others = {
+    checkpoint: parts.checkpoint ?? 0,
+    readBack: parts.readBack ?? 0,
+    deliverability: parts.deliverability ?? 0,
+    fit: parts.fit ?? 0,
+  };
+  return fitBudgetOf({
+    storage:
+      check.verdict === 'unread'
+        ? { unread: check.unread }
+        : { maxMB: check.maxMB, remainingMB: check.remainingMB },
+    ...(withinMB !== undefined ? { withinMB } : {}),
+    api:
+      api.verdict === 'unread'
+        ? { unread: api.unread }
+        : { max: api.max, remaining: api.remaining },
+    otherRequests: others,
+  });
 }

@@ -1258,3 +1258,93 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });
+
+describe('sandforge-mcp: a seed fitted to the storage', () => {
+  it('hands fit and its bound to the seed’s line, a dry run as a write', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-sales-cloud-starter',
+      dryRun: true,
+      fit: 'share',
+      fitWithinMB: 2.5,
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-sales-cloud-starter',
+      dryRun: false,
+      fit: 'share',
+      confirm: 'DEV',
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-seed',
+        args: [
+          '--target',
+          'DEV',
+          '--template',
+          'prebuilt-sales-cloud-starter',
+          '--dry-run',
+          '--fit',
+          'share',
+          '--fit-within',
+          '2.5',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-seed',
+        args: [
+          '--target',
+          'DEV',
+          '--template',
+          'prebuilt-sales-cloud-starter',
+          '--fit',
+          'share',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('refuses a bound with no fit, and a fit that is not by share, before any script runs', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+
+    const refusals = [
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fitWithinMB: 2,
+      }),
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fit: 'caps',
+      }),
+      await c.call('seed_run', {
+        org: 'DEV',
+        template: 'prebuilt-sales-cloud-starter',
+        dryRun: true,
+        fit: 'share',
+        fitWithinMB: 0,
+      }),
+    ];
+
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refusals[0] as CallResult)).toContain('fitWithinMB goes with fit: "share"');
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+});

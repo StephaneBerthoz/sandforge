@@ -178,12 +178,7 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
-  {
-    path: 'packages/extension/src/modules/forge/fitBudget.ts',
-    reason: "wave 46 contract (C0): Seed's storage gate calls it once FS-A lands",
-  },
-];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {
