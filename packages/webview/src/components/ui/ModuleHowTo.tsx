@@ -11,6 +11,15 @@ export interface HowToProps {
   module: HowToModule;
 }
 
+/** Props for HowToSteps. */
+export interface HowToStepsProps extends HowToProps {
+  /**
+   * How a step's or the tip's text is drawn: Help's search marks in it the
+   * words it found, as it marks them in the rest of the section.
+   */
+  mark?: (text: string) => React.ReactNode;
+}
+
 /**
  * A module's how-to: its steps in order, then its tip.
  *
@@ -18,21 +27,22 @@ export interface HowToProps {
  * the Help page in the module's section, and the docs page carries the same
  * English, written from en.json by scripts/sync-module-howto.mjs.
  */
-export const HowToSteps: React.FC<HowToProps> = ({ module }) => {
+export const HowToSteps: React.FC<HowToStepsProps> = ({ module, mark }) => {
   const { t } = useTranslation();
   const { steps, tip } = MODULE_HOW_TO[module];
+  const draw = (text: string): React.ReactNode => (mark ? mark(text) : text);
 
   return (
     <div className="flex flex-col gap-2" data-testid={`how-to-steps-${module}`}>
       <ol className="list-decimal pl-5 space-y-1 text-xs text-text-primary">
         {steps.map((key) => (
-          <li key={key}>{t(key)}</li>
+          <li key={key}>{draw(t(key))}</li>
         ))}
       </ol>
       <p className="flex items-start gap-1.5 text-xs text-text-secondary">
         <Lightbulb size={13} className="text-hue-amber shrink-0 mt-px" aria-hidden="true" />
         <span>
-          <span className="font-semibold">{t('howTo.tipLabel')}</span> {t(tip)}
+          <span className="font-semibold">{t('howTo.tipLabel')}</span> {draw(t(tip))}
         </span>
       </p>
     </div>

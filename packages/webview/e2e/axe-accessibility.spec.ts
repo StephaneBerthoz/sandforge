@@ -5830,6 +5830,47 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Help searched, every section it finds open with what it found marked', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      await page.getByTestId('help-search').fill('staging');
+      const orgs = page.getByRole('region', { name: 'Organizations' });
+      await expect(orgs).toBeVisible();
+      await expect(orgs.locator('mark').first()).toHaveText(/staging/i);
+      // The sections it found are all open, a mark in each.
+      await expect(page.getByTestId('help-section-faq').locator('mark').first()).toBeVisible();
+      await expect(page.getByTestId('help-section-monitor')).toHaveCount(0);
+      await orgs.locator('mark').first().scrollIntoViewIfNeeded();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(await contrastMeasuredIn(page, results, '#help-content-orgs')).toBeGreaterThan(0);
+      const marksMeasured = await page.evaluate(
+        (selectors) =>
+          selectors.filter((s) => document.querySelector(s)?.tagName === 'MARK').length,
+        results.passes
+          .filter((rule) => rule.id === 'color-contrast')
+          .flatMap((rule) => rule.nodes)
+          .map((node) => node.target[0])
+          .map((target) => (typeof target === 'string' ? target : target[target.length - 1])),
+      );
+      expect(marksMeasured).toBeGreaterThan(0);
+    });
+
+    test('Help’s Release Notes, its What’s New and changelog beside it', async ({ page }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      await page.getByTestId('help-section-release-notes').getByRole('button').click();
+      await expect(page.getByTestId('help-open-changelog')).toHaveAttribute(
+        'href',
+        'https://marketplace.visualstudio.com/items/StephaneBerthoz.sandforge/changelog',
+      );
+      expectNoViolations(await checkAccessibility(page));
+      // Show What's New raises the overlay on this version's highlights.
+      await page.getByTestId('help-show-whats-new').click();
+      await expect(page.getByTestId('whats-new-page')).toBeVisible({ timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('AI page', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
       const results = await checkAccessibility(page);

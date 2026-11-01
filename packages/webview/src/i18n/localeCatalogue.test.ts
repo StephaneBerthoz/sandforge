@@ -331,9 +331,11 @@ describe('a language names one thing with one word', () => {
      what an admin reads in Setup. A placeholder such as {{org}} is a name in
      code the reader never sees, and is set aside first, as is each word below
      in the one value where it names something else. */
-  const JA_SET_ASIDE: Record<string, string> = {
+  const JA_SET_ASIDE: Record<string, string | readonly string[]> = {
     // The Salesforce CLI command the reader runs, typed as it is.
     'auth.jwtHelp': 'sf org login jwt',
+    // Help's troubleshooting: the CLI commands that list, log in to and open an org.
+    'help.troubleshootingContent': ['sf org ', '--target-org'],
     // The five fields of a cron expression, as Japanese cron documentation calls them.
     'syncParts.schedules.cronHelp': 'フィールド',
   };
@@ -344,8 +346,12 @@ describe('a language names one thing with one word', () => {
     [...values]
       .filter(([key, value]) => {
         const words = value.replace(/\{\{[^}]*\}\}/g, '');
-        const aside = JA_SET_ASIDE[key];
-        return pattern.test(aside === undefined ? words : words.split(aside).join(''));
+        const aside = JA_SET_ASIDE[key] ?? [];
+        const read = (typeof aside === 'string' ? [aside] : aside).reduce(
+          (rest, word) => rest.split(word).join(''),
+          words,
+        );
+        return pattern.test(read);
       })
       .map(([key, value]) => `${key} = ${value}`);
 

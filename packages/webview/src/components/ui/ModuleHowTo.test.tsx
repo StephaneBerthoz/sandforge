@@ -39,6 +39,12 @@ describe('HowToSteps', () => {
     expect(screen.getByText(MODULE_HOW_TO.seed.tip)).toBeInTheDocument();
     expect(screen.getByText('howTo.tipLabel')).toBeInTheDocument();
   });
+
+  it('draws each step and the tip through the mark it is given, as Help marks what its search found', () => {
+    render(<HowToSteps module="seed" mark={(text) => <mark>{text}</mark>} />);
+    const marked = Array.from(document.querySelectorAll('mark')).map((m) => m.textContent);
+    expect(marked).toEqual([...MODULE_HOW_TO.seed.steps, MODULE_HOW_TO.seed.tip]);
+  });
 });
 
 describe('ModuleHowTo', () => {

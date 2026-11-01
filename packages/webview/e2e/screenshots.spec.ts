@@ -63,11 +63,11 @@ const REVIEW_WIDTH = 1440;
 /**
  * The instant every shot is taken at.
  *
- * Monitor's header carries `ResetCountdown`, which reads the wall clock once a
- * second, so every regeneration caught a different "Reset in HH:MM:SS" and
- * monitor.png came back byte-different from an unchanged UI — a permanent line
- * in every diff carrying no information, on the one gate meant to notice when
- * the pictures stop matching the product.
+ * Monitor reads the wall clock for its header's "Data read … ago", its trend
+ * axis and the jobs it marks recent, so every regeneration caught other words
+ * and monitor.png came back byte-different from an unchanged UI — a permanent
+ * line in every diff carrying no information, on the one gate meant to notice
+ * when the pictures stop matching the product.
  *
  * The instant is the afternoon of the day MOCK_HEALTH's jobs were created, so
  * the dashboard reads as one moment: jobs started earlier today, still running.
@@ -89,7 +89,7 @@ const FIXED_NOW = new Date('2026-03-13T18:31:23Z');
  * at this point is animation-frame timing, so widening the intervention to the
  * frame loop in order to answer a question about `Date` is the wrong trade.
  *
- * Subclassing `Date` touches exactly the surface `ResetCountdown` reads.
+ * Subclassing `Date` touches exactly the surface those reads use.
  * `Date.parse`, `Date.UTC` and every instance method are inherited untouched,
  * and `new Date(iso)` — the jobs table, the backup list — still parses what it
  * is given. Only the no-argument forms are answered from the fixture.
@@ -991,12 +991,8 @@ async function previewRecord(
       { name: 'Website', value: 'https://acme.com' },
       { name: 'Phone', value: '+1 (555) 123-4567' },
     ],
-    // Without these three the Estimated Graph card renders two numbers and
-    // two dashes — half an empty card, on the flagship module's screenshot.
-    // They must agree with each other: the product derives size from the
-    // record count with `estimatedRecordCount * 0.001` (ForgeHandler's
-    // preview), so any pair that does not satisfy it shows the user an
-    // arithmetic the product would never produce.
+    // The page says "Root record · Account · 68 fields" from totalFieldCount;
+    // the two estimates still travel in the response and are shown nowhere.
     estimatedRecordCount: 500,
     totalFieldCount: 68,
     estimatedSize: 0.5,

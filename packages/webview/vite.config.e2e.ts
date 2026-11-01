@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync } from 'fs';
 import { ZOD_WITHOUT_EVAL, englishCatalogue } from './vite.config.ts';
+
+/** The version the build stamps the panel with, as the main config reads it. */
+const { version } = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
+) as { version: string };
 
 /**
  * Vite config for E2E testing.
@@ -62,6 +68,8 @@ export default defineConfig({
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify('development'),
+    // Help's Show What's New opens the highlights of this version.
+    __APP_VERSION__: JSON.stringify(version),
   },
   optimizeDeps: {
     // Exclude framer-motion from pre-bundling so our transform plugin can patch it

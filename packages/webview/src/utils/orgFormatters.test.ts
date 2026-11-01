@@ -5,6 +5,10 @@ import { OrgSafetyTier } from '@sandforge/shared';
 
 import en from '../i18n/locales/en.json';
 import fr from '../i18n/locales/fr.json';
+import de from '../i18n/locales/de.json';
+import es from '../i18n/locales/es.json';
+import ja from '../i18n/locales/ja.json';
+import ptBR from '../i18n/locales/pt-BR.json';
 import { orgOptionLabel, orgTypeLabel } from './orgFormatters';
 
 let instance: I18n;
@@ -12,7 +16,14 @@ let instance: I18n;
 beforeAll(async () => {
   instance = createInstance();
   await instance.init({
-    resources: { en: { translation: en }, fr: { translation: fr } },
+    resources: {
+      en: { translation: en },
+      fr: { translation: fr },
+      de: { translation: de },
+      es: { translation: es },
+      ja: { translation: ja },
+      'pt-BR': { translation: ptBR },
+    },
     lng: 'en',
     fallbackLng: 'en',
     interpolation: { escapeValue: false },
@@ -104,6 +115,36 @@ describe('orgOptionLabel', () => {
     expect(orgOptionLabel(org({ alias: 'full', sandboxType: 'Full' }), fixed)).toBe(
       'full [COMPLET]',
     );
+  });
+
+  it('says a partial copy and a full sandbox in German, Spanish, Portuguese and Japanese, as in French', () => {
+    // Only French was translated: the four others wore PARTIAL and FULL, and
+    // Japanese PROD and STAGING, where the Edit dialog's checkbox says
+    // ステージング.
+    const label = (lng: string, overrides: Partial<SalesforceOrg>): string =>
+      orgOptionLabel(org({ alias: 'a', ...overrides }), instance.getFixedT(lng));
+    expect(
+      ['de', 'es', 'pt-BR', 'ja'].map((lng) => [
+        lng,
+        label(lng, { sandboxType: 'Partial' }),
+        label(lng, { sandboxType: 'Full' }),
+      ]),
+    ).toEqual([
+      ['de', 'a [TEILKOPIE]', 'a [VOLLKOPIE]'],
+      ['es', 'a [PARCIAL]', 'a [COMPLETO]'],
+      ['pt-BR', 'a [PARCIAL]', 'a [COMPLETO]'],
+      ['ja', 'a [部分コピー]', 'a [フル]'],
+    ]);
+    expect(label('ja', { orgType: 'Production' })).toBe('a [本番]');
+    expect(label('ja', { staging: true })).toBe(`a [${ja.org.staging}]`);
+    // The badge of a staging sandbox says the word of the checkbox that marks it.
+    for (const [lng, bundle] of [
+      ['de', de],
+      ['es', es],
+      ['pt-BR', ptBR],
+    ] as const) {
+      expect(label(lng, { staging: true }), lng).toBe(`a [${bundle.org.staging.toUpperCase()}]`);
+    }
   });
 
   it('falls back to the username when the org has no alias', () => {
