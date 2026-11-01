@@ -520,8 +520,14 @@ describe('a mapped sync writes each mapping once', () => {
     const result = await new SyncOrchestrator(deps).execute(config);
 
     expect(result.status).toBe('success');
+    // What no mapping names goes as read: with no describe of the target to
+    // keep the fields it lets a write carry, the Id and FirstName too. This
+    // expectation left both out, as one mapping cut the write down to the
+    // mapped fields.
     expect(written).toEqual([
       {
+        Id: '003000000000001',
+        FirstName: 'Ann',
         LastName: 'Lee',
         Code__c: 'A1',
         Source__c: 'FIXED',

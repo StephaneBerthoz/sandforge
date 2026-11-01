@@ -42,6 +42,8 @@ import {
   scenarioPackSchema,
   scenarioCompileOptionsSchema,
   agentTestChoiceSchema,
+  unreadablePatternRefusal,
+  unreadablePatternRules,
 } from '@sandforge/shared';
 import type {
   CheckpointScopeMode,
@@ -219,6 +221,21 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
       `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
       `the source org and the target has never issued it. Name an External ID field both ` +
       `orgs share, or set the operation to insert. The sync was not started.`,
+  })
+  /*
+   * A Regex replace rule whose pattern is no regular expression, the object's
+   * or a field mapping's. Run, it threw JavaScript's own SyntaxError at the
+   * first record, which stopped the run at that object and named neither the
+   * rule nor the object. Refused here, at every start of a run, a save and
+   * `sandforge-sync --config-file`, naming both.
+   */
+  .superRefine((object, ctx) => {
+    const unreadable = unreadablePatternRules([object]);
+    if (unreadable.length === 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${unreadablePatternRefusal(unreadable)} The sync was not started.`,
+    });
   });
 
 /**

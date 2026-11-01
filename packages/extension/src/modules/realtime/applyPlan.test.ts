@@ -128,6 +128,22 @@ describe('applyPlanFor', () => {
     ).toBe(true);
   });
 
+  it('takes the fields a saved configuration excludes, which its mappings no longer keep out', () => {
+    // A mapping renames its field and the others go by name: an exclusion
+    // the mapped fields alone once kept out would be written.
+    const plan = applyPlanFor(
+      {
+        objectApiName: 'Lead',
+        match: { kind: 'syncConfig', configId: 'cfg-1' },
+        applyDeletes: false,
+      },
+      () => saved({ objects: [leadEntry({ excludedFields: ['Phone'] })] }),
+      orgs,
+    );
+
+    expect(plan.excludedFields).toEqual(['Phone']);
+  });
+
   it('matches on Id when the saved configuration names no external id', () => {
     const plan = applyPlanFor(
       {
@@ -150,6 +166,18 @@ describe('applyPlanFor', () => {
       () =>
         saved({ objects: [leadEntry({ transformRules: [{ type: 'uppercase', config: {} }] })] }),
       'cannot be applied. The rule Uppercase on Lead names no field: open the configuration and pick its field.',
+    ],
+    [
+      'has a Regex replace on it whose pattern is no regular expression',
+      () =>
+        saved({
+          objects: [
+            leadEntry({
+              transformRules: [{ type: 'regex_replace', field: 'Title', config: { regex: '[a-' } }],
+            }),
+          ],
+        }),
+      'cannot be applied. The rule Regex replace on Lead.Title, "[a-" (Unterminated character class) has a pattern that is no regular expression',
     ],
   ])('refuses a saved configuration that %s', (_case, load, message) => {
     expect(() =>

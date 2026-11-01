@@ -80,6 +80,7 @@ import {
   syncCannotCopy,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
+import { notSentAsRead } from '../../modules/sync/FieldMapping.js';
 import { SyncRunFailure, SyncRunRefused } from '../../modules/sync/SyncRunFailure.js';
 import { describeCached } from '../../core/connection/describeCache.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
@@ -902,10 +903,11 @@ export class SyncOpsHandler implements DomainHandler {
    * Refuse the run before anything is written when a field it copies cannot
    * hold the value it is given.
    *
-   * Both orgs are described per object and every field a mapping writes
-   * verbatim is compared: the mapped pairs when the object has mappings, the
-   * same-named fields when it has none (the writer then copies the record as
-   * read). A mapping whose value a transform rewrites is not judged on its
+   * Both orgs are described per object and every field the write sends
+   * verbatim is compared: the mapped pairs, and the same-named fields of every
+   * field that goes as read — all of them when the object has no mapping. A
+   * field the object excludes, or a mapping takes elsewhere, is not sent. A
+   * mapping whose value a transform rewrites is not judged on its
    * source type, and target fields nobody can write are left to the org.
    * Without this, a text field mapped onto a date field was only discovered
    * record by record by Salesforce, after the run had started writing.
@@ -947,12 +949,21 @@ export class SyncOpsHandler implements DomainHandler {
         .filter((f) => f.createable || f.updateable)
         .map(toDescriptor);
 
-      const pairs: Array<Record<string, string>> =
-        object.fieldMappings.length === 0
-          ? [Object.fromEntries(sourceFields.map((f) => [f.apiName, f.apiName]))]
-          : object.fieldMappings
-              .filter((m) => VERBATIM_MAPPING_TYPES.has(m.type))
-              .map((m) => ({ [m.sourceField]: m.targetField }));
+      // A mapping renames its field and every other goes as read, under its
+      // own name (`mapFields`): those are compared by name, as they all were
+      // when the object had no mapping. Compared as mapped pairs alone, the
+      // fields an object with one rename sent as read went unjudged.
+      const notAsRead = notSentAsRead(object.fieldMappings, object.excludedFields);
+      const pairs: Array<Record<string, string>> = [
+        Object.fromEntries(
+          sourceFields
+            .filter((f) => !notAsRead.has(f.apiName.toLowerCase()))
+            .map((f) => [f.apiName, f.apiName]),
+        ),
+        ...object.fieldMappings
+          .filter((m) => VERBATIM_MAPPING_TYPES.has(m.type))
+          .map((m) => ({ [m.sourceField]: m.targetField })),
+      ];
 
       for (const mapping of pairs) {
         for (const e of validator.validateMapping(sourceFields, targetFields, mapping).errors) {

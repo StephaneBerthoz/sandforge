@@ -42,6 +42,7 @@ import {
 } from '../../core/metadata/recordTypeAvailability.js';
 import { recordTypeNameOf } from '../../core/metadata/recordTypeNames.js';
 import { namesMasterRecordType } from './RecordTypeMapper.js';
+import { mapFields } from './FieldMapping.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
@@ -294,7 +295,9 @@ export function addressedBy(config: SyncObjectConfig): string | null {
 
 /**
  * Apply field mappings and add-on fields to a single source record, and keep
- * the fields the target lets a write carry.
+ * the fields the target lets a write carry. A mapping renames or transforms
+ * its field, and every other field goes as read (`mapFields`): the write
+ * carried the mapped fields alone.
  */
 export function applyMappingsAndAddOns(
   record: Record<string, unknown>,
@@ -303,19 +306,7 @@ export function applyMappingsAndAddOns(
   creatable: ReadonlySet<string> | null,
   key: string | null,
 ): Record<string, unknown> {
-  let result: Record<string, unknown>;
-
-  if (mappings.length === 0) {
-    result = { ...record };
-  } else {
-    result = {};
-    for (const mapping of mappings) {
-      if (mapping.type === 'exclude') {
-        continue;
-      }
-      result[mapping.targetField] = record[mapping.sourceField];
-    }
-  }
+  const result = mapFields(record, mappings);
 
   // Add-ons are set by the person running the sync, so they are applied
   // before the filter rather than after: an add-on naming a field the target

@@ -15,3 +15,10 @@ Import an existing SFDMU `export.json` into a Sync configuration. Importing read
 **Tip:** A CSV file of records goes to Seed's CSV Upload, which loads its rows. Only Sync writes, once Production Guard has judged the run.
 
 <!-- how-to:end -->
+
+## What the import carries
+
+- Each object of the export becomes an object of the Sync configuration, with its operation, External ID, WHERE filter and ORDER BY; a `Readonly` object is left out. Sync reads every field the source org's describe lists, not the field list of the export's `query`
+- A `fieldMapping` renames its field and that field alone: the source field goes under the target's name, and every other field of the object is copied under its own name, as read. An export that maps `BillingCity` onto `ShippingCity` writes the billing city into ShippingCity and the account's other fields as the source holds them; a mapping does not narrow the write to the mapped fields
+- `excludedFields` are not written, renamed or not
+- A `valuesMapping` becomes a value mapping rule on its field, named as the target calls it when the export renames that field

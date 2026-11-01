@@ -25,8 +25,13 @@ export interface ApplyPlan {
   keyField: string;
   /** Source field the key is read from; `Id` is the source record's own id. */
   keySource: string;
-  /** Field mappings of a saved Sync configuration; none copies fields by name. */
+  /**
+   * Field mappings of a saved Sync configuration: each renames or transforms
+   * its field, and every other field goes by name; none copies fields by name.
+   */
   fieldMappings: FieldMapping[];
+  /** The fields that configuration leaves out of the object, never written. */
+  excludedFields?: string[];
   /** Add-on fields of that configuration. */
   addOnFields: AddOnField[];
   /** Object-level transform rules of that configuration. */
@@ -751,7 +756,11 @@ export class RealtimeApplier {
         ? Object.fromEntries(Object.entries(change.values).filter(([f]) => !this.masked.has(f)))
         : change.values;
     const sourceShaped: Record<string, unknown> = { ...values, Id: change.recordId };
-    let record = this.mapping.apply(sourceShaped, this.plan.fieldMappings);
+    let record = this.mapping.apply(
+      sourceShaped,
+      this.plan.fieldMappings,
+      this.plan.excludedFields,
+    );
     if (this.plan.keySource !== 'Id' && record[this.plan.keyField] === undefined) {
       record[this.plan.keyField] = sourceShaped[this.plan.keySource];
     }

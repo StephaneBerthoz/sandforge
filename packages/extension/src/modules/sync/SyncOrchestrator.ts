@@ -14,10 +14,13 @@ import type {
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
+  TRANSFORM_RULE_BAD_PATTERN,
   TRANSFORM_RULE_NO_FIELD,
   fieldlessTransformRefusal,
   fieldlessTransformRules,
   sanitizeSoqlObjectName,
+  unreadablePatternRefusal,
+  unreadablePatternRules,
 } from '@sandforge/shared';
 import {
   buildObjectResult,
@@ -631,6 +634,21 @@ function fieldlessRefusalOf(config: SyncConfig): string | undefined {
 }
 
 /**
+ * Why a run of `config` is refused before it reads anything, or undefined: a
+ * Regex replace rule of it, the object's or a field mapping's, has a pattern
+ * that is no regular expression (`unreadablePatternRules`). Run, it threw
+ * JavaScript's own `SyntaxError` at the first record, which stopped the run at
+ * that object and named neither the rule nor the object. The bridge refuses
+ * it as it parses the configuration; the engine does too, whoever calls it.
+ */
+function unreadablePatternRefusalOf(config: SyncConfig): string | undefined {
+  const unreadable = unreadablePatternRules(config.objects);
+  return unreadable.length > 0
+    ? `${unreadablePatternRefusal(unreadable)} Nothing was read or written.`
+    : undefined;
+}
+
+/**
  * Central orchestrator that coordinates all sync sub-services.
  * Manages the full sync lifecycle for each object: data querying, field
  * mapping, conflict resolution and data sync.
@@ -677,6 +695,14 @@ export class SyncOrchestrator {
         fieldless,
         { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: fieldless },
         TRANSFORM_RULE_NO_FIELD,
+      );
+    }
+    const unreadable = unreadablePatternRefusalOf(config);
+    if (unreadable !== undefined) {
+      throw new SyncRunRefused(
+        unreadable,
+        { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: unreadable },
+        TRANSFORM_RULE_BAD_PATTERN,
       );
     }
 
@@ -1541,7 +1567,11 @@ export class SyncOrchestrator {
     try {
       const tally = await tallyDeletions(reads, objectConfig, key, where, (row) => {
         if (key.sourceField === 'Id') return row.Id;
-        const mapped = this.deps.fieldMapping.apply(row, objectConfig.fieldMappings);
+        const mapped = this.deps.fieldMapping.apply(
+          row,
+          objectConfig.fieldMappings,
+          objectConfig.excludedFields,
+        );
         return this.deps.transformPipeline.transformRecord(mapped, objectConfig)[key.keyField];
       });
       return { tally, notes: deletionNotes(tally, key.keyField) };
@@ -1715,6 +1745,8 @@ export class SyncOrchestrator {
   async simulate(config: SyncConfig): Promise<SyncSimulationResult> {
     const fieldless = fieldlessRefusalOf(config);
     if (fieldless !== undefined) throw new Error(fieldless);
+    const unreadable = unreadablePatternRefusalOf(config);
+    if (unreadable !== undefined) throw new Error(unreadable);
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     // In the order the run writes them, said with the simulation.
@@ -2321,7 +2353,11 @@ export class SyncOrchestrator {
     }
 
     const mappedRecords = sourceRecords.map((record) => {
-      const mapped = this.deps.fieldMapping.apply(record, objectConfig.fieldMappings);
+      const mapped = this.deps.fieldMapping.apply(
+        record,
+        objectConfig.fieldMappings,
+        objectConfig.excludedFields,
+      );
       return this.deps.transformPipeline.transformRecord(mapped, objectConfig);
     });
 
@@ -2465,7 +2501,11 @@ export class SyncOrchestrator {
           `SELECT Id, ${field} FROM ${object} WHERE Id IN (${list})`,
         );
         for (const row of rows) {
-          const mapped = this.deps.fieldMapping.apply(row, objectConfig.fieldMappings);
+          const mapped = this.deps.fieldMapping.apply(
+            row,
+            objectConfig.fieldMappings,
+            objectConfig.excludedFields,
+          );
           const value = this.deps.transformPipeline.transformRecord(mapped, objectConfig)[
             key.keyField
           ];

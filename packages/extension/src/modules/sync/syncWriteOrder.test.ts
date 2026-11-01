@@ -138,7 +138,7 @@ describe('lookupsOf', () => {
     ]);
   });
 
-  it('names only the lookups its mappings and add-ons write when it has any', () => {
+  it('leaves out the lookup an exclude mapping names, and names what an add-on writes', () => {
     const mapped = object('Case', 0, {
       fieldMappings: [
         { sourceField: 'Subject', targetField: 'Subject', type: 'direct' },
@@ -148,6 +148,29 @@ describe('lookupsOf', () => {
     });
 
     expect(lookupsOf(mapped, target)).toEqual([lookup('ContactId', 'Contact')]);
+  });
+
+  it('names the lookups a mapping does not name, which go as read', () => {
+    // Read as "a write with mappings sends their fields alone", an object
+    // with one rename was ordered as if it carried none of its lookups, and
+    // a case went in before the contact it names.
+    const renamed = object('Case', 0, {
+      fieldMappings: [{ sourceField: 'Subject', targetField: 'Description', type: 'rename' }],
+    });
+
+    expect(lookupsOf(renamed, target)).toEqual([
+      lookup('AccountId', 'Account'),
+      lookup('ContactId', 'Contact'),
+    ]);
+  });
+
+  it('leaves out a lookup the object excludes, or a mapping takes to another field', () => {
+    const config = object('Case', 0, {
+      fieldMappings: [{ sourceField: 'ContactId', targetField: 'Legacy__c', type: 'rename' }],
+      excludedFields: ['accountid'],
+    });
+
+    expect(lookupsOf(config, target)).toEqual([]);
   });
 
   it('names none for a delete, which writes no field', () => {

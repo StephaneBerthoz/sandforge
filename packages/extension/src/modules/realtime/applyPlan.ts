@@ -1,5 +1,10 @@
 import type { RealTimeApplyObject, SyncConfig } from '@sandforge/shared';
-import { fieldlessTransformRefusal, fieldlessTransformRules } from '@sandforge/shared';
+import {
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
+  unreadablePatternRefusal,
+  unreadablePatternRules,
+} from '@sandforge/shared';
 import type { ApplyPlan } from './RealtimeApplier.js';
 
 /** Mapping types that copy the source value as it is — the only ones a key can come through. */
@@ -20,7 +25,8 @@ const VERBATIM_TYPES = new Set(['direct', 'rename']);
  * @param session - What the session was asked beside its objects.
  * @throws {Error} When the saved configuration picked is gone, runs between
  *   other orgs, does not carry the object, or carries a transform rule on it
- *   that names no field, which a run of it refuses as well.
+ *   that names no field or a Regex replace whose pattern is no regular
+ *   expression, which a run of it refuses as well.
  */
 export function applyPlanFor(
   apply: RealTimeApplyObject,
@@ -68,6 +74,14 @@ export function applyPlanFor(
             `applied. ${fieldlessTransformRefusal(fieldless)}`,
         );
       }
+      // Applied, such a rule would fail every change written with a bare SyntaxError.
+      const unreadable = unreadablePatternRules([entry]);
+      if (unreadable.length > 0) {
+        throw new Error(
+          `${apply.objectApiName}: the saved Sync configuration "${config.name}" cannot be ` +
+            `applied. ${unreadablePatternRefusal(unreadable)}`,
+        );
+      }
       const keyField = entry.externalIdField?.trim() || 'Id';
       const keyMapping = entry.fieldMappings.find(
         (m) => m.targetField === keyField && VERBATIM_TYPES.has(m.type),
@@ -77,6 +91,9 @@ export function applyPlanFor(
         keyField,
         keySource: keyField === 'Id' ? 'Id' : (keyMapping?.sourceField ?? keyField),
         fieldMappings: entry.fieldMappings,
+        // A mapping renames its field and the others go as read: the fields
+        // the configuration leaves out stay out, as its runs leave them.
+        ...(entry.excludedFields?.length ? { excludedFields: entry.excludedFields } : {}),
         addOnFields: entry.addOnFields,
         transformRules: entry.transformRules,
         // The configuration's choice of the emails and phone numbers, which

@@ -10,14 +10,16 @@ describe('FieldMappingService', () => {
   });
 
   describe('apply', () => {
-    it('should apply a direct mapping copying value as-is', () => {
+    it('should apply a direct mapping copying value as-is, the field it does not name as read', () => {
+      // This test asserted `{ Name: 'Acme' }`: one mapping cut the write down
+      // to the mapped fields, and Industry was dropped unsaid.
       const record = { Name: 'Acme', Industry: 'Tech' };
       const mappings: FieldMapping[] = [
         { sourceField: 'Name', targetField: 'Name', type: 'direct' },
       ];
 
       const result = service.apply(record, mappings);
-      expect(result).toEqual({ Name: 'Acme' });
+      expect(result).toEqual({ Name: 'Acme', Industry: 'Tech' });
     });
 
     it('should apply a rename mapping to a different target field', () => {
@@ -86,7 +88,8 @@ describe('FieldMappingService', () => {
       ];
 
       const result = service.apply(record, mappings);
-      expect(result).toEqual({ FullName: 'John Doe' });
+      // A formula reads the fields it names, and takes none of them away.
+      expect(result).toEqual({ FirstName: 'John', LastName: 'Doe', FullName: 'John Doe' });
     });
 
     it('should handle formula mapping with simple field name', () => {
@@ -96,7 +99,7 @@ describe('FieldMappingService', () => {
       ];
 
       const result = service.apply(record, mappings);
-      expect(result).toEqual({ CompanyName: 'Acme' });
+      expect(result).toEqual({ Name: 'Acme', CompanyName: 'Acme' });
     });
 
     it('should apply truncate transform rule', () => {
@@ -237,5 +240,118 @@ describe('FieldMappingService.apply with no mapping', () => {
     const applied = service.apply(record, []);
     applied.Name = 'changed';
     expect(record.Name).toBe('Acme');
+  });
+});
+
+describe('FieldMappingService.apply: a mapping renames its field, and every other field goes as read', () => {
+  const service = new FieldMappingService();
+  /** An account as a source read returns it. */
+  const account = {
+    Id: 'source-account-1',
+    Name: 'Acme',
+    BillingCity: 'Lyon',
+    ShippingCity: 'Paris',
+    Industry: null,
+    NumberOfEmployees: 250,
+  };
+
+  it('moves the renamed field to its target, and sends every other field as the source holds it', () => {
+    // An SFDMU export's one rename wrote ShippingCity alone: every other
+    // field of every record was dropped, unsaid.
+    const result = service.apply(account, [
+      { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+    ]);
+
+    expect(result).toEqual({
+      Id: 'source-account-1',
+      Name: 'Acme',
+      ShippingCity: 'Lyon',
+      Industry: null,
+      NumberOfEmployees: 250,
+    });
+  });
+
+  it('matches the fields a mapping names whatever their case, as Salesforce does', () => {
+    const result = service.apply(account, [
+      { sourceField: 'billingcity', targetField: 'shippingCity', type: 'rename' },
+    ]);
+
+    // Neither BillingCity as read beside its copy, nor ShippingCity twice.
+    expect(result).toEqual({
+      Id: 'source-account-1',
+      Name: 'Acme',
+      shippingCity: 'Lyon',
+      Industry: null,
+      NumberOfEmployees: 250,
+    });
+  });
+
+  it('leaves out the fields the configuration excludes, and the one an exclude mapping names', () => {
+    const result = service.apply(
+      account,
+      [{ sourceField: 'Industry', targetField: 'Industry', type: 'exclude' }],
+      ['numberofemployees', 'BillingCity'],
+    );
+
+    expect(result).toEqual({
+      Id: 'source-account-1',
+      Name: 'Acme',
+      ShippingCity: 'Paris',
+    });
+  });
+
+  it('writes an excluded field under no name, renamed or not', () => {
+    const result = service.apply(
+      account,
+      [{ sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' }],
+      ['BillingCity'],
+    );
+
+    expect(result).not.toHaveProperty('BillingCity');
+    expect(result).not.toHaveProperty('ShippingCity');
+    expect(result.Name).toBe('Acme');
+  });
+
+  it('writes nothing for a mapping whose source field the record does not carry', () => {
+    // A real-time change carries only the fields that changed: the target's
+    // value stays where the change says nothing.
+    const result = service.apply({ Name: 'Acme' }, [
+      { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+    ]);
+
+    expect(result).toEqual({ Name: 'Acme' });
+  });
+
+  it("applies a mapping's rules to its value, an empty field left empty", () => {
+    // These rules ran here with rules of their own, which turned null into "".
+    const result = service.apply({ Name: 'acme', Industry: null }, [
+      {
+        sourceField: 'Name',
+        targetField: 'Name',
+        type: 'transform',
+        transformRules: [{ type: 'prefix', config: { prefix: 'X-' } }],
+      },
+      {
+        sourceField: 'Industry',
+        targetField: 'Industry',
+        type: 'transform',
+        transformRules: [{ type: 'uppercase', config: {} }],
+      },
+    ]);
+
+    expect(result).toEqual({ Name: 'X-acme', Industry: null });
+  });
+
+  it("applies the rules a mapping of any type carries, with the pipeline's rule set", () => {
+    const result = service.apply({ Phone: '+33 1 23' }, [
+      {
+        sourceField: 'Phone',
+        targetField: 'Phone',
+        type: 'direct',
+        transformRules: [{ type: 'regex_replace', config: { regex: '\\s', replace: '' } }],
+      },
+    ]);
+
+    expect(result).toEqual({ Phone: '+33123' });
   });
 });

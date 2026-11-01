@@ -461,6 +461,42 @@ describe('sandforge-sync --config-file', () => {
     expect(savedConfigStore(store).load('cfg-accounts')).toBeUndefined();
   });
 
+  it('refuses a Regex replace whose pattern is no regular expression, exit 2, naming it, before any org is contacted', async () => {
+    // Run, it threw JavaScript's own SyntaxError at the first record.
+    const [account] = SAVED.objects;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...SAVED,
+        objects: [
+          {
+            ...account,
+            transformRules: [{ type: 'regex_replace', field: 'Name', config: { regex: '[a-' } }],
+          },
+        ],
+      }),
+    );
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    vi.mocked(loadOrg).mockClear();
+
+    await expect(run()).rejects.toThrow('exit 2');
+
+    expect(stderr).toContain(
+      'objects.0: The rule Regex replace on Account.Name, "[a-" (Unterminated character ' +
+        'class) has a pattern that is no regular expression',
+    );
+    expect(loadOrg).not.toHaveBeenCalled();
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(savedConfigStore(store).load('cfg-accounts')).toBeUndefined();
+  });
+
   it('runs the same configuration once its rule names the field', async () => {
     const [account] = SAVED.objects;
     writeFileSync(

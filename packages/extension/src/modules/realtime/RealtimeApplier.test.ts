@@ -352,6 +352,33 @@ describe('RealtimeApplier — writing a change', () => {
     expect(calls[0].records).toEqual([{ Company: 'Buyer', Ext__c: 'W-9' }]);
   });
 
+  it('writes what a change carries that no mapping names as it changed, and leaves out what the configuration excludes', async () => {
+    // A mapping renames its field: one rename kept every other field the
+    // change carried out of the target.
+    const source = new MemoryOrg([{ ...sourceLead, Website: 'W-9' }]);
+    const target = new MemoryOrg([
+      { Id: '00QTARGET0000009AA', Ext__c: 'W-9', LastModifiedDate: BEFORE },
+    ]);
+    const { write, calls } = recordingWrite();
+
+    const { results } = await applier(source, target, write, {
+      plan: {
+        keyField: 'Ext__c',
+        keySource: 'Website',
+        fieldMappings: [{ sourceField: 'Website', targetField: 'Ext__c', type: 'rename' }],
+        excludedFields: ['NumberOfEmployees'],
+      },
+    }).apply([
+      event({
+        changedFieldNames: ['Title', 'Company', 'NumberOfEmployees'],
+        values: { Title: 'Buyer', Company: 'Acme 2', NumberOfEmployees: 12 },
+      }),
+    ]);
+
+    expect(results).toEqual([{ outcome: 'applied' }]);
+    expect(calls[0].records).toEqual([{ Title: 'Buyer', Company: 'Acme 2', Ext__c: 'W-9' }]);
+  });
+
   it('reports the refusal the target gave, record by record', async () => {
     const source = new MemoryOrg([sourceLead]);
     const target = new MemoryOrg([targetTwin]);

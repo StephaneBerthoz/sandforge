@@ -53,6 +53,8 @@ const SYNC_CONFIG_STORE = source('packages/extension/src/modules/sync/SyncConfig
 const SYNC_REMOVAL_HANDLER = source('packages/extension/src/bridge/handlers/SyncRemovalHandler.ts');
 const SYNC_RUN_CREATIONS = source('packages/extension/src/modules/sync/SyncRunCreations.ts');
 const SYNC_CLI = source('packages/extension/cli/sandforge-sync.ts');
+const FIELD_MAPPING = source('packages/extension/src/modules/sync/FieldMapping.ts');
+const SYNC_WRITE_ORDER = source('packages/extension/src/modules/sync/syncWriteOrder.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -394,5 +396,58 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain("counts against\n  the org's daily API request limit");
     expect(DOC).toContain('whether `sandforge.grappe.enabled` is on or\n  off');
     expect(DOC).not.toContain('With the setting off, no count is sent.');
+  });
+
+  it('says a mapping renames its field and every other field goes as read, the excluded ones left out', () => {
+    // Positive control: the mapped record starts from every field read but
+    // those excluded or taken by a mapping, and the field-type check, the
+    // write order and the deletions read the same set.
+    expect(FIELD_MAPPING).toContain(
+      'Object.entries(read).filter(([field]) => !dropped.has(nameKey(field))),',
+    );
+    expect(FIELD_MAPPING).not.toContain('const result: Record<string, unknown> = {};');
+    expect(SYNC_HANDLER).toContain(
+      'const notAsRead = notSentAsRead(object.fieldMappings, object.excludedFields);',
+    );
+    expect(SYNC_WRITE_ORDER).toContain('notSentAsRead(objectConfig.fieldMappings');
+    expect(SYNC_DELTA).toContain('notSentAsRead(mappings, objectConfig.excludedFields ?? [])');
+    expect(SYNC_DELTA).toContain(
+      'unmappedSentAsRead: (objectConfig.fieldMappings ?? []).length > 0 ? true : undefined,',
+    );
+    expect(DOC).toContain(
+      'So does, once, the first run of an object with field mappings since 1.71.0, whose runs before wrote its mapped fields alone',
+    );
+    expect(SYNC_ORCHESTRATOR).toContain('objectConfig.excludedFields,');
+
+    expect(DOC).toContain(
+      'A mapping renames or transforms its field, and that field alone: every field it does not name is still copied under its own API name, as read.',
+    );
+    expect(DOC).toContain('One rename does not narrow the write to the mapped fields');
+    expect(DOC).toContain(
+      "nor is a field the configuration excludes (an SFDMU export's `excludedFields`)",
+    );
+    expect(DOC).toContain(
+      'every lookup but one a mapping takes to another field or the configuration excludes',
+    );
+    expect(DOC).not.toContain('those of its mappings and add-ons when it has any');
+    expect(DOC).not.toContain('(the same-named fields when the object has no mapping)');
+  });
+
+  it("says a mapping's own rules run once, and a pattern that is no regular expression is refused", () => {
+    // Positive control: the pipeline no longer applies a mapping's rules after
+    // the mapping did, and the bridge, the engine and real-time refuse an
+    // unreadable pattern before anything is read.
+    expect(TRANSFORM_PIPELINE).not.toContain('for (const mapping of objectConfig.fieldMappings)');
+    expect(FIELD_MAPPING).toContain('pipeline.transform(value, mapping.transformRules)');
+    expect(VALIDATE_PAYLOAD).toContain('const unreadable = unreadablePatternRules([object]);');
+    expect(SYNC_ORCHESTRATOR).toContain('const unreadable = unreadablePatternRefusalOf(config);');
+
+    expect(DOC).toContain(
+      'they run once, on the value the mapping\n  writes, an empty field left empty',
+    );
+    expect(DOC).toContain(
+      'A Regex replace rule whose pattern is no regular expression -- `[a-`, an\n  unclosed group -- is refused before anything is read or written',
+    );
+    expect(DOC).toContain('`sandforge-sync --config-file`, which exits 2. It is not saved either.');
   });
 });

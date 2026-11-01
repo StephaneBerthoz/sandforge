@@ -121,6 +121,25 @@ describe('scopeFingerprint', () => {
     );
   });
 
+  it('reads a watermark recorded while a mapping cut the write down to the mapped fields as another scope', () => {
+    // Fingerprints 1.70.0 recorded. A delta read from that watermark would
+    // leave the records it does not read again without the fields the
+    // earlier runs dropped: the object is read in full once.
+    expect(scopeFingerprint(CONFIG, account())).toBe(
+      '50dc00b939b2531d64aafc6a1ebf810774c95d55b0a0d86d782c2f153eb0be38',
+    );
+    expect(
+      scopeFingerprint(
+        CONFIG,
+        account({
+          fieldMappings: [
+            { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+          ],
+        }),
+      ),
+    ).not.toBe('f19eab5275503a5f8d2b83afa46a7ff0d614b31f7009d9308477d6791b3c0d38');
+  });
+
   it('reads an empty filter or key box as none, and ignores the read order', () => {
     const base = scopeFingerprint(CONFIG, account({ externalIdField: 'Ext_Id__c' }));
     expect(scopeFingerprint(CONFIG, account({ where: '  ' }))).toBe(base);
@@ -380,12 +399,27 @@ describe('deletionKeyOf', () => {
     ).toMatchObject({ refused: expect.stringContaining('an add-on writes Ext_Id__c') });
     expect(
       deletionKeyOf(
-        account({ fieldMappings: [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }] }),
+        account({
+          fieldMappings: [{ sourceField: 'Ext_Id__c', targetField: 'Old_Key__c', type: 'rename' }],
+        }),
       ),
     ).toMatchObject({ refused: expect.stringContaining('no source field') });
+    expect(deletionKeyOf(account({ excludedFields: ['ext_id__c'] }))).toMatchObject({
+      refused: expect.stringContaining('no source field'),
+    });
     expect(deletionKeyOf(account({ operation: 'insert' }))).toMatchObject({
       refused: expect.stringContaining('finds no record by a key'),
     });
+  });
+
+  it('ties an upsert by the key as read when its mappings rename other fields', () => {
+    // A mapping renames its field, and the key goes as read: refused as
+    // carried by nothing, an object with one rename could carry no deletion.
+    expect(
+      deletionKeyOf(
+        account({ fieldMappings: [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }] }),
+      ),
+    ).toEqual({ sourceField: 'Ext_Id__c', keyField: 'Ext_Id__c' });
   });
 });
 

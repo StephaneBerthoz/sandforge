@@ -184,10 +184,14 @@ export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export * from './utils/account-kinds.js';
 export {
+  TRANSFORM_RULE_BAD_PATTERN,
   TRANSFORM_RULE_NO_FIELD,
   fieldlessTransformRefusal,
   fieldlessTransformRules,
+  unreadablePatternRefusal,
+  unreadablePatternRules,
   type FieldlessTransformRule,
+  type UnreadablePatternRule,
 } from './utils/sync-transform-fields.js';
 export {
   FORGE_GUIDE_URL,

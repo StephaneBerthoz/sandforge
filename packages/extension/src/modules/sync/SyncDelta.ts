@@ -38,6 +38,7 @@ import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import { assertSoqlIdentifier, assertSoqlWhere } from '../../core/common/soqlValidator.js';
 import { queryAllPages, type PagedQuerySource, type QueryPage } from '../forge/queryAllPages.js';
 import { keyBatches, simulationKey, soqlLiteral } from './SyncSimulation.js';
+import { notSentAsRead } from './FieldMapping.js';
 
 /** How far before its watermark a delta read starts. */
 export const DELTA_OVERLAP_MS = 5 * 60_000;
@@ -155,6 +156,12 @@ export function scopeFingerprint(
     externalIdField: blankToNull(objectConfig.externalIdField),
     where: blankToNull(objectConfig.where),
     fieldMappings: objectConfig.fieldMappings ?? [],
+    // A mapping renames its field and the others go as read: an object's
+    // write carried its mapped fields alone. Its watermark, recorded then,
+    // reads as another scope, so the next run reads it in full and writes
+    // what the runs before left out of the records it does not read again.
+    // Left out without a mapping, so that watermark still reads.
+    unmappedSentAsRead: (objectConfig.fieldMappings ?? []).length > 0 ? true : undefined,
     transformRules: objectConfig.transformRules ?? [],
     excludedFields: objectConfig.excludedFields ?? [],
     addOnFields: objectConfig.addOnFields ?? [],
@@ -410,15 +417,22 @@ const KEY_CARRYING_MAPPINGS: ReadonlySet<string> = new Set(['direct', 'rename', 
  * An update finds its record by `Id`, which two orgs share only when one was
  * copied from the other, so the deleted record's own Id is the target's. An
  * upsert finds it by its External ID field, written from the source field a
- * mapping carries onto it — the same-named field when the object has no
- * mapping. A key a constant, a formula or an add-on writes is the same for
+ * mapping carries onto it — the same-named field, as read, when no mapping
+ * writes it and none takes that field elsewhere or the object excludes it: a
+ * mapping renames its field, and the others go as read (`mapFields`). A key
+ * a constant, a formula or an add-on writes is the same for
  * every record, or not the source's at all: it ties no deleted record to one
  * target record, and deletions are not carried for that object.
  */
 export function deletionKeyOf(
   objectConfig: Pick<
     SyncObjectConfig,
-    'objectApiName' | 'operation' | 'externalIdField' | 'fieldMappings' | 'addOnFields'
+    | 'objectApiName'
+    | 'operation'
+    | 'externalIdField'
+    | 'fieldMappings'
+    | 'addOnFields'
+    | 'excludedFields'
   >,
 ): { sourceField: string; keyField: string } | { refused: string } {
   const name = objectConfig.objectApiName;
@@ -440,8 +454,13 @@ export function deletionKeyOf(
     };
   }
   const mappings = objectConfig.fieldMappings ?? [];
-  if (mappings.length === 0) return { sourceField: keyField, keyField };
-  const carrying = mappings.find((m) => m.targetField === keyField);
+  const carrying = mappings.find((m) => m.targetField.toLowerCase() === keyField.toLowerCase());
+  if (
+    !carrying &&
+    !notSentAsRead(mappings, objectConfig.excludedFields ?? []).has(keyField.toLowerCase())
+  ) {
+    return { sourceField: keyField, keyField };
+  }
   if (!carrying || !KEY_CARRYING_MAPPINGS.has(carrying.type)) {
     return {
       refused:

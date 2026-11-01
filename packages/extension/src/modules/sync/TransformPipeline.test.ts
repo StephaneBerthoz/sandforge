@@ -138,22 +138,23 @@ describe('TransformPipeline', () => {
       expect(result).toEqual({ Name: 'Acme', Industry: 'Tech' });
     });
 
-    it('should apply per-field transform rules from fieldMappings', () => {
+    it("leaves a field mapping's rules to the mapping, which applies them once with its value", () => {
+      // Applied by the mapping and again here, a transform mapping's prefix
+      // went on twice: "X-X-acme".
       const config = createObjectConfig({
         fieldMappings: [
           {
             sourceField: 'Name',
             targetField: 'Name',
             type: 'transform',
-            transformRules: [{ type: 'uppercase', config: {} }],
+            transformRules: [{ type: 'prefix', config: { prefix: 'X-' } }],
           },
         ],
       });
-      const record = { Name: 'acme', Industry: 'tech' };
+      const record = { Name: 'X-acme', Industry: 'tech' };
 
       const result = pipeline.transformRecord(record, config);
-      expect(result.Name).toBe('ACME');
-      expect(result.Industry).toBe('tech');
+      expect(result).toEqual({ Name: 'X-acme', Industry: 'tech' });
     });
 
     it('should not modify the original record', () => {
@@ -354,6 +355,35 @@ describe('TransformPipeline', () => {
 
       expect(() => pipeline.transformRecord({ LastName: 'doe' }, config)).toThrow(
         'The rules Trim on Contact and Prefix on Contact name no field',
+      );
+    });
+  });
+
+  describe('a Regex replace whose pattern is no regular expression', () => {
+    it('is refused naming the rule, its object and field, and the pattern, before the record is changed', () => {
+      // It threw JavaScript's own SyntaxError, "Invalid regular expression:
+      // /[a-/g: Unterminated character class", which named neither.
+      const config = createObjectConfig({
+        transformRules: [
+          { type: 'uppercase', field: 'Name', config: {} },
+          { type: 'regex_replace', field: 'Phone', config: { regex: '[a-', replace: '' } },
+        ],
+      });
+      const record = { Name: 'acme', Phone: '+33 1' };
+
+      expect(() => pipeline.transformRecord(record, config)).toThrow(
+        'The rule Regex replace on Account.Phone, "[a-" (Unterminated character class) has a ' +
+          'pattern that is no regular expression: open the configuration and correct it, or ' +
+          'remove the rule.',
+      );
+      expect(record).toEqual({ Name: 'acme', Phone: '+33 1' });
+    });
+
+    it('is said in words where a value meets it, never as a bare SyntaxError', () => {
+      const rules: TransformRule[] = [{ type: 'regex_replace', config: { regex: '(' } }];
+
+      expect(() => pipeline.transform('text', rules)).toThrow(
+        'The pattern "(" of a Regex replace rule is no regular expression: ',
       );
     });
   });

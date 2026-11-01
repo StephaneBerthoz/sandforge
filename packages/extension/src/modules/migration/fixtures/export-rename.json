@@ -1,0 +1,12 @@
+{
+  "objects": [
+    {
+      "query": "SELECT Id, Name, BillingCity, ShippingCity, Industry, NumberOfEmployees, Phone, Description FROM Account",
+      "operation": "Insert",
+      "objectName": "Account",
+      "fieldMapping": [{ "sourceField": "BillingCity", "targetField": "ShippingCity" }],
+      "excludedFields": ["Phone"]
+    }
+  ],
+  "apiVersion": "62.0"
+}

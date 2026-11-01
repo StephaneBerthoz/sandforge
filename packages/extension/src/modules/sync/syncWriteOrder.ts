@@ -24,6 +24,7 @@
 
 import type { SyncObjectConfig, SyncWriteOrder, SyncWriteOrderMove } from '@sandforge/shared';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import { mappedTargets, notSentAsRead } from './FieldMapping.js';
 
 /** One lookup a write of an object carries, and the objects it may name. */
 export interface WriteLookup {
@@ -33,30 +34,34 @@ export interface WriteLookup {
 
 /**
  * The lookups a write of `objectConfig` carries, from the target's describe:
- * the lookups the running user may write there, those its mappings or
- * add-ons set when it has any — a write with mappings sends their fields
- * alone. A delete carries none.
+ * the lookups the running user may write there, but those a mapping takes to
+ * another field or an exclusion leaves out, and those its mappings or add-ons
+ * set. A mapping renames its field and the others go as read (`mapFields`):
+ * read as "a write with mappings sends their fields alone", an object with
+ * one rename was ordered as if it carried none of its lookups. A delete
+ * carries none.
  */
 export function lookupsOf(
-  objectConfig: Pick<SyncObjectConfig, 'operation' | 'fieldMappings' | 'addOnFields'>,
+  objectConfig: Pick<
+    SyncObjectConfig,
+    'operation' | 'fieldMappings' | 'addOnFields' | 'excludedFields'
+  >,
   target: Pick<TargetWriteFields, 'fields'>,
 ): WriteLookup[] {
   if (objectConfig.operation === 'delete') return [];
-  const sent =
-    objectConfig.fieldMappings.length > 0
-      ? new Set([
-          ...objectConfig.fieldMappings
-            .filter((mapping) => mapping.type !== 'exclude')
-            .map((mapping) => mapping.targetField),
-          ...objectConfig.addOnFields.map((addOn) => addOn.fieldApiName),
-        ])
-      : undefined;
+  const notAsRead = notSentAsRead(objectConfig.fieldMappings, objectConfig.excludedFields ?? []);
+  const set = new Set([
+    ...mappedTargets(objectConfig.fieldMappings),
+    ...objectConfig.addOnFields.map((addOn) => addOn.fieldApiName.toLowerCase()),
+  ]);
+  const carried = (name: string): boolean =>
+    !notAsRead.has(name.toLowerCase()) || set.has(name.toLowerCase());
   return (target.fields ?? []).flatMap((field) =>
     field.isReference &&
     field.createable &&
     field.name !== 'RecordTypeId' &&
     (field.referenceTo?.length ?? 0) > 0 &&
-    (sent === undefined || sent.has(field.name))
+    carried(field.name)
       ? [{ field: field.name, referenceTo: field.referenceTo ?? [] }]
       : [],
   );

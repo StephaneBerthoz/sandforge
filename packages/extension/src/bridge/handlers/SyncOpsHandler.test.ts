@@ -24,7 +24,10 @@ vi.mock('../../modules/sync/ConflictResolver.js', () => ({
     return {};
   }),
 }));
-vi.mock('../../modules/sync/FieldMapping.js', () => ({
+// The field-type check reads which fields a write sends as read from the
+// module itself: only the service the run is handed is stubbed.
+vi.mock('../../modules/sync/FieldMapping.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../modules/sync/FieldMapping.js')>()),
   FieldMappingService: vi.fn().mockImplementation(function () {
     return {};
   }),
@@ -3139,6 +3142,46 @@ describe('SyncOpsHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('Account.Score__c (double)');
       expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('compares the same-named fields a mapping does not name, which go as read', async () => {
+      // A mapping renames its field and the others go as read: compared as
+      // mapped pairs alone, Score__c went unjudged and the org refused every
+      // record for it, one by one.
+      const { execute, posted } = await runSync(
+        [
+          { name: 'Legacy_Name__c', type: 'string' },
+          { name: 'Score__c', type: 'double' },
+        ],
+        [
+          { name: 'Name', type: 'string' },
+          { name: 'Score__c', type: 'boolean' },
+        ],
+        [{ sourceField: 'Legacy_Name__c', targetField: 'Name', type: 'rename' }],
+      );
+
+      const errors = posted.filter((m) => m.type === 'sync:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Account.Score__c (double)');
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('judges a field a mapping takes elsewhere by its mapping, not by its name', async () => {
+      const { execute, posted } = await runSync(
+        [
+          { name: 'Name', type: 'string' },
+          { name: 'Score__c', type: 'double' },
+        ],
+        [
+          { name: 'Name', type: 'string' },
+          { name: 'Score__c', type: 'boolean' },
+          { name: 'Rating__c', type: 'double' },
+        ],
+        [{ sourceField: 'Score__c', targetField: 'Rating__c', type: 'rename' }],
+      );
+
+      expect(posted.filter((m) => m.type === 'sync:error')).toHaveLength(0);
+      expect(execute).toHaveBeenCalledTimes(1);
     });
 
     it('lets a compatible mapping through to the run', async () => {

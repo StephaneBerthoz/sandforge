@@ -4,7 +4,12 @@ import type {
   TransformRuleConfig,
   SyncObjectConfig,
 } from '@sandforge/shared';
-import { fieldlessTransformRefusal, fieldlessTransformRules } from '@sandforge/shared';
+import {
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
+  unreadablePatternRefusal,
+  unreadablePatternRules,
+} from '@sandforge/shared';
 
 /**
  * Applies transform rules in sequence to field values.
@@ -26,21 +31,29 @@ export class TransformPipeline {
   }
 
   /**
-   * Apply the transform rules of a SyncObjectConfig to a record. A rule
-   * changes the field it names, and that field alone. Per-field transform
-   * rules defined in fieldMappings are applied to their respective fields
-   * only.
+   * Apply the object-level transform rules of a SyncObjectConfig to a record.
+   * A rule changes the field it names, and that field alone. The rules of a
+   * field mapping are the mapping's, applied once with its value
+   * (`mapFields`): applied here as well, a transform mapping's prefix went on
+   * twice.
    *
    * @throws {Error} For a rule that names no field, before the record is
    *   changed. It ran on every field of the record: an Uppercase with no field
    *   upper-cased the RecordTypeId with the name, and the run held the
    *   records back as of a record type the target has not. Every start of a
    *   run refuses such a rule before it reads anything; this is the last word.
+   * @throws {Error} For a Regex replace rule whose pattern is no regular
+   *   expression, naming it and its object, before the record is changed: it
+   *   threw JavaScript's own `SyntaxError`, which named neither.
    */
   transformRecord(
     record: Record<string, unknown>,
     objectConfig: SyncObjectConfig,
   ): Record<string, unknown> {
+    const unreadable = unreadablePatternRules([
+      { objectApiName: objectConfig.objectApiName, transformRules: objectConfig.transformRules },
+    ]);
+    if (unreadable.length > 0) throw new Error(unreadablePatternRefusal(unreadable));
     const result: Record<string, unknown> = { ...record };
 
     // The field a write matches on is never changed, even by a rule that
@@ -61,19 +74,6 @@ export class TransformPipeline {
       for (const key of keysOf(result, field)) {
         if (!changeable(key)) continue;
         result[key] = applyRule(result[key], rule.type, rule.config);
-      }
-    }
-
-    for (const mapping of objectConfig.fieldMappings) {
-      if (mapping.transformRules && mapping.transformRules.length > 0) {
-        const fieldKey = mapping.targetField;
-        if (fieldKey in result) {
-          let value = result[fieldKey];
-          for (const rule of mapping.transformRules) {
-            value = applyRule(value, rule.type, rule.config);
-          }
-          result[fieldKey] = value;
-        }
       }
     }
 
@@ -133,7 +133,7 @@ const RULE_HANDLERS: Record<TransformRuleType, RuleHandler> = {
   ),
 
   regex_replace: onText((text, config) =>
-    config.regex ? text.replace(new RegExp(config.regex, 'g'), config.replace ?? '') : text,
+    config.regex ? text.replace(patternOf(config.regex), config.replace ?? '') : text,
   ),
 
   map_value: (value, config) => {
@@ -165,6 +165,23 @@ const RULE_HANDLERS: Record<TransformRuleType, RuleHandler> = {
     return evaluateSimpleFormula(value, formula);
   },
 };
+
+/**
+ * The regular expression of a Regex replace rule, every match replaced. Every
+ * start of a run refuses a pattern that is none before it reads anything,
+ * naming the rule and its object (`unreadablePatternRules`); met here, it is
+ * said in words, not as JavaScript's bare `SyntaxError`.
+ */
+function patternOf(pattern: string): RegExp {
+  try {
+    return new RegExp(pattern, 'g');
+  } catch (err: unknown) {
+    throw new Error(
+      `The pattern "${pattern}" of a Regex replace rule is no regular expression: ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+}
 
 /**
  * Apply a single transform rule to a value.
