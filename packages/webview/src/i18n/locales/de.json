@@ -2315,7 +2315,8 @@
     "triggerSoon": {
       "event": "Startet nichts: Noch speist keine Ereignisquelle diesen Auslöser.",
       "webhook": "Startet nichts: SandForge öffnet keinen Port, also erreicht nichts außerhalb von VS Code einen Webhook.",
-      "deployment_complete": "Startet nichts: SandForge liest die Bereitstellungen einer Org nur, wenn der Monitor danach fragt, also bemerkt nichts, wenn eine endet."
+      "deployment_complete": "Startet nichts: SandForge liest die Bereitstellungen einer Org nur, wenn der Monitor danach fragt, also bemerkt nichts, wenn eine endet.",
+      "manual": "Startet nichts: Pipeline ausführen startet die Pipeline mit oder ohne diesen Auslöser."
     },
     "triggerHint": {
       "schedule": "Startet die gespeicherte Pipeline zu jedem Zeitpunkt, den der Ausdruck nennt, in der gewählten Zeitzone, solange VS Code geöffnet ist.",
@@ -2366,7 +2367,7 @@
     "running": "Pipeline wird ausgeführt...",
     "cancel": "Abbrechen",
     "history": "Verlauf",
-    "noHistory": "Kein Ausführungsverlauf",
+    "noHistory": "Noch keine Ausführung",
     "duration": "Dauer",
     "triggeredBy": "Ausgelöst von",
     "stepTypes": {
@@ -2415,10 +2416,8 @@
     "schedulerIntro": "Die Sync-Zeitpläne, nach dem Tag ihrer nächsten Ausführung, dann die Zeitpläne der gespeicherten Pipelines, jeweils mit dem nächsten Lauf.",
     "cronExpression": "Cron-Ausdruck",
     "canvas": "Pipeline-Canvas",
-    "dragStep": "Ziehen Sie einen Schritt auf den Canvas",
-    "connectSteps": "Verbinden Sie Schritte, um den Ablauf zu definieren",
     "continueOnError": "Bei Fehler fortfahren",
-    "timeout": "Timeout (ms)",
+    "timeout": "Timeout (Minuten, leer = keine Grenze)",
     "retries": "Max. Wiederholungen",
     "selectStep": "Wählen Sie einen Schritt zur Konfiguration",
     "stepConfig": "Schrittkonfiguration",
@@ -2459,7 +2458,7 @@
       "writesToOrg": "Eine Pipeline führt diesen Schritt nicht aus: Starten Sie ihn auf seiner eigenen Seite, wo Production Guard vor einem Schreibvorgang in eine Produktions-Org nachfragt.",
       "conditionNeedsCondition": "Wählen Sie, was dieser Bedingungsschritt prüft.",
       "delayNeedsSeconds": "Legen Sie fest, wie viele Sekunden dieser Verzögerungsschritt wartet (0 Sekunden bis 24 Tage).",
-      "timeoutTooLong": "Legen Sie ein Timeout von höchstens 24 Tagen (2.073.600.000 ms) fest, oder keines.",
+      "timeoutTooLong": "Legen Sie ein Timeout von höchstens 24 Tagen (34.560 Minuten) fest, oder keines.",
       "needsOrg": "Wählen Sie die Org, mit der dieser Schritt arbeitet.",
       "orgNotConnected": "Dieser Schritt nennt eine Org, die hier nicht verbunden ist: Wählen Sie eine Ihrer Orgs.",
       "backupNeedsObjects": "Geben Sie die API-Namen der zu sichernden Objekte an, etwa Account, Contact (höchstens 100).",
@@ -2467,7 +2466,7 @@
       "compareNeedsTypes": "Wählen Sie mindestens einen Metadatentyp zum Vergleichen.",
       "precheckNeedsChecks": "Wählen Sie, was diese Vorabprüfung liest: API-Nutzung, Datenspeicher, Apex-Fehlerprotokolle oder fehlgeschlagene Apex-Jobs.",
       "notificationNeedsMessage": "Schreiben Sie die Nachricht, die diese Benachrichtigung anzeigt (höchstens 500 Zeichen).",
-      "paletteNote": "Aufgeführt sind nur die Schritte, die eine Pipeline ausführt. Wiederherstellung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite, wo Production Guard zuerst nachfragt. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus; schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor. Seed und Anonymisierung führen eine Vorlage ihrer Seite aus, nie in einer Produktions-Org, und brauchen in einer als Staging markierten Sandbox einen Genehmigungsschritt davor. Ein Zurücksetzen-Schritt läuft, sobald Sie ihn mit dem Alias der Org bestätigt haben.",
+      "paletteNote": "Wiederherstellung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite, wo Production Guard zuerst nachfragt. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus; schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor. Seed und Anonymisierung führen eine Vorlage ihrer Seite aus, nie in einer Produktions-Org, und brauchen in einer als Staging markierten Sandbox einen Genehmigungsschritt davor. Ein Zurücksetzen-Schritt läuft, sobald Sie ihn mit dem Alias der Org bestätigt haben.",
       "pipelineBlocked": "Diese Pipeline kann nicht laufen. Entfernen oder korrigieren Sie zuerst diese Schritte:",
       "templateBlocked": "Kann nicht als Pipeline laufen. Diese Schritttypen laufen in keiner Pipeline: {{types}}.",
       "conditionNeedsEarlierStep": "Diese Bedingung prüft, wie der vorherige Schritt verlief, aber vor ihr steht kein Schritt.",
@@ -2499,12 +2498,14 @@
       "rewindNeedsMaxRecords": "Legen Sie fest, wie viele Datensätze dieser Schritt höchstens zurücksetzen darf, alle Objekte zusammen (1 oder mehr).",
       "rewindConfigInvalid": "Dieser Zurücksetzen-Schritt ist nicht lesbar: Prüfen Sie die Objekte, die er nennt.",
       "rewindNotSaved": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen: Eine Bestätigung gilt für den Schritt, wie er gespeichert ist.",
-      "rewindNotConfirmed": "Bestätigen Sie dieses Zurücksetzen: Öffnen Sie seine Vorschau und tippen Sie den Alias der Org.",
+      "rewindNotConfirmed": "Nicht bestätigt: Klicken Sie auf Vorschau ansehen und bestätigen… und tippen Sie dann den Alias der Org.",
       "rewindChangedSinceConfirmed": "Dieses Zurücksetzen wurde seit seiner Bestätigung geändert: Bestätigen Sie es erneut.",
       "rewindCheckpointMissing": "Der Prüfpunkt dieses Schritts wird auf diesem Rechner nicht aufbewahrt: Setzen Sie hier einen und wählen Sie ihn.",
       "rewindCheckpointOtherOrg": "Der Prüfpunkt dieses Schritts wurde von einer anderen Org gesetzt: Wählen Sie einen Prüfpunkt dieser Org.",
       "rewindCheckpointRefreshed": "Diese Sandbox wurde aktualisiert: Der Prüfpunkt gehört zur Org davor. Setzen Sie erneut einen Prüfpunkt und wählen Sie ihn.",
-      "rewindCheckpointUnusable": "Auf den Prüfpunkt dieses Schritts kann nicht mehr zurückgesetzt werden: Wählen Sie einen anderen."
+      "rewindCheckpointUnusable": "Auf den Prüfpunkt dieses Schritts kann nicht mehr zurückgesetzt werden: Wählen Sie einen anderen.",
+      "paletteListed": "Aufgeführt sind nur die Schritte, die eine Pipeline ausführt.",
+      "paletteWhy": "Warum?"
     },
     "emptyState": {
       "title": "Erstellen Sie Ihre erste Pipeline",
@@ -2602,17 +2603,17 @@
     "stepConfigRewindRefuseWhenActive": "Ablehnen, solange in der Org gearbeitet wird",
     "rewindRefuseWhenActiveNote": "Abgelehnt, wenn jemand anderes in der Stunde davor Datensätze der Objekte des Prüfpunkts geändert hat. Personen, die den Benutzer teilen, mit dem SandForge sich verbindet, werden nicht unterschieden.",
     "rewindAccept": {
-      "acceptAutomation": "Zurücksetzen, auch wenn die Automatisierung der Org beim Schreiben ausgelöst wird",
-      "acceptNoUndo": "Datensätze löschen, die Rückgängig nicht zurückholen könnte",
-      "acceptRecreate": "Datensätze, die der Papierkorb nicht mehr zurückgibt, mit neuen Ids neu anlegen",
-      "acceptOutside": "Die Datensätze außerhalb des Prüfpunkts löschen, die seine Löschungen mitnehmen",
-      "acceptUnseen": "Datensätze löschen, deren Löschung mitnimmt, was der Benutzer nachweislich nicht sieht"
+      "acceptAutomation": "Ausführen, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es schreibt",
+      "acceptNoUndo": "Löschungen erlauben, die das Rückgängigmachen dieses Zurücksetzens nicht zurückholen kann",
+      "acceptRecreate": "Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen",
+      "acceptOutside": "Löschungen erlauben, die untergeordnete Datensätze von Objekten außerhalb des Prüfpunkts mitlöschen",
+      "acceptUnseen": "Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)"
     },
-    "rewindConfirmedOn": "Bestätigt am {{date}}: Dieser Schritt setzt {{org}} bei jeder Ausführung der Pipeline, auch geplant, auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht die Arbeit aller seither rückgängig.",
+    "rewindConfirmedOn": "Bestätigt am {{date}}: Dieser Schritt setzt {{org}} bei jeder Ausführung, geplante eingeschlossen, auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht jede seither von irgendjemandem vorgenommene Änderung rückgängig oder löscht sie.",
     "rewindSaveFirst": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen.",
-    "rewindNotConfirmedNote": "Nicht bestätigt: Der Schritt läuft erst, wenn Sie ihn unter seiner Vorschau bestätigt haben.",
-    "rewindConfirm": "Dieses Zurücksetzen bestätigen…",
-    "rewindRevoke": "Bestätigung zurücknehmen",
+    "rewindNotConfirmedNote": "Nicht bestätigt: Der Schritt läuft erst, wenn Sie auf Vorschau ansehen und bestätigen… geklickt und den Alias der Org getippt haben.",
+    "rewindConfirm": "Vorschau ansehen und bestätigen…",
+    "rewindRevoke": "Bestätigung widerrufen",
     "rewindGrantRefused": {
       "NOT_SAVED": "Die gespeicherte Pipeline enthält diesen Zurücksetzen-Schritt nicht: Speichern Sie sie und bestätigen Sie erneut.",
       "CONFIG_INVALID": "Der gespeicherte Schritt ist nicht lesbar: Korrigieren Sie ihn, speichern Sie und bestätigen Sie erneut.",
@@ -2622,9 +2623,23 @@
     },
     "rewindConfirmHeading": "Den Zurücksetzen-Schritt „{{step}}“ bestätigen",
     "rewindConfirmLead": "Was ein Zurücksetzen von {{org}} auf „{{name}}“ jetzt tun würde. Einmal bestätigt, setzt der Schritt die Org bei jeder Ausführung der Pipeline, auch geplant, zurück, höchstens {{max}} Datensätze, ohne dass jemand dies liest.",
-    "rewindConfirmType": "Für diesen Schritt bestätigen…",
-    "rewindConfirmTitle": "Den Zurücksetzen-Schritt „{{step}}“ bestätigen",
-    "rewindConfirmDescription": "Bei jeder Ausführung der Pipeline, auch geplant, setzt dieser Schritt {{org}} auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht die Arbeit aller seither rückgängig. Eine Änderung des Schritts nimmt die Bestätigung zurück."
+    "rewindConfirmType": "Alias der Org tippen, um zu bestätigen…",
+    "rewindConfirmTitle": "Unbeaufsichtigtes Zurücksetzen von {{org}} erlauben",
+    "rewindConfirmDescription": "Jede Ausführung, geplante eingeschlossen, setzt {{org}} auf „{{name}}“ zurück (höchstens {{max}} Datensätze) und macht jede seither von irgendjemandem vorgenommene Änderung rückgängig oder löscht sie. Eine Änderung dieses Schritts hebt die Bestätigung auf.",
+    "timeoutNone": "Keines",
+    "canvasEmpty": {
+      "noPipelineTitle": "Keine Pipeline geöffnet",
+      "noPipeline": "Klicken Sie auf Pipeline erstellen oder Mit KI generieren, um eine zu beginnen, oder klicken Sie unter Schritte auf einen Schritt, um eine mit ihm zu beginnen.",
+      "noStepsTitle": "Noch kein Schritt",
+      "noSteps": "Klicken Sie unter Schritte auf einen Schritt, um ihn hinzuzufügen. Die Schritte laufen von oben nach unten."
+    },
+    "triggerStartsNothing": "Startet nichts",
+    "noTriggers": "Noch kein Auslöser",
+    "noTriggersDesc": "Die Pipeline läuft nur über Pipeline ausführen. Fügen Sie oben einen Auslöser Zeitplan oder Sandbox-Aktualisierung hinzu.",
+    "noHistoryDesc": "Ausführungen erscheinen hier, sobald Pipeline ausführen oder ein Auslöser die gespeicherte Pipeline startet.",
+    "rewindAcceptHeading": "Riskantere Änderungen erlauben (standardmäßig aus)",
+    "rewindAcceptCount_one": "{{count}} angehakt",
+    "rewindAcceptCount_other": "{{count}} angehakt"
   },
   "ai": {
     "title": "KI-Assistent",

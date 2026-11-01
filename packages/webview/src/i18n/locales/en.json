@@ -2308,14 +2308,15 @@
     "newPipeline": "New Pipeline",
     "steps": "Steps",
     "stepsCount": "Pipeline Steps",
-    "triggersCount": "Active Triggers",
+    "triggersCount": "Active triggers",
     "historyRuns": "History Runs",
     "triggers": "Triggers",
     "triggerNote": "A run starts from the Run Pipeline button, on a schedule, or on a sandbox refresh. Schedules and sandbox refreshes start the saved pipeline while VS Code is open, one run at a time; a start that falls due while VS Code is closed is written to History as missed, never made late.",
     "triggerSoon": {
       "event": "Starts nothing: no event source feeds this trigger yet.",
       "webhook": "Starts nothing: SandForge opens no port, so nothing outside VS Code can reach a webhook.",
-      "deployment_complete": "Starts nothing: SandForge reads an org's deployments only when the Monitor asks, so nothing sees one end."
+      "deployment_complete": "Starts nothing: SandForge reads an org's deployments only when the Monitor asks, so nothing sees one end.",
+      "manual": "Starts nothing: Run Pipeline runs the pipeline with or without this trigger."
     },
     "triggerHint": {
       "schedule": "Starts the saved pipeline at each time the expression names, in the time zone chosen, while VS Code is open.",
@@ -2366,7 +2367,7 @@
     "running": "Running pipeline...",
     "cancel": "Cancel",
     "history": "History",
-    "noHistory": "No execution history",
+    "noHistory": "No run yet",
     "duration": "Duration",
     "triggeredBy": "Triggered By",
     "stepTypes": {
@@ -2415,10 +2416,8 @@
     "schedulerIntro": "The sync schedules, by the day each next runs, then the schedules of the saved pipelines, with the next run of each.",
     "cronExpression": "Cron Expression",
     "canvas": "Pipeline Canvas",
-    "dragStep": "Drag a step to the canvas",
-    "connectSteps": "Connect steps to define flow",
     "continueOnError": "Continue on Error",
-    "timeout": "Timeout (ms)",
+    "timeout": "Timeout (minutes, empty = no limit)",
     "retries": "Max Retries",
     "selectStep": "Select a step to configure",
     "stepConfig": "Step Configuration",
@@ -2459,7 +2458,7 @@
       "writesToOrg": "A pipeline does not run this step: run it from its own page, where Production Guard asks before a write to a production org.",
       "conditionNeedsCondition": "Choose what this Condition step tests.",
       "delayNeedsSeconds": "Set how many seconds this Delay step waits (from 0 up to 24 days).",
-      "timeoutTooLong": "Set a timeout of at most 24 days (2,073,600,000 ms), or none.",
+      "timeoutTooLong": "Set a timeout of at most 24 days (34,560 minutes), or none.",
       "needsOrg": "Choose the org this step works on.",
       "orgNotConnected": "This step names an org that is not connected here: choose one of your orgs.",
       "backupNeedsObjects": "List the API names of the objects to back up, such as Account, Contact (up to 100).",
@@ -2467,7 +2466,7 @@
       "compareNeedsTypes": "Choose at least one metadata type to compare.",
       "precheckNeedsChecks": "Choose what this Pre-Check reads: API usage, data storage, Apex error logs or failed Apex jobs.",
       "notificationNeedsMessage": "Write the message this notification shows (up to 500 characters).",
-      "paletteNote": "Only the steps a pipeline runs are listed. Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias.",
+      "paletteNote": "Restore and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, and need an Approval step before them in a sandbox marked Staging. A Rewind step runs once you confirm it with the org's alias.",
       "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
       "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}.",
       "conditionNeedsEarlierStep": "This Condition tests how the previous step went, and no step comes before it.",
@@ -2499,12 +2498,14 @@
       "rewindNeedsMaxRecords": "Set the most records this step may rewind, all objects together (1 or more).",
       "rewindConfigInvalid": "This Rewind step does not read: check the objects it names.",
       "rewindNotSaved": "Save the pipeline, then confirm this rewind: a confirmation holds for the step as saved.",
-      "rewindNotConfirmed": "Confirm this rewind: open its preview and type the org's alias.",
+      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias.",
       "rewindChangedSinceConfirmed": "This rewind changed since it was confirmed: confirm it again.",
       "rewindCheckpointMissing": "The checkpoint this step rewinds to is not kept on this machine: take one here and choose it.",
       "rewindCheckpointOtherOrg": "The checkpoint this step rewinds to was taken of another org: choose one of this org.",
       "rewindCheckpointRefreshed": "This sandbox was refreshed: the checkpoint is of the org before it. Take a checkpoint again and choose it.",
-      "rewindCheckpointUnusable": "The checkpoint this step rewinds to can no longer be rewound to: choose another."
+      "rewindCheckpointUnusable": "The checkpoint this step rewinds to can no longer be rewound to: choose another.",
+      "paletteListed": "Only the steps a pipeline runs are listed.",
+      "paletteWhy": "Why?"
     },
     "emptyState": {
       "title": "Build Your First Pipeline",
@@ -2602,17 +2603,17 @@
     "stepConfigRewindRefuseWhenActive": "Refuse while people are at work in the org",
     "rewindRefuseWhenActiveNote": "Refused when someone else changed records of the checkpoint's objects in the hour before. People who share the user SandForge connects as are not told apart.",
     "rewindAccept": {
-      "acceptAutomation": "Rewind even though the org's automation fires as it writes",
-      "acceptNoUndo": "Delete records Undo could not bring back",
-      "acceptRecreate": "Make again, with new Ids, records the recycle bin no longer gives back",
-      "acceptOutside": "Delete the records outside the checkpoint its deletions take along",
-      "acceptUnseen": "Delete records whose deletion takes along what the user is not proven to see"
+      "acceptAutomation": "Run even if triggers, flows or workflow rules fire on the records it writes",
+      "acceptNoUndo": "Allow deletions that Undo of this rewind cannot bring back",
+      "acceptRecreate": "Recreate, with new Ids, records already emptied from the Recycle Bin",
+      "acceptOutside": "Allow deletions that cascade to child records of objects outside the checkpoint",
+      "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)"
     },
-    "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” whenever the pipeline runs, by schedule too, at most {{max}} records, taking back everyone's work since.",
+    "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",
-    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you confirm it below its preview.",
-    "rewindConfirm": "Confirm this rewind…",
-    "rewindRevoke": "Take back the confirmation",
+    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+    "rewindConfirm": "Preview and confirm…",
+    "rewindRevoke": "Revoke confirmation",
     "rewindGrantRefused": {
       "NOT_SAVED": "The pipeline as saved holds no such Rewind step: save it, then confirm again.",
       "CONFIG_INVALID": "The step as saved does not read: fix it, save, then confirm again.",
@@ -2622,9 +2623,23 @@
     },
     "rewindConfirmHeading": "Confirm the Rewind step “{{step}}”",
     "rewindConfirmLead": "What a rewind of {{org}} to “{{name}}” would do now. Once confirmed, the step rewinds the org whenever the pipeline runs, by schedule too, at most {{max}} records, with nobody there to read this.",
-    "rewindConfirmType": "Confirm for this step…",
-    "rewindConfirmTitle": "Confirm the Rewind step “{{step}}”",
-    "rewindConfirmDescription": "Whenever the pipeline runs, by schedule too, this step will rewind {{org}} to “{{name}}”, at most {{max}} records, taking back everyone's work since. A change to the step takes the confirmation back."
+    "rewindConfirmType": "Type the org alias to confirm…",
+    "rewindConfirmTitle": "Allow unattended rewinds of {{org}}",
+    "rewindConfirmDescription": "Each run, scheduled ones included, rewinds {{org}} to “{{name}}” (at most {{max}} records), reverting or deleting every change anyone made since. Editing this step cancels the confirmation.",
+    "timeoutNone": "None",
+    "canvasEmpty": {
+      "noPipelineTitle": "No pipeline open",
+      "noPipeline": "Click Create Pipeline or Generate with AI to start one, or click a step under Steps to start one with it.",
+      "noStepsTitle": "No step yet",
+      "noSteps": "Click a step under Steps to add it. Steps run top to bottom."
+    },
+    "triggerStartsNothing": "Starts nothing",
+    "noTriggers": "No trigger yet",
+    "noTriggersDesc": "The pipeline runs only from Run Pipeline. Add a Schedule or a Sandbox Refresh trigger above.",
+    "noHistoryDesc": "Runs appear here after Run Pipeline or a trigger starts the saved pipeline.",
+    "rewindAcceptHeading": "Allow riskier changes (off by default)",
+    "rewindAcceptCount_one": "{{count}} ticked",
+    "rewindAcceptCount_other": "{{count}} ticked"
   },
   "ai": {
     "title": "AI Assistant",

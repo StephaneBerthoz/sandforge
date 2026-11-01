@@ -59,10 +59,35 @@ describe('StepConfigPanel', () => {
     expect(onUpdate).toHaveBeenCalledWith('step-1', { name: 'New Name' });
   });
 
-  it('should show timeout input', () => {
+  it('reads a timeout in minutes, with no example to type', () => {
+    // Typed in milliseconds under the example "300", a step given the example
+    // was stopped after 0.3 seconds. A timeout of 300 ms saved that way is
+    // shown for what it is.
     render(<StepConfigPanel step={step} onUpdate={vi.fn()} />);
     const input = screen.getByTestId('step-timeout-input') as HTMLInputElement;
+    expect(input.value).toBe('0.005');
+    expect(input.placeholder).toBe('None');
+    expect(input.closest('label')?.textContent).toContain('Timeout (minutes, empty = no limit)');
+  });
+
+  it('keeps a timeout typed in minutes in milliseconds, as the extension reads it', () => {
+    const onUpdate = vi.fn();
+    render(<StepConfigPanel step={{ ...step, timeout: undefined }} onUpdate={onUpdate} />);
+    const input = screen.getByTestId('step-timeout-input') as HTMLInputElement;
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { value: '300' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-1', { timeout: 18_000_000 });
+    fireEvent.change(input, { target: { value: '0.5' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-1', { timeout: 30_000 });
+  });
+
+  it('shows a timeout kept in milliseconds as the minutes it is, and clears it to none', () => {
+    const onUpdate = vi.fn();
+    render(<StepConfigPanel step={{ ...step, timeout: 18_000_000 }} onUpdate={onUpdate} />);
+    const input = screen.getByTestId('step-timeout-input') as HTMLInputElement;
     expect(input.value).toBe('300');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-1', { timeout: undefined });
   });
 
   it('should show retries input', () => {
@@ -216,16 +241,26 @@ describe('StepConfigPanel', () => {
     expect(screen.getByTestId('config-message').getAttribute('maxlength')).toBe('500');
   });
 
-  it('offers no timeout past what a timer holds', () => {
+  it('offers no timeout past what a timer holds: 24 days, in minutes', () => {
     render(<StepConfigPanel step={step} onUpdate={vi.fn()} />);
-    expect(screen.getByTestId('step-timeout-input').getAttribute('max')).toBe(
-      String(24 * 24 * 60 * 60 * 1000),
-    );
+    expect(screen.getByTestId('step-timeout-input').getAttribute('max')).toBe(String(24 * 24 * 60));
   });
 
-  it('should show step type badge', () => {
+  it('names the step type in its header in the reader’s language, never by its id', () => {
+    render(
+      <StepConfigPanel
+        step={{ id: 'a', name: 'Sign-off', type: 'approval', config: {}, continueOnError: false }}
+      />,
+    );
+    const panel = screen.getByTestId('step-config-panel');
+    expect(panel.textContent).toContain('Approval');
+    expect(panel.textContent).not.toContain('approval');
+  });
+
+  it('lets the type badge drop under a header too long to share its line', () => {
     render(<StepConfigPanel step={step} />);
-    expect(screen.getByTestId('step-config-panel').textContent).toContain('seed');
+    const header = screen.getByText('Step Configuration').parentElement;
+    expect(header?.className).toContain('flex-wrap');
   });
 });
 

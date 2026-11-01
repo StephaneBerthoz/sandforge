@@ -2315,7 +2315,8 @@
     "triggerSoon": {
       "event": "No inicia nada: ninguna fuente de eventos alimenta todavía este disparador.",
       "webhook": "No inicia nada: SandForge no abre ningún puerto, así que nada fuera de VS Code puede alcanzar un webhook.",
-      "deployment_complete": "No inicia nada: SandForge solo lee los despliegues de una org cuando el Monitor los pide, así que nada ve terminar uno."
+      "deployment_complete": "No inicia nada: SandForge solo lee los despliegues de una org cuando el Monitor los pide, así que nada ve terminar uno.",
+      "manual": "No inicia nada: Ejecutar pipeline ejecuta el pipeline con o sin este disparador."
     },
     "triggerHint": {
       "schedule": "Inicia el pipeline guardado a las horas que indica la expresión, en la zona horaria elegida, mientras VS Code está abierto.",
@@ -2366,7 +2367,7 @@
     "running": "Ejecutando pipeline...",
     "cancel": "Cancelar",
     "history": "Historial",
-    "noHistory": "Sin historial de ejecución",
+    "noHistory": "Aún no hay ejecuciones",
     "duration": "Duración",
     "triggeredBy": "Disparado por",
     "stepTypes": {
@@ -2415,10 +2416,8 @@
     "schedulerIntro": "Las programaciones de sincronización, por el día de su próxima ejecución, y después las programaciones de los pipelines guardados, con la próxima ejecución de cada una.",
     "cronExpression": "Expresión Cron",
     "canvas": "Canvas del pipeline",
-    "dragStep": "Arrastre un paso al canvas",
-    "connectSteps": "Conecte los pasos para definir el flujo",
     "continueOnError": "Continuar en caso de error",
-    "timeout": "Timeout (ms)",
+    "timeout": "Timeout (minutos, vacío = sin límite)",
     "retries": "Reintentos máximos",
     "selectStep": "Seleccione un paso para configurar",
     "stepConfig": "Configuración del paso",
@@ -2459,7 +2458,7 @@
       "writesToOrg": "Un pipeline no ejecuta este paso: ejecútelo desde su propia página, donde Production Guard pregunta antes de escribir en una org de producción.",
       "conditionNeedsCondition": "Elija qué evalúa este paso Condición.",
       "delayNeedsSeconds": "Indique cuántos segundos espera este paso Retraso (de 0 a 24 días).",
-      "timeoutTooLong": "Indique un timeout de 24 días como máximo (2.073.600.000 ms), o ninguno.",
+      "timeoutTooLong": "Indique un timeout de 24 días como máximo (34.560 minutos), o ninguno.",
       "needsOrg": "Elija la org con la que trabaja este paso.",
       "orgNotConnected": "Este paso nombra una org que no está conectada aquí: elija una de sus orgs.",
       "backupNeedsObjects": "Indique los nombres de API de los objetos que se respaldan, por ejemplo Account, Contact (100 como máximo).",
@@ -2467,7 +2466,7 @@
       "compareNeedsTypes": "Elija al menos un tipo de metadatos para comparar.",
       "precheckNeedsChecks": "Elija qué lee esta Pre-verificación: uso de la API, almacenamiento de datos, logs de errores de Apex o jobs de Apex fallidos.",
       "notificationNeedsMessage": "Escriba el mensaje que muestra esta notificación (500 caracteres como máximo).",
-      "paletteNote": "Solo se ofrecen los pasos que un pipeline ejecuta. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página, donde Production Guard pregunta primero. Sync ejecuta una configuración guardada en la página Sync; si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, y necesitan un paso Aprobación antes en un sandbox marcado como Staging. Un paso Retroceso se ejecuta una vez que lo confirma con el alias de la org.",
+      "paletteNote": "Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página, donde Production Guard pregunta primero. Sync ejecuta una configuración guardada en la página Sync; si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, y necesitan un paso Aprobación antes en un sandbox marcado como Staging. Un paso Retroceso se ejecuta una vez que lo confirma con el alias de la org.",
       "pipelineBlocked": "Este pipeline no puede ejecutarse. Primero quite o corrija estos pasos:",
       "templateBlocked": "No puede ejecutarse como pipeline. Estos tipos de paso no se ejecutan en un pipeline: {{types}}.",
       "conditionNeedsEarlierStep": "Esta Condición evalúa cómo fue el paso anterior, y ningún paso va antes de ella.",
@@ -2499,12 +2498,14 @@
       "rewindNeedsMaxRecords": "Indique el máximo de registros que este paso puede retroceder, todos los objetos juntos (1 o más).",
       "rewindConfigInvalid": "Este paso Retroceso no se puede leer: revise los objetos que nombra.",
       "rewindNotSaved": "Guarde el pipeline y luego confirme este retroceso: una confirmación vale para el paso tal como está guardado.",
-      "rewindNotConfirmed": "Confirme este retroceso: abra su vista previa y escriba el alias de la org.",
+      "rewindNotConfirmed": "Sin confirmar: haga clic en Ver vista previa y confirmar… y luego escriba el alias de la org.",
       "rewindChangedSinceConfirmed": "Este retroceso cambió desde que se confirmó: confírmelo de nuevo.",
       "rewindCheckpointMissing": "El punto de control de este paso no se conserva en esta máquina: cree uno aquí y elíjalo.",
       "rewindCheckpointOtherOrg": "El punto de control de este paso se creó de otra org: elija uno de esta org.",
       "rewindCheckpointRefreshed": "Este sandbox se actualizó: el punto de control es de la org de antes. Cree de nuevo un punto de control y elíjalo.",
-      "rewindCheckpointUnusable": "Ya no se puede retroceder al punto de control de este paso: elija otro."
+      "rewindCheckpointUnusable": "Ya no se puede retroceder al punto de control de este paso: elija otro.",
+      "paletteListed": "Solo se ofrecen los pasos que un pipeline ejecuta.",
+      "paletteWhy": "¿Por qué?"
     },
     "emptyState": {
       "title": "Cree su primer pipeline",
@@ -2602,17 +2603,17 @@
     "stepConfigRewindRefuseWhenActive": "Rechazar mientras haya gente trabajando en la org",
     "rewindRefuseWhenActiveNote": "Se rechaza cuando otra persona cambió registros de los objetos del punto de control en la hora anterior. Las personas que comparten el usuario con el que se conecta SandForge no se distinguen.",
     "rewindAccept": {
-      "acceptAutomation": "Retroceder aunque la automatización de la org se active al escribir",
-      "acceptNoUndo": "Eliminar registros que Deshacer no podría recuperar",
-      "acceptRecreate": "Crear de nuevo, con Ids nuevos, registros que la papelera de reciclaje ya no devuelve",
-      "acceptOutside": "Eliminar los registros fuera del punto de control que arrastran sus eliminaciones",
-      "acceptUnseen": "Eliminar registros cuya eliminación arrastra lo que no consta que el usuario vea"
+      "acceptAutomation": "Ejecutar aunque se activen triggers, flujos o reglas de flujo de trabajo en los registros que escribe",
+      "acceptNoUndo": "Permitir eliminaciones que Deshacer este retroceso no podrá recuperar",
+      "acceptRecreate": "Volver a crear, con Id nuevos, los registros ya vaciados de la papelera",
+      "acceptOutside": "Permitir eliminaciones que se extienden a registros secundarios de objetos fuera del punto de control",
+      "acceptUnseen": "Permitir eliminaciones que se extienden a registros que el usuario conectado quizá no vea (sin View All Data ni Modify All Data)"
     },
-    "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» cada vez que el pipeline se ejecuta, también de forma programada, como máximo {{max}} registros, deshaciendo el trabajo de todos desde entonces.",
+    "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» en cada ejecución, incluidas las programadas, como máximo {{max}} registros, revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces.",
     "rewindSaveFirst": "Guarde el pipeline y luego confirme este retroceso.",
-    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que lo confirme bajo su vista previa.",
-    "rewindConfirm": "Confirmar este retroceso…",
-    "rewindRevoke": "Retirar la confirmación",
+    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que haga clic en Ver vista previa y confirmar… y escriba el alias de la org.",
+    "rewindConfirm": "Ver vista previa y confirmar…",
+    "rewindRevoke": "Revocar la confirmación",
     "rewindGrantRefused": {
       "NOT_SAVED": "El pipeline guardado no contiene ese paso Retroceso: guárdelo y confirme de nuevo.",
       "CONFIG_INVALID": "El paso guardado no se puede leer: corríjalo, guarde y confirme de nuevo.",
@@ -2622,9 +2623,23 @@
     },
     "rewindConfirmHeading": "Confirmar el paso Retroceso «{{step}}»",
     "rewindConfirmLead": "Lo que haría ahora un retroceso de {{org}} a «{{name}}». Una vez confirmado, el paso hace retroceder la org cada vez que el pipeline se ejecuta, también de forma programada, como máximo {{max}} registros, sin nadie que lea esto.",
-    "rewindConfirmType": "Confirmar para este paso…",
-    "rewindConfirmTitle": "Confirmar el paso Retroceso «{{step}}»",
-    "rewindConfirmDescription": "Cada vez que el pipeline se ejecute, también de forma programada, este paso hará retroceder {{org}} a «{{name}}», como máximo {{max}} registros, deshaciendo el trabajo de todos desde entonces. Un cambio del paso retira la confirmación."
+    "rewindConfirmType": "Escribir el alias de la org para confirmar…",
+    "rewindConfirmTitle": "Permitir retrocesos desatendidos de {{org}}",
+    "rewindConfirmDescription": "Cada ejecución, incluidas las programadas, hace retroceder {{org}} a «{{name}}» (como máximo {{max}} registros), revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces. Editar este paso cancela la confirmación.",
+    "timeoutNone": "Ninguno",
+    "canvasEmpty": {
+      "noPipelineTitle": "Ningún pipeline abierto",
+      "noPipeline": "Haga clic en Crear pipeline o Generar con IA para empezar uno, o haga clic en un paso de Pasos para empezar uno con él.",
+      "noStepsTitle": "Aún no hay pasos",
+      "noSteps": "Haga clic en un paso de Pasos para añadirlo. Los pasos se ejecutan de arriba abajo."
+    },
+    "triggerStartsNothing": "No inicia nada",
+    "noTriggers": "Aún no hay disparadores",
+    "noTriggersDesc": "El pipeline solo se ejecuta desde Ejecutar pipeline. Añada arriba un disparador Programado o Actualización de Sandbox.",
+    "noHistoryDesc": "Las ejecuciones aparecen aquí cuando Ejecutar pipeline o un disparador inicia el pipeline guardado.",
+    "rewindAcceptHeading": "Permitir cambios más arriesgados (desactivados por defecto)",
+    "rewindAcceptCount_one": "{{count}} marcada",
+    "rewindAcceptCount_other": "{{count}} marcadas"
   },
   "ai": {
     "title": "Asistente IA",

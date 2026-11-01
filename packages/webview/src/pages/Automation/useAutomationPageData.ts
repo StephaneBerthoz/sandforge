@@ -38,6 +38,7 @@ import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
+import { newStepName } from './stepTypeLabel';
 import type { BlockedStep, StepPlace } from './stepRunnability';
 import type { TriggerSandbox } from './TriggerConfigPanel';
 import type { PipelineScheduleRow } from './SchedulerCalendar';
@@ -388,7 +389,7 @@ export interface AutomationPageData {
   draftSuggestions: PipelineDraftSuggestion[];
   /** Number of steps in the current pipeline. */
   stepCount: number;
-  /** Number of triggers in the current pipeline. */
+  /** How many triggers start the current pipeline: schedules and sandbox refreshes, on. */
   triggerCount: number;
   /** Number of history entries. */
   historyCount: number;
@@ -438,7 +439,10 @@ export interface AutomationPageData {
    * the canvas. Nothing is claimed before that answer arrives.
    */
   handleInstallTemplate: (tpl: { id: string; name: string; description: string }) => void;
-  /** Add a step of the given type to the pipeline, unless the type cannot run. */
+  /**
+   * Add a step of the given type to the pipeline, starting one when none is
+   * open, unless the type cannot run.
+   */
   handleAddStep: (type: PipelineStepType) => void;
   /** Remove a step by ID from the pipeline. */
   handleRemoveStep: (stepId: string) => void;
@@ -938,20 +942,22 @@ export function useAutomationPageData(): AutomationPageData {
     adoptInstalled.current(installed);
   }, [installMutation.data, adoptInstalled]);
 
+  /** A pipeline with nothing in it yet, under the name every new one gets. */
+  const emptyPipeline = (): PipelineDefinition => ({
+    id: crypto.randomUUID(),
+    name: t('automation.newPipeline'),
+    description: '',
+    version: 1,
+    steps: [],
+    triggers: [],
+    variables: [],
+    tags: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
   const handleCreatePipeline = () => {
-    const newPipeline: PipelineDefinition = {
-      id: crypto.randomUUID(),
-      name: t('automation.newPipeline'),
-      description: '',
-      version: 1,
-      steps: [],
-      triggers: [],
-      variables: [],
-      tags: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setPipeline(newPipeline);
+    setPipeline(emptyPipeline());
   };
 
   const handleRunPipeline = () => {
@@ -986,18 +992,26 @@ export function useAutomationPageData(): AutomationPageData {
     installMutation.mutate({ templateId: tpl.id });
   };
 
+  // A step picked under Steps before any pipeline is open starts one with it,
+  // as Create Pipeline would: the click was dropped without a word, beside a
+  // canvas that told the reader to drag the step.
   const handleAddStep = (type: PipelineStepType) => {
-    if (!pipeline || paletteBlocker(type) !== undefined) return;
+    if (paletteBlocker(type) !== undefined) return;
+    const current = pipeline ?? emptyPipeline();
     const newStep = {
       id: crypto.randomUUID(),
-      name: type,
+      name: newStepName(
+        type,
+        current.steps.map((step) => step.name),
+        t,
+      ),
       type,
       config: {},
       continueOnError: false,
     };
     setPipeline({
-      ...pipeline,
-      steps: [...pipeline.steps, newStep],
+      ...current,
+      steps: [...current.steps, newStep],
       updatedAt: new Date().toISOString(),
     });
   };
@@ -1011,8 +1025,10 @@ export function useAutomationPageData(): AutomationPageData {
     });
   };
 
+  // A trigger added before any pipeline is open starts one with it, as a step
+  // does: the Triggers tab says to add one above, and the click was dropped.
   const handleAddTrigger = (type: TriggerType) => {
-    if (!pipeline) return;
+    const current = pipeline ?? emptyPipeline();
     // A schedule is read in the time zone of the person who writes it: the
     // extension host may run elsewhere, on a remote machine.
     const newTrigger: PipelineTrigger = {
@@ -1022,8 +1038,8 @@ export function useAutomationPageData(): AutomationPageData {
       config: type === 'schedule' ? { timezone: getLocalTimezone() } : {},
     };
     setPipeline({
-      ...pipeline,
-      triggers: [...pipeline.triggers, newTrigger],
+      ...current,
+      triggers: [...current.triggers, newTrigger],
       updatedAt: new Date().toISOString(),
     });
   };
@@ -1107,7 +1123,14 @@ export function useAutomationPageData(): AutomationPageData {
   );
 
   const stepCount = pipeline?.steps.length ?? 0;
-  const triggerCount = pipeline?.triggers.length ?? 0;
+  // The triggers that start the pipeline: a schedule or a sandbox refresh,
+  // switched on. It counted every trigger, the ones switched off and the ones
+  // that start nothing too, and read 3 for a pipeline one trigger starts.
+  const triggerCount =
+    pipeline?.triggers.filter(
+      (trigger) =>
+        trigger.enabled && (trigger.type === 'schedule' || trigger.type === 'sandbox_refresh'),
+    ).length ?? 0;
   const historyCount = historyEntries.length;
 
   return {

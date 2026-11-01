@@ -22,16 +22,16 @@ import { StepPalette } from './StepPalette';
 import { StepConfigPanel } from './StepConfigPanel';
 import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
-import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
-import { RewindStepConfirm } from './automationParts';
+import { RewindStepConfirm, SchedulerCalendar } from './automationParts';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
+import { stepTypeLabel } from './stepTypeLabel';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Main Automation page — wired to extension via bridge hooks. */
 export const AutomationPage: React.FC = () => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
   const blockedNoticeId = useId();
@@ -40,10 +40,6 @@ export const AutomationPage: React.FC = () => {
     stepId: string;
     checkpoint: OrgCheckpoint;
   } | null>(null);
-
-  /** A step type in the reader's language; a type this page does not know stays as it is. */
-  const stepTypeLabel = (type: string): string =>
-    i18n.exists(`automation.stepTypes.${type}`) ? t(`automation.stepTypes.${type}`) : type;
 
   const AUTOMATION_TABS: PageTab[] = [
     { id: 'canvas', label: t('automation.canvas'), icon: 'project' },
@@ -121,6 +117,15 @@ export const AutomationPage: React.FC = () => {
   const confirmingOrg = confirmingStep
     ? orgs.find((org) => org.id === confirmingStep.config['orgId'])
     : undefined;
+  // The configuration of the step picked on the canvas comes above the list
+  // under Steps, and into view: below the list and a note of ninety words it
+  // started under the fold, and a click on a step seemed to do nothing.
+  const selectedStep = pipeline?.steps.find((s) => s.id === selectedStepId);
+  const stepConfigRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedStepId === '') return;
+    stepConfigRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedStepId]);
   useEffect(() => {
     if (
       rewindGrantAnswer?.granted &&
@@ -144,6 +149,27 @@ export const AutomationPage: React.FC = () => {
       />
     );
   }
+
+  const palette = <StepPalette key="palette" onAddStep={handleAddStep} />;
+  const stepConfig = (
+    <div key="config" ref={stepConfigRef} className="scroll-mt-4">
+      <StepConfigPanel
+        step={selectedStep}
+        onUpdate={handleUpdateStep}
+        syncConfigs={syncConfigs}
+        seedTemplates={seedTemplates}
+        maskingTemplates={maskingTemplates}
+        rewind={{
+          ...(rewindSteps ? { steps: rewindSteps } : {}),
+          ...(savedSteps ? { savedSteps } : {}),
+          blocker: runBlockers.find((blocked) => blocked.stepId === selectedStepId)?.blocker,
+          onPreview: (stepId, checkpoint) => setConfirming({ stepId, checkpoint }),
+          onRevoke: handleRevokeRewind,
+          answer: rewindGrantAnswer,
+        }}
+      />
+    </div>
+  );
 
   const subtitle = pipeline
     ? `${pipeline.name} v${pipeline.version} \u00b7 ${t('automation.stepCount', { count: stepCount })}`
@@ -233,7 +259,7 @@ export const AutomationPage: React.FC = () => {
                 data-testid={`pipeline-blocked-${blocked.stepId}`}
               >
                 <span className="font-medium text-text-primary">{blocked.stepName}</span> (
-                {stepTypeLabel(blocked.stepType)}) —{' '}
+                {stepTypeLabel(blocked.stepType, t)}) —{' '}
                 {t(`automation.runnability.${blocked.blocker}`)}
               </li>
             ))}
@@ -383,7 +409,7 @@ export const AutomationPage: React.FC = () => {
                 )}
               </div>
               <div className="flex gap-(--sf-space-4)">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   {confirmingStep && confirmingOrg && confirming && !isRunning ? (
                     <RewindStepConfirm
                       step={confirmingStep}
@@ -403,6 +429,7 @@ export const AutomationPage: React.FC = () => {
                   ) : (
                     <PipelineCanvas
                       steps={pipeline?.steps}
+                      hasPipeline={pipeline !== undefined}
                       orgIds={orgIds}
                       declared={declaredVariables}
                       syncConfigs={syncConfigs}
@@ -415,24 +442,11 @@ export const AutomationPage: React.FC = () => {
                     />
                   )}
                 </div>
-                <div className="w-48 flex flex-col gap-3">
-                  <StepPalette onAddStep={handleAddStep} />
-                  <StepConfigPanel
-                    step={pipeline?.steps.find((s) => s.id === selectedStepId)}
-                    onUpdate={handleUpdateStep}
-                    syncConfigs={syncConfigs}
-                    seedTemplates={seedTemplates}
-                    maskingTemplates={maskingTemplates}
-                    rewind={{
-                      ...(rewindSteps ? { steps: rewindSteps } : {}),
-                      ...(savedSteps ? { savedSteps } : {}),
-                      blocker: runBlockers.find((blocked) => blocked.stepId === selectedStepId)
-                        ?.blocker,
-                      onPreview: (stepId, checkpoint) => setConfirming({ stepId, checkpoint }),
-                      onRevoke: handleRevokeRewind,
-                      answer: rewindGrantAnswer,
-                    }}
-                  />
+                {/* 288 pixels, where 192 wrapped every label of a step's
+                    configuration onto two or three lines. The two parts keep
+                    their keys as they swap places, so neither is drawn anew. */}
+                <div className="w-72 shrink-0 flex flex-col gap-3" data-testid="automation-side">
+                  {selectedStep ? [stepConfig, palette] : [palette, stepConfig]}
                 </div>
               </div>
             </div>
@@ -511,7 +525,9 @@ export const AutomationPage: React.FC = () => {
                             <Badge variant="warning">{t('automation.runnability.cannotRun')}</Badge>
                             <span>
                               {t('automation.runnability.templateBlocked', {
-                                types: blockedTypes.map(stepTypeLabel).join(', '),
+                                types: blockedTypes
+                                  .map((type) => stepTypeLabel(type, t))
+                                  .join(', '),
                               })}
                             </span>
                           </p>

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { dateTimeFormat } from '../../utils/formatters';
 import { PipelineHistoryView } from './PipelineHistoryView';
 import type { PipelineHistoryEntry } from '@sandforge/shared';
 
@@ -35,9 +36,30 @@ describe('PipelineHistoryView', () => {
     expect(screen.getByTestId('pipeline-history')).toBeDefined();
   });
 
-  it('should show empty state when no entries', () => {
+  it('says, with no run yet, what puts one here', () => {
+    // Its description was "History", the name of the tab it sat in.
     render(<PipelineHistoryView />);
-    expect(screen.getByText('No execution history')).toBeDefined();
+    const history = screen.getByTestId('pipeline-history');
+    expect(history.textContent).toContain('No run yet');
+    expect(history.textContent).toContain(
+      'Runs appear here after Run Pipeline or a trigger starts the saved pipeline.',
+    );
+  });
+
+  it('dates each run in the reader’s language and time zone, never as the stored ISO string', () => {
+    render(<PipelineHistoryView entries={entries} />);
+    const card = screen.getByTestId('history-run-2');
+    expect(card.textContent).not.toContain('2026-02-19T10:00:00Z');
+    expect(card.textContent).toContain(
+      dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date('2026-02-19T10:00:00Z'),
+      ),
+    );
+  });
+
+  it('says a start time that is not a date is unknown, and still lists the run', () => {
+    render(<PipelineHistoryView entries={[{ ...entries[0], startTime: 'not a date' }]} />);
+    expect(screen.getByTestId('history-run-1').textContent).toContain('unknown');
   });
 
   it('should show history entries', () => {

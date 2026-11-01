@@ -525,6 +525,76 @@ describe('useAutomationPageData — a Sync step', () => {
   });
 });
 
+describe('useAutomationPageData — the steps a click under Steps adds', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it('starts a pipeline with the step when none is open, rather than dropping the click', () => {
+    // The click was dropped without a word until Create Pipeline was pressed,
+    // beside a canvas that said to drag the step.
+    const { result } = renderHook(() => useAutomationPageData());
+    expect(result.current.pipeline).toBeUndefined();
+    act(() => result.current.handleAddStep('delay'));
+    expect(result.current.pipeline?.name).toBe('New Pipeline');
+    expect(result.current.pipeline?.steps.map((step) => step.type)).toEqual(['delay']);
+    act(() => result.current.handleAddStep('backup'));
+    expect(result.current.stepCount).toBe(2);
+  });
+
+  it('names a new step after its type in the reader’s language, numbering the next ones', () => {
+    // A step was named after its raw type id: "approval", in every language.
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddStep('approval'));
+    act(() => result.current.handleAddStep('approval'));
+    act(() => result.current.handleAddStep('precheck'));
+    expect(result.current.pipeline?.steps.map((step) => step.name)).toEqual([
+      'Approval',
+      'Approval 2',
+      'Pre-Check',
+    ]);
+  });
+
+  it('names a new step in French on a French page', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleAddStep('approval'));
+    expect(result.current.pipeline?.name).toBe('Nouveau pipeline');
+    expect(result.current.pipeline?.steps[0]?.name).toBe('Approbation');
+  });
+});
+
+describe('useAutomationPageData — a trigger added with no pipeline open', () => {
+  it('starts a pipeline with it, rather than dropping the click', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    expect(result.current.pipeline).toBeUndefined();
+    act(() => result.current.handleAddTrigger('schedule'));
+    expect(result.current.pipeline?.name).toBe('New Pipeline');
+    expect(result.current.pipeline?.triggers.map((trigger) => trigger.type)).toEqual(['schedule']);
+    expect(result.current.triggerCount).toBe(1);
+  });
+});
+
+describe('useAutomationPageData — the Active triggers count', () => {
+  it('counts only the schedules and sandbox refreshes switched on', () => {
+    // It counted every trigger, the ones switched off and those that start
+    // nothing too, and read 3 for a pipeline one trigger starts.
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    for (const type of ['manual', 'webhook', 'schedule', 'sandbox_refresh', 'schedule'] as const) {
+      act(() => result.current.handleAddTrigger(type));
+    }
+    expect(result.current.triggerCount).toBe(3);
+    const schedules = result.current.pipeline!.triggers.filter(
+      (trigger) => trigger.type === 'schedule',
+    );
+    act(() => result.current.handleToggleTrigger(schedules[0].id, false));
+    expect(result.current.triggerCount).toBe(2);
+  });
+});
+
 describe('useAutomationPageData — a pipeline with a step that cannot run is not sent', () => {
   it('does not add a step of a type that cannot run', () => {
     const { result } = renderHook(() => useAutomationPageData());

@@ -56,9 +56,11 @@ const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' |
  * answer in VS Code, Condition is given its test in the Step Config Panel,
  * Sync runs a configuration saved on the Sync page, Seed and Anonymize a
  * template of their pages, and Rewind runs once confirmed with the org's
- * alias. The note above the list says what the steps that write ask for, and
- * where Restore and Delete run instead, since those are the ones a reader
- * comes looking for.
+ * alias. The line above the list says only those are listed, and its Why?
+ * says what the steps that write ask for, and where Restore and Delete run
+ * instead, since those are the ones a reader comes looking for: the whole of
+ * it, ninety words in ten-pixel type, stood above the list in the narrow
+ * column and pushed Step Configuration off the screen.
  */
 const OFFERED_ENTRIES = STEP_ENTRIES.filter((entry) => paletteBlocker(entry.type) === undefined);
 
@@ -74,9 +76,17 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
   return (
     <div className="flex flex-col gap-3" data-testid="step-palette">
       <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.steps')}</h3>
-      <p className="text-[10px] text-(--sf-text-secondary)" data-testid="palette-runnable-note">
-        {t('automation.runnability.paletteNote')}
-      </p>
+      <div className="text-xs text-(--sf-text-secondary)">
+        <p data-testid="palette-listed">{t('automation.runnability.paletteListed')}</p>
+        <details data-testid="palette-why">
+          <summary className="cursor-pointer text-(--sf-text-link)">
+            {t('automation.runnability.paletteWhy')}
+          </summary>
+          <p className="mt-1" data-testid="palette-runnable-note">
+            {t('automation.runnability.paletteNote')}
+          </p>
+        </details>
+      </div>
       {grouped.map(({ category, steps }) => (
         <div key={category}>
           <span className="text-[10px] uppercase text-(--sf-text-secondary)">

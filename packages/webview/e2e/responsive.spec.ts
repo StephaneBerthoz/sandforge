@@ -307,6 +307,50 @@ test.describe('Responsive layout', () => {
     });
   });
 
+  test.describe('in German, Automation', () => {
+    test.use({ locale: 'de-DE' });
+
+    test('the step configuration and its type badge stay inside an 800-pixel panel', async ({
+      page,
+    }) => {
+      // The side column was 192 pixels: "Schrittkonfiguration" cannot wrap,
+      // and pushed its badge out of the panel.
+      await page.setViewportSize({ width: 800, height: 700 });
+      const bridge = new MockBridge();
+      await bridge.setup(page);
+      await page.addInitScript(() => {
+        (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'automation';
+      });
+      await page.goto('/');
+      await bridge.respondToNext(
+        'i18n:locale',
+        'i18n:locale:response',
+        {
+          lng: 'de',
+          bundle: JSON.parse(
+            readFileSync(new URL('../src/i18n/locales/de.json', import.meta.url), 'utf8'),
+          ) as Record<string, unknown>,
+        },
+        { timeout: 10_000 },
+      );
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await page.getByTestId('palette-precheck').click();
+      await page.locator('[data-testid^="canvas-step-"]').first().click();
+      const panel = page.getByTestId('step-config-panel');
+      await expect(panel).toContainText('Schrittkonfiguration');
+      await expect(panel).toBeInViewport();
+
+      // w-72, 18rem: 288 pixels, where it was 192.
+      await expect(page.getByTestId('automation-side')).toHaveCSS('width', '288px');
+      const side = await page.getByTestId('automation-side').boundingBox();
+      const overflow = await measureOverflow(page);
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+      expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.documentClientWidth);
+      const badge = await panel.getByText('Vorabprüfung', { exact: true }).boundingBox();
+      expect(badge!.x + badge!.width).toBeLessThanOrEqual(side!.x + side!.width);
+    });
+  });
+
   test('content area is scrollable when content overflows', async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.setViewportSize({ width: 1280, height: 400 });

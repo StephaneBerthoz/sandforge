@@ -97,6 +97,20 @@ describe('StepPalette', () => {
     expect(note).not.toMatch(/\byet\b/);
   });
 
+  it('says in one line which steps it lists, and keeps the why behind Why?', () => {
+    // Ninety words in ten-pixel type stood above the list in the side column,
+    // and pushed Step Configuration below the fold.
+    render(<StepPalette />);
+    expect(screen.getByTestId('palette-listed').textContent).toBe(
+      'Only the steps a pipeline runs are listed.',
+    );
+    const why = screen.getByTestId('palette-why');
+    expect(why.tagName).toBe('DETAILS');
+    expect(why.hasAttribute('open')).toBe(false);
+    expect(why.querySelector('summary')?.textContent).toBe('Why?');
+    expect(why.contains(screen.getByTestId('palette-runnable-note'))).toBe(true);
+  });
+
   it('should show step type labels', () => {
     render(<StepPalette />);
     expect(screen.getAllByText('Backup').length).toBeGreaterThan(0);

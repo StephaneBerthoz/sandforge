@@ -65,9 +65,11 @@ function triggerTypes() {
 }
 
 /**
- * The trigger types that start a run: Manual, from the Run button, and the
- * ones the trigger scheduler reads out of a saved pipeline — provided the
- * extension starts the scheduler.
+ * The trigger types that start a run: the ones the trigger scheduler reads out
+ * of a saved pipeline — provided the extension starts the scheduler. Manual is
+ * not one: Run Pipeline runs a pipeline with or without a Manual trigger, and
+ * the panel, which offered it first and selected, drew a card that said Active
+ * and started nothing.
  */
 function startingTriggerTypes() {
   const scheduler = read(
@@ -93,7 +95,7 @@ function startingTriggerTypes() {
     /this\.automationHandler\.startTriggers\(/,
     'ExtensionHandlers no longer hands the triggers to the handler that starts them',
   );
-  return ['manual', ...fired];
+  return fired;
 }
 
 /** The label the panel shows for a trigger type. */
@@ -117,11 +119,11 @@ test('anchor: the extension fires the schedule and sandbox refresh triggers, and
   // Positive control: the walk sees the schedule, which fires.
   assert.ok(starting.includes('schedule'), 'the walk does not see the schedules fire');
   assert.deepEqual(
-    starting.filter((type) => ['event', 'webhook', 'deployment_complete'].includes(type)),
+    starting.filter((type) => ['manual', 'event', 'webhook', 'deployment_complete'].includes(type)),
     [],
-    'an event, webhook or deployment trigger fires now — the panel does not offer it, and the ' +
-      'docs below say it starts nothing. Re-read the Triggers section, the FAQ and both READMEs ' +
-      'before relaxing this.',
+    'a manual, event, webhook or deployment trigger fires now — the panel does not offer it, and ' +
+      'the docs below say it starts nothing. Re-read the Triggers section, the FAQ and both ' +
+      'READMEs before relaxing this.',
   );
 });
 

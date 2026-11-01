@@ -128,7 +128,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
         <EmptyState
           icon={<Icon name="history" />}
           title={t('automation.noHistory')}
-          description={t('automation.history')}
+          description={t('automation.noHistoryDesc')}
         />
       </div>
     );
@@ -140,9 +140,12 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
       {entries.map((entry) => (
         <div key={entry.runId} data-testid={`history-${entry.runId}`}>
           <Card hoverable onClick={() => onSelectRun?.(entry.runId)}>
+            {/* The start in the reader's language and time zone, as the
+                Scheduler and Reports write a date: it was the ISO string the
+                extension keeps, in UTC. */}
             <CardHeader
               title={entry.pipelineName}
-              subtitle={entry.startTime}
+              subtitle={formatTriggerTime(entry.startTime) ?? t('common.dateUnknown')}
               action={
                 <Badge variant={STATUS_VARIANT[entry.status]}>
                   {t(`automation.runStatuses.${entry.status}`)}

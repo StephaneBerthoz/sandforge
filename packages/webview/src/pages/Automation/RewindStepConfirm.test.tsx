@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '../../i18n';
 import type { PipelineStep } from '@sandforge/shared';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+import ja from '../../i18n/locales/ja.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import {
   developerOrg,
@@ -67,6 +73,25 @@ describe('RewindStepConfirm', () => {
     expect(screen.getByTestId('rewind-step-confirm-lead').textContent).toContain('1,500 records');
     expect(screen.queryByTestId('checkpoint-preview-rewind')).toBeNull();
     expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
+  });
+
+  it('asks for the alias under a button and a dialog that say what it allows, in three different words', () => {
+    // "Confirm this rewind…", "Confirm for this step…", then a dialog titled
+    // as the section above it: three confirmations in a row.
+    renderConfirm();
+    expect(screen.getByTestId('rewind-step-confirm-type').textContent).toBe(
+      'Type the org alias to confirm…',
+    );
+    fireEvent.click(screen.getByTestId('rewind-step-confirm-type'));
+    expect(screen.getByTestId('danger-title').textContent).toBe(
+      'Allow unattended rewinds of DEV-SB',
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain('Each run, scheduled ones included, rewinds DEV-SB to “');
+    expect(dialog.textContent).toContain('(at most 1,500 records)');
+    expect(dialog.textContent).toContain('Editing this step cancels the confirmation.');
+    // The section keeps its heading; the dialog no longer repeats it.
+    expect(screen.getAllByText('Confirm the Rewind step “Nightly reset”')).toHaveLength(1);
   });
 
   it("confirms with the org's alias once it is typed exactly, and not before", () => {
@@ -158,8 +183,73 @@ describe('StepConfigPanel, a Rewind step', () => {
     expect(status).toMatch(/^Confirmed on /);
     expect(status).toContain('this step rewinds DEV-SB to');
     expect(status).toContain('at most 1,500 records');
+    expect(status).toContain('reverting or deleting every change anyone made since');
+    expect(screen.getByTestId('rewind-revoke').textContent).toBe('Revoke confirmation');
     fireEvent.click(screen.getByTestId('rewind-revoke'));
     expect(onRevoke).toHaveBeenCalledWith('step-r');
+  });
+
+  it('groups the acceptances under a heading saying they widen the risk, folded while none is ticked', () => {
+    // Five boxes stood unlabelled in the column, worded to be read twice.
+    renderPanel({ steps: [] });
+    const group = screen.getByTestId('rewind-acceptances');
+    expect(group.tagName).toBe('DETAILS');
+    expect(group.hasAttribute('open')).toBe(false);
+    expect(group.querySelector('summary')?.textContent).toBe(
+      'Allow riskier changes (off by default)',
+    );
+    const boxes = screen.getByRole('group', { name: 'Allow riskier changes (off by default)' });
+    expect(Array.from(boxes.querySelectorAll('label'), (label) => label.textContent)).toEqual([
+      'Run even if triggers, flows or workflow rules fire on the records it writes',
+      'Allow deletions that Undo of this rewind cannot bring back',
+      'Recreate, with new Ids, records already emptied from the Recycle Bin',
+      'Allow deletions that cascade to child records of objects outside the checkpoint',
+      'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
+    ]);
+    expect(screen.queryByTestId('rewind-acceptances-count')).toBeNull();
+  });
+
+  it('opens the acceptances of a step that gives one, and counts them on the heading', () => {
+    const onUpdate = vi.fn();
+    render(
+      <StepConfigPanel
+        step={{ ...step, config: { ...step.config, acceptNoUndo: true, acceptUnseen: true } }}
+        onUpdate={onUpdate}
+        rewind={{ steps: [] }}
+      />,
+    );
+    expect(screen.getByTestId('rewind-acceptances').hasAttribute('open')).toBe(true);
+    expect(screen.getByTestId('rewind-acceptances-count').textContent).toBe('2 ticked');
+  });
+
+  it('words each box as the Checkpoints preview words the same box, in every language', () => {
+    // Two places asked the same question in different words; the German
+    // acceptUnseen said the opposite of the English.
+    const boxOf = {
+      acceptAutomation: 'automation',
+      acceptNoUndo: 'undoCannot',
+      acceptRecreate: 'recreate',
+      acceptOutside: 'outside',
+      acceptUnseen: 'unseen',
+    } as const;
+    for (const catalogue of [en, fr, de, es, ptBR, ja]) {
+      for (const [key, box] of Object.entries(boxOf)) {
+        expect(catalogue.automation.rewindAccept[key as keyof typeof boxOf]).toBe(
+          catalogue.checkpoint.preview[box].accept,
+        );
+      }
+    }
+    expect(de.automation.rewindAccept.acceptUnseen).toBe(
+      'Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)',
+    );
+  });
+
+  it('names the controls of its confirmation by what each does', () => {
+    renderPanel({ steps: [], blocker: 'rewindNotConfirmed', onPreview: vi.fn() });
+    expect(screen.getByTestId('rewind-confirm').textContent).toBe('Preview and confirm…');
+    expect(screen.getByTestId('rewind-confirmation-status').textContent).toBe(
+      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+    );
   });
 
   it('refuses people at work unless turned off, and gives no acceptance unless ticked', () => {

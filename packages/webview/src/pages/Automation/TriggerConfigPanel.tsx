@@ -51,19 +51,24 @@ export interface TriggerConfigPanelProps {
  * It offered all six, the three that start nothing marked "Coming soon" in
  * the list and on their cards: an event trigger has no event source, a webhook
  * no port to reach, a deployment trigger nothing watching an org's
- * deployments. A trigger added from the list now starts the pipeline.
+ * deployments. It then offered Manual first, selected: its card said Active
+ * and nothing else, and Run Pipeline runs a pipeline with or without one. A
+ * trigger added from the list now starts the pipeline.
  */
-const OFFERED_TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'sandbox_refresh'];
+const OFFERED_TRIGGER_TYPES: TriggerType[] = ['schedule', 'sandbox_refresh'];
 
 /**
  * The types that start nothing. The panel adds none, but a pipeline saved by
  * an older release, imported with a profile or installed from a template can
- * hold one: its card stays, and says why it starts nothing.
+ * hold one: its card stays, says why it starts nothing, and has nothing to
+ * switch on or off.
  */
-type IdleTriggerType = 'event' | 'webhook' | 'deployment_complete';
+type IdleTriggerType = 'manual' | 'event' | 'webhook' | 'deployment_complete';
 
 function startsNothing(type: TriggerType): type is IdleTriggerType {
-  return type === 'event' || type === 'webhook' || type === 'deployment_complete';
+  return (
+    type === 'manual' || type === 'event' || type === 'webhook' || type === 'deployment_complete'
+  );
 }
 
 const TRIGGER_VARIANT: Record<TriggerType, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -175,9 +180,9 @@ const TriggerState: React.FC<{
 /**
  * Panel for configuring pipeline triggers.
  *
- * Three types start a run, and they are the three it adds: Manual from the Run
- * button, Schedule and Sandbox Refresh from the extension, once the pipeline
- * is saved. A trigger of another type, held by a pipeline the panel did not
+ * Two types start a run, and they are the two it adds: Schedule and Sandbox
+ * Refresh, from the extension, once the pipeline is saved. Run Pipeline needs
+ * no trigger. A trigger of another type, held by a pipeline the panel did not
  * build, starts nothing, and its card says why.
  */
 export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
@@ -192,7 +197,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   onUpdateTriggerConfig,
 }) => {
   const { t } = useTranslation();
-  const [newTriggerType, setNewTriggerType] = React.useState<TriggerType>('manual');
+  const [newTriggerType, setNewTriggerType] = React.useState<TriggerType>('schedule');
   const timezones = React.useMemo(() => getTimezones(), []);
 
   /**
@@ -251,11 +256,14 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         {t('automation.triggerNote')}
       </p>
 
+      {/* It read "Triggers" over "Add Trigger": the tab's name and a
+          button's, saying neither what is missing nor that Run Pipeline
+          works without one. */}
       {triggers.length === 0 && (
         <EmptyState
           icon={<Icon name="zap" />}
-          title={t('automation.triggers')}
-          description={t('automation.addTrigger')}
+          title={t('automation.noTriggers')}
+          description={t('automation.noTriggersDesc')}
         />
       )}
 
@@ -265,6 +273,9 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         const unsaved = !sameAsSaved(trigger, saved);
         const orgId = trigger.config.orgId ?? '';
         const timezone = trigger.config.timezone ?? '';
+        // A card that starts nothing said Active right above "Starts nothing":
+        // switched on or off, it starts nothing, so it says that instead.
+        const idle = startsNothing(trigger.type);
         return (
           <div key={trigger.id} data-testid={`trigger-${trigger.id}`}>
             <Card>
@@ -272,17 +283,28 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                 title={t(`automation.triggerTypes.${trigger.type}`)}
                 action={
                   <div className="flex items-center gap-2">
-                    <Badge variant={TRIGGER_VARIANT[trigger.type]}>
-                      {trigger.enabled ? t('common.active') : t('common.disabled')}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onToggleTrigger?.(trigger.id, !trigger.enabled)}
-                      data-testid={`toggle-trigger-${trigger.id}`}
-                    >
-                      {trigger.enabled ? t('common.disable') : t('common.enable')}
-                    </Button>
+                    {idle ? (
+                      <Badge variant="default" data-testid={`trigger-badge-${trigger.id}`}>
+                        {t('automation.triggerStartsNothing')}
+                      </Badge>
+                    ) : (
+                      <>
+                        <Badge
+                          variant={TRIGGER_VARIANT[trigger.type]}
+                          data-testid={`trigger-badge-${trigger.id}`}
+                        >
+                          {trigger.enabled ? t('common.active') : t('common.disabled')}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onToggleTrigger?.(trigger.id, !trigger.enabled)}
+                          data-testid={`toggle-trigger-${trigger.id}`}
+                        >
+                          {trigger.enabled ? t('common.disable') : t('common.enable')}
+                        </Button>
+                      </>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -294,7 +316,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                   </div>
                 }
               />
-              {startsNothing(trigger.type) && (
+              {idle && (
                 <CardBody>
                   <p
                     className="text-xs text-(--sf-text-secondary)"

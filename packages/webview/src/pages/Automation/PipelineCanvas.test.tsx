@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { PipelineCanvas } from './PipelineCanvas';
 import type { PipelineStep } from '@sandforge/shared';
 
@@ -17,15 +18,37 @@ const steps: PipelineStep[] = [
   },
 ];
 
+afterEach(async () => {
+  await i18n.changeLanguage('en');
+});
+
 describe('PipelineCanvas', () => {
   it('should render the canvas', () => {
     render(<PipelineCanvas />);
     expect(screen.getByTestId('pipeline-canvas')).toBeDefined();
   });
 
-  it('should show empty state when no steps', () => {
+  it('says how to start a pipeline when none is open, and never to drag a step', () => {
+    // It said "Drag a step to the canvas / Connect steps to define flow" on a
+    // page with no drag and drop and nothing that connects steps.
     render(<PipelineCanvas />);
-    expect(screen.getByText('Drag a step to the canvas')).toBeDefined();
+    const canvas = screen.getByTestId('pipeline-canvas');
+    expect(canvas.getAttribute('data-empty')).toBe('no-pipeline');
+    expect(canvas.textContent).toContain('No pipeline open');
+    expect(canvas.textContent).toContain(
+      'Click Create Pipeline or Generate with AI to start one, or click a step under Steps to start one with it.',
+    );
+    expect(canvas.textContent).not.toMatch(/drag|connect/i);
+  });
+
+  it('says how to add a step to an open pipeline with none, and in what order steps run', () => {
+    render(<PipelineCanvas steps={[]} hasPipeline />);
+    const canvas = screen.getByTestId('pipeline-canvas');
+    expect(canvas.getAttribute('data-empty')).toBe('no-steps');
+    expect(canvas.textContent).toContain('No step yet');
+    expect(canvas.textContent).toContain(
+      'Click a step under Steps to add it. Steps run top to bottom.',
+    );
   });
 
   it('should show step nodes', () => {
@@ -41,10 +64,31 @@ describe('PipelineCanvas', () => {
     expect(screen.getByText('Anonymize PII')).toBeDefined();
   });
 
-  it('should show step type badges', () => {
+  it('names the type of a renamed step in the reader’s language, never by its id', async () => {
+    // "approval approval", "backup backup": the raw id, in every language.
     render(<PipelineCanvas steps={steps} />);
-    expect(screen.getAllByText('backup').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('anonymize').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('canvas-step-s1').textContent).toContain('Backup');
+    expect(screen.getByTestId('canvas-step-s2').textContent).toContain('Anonymize');
+    expect(screen.queryByText('backup')).toBeNull();
+    expect(screen.queryByText('anonymize')).toBeNull();
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    expect(screen.getByTestId('canvas-step-s1').textContent).toContain('Sauvegarde');
+  });
+
+  it('leaves out the type badge beside a step still named after its type', () => {
+    render(
+      <PipelineCanvas
+        steps={[
+          { id: 'a', name: 'Approval', type: 'approval', config: {}, continueOnError: false },
+          { id: 'b', name: 'Approval 2', type: 'approval', config: {}, continueOnError: false },
+          { id: 'c', name: 'QA sign-off', type: 'approval', config: {}, continueOnError: false },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('canvas-step-a').textContent).toBe('Approval');
+    expect(screen.getByTestId('canvas-step-b').textContent).toBe('Approval 2');
+    expect(screen.getByTestId('canvas-step-c').textContent).toBe('QA sign-offApproval');
   });
 
   it('should show continue on error badge', () => {

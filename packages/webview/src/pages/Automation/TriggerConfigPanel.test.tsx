@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import type { PipelineTrigger, PipelineTriggerStatus, TriggerType } from '@sandforge/shared';
 
@@ -79,15 +80,37 @@ describe('TriggerConfigPanel', () => {
     const onAdd = vi.fn();
     render(<TriggerConfigPanel onAddTrigger={onAdd} />);
     const select = screen.getByTestId('trigger-type-select') as HTMLSelectElement;
+    // Manual came first, selected: a card that said Active and nothing else,
+    // since Run Pipeline runs a pipeline with or without one.
     expect([...select.options].map((option) => [option.value, option.textContent])).toEqual([
-      ['manual', 'Manual'],
       ['schedule', 'Schedule'],
       ['sandbox_refresh', 'Sandbox Refresh'],
     ]);
+    expect(select.value).toBe('schedule');
 
     fireEvent.change(select, { target: { value: 'sandbox_refresh' } });
     fireEvent.click(screen.getByTestId('add-trigger-btn'));
     expect(onAdd).toHaveBeenCalledWith('sandbox_refresh');
+  });
+
+  it('names the trigger types and the cron field in French in sentence case, and in French', async () => {
+    // "Refresh Sandbox" was left in English, and "Expression Cron" copied the
+    // English capitals.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      render(<TriggerConfigPanel triggers={[nightly]} />);
+      const select = screen.getByTestId('trigger-type-select') as HTMLSelectElement;
+      expect([...select.options].map((option) => option.textContent)).toEqual([
+        'Planifié',
+        'Actualisation de la sandbox',
+      ]);
+      expect(screen.getByText('Expression cron:')).toBeDefined();
+      expect(fr.automation.newPipeline).toBe('Nouveau pipeline');
+      expect(fr.automation.savedPipelines).toBe('Pipelines enregistrés');
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
   });
 
   it('names the trigger type list for a screen reader', () => {
@@ -338,17 +361,53 @@ describe('TriggerConfigPanel', () => {
     expect(screen.getAllByText('Manual').length).toBeGreaterThan(0);
   });
 
-  it('should show enabled/disabled badges', () => {
-    render(<TriggerConfigPanel triggers={triggers} />);
-    expect(screen.getByText('Active')).toBeDefined();
-    expect(screen.getByText('Disabled')).toBeDefined();
+  it('badges a trigger that starts a run Active or Disabled, with its switch', () => {
+    render(<TriggerConfigPanel triggers={[nightly, { ...onRefresh, enabled: false }]} />);
+    expect(screen.getByTestId('trigger-badge-t1').textContent).toBe('Active');
+    expect(screen.getByTestId('trigger-badge-t3').textContent).toBe('Disabled');
+    expect(screen.getByTestId('toggle-trigger-t1').textContent).toBe('Disable');
+    expect(screen.getByTestId('toggle-trigger-t3').textContent).toBe('Enable');
   });
 
-  it('should call onAddTrigger', () => {
+  it('badges a trigger that starts nothing as such, with no switch to turn on or off', () => {
+    // A webhook card said Active right above "Starts nothing: SandForge opens
+    // no port"; a Manual card said Active and nothing else.
+    render(
+      <TriggerConfigPanel
+        triggers={[
+          manual,
+          { id: 'w', type: 'webhook', enabled: true, config: {} },
+          { id: 'e', type: 'event', enabled: true, config: {} },
+          { id: 'd', type: 'deployment_complete', enabled: false, config: {} },
+        ]}
+      />,
+    );
+    for (const id of ['t2', 'w', 'e', 'd']) {
+      expect(screen.getByTestId(`trigger-badge-${id}`).textContent).toBe('Starts nothing');
+      expect(screen.queryByTestId(`toggle-trigger-${id}`)).toBeNull();
+      expect(screen.getByTestId(`remove-trigger-${id}`)).toBeDefined();
+    }
+    expect(screen.queryByText('Active')).toBeNull();
+    expect(screen.getByTestId('trigger-soon-reason-t2').textContent).toBe(
+      'Starts nothing: Run Pipeline runs the pipeline with or without this trigger.',
+    );
+  });
+
+  it('adds a schedule unless another type is picked', () => {
     const onAdd = vi.fn();
     render(<TriggerConfigPanel onAddTrigger={onAdd} />);
     fireEvent.click(screen.getByTestId('add-trigger-btn'));
-    expect(onAdd).toHaveBeenCalledWith('manual');
+    expect(onAdd).toHaveBeenCalledWith('schedule');
+  });
+
+  it('says, with no trigger yet, that the pipeline runs only from Run Pipeline, and what to add', () => {
+    // It read "Triggers" over "Add Trigger".
+    render(<TriggerConfigPanel />);
+    const empty = screen.getByTestId('empty-state');
+    expect(empty.textContent).toContain('No trigger yet');
+    expect(empty.textContent).toContain(
+      'The pipeline runs only from Run Pipeline. Add a Schedule or a Sandbox Refresh trigger above.',
+    );
   });
 
   it('should call onRemoveTrigger', () => {

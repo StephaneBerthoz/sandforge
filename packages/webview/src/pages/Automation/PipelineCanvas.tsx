@@ -6,14 +6,16 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { stepBlocker } from './stepRunnability';
 import type { StepPlace } from './stepRunnability';
+import { isNewStepName, stepTypeLabel } from './stepTypeLabel';
 
 /** PipelineCanvas component props. */
 export interface PipelineCanvasProps {
   steps?: PipelineStep[];
+  /** Whether a pipeline is open: the canvas says how to start one when none is. */
+  hasPipeline?: boolean;
   selectedStepId?: string;
   onSelectStep?: (stepId: string) => void;
   onRemoveStep?: (stepId: string) => void;
-  onConnectSteps?: (fromStepId: string, toStepId: string) => void;
   /** The ids of the orgs connected here: a step naming another org is marked. */
   orgIds?: ReadonlySet<string>;
   /** The variables the pipeline declares, which a Condition may test. */
@@ -29,9 +31,9 @@ export interface PipelineCanvasProps {
 
 /**
  * The dot beside a step's name, in an identity hue per type. The type is also
- * written in the badge next to it, so types a shade apart before (backup and
- * restore) may share a hue. A type SandForge no longer has gets the neutral
- * dot.
+ * written in the badge next to a step renamed from it, so types a shade apart
+ * before (backup and restore) may share a hue. A type SandForge no longer has
+ * gets the neutral dot.
  */
 const STEP_COLORS: Partial<Record<PipelineStepType, string>> = {
   seed: 'bg-hue-green',
@@ -51,6 +53,7 @@ const STEP_COLORS: Partial<Record<PipelineStepType, string>> = {
 /** Visual pipeline canvas showing steps as connected nodes. */
 export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   steps = [],
+  hasPipeline = steps.length > 0,
   selectedStepId,
   onSelectStep,
   onRemoveStep,
@@ -61,14 +64,25 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  // It said "Drag a step to the canvas / Connect steps to define flow": the
+  // page has no drag and drop, nothing connects steps, and before a pipeline
+  // existed a click on a step did nothing that said so.
   if (steps.length === 0) {
     return (
-      <div data-testid="pipeline-canvas">
-        <EmptyState
-          icon={<Icon name="link" />}
-          title={t('automation.dragStep')}
-          description={t('automation.connectSteps')}
-        />
+      <div data-testid="pipeline-canvas" data-empty={hasPipeline ? 'no-steps' : 'no-pipeline'}>
+        {hasPipeline ? (
+          <EmptyState
+            icon={<Icon name="tasklist" />}
+            title={t('automation.canvasEmpty.noStepsTitle')}
+            description={t('automation.canvasEmpty.noSteps')}
+          />
+        ) : (
+          <EmptyState
+            icon={<Icon name="project" />}
+            title={t('automation.canvasEmpty.noPipelineTitle')}
+            description={t('automation.canvasEmpty.noPipeline')}
+          />
+        )}
       </div>
     );
   }
@@ -114,7 +128,9 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               >
                 <span className={`w-2 h-2 rounded-full ${colorClass}`} />
                 <span className="text-xs font-medium text-(--sf-text-primary)">{step.name}</span>
-                <Badge variant="default">{step.type}</Badge>
+                {!isNewStepName(step.name, step.type, t) && (
+                  <Badge variant="default">{stepTypeLabel(step.type, t)}</Badge>
+                )}
                 {step.continueOnError && (
                   <Badge variant="warning">{t('automation.continueOnError')}</Badge>
                 )}

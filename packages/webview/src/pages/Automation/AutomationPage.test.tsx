@@ -539,4 +539,57 @@ describe('AutomationPage', () => {
     render(<AutomationPage />);
     expect(screen.getAllByTestId('bento-tile').length).toBeGreaterThanOrEqual(1);
   });
+
+  it('gives the steps and their configuration a column of 288 pixels', () => {
+    // 192 pixels wrapped every label of a step's configuration.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    const side = screen.getByTestId('automation-side');
+    expect(side.className).toContain('w-72');
+    expect(side.className).not.toContain('w-48');
+  });
+
+  it('puts the configuration of the step picked above the list under Steps, and into view', () => {
+    // Below the list and its note, the configuration began under the fold:
+    // a click on a step seemed to do nothing.
+    const scrolled = vi.fn();
+    const scrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('palette-delay'));
+      const side = screen.getByTestId('automation-side');
+      const order = () =>
+        Array.from(side.children, (child) =>
+          child.querySelector('[data-testid="step-palette"]') ||
+          child.matches('[data-testid="step-palette"]')
+            ? 'palette'
+            : 'config',
+        );
+      expect(order()).toEqual(['palette', 'config']);
+      expect(scrolled).not.toHaveBeenCalled();
+
+      const step = screen.getAllByTestId(/^canvas-step-/)[0];
+      fireEvent.click(step);
+      expect(order()).toEqual(['config', 'palette']);
+      expect(screen.getByTestId('step-config-panel')).toBeDefined();
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrolled.mock.contexts[0]).toBe(side.children[0]);
+    } finally {
+      Element.prototype.scrollIntoView = scrollIntoView;
+    }
+  });
+
+  it('starts a pipeline from a click under Steps before Create Pipeline, and says how on the canvas', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    expect(screen.getByTestId('pipeline-canvas').textContent).toContain('No pipeline open');
+    fireEvent.click(screen.getByTestId('palette-delay'));
+    expect(screen.getByTestId('page-header-subtitle').textContent).toBe('New Pipeline v1 · 1 step');
+    // Named after its type, with no badge saying the type again.
+    const added = screen.getAllByTestId(/^canvas-step-/)[0].textContent ?? '';
+    expect(added).toMatch(/^Delay(?!.*Delay)/);
+    expect(added).not.toContain('delay');
+  });
 });

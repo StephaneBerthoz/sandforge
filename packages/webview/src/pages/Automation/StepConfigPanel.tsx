@@ -39,6 +39,7 @@ import {
   takesThreshold,
   thresholdMax,
 } from './conditionPresets';
+import { stepTypeLabel } from './stepTypeLabel';
 
 /** StepConfigPanel props. */
 export interface StepConfigPanelProps {
@@ -149,6 +150,9 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   // The org, then the checkpoint, its bounds and its confirmation, below.
   rewind: [{ key: 'orgId', labelKey: 'automation.stepConfigOrg', type: 'org' }],
 };
+
+/** A minute, in the milliseconds a step's timeout is kept in. */
+const MINUTE_MS = 60_000;
 
 const INPUT_CLASS =
   'text-xs p-1.5 rounded-sm border border-(--sf-border,#3c3c3c) bg-(--sf-bg-input,#1e1e1e) text-(--sf-text-primary,#d4d4d4)';
@@ -463,6 +467,59 @@ const REWIND_ACCEPTANCES = [
   'acceptUnseen',
 ] as const;
 
+/** Props of {@link RewindAcceptances}. */
+interface RewindAcceptancesProps {
+  config: Record<string, unknown>;
+  onConfig: (key: string, value: unknown) => void;
+}
+
+/**
+ * The boxes that widen what a Rewind step may do with nobody there to read
+ * its preview, under one heading that says they do, folded while none is
+ * ticked and open, counted, while one is. They stood unlabelled in the
+ * column, each worded so that it had to be read twice ("Make again, with new
+ * Ids, records the recycle bin no longer gives back"): they say now what the
+ * Checkpoints page's preview says of the same boxes.
+ */
+const RewindAcceptances: React.FC<RewindAcceptancesProps> = ({ config, onConfig }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const accepted = REWIND_ACCEPTANCES.filter((key) => config[key] === true).length;
+  // Opened by the reader after the first drawing: a box unticked inside it
+  // does not fold it away under the pointer.
+  const [open, setOpen] = useState(accepted > 0);
+  return (
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      data-testid="rewind-acceptances"
+    >
+      <summary
+        id={headingId}
+        className="cursor-pointer text-xs font-medium text-(--sf-text-primary,#d4d4d4)"
+      >
+        {t('automation.rewindAcceptHeading')}
+        {accepted > 0 && (
+          <Badge variant="warning" className="ml-1.5" data-testid="rewind-acceptances-count">
+            {t('automation.rewindAcceptCount', { count: accepted })}
+          </Badge>
+        )}
+      </summary>
+      <div role="group" aria-labelledby={headingId} className="mt-2 flex flex-col gap-2">
+        {REWIND_ACCEPTANCES.map((key) => (
+          <CheckField
+            key={key}
+            label={t(`automation.rewindAccept.${key}`)}
+            testId={`config-${key}`}
+            checked={config[key] === true}
+            onChange={(checked) => onConfig(key, checked)}
+          />
+        ))}
+      </div>
+    </details>
+  );
+};
+
 /** Props of {@link AnonymizeFields}. */
 interface AnonymizeFieldsProps {
   stepId: string;
@@ -735,15 +792,7 @@ const RewindFields: React.FC<RewindFieldsProps> = ({ step, config, orgs, rewind,
       <Note testId="config-refuseWhenActive-note">
         {t('automation.rewindRefuseWhenActiveNote')}
       </Note>
-      {REWIND_ACCEPTANCES.map((key) => (
-        <CheckField
-          key={key}
-          label={t(`automation.rewindAccept.${key}`)}
-          testId={`config-${key}`}
-          checked={config[key] === true}
-          onChange={(checked) => onConfig(key, checked)}
-        />
-      ))}
+      <RewindAcceptances key={step.id} config={config} onConfig={onConfig} />
       <div
         className="flex flex-col gap-2 mt-1 pt-2 border-t border-(--sf-border,#3c3c3c)"
         data-testid="rewind-confirmation"
@@ -949,12 +998,12 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
       )}
       data-testid="step-config-panel"
     >
-      {/* Step header */}
-      <div className="flex items-center justify-between">
+      {/* Step header: the badge drops under a title too long to share its line. */}
+      <div className="flex flex-wrap items-center justify-between gap-1">
         <span className="text-xs font-semibold text-(--sf-text-primary,#d4d4d4)">
           {t('automation.stepConfig', 'Step Configuration')}
         </span>
-        <Badge variant="default">{step.type}</Badge>
+        <Badge variant="default">{stepTypeLabel(step.type, t)}</Badge>
       </div>
 
       {/* Step name */}
@@ -971,20 +1020,25 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
         />
       </label>
 
-      {/* Timeout */}
+      {/* Timeout, typed in minutes and kept in milliseconds, as the
+          extension reads it. It was typed in milliseconds under the example
+          "300": a step given the example was stopped after 0.3 seconds,
+          possibly in the middle of a write, in a panel whose Delay counts in
+          seconds and whose Approval waits in minutes. */}
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] text-text-secondary">
-          {t('automation.timeout', 'Timeout (ms)')}
-        </span>
+        <span className="text-[10px] text-text-secondary">{t('automation.timeout')}</span>
         <input
           type="number"
-          value={step.timeout ?? ''}
+          value={step.timeout !== undefined ? step.timeout / MINUTE_MS : ''}
           onChange={(e) =>
-            handleUpdate({ timeout: e.target.value ? Number(e.target.value) : undefined })
+            handleUpdate({
+              timeout: e.target.value ? Math.round(Number(e.target.value) * MINUTE_MS) : undefined,
+            })
           }
-          placeholder="300"
+          placeholder={t('automation.timeoutNone')}
           min={0}
-          max={MAX_STEP_TIMEOUT_MS}
+          max={MAX_STEP_TIMEOUT_MS / MINUTE_MS}
+          step="any"
           className={INPUT_CLASS}
           data-testid="step-timeout-input"
         />

@@ -42,9 +42,9 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 ## Quick Start
 
 1. Navigate to **Automation** from the sidebar
-2. Click **Create Pipeline** to start a new pipeline
-3. Click a step under **Steps** to add it to the Pipeline Canvas
-4. Select each step and configure it under **Step Configuration**: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync, the org and template of a Seed or an Anonymize, what a Checkpoint takes, and the checkpoint, the bounds and the confirmation of a Rewind
+2. Click **Create Pipeline** to start a new pipeline, or click a step under **Steps**: a new pipeline starts with it
+3. Click a step under **Steps** to add it to the Pipeline Canvas. A step is named after its type -- Delay, then Delay 2 -- until you rename it
+4. Select each step and configure it under **Step Configuration**, which then comes above the list of steps: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync, the org and template of a Seed or an Anonymize, what a Checkpoint takes, and the checkpoint, the bounds and the confirmation of a Rewind
 5. Click **Run Pipeline** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, **Run Pipeline** is disabled and a note under the header names the step and the reason
 6. To start the pipeline without a click, add a **Schedule** or a **Sandbox Refresh** trigger on the **Triggers** tab and save the pipeline: it then starts on its own while VS Code is open, and the tab shows the next run, or the sandbox it waits for
 
@@ -54,9 +54,9 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 
 The visual builder for composing automation workflows:
 
-- **Canvas** -- Steps run in the order they are listed; a step that cannot run is marked where it sits, with the reason
-- **Steps** -- A sidebar listing the twelve step types it can add and a pipeline runs: Seed, Sync, Backup, Anonymize, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas. A note above the list says what the steps that write ask for, and where Restore and Delete run instead
-- **Step Configuration** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
+- **Canvas** -- Steps run top to bottom, in the order they are listed; a step that cannot run is marked where it sits, with the reason. A step renamed from its type shows its type beside its name
+- **Steps** -- A sidebar listing the twelve step types it can add and a pipeline runs: Seed, Sync, Backup, Anonymize, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas, or, with no pipeline open, to start one with that step. A line above the list says only the steps a pipeline runs are listed, and its **Why?** says what the steps that write ask for, and where Restore and Delete run instead
+- **Step Configuration** -- Select a step on the canvas to configure it: its configuration comes above the list of steps, into view. Its name, its timeout in minutes (up to 24 days, 34,560 minutes; empty for none), retries, whether the run goes on after it fails, and the fields of its type
 - **Pipeline Execution View** -- While a run lasts, the canvas shows each step's status as the extension reports it, what each finished step did, and a Cancel button that stops the run. An Approval step that waits shows its message, until when it waits, and **Approve** and **Reject**
 - **AI Pipeline Generator** -- Describe what you want in natural language and let the AI draft the pipeline; its steps are marked when they cannot run
 
@@ -106,9 +106,11 @@ Every step is read before the run the way its module's own request is read: a Ba
 
 A rewind from the Checkpoints page asks for the org's alias, typed under its preview. A Rewind step runs where nobody may be there to type it, so it is confirmed once, for its configuration as saved:
 
-1. Save the pipeline. On the step, **Confirm this rewind…** opens the preview of the rewind, read from the org as the Checkpoints page reads it, with no Rewind button: nothing is written.
-2. **Confirm for this step…** asks for the org's alias -- its username when it has none -- typed as the Checkpoints page asks it. The extension reads the step from the pipeline as saved, never from the page, compares what was typed with the org it knows character for character, checks the checkpoint is kept here, can be rewound to and is of that org, and keeps the confirmation on this machine.
-3. The step then reads "Confirmed on <date>: this step rewinds <org> to <checkpoint> whenever the pipeline runs, by schedule too, at most <n> records, taking back everyone's work since." **Take back the confirmation** removes it.
+1. Save the pipeline. On the step, **Preview and confirm…** opens the preview of the rewind, read from the org as the Checkpoints page reads it, with no Rewind button: nothing is written.
+2. **Type the org alias to confirm…** opens **Allow unattended rewinds of <org>**, which asks for the org's alias -- its username when it has none -- typed as the Checkpoints page asks it. The extension reads the step from the pipeline as saved, never from the page, compares what was typed with the org it knows character for character, checks the checkpoint is kept here, can be rewound to and is of that org, and keeps the confirmation on this machine.
+3. The step then reads "Confirmed on <date>: this step rewinds <org> to <checkpoint> on each run, scheduled ones included, at most <n> records, reverting or deleting every change anyone made since." **Revoke confirmation** removes it.
+
+The acceptances a Rewind step gives sit under **Allow riskier changes (off by default)**, folded while none is ticked, and are worded as the Checkpoints preview words the same boxes: run even if triggers, flows or workflow rules fire on the records it writes; allow deletions that Undo of this rewind cannot bring back; recreate, with new Ids, records already emptied from the Recycle Bin; allow deletions that cascade to child records of objects outside the checkpoint; allow deletions that cascade to records the connected user may not see.
 
 The confirmation is bound to what the step does to the org: its org, its checkpoint, its objects, each acceptance, its `maxRecords` and its refusal while people are at work. A save that changes any of them takes it back, and saving the old configuration again does not bring it back; a change of its name does not. It is kept in this machine's storage, never in the pipeline: a pipeline imported with a profile, installed from the Marketplace or drafted by the AI arrives unconfirmed, and an import or an install that writes a pipeline takes back the confirmations of its steps. A pipeline no longer saved, or a checkpoint deleted or past its days, leaves the confirmation void. Any VS Code window of this account on this machine runs a confirmed pipeline. Where people sign in as the user SandForge connects as -- trainees sharing a Developer Edition's one user, say -- their changes are that user's, and the refusal while people are at work does not see them.
 
@@ -118,13 +120,12 @@ A Rewind step without its confirmation is refused before the pipeline starts, an
 
 ### Triggers
 
-The **Triggers** tab offers the trigger types that start a pipeline:
+The **Triggers** tab offers the trigger types that start a pipeline. **Run Pipeline** runs one without any trigger; a pipeline with no trigger runs only from it:
 
-- **Manual** -- Run on demand from the Run Pipeline button
 - **Schedule** -- Starts the pipeline at each time a five-field cron expression names (minute, hour, day of the month, month, day of the week), in the time zone chosen on the trigger, while VS Code is open
 - **Sandbox Refresh** -- Starts the pipeline when SandForge notices that the sandbox the trigger names was refreshed (see [Monitor](monitor.md#sandbox-refreshes)), provided every step of the pipeline can run
 
-A pipeline saved by an older release, imported with a profile or installed from a template can hold an **Event**, a **Webhook** or a **Deployment Complete** trigger. Those start nothing: no event source feeds an event trigger, SandForge opens no port a webhook could reach, and it reads an org's deployments only when the Monitor asks for them. The panel does not add them, and the card of one a pipeline holds says why it starts nothing.
+A pipeline saved by an older release, imported with a profile or installed from a template can hold a **Manual**, an **Event**, a **Webhook** or a **Deployment Complete** trigger. Those start nothing: Run Pipeline runs a pipeline with or without a Manual trigger, no event source feeds an event trigger, SandForge opens no port a webhook could reach, and it reads an org's deployments only when the Monitor asks for them. The panel does not add them, and the card of one a pipeline holds is badged **Starts nothing**, says why, and has nothing to switch on or off. The **Active triggers** count above the tabs counts the schedules and sandbox refreshes switched on.
 
 A trigger starts the pipeline as it was last saved: an edit on the Triggers tab takes effect when the pipeline is saved, and the tab says so until then. For each saved trigger the tab shows what it will do -- the next run of a schedule, in its time zone, the sandbox a refresh trigger waits for, and when it last fired -- or why it starts nothing: switched off, a cron expression it cannot read or that no date of the coming year matches (the 31st of February or April never comes), a sandbox SandForge no longer knows, a step of the pipeline that cannot run.
 
@@ -172,7 +173,7 @@ saves nothing, and no later step starts -- and is written as failed, and the
 page says it ran out of time. A run stopped by an error before it returns
 leaves no entry. The tab shows for each run:
 
-- Its status, trigger, start time and duration
+- Its status, trigger, start time -- in your language and time zone -- and duration
 - How many steps ran, and how many of them failed
 - Each step, with its status, how long it took, and what it did or why it failed: the records a Backup took, the counts a Compare found, what a Pre-Check read, the records a Sync wrote, and how an Approval was answered, where and when
 

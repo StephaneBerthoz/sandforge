@@ -5219,6 +5219,42 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Automation canvas with no pipeline open, then one with no step, no trigger and no run', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      // It said "Drag a step to the canvas" over a literal "link".
+      const canvas = page.getByTestId('pipeline-canvas');
+      await expect(canvas).toContainText('No pipeline open');
+      await expect(page.getByTestId('palette-listed')).toBeVisible();
+      await page.getByTestId('palette-why').getByText('Why?').click();
+      await expect(page.getByTestId('palette-runnable-note')).toBeVisible();
+      const none = await checkAccessibility(page);
+      expectNoViolations(none);
+      expect(
+        await contrastMeasuredIn(page, none, '[data-testid="pipeline-canvas"]'),
+      ).toBeGreaterThan(0);
+      expect(await contrastMeasuredIn(page, none, '[data-testid="palette-why"]')).toBeGreaterThan(
+        0,
+      );
+
+      await page.getByTestId('create-pipeline-btn').click();
+      await expect(canvas).toContainText('No step yet');
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByRole('tab', { name: 'Triggers' }).click();
+      await expect(page.getByTestId('trigger-config')).toContainText('No trigger yet');
+      const triggers = await checkAccessibility(page);
+      expectNoViolations(triggers);
+      expect(
+        await contrastMeasuredIn(page, triggers, '[data-testid="empty-state"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByRole('tab', { name: 'History' }).click();
+      await expect(page.getByTestId('pipeline-history')).toContainText('No run yet');
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Automation Seed, Anonymize and Checkpoint step panels, each with what it asks for', async ({
       page,
     }) => {
@@ -5327,6 +5363,12 @@ for (const theme of SCANNED_THEMES) {
       });
       await expect(page.getByTestId('rewind-confirmation-status')).toContainText('Not confirmed');
       await expect(page.getByTestId('rewind-confirm')).toBeEnabled();
+      await expect(page.getByTestId('rewind-confirm')).toHaveText('Preview and confirm…');
+      // The riskier boxes, under their heading, folded while none is ticked.
+      const acceptances = page.getByTestId('rewind-acceptances');
+      await expect(page.getByTestId('config-acceptUnseen')).toBeHidden();
+      await acceptances.getByText('Allow riskier changes (off by default)').click();
+      await expect(page.getByTestId('config-acceptUnseen')).toBeVisible();
       const panel = await checkAccessibility(page);
       expectNoViolations(panel);
       expect(
@@ -5349,8 +5391,14 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('checkpoint-preview-rewind')).toHaveCount(0);
       expectNoViolations(await checkAccessibility(page));
 
+      await expect(page.getByTestId('rewind-step-confirm-type')).toHaveText(
+        'Type the org alias to confirm…',
+      );
       await page.getByTestId('rewind-step-confirm-type').click();
       await expect(page.getByTestId('danger-input')).toBeVisible();
+      await expect(page.getByTestId('danger-title')).toHaveText(
+        `Allow unattended rewinds of ${DEV_SANDBOX.alias}`,
+      );
       await page.getByTestId('danger-input').fill(DEV_SANDBOX.alias);
       expectNoViolations(await checkAccessibility(page));
       await page.getByTestId('danger-confirm-btn').click();
@@ -5360,6 +5408,15 @@ for (const theme of SCANNED_THEMES) {
         stepId: 'step-r',
         typed: DEV_SANDBOX.alias,
       });
+
+      // A box ticked is counted on the heading, which stays readable.
+      await page.getByTestId('config-acceptNoUndo').check();
+      await expect(page.getByTestId('rewind-acceptances-count')).toHaveText('1 ticked');
+      const ticked = await checkAccessibility(page);
+      expectNoViolations(ticked);
+      expect(
+        await contrastMeasuredIn(page, ticked, '[data-testid="rewind-acceptances"]'),
+      ).toBeGreaterThan(1);
     });
 
     test('Migration page editing an imported config: an object left out, an upsert with no key', async ({
@@ -6288,12 +6345,19 @@ for (const theme of SCANNED_THEMES) {
         .filter((rule) => rule.id === 'color-contrast')
         .flatMap((rule) => rule.nodes)
         .map((node) => node.html);
-      for (const note of ['trigger-unsaved-', 'trigger-soon-reason-']) {
+      for (const note of [
+        'trigger-unsaved-',
+        'trigger-soon-reason-',
+        'trigger-badge-trig-webhook',
+      ]) {
         expect(
           measured.some((html) => html.includes(note)),
           `axe did not measure ${note}`,
         ).toBe(true);
       }
+      // A webhook card said Active right above "Starts nothing".
+      await expect(page.getByTestId('trigger-badge-trig-webhook')).toHaveText('Starts nothing');
+      await expect(page.getByTestId('toggle-trigger-trig-webhook')).toHaveCount(0);
     });
 
     test('Grappe page while a partitioned run is in progress', async ({ page }) => {

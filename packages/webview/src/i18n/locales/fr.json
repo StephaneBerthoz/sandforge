@@ -2305,7 +2305,7 @@
   "automation": {
     "title": "Automatisation",
     "createPipeline": "Créer un pipeline",
-    "newPipeline": "Nouveau Pipeline",
+    "newPipeline": "Nouveau pipeline",
     "steps": "Étapes",
     "stepsCount": "Étapes du pipeline",
     "triggersCount": "Déclencheurs actifs",
@@ -2315,7 +2315,8 @@
     "triggerSoon": {
       "event": "Ne lance rien : aucune source d'événements n'alimente encore ce déclencheur.",
       "webhook": "Ne lance rien : SandForge n'ouvre aucun port, donc rien hors de VS Code ne peut joindre un webhook.",
-      "deployment_complete": "Ne lance rien : SandForge ne lit les déploiements d'une org que lorsque le Moniteur les demande, donc rien n'en voit un se terminer."
+      "deployment_complete": "Ne lance rien : SandForge ne lit les déploiements d'une org que lorsque le Moniteur les demande, donc rien n'en voit un se terminer.",
+      "manual": "Ne lance rien : Exécuter le pipeline lance le pipeline avec ou sans ce déclencheur."
     },
     "triggerHint": {
       "schedule": "Lance le pipeline enregistré à chaque heure que l'expression désigne, dans le fuseau horaire choisi, tant que VS Code est ouvert.",
@@ -2366,7 +2367,7 @@
     "running": "Exécution du pipeline...",
     "cancel": "Annuler",
     "history": "Historique",
-    "noHistory": "Aucun historique d'exécution",
+    "noHistory": "Aucune exécution pour l'instant",
     "duration": "Durée",
     "triggeredBy": "Déclenché par",
     "stepTypes": {
@@ -2396,7 +2397,7 @@
       "schedule": "Planifié",
       "event": "Événement",
       "webhook": "Webhook",
-      "sandbox_refresh": "Refresh Sandbox",
+      "sandbox_refresh": "Actualisation de la sandbox",
       "deployment_complete": "Déploiement terminé"
     },
     "runStatuses": {
@@ -2413,12 +2414,10 @@
     },
     "scheduler": "Planificateur",
     "schedulerIntro": "Les planifications de synchronisation, par jour de leur prochaine exécution, puis les planifications des pipelines enregistrés, avec la prochaine exécution de chacune.",
-    "cronExpression": "Expression Cron",
+    "cronExpression": "Expression cron",
     "canvas": "Canvas du pipeline",
-    "dragStep": "Glissez une étape sur le canvas",
-    "connectSteps": "Connectez les étapes pour définir le flux",
     "continueOnError": "Continuer en cas d'erreur",
-    "timeout": "Timeout (ms)",
+    "timeout": "Délai d'expiration (minutes, vide = aucune limite)",
     "retries": "Tentatives max",
     "selectStep": "Sélectionnez une étape à configurer",
     "stepConfig": "Configuration de l'étape",
@@ -2439,8 +2438,8 @@
     "subtitle": "Composez et enregistrez des pipelines en plusieurs étapes",
     "savePipeline": "Sauvegarder le pipeline",
     "saving": "Sauvegarde...",
-    "pipelineSaved": "Pipeline sauvegarde avec succès",
-    "savedPipelines": "Pipelines sauvegardes",
+    "pipelineSaved": "Pipeline enregistré",
+    "savedPipelines": "Pipelines enregistrés",
     "generatePipeline": "Générer avec l'IA",
     "generatePipelinePrompt": "Décrivez le pipeline que vous souhaitez créer...",
     "marketplace": "Marketplace",
@@ -2459,7 +2458,7 @@
       "writesToOrg": "Un pipeline n'exécute pas cette étape : lancez-la depuis sa propre page, où Production Guard demande confirmation avant d'écrire dans une org de production.",
       "conditionNeedsCondition": "Choisissez ce que teste cette étape Condition.",
       "delayNeedsSeconds": "Indiquez combien de secondes attend cette étape Délai (de 0 à 24 jours).",
-      "timeoutTooLong": "Indiquez un timeout de 24 jours au plus (2 073 600 000 ms), ou aucun.",
+      "timeoutTooLong": "Indiquez un délai d'expiration de 24 jours au plus (34 560 minutes), ou aucun.",
       "needsOrg": "Choisissez l'org sur laquelle travaille cette étape.",
       "orgNotConnected": "Cette étape désigne une org qui n'est pas connectée ici : choisissez l'une de vos orgs.",
       "backupNeedsObjects": "Listez les noms d'API des objets à sauvegarder, par exemple Account, Contact (100 au plus).",
@@ -2467,7 +2466,7 @@
       "compareNeedsTypes": "Choisissez au moins un type de métadonnées à comparer.",
       "precheckNeedsChecks": "Choisissez ce que lit cette Vérification préalable : usage de l'API, stockage des données, logs d'erreurs Apex ou jobs Apex en échec.",
       "notificationNeedsMessage": "Écrivez le message qu'affiche cette notification (500 caractères au plus).",
-      "paletteNote": "Seules les étapes qu'un pipeline exécute sont proposées. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page, où Production Guard demande d'abord confirmation. Sync exécute une configuration enregistrée sur la page Sync ; s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, et demandent une étape Approbation avant elles dans une sandbox marquée Staging. Une étape Retour arrière s'exécute une fois que vous l'avez confirmée avec l'alias de l'org.",
+      "paletteNote": "Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page, où Production Guard demande d'abord confirmation. Sync exécute une configuration enregistrée sur la page Sync ; s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, et demandent une étape Approbation avant elles dans une sandbox marquée Staging. Une étape Retour arrière s'exécute une fois que vous l'avez confirmée avec l'alias de l'org.",
       "pipelineBlocked": "Ce pipeline ne peut pas s'exécuter. Retirez ou corrigez d'abord ces étapes :",
       "templateBlocked": "Ne peut pas s'exécuter comme pipeline. Ces types d'étapes ne s'exécutent pas dans un pipeline : {{types}}.",
       "conditionNeedsEarlierStep": "Cette Condition teste le résultat de l'étape précédente, et aucune étape ne la précède.",
@@ -2499,17 +2498,19 @@
       "rewindNeedsMaxRecords": "Indiquez le nombre maximal d'enregistrements que cette étape peut remettre en état, tous objets confondus (1 ou plus).",
       "rewindConfigInvalid": "Cette étape Retour arrière n'est pas lisible : vérifiez les objets qu'elle nomme.",
       "rewindNotSaved": "Enregistrez le pipeline, puis confirmez ce retour arrière : une confirmation vaut pour l'étape telle qu'enregistrée.",
-      "rewindNotConfirmed": "Confirmez ce retour arrière : ouvrez son aperçu et tapez l'alias de l'org.",
+      "rewindNotConfirmed": "Non confirmé : cliquez sur Prévisualiser et confirmer…, puis tapez l'alias de l'org.",
       "rewindChangedSinceConfirmed": "Ce retour arrière a changé depuis sa confirmation : confirmez-le à nouveau.",
       "rewindCheckpointMissing": "Le point de contrôle de cette étape n'est pas conservé sur cette machine : prenez-en un ici et choisissez-le.",
       "rewindCheckpointOtherOrg": "Le point de contrôle de cette étape a été pris d'une autre org : choisissez-en un de cette org.",
       "rewindCheckpointRefreshed": "Cette sandbox a été rafraîchie : le point de contrôle est celui de l'org d'avant. Prenez un nouveau point de contrôle et choisissez-le.",
-      "rewindCheckpointUnusable": "Le point de contrôle de cette étape ne permet plus de revenir en arrière : choisissez-en un autre."
+      "rewindCheckpointUnusable": "Le point de contrôle de cette étape ne permet plus de revenir en arrière : choisissez-en un autre.",
+      "paletteListed": "Seules les étapes qu'un pipeline exécute sont proposées.",
+      "paletteWhy": "Pourquoi ?"
     },
     "emptyState": {
       "title": "Créez votre premier pipeline",
       "description": "Composez des pipelines sur un canevas visuel, enregistrez-les et exécutez-les : sauvegardez, générez des données, masquez et comparez des orgs, posez un point de contrôle et revenez-y, vérifiez leurs limites, affichez une notification.",
-      "cta": "Sélectionner un org"
+      "cta": "Sélectionner une org"
     },
     "agenda": {
       "due": "À exécuter maintenant",
@@ -2602,17 +2603,17 @@
     "stepConfigRewindRefuseWhenActive": "Refuser tant que des utilisateurs travaillent dans l'org",
     "rewindRefuseWhenActiveNote": "Refusé quand quelqu'un d'autre a modifié des enregistrements des objets du point de contrôle dans l'heure précédente. Les personnes qui partagent l'utilisateur avec lequel SandForge se connecte ne sont pas distinguées.",
     "rewindAccept": {
-      "acceptAutomation": "Revenir en arrière même si l'automatisation de l'org se déclenche pendant l'écriture",
-      "acceptNoUndo": "Supprimer des enregistrements qu'Annuler ne pourrait pas faire revenir",
-      "acceptRecreate": "Recréer, avec de nouveaux Ids, les enregistrements que la corbeille ne rend plus",
-      "acceptOutside": "Supprimer les enregistrements hors du point de contrôle qu'emportent ses suppressions",
-      "acceptUnseen": "Supprimer des enregistrements dont la suppression emporte ce que l'utilisateur n'est pas certain de voir"
+      "acceptAutomation": "Lancer même si des triggers, des Flows ou des règles de workflow se déclenchent sur les enregistrements qu'il écrit",
+      "acceptNoUndo": "Autoriser des suppressions que l'annulation de ce retour arrière ne pourra pas rétablir",
+      "acceptRecreate": "Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille",
+      "acceptOutside": "Autoriser des suppressions qui s'étendent aux enregistrements enfants d'objets hors du point de contrôle",
+      "acceptUnseen": "Autoriser des suppressions qui s'étendent à des enregistrements que l'utilisateur connecté ne voit peut-être pas (sans View All Data ni Modify All Data)"
     },
-    "rewindConfirmedOn": "Confirmé le {{date}} : cette étape fait revenir {{org}} à « {{name}} » à chaque exécution du pipeline, planifiée aussi, au plus {{max}} enregistrements, en défaisant le travail de chacun depuis.",
+    "rewindConfirmedOn": "Confirmé le {{date}} : cette étape fait revenir {{org}} à « {{name}} » à chaque exécution, planifiées comprises, au plus {{max}} enregistrements, en annulant ou supprimant toute modification faite depuis, par qui que ce soit.",
     "rewindSaveFirst": "Enregistrez le pipeline, puis confirmez ce retour arrière.",
-    "rewindNotConfirmedNote": "Non confirmé : l'étape ne s'exécute pas tant que vous ne l'avez pas confirmée sous son aperçu.",
-    "rewindConfirm": "Confirmer ce retour arrière…",
-    "rewindRevoke": "Retirer la confirmation",
+    "rewindNotConfirmedNote": "Non confirmé : l'étape ne s'exécute pas tant que vous n'avez pas cliqué sur Prévisualiser et confirmer…, puis tapé l'alias de l'org.",
+    "rewindConfirm": "Prévisualiser et confirmer…",
+    "rewindRevoke": "Révoquer la confirmation",
     "rewindGrantRefused": {
       "NOT_SAVED": "Le pipeline enregistré ne contient pas cette étape Retour arrière : enregistrez-le, puis confirmez à nouveau.",
       "CONFIG_INVALID": "L'étape enregistrée n'est pas lisible : corrigez-la, enregistrez, puis confirmez à nouveau.",
@@ -2622,9 +2623,23 @@
     },
     "rewindConfirmHeading": "Confirmer l'étape Retour arrière « {{step}} »",
     "rewindConfirmLead": "Ce que ferait maintenant un retour arrière de {{org}} à « {{name}} ». Une fois confirmée, l'étape fait revenir l'org à chaque exécution du pipeline, planifiée aussi, au plus {{max}} enregistrements, sans personne pour lire ceci.",
-    "rewindConfirmType": "Confirmer pour cette étape…",
-    "rewindConfirmTitle": "Confirmer l'étape Retour arrière « {{step}} »",
-    "rewindConfirmDescription": "À chaque exécution du pipeline, planifiée aussi, cette étape fera revenir {{org}} à « {{name}} », au plus {{max}} enregistrements, en défaisant le travail de chacun depuis. Une modification de l'étape retire la confirmation."
+    "rewindConfirmType": "Taper l'alias de l'org pour confirmer…",
+    "rewindConfirmTitle": "Autoriser les retours arrière sans surveillance de {{org}}",
+    "rewindConfirmDescription": "Chaque exécution, planifiées comprises, fait revenir {{org}} à « {{name}} » (au plus {{max}} enregistrements), en annulant ou supprimant toute modification faite depuis, par qui que ce soit. Modifier cette étape annule la confirmation.",
+    "timeoutNone": "Aucun",
+    "canvasEmpty": {
+      "noPipelineTitle": "Aucun pipeline ouvert",
+      "noPipeline": "Cliquez sur Créer un pipeline ou Générer avec l'IA pour en commencer un, ou cliquez sur une étape sous Étapes pour en commencer un avec elle.",
+      "noStepsTitle": "Aucune étape pour l'instant",
+      "noSteps": "Cliquez sur une étape sous Étapes pour l'ajouter. Les étapes s'exécutent de haut en bas."
+    },
+    "triggerStartsNothing": "Ne lance rien",
+    "noTriggers": "Aucun déclencheur pour l'instant",
+    "noTriggersDesc": "Le pipeline ne s'exécute que depuis Exécuter le pipeline. Ajoutez un déclencheur Planifié ou Actualisation de la sandbox ci-dessus.",
+    "noHistoryDesc": "Les exécutions apparaissent ici dès qu'Exécuter le pipeline ou un déclencheur lance le pipeline enregistré.",
+    "rewindAcceptHeading": "Autoriser des modifications plus risquées (désactivées par défaut)",
+    "rewindAcceptCount_one": "{{count}} cochée",
+    "rewindAcceptCount_other": "{{count}} cochées"
   },
   "ai": {
     "title": "Assistant IA",

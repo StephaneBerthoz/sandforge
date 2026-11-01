@@ -485,17 +485,64 @@ test.describe('Automation page — canvas editing', () => {
 
     await page.getByTestId('palette-delay').click();
     await expect(canvasSteps(page)).toHaveCount(1);
-    await expect(page.getByTestId('pipeline-canvas')).toContainText('delay');
+    // Named after its type, in the reader's words: it was named "delay",
+    // beside a badge that said "delay" again.
+    await expect(canvasSteps(page).first()).toContainText('Delay');
+    await expect(page.getByTestId('pipeline-canvas')).not.toContainText('delay');
     await expect(kpiValues(page).nth(0)).toHaveText('1');
 
     await page.getByTestId('palette-delay').click();
     await expect(canvasSteps(page)).toHaveCount(2);
+    await expect(canvasSteps(page).nth(1)).toContainText('Delay 2');
     await expect(kpiValues(page).nth(0)).toHaveText('2');
 
     const firstStepId = await canvasSteps(page).first().getAttribute('data-testid');
     await page.getByTestId(`remove-step-${firstStepId?.replace('canvas-step-', '') ?? ''}`).click();
     await expect(canvasSteps(page)).toHaveCount(1);
     await expect(kpiValues(page).nth(0)).toHaveText('1');
+  });
+
+  test('a step picked under Steps before any pipeline starts one with it, as the canvas says', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    // The canvas said "Drag a step to the canvas", and a click on a step did
+    // nothing until Create Pipeline.
+    await expect(page.getByTestId('pipeline-canvas')).toContainText('No pipeline open');
+    await expect(page.getByTestId('pipeline-canvas')).not.toContainText(/drag/i);
+
+    await page.getByTestId('palette-approval').click();
+    await expect(page.getByTestId('page-header-subtitle')).toHaveText('New Pipeline v1 · 1 step');
+    await expect(canvasSteps(page)).toHaveCount(1);
+    await expect(canvasSteps(page).first()).toContainText('Approval');
+
+    const stepId = ((await canvasSteps(page).first().getAttribute('data-testid')) ?? '').replace(
+      'canvas-step-',
+      '',
+    );
+    await page.getByTestId(`remove-step-${stepId}`).click();
+    await expect(page.getByTestId('pipeline-canvas')).toContainText(
+      'Click a step under Steps to add it. Steps run top to bottom.',
+    );
+  });
+
+  test('the configuration of the step picked comes above the list under Steps, in view', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('palette-backup').click();
+    await page.getByTestId('palette-precheck').click();
+    const side = page.getByTestId('automation-side');
+    await expect(side.locator('> *').first()).toHaveAttribute('data-testid', 'step-palette');
+
+    await canvasSteps(page).nth(1).click();
+    await expect(page.getByTestId('step-config-panel')).toBeInViewport();
+    await expect(side.locator('> *').first()).toContainText('Step Configuration');
+    await expect(page.getByTestId('step-config-panel')).toContainText('Pre-Check');
+    // w-72, 18rem: 288 pixels, where it was 192.
+    await expect(side).toHaveCSS('width', '288px');
   });
 
   test('a step is selected and removed from the keyboard', async ({ page }) => {
@@ -539,6 +586,14 @@ test.describe('Automation page — canvas editing', () => {
     await answerMountQueries(page);
     await page.getByTestId('create-pipeline-btn').click();
 
+    // One line above the list, the reasons behind Why?: ninety words in
+    // ten-pixel type stood there and pushed Step Configuration off screen.
+    await expect(page.getByTestId('palette-listed')).toHaveText(
+      'Only the steps a pipeline runs are listed.',
+    );
+    await expect(page.getByTestId('palette-runnable-note')).toBeHidden();
+    await page.getByTestId('palette-why').getByText('Why?').click();
+    await expect(page.getByTestId('palette-runnable-note')).toBeVisible();
     await expect(page.getByTestId('palette-runnable-note')).toContainText(
       'Restore and Delete write to an org and run only from their own pages',
     );
@@ -635,7 +690,10 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId('page-tab-triggers').click();
 
     const options = page.getByTestId('trigger-type-select').locator('option');
-    await expect(options).toHaveText(['Manual', 'Schedule', 'Sandbox Refresh']);
+    // Manual came first and selected, and started nothing: Run Pipeline runs a
+    // pipeline with or without it.
+    await expect(options).toHaveText(['Schedule', 'Sandbox Refresh']);
+    await expect(page.getByTestId('trigger-type-select')).toHaveValue('schedule');
     await expect(page.getByTestId('trigger-config')).not.toContainText('Coming soon');
   });
 
@@ -654,6 +712,10 @@ test.describe('Automation page — canvas editing', () => {
 
     await canvasSteps(page).first().click();
     await page.getByTestId('config-seconds').fill('2');
+    // In minutes, sent in the milliseconds the extension reads: the field
+    // took milliseconds under the example "300", a 0.3-second timeout.
+    await expect(page.getByTestId('step-timeout-input')).toHaveAttribute('placeholder', 'None');
+    await page.getByTestId('step-timeout-input').fill('300');
     await expect(page.getByTestId('pipeline-blocked')).toHaveCount(0);
     await page.getByTestId('run-pipeline-btn').click();
 
@@ -661,7 +723,9 @@ test.describe('Automation page — canvas editing', () => {
     expect(runs).toHaveLength(1);
     const sent = (runs[0].payload as { pipeline: { steps: Array<Record<string, unknown>> } })
       .pipeline.steps;
-    expect(sent).toEqual([expect.objectContaining({ type: 'delay', config: { seconds: 2 } })]);
+    expect(sent).toEqual([
+      expect.objectContaining({ type: 'delay', config: { seconds: 2 }, timeout: 18_000_000 }),
+    ]);
 
     await respondToAll(page, 'pipeline:execute', 'pipeline:run:response', {
       id: 'run-9',
@@ -882,6 +946,13 @@ test.describe('Automation page — canvas editing', () => {
     await expect(cronInput).toHaveCount(1);
     await cronInput.fill('0 4 * * *');
     await expect(cronInput).toHaveValue('0 4 * * *');
+
+    // Switched off, it starts nothing, and Active triggers says so.
+    await page.locator('[data-testid^="toggle-trigger-"]').click();
+    await expect(kpiValues(page).nth(1)).toHaveText('0');
+    await expect(page.getByTestId('automation-kpi-row')).toContainText('Active triggers');
+    await page.locator('[data-testid^="toggle-trigger-"]').click();
+    await expect(kpiValues(page).nth(1)).toHaveText('1');
 
     const removeTrigger = page.locator('[data-testid^="remove-trigger-"]');
     await expect(removeTrigger).toHaveCount(1);
