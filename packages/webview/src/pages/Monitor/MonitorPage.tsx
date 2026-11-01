@@ -39,7 +39,6 @@ import { RefreshPanel } from './RefreshPanel';
 import { HealthCheckPanel } from './HealthCheckPanel';
 import { AlertHistoryPanel } from './AlertHistoryPanel';
 import { GovernancePanelConnected } from './GovernancePanel';
-import { ResetCountdown } from './ResetCountdown';
 import { SectionHeader } from './SectionHeader';
 import { MonitorKpiRow } from './MonitorKpiRow';
 import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
@@ -174,7 +173,6 @@ export const MonitorPage: React.FC = () => {
     predictions,
     isRefreshing,
     isStale,
-    minutesSinceUpdate,
     consecutiveFailures,
     connectionLost,
     sectionErrors,
@@ -443,8 +441,14 @@ export const MonitorPage: React.FC = () => {
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
-          <ResetCountdown />
-          {lastUpdatedStr && <span className="text-xs text-text-secondary">{lastUpdatedStr}</span>}
+          {/* No countdown to a reset here: it counted down to midnight
+              Pacific beside the API calls, which Salesforce counts over a
+              rolling 24 hours, and nothing resets at that moment. */}
+          {lastUpdatedStr && (
+            <span className="text-xs text-text-secondary" data-testid="monitor-read-age">
+              {t('monitor.staleData', { age: lastUpdatedStr })}
+            </span>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -559,10 +563,9 @@ export const MonitorPage: React.FC = () => {
             data-testid="stale-data-badge"
           >
             <Badge variant="warning">
-              {t('monitor.staleData', 'Data is {{minutes}}m old').replace(
-                '{{minutes}}',
-                String(minutesSinceUpdate),
-              )}
+              {/* The age the header gives, in the same words: the two said
+                  "5555h ago" and "Data is 333315m old" of one read. */}
+              {t('monitor.staleData', { age: lastUpdatedStr })}
               {' — '}
               {t('monitor.refreshNow', 'Refresh now')}
             </Badge>
@@ -599,7 +602,8 @@ export const MonitorPage: React.FC = () => {
           className="flex items-center gap-3 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-2"
         >
           <CircleDashed className="w-4 h-4 text-text-secondary shrink-0" />
-          <span className="text-sm text-text-secondary">{t('common.noData')}</span>
+          {/* Named: a bare "No data available" sat above KPIs full of data. */}
+          <span className="text-sm text-text-secondary">{t('monitor.jobInsightsUnknown')}</span>
         </div>
       ) : criticalInsights.length > 0 || warningInsights.length > 0 ? (
         <div className="flex flex-col gap-2" data-testid="monitor-job-insights">

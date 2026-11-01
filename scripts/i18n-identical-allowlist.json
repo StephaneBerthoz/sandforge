@@ -9,6 +9,7 @@
     "automation.rewindCheckpointOption",
     "automation.timeout",
     "automationMute.kind.flow",
+    "autopilot.step4.durationMinutes",
     "checkpoint.preview.person",
     "checkpoint.transfer.importDialog.madeByValue",
     "common.itemCount_one",

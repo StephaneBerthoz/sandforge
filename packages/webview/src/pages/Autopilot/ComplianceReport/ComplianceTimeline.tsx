@@ -1,80 +1,83 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ComplianceReportEntry } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import type { NodeFinishStatus } from '../../../stores/useAutopilotStore';
 import { dateTimeFormat } from '../../../utils/formatters';
 
-/** Timeline entry for a compliance event. */
-interface TimelineEntry {
-  timestamp: string;
-  objectName: string;
-  event: string;
-  fieldsAnonymized: number;
+/** Props for the ComplianceTimeline component. */
+export interface ComplianceTimelineProps {
+  /** The report's entries: the fields anonymized, per object. */
+  readonly entries: readonly ComplianceReportEntry[];
 }
 
-/** Timeline of compliance events during execution (scan, anonymization per object). */
-export const ComplianceTimeline: React.FC = () => {
+/** The key of each status a node ends on. */
+const STATUS_KEY: Record<NodeFinishStatus, string> = {
+  completed: 'autopilot.graph.completed',
+  failed: 'autopilot.graph.failed',
+  skipped: 'autopilot.graph.skipped',
+};
+
+/**
+ * When each object of the run finished, and on what: the time the host
+ * stamped on the message that settled it, kept by the store as it came.
+ *
+ * It stamped every object with the time it was drawn, the same for all and
+ * moving on every redraw, called a node still writing "Completed", and
+ * counted the rules of a list nothing filled. A report a consultant may hand
+ * on carries no time nobody stamped: an object the store holds no time for is
+ * left out, and with none at all the timeline is not drawn.
+ */
+export const ComplianceTimeline: React.FC<ComplianceTimelineProps> = ({ entries }) => {
   const { t } = useTranslation();
-  const graph = useAutopilotStore((s) => s.graph);
-  const rules = useAutopilotStore((s) => s.rules);
+  const finishes = useAutopilotStore((s) => s.nodeFinishes);
 
-  /** Build timeline entries from graph nodes and rules. */
-  const entries: TimelineEntry[] = React.useMemo(() => {
-    if (!graph) return [];
-    return graph.nodes
-      .filter(
-        (n) => n.status === 'completed' || n.status === 'loading' || n.status === 'anonymizing',
-      )
-      .map((node) => {
-        const nodeRuleCount = rules.filter((r) => r.objectApiName === node.objectApiName).length;
-        return {
-          timestamp: dateTimeFormat({
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          }).format(new Date()),
-          objectName: node.objectApiName,
-          event:
-            node.status === 'anonymizing'
-              ? t('autopilot.graph.anonymizing')
-              : t('autopilot.graph.completed'),
-          fieldsAnonymized: nodeRuleCount,
-        };
-      });
-  }, [graph, rules, t]);
+  const rows = Object.entries(finishes)
+    .map(([objectName, finish]) => ({
+      objectName,
+      ...finish,
+      fieldsAnonymized: entries.filter((entry) => entry.objectApiName === objectName).length,
+    }))
+    .sort((a, b) => a.at - b.at || a.objectName.localeCompare(b.objectName));
 
-  if (entries.length === 0) {
-    return (
-      <div
-        className="flex items-center justify-center py-8 text-sm text-(--sf-text-secondary)"
-        data-testid="compliance-timeline-empty"
-      >
-        {t('common.noData')}
-      </div>
-    );
-  }
+  if (rows.length === 0) return null;
+
+  const format = dateTimeFormat({ dateStyle: 'short', timeStyle: 'medium' });
 
   return (
-    <div className="flex flex-col gap-2" data-testid="compliance-timeline">
-      {entries.map((entry, idx) => (
-        <div
-          key={`${entry.objectName}-${idx}`}
-          className="flex items-start gap-3 px-3 py-2 rounded-sm bg-(--sf-bg-primary)"
-        >
-          <div className="w-2 h-2 mt-1.5 rounded-full bg-(--sf-progress-bg) shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-(--sf-text-primary)">
-                {entry.objectName}
-              </span>
-              <span className="text-[10px] text-(--sf-text-secondary)">{entry.timestamp}</span>
+    <section aria-labelledby="compliance-timeline-heading">
+      <h4 id="compliance-timeline-heading" className="text-sm font-semibold text-text-primary mb-2">
+        {t('autopilot.report.timeline')}
+      </h4>
+      <ol className="flex flex-col gap-2" data-testid="compliance-timeline">
+        {rows.map((row) => (
+          <li
+            key={row.objectName}
+            className="flex items-start gap-3 px-3 py-2 rounded-sm bg-(--sf-bg-primary)"
+            data-testid={`compliance-timeline-${row.objectName}`}
+          >
+            <div className="w-2 h-2 mt-1.5 rounded-full bg-(--sf-progress-bg) shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-(--sf-text-primary)">
+                  {row.objectName}
+                </span>
+                <time
+                  dateTime={new Date(row.at).toISOString()}
+                  className="text-[10px] text-(--sf-text-secondary)"
+                >
+                  {format.format(new Date(row.at))}
+                </time>
+              </div>
+              <div className="text-[10px] text-(--sf-text-secondary)">
+                {t(STATUS_KEY[row.status])}
+                {row.fieldsAnonymized > 0 &&
+                  ` — ${t('autopilot.control.piiFieldCount', { count: row.fieldsAnonymized })}`}
+              </div>
             </div>
-            <div className="text-[10px] text-(--sf-text-secondary)">
-              {entry.event} —{' '}
-              {t('autopilot.control.piiFieldCount', { count: entry.fieldsAnonymized })}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 };

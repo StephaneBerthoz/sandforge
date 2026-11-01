@@ -47,6 +47,7 @@ vi.mock('../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'sandbox',
           safetyTier: 'safe',
+          tags: [],
         },
         {
           id: 'org-2',
@@ -56,6 +57,7 @@ vi.mock('../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'sandbox',
           safetyTier: 'caution',
+          tags: [],
         },
       ],
       selectedOrgId: 'org-1',
@@ -82,15 +84,23 @@ function lastRequestOfType(type: string): PostedEnvelope['payload'] {
   return match.payload;
 }
 
-/** Simulate an extension-host message arriving in the webview. */
-function dispatchBridgeMessage(type: string, payload: unknown, correlationId?: string): void {
+/**
+ * Simulate an extension-host message arriving in the webview, stamped as the
+ * host stamps it (`buildResponse`): now, unless the test gives the time.
+ */
+function dispatchBridgeMessage(
+  type: string,
+  payload: unknown,
+  correlationId?: string,
+  timestamp: number = Date.now(),
+): void {
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
         data: {
           id: `ext-${Date.now()}-${Math.random()}`,
           type,
-          timestamp: Date.now(),
+          timestamp,
           ...(correlationId ? { correlationId } : {}),
           payload,
         },
@@ -410,6 +420,69 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByTestId('compliance-report')).toBeDefined();
     expect(screen.getByTestId('report-framework').textContent).toContain('GDPR');
     expect(screen.getByText('gdpr-email')).toBeDefined();
+  });
+
+  it('dates each object of the report’s timeline by the host’s message that finished it, never by the reconciliation or the redraw', () => {
+    // Every object read the time the report was drawn, the same for all.
+    render(<AutopilotPage />);
+    driveToReview();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const executeRequest = lastRequestOfType('autopilot:execute');
+    const started = Date.UTC(2026, 9, 31, 8, 0, 0);
+    const accountDone = Date.UTC(2026, 9, 31, 8, 4, 12);
+    const contactFailed = Date.UTC(2026, 9, 31, 8, 9, 30);
+    const reconciled = Date.UTC(2026, 9, 31, 8, 30, 0);
+
+    for (const objectName of ['Account', 'Contact']) {
+      dispatchBridgeMessage(
+        'autopilot:node-progress',
+        { nodeId: objectName, objectName, status: 'processing', wave: 0 },
+        executeRequest.id,
+        started,
+      );
+    }
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Account', objectName: 'Account', status: 'completed', wave: 0, recordCount: 100 },
+      executeRequest.id,
+      accountDone,
+    );
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Contact', objectName: 'Contact', status: 'failed', wave: 1, error: 'boom' },
+      executeRequest.id,
+      contactFailed,
+    );
+    // The run's end settles every node once more, later.
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Account', objectName: 'Account', status: 'completed', wave: 0, recordCount: 100 },
+      executeRequest.id,
+      reconciled,
+    );
+    dispatchBridgeMessage(
+      'autopilot:completed',
+      {
+        totalRecords: 180,
+        totalSuccessCount: 100,
+        totalFailureCount: 50,
+        totalElapsedMs: 5000,
+        totalApiCalls: 4,
+      },
+      executeRequest.id,
+    );
+    fireEvent.click(screen.getByTestId('view-compliance-report'));
+    respondTo('autopilot:compliance-report', 'autopilot:compliance-report', { report: REPORT });
+
+    const isoOf = (row: string): string | null | undefined =>
+      screen.getByTestId(row).querySelector('time')?.getAttribute('dateTime');
+    expect(isoOf('compliance-timeline-Account')).toBe(new Date(accountDone).toISOString());
+    expect(isoOf('compliance-timeline-Contact')).toBe(new Date(contactFailed).toISOString());
+    expect(screen.getByTestId('compliance-timeline-Contact').textContent).toContain('Failed');
+    expect(screen.getAllByRole('listitem').map((row) => row.getAttribute('data-testid'))).toEqual([
+      'compliance-timeline-Account',
+      'compliance-timeline-Contact',
+    ]);
   });
 
   it('shows on the node why the target refused its records, as the handler sends it', () => {

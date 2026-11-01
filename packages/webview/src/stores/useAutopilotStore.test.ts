@@ -354,4 +354,41 @@ describe('useAutopilotStore', () => {
       linkedCount: 2,
     });
   });
+
+  it('keeps when a node settled from the first message that settled it, not the run’s reconciliation', () => {
+    // The host settles each node as it ends, then every node once more when
+    // the run is over: the second message is not when the node finished.
+    getState().recordNodeFinish('Account', 'completed', 1_000);
+    getState().recordNodeFinish('Account', 'completed', 9_000);
+    getState().recordNodeFinish('Contact', 'failed', 2_000);
+
+    expect(getState().nodeFinishes).toEqual({
+      Account: { status: 'completed', at: 1_000 },
+      Contact: { status: 'failed', at: 2_000 },
+    });
+  });
+
+  it('takes the time of a message that settles a node otherwise', () => {
+    getState().recordNodeFinish('Account', 'completed', 1_000);
+    getState().recordNodeFinish('Account', 'skipped', 5_000);
+
+    expect(getState().nodeFinishes.Account).toEqual({ status: 'skipped', at: 5_000 });
+  });
+
+  it('keeps no time a message did not carry', () => {
+    getState().recordNodeFinish('Account', 'completed', Number.NaN);
+    getState().recordNodeFinish('Account', 'completed', undefined as unknown as number);
+
+    expect(getState().nodeFinishes).toEqual({});
+  });
+
+  it('forgets the last run’s settle times as a new run starts, and on reset', () => {
+    getState().recordNodeFinish('Account', 'completed', 1_000);
+    getState().clearNodeFinishes();
+    expect(getState().nodeFinishes).toEqual({});
+
+    getState().recordNodeFinish('Account', 'completed', 1_000);
+    getState().reset();
+    expect(getState().nodeFinishes).toEqual({});
+  });
 });

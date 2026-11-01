@@ -12,6 +12,9 @@ import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
 import { CompliancePicker } from './CompliancePicker';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
+import { OrgBadge } from '../../../components/ui/OrgBadge';
+import { Icon } from '../../../components/ui/Icon';
+import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -89,6 +92,13 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
 }) => {
   const { t } = useTranslation();
   const contactPointsHintId = React.useId();
+  // The orgs as the user knows them: the last panel before the write named
+  // them by the ids the store keys them on, a UUID in a real install, on the
+  // one screen where the user checks which org is written to.
+  const orgs = useOrgStore((s) => s.orgs);
+  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
+  const targetOrg = orgs.find((o) => o.id === targetOrgId);
+  const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
 
   /** Why a lookup is left empty, in the interface language. */
   const reasonOf = (lookup: AutopilotLookupLeftEmpty): string => {
@@ -132,6 +142,23 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
     };
     return labels[fw];
   };
+
+  /*
+   * What becomes of the personal data, from both choices: the tile followed
+   * the framework alone and said "No anonymization" under the ticked box
+   * that neutralizes every email and phone number, beside a second tile
+   * naming the framework again.
+   */
+  const personalData =
+    complianceFramework === 'none'
+      ? neutralizeContactPoints
+        ? t('autopilot.step4.personalDataContactPoints')
+        : t('autopilot.step4.personalDataNone')
+      : neutralizeContactPoints
+        ? t('autopilot.step4.personalDataFrameworkAndContactPoints', {
+            framework: frameworkLabel(complianceFramework),
+          })
+        : frameworkLabel(complianceFramework);
 
   return (
     <div className="flex flex-col gap-(--sf-space-4)" data-testid="step4-review">
@@ -215,7 +242,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         />
         <StatCard
           label={t('autopilot.step4.estimatedDuration')}
-          value={`~${estimatedDurationMin} min`}
+          value={t('autopilot.step4.durationMinutes', { minutes: fmt(estimatedDurationMin) })}
           testId="stat-duration"
         />
         <StatCard
@@ -235,18 +262,9 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           testId="stat-anonymized-fields"
         />
         <StatCard
-          label={t('autopilot.step4.complianceFramework')}
-          value={frameworkLabel(complianceFramework)}
-          testId="stat-compliance"
-        />
-        <StatCard
-          label={t('autopilot.step4.anonymization')}
-          value={
-            complianceFramework === 'none'
-              ? t('autopilot.step4.noAnonymization')
-              : t('autopilot.step4.autoDetect')
-          }
-          testId="stat-anonymization"
+          label={t('autopilot.step4.personalData')}
+          value={personalData}
+          testId="stat-personal-data"
         />
       </div>
 
@@ -354,17 +372,24 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
+      <div
+        className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
+        data-testid="step4-orgs"
+      >
         <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.connectionSummary')}
         </span>
-        <div className="flex items-center gap-2 text-xs text-text-secondary">
-          <span>
-            {t('autopilot.step4.source')}: {sourceOrgId}
+        {/* Each org by its alias, its type — the target's in the colour of
+            its tier — and its instance, as its badge names it elsewhere. */}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <span className="flex items-center gap-1" data-testid="step4-source-org">
+            {t('autopilot.step4.source')}
+            {sourceOrg ? <OrgBadge org={sourceOrg} /> : <span>{sourceOrgId}</span>}
           </span>
-          <span className="text-text-primary">&rarr;</span>
-          <span>
-            {t('autopilot.step4.target')}: {targetOrgId}
+          <Icon name="arrow-right" className="text-text-primary" />
+          <span className="flex items-center gap-1" data-testid="step4-target-org">
+            {t('autopilot.step4.target')}
+            {targetOrg ? <OrgBadge org={targetOrg} /> : <span>{targetOrgId}</span>}
           </span>
         </div>
       </div>
@@ -404,7 +429,9 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           aria-describedby="step4-no-way-back"
           data-testid="execute-button"
         >
-          {isExecuting ? t('autopilot.step4.executing') : t('autopilot.step4.execute')}
+          {isExecuting
+            ? t('autopilot.step4.executing')
+            : t('autopilot.step4.copyInto', { target: targetName })}
         </Button>
       </div>
     </div>

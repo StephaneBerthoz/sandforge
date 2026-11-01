@@ -62,6 +62,7 @@ let mockOrgState: Record<string, unknown> = {
       status: 'connected',
       orgType: 'sandbox',
       safetyTier: 'safe',
+      tags: [],
     },
   ],
   selectedOrgId: 'org-1',
@@ -117,6 +118,9 @@ const defaultAutopilotState = (): Record<string, unknown> => ({
   updateNodeProgress: vi.fn(),
   updateLiveStats: vi.fn(),
   addError: vi.fn(),
+  recordNodeFinish: vi.fn(),
+  clearNodeFinishes: vi.fn(),
+  nodeFinishes: {},
   reset: vi.fn(),
 });
 
@@ -133,6 +137,7 @@ describe('AutopilotPage', () => {
           status: 'connected',
           orgType: 'sandbox',
           safetyTier: 'safe',
+          tags: [],
         },
       ],
       selectedOrgId: 'org-1',
@@ -234,9 +239,12 @@ describe('AutopilotPage', () => {
     const state = mockAutopilotState as {
       setExecutionStatus: ReturnType<typeof vi.fn>;
       setStep: ReturnType<typeof vi.fn>;
+      clearNodeFinishes: ReturnType<typeof vi.fn>;
     };
     expect(state.setExecutionStatus).toHaveBeenCalledWith('executing');
     expect(state.setStep).toHaveBeenCalledWith('executing');
+    // The last run's settle times go: its timeline is not this run's.
+    expect(state.clearNodeFinishes).toHaveBeenCalledTimes(1);
   });
 
   it('asks the run to keep emails and phone numbers as read only when the review unticked the box', () => {

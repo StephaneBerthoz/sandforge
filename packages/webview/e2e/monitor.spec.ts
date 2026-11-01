@@ -355,9 +355,13 @@ test.describe('Monitor — dashboard', () => {
     await expect(page.getByTestId('org-info-panel')).toContainText('00D000000000001');
 
     // API calls used = max - remaining, not the raw limit.
-    const apiCard = page.getByTestId('kpi-card').filter({ hasText: 'API Calls Today' });
+    // Counted over a rolling 24 hours, as Salesforce counts them: no "Today".
+    const apiCard = page.getByTestId('kpi-card').filter({ hasText: 'API calls, last 24 h' });
     await expect(apiCard.getByTestId('kpi-value')).toHaveText('55,000');
     await expect(apiCard.getByTestId('kpi-subtitle')).toHaveText('/ 100,000');
+    await expect(apiCard.getByTestId('kpi-hint')).toHaveText(
+      'Salesforce counts API requests over a rolling 24-hour window.',
+    );
 
     // 5120 - 3072 MB = 2.0 GB of 5.0 GB.
     const storageCard = page.getByTestId('kpi-card').filter({ hasText: 'Data Storage' });
@@ -368,10 +372,11 @@ test.describe('Monitor — dashboard', () => {
     const alertsCard = page.getByTestId('kpi-card').filter({ hasText: 'Alerts' });
     await expect(alertsCard.getByTestId('kpi-value')).toHaveText('2');
 
-    // The daily-limit countdown ticks every second, so assert its shape, never
-    // a value: a fixed expectation here would be a flake generator.
-    await expect(page.getByTestId('reset-countdown')).toBeVisible();
-    await expect(page.getByTestId('reset-countdown-value')).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+    // No countdown to a midnight Pacific that resets nothing; the header says
+    // how long ago the data was read, in a sentence and one unit.
+    await expect(page.getByTestId('reset-countdown')).toHaveCount(0);
+    await expect(page.getByText(/Reset in/)).toHaveCount(0);
+    await expect(page.getByTestId('monitor-read-age')).toHaveText(/^Data read (now|.+ ago)$/);
   });
 
   test('governor limits expand to every limit in the payload', async ({ page }) => {

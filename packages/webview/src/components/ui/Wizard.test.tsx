@@ -240,6 +240,21 @@ describe('Wizard', () => {
     expect(alphaButton.querySelectorAll('span').length).toBeGreaterThan(2);
   });
 
+  it('wraps a step title in its narrow column rather than cutting it', () => {
+    // Autopilot's first title lost its last words, more of them in French and
+    // German; the browser check of the rendered column is in autopilot.spec.ts.
+    render(
+      <Wizard steps={steps} currentStep={0} onStepChange={vi.fn()}>
+        <div>Content</div>
+      </Wizard>,
+    );
+    const title = screen.getByText(en.seed.selectOrg, {
+      selector: '[data-testid="wizard-step-alpha"] span',
+    });
+    expect(title.className).not.toContain('truncate');
+    expect(title.className).toContain('wrap-break-word');
+  });
+
   it('never draws the next step beside the one leaving', async () => {
     // The step that leaves stays in the page while it fades out. Drawn beside
     // it, the next step doubled every control the two share: a click could

@@ -132,6 +132,7 @@ vi.mock('../../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'sandbox',
           safetyTier: 'safe',
+          tags: [],
         },
         {
           id: 'org-2',
@@ -141,6 +142,7 @@ vi.mock('../../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'sandbox',
           safetyTier: 'caution',
+          tags: [],
         },
       ],
     }),
@@ -398,6 +400,29 @@ describe('AutopilotWizard', () => {
     render(wizard());
     expect(screen.queryByText(en.autopilot.step4.title)).not.toBeNull();
     expect(screen.queryByText('Compliance Framework')).toBeNull();
+  });
+
+  it('names each step by its title alone, the step saying its description once, in its body', () => {
+    // The sidebar repeated each step's description under its title, both cut
+    // short in its narrow column, while the step's body said it in full.
+    render(wizard());
+
+    const sidebar = screen.getByTestId('seed-step-indicator');
+    expect(sidebar.textContent).toBe(
+      [
+        '1',
+        en.autopilot.step1.title,
+        '2',
+        en.autopilot.step2.title,
+        '3',
+        en.autopilot.step4.title,
+      ].join(''),
+    );
+    expect(screen.getAllByText(en.autopilot.step1.description)).toHaveLength(1);
+    // Wrapped, not cut: the title keeps every word in the narrow column.
+    for (const title of [en.autopilot.step1.title, en.autopilot.step2.title]) {
+      expect(screen.getByText(title).className).not.toContain('truncate');
+    }
   });
 
   it('builds the plan again when the review picks a framework, and neutralizes contact points by default', () => {

@@ -364,6 +364,64 @@ test.describe('Autopilot — Wizard Flow', () => {
     await expect(page.getByTestId('stat-waves')).toContainText('2');
   });
 
+  test('Review: names both orgs by alias, type and instance, and the target on the button that copies into it', async ({
+    page,
+  }) => {
+    // The panel named them "Source: org-src-1 → Target: org-tgt-1", the ids
+    // the store keys them on, on the one screen where the target is checked.
+    await advanceToObjects(page, bridge);
+    await advanceToPlan(page, bridge);
+    await advanceToReview(page, bridge);
+
+    const orgs = page.getByTestId('step4-orgs');
+    await expect(orgs).not.toContainText('org-src-1');
+    await expect(orgs).not.toContainText('org-tgt-1');
+    const source = page.getByTestId('step4-source-org');
+    await expect(source.getByTestId('org-badge-alias')).toHaveText('DevSandbox');
+    await expect(source.getByTestId('org-badge-type')).toHaveText('SANDBOX');
+    await expect(source.getByTestId('org-badge-url')).toHaveText('dev.salesforce.com');
+    await expect(page.getByTestId('step4-target-org').getByTestId('org-badge-alias')).toHaveText(
+      'QASandbox',
+    );
+    await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
+  });
+
+  test('Review: one Personal data tile follows the framework and the neutralization box together', async ({
+    page,
+  }) => {
+    // "No anonymization" was written under the ticked box that neutralizes
+    // every email and phone number.
+    await advanceToObjects(page, bridge);
+    await advanceToPlan(page, bridge);
+    await advanceToReview(page, bridge);
+
+    const tile = page.getByTestId('stat-personal-data');
+    await expect(tile).toContainText('Emails and phones neutralized');
+    await expect(page.getByTestId('stat-anonymization')).toHaveCount(0);
+    await page.getByTestId('step4-contact-points-toggle').uncheck();
+    await expect(tile).toContainText('None: copied as in the source');
+  });
+
+  test('keeps every word of each step title in the stepper’s narrow column', async ({ page }) => {
+    // "Connect Source & T…": the titles were cut, and their descriptions
+    // under them, which each step's body says in full.
+    const titles = page.getByTestId('seed-step-indicator').locator('button > span:last-child');
+    await expect(titles).toHaveCount(3);
+    for (const title of await titles.all()) {
+      const cut = await title.evaluate((spans) =>
+        [...spans.querySelectorAll('span'), spans].some(
+          (span) =>
+            span.scrollWidth > span.clientWidth ||
+            getComputedStyle(span).textOverflow === 'ellipsis',
+        ),
+      );
+      expect(cut).toBe(false);
+    }
+    await expect(page.getByTestId('seed-step-indicator')).toHaveText(
+      '1Connect source and target2Select objects3Review plan',
+    );
+  });
+
   test('back button navigates to previous step', async ({ page }) => {
     await advanceToObjects(page, bridge);
 
@@ -397,7 +455,7 @@ test.describe('Autopilot — Wizard Flow', () => {
       objects: MOCK_LISTING,
     });
     await expect(page.getByTestId('step2-objects')).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Select Objects', exact: true })).toBeFocused();
+    await expect(page.getByRole('group', { name: 'Select objects', exact: true })).toBeFocused();
   });
 
   test('takes the keyboard to the review once the plan is built, where a second Enter starts nothing', async ({
@@ -432,7 +490,7 @@ test.describe('Autopilot — Wizard Flow', () => {
 
     expect(await outgoing(page, 'autopilot:execute')).toEqual([]);
     await expect(page.getByTestId('autopilot-graph-area')).toHaveCount(0);
-    await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+    await expect(page.getByRole('group', { name: 'Review plan', exact: true })).toBeFocused();
   });
 
   test('hands the keyboard to the running view’s heading when Execute starts the run', async ({
@@ -472,7 +530,7 @@ test.describe('Autopilot — Wizard Flow', () => {
     });
 
     await expect(page.getByTestId('autopilot-execute-error')).toContainText('Production Guard');
-    await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+    await expect(page.getByRole('group', { name: 'Review plan', exact: true })).toBeFocused();
     expect(await outgoing(page, 'autopilot:execute')).toHaveLength(1);
   });
 
@@ -562,6 +620,52 @@ test.describe('Autopilot — Execution UI', () => {
 
     await expect(page.getByTestId('compliance-report')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('report-framework')).toContainText('GDPR');
+  });
+
+  test('dates each object of the report’s timeline by the host’s message that finished it, listing no object still running', async ({
+    page,
+  }) => {
+    // Every object read the time the report was drawn, the same for all and
+    // moving on each redraw, and a node still writing read "Completed".
+    await advanceToObjects(page, bridge);
+    await advanceToPlan(page, bridge);
+    await advanceToReview(page, bridge);
+    await page.getByTestId('execute-button').click();
+    const execute = await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+    const correlationId = execute.id as string;
+    const accountDone = Date.UTC(2026, 9, 31, 8, 4, 12);
+    const progress = async (objectName: string, status: string, timestamp: number): Promise<void> =>
+      sendExtensionMessage(page, {
+        type: 'autopilot:node-progress',
+        id: `progress-${objectName}-${status}-${timestamp}`,
+        correlationId,
+        timestamp,
+        payload: { nodeId: objectName, objectName, status, wave: 0, recordCount: 0 },
+      });
+    await progress('Account', 'processing', accountDone - 60_000);
+    await progress('Contact', 'processing', accountDone - 60_000);
+    await progress('Account', 'completed', accountDone);
+    // The run's end settles Account once more, half an hour on.
+    await progress('Account', 'completed', accountDone + 1_800_000);
+    await page.evaluate(() => {
+      const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
+        { setState: (state: Record<string, unknown>) => void } | undefined;
+      store?.setState({ step: 'completed', executionStatus: 'completed' });
+    });
+    await page.getByTestId('view-compliance-report').click();
+    await bridge.waitForMessage('autopilot:compliance-report', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:compliance-report', 'autopilot:compliance-report', {
+      report: MOCK_COMPLIANCE_REPORT,
+    });
+
+    const timeline = page.getByTestId('compliance-timeline');
+    await expect(timeline.getByRole('listitem')).toHaveCount(1);
+    await expect(page.getByTestId('compliance-timeline-Account').locator('time')).toHaveAttribute(
+      'datetime',
+      new Date(accountDone).toISOString(),
+    );
+    await expect(page.getByTestId('compliance-timeline-Contact')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'When each object finished' })).toBeVisible();
   });
 
   test('back from compliance report returns to execution view', async ({ page }) => {

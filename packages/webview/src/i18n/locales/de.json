@@ -274,9 +274,9 @@
     "predictions": "Vorhersagen bis zum Limit",
     "noPredictions": "Keine Vorhersagen verfügbar",
     "errorTitle": "Monitor-Fehler",
-    "apiCalls": "API-Aufrufe heute",
+    "apiCalls": "API-Aufrufe, letzte 24 Std.",
     "dataStorage": "Datenspeicher",
-    "selectOrgDesc": "Wählen Sie eine verbundene Org, um Gesundheit, Limits und Jobs live zu sehen.",
+    "selectOrgDesc": "Wählen Sie eine verbundene Org, um ihre Gesundheit, Limits und Jobs zu lesen.",
     "scanAnomaliesOn": "Anomalien scannen ({{object}})",
     "anomalyScanObject": "Objekt für den Anomalie-Scan",
     "anomalyScanOtherObject": "Anderes Objekt…",
@@ -304,10 +304,10 @@
     "noOrgsHint": "Keine verbundenen Orgs. Gehen Sie zu Organisationen, um eine zu verbinden.",
     "emptyState": {
       "title": "Behalten Sie die Gesundheit Ihrer Org im Blick",
-      "description": "Monitor verfolgt Governor-Limits, API-Nutzung, Speicher und Jobs in Echtzeit — erkennen Sie Probleme vor Ihren Benutzern.",
+      "description": "Liest API-Limits, Jobs und Speicher, wenn Sie Monitor öffnen oder auf Aktualisieren klicken; die automatische Aktualisierung liest alle 30 s erneut, solange die Seite offen ist, und jedes Lesen prüft die Warnschwellen.",
       "step2": "Zu überwachende Org auswählen",
       "step3": "Limits, Jobs und Gesundheit auf einen Blick verfolgen",
-      "step4": "Warnungen erhalten, bevor Limits erreicht werden"
+      "step4": "Automatische Aktualisierung einschalten, um aktuell zu bleiben"
     },
     "storage": {
       "title": "Datensätze nach Objekt",
@@ -345,7 +345,7 @@
     "refreshFailed": "Dashboard-Daten konnten nicht aktualisiert werden",
     "retry": "Erneut versuchen",
     "details": "Details",
-    "staleData": "Daten sind {{minutes}} Min. alt",
+    "staleData": "Daten {{age}} gelesen",
     "refreshNow": "Jetzt aktualisieren",
     "connectionLost_one": "Verbindung verloren. Auto-Aktualisierung ist {{count}}-mal fehlgeschlagen.",
     "connectionLost_other": "Verbindung verloren. Auto-Aktualisierung ist {{count}}-mal fehlgeschlagen.",
@@ -421,7 +421,6 @@
         "instanceChanged": "Von Instanz {{from}} nach {{to}} umgezogen"
       }
     },
-    "resetIn": "Zurücksetzen in",
     "sessions": {
       "title": "Aktive Sitzungen",
       "empty": "Keine aktiven Sitzungen",
@@ -443,7 +442,9 @@
     "flowCount_one": "{{formatted}} Flow",
     "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} Job",
-    "jobCount_other": "{{count}} Jobs"
+    "jobCount_other": "{{count}} Jobs",
+    "apiCallsHint": "Salesforce zählt API-Anfragen über ein gleitendes 24-Stunden-Fenster.",
+    "jobInsightsUnknown": "Apex-Job-Analysen: noch nicht gelesen. Sie erscheinen nach einer Aktualisierung, die die Apex-Jobs der Org liest."
   },
   "compare": {
     "title": "Vergleich",
@@ -3225,8 +3226,8 @@
     "autopilot": {
       "step1": "Wählen Sie eine Org unter Quell-Org und eine andere unter Ziel-Org, dann klicken Sie auf Weiter.",
       "step2": "Markieren Sie jedes Objekt, das kopiert werden soll, dann klicken Sie auf Weiter.",
-      "step3": "Prüfen Sie im Schritt Plan überprüfen die Angaben Datensätze gesamt und Was der Plan kopiert.",
-      "step4": "Klicken Sie auf Autopilot ausführen und verfolgen Sie jede Welle unter Live-Statistiken in der Steuerung.",
+      "step3": "Prüfen Sie im Schritt Plan überprüfen die beiden Orgs und die Angaben Datensätze gesamt und Was der Plan kopiert.",
+      "step4": "Klicken Sie auf In … kopieren, das die Ziel-Org nennt, und verfolgen Sie jede Welle unter Live-Statistiken in der Steuerung.",
       "tip": "SandForge kann nicht entfernen, was ein Autopilot-Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können."
     },
     "frozen": {
@@ -4359,12 +4360,7 @@
       "contactPointsHint": "Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält.",
       "advancedCompliance": "Erweitert: Compliance-Framework",
       "noFrameworkHint": "Kein Compliance-Framework ausgewählt: Namen, Adressen und die übrigen personenbezogenen Felder werden so kopiert, wie die Quelle sie enthält. Wählen Sie unter „{{advanced}}“ eines aus, um die Felder zu anonymisieren, die es abdeckt.",
-      "execute": "Autopilot ausführen",
       "description": "Überprüfen Sie Ihre Konfiguration, bevor Sie den Autopilot starten.",
-      "complianceFramework": "Compliance-Framework",
-      "anonymization": "Anonymisierung",
-      "noAnonymization": "Keine Anonymisierung",
-      "autoDetect": "PII automatisch erkennen",
       "connectionSummary": "Verbindungsübersicht",
       "source": "Quelle",
       "target": "Ziel",
@@ -4390,7 +4386,13 @@
         "name": "den Namen",
         "email": "die E-Mail",
         "phone": "die Telefonnummer"
-      }
+      },
+      "personalData": "Personenbezogene Daten",
+      "personalDataContactPoints": "E-Mails und Telefonnummern neutralisiert",
+      "personalDataFrameworkAndContactPoints": "{{framework}} + E-Mails und Telefonnummern",
+      "personalDataNone": "Keine: wie in der Quelle kopiert",
+      "durationMinutes": "~{{minutes}} Min.",
+      "copyInto": "In {{target}} kopieren"
     },
     "graph": {
       "title": "Abhängigkeitsgraph",
@@ -4475,7 +4477,8 @@
       "category": "Kategorie",
       "method": "Methode",
       "recordsAnonymized": "Anonymisierte Datensätze",
-      "rule": "Angewendete Regel"
+      "rule": "Angewendete Regel",
+      "timeline": "Wann jedes Objekt fertig war"
     },
     "status": {
       "listing": "Objekte werden aufgelistet...",

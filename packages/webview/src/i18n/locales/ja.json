@@ -259,9 +259,9 @@
     "predictions": "制限到達予測",
     "noPredictions": "予測はありません",
     "errorTitle": "モニターエラー",
-    "apiCalls": "今日の API コール",
+    "apiCalls": "API コール (過去 24 時間)",
     "dataStorage": "データストレージ",
-    "selectOrgDesc": "接続済みの組織を選んで、健全性・制限・ジョブをライブ表示します。",
+    "selectOrgDesc": "接続済みの組織を選んで、健全性・制限・ジョブを読み込みます。",
     "scanAnomaliesOn": "異常をスキャン ({{object}})",
     "anomalyScanObject": "異常スキャンの対象オブジェクト",
     "anomalyScanOtherObject": "その他のオブジェクト…",
@@ -288,10 +288,10 @@
     "noOrgsHint": "接続済みの組織がありません。組織ページで接続してください。",
     "emptyState": {
       "title": "組織の健全性を常に把握",
-      "description": "モニターはガバナ制限、API 使用量、ストレージ、ジョブをリアルタイムで追跡 — ユーザーに気づかれる前に問題を検出できます。",
+      "description": "モニターを開いたときと「更新」を押したときに、API 制限・ジョブ・ストレージを読み込みます。自動更新はページを開いている間 30 秒ごとに読み直し、読み込みのたびにアラートのしきい値を確認します。",
       "step2": "監視する組織を選択",
       "step3": "制限・ジョブ・健全性を一目で確認",
-      "step4": "制限到達前にアラートを受信"
+      "step4": "自動更新をオンにして最新の状態に保つ"
     },
     "storage": {
       "title": "オブジェクト別レコード数",
@@ -326,7 +326,7 @@
     "refreshFailed": "ダッシュボードデータの更新に失敗しました",
     "retry": "再試行",
     "details": "詳細",
-    "staleData": "データは{{minutes}}分前のものです",
+    "staleData": "データ取得: {{age}}",
     "refreshNow": "今すぐ更新",
     "connectionLost_other": "接続が失われました。自動更新が{{count}}回失敗しました。",
     "alertHistory": "アラート履歴",
@@ -399,7 +399,6 @@
         "instanceChanged": "インスタンスが {{from}} から {{to}} に移動しました"
       }
     },
-    "resetIn": "リセットまで",
     "sessions": {
       "title": "アクティブなセッション",
       "empty": "アクティブなセッションはありません",
@@ -414,7 +413,9 @@
     "failedCount_other": "{{count}}件失敗",
     "jobErrorCount_other": "{{count}}件のエラー",
     "flowCount_other": "{{formatted}}フロー",
-    "jobCount_other": "{{count}}件のジョブ"
+    "jobCount_other": "{{count}}件のジョブ",
+    "apiCallsHint": "Salesforce は API リクエストを直近 24 時間の移動枠で数えます。",
+    "jobInsightsUnknown": "Apex ジョブの分析: まだ読み込まれていません。組織の Apex ジョブを読み込む更新の後に表示されます。"
   },
   "compare": {
     "title": "組織比較",
@@ -3049,8 +3050,8 @@
     "autopilot": {
       "step1": "ソース組織とターゲット組織でそれぞれ別の組織を選び、次へをクリックします。",
       "step2": "コピーするオブジェクトにチェックを入れ、次へをクリックします。",
-      "step3": "プランを確認ステップで、合計レコードとプランがコピーする内容を確認します。",
-      "step4": "Autopilot を実行ボタンをクリックし、コントロールパネルのライブ統計で各ウェーブの進行を確認します。",
+      "step3": "プランを確認ステップで、2 つの組織、合計レコード、プランがコピーする内容を確認します。",
+      "step4": "ターゲット組織の名前が付いた「… にコピー」をクリックし、コントロールパネルのライブ統計で各ウェーブの進行を確認します。",
       "tip": "Autopilot の実行で書き込まれた内容は SandForge では削除できないため、スクラッチ組織かリフレッシュできる Sandbox で試してください。"
     },
     "frozen": {
@@ -4123,12 +4124,7 @@
       "contactPointsHint": "すべてのメールアドレスは .invalid の下に、すべての電話番号は架空の番号として書き込まれるため、ターゲット組織の自動化は誰にも届きません。チェックを外すと、ソースにあるとおりにコピーされます。",
       "advancedCompliance": "詳細設定: コンプライアンスフレームワーク",
       "noFrameworkHint": "コンプライアンスフレームワークが選択されていません。氏名、住所、その他の個人情報の項目はソースにあるとおりにコピーされます。「{{advanced}}」でフレームワークを選ぶと、対象の項目を匿名化します。",
-      "execute": "Autopilot を実行",
       "description": "Autopilot を起動する前に設定を確認してください。",
-      "complianceFramework": "コンプライアンスフレームワーク",
-      "anonymization": "匿名化",
-      "noAnonymization": "匿名化なし",
-      "autoDetect": "PII を自動検出",
       "connectionSummary": "接続サマリー",
       "source": "ソース",
       "target": "ターゲット",
@@ -4154,7 +4150,13 @@
         "name": "名前",
         "email": "メール",
         "phone": "電話"
-      }
+      },
+      "personalData": "個人データ",
+      "personalDataContactPoints": "メールと電話番号を無効化",
+      "personalDataFrameworkAndContactPoints": "{{framework}} + メールと電話番号",
+      "personalDataNone": "なし: ソースのままコピー",
+      "durationMinutes": "約 {{minutes}} 分",
+      "copyInto": "{{target}} にコピー"
     },
     "graph": {
       "title": "依存関係グラフ",
@@ -4234,7 +4236,8 @@
       "category": "カテゴリ",
       "method": "方法",
       "recordsAnonymized": "匿名化レコード数",
-      "rule": "適用ルール"
+      "rule": "適用ルール",
+      "timeline": "各オブジェクトの終了時刻"
     },
     "status": {
       "listing": "オブジェクトを一覧表示中...",

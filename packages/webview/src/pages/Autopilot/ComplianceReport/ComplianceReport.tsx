@@ -12,14 +12,15 @@ import { Button } from '../../../components/ui/Button';
 import { ComplianceTimeline } from './ComplianceTimeline';
 import { uiLocale } from '../../../utils/formatters';
 
-/** Display labels for compliance frameworks (acronyms, locale-independent). */
-const FRAMEWORK_LABELS: Record<ComplianceFrameworkType, string> = {
+/**
+ * The regulations by their acronyms, which no language translates. A custom
+ * framework and none are named in the interface language, below.
+ */
+const FRAMEWORK_ACRONYMS: Record<Exclude<ComplianceFrameworkType, 'custom' | 'none'>, string> = {
   gdpr: 'GDPR',
   ccpa: 'CCPA',
   hipaa: 'HIPAA',
   pci_dss: 'PCI-DSS',
-  custom: 'Custom',
-  none: 'None',
 };
 
 /**
@@ -96,7 +97,11 @@ export const ComplianceReport: React.FC = () => {
   }
 
   const frameworkLabel =
-    report.framework === 'none' ? t('autopilot.step3.none') : FRAMEWORK_LABELS[report.framework];
+    report.framework === 'none'
+      ? t('autopilot.step3.none')
+      : report.framework === 'custom'
+        ? t('autopilot.step3.custom')
+        : FRAMEWORK_ACRONYMS[report.framework];
 
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="compliance-report">
@@ -189,13 +194,8 @@ export const ComplianceReport: React.FC = () => {
         </table>
       </div>
 
-      {/* Timeline */}
-      <div>
-        <h4 className="text-sm font-semibold text-text-primary mb-2">
-          {t('autopilot.report.title')} — Timeline
-        </h4>
-        <ComplianceTimeline />
-      </div>
+      {/* When each object finished, as the run's messages stamped it. */}
+      <ComplianceTimeline entries={report.entries} />
     </div>
   );
 };

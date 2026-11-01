@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { ComplianceReport as ComplianceReportData } from '@sandforge/shared';
-import '../../../i18n';
+import i18n from '../../../i18n';
+import fr from '../../../i18n/locales/fr.json';
+import { dateTimeFormat } from '../../../utils/formatters';
 import { ComplianceReport } from './ComplianceReport';
 
 /** Fixture report returned by the autopilot:compliance-report response. */
@@ -51,24 +53,81 @@ vi.mock('../../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => queryState,
 }));
 
-/** Mock autopilot store (only ComplianceTimeline still consumes it). */
-vi.mock('../../../stores/useAutopilotStore', () => {
-  const defaultState = {
-    complianceFramework: 'gdpr' as const,
-    rules: [],
-    graph: null,
-    executionStatus: 'completed' as const,
-  };
+/** When each node settled, as the store keeps it: what ComplianceTimeline reads. */
+let nodeFinishes: Record<string, { status: 'completed' | 'failed' | 'skipped'; at: number }>;
 
-  return {
-    useAutopilotStore: (selector: (state: typeof defaultState) => unknown) =>
-      selector(defaultState),
-  };
-});
+/** Mock autopilot store (only ComplianceTimeline still consumes it). */
+vi.mock('../../../stores/useAutopilotStore', () => ({
+  useAutopilotStore: (selector: (state: { nodeFinishes: typeof nodeFinishes }) => unknown) =>
+    selector({ nodeFinishes }),
+}));
+
+/** A time as the timeline writes it, in the panel's language. */
+const shown = (at: number): string =>
+  dateTimeFormat({ dateStyle: 'short', timeStyle: 'medium' }).format(new Date(at));
 
 describe('ComplianceReport', () => {
   beforeEach(() => {
     queryState = { data: { report: REPORT }, loading: false, error: null, refetch: vi.fn() };
+    nodeFinishes = {};
+  });
+
+  it('dates each finished object by the message that finished it, in the order they finished', () => {
+    // Every object was stamped with the time the report was drawn, the same
+    // for all and moving on every redraw, and a node still writing read
+    // "Completed".
+    const accountAt = Date.UTC(2026, 9, 31, 9, 15, 2);
+    const contactAt = Date.UTC(2026, 9, 31, 9, 17, 45);
+    const caseAt = Date.UTC(2026, 9, 31, 9, 18, 3);
+    nodeFinishes = {
+      Contact: { status: 'completed', at: contactAt },
+      Case: { status: 'failed', at: caseAt },
+      Account: { status: 'skipped', at: accountAt },
+    };
+    render(<ComplianceReport />);
+
+    const rows = within(screen.getByTestId('compliance-timeline')).getAllByRole('listitem');
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+      'compliance-timeline-Account',
+      'compliance-timeline-Contact',
+      'compliance-timeline-Case',
+    ]);
+    const contact = screen.getByTestId('compliance-timeline-Contact');
+    expect(contact.querySelector('time')?.textContent).toBe(shown(contactAt));
+    expect(contact.querySelector('time')?.getAttribute('dateTime')).toBe(
+      new Date(contactAt).toISOString(),
+    );
+    // Its anonymized fields, as the report counts them.
+    expect(contact.textContent).toContain('Completed — 1 PII field');
+    expect(screen.getByTestId('compliance-timeline-Case').textContent).toContain('Failed');
+    expect(screen.getByTestId('compliance-timeline-Account').textContent).toContain('Skipped');
+    expect(screen.getByTestId('compliance-timeline-Account').textContent).not.toContain('PII');
+    expect(screen.getByRole('heading', { name: 'When each object finished' })).toBeDefined();
+  });
+
+  it('draws no timeline when no object finished, rather than one with times nobody stamped', () => {
+    render(<ComplianceReport />);
+
+    expect(screen.queryByTestId('compliance-timeline')).toBeNull();
+    expect(screen.queryByText(/Timeline/)).toBeNull();
+    expect(screen.getByTestId('compliance-rules-table')).toBeDefined();
+  });
+
+  it('names its timeline and a custom framework in the language the panel is set to', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      nodeFinishes = { Contact: { status: 'completed', at: Date.UTC(2026, 9, 31, 9, 0, 0) } };
+      queryState = { ...queryState, data: { report: { ...REPORT, framework: 'custom' } } };
+      render(<ComplianceReport />);
+
+      expect(
+        screen.getByRole('heading', { name: "Quand chaque objet s'est terminé" }),
+      ).toBeDefined();
+      expect(screen.getByTestId('report-framework').textContent).toBe('Personnalisé');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should render without crashing', () => {

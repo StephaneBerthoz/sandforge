@@ -6,14 +6,19 @@ import { cn } from '../../theme';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { Icon } from '../../components/ui/Icon';
+import type { IconName } from '../../components/ui/Icon';
 
 export interface HealthScoreCardProps {
   report: HealthReport;
   className?: string;
 }
 
-/** Status icon codicon name */
-function statusIcon(status: HealthFactor['status']): string {
+/**
+ * The icon of a status, drawn by <Icon>: the codicon spans it named never
+ * drew, and the report's close button was a blank square.
+ */
+function statusIcon(status: HealthFactor['status']): IconName {
   switch (status) {
     case 'healthy':
       return 'check';
@@ -145,9 +150,9 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
                       key={risk.name}
                       className="flex items-center gap-(--sf-space-1) text-[10px] min-w-0"
                     >
-                      <span
-                        className={`codicon codicon-${statusIcon(risk.status)} shrink-0 ${statusColor(risk.status)}`}
-                        aria-hidden="true"
+                      <Icon
+                        name={statusIcon(risk.status)}
+                        className={cn('shrink-0', statusColor(risk.status))}
                       />
                       <span className="flex-1 min-w-0 truncate text-(--sf-text-primary)">
                         {risk.name}: {risk.detail}
@@ -215,7 +220,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
             aria-label={t('common.close', 'Close')}
             data-testid="close-report-modal"
           >
-            <span className="codicon codicon-close" aria-hidden="true" />
+            <Icon name="close" />
           </Button>
         </div>
 
@@ -253,9 +258,9 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-(--sf-space-1)">
-                        <span
-                          className={`codicon codicon-${statusIcon(factor.status)} ${statusColor(factor.status)}`}
-                          aria-hidden="true"
+                        <Icon
+                          name={statusIcon(factor.status)}
+                          className={statusColor(factor.status)}
                         />
                         <span className="text-xs font-medium text-(--sf-text-primary)">
                           {factor.name}

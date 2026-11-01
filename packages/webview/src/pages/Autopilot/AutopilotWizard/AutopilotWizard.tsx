@@ -25,23 +25,14 @@ import { ModuleHowTo } from '../../../components/ui/ModuleHowTo';
  * had a step of its own between the objects and the review, whose default
  * copied every email and phone number as read; the review now neutralizes
  * those unless unticked, and keeps the framework behind a disclosure.
+ *
+ * Titles alone: each step's body opens on its description, which the
+ * sidebar repeated under the title, both cut short in its narrow column.
  */
 const AUTOPILOT_STEPS: WizardStep[] = [
-  {
-    id: 'connect',
-    labelKey: 'autopilot.step1.title',
-    descriptionKey: 'autopilot.step1.description',
-  },
-  {
-    id: 'objects',
-    labelKey: 'autopilot.step2.title',
-    descriptionKey: 'autopilot.step2.description',
-  },
-  {
-    id: 'review',
-    labelKey: 'autopilot.step4.title',
-    descriptionKey: 'autopilot.step4.description',
-  },
+  { id: 'connect', labelKey: 'autopilot.step1.title' },
+  { id: 'objects', labelKey: 'autopilot.step2.title' },
+  { id: 'review', labelKey: 'autopilot.step4.title' },
 ];
 
 /** Wizard step ids in navigation order (subset of {@link AutopilotStep}). */

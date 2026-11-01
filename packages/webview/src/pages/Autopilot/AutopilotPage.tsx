@@ -115,6 +115,11 @@ export const AutopilotPage: React.FC = () => {
     };
     const mappedStatus = statusMap[msg.payload.status] ?? 'pending';
     store.updateNodeStatus(msg.payload.objectName, mappedStatus);
+    // When the node settled, as the host stamped the message: what the
+    // compliance report's timeline says, and nothing else.
+    if (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'skipped') {
+      store.recordNodeFinish(msg.payload.objectName, mappedStatus, msg.timestamp);
+    }
     if (msg.payload.recordCount !== undefined) {
       store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
     }
@@ -220,6 +225,7 @@ export const AutopilotPage: React.FC = () => {
     setMutedAutomation(undefined);
     const store = useAutopilotStore.getState();
     const plan = store.plan;
+    store.clearNodeFinishes();
     store.setExecutionStatus('executing');
     store.setStep('executing');
     store.updateLiveStats({

@@ -126,13 +126,10 @@ function iconNamesInUse(): Map<string, string[]> {
 
 /**
  * The files that still draw through the codicon font, which never reaches a
- * webview: their spans paint nothing. Each moves to `<Icon>` with the task
- * that owns it, and leaves this list then; no other file joins it.
+ * webview: their spans paint nothing. Every file has moved to `<Icon>`; the
+ * list stays empty, and no file joins it.
  */
-const STILL_ON_THE_CODICON_FONT = [
-  'pages/Monitor/HealthScoreCard.tsx',
-  'pages/Monitor/JobsTable.tsx',
-];
+const STILL_ON_THE_CODICON_FONT: readonly string[] = [];
 
 describe('Icon', () => {
   it.each(ICON_NAMES)('draws %s as an SVG of its own, which a screen reader skips', (name) => {

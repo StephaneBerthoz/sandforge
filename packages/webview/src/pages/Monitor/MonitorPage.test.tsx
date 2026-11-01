@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore, resetNotificationCounter } from '../../stores/useNotificationStore';
@@ -250,6 +251,23 @@ describe('MonitorPage', () => {
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
   });
 
+  it('says when Monitor reads the org, never that it watches it in real time', () => {
+    // It promised "in real time" and alerts "before limits are hit", while the
+    // org is read only on opening, on Refresh, or every 30 s with Auto-refresh,
+    // off by default, and the thresholds are checked only during such a read.
+    const { container } = render(<MonitorPage />);
+
+    expect(container.textContent).not.toMatch(/real time|alerted before/i);
+    expect(container.textContent).toContain(
+      'Reads API limits, jobs and storage when you open Monitor or press Refresh; ' +
+        'Auto-refresh reads again every 30 s while the page is open, and each read checks the ' +
+        'alert thresholds.',
+    );
+    expect(screen.getByTestId('empty-step-3').textContent).toContain(
+      'Turn on Auto-refresh to keep it current',
+    );
+  });
+
   it('should show org selector empty state when orgs exist but none selected', () => {
     useOrgStore.setState({
       selectedOrgId: null,
@@ -353,8 +371,77 @@ describe('MonitorPage', () => {
     });
     render(<MonitorPage />);
 
-    // The lastUpdatedStr is rendered as a text span (e.g., "0s ago")
-    expect(screen.getByText(/ago/)).toBeDefined();
+    // Read just now, said in a sentence: "Data read now".
+    expect(screen.getByTestId('monitor-read-age').textContent).toBe('Data read now');
+  });
+
+  it('says the age of the data once, in days past a day, in the header and on the stale badge alike', () => {
+    // The header wrote "5555h ago" and the badge "Data is 333315m old": one
+    // read, two units, neither of them days.
+    mockMonitorQueryState = {
+      data: {
+        ...standardMonitorPayload,
+        lastUpdated: new Date(Date.now() - 3 * 86_400_000 - 60_000).toISOString(),
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('monitor-read-age').textContent).toBe('Data read 3 days ago');
+    expect(screen.getByTestId('stale-data-badge').textContent).toBe(
+      'Data read 3 days ago — Refresh now',
+    );
+  });
+
+  it('says the age of the data in French in a French panel, through the catalogue', async () => {
+    // French read "Données datent de 333315m", the placeholder filled by a
+    // string replace and the unit English.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      mockMonitorQueryState = {
+        data: {
+          ...standardMonitorPayload,
+          lastUpdated: new Date(Date.now() - 3 * 86_400_000 - 60_000).toISOString(),
+        },
+        loading: false,
+        error: null,
+        refetch: mockRefetch,
+      };
+      useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+      render(<MonitorPage />);
+
+      expect(screen.getByTestId('stale-data-badge').textContent).toBe(
+        'Données lues il y a 3 jours — Actualiser maintenant',
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('counts down to no reset: Salesforce counts API requests over a rolling 24 hours', () => {
+    // "Reset in 08:39:11" counted down to midnight Pacific beside the API
+    // calls, which nothing resets then.
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.queryByTestId('reset-countdown')).toBeNull();
+    expect(screen.queryByText(/Reset in/)).toBeNull();
+    const apiCard = screen
+      .getAllByTestId('kpi-card')
+      .find((card) => card.textContent?.includes('API calls, last 24 h'));
+    expect(within(apiCard as HTMLElement).getByTestId('kpi-hint').textContent).toBe(
+      'Salesforce counts API requests over a rolling 24-hour window.',
+    );
   });
 
   // 4. Bento Row 1: HealthGauge + KPI cards + Alerts count
@@ -427,7 +514,7 @@ describe('MonitorPage', () => {
 
     // API Calls: used = 15000 - 2550 = 12,450
     // The KPI row renders the value and subtitle in the KPIStat component
-    expect(screen.getByText('API Calls Today')).toBeDefined();
+    expect(screen.getByText('API calls, last 24 h')).toBeDefined();
     expect(screen.getByText(/12[,\s ]?450/)).toBeDefined();
     expect(screen.getByText(/\/\s?15[,\s ]?000/)).toBeDefined();
   });
@@ -1395,7 +1482,10 @@ describe('MonitorPage', () => {
 
     expect(screen.getByTestId('monitor-error')).toBeDefined();
     const unknown = screen.getByTestId('monitor-job-insights-unknown');
-    expect(within(unknown).getByText('No data available')).toBeDefined();
+    // Named: a bare "No data available" sat above KPIs full of data.
+    expect(unknown.textContent).toBe(
+      "Apex job insights: not read yet. They appear after a refresh that reads the org's Apex jobs.",
+    );
     expect(within(unknown).queryByText('No recent jobs')).toBeNull();
     expect(screen.queryByTestId('monitor-job-insights-idle')).toBeNull();
     expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
@@ -1413,7 +1503,7 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     const unknown = screen.getByTestId('monitor-job-insights-unknown');
-    expect(within(unknown).getByText('No data available')).toBeDefined();
+    expect(unknown.textContent).toContain('Apex job insights: not read yet.');
     expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
     expect(screen.queryByTestId('monitor-job-insights')).toBeNull();
   });

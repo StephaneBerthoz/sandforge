@@ -274,9 +274,9 @@
     "predictions": "Prédictions de limite",
     "noPredictions": "Aucune prédiction disponible",
     "errorTitle": "Erreur du moniteur",
-    "apiCalls": "Appels API aujourd'hui",
+    "apiCalls": "Appels API, dernières 24 h",
     "dataStorage": "Stockage de données",
-    "selectOrgDesc": "Choisissez une org connectée pour voir sa santé, ses limites et ses jobs en direct.",
+    "selectOrgDesc": "Choisissez une org connectée pour lire sa santé, ses limites et ses jobs.",
     "scanAnomaliesOn": "Scanner les anomalies ({{object}})",
     "anomalyScanObject": "Objet à scanner pour les anomalies",
     "anomalyScanOtherObject": "Autre objet…",
@@ -287,11 +287,11 @@
     "anomalyScanSample_one": "{{count}} enregistrement analysé ; une analyse en lit au plus {{limit}}.",
     "anomalyScanSample_other": "{{count}} enregistrements analysés ; une analyse en lit au plus {{limit}}.",
     "anomalyScanFailed": "Échec de l'analyse d'anomalies",
-    "governorLimits": "Limites Governor",
+    "governorLimits": "Limites governor",
     "noLimits": "Aucune donnée de limite disponible",
     "exportCsv": "Exporter CSV",
     "release": "Release",
-    "nextRelease": "Prochaine Release",
+    "nextRelease": "Prochaine release",
     "instance": "Instance",
     "datacenter": "Datacenter",
     "edition": "Édition",
@@ -304,10 +304,10 @@
     "noOrgsHint": "Aucune org connectée. Allez dans Organisations pour en connecter une.",
     "emptyState": {
       "title": "Gardez un œil sur la santé de votre org",
-      "description": "Le Moniteur suit les limites governor, l'usage API, le stockage et les jobs en temps réel — repérez les problèmes avant vos utilisateurs.",
+      "description": "Lit les limites d'API, les jobs et le stockage quand vous ouvrez le Moniteur ou cliquez sur Actualiser ; l'actualisation automatique relit toutes les 30 s tant que la page est ouverte, et chaque lecture vérifie les seuils d'alerte.",
       "step2": "Choisissez l'org à surveiller",
       "step3": "Suivez limites, jobs et santé en un coup d’œil",
-      "step4": "Soyez alerté avant que les limites ne soient atteintes"
+      "step4": "Activez l'actualisation automatique pour garder les données à jour"
     },
     "storage": {
       "title": "Enregistrements par objet",
@@ -344,8 +344,8 @@
     },
     "refreshFailed": "Échec de l'actualisation du tableau de bord",
     "retry": "Réessayer",
-    "details": "Details",
-    "staleData": "Données datent de {{minutes}}m",
+    "details": "Détails",
+    "staleData": "Données lues {{age}}",
     "refreshNow": "Actualiser maintenant",
     "connectionLost_one": "Connexion perdue. L'actualisation automatique a échoué {{count}} fois.",
     "connectionLost_other": "Connexion perdue. L'actualisation automatique a échoué {{count}} fois.",
@@ -421,7 +421,6 @@
         "instanceChanged": "Passée de l'instance {{from}} à {{to}}"
       }
     },
-    "resetIn": "Réinitialisation dans",
     "sessions": {
       "title": "Sessions actives",
       "empty": "Aucune session active",
@@ -443,7 +442,9 @@
     "flowCount_one": "{{formatted}} Flow",
     "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
-    "jobCount_other": "{{count}} jobs"
+    "jobCount_other": "{{count}} jobs",
+    "apiCallsHint": "Salesforce compte les requêtes API sur une fenêtre glissante de 24 heures.",
+    "jobInsightsUnknown": "Analyses des jobs Apex : pas encore lues. Elles apparaissent après une actualisation qui lit les jobs Apex de l'org."
   },
   "compare": {
     "title": "Comparaison",
@@ -3223,10 +3224,10 @@
       "tip": "Un Sync rapide insère tous les enregistrements à chaque fois ; hors production, ses résultats proposent Retirer ce que cette exécution a créé."
     },
     "autopilot": {
-      "step1": "Choisissez une org sous Org Source et une autre sous Org Cible, puis cliquez sur Suivant.",
+      "step1": "Choisissez une org sous Org source et une autre sous Org cible, puis cliquez sur Suivant.",
       "step2": "Cochez chaque objet à copier, puis cliquez sur Suivant.",
-      "step3": "À l'étape Vérifier le Plan, contrôlez Total Enregistrements et Ce que le plan copie.",
-      "step4": "Cliquez sur Exécuter Autopilot, puis suivez chaque vague dans l'onglet Stats en Direct du Panneau de Contrôle.",
+      "step3": "À l'étape Vérifier le plan, contrôlez les deux orgs, Total des enregistrements et Ce que le plan copie.",
+      "step4": "Cliquez sur Copier dans, qui nomme l'org cible, puis suivez chaque vague dans l'onglet Stats en direct du Panneau de contrôle.",
       "tip": "SandForge ne peut pas retirer ce qu'une exécution d'Autopilot écrit : essayez-la sur une scratch org ou une sandbox que vous pouvez rafraîchir."
     },
     "frozen": {
@@ -3256,7 +3257,7 @@
       "step1": "Si la page affiche Sélectionnez une org à surveiller, cliquez sur l'org à suivre.",
       "step2": "Lisez le Score de santé, puis cliquez sur Voir le rapport complet pour afficher ses facteurs et leurs recommandations.",
       "step3": "Dans Jobs Apex récents, cliquez sur Échoué pour ne garder que les jobs en échec, groupés par classe Apex.",
-      "step4": "Cliquez sur la flèche à côté de Limites Governor pour lister toutes les limites, les plus utilisées d'abord.",
+      "step4": "Cliquez sur la flèche à côté de Limites governor pour lister toutes les limites, les plus utilisées d'abord.",
       "step5": "Cliquez sur le bouton horloge, Actualisation automatique, pour relire l'org toutes les 30 secondes.",
       "tip": "Tendances reste vide tant que SandForge n'a pas gardé deux relevés des limites ; il en garde au plus un par 15 minutes, pendant 7 jours."
     },
@@ -4314,14 +4315,14 @@
       "title": "Configuration Autopilot"
     },
     "step1": {
-      "title": "Connecter Source & Cible",
-      "sourceOrg": "Org Source",
-      "targetOrg": "Org Cible",
+      "title": "Connecter la source et la cible",
+      "sourceOrg": "Org source",
+      "targetOrg": "Org cible",
       "description": "Sélectionnez une org source et une org cible pour lancer le processus autopilot.",
       "noOrgs": "Aucune org disponible — connectez-en une d'abord."
     },
     "step2": {
-      "title": "Sélectionner les Objets",
+      "title": "Sélectionner les objets",
       "selectAll": "Tout sélectionner",
       "description": "Sélectionnez les objets à inclure dans l'exécution autopilot.",
       "searchPlaceholder": "Rechercher des objets...",
@@ -4340,31 +4341,26 @@
       "ccpa": "CCPA",
       "ccpaDesc": "Confidentialité californienne — masquer les infos personnelles et commerciales",
       "hipaa": "HIPAA",
-      "hipaaDesc": "Santé — de-identification Safe Harbor",
+      "hipaaDesc": "Santé — dé-identification Safe Harbor",
       "pciDss": "PCI-DSS",
       "pciDssDesc": "Carte de paiement — masquer les PAN et nullifier les données d'authentification",
       "custom": "Personnalisé",
       "description": "Choisissez un cadre de conformité pour la détection et l'anonymisation PII."
     },
     "step4": {
-      "title": "Vérifier le Plan",
-      "totalObjects": "Total Objets",
-      "totalRecords": "Total Enregistrements",
-      "estimatedDuration": "Durée Estimée",
-      "estimatedApiCalls": "Appels API Estimés",
-      "waves": "Vagues d'Exécution",
-      "piiFields": "Champs PII Détectés",
-      "anonymizedFields": "Champs à Anonymiser",
+      "title": "Vérifier le plan",
+      "totalObjects": "Total des objets",
+      "totalRecords": "Total des enregistrements",
+      "estimatedDuration": "Durée estimée",
+      "estimatedApiCalls": "Appels API estimés",
+      "waves": "Vagues d'exécution",
+      "piiFields": "Champs PII détectés",
+      "anonymizedFields": "Champs à anonymiser",
       "contactPoints": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
       "contactPointsHint": "Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient.",
       "advancedCompliance": "Avancé : cadre de conformité",
       "noFrameworkHint": "Aucun cadre de conformité n'est choisi : les noms, les adresses et les autres champs personnels sont copiés tels que la source les contient. Choisissez-en un sous « {{advanced}} » pour anonymiser ceux qu'il couvre.",
-      "execute": "Exécuter Autopilot",
       "description": "Vérifiez votre configuration avant de lancer l'autopilot.",
-      "complianceFramework": "Cadre de conformité",
-      "anonymization": "Anonymisation",
-      "noAnonymization": "Pas d'anonymisation",
-      "autoDetect": "Détection auto PII",
       "connectionSummary": "Résumé de la connexion",
       "source": "Source",
       "target": "Cible",
@@ -4390,10 +4386,16 @@
         "name": "le nom",
         "email": "l'e-mail",
         "phone": "le téléphone"
-      }
+      },
+      "personalData": "Données personnelles",
+      "personalDataContactPoints": "E-mails et téléphones neutralisés",
+      "personalDataFrameworkAndContactPoints": "{{framework}} + e-mails et téléphones",
+      "personalDataNone": "Aucune : copiées telles que dans la source",
+      "durationMinutes": "~{{minutes}} min",
+      "copyInto": "Copier dans {{target}}"
     },
     "graph": {
-      "title": "Graphe de Dépendances",
+      "title": "Graphe de dépendances",
       "legend": {
         "statuses": "Statuts des nœuds",
         "relationships": "Relations"
@@ -4406,14 +4408,14 @@
       "completed": "Terminé",
       "failed": "Échoué",
       "skipped": "Ignoré",
-      "masterDetail": "Maître-Détail",
+      "masterDetail": "Maître-détail",
       "lookup": "Lookup",
       "hierarchical": "Hiérarchique",
       "polymorphic": "Polymorphique",
       "piiDetected": "Champs PII détectés",
       "controls": {
         "zoomIn": "Zoom avant",
-        "zoomOut": "Zoom arriere",
+        "zoomOut": "Zoom arrière",
         "fitView": "Ajuster à la vue",
         "minimap": "Afficher/masquer la minimap"
       },
@@ -4424,22 +4426,22 @@
       "minimap": "Minimap"
     },
     "control": {
-      "title": "Panneau de Contrôle",
-      "liveStats": "Stats en Direct",
-      "nodeDetail": "Détail du Nœud",
-      "anonymization": "Aperçu Anonymisation",
+      "title": "Panneau de contrôle",
+      "liveStats": "Stats en direct",
+      "nodeDetail": "Détail de l'objet",
+      "anonymization": "Aperçu de l'anonymisation",
       "compliance": "Conformité",
       "pause": "Pause",
       "resume": "Reprendre",
-      "skip": "Ignorer le Nœud",
+      "skip": "Ignorer l'objet",
       "stop": "Arrêter",
       "stopping": "Arrêt en cours…",
       "stoppedNotWritten": "Exécution arrêtée : rien n'a été écrit après l'arrêt. Objets non écrits, ou pas en entier : {{list}}.",
       "stoppedAllWritten": "Exécution arrêtée une fois chaque objet écrit : les mises à jour qui suivent n'ont pas été envoyées.",
-      "recordsProcessed": "Enregistrements Traités",
+      "recordsProcessed": "Enregistrements traités",
       "apiCalls": "Appels API",
-      "elapsed": "Temps Écoulé",
-      "currentWave": "Vague Actuelle",
+      "elapsed": "Temps écoulé",
+      "currentWave": "Vague actuelle",
       "noNodeSelected": "Sélectionnez un nœud pour voir les détails",
       "errors": "Erreurs",
       "piiFields": "Champs PII",
@@ -4460,22 +4462,23 @@
       "skipNamed": "Ignorer {{object}}"
     },
     "report": {
-      "title": "Rapport de Conformité",
+      "title": "Rapport de conformité",
       "framework": "Cadre",
       "status": "Statut",
       "pass": "Réussi",
       "partial": "Partiel",
       "fail": "Échoué",
-      "fieldsScanned": "Champs Scannés",
-      "piiDetected": "PII Détectés",
-      "piiAnonymized": "PII Anonymisés",
+      "fieldsScanned": "Champs analysés",
+      "piiDetected": "PII détectées",
+      "piiAnonymized": "PII anonymisées",
       "exportJson": "Exporter JSON",
       "object": "Objet",
       "field": "Champ",
       "category": "Catégorie",
       "method": "Méthode",
-      "recordsAnonymized": "Enregistrements Anonymisés",
-      "rule": "Règle Appliquée"
+      "recordsAnonymized": "Enregistrements anonymisés",
+      "rule": "Règle appliquée",
+      "timeline": "Quand chaque objet s'est terminé"
     },
     "status": {
       "listing": "Liste des objets...",
@@ -4484,7 +4487,7 @@
     },
     "emptyState": {
       "title": "Provisionnez votre sandbox automatiquement",
-      "cta": "Sélectionner un org"
+      "cta": "Sélectionner une org"
     }
   },
   "sidePanel": {

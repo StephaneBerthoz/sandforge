@@ -9,6 +9,7 @@ import {
   BadgeCheck,
   Bell,
   Bot,
+  Box,
   Building2,
   Calendar,
   ChartColumn,
@@ -138,6 +139,8 @@ const ICONS = {
   server: Server,
   shield: Shield,
   snowflake: Snowflake,
+  // The codicon's cube, beside an Apex class in Monitor's job groups.
+  'symbol-method': Box,
   sync: RefreshCw,
   tasklist: ListTodo,
   trash: Trash2,

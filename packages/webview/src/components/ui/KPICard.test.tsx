@@ -43,6 +43,16 @@ describe('KPICard', () => {
     expect(screen.queryByTestId('kpi-subtitle')).toBeNull();
   });
 
+  it('writes what the figure counts on the card, where a keyboard reads it, when given', () => {
+    const { rerender } = render(
+      <KPICard icon="zap" label="API calls, last 24 h" value={83} hint="Counted over 24 hours." />,
+    );
+    expect(screen.getByTestId('kpi-hint').textContent).toBe('Counted over 24 hours.');
+
+    rerender(<KPICard icon="zap" label="API calls, last 24 h" value={83} />);
+    expect(screen.queryByTestId('kpi-hint')).toBeNull();
+  });
+
   it('should render progress bar when progress is provided', () => {
     render(<KPICard icon="sync" label="Sync" value={50} progress={50} />);
     expect(screen.getByRole('progressbar')).toBeDefined();

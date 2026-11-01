@@ -119,6 +119,19 @@ describe('HealthScoreCard', () => {
     expect(screen.getByTestId('health-report-modal')).toBeDefined();
   });
 
+  it('draws its close button and each status as an icon, where the codicon spans drew nothing', () => {
+    // The report's close button was a blank square: the codicon font never
+    // reaches a webview.
+    render(<HealthScoreCard report={warningReport} />);
+    expect(screen.getByTestId('top-risks').querySelector('svg')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('view-full-report'));
+
+    const close = screen.getByTestId('close-report-modal');
+    expect(close.querySelector('[data-testid="icon-close"]')?.tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId('health-report-modal').querySelector('.codicon')).toBeNull();
+    expect(screen.getAllByTestId(/^icon-(check|warning|error)$/).length).toBeGreaterThan(0);
+  });
+
   it('should close modal on close button click', () => {
     render(<HealthScoreCard report={warningReport} />);
     fireEvent.click(screen.getByTestId('view-full-report'));

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Icon } from '../../components/ui/Icon';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import type { JobDisplayInfo } from './MonitorPage';
@@ -117,8 +118,8 @@ function filterJobs(jobs: JobDisplayInfo[], filter: JobFilter): JobDisplayInfo[]
  * VirtualList would require fixed-height scroll containers per group (visual
  * change) and make `job-row-*` assertions depend on jsdom overscan behavior.
  * Memoized instead: props are flat and `jobs` identity is stable between
- * polls, so the 10s `lastUpdatedStr` tick in useMonitorPageData no longer
- * re-renders the accordion.
+ * polls, so the 10s tick that moves the data's age on in useMonitorPageData
+ * no longer re-renders the accordion.
  */
 /** Export jobs to CSV and trigger download via data URI. */
 /**
@@ -348,15 +349,13 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                       fontSize: 'var(--sf-font-size-sm)',
                     }}
                   >
-                    <span
-                      className={`codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}`}
-                      aria-hidden="true"
-                    />
-                    <span
-                      className="codicon codicon-symbol-method"
-                      aria-hidden="true"
-                      style={{ color: 'var(--sf-accent)' }}
-                    />
+                    {/* Drawn by <Icon>: the codicon font these spans counted
+                        on never reaches a webview, and the group's arrow
+                        was an empty box. */}
+                    <Icon name={isExpanded ? 'chevron-down' : 'chevron-right'} />
+                    <span style={{ color: 'var(--sf-accent)' }}>
+                      <Icon name="symbol-method" />
+                    </span>
                     <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>
                       {group.className}
                     </span>

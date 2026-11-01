@@ -21,6 +21,11 @@ export interface KPICardProps {
   value: string | number;
   /** Secondary text shown below the value (e.g. "/15,000" or "83%"). */
   subtitle?: string;
+  /**
+   * What the figure counts, when its label alone does not say it, written
+   * under it: on screen rather than in a tooltip a keyboard never opens.
+   */
+  hint?: string;
   /** Progress percentage (0-100). Renders a ProgressBar when provided. */
   progress?: number;
   /** Accent color variant applied to icon and progress bar. */
@@ -75,6 +80,7 @@ export const KPICard: React.FC<KPICardProps> = ({
   label,
   value,
   subtitle,
+  hint,
   progress,
   variant = 'default',
   className,
@@ -127,6 +133,12 @@ export const KPICard: React.FC<KPICardProps> = ({
       {subtitle && (
         <div data-testid="kpi-subtitle" className="mt-1 text-sm text-text-secondary">
           {subtitle}
+        </div>
+      )}
+
+      {hint && (
+        <div data-testid="kpi-hint" className="mt-1 text-xs text-text-secondary">
+          {hint}
         </div>
       )}
 

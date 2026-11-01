@@ -8,8 +8,8 @@ Copy whole objects from one Salesforce org into another, in the order their depe
 
 1. Pick an org under Source Org and another under Target Org, then click Next.
 2. Tick each object to copy, then click Next.
-3. On Review Plan, check Total Records and What the plan copies.
-4. Click Execute Autopilot, then follow each wave under Live Stats in the Control Panel.
+3. On Review plan, check the two orgs, Total records and What the plan copies.
+4. Click Copy into, which names the target org, then follow each wave under Live Stats.
 
 **Tip:** SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh.
 
@@ -24,10 +24,10 @@ Before you start, know three things:
 ## Quick Start
 
 1. Open **Autopilot** from the launcher's Modules list (it needs two connected orgs)
-2. **Connect Source & Target**: the org the records come from, and the org they go into
-3. **Select Objects**: the objects of the source to copy. An object the target does not have is listed, marked _Not in the target org_, and cannot be picked
-4. **Review Plan**: the objects and records the plan copies, in waves, what it reads only by id, and the lookups it leaves empty; the personal fields it found; **Neutralize emails and phone numbers (recommended)**, ticked; and, under **Advanced: compliance framework**, the masking to apply
-5. **Execute Autopilot**, then follow the run on the dependency graph and the control panel
+2. **Connect source and target**: the org the records come from, and the org they go into
+3. **Select objects**: the objects of the source to copy. An object the target does not have is listed, marked _Not in the target org_, and cannot be picked
+4. **Review plan**: the two orgs, each with its type and instance; the objects and records the plan copies, in waves, what it reads only by id, and the lookups it leaves empty; the personal fields it found, and a **Personal data** tile saying what becomes of them; **Neutralize emails and phone numbers (recommended)**, ticked; and, under **Advanced: compliance framework**, the masking to apply
+5. **Copy into**, the button that names the target org, then follow the run on the dependency graph and the control panel
 
 ## What a run copies
 
@@ -41,7 +41,7 @@ Before you start, know three things:
 ## Masking
 
 - **Emails and phone numbers** are neutralized by default, whatever the framework: every email address is written under `.invalid` and every phone number as a fictional one, so the target's automation reaches no one. Untick **Neutralize emails and phone numbers (recommended)** to copy them as the source holds them.
-- **A compliance framework** -- GDPR, CCPA, HIPAA or PCI-DSS -- anonymizes the personal fields it covers. **None** is the default, on the review step and on the command line, and stays so: a copy holds the source's records as they are, its emails and phone numbers neutralized as a Sync run writes them. With **None**, nothing is anonymized beyond the emails and phone numbers, and the review step says so beside the framework picker: names, addresses and the other personal fields are copied as the source holds them until you pick a framework. The review step says, per object, which personal fields no rule of the framework covers, which would be copied as the source holds them, and the run ends with a **Compliance Report** you can export as JSON.
+- **A compliance framework** -- GDPR, CCPA, HIPAA or PCI-DSS -- anonymizes the personal fields it covers. **None** is the default, on the review step and on the command line, and stays so: a copy holds the source's records as they are, its emails and phone numbers neutralized as a Sync run writes them. With **None**, nothing is anonymized beyond the emails and phone numbers, and the review step says so beside the framework picker: names, addresses and the other personal fields are copied as the source holds them until you pick a framework. The review step says, per object, which personal fields no rule of the framework covers, which would be copied as the source holds them, and the run ends with a **Compliance Report** you can export as JSON. Its timeline gives each object the time the run's message that finished it carries, and how it finished: completed, failed, or skipped where a stop cut it short; an object the run did not finish is not listed.
 
 ## Before a run writes
 
@@ -51,7 +51,7 @@ Before you start, know three things:
 
 ## While it runs
 
-The review says, above **Execute Autopilot**, that SandForge cannot remove what the run writes. The page waits on the run for up to 12 hours, as Seed's and Sync's do; should it stop waiting, it stays on the run and says it may still be writing and that Monitor's Live Operations shows where it is. A second run on the same target is refused while one writes, `AUTOPILOT_RUNNING`, and nothing of it is written. The control panel shows the records processed, the API calls, the elapsed time and the current wave, and offers **Pause**, **Resume**, **Skip Node** and **Stop**; Live Operations lists the run, paused while it is paused, and its Cancel stops it as **Stop** does. A stopped run writes nothing after the stop and says what it did not write, or left unfinished: lookups a second pass would have filled, statuses not given back. The audit trail (Reports → Audit Trail) records each run, with what it wrote per object.
+The review says, above **Copy into**, that SandForge cannot remove what the run writes. The page waits on the run for up to 12 hours, as Seed's and Sync's do; should it stop waiting, it stays on the run and says it may still be writing and that Monitor's Live Operations shows where it is. A second run on the same target is refused while one writes, `AUTOPILOT_RUNNING`, and nothing of it is written. The control panel shows the records processed, the API calls, the elapsed time and the current wave, and offers **Pause**, **Resume**, **Skip Node** and **Stop**; Live Operations lists the run, paused while it is paused, and its Cancel stops it as **Stop** does. A stopped run writes nothing after the stop and says what it did not write, or left unfinished: lookups a second pass would have filled, statuses not given back. The audit trail (Reports → Audit Trail) records each run, with what it wrote per object.
 
 ## From the command line
 

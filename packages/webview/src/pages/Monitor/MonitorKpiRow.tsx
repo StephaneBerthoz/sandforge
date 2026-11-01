@@ -84,12 +84,15 @@ export const MonitorKpiRow: React.FC<MonitorKpiRowProps> = React.memo(
             )}
           </div>
 
-          {/* API Calls */}
+          {/* API calls, over the rolling 24 hours Salesforce counts them in:
+              "Today" beside a countdown to midnight Pacific said they reset
+              then, and nothing does. */}
           <KPICard
             icon="zap"
-            label={t('monitor.apiCalls', 'API Calls Today')}
+            label={t('monitor.apiCalls')}
             value={formatNumber(apiUsed)}
             subtitle={`/ ${formatNumber(apiLimit.max)}`}
+            hint={t('monitor.apiCallsHint')}
             progress={apiLimit.usedPercent}
             variant={usageVariant(apiLimit.usedPercent)}
             trendWarning={apiWarning}

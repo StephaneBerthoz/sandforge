@@ -18,6 +18,7 @@ import type {
 import type { TrendSeries } from './TrendCharts';
 import type { JobDisplayInfo } from './MonitorPage';
 import type { OrgHealthStatus } from './HealthCheckPanel';
+import { formatRelativeTime, formatStoredDate } from '../../utils/formatters';
 
 /** Payload received from monitor:data message. */
 interface MonitorData {
@@ -51,13 +52,19 @@ function findLimit(limits: ApiLimit[], name: string): ApiLimit {
   return limits.find((l) => l.name === name) ?? { name, max: 0, remaining: 0, usedPercent: 0 };
 }
 
-/** Formats ISO date as relative time string. */
-function timeAgo(iso: string): string {
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  return `${Math.floor(m / 60)}h ago`;
+/**
+ * How long ago the data was read, in the interface language and in one unit
+ * picked by its size: seconds, minutes, hours, then days. The header wrote
+ * "5555h ago" in English whatever the language, and the stale badge beside it
+ * "333315m", the same age in another unit. A time ahead of this machine's
+ * clock is read as now, never as one to come.
+ */
+function readAgo(iso: string): string {
+  return (
+    formatStoredDate(iso, (date) =>
+      formatRelativeTime(new Date(Math.min(date.getTime(), Date.now()))),
+    ) ?? ''
+  );
 }
 
 /** Prediction item returned by the hook. */
@@ -95,7 +102,7 @@ export interface MonitorPageData {
   orgInfo: OrgInfo | undefined;
   /** ISO timestamp of last data refresh. */
   lastUpdated: string | null;
-  /** Human-readable relative time since last update (e.g. "2m ago"). */
+  /** How long ago the data was read, in the interface language ("3 days ago"). */
   lastUpdatedStr: string;
   /** Number of active or acknowledged alerts. */
   activeAlertsCount: number;
@@ -125,8 +132,6 @@ export interface MonitorPageData {
   isRefreshing: boolean;
   /** Whether lastUpdated exceeds the stale threshold (2 minutes). */
   isStale: boolean;
-  /** Number of minutes since the last successful update. */
-  minutesSinceUpdate: number;
   /** Number of consecutive auto-refresh failures. */
   consecutiveFailures: number;
   /** True when consecutiveFailures >= 3 (connection considered lost). */
@@ -169,7 +174,7 @@ export interface MonitorPageData {
  * - Bridge queries for monitor data and alerts
  * - Bridge mutation that opens Setup > Apex Jobs for the selected org
  * - All useMemo derived state (limits, jobs, healthScore, trends, predictions, etc.)
- * - The timeAgo ticker effect
+ * - The ticker that moves the data's age on
  * - The auto-refresh interval effect
  * - The error notification effect
  */
@@ -179,7 +184,7 @@ export function useMonitorPageData(): MonitorPageData {
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [lastUpdatedStr, setLastUpdatedStr] = useState('');
+  const [, setAgeTick] = useState(0);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
   const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({});
   const [showErrorDetails, setShowErrorDetails] = useState(false);
@@ -309,13 +314,9 @@ export function useMonitorPageData(): MonitorPageData {
   // isRefreshing: true when loading but we already have data (not initial load)
   const isRefreshing = loading && lastUpdated !== null;
 
-  // Stale data computation. lastUpdatedStr is derived from lastUpdated and
-  // does not need to be in the deps array — recomputing on lastUpdated alone
-  // is sufficient and avoids the lint warning.
-  const minutesSinceUpdate = useMemo(() => {
-    if (!lastUpdated) return 0;
-    return Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 60_000);
-  }, [lastUpdated]);
+  // Written as the page renders, so a language picked meanwhile rewrites it
+  // at once; the ticker below renders it again as it ages.
+  const lastUpdatedStr = lastUpdated ? readAgo(lastUpdated) : '';
 
   const isStale =
     lastUpdated !== null && Date.now() - new Date(lastUpdated).getTime() > STALE_THRESHOLD_MS;
@@ -366,11 +367,10 @@ export function useMonitorPageData(): MonitorPageData {
     }
   }, [monitorQuery.error, addNotification, t]);
 
-  // Time ago ticker effect
+  // The data's age, and whether it is stale, move on every 10 s.
   useEffect(() => {
     if (!lastUpdated) return;
-    setLastUpdatedStr(timeAgo(lastUpdated));
-    const interval = setInterval(() => setLastUpdatedStr(timeAgo(lastUpdated)), 10_000);
+    const interval = setInterval(() => setAgeTick((tick) => tick + 1), 10_000);
     return () => clearInterval(interval);
   }, [lastUpdated]);
 
@@ -464,7 +464,6 @@ export function useMonitorPageData(): MonitorPageData {
     predictions,
     isRefreshing,
     isStale,
-    minutesSinceUpdate,
     consecutiveFailures,
     connectionLost,
     sectionErrors,

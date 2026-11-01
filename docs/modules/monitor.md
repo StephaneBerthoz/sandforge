@@ -20,7 +20,9 @@ Track your Salesforce org health, read when the dashboard opens, on each refresh
 
 1. Navigate to **Monitor** from the sidebar
 2. Select a connected org from the org selector (or click an org card in the empty state)
-3. The dashboard loads with KPIs, trends, jobs, and governor limits
+3. The dashboard loads with KPIs, trends, jobs, and governor limits; the header
+   says how long ago the data was read, in the interface language, and past two
+   minutes a badge says it again with Refresh now
 4. Click the refresh button to pull the latest data, or enable auto-refresh for continuous monitoring.
    A refresh re-reads the KPIs, trends, jobs, limits, live operations and the
    org health check. The storage, API usage, deployments, error logs, sessions,
@@ -34,7 +36,7 @@ Track your Salesforce org health, read when the dashboard opens, on each refresh
 The top row shows five key metrics at a glance:
 
 - **Health Score** -- A composite gauge aggregating limits, jobs, storage, and error rates. Displayed as a radial gauge with color coding (green/amber/red).
-- **API Calls Today** -- Current REST API consumption with a progress bar and percentage. Includes a prediction warning when approaching the daily limit.
+- **API calls, last 24 h** -- The API requests the org has used of its allocation, with a progress bar. Salesforce counts them over a rolling 24-hour window, so no hour of the day resets them, and the card says so. Includes a prediction warning when approaching the limit.
 - **Data Storage** -- Storage used vs. allocated in GB with usage percentage.
 - **File Storage** -- File storage used vs. allocated in GB with usage percentage.
 - **Alerts** -- Active alert count with severity-based coloring.

@@ -1,9 +1,54 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import type { SalesforceOrg } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
 import i18n from '../../../i18n';
 import fr from '../../../i18n/locales/fr.json';
+import ja from '../../../i18n/locales/ja.json';
 import { Step4Review } from './Step4_Review';
 import { uiLocale } from '../../../utils/formatters';
+import { useOrgStore } from '../../../stores/useOrgStore';
+
+/** An org as the store holds it. */
+function org(overrides: Partial<SalesforceOrg>): SalesforceOrg {
+  return {
+    id: 'org-x',
+    alias: 'an-org',
+    username: 'admin@example.test',
+    instanceUrl: 'https://example.my.salesforce.com',
+    orgId: '00D000000000001AAA',
+    orgType: 'Sandbox',
+    authMethod: 'sfdx_import',
+    safetyTier: OrgSafetyTier.MEDIUM,
+    appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '62.0', edition: 'Enterprise Edition', features: [] },
+    status: 'connected',
+    lastConnected: '2026-09-01T08:00:00.000Z',
+    tags: [],
+    ...overrides,
+  };
+}
+
+/** The two orgs of the review, keyed by the ids the store keeps. */
+const SOURCE = org({
+  id: 'org-1',
+  alias: 'DevSandbox',
+  instanceUrl: 'https://dev.example.my.salesforce.com',
+});
+const TARGET = org({
+  id: 'org-2',
+  alias: 'QASandbox',
+  instanceUrl: 'https://qa.example.my.salesforce.com',
+  staging: true,
+});
+
+beforeEach(() => {
+  useOrgStore.setState({ orgs: [SOURCE, TARGET] });
+});
+
+afterEach(() => {
+  useOrgStore.setState({ orgs: [] });
+});
 
 const defaultProps = {
   sourceOrgId: 'org-1',
@@ -104,7 +149,7 @@ describe('Step4_Review', () => {
     expect(screen.getByTestId('stat-records')).toBeDefined();
     expect(screen.getByTestId('stat-duration')).toBeDefined();
     expect(screen.getByTestId('stat-api-calls')).toBeDefined();
-    expect(screen.getByTestId('stat-compliance')).toBeDefined();
+    expect(screen.getByTestId('stat-personal-data')).toBeDefined();
   });
 
   it('should show object count', () => {
@@ -112,9 +157,68 @@ describe('Step4_Review', () => {
     expect(screen.getByTestId('stat-objects').textContent).toContain('3');
   });
 
-  it('should show compliance framework', () => {
+  it('names both orgs by their alias, type and instance, never by the id the store keys them on', () => {
+    // The last panel before the write said "Source: org-1 → Target: org-2",
+    // a UUID in a real install, on the one screen where the target is checked.
     render(<Step4Review {...defaultProps} />);
-    expect(screen.getByTestId('stat-compliance').textContent).toContain('GDPR');
+
+    const orgs = screen.getByTestId('step4-orgs');
+    expect(orgs.textContent).not.toContain('org-1');
+    expect(orgs.textContent).not.toContain('org-2');
+    const source = within(screen.getByTestId('step4-source-org'));
+    expect(source.getByTestId('org-badge-alias').textContent).toBe('DevSandbox');
+    expect(source.getByTestId('org-badge-type').textContent).toBe('SANDBOX');
+    expect(source.getByTestId('org-badge-url').textContent).toBe('dev.example.my.salesforce.com');
+    const target = within(screen.getByTestId('step4-target-org'));
+    expect(target.getByTestId('org-badge-alias').textContent).toBe('QASandbox');
+    // A sandbox marked Staging is named so, in the warning colour of its tier.
+    expect(target.getByTestId('org-badge-type').textContent).toBe('STAGING');
+    expect(target.getByTestId('org-badge-type').className).toContain('bg-status-warning');
+    expect(target.getByTestId('org-badge-url').textContent).toBe('qa.example.my.salesforce.com');
+  });
+
+  it('names the target it writes into on the button that starts the run', () => {
+    render(<Step4Review {...defaultProps} />);
+    expect(screen.getByTestId('execute-button').textContent).toBe('Copy into QASandbox');
+  });
+
+  it('says what becomes of the personal data from both choices, in one tile', () => {
+    // The tile followed the framework alone: "No anonymization" under the
+    // ticked box that neutralizes every email and phone number.
+    const tile = (): string | null =>
+      screen.getByTestId('stat-personal-data').querySelector('span:last-child')?.textContent ??
+      null;
+    const { rerender } = render(
+      <Step4Review {...defaultProps} complianceFramework="none" neutralizeContactPoints />,
+    );
+    expect(tile()).toBe('Emails and phones neutralized');
+
+    rerender(<Step4Review {...defaultProps} complianceFramework="gdpr" neutralizeContactPoints />);
+    expect(tile()).toBe('GDPR + emails and phones');
+
+    rerender(
+      <Step4Review {...defaultProps} complianceFramework="gdpr" neutralizeContactPoints={false} />,
+    );
+    expect(tile()).toBe('GDPR');
+
+    rerender(
+      <Step4Review {...defaultProps} complianceFramework="none" neutralizeContactPoints={false} />,
+    );
+    expect(tile()).toBe('None: copied as in the source');
+    expect(screen.queryByTestId('stat-compliance')).toBeNull();
+    expect(screen.queryByTestId('stat-anonymization')).toBeNull();
+  });
+
+  it('writes the estimated duration in the language the panel is set to', async () => {
+    // "~5 min" was written in the code, the same in all six.
+    i18n.addResourceBundle('ja', 'translation', ja, true, true);
+    await i18n.changeLanguage('ja');
+    try {
+      render(<Step4Review {...defaultProps} />);
+      expect(screen.getByTestId('stat-duration').textContent).toContain('約 5 分');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should show selected objects as badges', () => {
@@ -316,13 +420,27 @@ describe('Step4_Review', () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await i18n.changeLanguage('fr');
     try {
+      const tile = (): string => screen.getByTestId('stat-personal-data').textContent ?? '';
       const { rerender } = render(<Step4Review {...defaultProps} complianceFramework="custom" />);
-      expect(screen.getByTestId('stat-compliance').textContent).toContain('Personnalisé');
-      rerender(<Step4Review {...defaultProps} complianceFramework="none" />);
-      expect(screen.getByTestId('stat-compliance').textContent).toContain('Aucun');
-      expect(screen.getByTestId('stat-compliance').textContent).not.toMatch(/None|Custom/);
-      rerender(<Step4Review {...defaultProps} complianceFramework="pci_dss" />);
-      expect(screen.getByTestId('stat-compliance').textContent).toContain('PCI-DSS');
+      expect(tile()).toContain('Personnalisé + e-mails et téléphones');
+      rerender(
+        <Step4Review
+          {...defaultProps}
+          complianceFramework="none"
+          neutralizeContactPoints={false}
+        />,
+      );
+      expect(tile()).toContain('Aucune : copiées telles que dans la source');
+      expect(tile()).not.toMatch(/None|Custom/);
+      rerender(
+        <Step4Review
+          {...defaultProps}
+          complianceFramework="pci_dss"
+          neutralizeContactPoints={false}
+        />,
+      );
+      expect(tile()).toContain('PCI-DSS');
+      expect(screen.getByTestId('execute-button').textContent).toBe('Copier dans QASandbox');
     } finally {
       await i18n.changeLanguage('en');
     }

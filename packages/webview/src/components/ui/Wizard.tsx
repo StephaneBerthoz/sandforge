@@ -174,7 +174,10 @@ export const Wizard: React.FC<WizardProps> = ({
               <span className="flex flex-col min-w-0">
                 <span
                   className={cn(
-                    'truncate',
+                    // Wrapped, never cut: in the sidebar's narrow column the
+                    // title of Autopilot's first step lost its last words,
+                    // and more of them in French and German.
+                    'wrap-break-word',
                     // The current step sits on the list selection, so it takes the
                     // selection's own foreground; a completed step takes the list
                     // hover, on which description text falls under AA.

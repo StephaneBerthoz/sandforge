@@ -30,6 +30,21 @@ export type NodeOutcome = Partial<
   >
 >;
 
+/** The statuses a node of a run ends on. */
+export type NodeFinishStatus = Extract<AutopilotNode['status'], 'completed' | 'failed' | 'skipped'>;
+
+/**
+ * When a node of the run settled, and on what: the time the host stamped on
+ * the message that settled it, in epoch milliseconds. The compliance report's
+ * timeline is built from these alone; it stamped every object with the time
+ * it was drawn, the same for all and moving on every redraw, and called a
+ * node still writing "Completed".
+ */
+export interface NodeFinish {
+  readonly status: NodeFinishStatus;
+  readonly at: number;
+}
+
 /**
  * Autopilot wizard step. The compliance framework had a step of its own,
  * whose default copied every email and phone number as read; it is now an
@@ -82,6 +97,7 @@ const INITIAL_STATE = {
   selectedNodeName: null as string | null,
   liveStats: { ...DEFAULT_LIVE_STATS },
   errors: [] as string[],
+  nodeFinishes: {} as Record<string, NodeFinish>,
 };
 
 /** Autopilot store state and actions */
@@ -128,6 +144,8 @@ export interface AutopilotState {
   liveStats: LiveStats;
   /** Accumulated error messages */
   errors: string[];
+  /** When each node of the current run settled, and on what, by object API name. */
+  nodeFinishes: Record<string, NodeFinish>;
 
   /** Set the current wizard step */
   setStep: (step: AutopilotStep) => void;
@@ -173,6 +191,10 @@ export interface AutopilotState {
   updateLiveStats: (stats: Partial<LiveStats>) => void;
   /** Append an error message */
   addError: (error: string) => void;
+  /** Keep when a node settled and on what, from the message that settled it. */
+  recordNodeFinish: (objectName: string, status: NodeFinishStatus, at: number) => void;
+  /** Forget the settle times of the last run, as a new one starts. */
+  clearNodeFinishes: () => void;
   /** Reset the store to initial state */
   reset: () => void;
 
@@ -324,6 +346,25 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
     set((state) => ({ errors: [...state.errors, error] }));
   },
 
+  recordNodeFinish(objectName: string, status: NodeFinishStatus, at: number): void {
+    // A time that is not one is not kept: the timeline leaves the object out
+    // rather than give it a time nobody stamped.
+    if (!Number.isFinite(at)) return;
+    set((state) => {
+      // The host settles each node as it ends, then once more for every node
+      // when the run is over: the second message, on the same status, is not
+      // when the node finished. A different status is a node the run's end
+      // settled otherwise, and its time is that message's.
+      const kept = state.nodeFinishes[objectName];
+      if (kept?.status === status) return state;
+      return { nodeFinishes: { ...state.nodeFinishes, [objectName]: { status, at } } };
+    });
+  },
+
+  clearNodeFinishes(): void {
+    set({ nodeFinishes: {} });
+  },
+
   reset(): void {
     set({
       ...INITIAL_STATE,
@@ -332,6 +373,7 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       selectedObjects: [],
       objectCounts: {},
       rules: [],
+      nodeFinishes: {},
     });
   },
 

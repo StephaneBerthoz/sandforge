@@ -274,9 +274,9 @@
     "predictions": "Previsões de tempo até o limite",
     "noPredictions": "Nenhuma previsão disponível",
     "errorTitle": "Erro do Monitor",
-    "apiCalls": "Chamadas de API hoje",
+    "apiCalls": "Chamadas de API, últimas 24 h",
     "dataStorage": "Armazenamento de dados",
-    "selectOrgDesc": "Escolha uma org conectada para ver sua saúde, limites e jobs ao vivo.",
+    "selectOrgDesc": "Escolha uma org conectada para ler sua saúde, seus limites e seus jobs.",
     "scanAnomaliesOn": "Escanear anomalias ({{object}})",
     "anomalyScanObject": "Objeto para escanear anomalias",
     "anomalyScanOtherObject": "Outro objeto…",
@@ -304,10 +304,10 @@
     "noOrgsHint": "Nenhuma org conectada. Vá para Organizações para conectar uma.",
     "emptyState": {
       "title": "Fique de olho na saúde da sua org",
-      "description": "O Monitor acompanha limites de governor, uso de API, armazenamento e jobs em tempo real — detecte problemas antes dos seus usuários.",
+      "description": "Lê os limites de API, os jobs e o armazenamento ao abrir o Monitor ou clicar em Atualizar; a atualização automática lê de novo a cada 30 s enquanto a página está aberta, e cada leitura verifica os limiares de alerta.",
       "step2": "Escolha a org a monitorar",
       "step3": "Acompanhe limites, jobs e saúde num relance",
-      "step4": "Seja alertado antes de atingir os limites"
+      "step4": "Ative a atualização automática para manter os dados em dia"
     },
     "storage": {
       "title": "Registros por objeto",
@@ -345,7 +345,7 @@
     "refreshFailed": "Falha ao atualizar os dados do painel",
     "retry": "Tentar novamente",
     "details": "Detalhes",
-    "staleData": "Dados com {{minutes}}min de idade",
+    "staleData": "Dados lidos {{age}}",
     "refreshNow": "Atualizar agora",
     "connectionLost_one": "Conexão perdida. A atualização automática falhou {{count}} vez.",
     "connectionLost_other": "Conexão perdida. A atualização automática falhou {{count}} vezes.",
@@ -421,7 +421,6 @@
         "instanceChanged": "Passou da instância {{from}} para {{to}}"
       }
     },
-    "resetIn": "Redefinição em",
     "sessions": {
       "title": "Sessões ativas",
       "empty": "Nenhuma sessão ativa",
@@ -443,7 +442,9 @@
     "flowCount_one": "{{formatted}} Flow",
     "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
-    "jobCount_other": "{{count}} jobs"
+    "jobCount_other": "{{count}} jobs",
+    "apiCallsHint": "O Salesforce conta as solicitações de API em uma janela móvel de 24 horas.",
+    "jobInsightsUnknown": "Análises de jobs Apex: ainda não lidas. Elas aparecem após uma atualização que lê os jobs Apex da org."
   },
   "compare": {
     "title": "Comparação",
@@ -3225,8 +3226,8 @@
     "autopilot": {
       "step1": "Escolha uma org em Org de origem e outra em Org de destino e clique em Próximo.",
       "step2": "Marque cada objeto a copiar e clique em Próximo.",
-      "step3": "Na etapa Revisar plano, confira Total de registros e O que o plano copia.",
-      "step4": "Clique em Executar Autopilot e acompanhe cada onda em Estatísticas ao vivo, no Painel de controle.",
+      "step3": "Na etapa Revisar plano, confira as duas orgs, Total de registros e O que o plano copia.",
+      "step4": "Clique em Copiar para, que nomeia a org de destino, e acompanhe cada onda em Estatísticas ao vivo, no Painel de controle.",
       "tip": "O SandForge não pode remover o que uma execução do Autopilot grava: teste-a em uma scratch org ou em uma sandbox que você possa atualizar."
     },
     "frozen": {
@@ -4359,12 +4360,7 @@
       "contactPointsHint": "Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém. Desmarcado, eles são copiados como a origem os contém.",
       "advancedCompliance": "Avançado: estrutura de conformidade",
       "noFrameworkHint": "Nenhuma estrutura de conformidade foi escolhida: nomes, endereços e os demais campos pessoais são copiados como a origem os contém. Escolha uma em “{{advanced}}” para anonimizar os que ela cobre.",
-      "execute": "Executar Autopilot",
       "description": "Revise sua configuração antes de iniciar o Autopilot.",
-      "complianceFramework": "Framework de conformidade",
-      "anonymization": "Anonimização",
-      "noAnonymization": "Sem anonimização",
-      "autoDetect": "Detectar PII automaticamente",
       "connectionSummary": "Resumo da conexão",
       "source": "Origem",
       "target": "Destino",
@@ -4390,7 +4386,13 @@
         "name": "o nome",
         "email": "o e-mail",
         "phone": "o telefone"
-      }
+      },
+      "personalData": "Dados pessoais",
+      "personalDataContactPoints": "E-mails e telefones neutralizados",
+      "personalDataFrameworkAndContactPoints": "{{framework}} + e-mails e telefones",
+      "personalDataNone": "Nenhum: copiados como na origem",
+      "durationMinutes": "~{{minutes}} min",
+      "copyInto": "Copiar para {{target}}"
     },
     "graph": {
       "title": "Grafo de dependências",
@@ -4475,7 +4477,8 @@
       "category": "Categoria",
       "method": "Método",
       "recordsAnonymized": "Registros anonimizados",
-      "rule": "Regra aplicada"
+      "rule": "Regra aplicada",
+      "timeline": "Quando cada objeto terminou"
     },
     "status": {
       "listing": "Listando os objetos...",

@@ -274,9 +274,9 @@
     "predictions": "Time-to-Limit Predictions",
     "noPredictions": "No predictions available",
     "errorTitle": "Monitor Error",
-    "apiCalls": "API Calls Today",
+    "apiCalls": "API calls, last 24 h",
     "dataStorage": "Data Storage",
-    "selectOrgDesc": "Choose a connected org to see its live health, limits and jobs.",
+    "selectOrgDesc": "Choose a connected org to read its health, limits and jobs.",
     "scanAnomaliesOn": "Scan anomalies ({{object}})",
     "anomalyScanObject": "Object to scan for anomalies",
     "anomalyScanOtherObject": "Other object…",
@@ -304,10 +304,10 @@
     "noOrgsHint": "No connected orgs. Go to Organizations to connect one.",
     "emptyState": {
       "title": "Keep an eye on your org health",
-      "description": "Monitor tracks governor limits, API usage, storage and jobs in real time — spot trouble before your users do.",
+      "description": "Reads API limits, jobs and storage when you open Monitor or press Refresh; Auto-refresh reads again every 30 s while the page is open, and each read checks the alert thresholds.",
       "step2": "Pick the org to watch",
       "step3": "Track limits, jobs and health at a glance",
-      "step4": "Get alerted before limits are hit"
+      "step4": "Turn on Auto-refresh to keep it current"
     },
     "storage": {
       "title": "Records by Object",
@@ -345,7 +345,7 @@
     "refreshFailed": "Failed to refresh dashboard data",
     "retry": "Retry",
     "details": "Details",
-    "staleData": "Data is {{minutes}}m old",
+    "staleData": "Data read {{age}}",
     "refreshNow": "Refresh now",
     "connectionLost_one": "Connection lost. Auto-refresh failed {{count}} time.",
     "connectionLost_other": "Connection lost. Auto-refresh failed {{count}} times.",
@@ -421,7 +421,6 @@
         "instanceChanged": "Moved from instance {{from}} to {{to}}"
       }
     },
-    "resetIn": "Reset in",
     "sessions": {
       "title": "Active Sessions",
       "empty": "No active sessions",
@@ -443,7 +442,9 @@
     "flowCount_one": "{{formatted}} Flow",
     "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
-    "jobCount_other": "{{count}} jobs"
+    "jobCount_other": "{{count}} jobs",
+    "apiCallsHint": "Salesforce counts API requests over a rolling 24-hour window.",
+    "jobInsightsUnknown": "Apex job insights: not read yet. They appear after a refresh that reads the org's Apex jobs."
   },
   "compare": {
     "title": "Compare Org",
@@ -3225,8 +3226,8 @@
     "autopilot": {
       "step1": "Pick an org under Source Org and another under Target Org, then click Next.",
       "step2": "Tick each object to copy, then click Next.",
-      "step3": "On Review Plan, check Total Records and What the plan copies.",
-      "step4": "Click Execute Autopilot, then follow each wave under Live Stats in the Control Panel.",
+      "step3": "On Review plan, check the two orgs, Total records and What the plan copies.",
+      "step4": "Click Copy into, which names the target org, then follow each wave under Live Stats.",
       "tip": "SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh."
     },
     "frozen": {
@@ -4314,14 +4315,14 @@
       "title": "Autopilot Setup"
     },
     "step1": {
-      "title": "Connect Source & Target",
+      "title": "Connect source and target",
       "sourceOrg": "Source Org",
       "targetOrg": "Target Org",
       "description": "Select a source and target org to begin the autopilot process.",
       "noOrgs": "No orgs available — connect one first."
     },
     "step2": {
-      "title": "Select Objects",
+      "title": "Select objects",
       "selectAll": "Select All",
       "description": "Select the objects to include in the autopilot run.",
       "searchPlaceholder": "Search objects...",
@@ -4347,28 +4348,23 @@
       "description": "Choose a compliance framework for PII detection and anonymization."
     },
     "step4": {
-      "title": "Review Plan",
-      "totalObjects": "Total Objects",
-      "totalRecords": "Total Records",
-      "estimatedDuration": "Estimated Duration",
-      "estimatedApiCalls": "Estimated API Calls",
-      "waves": "Execution Waves",
-      "piiFields": "PII Fields Detected",
-      "anonymizedFields": "Fields to Anonymize",
+      "title": "Review plan",
+      "totalObjects": "Total objects",
+      "totalRecords": "Total records",
+      "estimatedDuration": "Estimated duration",
+      "estimatedApiCalls": "Estimated API calls",
+      "waves": "Execution waves",
+      "piiFields": "PII fields detected",
+      "anonymizedFields": "Fields to anonymize",
       "contactPoints": "Neutralize emails and phone numbers (recommended)",
       "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them.",
       "advancedCompliance": "Advanced: compliance framework",
       "noFrameworkHint": "No compliance framework is picked: names, addresses and the other personal fields are copied as the source holds them. Pick one under \"{{advanced}}\" to anonymize those it covers.",
-      "execute": "Execute Autopilot",
       "description": "Review your configuration before launching autopilot.",
-      "complianceFramework": "Compliance Framework",
-      "anonymization": "Anonymization",
-      "noAnonymization": "No anonymization",
-      "autoDetect": "Auto-detect PII",
-      "connectionSummary": "Connection Summary",
+      "connectionSummary": "Connection summary",
       "source": "Source",
       "target": "Target",
-      "selectedObjects": "Selected Objects",
+      "selectedObjects": "Selected objects",
       "executing": "Executing...",
       "scope": {
         "title": "What the plan copies",
@@ -4390,7 +4386,13 @@
         "name": "name",
         "email": "email",
         "phone": "phone"
-      }
+      },
+      "personalData": "Personal data",
+      "personalDataContactPoints": "Emails and phones neutralized",
+      "personalDataFrameworkAndContactPoints": "{{framework}} + emails and phones",
+      "personalDataNone": "None: copied as in the source",
+      "durationMinutes": "~{{minutes}} min",
+      "copyInto": "Copy into {{target}}"
     },
     "graph": {
       "title": "Dependency Graph",
@@ -4475,7 +4477,8 @@
       "category": "Category",
       "method": "Method",
       "recordsAnonymized": "Records Anonymized",
-      "rule": "Rule Applied"
+      "rule": "Rule Applied",
+      "timeline": "When each object finished"
     },
     "status": {
       "listing": "Listing the objects...",

@@ -5865,6 +5865,24 @@ for (const theme of SCANNED_THEMES) {
         .flatMap((rule) => rule.nodes)
         .some((node) => node.html.includes('>SCRATCH<'));
       expect(measured, 'axe did not measure the org type badge').toBe(true);
+      // The data's age, said in the header and on the stale badge in one unit,
+      // the job insights band naming what it has not read, and what the API
+      // calls card counts: each read, not only free of violations.
+      await expect(page.getByTestId('monitor-read-age')).toHaveText(/^Data read .+ ago$/);
+      expect(await contrastMeasuredIn(page, header, '[data-testid="monitor-read-age"]')).toBe(1);
+      await toMiddle(page, 'stale-data-badge');
+      const band = await checkAccessibility(page);
+      expectNoViolations(band);
+      expect(
+        await contrastMeasuredIn(page, band, '[data-testid="stale-data-badge"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, band, '[data-testid="monitor-job-insights-unknown"]'),
+      ).toBeGreaterThan(0);
+      await toMiddle(page, 'kpi-hint');
+      const kpis = await checkAccessibility(page);
+      expectNoViolations(kpis);
+      expect(await contrastMeasuredIn(page, kpis, '[data-testid="kpi-hint"]')).toBe(1);
     });
 
     test('Monitor Live Operations with every write run, running and ended', async ({ page }) => {
@@ -6778,7 +6796,7 @@ for (const theme of SCANNED_THEMES) {
 
       const error = page.getByTestId('autopilot-execute-error');
       await error.waitFor({ state: 'visible', timeout: 5000 });
-      await expect(page.getByRole('group', { name: 'Review Plan', exact: true })).toBeFocused();
+      await expect(page.getByRole('group', { name: 'Review plan', exact: true })).toBeFocused();
       const refused = await checkAccessibility(page);
       expectNoViolations(refused);
       expect(
@@ -6848,6 +6866,79 @@ for (const theme of SCANNED_THEMES) {
           0,
         );
       }
+    });
+
+    test('Autopilot review naming both orgs by alias, type and instance, a Staging target in its tier colour, and the button that copies into it', async ({
+      page,
+    }) => {
+      // It named them by the ids the store keeps: "Source: org-src-1 →
+      // Target: org-tgt-1", on the screen where the target is checked.
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, { ...QA_SANDBOX, staging: true }]);
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step4-orgs').waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByTestId('step4-target-org').getByTestId('org-badge-type')).toHaveText(
+        'STAGING',
+      );
+      await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
+      await expect(page.getByTestId('stat-personal-data')).toContainText(
+        'Emails and phones neutralized',
+      );
+
+      await toMiddle(page, 'step4-orgs');
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      for (const testId of ['step4-source-org', 'step4-target-org', 'stat-personal-data']) {
+        expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
+          0,
+        );
+      }
+    });
+
+    test('Autopilot compliance report dating each finished object by the message that finished it', async ({
+      page,
+    }) => {
+      // Every object read the time the report was drawn, the same for all.
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+      await page.evaluate((graph) => {
+        const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
+          { setState: (state: Record<string, unknown>) => void } | undefined;
+        store?.setState({
+          step: 'completed',
+          executionStatus: 'completed',
+          graph,
+          nodeFinishes: {
+            Account: { status: 'completed', at: Date.UTC(2026, 9, 31, 8, 4, 12) },
+            Contact: { status: 'failed', at: Date.UTC(2026, 9, 31, 8, 9, 30) },
+          },
+        });
+      }, MOCK_GRAPH);
+      await page.getByTestId('view-compliance-report').click();
+      await bridge.waitForMessage('autopilot:compliance-report', { timeout: 10_000 });
+      await answerAll(page, 'autopilot:compliance-report', 'autopilot:compliance-report', {
+        report: FORGE_COMPLIANCE_REPORT,
+      });
+      await page.getByTestId('compliance-timeline').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByRole('heading', { name: 'When each object finished' })).toBeVisible();
+
+      await toMiddle(page, 'compliance-timeline');
+      const report = await checkAccessibility(page);
+      expectNoViolations(report);
+      expect(
+        await contrastMeasuredIn(page, report, '[data-testid="compliance-timeline"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Autopilot graph fitted clear of its minimap, legend and controls, on the run and from its fit button', async ({

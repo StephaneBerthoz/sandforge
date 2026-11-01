@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useMonitorPageData } from './useMonitorPageData';
@@ -115,7 +117,55 @@ describe('useMonitorPageData', () => {
     };
     const { result } = renderHook(() => useMonitorPageData());
     expect(result.current.isStale).toBe(true);
-    expect(result.current.minutesSinceUpdate).toBeGreaterThanOrEqual(2);
+    expect(result.current.lastUpdatedStr).toBe('2 minutes ago');
+  });
+
+  it.each([
+    ['fr', fr, 'il y a 3 jours', 'il y a 5 heures'],
+    ['ja', ja, '3 日前', '5 時間前'],
+  ])(
+    'writes how long ago the data was read in %s, in days past a day',
+    async (language, bundle, threeDays, fiveHours) => {
+      // "5555h ago" in English whatever the language, never in days.
+      i18n.addResourceBundle(language, 'translation', bundle, true, true);
+      await i18n.changeLanguage(language);
+      try {
+        mockMonitorQueryState = {
+          data: {
+            ...standardPayload,
+            lastUpdated: new Date(Date.now() - 3 * 86_400_000 - 60_000).toISOString(),
+          },
+          loading: false,
+          error: null,
+          refetch: mockRefetch,
+        };
+        const { result, rerender } = renderHook(() => useMonitorPageData());
+        expect(result.current.lastUpdatedStr).toBe(threeDays);
+
+        mockMonitorQueryState = {
+          ...mockMonitorQueryState,
+          data: {
+            ...standardPayload,
+            lastUpdated: new Date(Date.now() - 5 * 3_600_000 - 60_000).toISOString(),
+          },
+        };
+        rerender();
+        expect(result.current.lastUpdatedStr).toBe(fiveHours);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    },
+  );
+
+  it('reads a time ahead of this machine’s clock as now, never as one to come', () => {
+    mockMonitorQueryState = {
+      data: { ...standardPayload, lastUpdated: new Date(Date.now() + 30_000).toISOString() },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.lastUpdatedStr).toBe('now');
   });
 
   it('should return isStale=false when data is fresh', () => {

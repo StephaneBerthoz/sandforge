@@ -77,6 +77,19 @@ describe('JobsTable', () => {
     expect(screen.queryByTestId('group-jobs-BatchApex')).toBeNull();
   });
 
+  it('draws the arrow of a job group, which points down once the group is open', () => {
+    // The arrow and the method glyph were codicon spans, empty in a webview.
+    const jobs = [createJob({ id: 'j1', jobType: 'BatchApex' })];
+    render(<JobsTable jobs={jobs} />);
+    const toggle = screen.getByTestId('group-toggle-BatchApex');
+    expect(toggle.querySelector('[data-testid="icon-chevron-right"]')).not.toBeNull();
+    expect(toggle.querySelector('[data-testid="icon-symbol-method"]')).not.toBeNull();
+    expect(toggle.querySelector('.codicon')).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.querySelector('[data-testid="icon-chevron-down"]')).not.toBeNull();
+  });
+
   it('should filter by running status', () => {
     const jobs = [
       createJob({ id: 'j-run', jobType: 'BatchApex', status: 'Processing' }),
