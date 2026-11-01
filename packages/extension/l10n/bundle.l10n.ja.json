@@ -189,5 +189,15 @@
   "All files": "すべてのファイル",
   "Import an SFDMU export.json": "SFDMU の export.json をインポート",
   "SFDMU export.json": "SFDMU の export.json",
-  "SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.": "SandForge は、実行中のマシンのディスクから SFDMU の export.json を読み取ります。そのディスク上のファイルを選択してください。"
+  "SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.": "SandForge は、実行中のマシンのディスクから SFDMU の export.json を読み取ります。そのディスク上のファイルを選択してください。",
+  "connected": "接続済み",
+  "session expired": "セッション期限切れ",
+  "connection error": "接続エラー",
+  "refreshing": "更新中",
+  "SandForge: {0} org": "SandForge: {0} 個の組織",
+  "SandForge: {0} orgs": "SandForge: {0} 個の組織",
+  "SandForge — Click to open Home": "SandForge — クリックして「ホーム」を開きます",
+  "SandForge — Click to connect an org in Organizations": "SandForge — クリックして「組織」ページで組織を接続します",
+  "SandForge: {0} ({1} org)": "SandForge: {0} ({1} 個の組織)",
+  "SandForge: {0} ({1} orgs)": "SandForge: {0} ({1} 個の組織)"
 }

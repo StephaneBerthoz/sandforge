@@ -189,5 +189,15 @@
   "All files": "Todos os arquivos",
   "Import an SFDMU export.json": "Importar um export.json do SFDMU",
   "SFDMU export.json": "export.json do SFDMU",
-  "SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.": "O SandForge lê um export.json do SFDMU no disco da máquina em que é executado: escolha um arquivo nesse disco."
+  "SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.": "O SandForge lê um export.json do SFDMU no disco da máquina em que é executado: escolha um arquivo nesse disco.",
+  "connected": "conectada",
+  "session expired": "sessão expirada",
+  "connection error": "erro de conexão",
+  "refreshing": "atualizando",
+  "SandForge: {0} org": "SandForge: {0} org",
+  "SandForge: {0} orgs": "SandForge: {0} orgs",
+  "SandForge — Click to open Home": "SandForge — Clique para abrir a página Início",
+  "SandForge — Click to connect an org in Organizations": "SandForge — Clique para conectar uma org pela página Organizações",
+  "SandForge: {0} ({1} org)": "SandForge: {0} ({1} org)",
+  "SandForge: {0} ({1} orgs)": "SandForge: {0} ({1} orgs)"
 }
