@@ -23,10 +23,14 @@ import type {
   RewindDiff,
   RewindResult,
   RewindStatus,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointTaken,
   SalesforceOrg,
   TriggerType,
 } from '@sandforge/shared';
 import {
+  CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
   auditMutedOf,
   isDevelopmentOrg,
   pipelineCheckpointStepConfigSchema,
@@ -92,6 +96,13 @@ import type {
   OrgLockHolder,
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import type { TakeProgress, TakeRequest } from '../../modules/checkpoint/takeCheckpoint.js';
+import type {
+  BeforeRunAsk,
+  BeforeRunOwn,
+  BeforeRunRequest,
+  BeforeRunTake,
+  BeforeRunTakeOptions,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import type { ArchiveRead } from '../../modules/checkpoint/checkpointArchive.js';
 
 /** Message types handled by CheckpointHandler. */
@@ -173,8 +184,10 @@ export interface WindowWriters {
    * Whether a run of this window that names no org in a file writes to the
    * registered org: a Forge clone, a Frozen load or its removal, a DataOps
    * restore, masking run or erasure, an Autopilot run, a Real-Time session.
+   * `except` is the operation of a run a checkpoint is taken before: its own
+   * mark, and only its own, does not count.
    */
-  writingTo?: (orgId: string) => boolean;
+  writingTo?: (orgId: string, except?: string) => boolean;
 }
 
 /** A refusal of an export or an import, by its code, in the words a person reads. */
@@ -351,12 +364,16 @@ interface TakeAsked {
   /** What it is called, each `{date}` put in the place of T0: a Checkpoint step's name. */
   nameWithDate?: string;
   mode: CheckpointScopeMode;
-  objects?: string[];
-  excluded?: string[];
+  objects?: readonly string[];
+  excluded?: readonly string[];
   customSettings?: CheckpointCustomSettings;
   maxTotal?: number;
   keepDays: number;
   ignoredFields?: string[];
+  /** Leave out, named, an object picked the user is not proven to hold: a checkpoint before a run's. */
+  unprovenLeftOut?: boolean;
+  /** The run a checkpoint is taken before, written into its file. */
+  beforeRun?: TakeRequest['beforeRun'];
 }
 
 /** Whether a rewind wrote anything to the org, as its result counts it. */
@@ -371,17 +388,19 @@ function wroteAny(result: RewindResult): boolean {
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview, rewind, undo, guard, archive, plan, bounds] = await Promise.all([
-    import('../../modules/checkpoint/OrgCheckpointStore.js'),
-    import('../../modules/checkpoint/takeCheckpoint.js'),
-    import('../../modules/checkpoint/previewCheckpoint.js'),
-    import('../../modules/checkpoint/rewindOrg.js'),
-    import('../../modules/checkpoint/undoCheckpoint.js'),
-    import('../../modules/checkpoint/checkpointGuard.js'),
-    import('../../modules/checkpoint/checkpointArchive.js'),
-    import('../../modules/checkpoint/rewindPlan.js'),
-    import('../../modules/checkpoint/rewindBounds.js'),
-  ]);
+  const [store, take, preview, rewind, undo, guard, archive, plan, bounds, beforeRun] =
+    await Promise.all([
+      import('../../modules/checkpoint/OrgCheckpointStore.js'),
+      import('../../modules/checkpoint/takeCheckpoint.js'),
+      import('../../modules/checkpoint/previewCheckpoint.js'),
+      import('../../modules/checkpoint/rewindOrg.js'),
+      import('../../modules/checkpoint/undoCheckpoint.js'),
+      import('../../modules/checkpoint/checkpointGuard.js'),
+      import('../../modules/checkpoint/checkpointArchive.js'),
+      import('../../modules/checkpoint/rewindPlan.js'),
+      import('../../modules/checkpoint/rewindBounds.js'),
+      import('../../modules/checkpoint/beforeRunCheckpoint.js'),
+    ]);
   return {
     planSelection: plan.planSelection,
     snapshotRowsOf: plan.snapshotRowsOf,
@@ -416,6 +435,14 @@ async function loadCheckpointModules() {
     RewindStopped: rewind.RewindStopped,
     undoCheckpoint: undo.undoCheckpoint,
     UndoStopped: undo.UndoStopped,
+    beforeRunScopeOf: beforeRun.beforeRunScopeOf,
+    beforeRunAskedOf: beforeRun.beforeRunAskedOf,
+    beforeRunKeepDaysOf: beforeRun.beforeRunKeepDaysOf,
+    beforeRunDiskRefusal: beforeRun.beforeRunDiskRefusal,
+    beforeRunOutcomeOf: beforeRun.beforeRunOutcomeOf,
+    freeBytesOf: beforeRun.freeBytesOf,
+    scopeBeforeRun: beforeRun.scopeBeforeRun,
+    settleBeforeRun: beforeRun.settleBeforeRun,
   };
 }
 
@@ -429,6 +456,8 @@ class Refused extends Error {
     readonly retryable = false,
     /** What a rewind did before it was refused, when it ran: one nobody could be asked about. */
     readonly result?: RewindResult,
+    /** The guard's or the gate's refusal, as it gave it, when it is one. */
+    readonly refusal?: CheckpointRefusal,
   ) {
     super(message);
     this.name = 'Refused';
@@ -626,6 +655,13 @@ function holderWords(holder: OrgLockHolder): string {
  * (`rewindBounds.ts`) in the place of the person who would read it, each
  * under an operation id of its own, which no page waits on.
  *
+ * So does the checkpoint a run takes of what it writes before its first write
+ * (`Checkpoint first`), through the port the run handlers call
+ * (`BeforeRunCheckpoints`): {@link CheckpointHandler.scopeBeforeRun} at the
+ * run's gate, {@link CheckpointHandler.takeBeforeRun} once its question is
+ * answered, {@link CheckpointHandler.settleBeforeRun} once it has ended. The
+ * run's own mark alone does not refuse the take.
+ *
  * Every refusal a guard or a gate gives goes out as it gave it, its code and
  * its words, on `checkpoint:error`: a production org is refused by the
  * checkpoint's own guard, which nothing lifts, and this handler asks no
@@ -669,6 +705,9 @@ export class CheckpointHandler implements DomainHandler {
   /** Where and how the mute leases are kept, when not the home directory's. */
   private muteLeases: MuteLeaseOptions = {};
 
+  /** Bytes the store's disk has free, when not the system's answer: see {@link setFreeBytes}. */
+  private freeBytes?: (dir: string) => Promise<number | undefined>;
+
   /**
    * @param deps - Injected handler dependencies.
    * @param writers - What this window writes to orgs, which refuses a take.
@@ -705,6 +744,11 @@ export class CheckpointHandler implements DomainHandler {
   /** Where and how a rewind or an undo that mutes keeps its lease, in place of the home directory's. */
   setMuteLeases(options: MuteLeaseOptions): void {
     this.muteLeases = options;
+  }
+
+  /** What the store's disk has free, in place of what the system says: a checkpoint before a run is refused short of it. */
+  setFreeBytes(read: (dir: string) => Promise<number | undefined>): void {
+    this.freeBytes = read;
   }
 
   /**
@@ -853,6 +897,182 @@ export class CheckpointHandler implements DomainHandler {
     return () => {
       this.changeListeners.delete(listener);
     };
+  }
+
+  // ─── A checkpoint before a run (Checkpoint first) ──────────────────────────
+
+  /**
+   * What a checkpoint of what a run writes, taken before its first write,
+   * would hold and cost, read at the run's gate (`scopeBeforeRun`): its
+   * guard, the objects held and those left out with why, the take's estimate,
+   * and the refusal a real run would meet — production, permissions, another
+   * run writing, the org's lock, its limits, the day's requests, nothing
+   * held, the disk. No record is read, nothing kept. `own`, the run's own
+   * mark, does not refuse it.
+   *
+   * @throws {Refused} When the org is not registered, the store cannot be
+   *   used or the scratch org has expired: the run's question has no answer.
+   */
+  async scopeBeforeRun(ask: BeforeRunAsk, own: BeforeRunOwn = {}): Promise<RunCheckpointEstimate> {
+    const org = this.registeredOrg(ask.orgId);
+    const m = await this.modules();
+    const store = await this.openedStore();
+    const conn = await this.connect(org);
+    return m.scopeBeforeRun(
+      {
+        org: m.takeOrgOf(conn),
+        store,
+        handler: this.deps,
+        runWriting: this.beforeRunWriting(org, own),
+        ...(this.freeBytes ? { freeBytes: this.freeBytes } : {}),
+      },
+      this.takeRequestOf(org, { mode: 'picked' }),
+      this.beforeRunRequestOf(m, ask),
+    );
+  }
+
+  /**
+   * Take the checkpoint before a run, once its question is answered and
+   * before the mute's lease and the first write, as the page takes one: the
+   * take's own guards read live, the org's lock, its limits, listed in the
+   * registry and in Live Operations under an operation of its own, whose
+   * Cancel and the run's `signal` stop it between two reads, keeping nothing.
+   * The disk is checked first against what the question said it takes. Its
+   * name is `Before <module> run <date>`, its origin the run, its days the
+   * request's or `sandforge.checkpoint.beforeRunKeepDays`. Only the run's own
+   * mark (`own`) does not refuse it. Recorded in the audit trail
+   * (`checkpoint_take`) with the run it was taken before, once the org is
+   * reached.
+   *
+   * @returns The checkpoint, the refusal it met, or that the run's Stop came
+   *   while it read.
+   * @throws {Refused} When the org is not registered, the store cannot be
+   *   used or the scratch org has expired.
+   * @throws The take's error when it fails: nothing of it is kept.
+   */
+  async takeBeforeRun(
+    ask: BeforeRunAsk,
+    own: BeforeRunOwn = {},
+    options: BeforeRunTakeOptions = {},
+  ): Promise<BeforeRunTake> {
+    const operationId = `checkpoint:before-run:${randomUUID()}`;
+    const org = this.registeredOrg(ask.orgId);
+    const m = await this.modules();
+    const store = await this.openedStore();
+    const request = this.beforeRunRequestOf(m, ask);
+    const scope = m.beforeRunScopeOf(request);
+    const audit = (
+      outcome: AuditOutcome,
+      extra: { code?: string; taken?: RunCheckpointTaken } = {},
+    ): void => {
+      const { taken } = extra;
+      recordWriteRun(this.deps, {
+        action: 'checkpoint_take',
+        module: MODULE,
+        operationId,
+        orgId: org.id,
+        outcome,
+        beforeRun: { module: ask.module, operationId: ask.operationId },
+        ...(extra.code !== undefined ? { code: extra.code } : {}),
+        details: taken
+          ? {
+              checkpointId: taken.checkpointId,
+              records: taken.records,
+              objects: taken.objects.length,
+              bytes: taken.bytes,
+            }
+          : {},
+      });
+    };
+    if (options.planned !== undefined) {
+      const disk = m.beforeRunDiskRefusal(
+        options.planned.estimate.bytes,
+        await (this.freeBytes ?? m.freeBytesOf)(store.root),
+      );
+      if (disk !== undefined) {
+        audit('stopped', { code: disk.code });
+        return { taken: false, refusal: disk };
+      }
+    }
+    const conn = await this.connect(org);
+    if (options.signal?.aborted) {
+      audit('cancelled');
+      return { taken: false, stopped: true };
+    }
+    let kept: TakeKept;
+    try {
+      kept = await this.take(operationId, m, store, conn, org, m.beforeRunAskedOf(scope, request), {
+        description: `Checkpoint first: taking a checkpoint of ${nameOf(org)} before the run`,
+        runWriting: this.beforeRunWriting(org, own),
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+      });
+    } catch (err: unknown) {
+      if (err instanceof Refused && err.code === CANCELLED) {
+        audit('cancelled');
+        return { taken: false, stopped: true };
+      }
+      if (err instanceof Refused && err.refusal !== undefined) {
+        audit('stopped', { code: err.refusal.code });
+        return { taken: false, refusal: err.refusal };
+      }
+      audit('failure');
+      throw err;
+    }
+    const outcome = await m.beforeRunOutcomeOf(store, scope, kept);
+    if (outcome.taken) {
+      audit('success', { taken: outcome.checkpoint });
+    } else {
+      // Kept, then deleted again: it held none of the objects the run writes.
+      this.checkpointsChanged();
+      audit('stopped', { ...('refusal' in outcome ? { code: outcome.refusal.code } : {}) });
+    }
+    return outcome;
+  }
+
+  /**
+   * Once a run that took a checkpoint before its first write has ended: the
+   * checkpoint kept when the run wrote a record, deleted when it wrote none
+   * — its mute refused, no row to write, a stop before its first write. One
+   * the store's lock keeps from being deleted stays, said in the log.
+   */
+  async settleBeforeRun(taken: RunCheckpointTaken, wrote: boolean): Promise<RunCheckpointInfo> {
+    const m = await this.modules();
+    const store = await this.openedStore();
+    const settled = await m.settleBeforeRun(store, taken, wrote);
+    if (settled.notDeleted !== undefined) this.deps.log(`[WARN] ${settled.notDeleted}`);
+    if (settled.info.state === 'deleted') {
+      this.deps.log(
+        `[INFO] Deleted checkpoint '${taken.name}', taken before a run that wrote nothing`,
+      );
+      this.checkpointsChanged();
+    }
+    return settled.info;
+  }
+
+  /** What a run's checkpoint is asked, resolved: taken by the panel, kept the days asked or set. */
+  private beforeRunRequestOf(m: CheckpointModules, ask: BeforeRunAsk): BeforeRunRequest {
+    const setting = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'checkpoint.beforeRunKeepDays',
+      CHECKPOINT_BEFORE_RUN_KEEP_DAYS.default,
+    );
+    return {
+      module: ask.module,
+      written: ask.written,
+      running: ask.running,
+      request: ask.request,
+      operationId: ask.operationId,
+      tool: 'panel',
+      keepDays: m.beforeRunKeepDaysOf(ask.request.keepDays, setting),
+    };
+  }
+
+  /** What refuses a checkpoint before a run: everything that writes to the org but the run's own mark. */
+  private beforeRunWriting(
+    org: SalesforceOrg,
+    own: BeforeRunOwn,
+  ): (organizationId: string) => Promise<string | undefined> {
+    return this.runWriting(org.id, nameOf(org), 'start this run', 'No record was read.', own);
   }
 
   // ─── A pipeline's Checkpoint and Rewind steps ──────────────────────────────
@@ -1660,7 +1880,13 @@ export class CheckpointHandler implements DomainHandler {
 
   /** A guard's or a gate's refusal, as it gave it. */
   private refusalOf(refusal: CheckpointRefusal): Refused {
-    return new Refused(refusal.code, refusal.message, RETRYABLE_REFUSALS.has(refusal.code));
+    return new Refused(
+      refusal.code,
+      refusal.message,
+      RETRYABLE_REFUSALS.has(refusal.code),
+      undefined,
+      refusal,
+    );
   }
 
   /** The registered org, or a refusal naming it. */
@@ -1735,20 +1961,29 @@ export class CheckpointHandler implements DomainHandler {
    * refusal says it, `then` the act to do once it has ended; nothing when none
    * does. A run on another machine, or of another user of this one, is not
    * seen.
+   *
+   * `own` is the mark of the run a checkpoint is taken before, which alone
+   * does not count: its operation, as the window's handlers compare theirs
+   * with it, and its run file when this process writes it. Another run of the
+   * window, a run file of another id, or of the same id another process
+   * writes, refuses the take as ever: a checkpoint taken while another run
+   * writes would hold that run half written.
    */
   private runWriting(
     orgId: string,
     orgName: string,
     then: string,
     done: string,
+    own: BeforeRunOwn = {},
   ): (organizationId: string) => Promise<string | undefined> {
     const words = `A SandForge run is writing to ${orgName}: ${then} once it has ended. ${done}`;
     return async (organizationId) => {
-      if (this.writers.writingTo?.(orgId) === true) return words;
+      if (this.writers.writingTo?.(orgId, own.operationId) === true) return words;
       for (const files of [this.syncRuns, this.seedRuns]) {
         if (!files) continue;
         for (const run of await files.list()) {
           if (run.end !== undefined || !this.writesTo(run, orgId, organizationId)) continue;
+          if (own.runId !== undefined && run.runId === own.runId && this.writtenHere(run)) continue;
           if (this.writers.isRunning?.(run.runId) === true || writtenElsewhere(run, this.self)) {
             return words;
           }
@@ -1756,6 +1991,21 @@ export class CheckpointHandler implements DomainHandler {
       }
       return undefined;
     };
+  }
+
+  /**
+   * Whether this process writes a run's file, as the file names its writer:
+   * its process id and when it started, both this process's. A file that
+   * names no writer was written before files named one, by no run asking a
+   * checkpoint now.
+   */
+  private writtenHere(run: SyncRunKept): boolean {
+    const writer = run.writer;
+    return (
+      writer !== undefined &&
+      writer.pid === this.self.pid &&
+      Date.parse(writer.hostStartedAt) === Date.parse(this.self.startedAt)
+    );
   }
 
   /** Whether a run's file names the org: by its registered id, or by its Organization Id. */
@@ -2101,7 +2351,15 @@ export class CheckpointHandler implements DomainHandler {
     conn: Awaited<ReturnType<CheckpointHandler['connect']>>,
     org: SalesforceOrg,
     asked: TakeAsked,
-    options: { description?: string; signal?: AbortSignal; kept?: (kept: TakeKept) => void } = {},
+    options: {
+      description?: string;
+      signal?: AbortSignal;
+      kept?: (kept: TakeKept) => void;
+      /** What writes to the org refuses the take: everything this machine writes, unless told. */
+      runWriting?: (organizationId: string) => Promise<string | undefined>;
+      /** Told the take's progress too: a run's, whose own progress says it. */
+      onProgress?: (progress: TakeProgress) => void;
+    } = {},
   ): Promise<TakeKept> {
     const orgName = nameOf(org);
     const description = options.description ?? `Taking a checkpoint of ${orgName}`;
@@ -2131,6 +2389,7 @@ export class CheckpointHandler implements DomainHandler {
       // recorded the stop and hears no more of it.
       if (!stop.signal.aborted) registry?.updateProgress(operationId, percentage);
       live.progress(percentage, processedObjects, totalObjects, step);
+      options.onProgress?.(progress);
     };
     const onAbort = (): void => {
       if (registry) registry.abort(operationId);
@@ -2146,12 +2405,9 @@ export class CheckpointHandler implements DomainHandler {
           handler: this.deps,
           signal: stop.signal,
           onProgress,
-          runWriting: this.runWriting(
-            org.id,
-            orgName,
-            'take the checkpoint',
-            'No record was read.',
-          ),
+          runWriting:
+            options.runWriting ??
+            this.runWriting(org.id, orgName, 'take the checkpoint', 'No record was read.'),
         },
         {
           ...this.takeRequestOf(org, asked),
@@ -2159,6 +2415,8 @@ export class CheckpointHandler implements DomainHandler {
           ...(asked.nameWithDate !== undefined ? { nameWithDate: asked.nameWithDate } : {}),
           keepDays: asked.keepDays,
           ...(asked.ignoredFields ? { ignoredFields: asked.ignoredFields } : {}),
+          ...(asked.unprovenLeftOut === true ? { unprovenLeftOut: true } : {}),
+          ...(asked.beforeRun !== undefined ? { beforeRun: asked.beforeRun } : {}),
         },
       );
       if (!outcome.taken) {

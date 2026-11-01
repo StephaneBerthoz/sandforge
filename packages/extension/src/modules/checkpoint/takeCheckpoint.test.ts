@@ -2070,6 +2070,46 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     ]);
   });
 
+  it('leaves out, named with why, a picked object the user is not proven to hold when asked to, and holds the rest', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Case: { viewAll: true } });
+    const asked = request({
+      mode: 'picked',
+      objects: ['Account', 'Case', 'Task'],
+      unprovenLeftOut: true,
+    });
+
+    const scope = await scopeCheckpoint(h.deps, asked);
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, asked));
+
+    expect(scope.refusal).toBeUndefined();
+    expect(checkpoint.objects.map(({ objectApiName }) => objectApiName)).toEqual(['Account']);
+    expect(checkpoint.scope.leftOut).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Case', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Task', reason: WITHOUT_BOTH.activities },
+      ]),
+    );
+    expect(scope.leftOut).toEqual(checkpoint.scope.leftOut);
+    expect(snapshotReads(h.sent)).toEqual(['Account']);
+  });
+
+  it('refuses a take of which no object is proven though it is asked to leave the unproven out, before reading any record', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Case: { viewAll: true } });
+
+    const outcome = await takeCheckpoint(
+      h.deps,
+      request({ mode: 'picked', objects: ['Case', 'Task'], unprovenLeftOut: true }),
+    );
+
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'PERMISSIONS' } });
+    expect(readsRecords(h.org.asked)).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
+  });
+
   it('refuses a take of which no object is proven, before reading any record', async () => {
     const h = harness({ modifyAllData: false });
     seed(h.org);
@@ -2124,6 +2164,47 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     expect(new Set(checkpoint.objects.map(({ access }) => access))).toEqual(new Set(['org']));
     expect(checkpoint.takenBy).toMatchObject({ viewAllData: true, modifyAllData: true });
     expect(h.org.asked.join(' ')).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
+  });
+});
+
+describe('takeCheckpoint — a take before a run', () => {
+  it('writes the run it was taken before into its file, which reads back with it, and one taken by hand has none', async () => {
+    const h = harness();
+    seed(h.org);
+    const beforeRun = {
+      module: 'forge' as const,
+      operationId: 'wv-execute-1',
+      tool: 'panel' as const,
+    };
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account'], beforeRun })),
+    );
+
+    expect(checkpoint.beforeRun).toEqual(beforeRun);
+    expect((await h.store.read(checkpoint.checkpointId))?.checkpoint?.beforeRun).toEqual(beforeRun);
+    const [entry] = await h.store.list({ organizationId: ORG_ID, now: MACHINE_NOW });
+    expect(entry).toMatchObject({ checkpointId: checkpoint.checkpointId, valid: true });
+
+    clock = T0 + 60_000;
+    const byHand = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account'] })),
+    );
+    expect(byHand.checkpoint).not.toHaveProperty('beforeRun');
+  });
+
+  it('refuses an origin its file would not read back, before the org is asked anything', async () => {
+    const h = harness();
+    seed(h.org);
+
+    await expect(
+      takeCheckpoint(
+        h.deps,
+        request({ beforeRun: { module: 'forge', operationId: '', tool: 'panel' } }),
+      ),
+    ).rejects.toThrow();
+    expect(h.org.asked).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
   });
 });
 

@@ -303,12 +303,12 @@ describe('ExtensionHandlers', () => {
         };
         syncHandler: { isRunning: (runId: string) => boolean };
         seedCloneHandler: { isRunning: (runId: string) => boolean };
-        forgeHandler: { isWritingTo: (orgId: string) => boolean };
-        frozenHandler: { isWritingTo: (orgId: string) => boolean };
-        dataOpsHandler: { isWritingTo: (orgId: string) => boolean };
-        complianceHandler: { isWritingTo: (orgId: string) => boolean };
-        autopilotHandler: { isWritingTo: (orgId: string) => boolean };
-        realtimeHandler: { isWritingTo: (orgId: string) => boolean };
+        forgeHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        frozenHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        dataOpsHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        complianceHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        autopilotHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
+        realtimeHandler: { isWritingTo: (orgId: string, except?: string) => boolean };
       };
 
     it('refuses a take of an org a Frozen load, a DataOps restore, masking run or erasure, an Autopilot run or a Real-Time session of this window writes to, as each handler says', () => {
@@ -327,9 +327,73 @@ describe('ExtensionHandlers', () => {
 
         expect(all.checkpointHandler.writers.writingTo?.('org-x')).toBe(true);
         expect(all.checkpointHandler.writers.writingTo?.('org-y')).toBe(false);
-        expect(asked).toHaveBeenCalledWith('org-x');
+        expect(asked).toHaveBeenCalledWith('org-x', undefined);
         vi.restoreAllMocks();
       }
+    });
+
+    it('tells every handler that writes the operation a checkpoint is taken before, for each to leave its own run’s mark out and no other', () => {
+      const all = inner();
+      const writers = [
+        all.forgeHandler,
+        all.frozenHandler,
+        all.dataOpsHandler,
+        all.complianceHandler,
+        all.autopilotHandler,
+        all.realtimeHandler,
+      ];
+      for (const writer of writers) {
+        // The handler runs `op-own` against org-x, and compares it with what it is told.
+        const asked = vi
+          .spyOn(writer, 'isWritingTo')
+          .mockImplementation(
+            (id: string, except?: string) => id === 'org-x' && except !== 'op-own',
+          );
+
+        expect(all.checkpointHandler.writers.writingTo?.('org-x', 'op-own')).toBe(false);
+        expect(all.checkpointHandler.writers.writingTo?.('org-x', 'op-other')).toBe(true);
+        expect(asked).toHaveBeenCalledWith('org-x', 'op-own');
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('gives the run handlers the checkpoint before a run through the Checkpoints’ own handler', async () => {
+      const checkpoints = (
+        handlers as unknown as {
+          checkpointHandler: Pick<
+            CheckpointHandler,
+            'scopeBeforeRun' | 'takeBeforeRun' | 'settleBeforeRun'
+          >;
+        }
+      ).checkpointHandler;
+      const scope = vi
+        .spyOn(checkpoints, 'scopeBeforeRun')
+        .mockResolvedValue({ state: 'planned' } as never);
+      const take = vi
+        .spyOn(checkpoints, 'takeBeforeRun')
+        .mockResolvedValue({ taken: false, stopped: true });
+      const settle = vi
+        .spyOn(checkpoints, 'settleBeforeRun')
+        .mockResolvedValue({ state: 'deleted', deleted: 'nothingWritten' });
+      const ask = {
+        orgId: 'org-x',
+        module: 'forge' as const,
+        operationId: 'op-own',
+        written: ['Account'],
+        running: { firing: [] },
+        request: {},
+      };
+      const own = { operationId: 'op-own' };
+      const signal = new AbortController().signal;
+
+      await handlers.beforeRunCheckpoints.scope(ask, own);
+      await handlers.beforeRunCheckpoints.take(ask, own, { signal });
+      await handlers.beforeRunCheckpoints.settle({ checkpointId: 'ck-1' } as never, false);
+
+      expect(scope).toHaveBeenCalledWith(ask, own);
+      expect(take).toHaveBeenCalledWith(ask, own, { signal });
+      expect(settle).toHaveBeenCalledWith({ checkpointId: 'ck-1' }, false);
+      vi.restoreAllMocks();
     });
 
     it('routes its requests to the checkpoints kept on this machine', async () => {

@@ -16,9 +16,11 @@
  *   objects the user is proven to see and put back whole, each with how
  *   (`checkpointAccess.ts`), once described: an object hangs from what its
  *   parents' describes say. One left out is named with why; one asked for by
- *   name refuses the take, as does a scope of which none is proven. The file
- *   says, of the user, which of the two they had, and of each object how it
- *   was held: a rewind to it reads its user's permissions again.
+ *   name refuses the take — unless the take is asked to leave it out, named,
+ *   as a checkpoint before a run is — as does a scope of which none is
+ *   proven. The file says, of the user, which of the two they had, and of
+ *   each object how it was held: a rewind to it reads its user's permissions
+ *   again.
  * - T0, the moment the checkpoint is of, is read on the org's clock before the
  *   records are counted. An object counted empty is then one read empty after
  *   T0, as any other object read after it is, and its snapshot is not asked
@@ -71,9 +73,11 @@ import type { Connection } from 'jsforce';
 import * as z from 'zod';
 import {
   CHECKPOINT_STEP_DATE,
+  checkpointBeforeRunSchema,
   checkpointIgnoredFieldsSchema,
   checkpointNameSchema,
   sanitizeSoqlObjectName,
+  type CheckpointBeforeRun,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
   type CheckpointEstimate,
@@ -301,6 +305,17 @@ export interface TakeRequest {
   ignoredFields?: readonly string[];
   /** The records it holds at most, all objects together: {@link DEFAULT_MAX_TOTAL} unless given. */
   maxTotal?: number;
+  /**
+   * Of picked objects, leave out — named, with why — one asked for by name
+   * that a user without View All Data and Modify All Data is not proven to
+   * hold whole, rather than refuse the take for it. A checkpoint a run takes
+   * before its first write holds what it can of what the run writes and says
+   * what it does not: the run's objects are its own, not the person's pick.
+   * A take of which no object is proven is refused all the same.
+   */
+  unprovenLeftOut?: boolean;
+  /** The run the take is made before, written into the checkpoint's file ({@link CheckpointBeforeRun}). */
+  beforeRun?: CheckpointBeforeRun;
 }
 
 /** How far a take is. */
@@ -1099,8 +1114,9 @@ interface HeldWhole {
  * described first, 25 a composite: what a lookup's delete takes along only
  * its parent's describe says. An object asked for by name and not proven
  * refuses the take, naming it: the person asked for it, and it does not go
- * in silence. One the scope holds otherwise is left out, named; and when no
- * object is proven, the take is refused.
+ * in silence — unless the take is asked to leave it out, named
+ * ({@link TakeRequest.unprovenLeftOut}). One the scope holds otherwise is
+ * left out, named; and when no object is proven, the take is refused.
  */
 async function heldWholeOf(
   org: TakeOrg,
@@ -1156,7 +1172,7 @@ async function heldWholeOf(
       ...(proof?.detail !== undefined ? { detail: proof.detail } : {}),
     };
     leftOut.push(out);
-    if (named.has(name.toLowerCase())) refusedByName.push(out);
+    if (named.has(name.toLowerCase()) && request.unprovenLeftOut !== true) refusedByName.push(out);
   }
   const kept = new Set(objects.map(({ scoped }) => scoped.objectApiName));
   const held: HeldWhole = {
@@ -1651,6 +1667,12 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
   ]) {
     sanitizeSoqlObjectName(objectApiName);
   }
+  // Checked as the file is read back: one it would not read would leave a
+  // checkpoint listed damaged, its take spent.
+  const beforeRun =
+    request.beforeRun === undefined
+      ? undefined
+      : checkpointBeforeRunSchema.parse(request.beforeRun);
   const keepDays = request.keepDays ?? DEFAULT_KEEP_DAYS;
   expiresAtFor(now(), keepDays);
   const report = (percentage: number, step: string, processed = 0, total = 0): void =>
@@ -1760,6 +1782,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       expiresAt: expiresAtFor(now(), keepDays),
       status: 'taking',
       takenOn: { host: hostname(), pid: process.pid },
+      ...(beforeRun !== undefined ? { beforeRun } : {}),
     };
     await store.write(taking);
 

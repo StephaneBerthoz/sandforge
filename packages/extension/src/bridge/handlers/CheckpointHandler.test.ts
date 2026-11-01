@@ -15,6 +15,7 @@ import type {
   BaseMessage,
   ForgeTargetAutomation,
   OrgCheckpoint,
+  RunCheckpointTaken,
   SalesforceOrg,
   UUID,
 } from '@sandforge/shared';
@@ -43,6 +44,12 @@ import {
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
 import { appendToRewindLedger, rewindLedgerFileOf } from '../../modules/checkpoint/rewindLedger.js';
+import {
+  writePathOrderDefects,
+  type BeforeRunAsk,
+  type BeforeRunTake,
+  type WritePathStep,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
@@ -283,6 +290,8 @@ function harness(
     self?: { pid: number; startedAt: string };
     /** The window's dialogs the page's Export… and Import… pick their file in. */
     checkpointFiles?: CheckpointFileDialogs;
+    /** The window's SandForge settings, by key without its `sandforge.`; none unless told. */
+    settings?: Record<string, unknown>;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-host-'));
@@ -325,6 +334,14 @@ function harness(
     },
     nextId: () => `ext-${++ids}`,
     sandboxRefreshes: detector,
+    ...(options.settings
+      ? {
+          services: {
+            getSandforgeSetting: <T>(key: string, fallback: T): T =>
+              (options.settings?.[key] as T | undefined) ?? fallback,
+          },
+        }
+      : {}),
   } as unknown as HandlerDeps;
   let hook: (soql: string) => void = () => undefined;
   vi.mocked(getJsforceConnection).mockImplementation(
@@ -3156,5 +3173,460 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
       outcome: 'stopped',
       details: { code: 'PRODUCTION', trigger: 'schedule' },
     });
+  });
+});
+
+// ─── A checkpoint before a run (Checkpoint first) ────────────────────────────
+
+/** The operation of the Forge run a checkpoint is taken before. */
+const OWN_RUN = 'wv-forge-execute-1';
+
+/** A flow of the target that still runs as the run inserts Accounts, opening a Case for each. */
+const OPENS_A_CASE = {
+  objectApiName: 'Account',
+  kind: 'flow' as const,
+  name: 'Open a case',
+  write: 'insert' as const,
+  flow: {
+    apiName: 'Open_A_Case',
+    label: 'Open a case',
+    timing: 'afterSave' as const,
+    startsOn: 'create' as const,
+    condition: 'read' as const,
+    permissions: [],
+    creates: ['Case'],
+  },
+};
+
+/** What a Forge run writing Accounts asks of the checkpoint before it. */
+function beforeRun(extra: Partial<BeforeRunAsk> = {}): BeforeRunAsk {
+  return {
+    orgId: REGISTERED,
+    module: 'forge',
+    operationId: OWN_RUN,
+    written: ['Account'],
+    running: { firing: [OPENS_A_CASE] },
+    request: {},
+    ...extra,
+  };
+}
+
+/** The take's answer, kept: its checkpoint as the run's result names it. */
+function takenFirst(outcome: BeforeRunTake): RunCheckpointTaken {
+  if (!outcome.taken) {
+    throw new Error(
+      'refusal' in outcome ? `refused: ${outcome.refusal.message}` : 'stopped while it read',
+    );
+  }
+  return outcome.checkpoint;
+}
+
+/** Days between now and an instant, rounded to the hour's tenth: a take's expiry from this machine's clock. */
+function daysFromNow(at: string | null): number | null {
+  return at === null ? null : Math.round(((Date.parse(at) - Date.now()) / 86_400_000) * 10) / 10;
+}
+
+describe('CheckpointHandler — a checkpoint before a run', () => {
+  it('says at the run’s gate what it would hold and cost — the objects the run writes, then what a flow that still runs creates, with why — reading no record and keeping nothing', async () => {
+    const h = harness();
+    const asked: string[] = [];
+    h.onQuery((soql) => asked.push(soql));
+
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+
+    expect(estimate).toMatchObject({
+      state: 'planned',
+      objects: ['Account', 'Case'],
+      added: [
+        {
+          objectApiName: 'Case',
+          reason: "The target's flow 'Open a case' creates Case records as Account records go in.",
+        },
+      ],
+      notHeld: [],
+      keepDays: 7,
+      estimate: { records: 3, apiRequestsLeft: 4_999_000 },
+    });
+    expect(estimate.estimate.apiRequests).toBeGreaterThan(0);
+    expect(estimate.refusal).toBeUndefined();
+    expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
+    expect(await h.store.list()).toEqual([]);
+  });
+
+  it('takes it once asked, named after the run, the run written into its file, kept seven days unless the request or the setting says otherwise, and records the take with the run', async () => {
+    const h = harness();
+    const changed = vi.fn();
+    h.handler.onCheckpointsChanged(changed);
+
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+
+    expect(checkpoint).toMatchObject({
+      state: 'taken',
+      name: 'Before Forge run 2026-10-22 14:05 UTC',
+      objects: ['Account', 'Case'],
+      records: 3,
+      notHeld: [],
+    });
+    expect(checkpoint.added.map(({ objectApiName }) => objectApiName)).toEqual(['Case']);
+    expect(daysFromNow(checkpoint.expiresAt)).toBe(7);
+    expect(checkpoint.requests).toBeGreaterThan(0);
+    const read = await h.store.read(checkpoint.checkpointId);
+    expect(read?.checkpoint).toMatchObject({
+      status: 'ready',
+      beforeRun: { module: 'forge', operationId: OWN_RUN, tool: 'panel' },
+      scope: { mode: 'picked' },
+    });
+    expect(changed).toHaveBeenCalled();
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_take',
+      module: 'checkpoint',
+      outcome: 'success',
+      beforeRun: { module: 'forge', operationId: OWN_RUN },
+      details: { checkpointId: checkpoint.checkpointId, records: 3, objects: 2 },
+    });
+    // Listed in Live Operations under an operation of its own, complete.
+    const operationId = h.trail()[0].operationId ?? '';
+    expect(operationId).toMatch(/^checkpoint:before-run:/);
+    expect(h.tracker.get(operationId)).toMatchObject({ module: 'checkpoint', status: 'completed' });
+
+    const set = harness({ settings: { 'checkpoint.beforeRunKeepDays': 30 } });
+    const bySetting = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+    expect(daysFromNow(bySetting.expiresAt)).toBe(30);
+    clock += 60_000;
+    const asked = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun({ request: { keepDays: 2 } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+    expect(daysFromNow(asked.expiresAt)).toBe(2);
+    clock += 60_000;
+    const kept = takenFirst(
+      await set.handler.takeBeforeRun(beforeRun({ request: { keepDays: 0 } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+    expect(kept.expiresAt).toBeNull();
+  });
+
+  it('leaves out an object the run’s request leaves out by name, naming it so', async () => {
+    const h = harness();
+
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ request: { excluded: ['Case'] } }), {
+        operationId: OWN_RUN,
+      }),
+    );
+
+    expect(checkpoint.objects).toEqual(['Account']);
+    expect(checkpoint.added).toEqual([]);
+    expect(checkpoint.notHeld).toEqual([
+      {
+        objectApiName: 'Case',
+        reason: 'Left out as asked. A rewind leaves its records as they are.',
+      },
+    ]);
+  });
+
+  it('is not refused by the run’s own mark alone: its operation, and its run file this process writes', async () => {
+    // The window's Forge handler writes for its own run, and names it.
+    const writing = new Set([OWN_RUN]);
+    const h = harness({
+      writers: {
+        writingTo: (orgId, except) =>
+          orgId === REGISTERED && [...writing].some((operation) => operation !== except),
+        isRunning: (runId) => runId === 'sync-run-1',
+      },
+    });
+    const self = (h.handler as unknown as { self: { pid: number; startedAt: string } }).self;
+    h.handler.setRunFiles('sync', {
+      list: () =>
+        Promise.resolve([
+          syncRun({ writer: { pid: self.pid, hostStartedAt: self.startedAt } } as never),
+        ]),
+    });
+
+    takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ module: 'sync' }), {
+        operationId: OWN_RUN,
+        runId: 'sync-run-1',
+      }),
+    );
+  });
+
+  it('is refused by any other run writing to the org — another run of the window, another run file, its own run file another process writes — and by another take, keeping nothing', async () => {
+    const refusedBy = async (
+      options: Parameters<typeof harness>[0],
+      runs: SyncRunKept[] = [],
+      own: { operationId?: string; runId?: string } = { operationId: OWN_RUN },
+    ): Promise<string> => {
+      const h = harness(options);
+      h.handler.setRunFiles('sync', { list: () => Promise.resolve(runs) });
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), own);
+      expect(await h.store.list()).toEqual([]);
+      expect(h.trail()[0]).toMatchObject({ action: 'checkpoint_take', outcome: 'stopped' });
+      if (outcome.taken || !('refusal' in outcome)) throw new Error('not refused');
+      return `${outcome.refusal.code}: ${outcome.refusal.message}`;
+    };
+    const otherRun = 'wv-forge-execute-2';
+
+    expect(
+      await refusedBy({
+        writers: { writingTo: (orgId, except) => orgId === REGISTERED && except !== otherRun },
+      }),
+    ).toBe(
+      'RUN_WRITING: A SandForge run is writing to DEV-SB: start this run once it has ended. ' +
+        'No record was read.',
+    );
+    // A run file of another id this window writes.
+    expect(
+      await refusedBy(
+        { writers: { isRunning: (runId) => runId === 'sync-run-2' } },
+        [syncRun({ runId: 'sync-run-2' })],
+        { operationId: OWN_RUN, runId: 'sync-run-1' },
+      ),
+    ).toMatch(/^RUN_WRITING: /);
+    // Its own id, in a file another process alive writes.
+    expect(
+      await refusedBy(
+        { self: { pid: process.pid + 1, startedAt: new Date().toISOString() } },
+        [
+          syncRun({
+            writer: { pid: process.pid, hostStartedAt: new Date().toISOString() },
+            lastWriteAt: new Date().toISOString(),
+          } as never),
+        ],
+        { operationId: OWN_RUN, runId: 'sync-run-1' },
+      ),
+    ).toMatch(/^RUN_WRITING: /);
+
+    // A take of the org another process holds the lock of.
+    const h = harness();
+    const held = h.store.lock(ORG_ID, 'take');
+    if (!('lock' in held)) throw new Error('lock not taken');
+    try {
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+      expect(outcome).toMatchObject({ taken: false, refusal: { code: 'RUN_WRITING' } });
+      expect(outcome.taken === false && 'refusal' in outcome && outcome.refusal.message).toContain(
+        'A checkpoint of DEV-SB is being taken',
+      );
+    } finally {
+      held.lock.release();
+    }
+  });
+
+  it('holds what a user without View All Data and Modify All Data is proven to hold, names the rest, and refuses one that would hold none of the objects the run writes, writing nothing', async () => {
+    const h = harness();
+    clock = LONG_AGO;
+    h.org.edit('UserPermissionAccess', '0Up000000000001AAA', { PermissionsModifyAllData: false });
+    h.org.add('PermissionSetAssignment', {
+      Id: '0Pa000000000001AAA',
+      AssigneeId: MEMORY_ORG_USER,
+      PermissionSetId: '0PS000000000001AAA',
+      PermissionSetGroupId: null,
+    });
+    h.org.add('ObjectPermissions', {
+      Id: '110000000000001AAA',
+      ParentId: '0PS000000000001AAA',
+      SobjectType: 'Account',
+      PermissionsViewAllRecords: true,
+      PermissionsModifyAllRecords: true,
+    });
+    // View All on the cases, not Modify All: they are seen, not put back whole.
+    h.org.add('ObjectPermissions', {
+      Id: '110000000000002AAA',
+      ParentId: '0PS000000000001AAA',
+      SobjectType: 'Case',
+      PermissionsViewAllRecords: true,
+      PermissionsModifyAllRecords: false,
+    });
+    clock = T0;
+    const noCase =
+      'Without View All Data and Modify All Data, an object is held only with View All and ' +
+      'Modify All on it, and the user SandForge connects as has View All on this one, not ' +
+      'Modify All: a rewind could not put back what others changed. A rewind leaves its ' +
+      'records as they are.';
+
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(estimate).toMatchObject({
+      objects: ['Account'],
+      added: [],
+      notHeld: [{ objectApiName: 'Case', reason: noCase }],
+    });
+    expect(estimate.refusal).toBeUndefined();
+    const checkpoint = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
+    );
+    expect(checkpoint.objects).toEqual(['Account']);
+    expect(checkpoint.notHeld).toEqual([{ objectApiName: 'Case', reason: noCase }]);
+
+    // A run that writes only what the user cannot be proven to hold.
+    const cases = beforeRun({ written: ['Case'], running: { firing: [] } });
+    const refused = await h.handler.scopeBeforeRun(cases, { operationId: OWN_RUN });
+    expect(refused.refusal).toEqual({
+      code: 'NOTHING_HELD',
+      message:
+        'The checkpoint before the run would hold none of the objects the run writes, so a ' +
+        `rewind to it could take nothing of the run back. Case: ${noCase.replace(
+          ' A rewind leaves its records as they are.',
+          '',
+        )} No record was read.`,
+    });
+    expect(writesOf(h.org)).toMatchObject({ updates: 0, deletes: 0 });
+    expect(h.org.creates).toEqual([]);
+  });
+
+  it('is refused when the store’s disk has less free than its bytes and a tenth more, at the gate and again before the take reads anything', async () => {
+    const h = harness();
+    const estimate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    h.handler.setFreeBytes(async () => Math.ceil(estimate.estimate.bytes * 1.1) - 1);
+
+    const atGate = await h.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(atGate.refusal?.code).toBe('DISK');
+
+    const sent = h.org.requests + h.org.soapCalls;
+    const outcome = await h.handler.takeBeforeRun(
+      beforeRun(),
+      { operationId: OWN_RUN },
+      { planned: estimate },
+    );
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'DISK' } });
+    expect(h.org.requests + h.org.soapCalls).toBe(sent);
+    expect(await h.store.list()).toEqual([]);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_take',
+      outcome: 'stopped',
+      details: { code: 'DISK' },
+    });
+
+    // With room for it, the same take goes through.
+    h.handler.setFreeBytes(async () => Math.ceil(estimate.estimate.bytes * 1.1));
+    takenFirst(
+      await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }, { planned: estimate }),
+    );
+  });
+
+  it('is stopped by the run’s Stop, before the take and between two reads, keeping nothing and answering that it was stopped', async () => {
+    const h = harness();
+    const before = new AbortController();
+    before.abort();
+
+    expect(
+      await h.handler.takeBeforeRun(
+        beforeRun(),
+        { operationId: OWN_RUN },
+        { signal: before.signal },
+      ),
+    ).toEqual({ taken: false, stopped: true });
+    expect(h.org.requests + h.org.soapCalls).toBe(0);
+
+    const during = new AbortController();
+    const progress: number[] = [];
+    h.onQuery((soql) => {
+      if (/^SELECT Id, SystemModstamp, CreatedDate/.test(soql)) during.abort();
+    });
+    expect(
+      await h.handler.takeBeforeRun(
+        beforeRun(),
+        { operationId: OWN_RUN },
+        { signal: during.signal, onProgress: (p) => progress.push(p.percentage) },
+      ),
+    ).toEqual({ taken: false, stopped: true });
+    expect(progress.length).toBeGreaterThan(0);
+    expect(await h.store.list()).toEqual([]);
+    expect(h.trail()[0]).toMatchObject({ action: 'checkpoint_take', outcome: 'cancelled' });
+  });
+
+  it('refuses a production org with the checkpoint guard’s words, the registry’s or the org’s, before any record is read', async () => {
+    const byRegistry = harness({
+      org: new HandlerTestOrg({ sandbox: false, edition: 'Enterprise Edition' }),
+      registered: registered({ orgType: 'Production' }),
+    });
+    const asked: string[] = [];
+    byRegistry.onQuery((soql) => asked.push(soql));
+    expect(
+      (await byRegistry.handler.scopeBeforeRun(beforeRun(), { operationId: OWN_RUN })).refusal
+        ?.code,
+    ).toBe('PRODUCTION');
+
+    const byOrg = harness({
+      org: new HandlerTestOrg({ sandbox: false, edition: 'Enterprise Edition' }),
+    });
+    byOrg.onQuery((soql) => asked.push(soql));
+    const outcome = await byOrg.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN });
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'PRODUCTION' } });
+    expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
+    expect(await byOrg.store.list()).toEqual([]);
+  });
+
+  it('keeps the checkpoint of a run that wrote a record, and deletes that of a run that wrote none', async () => {
+    const h = harness();
+    const changed = vi.fn();
+    const first = takenFirst(await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }));
+    clock += 60_000;
+    const second = takenFirst(
+      await h.handler.takeBeforeRun(beforeRun({ operationId: 'wv-forge-execute-2' }), {
+        operationId: 'wv-forge-execute-2',
+      }),
+    );
+    h.handler.onCheckpointsChanged(changed);
+
+    expect(await h.handler.settleBeforeRun(first, true)).toBe(first);
+    expect(await h.handler.settleBeforeRun(second, false)).toEqual({
+      state: 'deleted',
+      deleted: 'nothingWritten',
+    });
+
+    expect((await h.store.list()).map((entry) => entry.checkpointId)).toEqual([first.checkpointId]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(h.logs).toContain(
+      "[INFO] Deleted checkpoint 'Before Forge run 2026-10-22 14:06 UTC', taken before a run " +
+        'that wrote nothing',
+    );
+  });
+
+  it('takes it after the run’s question and before its lease and first write, writing nothing and assigning nothing itself; refused, the run writes and assigns nothing', async () => {
+    /** A run as its host keeps the write path's order, the lease a permission set assignment. */
+    const run = async (
+      h: Harness,
+      own: { operationId: string },
+    ): Promise<{ steps: WritePathStep[]; answeredAt: number; outcome: BeforeRunTake }> => {
+      const steps: WritePathStep[] = ['reads', 'leasePlan', 'stillRunning'];
+      const planned = await h.handler.scopeBeforeRun(beforeRun(), own);
+      steps.push('question');
+      // The person answers a minute later.
+      clock += 60_000;
+      const answeredAt = clock;
+      const outcome = await h.handler.takeBeforeRun(beforeRun(), own, { planned });
+      if (!outcome.taken) return { steps: [...steps, 'result'], answeredAt, outcome };
+      steps.push('checkpointTake');
+      expect(h.org.creates).toEqual([]);
+      expect(writesOf(h.org)).toMatchObject({ updates: 0, deletes: 0 });
+      await h.org.create('PermissionSetAssignment', [
+        { AssigneeId: MEMORY_ORG_USER, PermissionSetId: '0PS000000000009AAA' },
+      ]);
+      steps.push('leaseAcquire', 'afterLeaseCheck');
+      await h.org.create('Account', [{ Name: 'Written by the run' }]);
+      steps.push('write', 'leaseRelease', 'result');
+      return { steps, answeredAt, outcome };
+    };
+
+    const h = harness();
+    const ran = await run(h, { operationId: OWN_RUN });
+    expect(writePathOrderDefects(ran.steps)).toEqual([]);
+    const checkpoint = takenFirst(ran.outcome);
+    const read = await h.store.read(checkpoint.checkpointId);
+    // T0 is read by the take, once the question is answered.
+    expect(Date.parse(read?.checkpoint?.readFrom ?? '')).toBeGreaterThanOrEqual(ran.answeredAt);
+
+    // Another run of the window writes to the org: nothing is assigned, nothing written.
+    const refused = harness({ writers: { writingTo: (orgId) => orgId === REGISTERED } });
+    const stopped = await run(refused, { operationId: OWN_RUN });
+    expect(stopped.outcome).toMatchObject({ taken: false, refusal: { code: 'RUN_WRITING' } });
+    expect(refused.org.creates).toEqual([]);
+    expect(writePathOrderDefects(stopped.steps)).toEqual([]);
   });
 });

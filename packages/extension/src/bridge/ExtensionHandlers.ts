@@ -69,6 +69,7 @@ import {
 } from './handlers/CheckpointHandler.js';
 import type { DetectedSandboxRefresh } from '../modules/monitor/SandboxRefreshDetector.js';
 import type { OrgCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore.js';
+import type { BeforeRunCheckpoints } from '../modules/checkpoint/beforeRunCheckpoint.js';
 import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
@@ -95,6 +96,15 @@ import { ANONYMIZATION_TEMPLATES } from './templates/anonymizationTemplates.js';
  * without importing vscode directly (keeps this module testable in mocked envs).
  */
 export type CommandExecutor = (command: string, ...args: unknown[]) => PromiseLike<unknown>;
+
+/**
+ * A handler whose runs name no org in a file, as the checkpoints ask it
+ * whether one of its runs writes to an org: all but the run of `except`, the
+ * operation a checkpoint is taken before.
+ */
+interface OrgWriter {
+  isWritingTo(orgId: string, except?: string): boolean;
+}
 
 /** The payload of `workbench:open-setting`: one SandForge setting id, as the manifest names it. */
 const OPENABLE_SETTING = z.object({
@@ -194,6 +204,13 @@ export class ExtensionHandlers {
   private readonly refreshDetector: SandboxRefreshDetector;
   /** The store a command line told the checkpoints to be kept in; the default one otherwise. */
   private checkpointStore?: OrgCheckpointStore;
+  /**
+   * What the handlers of the runs that write — Forge, Sync, Seed, Autopilot,
+   * Frozen — take a checkpoint of what a run writes before its first write
+   * through (`Checkpoint first`): its scope at the run's gate, its take once
+   * the question is answered, and what becomes of it once the run has ended.
+   */
+  readonly beforeRunCheckpoints: BeforeRunCheckpoints;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Default to a no-op executor so tests that don't care about the reload
@@ -276,21 +293,33 @@ export class ExtensionHandlers {
     // by its file and the handler writing it; a run whose file names no org,
     // or that keeps none, by its handler: a Forge clone, a Frozen load or its
     // removal, a DataOps restore, masking run or erasure, an Autopilot run, a
-    // Real-Time session that applies what it receives.
+    // Real-Time session that applies what it receives. A run that takes a
+    // checkpoint before its first write names its own operation, `except`,
+    // which each handler compares with the one it runs: a handler that does
+    // not compare refuses the take on the run's own mark too, as before, so
+    // it errs only on the side of refusing.
+    const orgWriters = (): OrgWriter[] => [
+      this.forgeHandler,
+      this.frozenHandler,
+      this.dataOpsHandler,
+      this.complianceHandler,
+      this.autopilotHandler,
+      this.realtimeHandler,
+    ];
     this.checkpointHandler = new CheckpointHandler(this.handlerDeps, {
       isRunning: (runId) =>
         this.syncHandler.isRunning(runId) ||
         this.seedHandler.isRunning(runId) ||
         this.seedCsvHandler.isRunning(runId) ||
         this.seedCloneHandler.isRunning(runId),
-      writingTo: (orgId) =>
-        this.forgeHandler.isWritingTo(orgId) ||
-        this.frozenHandler.isWritingTo(orgId) ||
-        this.dataOpsHandler.isWritingTo(orgId) ||
-        this.complianceHandler.isWritingTo(orgId) ||
-        this.autopilotHandler.isWritingTo(orgId) ||
-        this.realtimeHandler.isWritingTo(orgId),
+      writingTo: (orgId, except) =>
+        orgWriters().some((writer) => writer.isWritingTo(orgId, except)),
     });
+    this.beforeRunCheckpoints = {
+      scope: (ask, own) => this.checkpointHandler.scopeBeforeRun(ask, own),
+      take: (ask, own, options) => this.checkpointHandler.takeBeforeRun(ask, own, options),
+      settle: (taken, wrote) => this.checkpointHandler.settleBeforeRun(taken, wrote),
+    };
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(

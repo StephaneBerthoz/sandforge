@@ -205,11 +205,16 @@ describe('docs/modules/checkpoint.md', () => {
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('sync', store);");
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('seed', store);");
     expect(HANDLER).toContain('for (const files of [this.syncRuns, this.seedRuns]) {');
-    expect(HANDLER).toContain('if (this.writers.writingTo?.(orgId) === true) return words;');
-    const asked = /writingTo: \(orgId\) =>([^}]*)\}\);/.exec(EXTENSION_HANDLERS)?.[1] ?? '';
-    const handlers = [...asked.matchAll(/this\.(\w+)Handler\.isWritingTo\(orgId\)/g)].map(
-      (m) => m[1],
+    expect(HANDLER).toContain(
+      'if (this.writers.writingTo?.(orgId, own.operationId) === true) return words;',
     );
+    expect(EXTENSION_HANDLERS).toMatch(
+      /writingTo: \(orgId, except\) =>\s+orgWriters\(\)\.some\(\(writer\) => writer\.isWritingTo\(orgId, except\)\),/,
+    );
+    const asked = /const orgWriters = \(\): OrgWriter\[\] => \[([^\]]*)\];/.exec(
+      EXTENSION_HANDLERS,
+    )?.[1];
+    const handlers = [...(asked ?? '').matchAll(/this\.(\w+)Handler,/g)].map((m) => m[1]);
     expect(handlers).toEqual(['forge', 'frozen', 'dataOps', 'compliance', 'autopilot', 'realtime']);
     for (const text of [CLI, PANEL_HOST]) {
       expect(text).not.toMatch(/setSyncRunCreations|setSeedRunCreations|setRunFiles/);
