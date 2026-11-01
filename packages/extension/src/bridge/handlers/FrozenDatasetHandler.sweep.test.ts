@@ -786,6 +786,17 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       expect(tied.ids('Task')).toEqual([]);
     });
 
+    it('keeps what is tied to nothing, asked or not, while a run of another module wrote in the window', async () => {
+      const during = Date.parse(LAST_WRITE) - 1_000;
+      handler.setOtherModuleRuns(async () => [
+        { ids: [], idsUntold: true, from: during, to: during },
+      ]);
+
+      await remove({ sweep: true, sweepUntied: true });
+
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+    });
+
     it('lists none of the lines the platform copied under a quote the load synced: its removal names them', async () => {
       const { created } = addSyncedQuote(tied, USER, NEAR_ITS_END);
       const keyed = created.flatMap(({ objectApiName, ids: recordIds }) =>

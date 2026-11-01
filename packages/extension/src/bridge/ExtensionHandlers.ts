@@ -338,6 +338,7 @@ export class ExtensionHandlers {
     this.forgeHandler.setOtherModuleRuns(this.otherModuleRuns('forge', orgWriters));
     this.syncRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('sync', orgWriters));
     this.seedRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('seed', orgWriters));
+    this.frozenHandler.setOtherModuleRuns(this.otherModuleRuns('frozen', orgWriters));
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(

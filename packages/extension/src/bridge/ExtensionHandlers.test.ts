@@ -395,6 +395,7 @@ describe('ExtensionHandlers', () => {
         ['forgeHandler', ['sync', 'seed']],
         ['syncRemovalHandler', ['forge', 'seed']],
         ['seedRemovalHandler', ['forge', 'sync']],
+        ['frozenHandler', ['forge', 'sync', 'seed']],
       ])('tells %s of the others’ runs, never its own', async (name, others) => {
         const runs = await parts()[name].otherModuleRuns('org-x', WRITTEN);
 

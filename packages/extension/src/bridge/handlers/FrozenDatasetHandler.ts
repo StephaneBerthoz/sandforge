@@ -59,6 +59,7 @@ import {
   sweepRefusalCode,
   withoutPlatformCopies,
   type LocalRun,
+  type OtherModuleRuns,
   type RemovalSweep,
 } from './removalSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
@@ -890,6 +891,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private saltKeeper: FrozenSaltKeeper = commandLineSaltKeeper();
   /** Where the rules file `frozen:rules:create` writes is opened: see {@link setRulesEditor}. */
   private openInEditor: OpenInEditor = openInVsCodeEditor;
+  /** The runs of the other modules on an org, for a sweep's untied refusal: see {@link setOtherModuleRuns}. */
+  private otherModuleRuns: OtherModuleRuns = () => Promise.resolve([]);
 
   /** The mappings whose load is being removed, by file: one removal at a time each. */
   private readonly removing = new Set<string>();
@@ -4082,6 +4085,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    * window, when its first removal began, and what earlier sweeps found made
    * for it. What the load's mute kept quiet its mapping does not keep.
    */
+  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
+  setOtherModuleRuns(runs: OtherModuleRuns): void {
+    this.otherModuleRuns = runs;
+  }
+
   private async tiesOfLoad(
     load: RecordedLoad,
     writtenBetween: SweepInput['writtenBetween'],
@@ -4098,6 +4106,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         to: Number.isFinite(last) ? last : first,
       });
     }
+    // The runs of the other modules on the org, and a run writing to it now.
+    others.push(...(await this.otherModuleRuns(load.orgId, writtenBetween).catch(() => [])));
     const began = removalBeganOf(load.removalSpans);
     return {
       otherRuns: otherRunsInSweep(writtenBetween, others),
