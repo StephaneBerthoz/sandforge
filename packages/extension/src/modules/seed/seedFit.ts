@@ -58,6 +58,7 @@ import {
 } from '@sandforge/shared';
 import {
   automationRoomOf,
+  largestFitting,
   roomBytesOf,
   storageFitBudgetOf,
   type AutomationRoom,
@@ -279,23 +280,6 @@ function stepObjectOf(
     if (!best || records > best.records) best = { objectApiName: object.objectApiName, records };
   }
   return best;
-}
-
-/**
- * The largest `k` of `1 … top` for which `fits(k)` holds, `fits` holding up
- * to a point and no further; 0 when it does not hold at 1.
- */
-function largestFitting(top: number, fits: (k: number) => boolean): number {
-  if (!fits(1)) return 0;
-  if (fits(top)) return top;
-  let lo = 1;
-  let hi = top;
-  while (hi - lo > 1) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (fits(mid)) lo = mid;
-    else hi = mid;
-  }
-  return lo;
 }
 
 /** What counts take, as a fit measures them. */

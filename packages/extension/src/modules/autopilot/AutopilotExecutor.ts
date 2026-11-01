@@ -40,8 +40,9 @@ import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer
 import type { FieldInfo, ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
+import type { AutopilotRunFit, FitHold } from './autopilotFit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
+import { atInsertDeps, orderWithinGroup, waveGroupsOf } from '../../core/common/insertionOrder.js';
 import { LookupPatchSet } from '../../core/common/lookupPatches.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { lookupsAtObjectsLeftOut } from '../forge/excludedObjects.js';
@@ -315,6 +316,13 @@ export interface ObjectOutcome {
    * there is nothing to say.
    */
   recordTypeGiven?: RecordTypeGiven;
+  /**
+   * Of a plan fitted to the target's storage: records kept by the fit that,
+   * read by the run, name a record it cut — the source moved between the two
+   * — and stayed out with it (`CUT_WITH_PARENT`). Neither written nor refused:
+   * they cost the run nothing it set out to do. Absent when there are none.
+   */
+  cutSinceFit?: number;
 }
 
 /**
@@ -360,6 +368,11 @@ export interface AutopilotRunOptions {
    * however the run ends; given back twice, a lease answers the same.
    */
   lease?: ForgeWriteGateAnswer['lease'];
+  /**
+   * What a plan fitted to the target's storage holds its records to as they
+   * are read: see {@link ObjectOutcome.cutSinceFit}. Absent for any other plan.
+   */
+  fit?: AutopilotRunFit;
 }
 
 export interface ExecutionResult {
@@ -411,6 +424,8 @@ export interface ExecutionResult {
   statuses?: Record<string, StatusOutcome>;
   /** The lookups filled once the records they point at were in, per object. */
   lookups?: Record<string, LookupOutcome>;
+  /** Records of a fitted plan that stayed out with a record the fit cut: see `ObjectOutcome`. */
+  cutSinceFit?: number;
   /**
    * Message the run died with. Set only when execution crashed, in which case
    * the counters above are partial and the executor rethrows instead of
@@ -578,6 +593,12 @@ export const PARENT_REFUSED = 'PARENT_REFUSED';
  */
 export const PARENT_NOT_WRITTEN = 'PARENT_NOT_WRITTEN';
 
+/**
+ * Why a record of a fitted plan stayed out: a lookup that holds it names a
+ * record the fit cut, which the fit did not see it name.
+ */
+export const CUT_WITH_PARENT = 'CUT_WITH_PARENT';
+
 /** Why the run did not write an object of its plan: what a record naming one is held back for. */
 type NotWrittenReason = 'skipped' | 'failed';
 
@@ -662,6 +683,8 @@ interface ObjectState {
   defaulted: Map<string, number>;
   /** Records the stop kept from the target, once the run was stopped. */
   notSent?: number;
+  /** Records that stayed out with a record the fit cut. */
+  cutSinceFit: number;
   /**
    * The record types of the object the running user cannot use in the
    * target, by the first fifteen characters of their id there: a record
@@ -686,6 +709,7 @@ function emptyObjectState(): ObjectState {
     refusals: new RefusalTally(),
     apiCallsUsed: 0,
     defaulted: new Map(),
+    cutSinceFit: 0,
     heldForRecordType: new Map(),
   };
 }
@@ -743,6 +767,29 @@ function onMasterOf(counts: ReadonlyMap<string | null, number>): number {
   return onMaster;
 }
 
+/** {@link AutopilotRunFit} as a page of records is held to it. */
+interface FitHeldTo {
+  /** Of each object, the lookups that hold its records to a fitted object. */
+  holds: ReadonlyMap<string, readonly FitHold[]>;
+  /** Of each fitted object, the first fifteen characters of the ids kept. */
+  kept: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The records that stayed out so far, by the same fifteen characters. */
+  stayedOut: Set<string>;
+}
+
+/** What a run of a fitted plan starts from. */
+function fitHeldToOf(fit: AutopilotRunFit): FitHeldTo {
+  const holds = new Map<string, FitHold[]>();
+  for (const hold of fit.holds) {
+    holds.set(hold.objectApiName, [...(holds.get(hold.objectApiName) ?? []), hold]);
+  }
+  return {
+    holds,
+    kept: new Map([...fit.kept].map(([name, ids]) => [name, new Set(ids.map(idKey))])),
+    stayedOut: new Set(),
+  };
+}
+
 /** Result of executing a single object */
 interface ObjectResult {
   success: number;
@@ -755,6 +802,7 @@ interface ObjectResult {
   leftToDefault: DefaultedLookup[];
   /** Set when the stop cut the object short: the records it never sent. */
   notSent?: number;
+  cutSinceFit: number;
 }
 
 /** A lookup a written record went in without, owed until the record it points at is in. */
@@ -894,6 +942,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly givenRules = new Map<string, Promise<GivenRule | undefined>>();
   /** The lease its caller took, given back once the last write is through: see `AutopilotRunOptions.lease`. */
   private lease: AutopilotRunOptions['lease'];
+  /** What a fitted plan holds its records to as they are read: see `holdBehindCutParents`. */
+  private fit: FitHeldTo | undefined;
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -1379,6 +1429,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     this.contactPoints =
       options.keepContactPoints === true ? undefined : new ContactPointNeutralizer();
     this.lease = options.lease;
+    this.fit = options.fit ? fitHeldToOf(options.fit) : undefined;
     const startTime = Date.now();
     this.signal = signal;
     // A run stopped while paused stops there, rather than waiting for a resume
@@ -1453,6 +1504,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.totalSuccess += objResult.success;
         result.totalFailure += objResult.failure;
         result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
+        if (objResult.cutSinceFit > 0) {
+          result.cutSinceFit = (result.cutSinceFit ?? 0) + objResult.cutSinceFit;
+        }
         const leftToThePlatform = this.leftToThePlatform.counts(objectApiName);
         objectOutcomes[objectApiName] = {
           written: objResult.success,
@@ -1469,6 +1523,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           ...(objectApiName === CONTACT && this.personContactsLinked > 0
             ? { withTheirPersonAccount: this.personContactsLinked }
             : {}),
+          ...(objResult.cutSinceFit > 0 ? { cutSinceFit: objResult.cutSinceFit } : {}),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -1674,13 +1729,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     edges: readonly AutopilotEdge[],
     writeNode: (objectApiName: string) => Promise<void>,
   ): Promise<void> {
-    const members = new Set(objects);
-    const within = edges.filter(
-      (edge) => edge.from !== edge.to && members.has(edge.from) && members.has(edge.to),
-    );
-    const deps = new Map(objects.map((name) => [name, new Set<string>()]));
-    for (const edge of within) deps.get(edge.to)?.add(edge.from);
-    const groups = insertionGroups(deps);
+    const { within, deps, groups } = waveGroupsOf(objects, edges);
     const groupOf = new Map<string, number>();
     groups.forEach((group, index) => group.forEach((name) => groupOf.set(name, index)));
 
@@ -1716,26 +1765,21 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   }
 
   /**
-   * Within one cycle, what each object cannot be written without: what its
-   * required lookups point at, and what its lookups the second pass cannot
-   * set — the target takes them on create and not on update — point at.
+   * Within one cycle, what each object cannot be written without
+   * (`atInsertDeps`), from what the target describes of its lookups: the one
+   * rule a fit of the plan reads the run's order by too.
    */
   private async setAtInsert(
     group: readonly string[],
     edges: readonly AutopilotEdge[],
   ): Promise<Map<string, Set<string>>> {
     const members = new Set(group);
-    const needs = new Map<string, Set<string>>();
+    const described = new Map<string, readonly DescribedLookup[] | null>();
     for (const edge of edges) {
-      if (!members.has(edge.to) || !members.has(edge.from)) continue;
-      const lookup = (await this.lookupsOf(edge.to))?.find((l) => l.name === edge.fieldApiName);
-      const insertOnly = lookup !== undefined && lookup.createable && !lookup.updateable;
-      if (!edge.required && !isPlatformRequiredField(edge.to, edge.fieldApiName) && !insertOnly) {
-        continue;
-      }
-      needs.set(edge.to, (needs.get(edge.to) ?? new Set()).add(edge.from));
+      if (!members.has(edge.to) || !members.has(edge.from) || described.has(edge.to)) continue;
+      described.set(edge.to, await this.lookupsOf(edge.to));
     }
-    return needs;
+    return atInsertDeps(group, edges, (objectApiName) => described.get(objectApiName));
   }
 
   /**
@@ -1900,6 +1944,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         elapsedMs: Date.now() - objStart,
         leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
         ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
+        cutSinceFit: state.cutSinceFit,
       };
     };
 
@@ -2167,6 +2212,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     rows = this.holdOnClosedRecordTypes(objectApiName, rows, state);
     // A record naming one the run could not write, or did not, stays out with it.
     rows = await this.holdBehindRefusedParents(objectApiName, rows, edges, state);
+    // And of a fitted plan, a record naming one the fit cut.
+    rows = this.holdBehindCutParents(objectApiName, rows, state);
     // An email on a case names its task, which the task node still to come
     // would leave without an id in the target: it waits for it. The others go
     // now, and the platform writes their tasks as it takes them.
@@ -2913,6 +2960,44 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), objectApiName);
     }
     return kept;
+  }
+
+  /**
+   * The records of a page of a fitted plan that may go: a record a lookup
+   * holds to a fitted object, naming a record outside what the fit kept and
+   * that the target has no copy of, stays out (`CUT_WITH_PARENT`), and so do
+   * the records naming it.
+   *
+   * The source can move between a fit and its run: a contact kept with its
+   * account is moved under an account the fit cut. Written, the remapper
+   * would empty its lookup and it would stand without its account, the orphan
+   * a fit promises not to make; refused, a run that did all it was asked would
+   * read as partial. It is counted apart, as what the plan no longer holds.
+   */
+  private holdBehindCutParents(
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    state: ObjectState,
+  ): Record<string, unknown>[] {
+    const fit = this.fit;
+    const holds = fit?.holds.get(objectApiName);
+    if (!fit || !holds) return rows;
+    return rows.filter((row) => {
+      const cut = holds.some((hold) => {
+        const value = row[hold.field];
+        if (typeof value !== 'string' || value === '') return false;
+        const { prefix } = hold;
+        if (prefix !== undefined && (prefix === null || !value.startsWith(prefix))) return false;
+        if (this.deps.remapper.getTargetId(hold.parent, value) !== undefined) return false;
+        const key = idKey(value);
+        return fit.stayedOut.has(key) || fit.kept.get(hold.parent)?.has(key) !== true;
+      });
+      if (!cut) return true;
+      state.cutSinceFit++;
+      const id = row['Id'];
+      if (typeof id === 'string' && id !== '') fit.stayedOut.add(idKey(id));
+      return false;
+    });
   }
 
   /**

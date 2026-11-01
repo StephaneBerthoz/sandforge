@@ -25,6 +25,7 @@
 
 import type { Connection } from 'jsforce';
 import type {
+  AutopilotFitMode,
   AutopilotPlanScope,
   AutopilotRefusal,
   ComplianceFrameworkType,
@@ -34,6 +35,7 @@ import type {
   RunCheckpointInfo,
   RunCheckpointRequest,
   RunCheckpointTaken,
+  StorageRoomNotCounted,
 } from '@sandforge/shared';
 import { recordWriteHeaders, stillRunningOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
@@ -41,7 +43,10 @@ import { refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode, type RunStatus } from './exitCodes.js';
-import { AutopilotOrchestrator } from '../src/modules/autopilot/AutopilotOrchestrator.js';
+import {
+  AutopilotOrchestrator,
+  type AutopilotPlanFit,
+} from '../src/modules/autopilot/AutopilotOrchestrator.js';
 import {
   DEFAULT_SCAN_DEPTH,
   DEFAULT_SCAN_OBJECTS,
@@ -55,6 +60,7 @@ import { ExecutionPlanGenerator } from '../src/modules/autopilot/ExecutionPlanGe
 import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
 import {
   AutopilotExecutor,
+  CUT_WITH_PARENT,
   pageSoql,
   type AutopilotExecutorDeps,
   type ExecutionResult,
@@ -83,12 +89,15 @@ import {
   autopilotWritePlan,
   objectsThePlanWrites,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
+import { STORAGE_RECOUNT_SECONDS, fitBudgetOf } from '../src/modules/forge/fitBudget.js';
 import {
   CHECKPOINT_REFUSED,
   DEFAULT_MAX_TOTAL,
   apiBudgetRefusal,
+  checkpointPartOf,
   emailCheckLines,
   emailRefusal,
+  formatMB,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
@@ -101,6 +110,7 @@ import {
 } from '../src/modules/forge/ForgeRunGate.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { apiRequestsLine, journalDirOf, targetAutomationReader } from './sandforge-clone.js';
+import { fitOfArgs, type CliFit } from './sandforge-seed.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
 import {
   CHECKPOINT_FIRST_FLAGS,
@@ -165,6 +175,34 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --plan-only, says what would be muted and
                          assigns nothing                   (default: off)
+  --fit share            fit the plan to the data storage the target has left:
+                         keep the largest share of every selected object that
+                         fits, spread over its ids. A record goes with the
+                         parent written before it: a contact of a cut account
+                         is cut, an account kept comes with all its contacts.
+                         A self-reference and a lookup filled after its wave
+                         stay empty when their record is cut, and are named.
+                         It may take 80 % of what the target says it has left,
+                         half a MB off first for the rounding of what it says,
+                         less room for what its flows still running create
+                         under the records (what --mute-automation keeps quiet
+                         creates nothing); what its Apex triggers create is
+                         named, not counted. Its writes leave a tenth of the
+                         day's API requests, and --max-total holds. It reads
+                         the lookups of each selected object first. The
+                         records are said object by object, then the gate is
+                         met again by them; a plan that cannot be cut to fit
+                         is refused, exit 1. With --plan-only, says them and
+                         what they meet, and --json names the ids kept
+                                                           (default: off)
+  --fit-cap <Object>=<n> | <n>
+                         at most n records of that selected object, or of
+                         every one another --fit-cap does not name; repeat for
+                         more. What follows them goes with them. Caps alone
+                         that leave the plan past what fits refuse it; with
+                         --fit share, the share is taken of what the caps leave
+  --fit-within <MB>      with --fit or --fit-cap: take no more than this many
+                         MB, whatever the target has left
 ${checkpointFirstHelp({
   run: 'the run',
   simulation: '--plan-only',
@@ -176,12 +214,12 @@ ${checkpointFirstHelp({
                          the target refused others                (default: off)
   --help                 this text
 
-A selected object is copied whole. Of any other object, only the records the
-selection references are read, by id; a lookup past the bounds is left empty,
-and the plan says which. Before it writes, the run is held to --max-total, to
-the data storage and the daily API requests the target has left, and to the
-daily emails the target's flows would send for its records: past any, nothing
-is written.
+A selected object is copied whole, unless the plan is fitted. Of any other
+object, only the records the selection references are read, by id; a lookup
+past the bounds is left empty, and the plan says which. Before it writes, the
+run is held to --max-total, to the data storage and the daily API requests the
+target has left, and to the daily emails the target's flows would send for its
+records: past any, nothing is written.
 
 Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
 says what it wrote and which objects it did not, and --json names every record
@@ -223,6 +261,8 @@ interface CliArgs {
    * it. undefined = none.
    */
   checkpointFirst?: RunCheckpointRequest;
+  /** The fit asked of the plan (`--fit`, `--fit-cap`, `--fit-within`); absent when none was. */
+  fit?: CliFit;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -248,6 +288,9 @@ const FLAGS: CommandFlags = {
     '--max-total',
     '--compliance',
     '--batch-size',
+    '--fit',
+    '--fit-cap',
+    '--fit-within',
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
@@ -314,6 +357,17 @@ export function parseArgs(argv: string[]): CliArgs {
   // A checkpoint of what the run writes, taken before its first write; with
   // --plan-only, what it would hold and cost.
   const checkpointFirst = checkpointFirstArgs(args);
+  /** A line that does not read: said, exit 2. */
+  const refuse = (line: string): never => {
+    process.stderr.write(`${line}\n`);
+    process.exit(2);
+  };
+  const fit = fitOfArgs(args, refuse);
+  // A cap holds an object the run selects: a parent is read by id, and follows
+  // the records that name it.
+  for (const name of Object.keys(fit?.caps?.objects ?? {})) {
+    if (!objects.includes(name)) refuse(`--fit-cap ${name}: give ${name} with --object too.`);
+  }
 
   return {
     source,
@@ -331,6 +385,17 @@ export function parseArgs(argv: string[]): CliArgs {
     failOnPartial: args.includes('--fail-on-partial'),
     muteAutomation: args.includes('--mute-automation'),
     ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
+    ...(fit ? { fit } : {}),
+  };
+}
+
+/** The fit the line asks, as the engine reads it. */
+function fitModeOf(fit: CliFit): AutopilotFitMode {
+  return {
+    ...(fit.share ? { share: true as const } : {}),
+    ...(fit.caps?.objects ? { caps: fit.caps.objects } : {}),
+    ...(fit.caps?.all !== undefined ? { all: fit.caps.all } : {}),
+    ...(fit.withinMB !== undefined ? { withinMB: fit.withinMB } : {}),
   };
 }
 
@@ -541,7 +606,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   });
 
   log('\nscanning…');
-  const scan = await orchestrator.scanSchemas(
+  let scan = await orchestrator.scanSchemas(
     sourceConn as unknown as AutopilotConnection,
     targetConn as unknown as AutopilotConnection,
     {
@@ -552,7 +617,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
     (line) => log(`  ${line}`),
   );
-  const graph = orchestrator.buildGraph(scan, args.batchSize);
+  let graph = orchestrator.buildGraph(scan, args.batchSize);
   log(`graph: ${graph.nodes.length} node(s), ${graph.edges.length} edge(s)`);
 
   // The personal fields the detector names, whenever the framework
@@ -561,29 +626,37 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const detected =
     args.compliance === 'none' ? [] : detectPersonalFields(new PIIDetector(), scan.objectDescribes);
   const { rules } = orchestrator.buildCompliance(args.compliance, [], detected);
-  const plan = orchestrator.generatePlan(graph, args.compliance, rules, scan.scope);
-  log(`plan: ${plan.waves.length} wave(s), ${plan.totalRecords} record(s)`);
-  plan.waves.forEach((wave, index) => {
-    log(`  wave ${index + 1}: ${wave.objects.join(', ')}`);
-  });
-  for (const line of scopeLines(scan.scope)) log(line);
-  for (const line of anonymizationLines(plan)) log(line);
+  let plan = orchestrator.generatePlan(graph, args.compliance, rules, scan.scope);
+  /** What the plan writes and in what order, and what it copies of each object. */
+  const sayThePlan = (): void => {
+    log(`plan: ${plan.waves.length} wave(s), ${plan.totalRecords} record(s)`);
+    plan.waves.forEach((wave, index) => {
+      log(`  wave ${index + 1}: ${wave.objects.join(', ')}`);
+    });
+    for (const line of scopeLines(scan.scope)) log(line);
+    for (const line of anonymizationLines(plan)) log(line);
+  };
+  sayThePlan();
 
-  const recordCounts = new Map<string, number>(
-    graph.nodes.map((node) => [node.objectApiName, node.recordCount]),
-  );
+  /** Records per object, as the graph of the plan counts them. */
+  const countsOf = (nodes: typeof graph.nodes): Map<string, number> =>
+    new Map<string, number>(nodes.map((node) => [node.objectApiName, node.recordCount]));
+  let recordCounts = countsOf(graph.nodes);
 
   // The records the plan writes and the data storage they take, held to
   // --max-total and to what the target has left, as a clone is. With
   // --plan-only, what a real run would meet there.
-  const writePlan = autopilotWritePlan(plan, recordCounts, scan.personAccounts);
-  let storage: DataStorage | { unread: string };
-  try {
-    storage = await readDataStorage(targetConn);
-  } catch (err: unknown) {
-    storage = { unread: extractErrorMessage(err) };
-  }
-  const check = storageCheckOf(writePlan, storage);
+  let writePlan = autopilotWritePlan(plan, recordCounts, scan.personAccounts);
+  /** What the target says of its storage, or why it said nothing. */
+  const readStorage = async (): Promise<DataStorage | { unread: string }> => {
+    try {
+      return await readDataStorage(targetConn);
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  };
+  let storage = await readStorage();
+  let check = storageCheckOf(writePlan, storage);
   // Its calls against the daily API requests the target has left, as the
   // panel's run is held to them: a run past them stopped part way through,
   // its records refused with REQUEST_LIMIT_EXCEEDED. Asked of the target
@@ -659,6 +732,92 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) log(line);
     }
   }
+  // The fit asked: what still runs once the mute's plan holds is known and
+  // nothing is assigned or taken yet, and the room it needs is computed from
+  // it. The plan it answers replaces the plan, and meets the run's gate again
+  // from here on, /limits read again: a fit is never a pass.
+  let fit: AutopilotPlanFit | undefined;
+  let fitRefused: string | undefined;
+  if (args.fit) {
+    log('\nfitting…');
+    const fitBudget = fitBudgetOf({
+      storage,
+      ...(args.fit.withinMB !== undefined ? { withinMB: args.fit.withinMB } : {}),
+      api:
+        'unread' in storage
+          ? await readBudget().catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
+          : (storage.dailyApiRequests ?? { unread: `${args.target}'s /limits did not list them` }),
+      otherRequests: checkpointPartOf(checkpointPlanned?.estimate),
+    });
+    if ('unread' in fitBudget) {
+      fitRefused =
+        `The plan cannot be fitted to ${args.target}, whose data storage left could not be ` +
+        `read (${fitBudget.unread}).`;
+    } else {
+      try {
+        fit = await orchestrator.fitPlan(sourceConn as unknown as AutopilotConnection, {
+          scan,
+          graph,
+          plan,
+          rules,
+          mode: fitModeOf(args.fit),
+          budget: fitBudget,
+          automation: await readTheAutomation(),
+          ...(mute?.plan ? { mutePlan: mute.plan } : {}),
+          describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
+          maxRecords: args.maxTotal,
+          batchSize: args.batchSize,
+          onProgress: (line) => log(`  ${line}`),
+        });
+        const muted = (mute?.plan?.assign.length ?? 0) > 0;
+        for (const line of autopilotFitLines(fit, args.target, muted)) log(line);
+        if (fit.cannotFit !== undefined) {
+          fitRefused = `The plan cannot be fitted to ${args.target}: ${fit.cannotFit}.`;
+        }
+      } catch (err: unknown) {
+        // Nothing is chosen from what was not read: a refusal, which
+        // --plan-only reports and a real run stops on.
+        fitRefused =
+          'The plan could not be fitted: the source refused a read of it ' +
+          `(${extractErrorMessage(err)}).`;
+      }
+    }
+    if (fit?.fitted) {
+      ({ scan, graph, plan } = fit.fitted);
+      recordCounts = countsOf(graph.nodes);
+      writePlan = autopilotWritePlan(plan, recordCounts, scan.personAccounts);
+      storage = await readStorage();
+      check = storageCheckOf(writePlan, storage);
+      budget = undefined;
+      // An object the fit left no record of takes nothing in the checkpoint.
+      const writing = new Set(writePlan.objects.map(({ objectApiName }) => objectApiName));
+      if (checkpoints && checkpointPlanned) {
+        const { ask } = checkpointPlanned;
+        const written = ask.written.filter((name) => writing.has(name));
+        if (written.length < ask.written.length) {
+          const narrowed: CommandCheckpointAsk = {
+            written,
+            running: {
+              firing: ask.running.firing.filter((entry) => writing.has(entry.objectApiName)),
+            },
+          };
+          try {
+            checkpointPlanned = { ask: narrowed, estimate: await checkpoints.scope(narrowed) };
+          } catch (err: unknown) {
+            checkpointPlanned = undefined;
+            checkpointFailed = beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '');
+          }
+        }
+      }
+      api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate);
+      log('');
+      sayThePlan();
+      log('');
+      for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+      log(apiRequestsLine(api, args.target));
+      for (const line of personAccountLines(scan.personAccounts)) log(line);
+    }
+  }
   const emails = await autopilotEmails({
     plan: writePlan,
     objects: objectsThePlanWrites(plan),
@@ -691,7 +850,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
     emailRefusal(emails.checks, args.target),
     muteRefused,
+    fitRefused,
   ].filter((reason): reason is string => reason !== undefined);
+  // Past what the org or --max-total allow, a person is told there is a way
+  // through: unasked, a fit reads nothing.
+  if (
+    !args.fit &&
+    !('unread' in storage) &&
+    (check.verdict === 'exceeds' ||
+      writePlan.totalRows > args.maxTotal ||
+      apiBudgetRefusal(api, args.target) !== undefined)
+  ) {
+    log('  --fit share keeps the largest share of the plan that fits, its records whole');
+  }
 
   if (args.planOnly) {
     // What the target gives the records that go in without a record type,
@@ -732,6 +903,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...dryRunMuteOf(mute),
             // What the checkpoint a real run takes first would hold and cost.
             ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+            // What the fit kept and cut, and the ids a real run would copy.
+            ...(fit ? { fit: autopilotFitJson(fit) } : {}),
           },
           null,
           2,
@@ -804,6 +977,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ...(held
           ? { lease: { assigned: held.outcome.assigned.length, giveBack: () => held.release() } }
           : {}),
+        // What a record read must not have come to name since the fit.
+        ...(fit?.fitted ? { fit: fit.fitted.run } : {}),
       })
       .finally(async () => {
         if (held) mutedAutomation = await held.release();
@@ -839,7 +1014,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), ...(fit ? { fit: autopilotFitJson(fit) } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
     if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;
@@ -850,6 +1025,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `refused: ${result.totalFailure}   skipped: ${result.totalSkipped}`,
   );
   if (result.skippedObjects.length > 0) log(`  skipped: ${result.skippedObjects.join(', ')}`);
+  if (result.cutSinceFit !== undefined) {
+    log(`  cut since the fit: ${result.cutSinceFit}, read naming a record the fit cut`);
+  }
   if (result.fatalError) log(`  the run died with: ${result.fatalError}`);
   for (const line of contactPointLines(result)) log(line);
   for (const line of outcomeLines(result)) log(line);
@@ -906,6 +1084,120 @@ export function contactPointLines(result: Pick<ExecutionResult, 'contactPoints'>
   ];
 }
 
+/** A share, as a line says it: a percentage, rounded down to a tenth. */
+function shareWords(share: number): string {
+  return `${Math.floor(share * 1000) / 10} %`;
+}
+
+/** What a fit leaves out of the room it keeps, as a line names it. */
+function notCountedWords(entry: StorageRoomNotCounted): string {
+  switch (entry.kind) {
+    case 'trigger':
+      return `what Apex trigger ${entry.name} on ${entry.objectApiName} creates`;
+    case 'notRead':
+      return `what "${entry.name}" on ${entry.objectApiName} creates: it was not read`;
+    case 'share':
+      return `the ${entry.name} rows the flows of ${entry.objectApiName} create`;
+  }
+}
+
+/**
+ * What the run says of a fit before it writes: the share and what held it,
+ * the budget and its terms, what each selected object kept and why the rest
+ * was cut, the parents read for them, the lookups left empty, what the room
+ * leaves out, and what the plan fitted comes to. Exported so it can be tested.
+ *
+ * @param muted - Whether the run's mute keeps some of the target's automation quiet.
+ */
+export function autopilotFitLines(fit: AutopilotPlanFit, target: string, muted: boolean): string[] {
+  const { heldBy, report } = fit;
+  const { budget } = report;
+  if (fit.cannotFit !== undefined) return [`fit: the plan cannot be fitted: ${fit.cannotFit}`];
+  if (heldBy === 'whole') {
+    return [
+      `fit: the plan fits as it is, ${report.records} record(s), about ` +
+        `${formatMB(report.estimateMB)} MB: nothing cut`,
+    ];
+  }
+  const fits = formatMB(budget.budgetMB + budget.automationMB);
+  const heldWords: Record<Exclude<typeof heldBy, 'whole' | 'caps'>, string> = {
+    apiRequests: `the largest whose writes leave ${target} a tenth of its daily API requests`,
+    maxTotal: 'the largest --max-total lets through',
+    within: `the largest that fits the ${budget.withinMB ?? fits} MB asked (--fit-within)`,
+    storage:
+      `the largest that fits ${fits} MB: ${budget.share * 100} % of the ${budget.remainingMB} ` +
+      `MB ${target} says it has left of ${budget.maxMB}, ${budget.roundingMB} MB kept first for ` +
+      'the rounding of what it says',
+  };
+  const room =
+    fit.automationUnread !== undefined
+      ? `no room kept for what its automation creates: it could not be read (${fit.automationUnread})`
+      : budget.automationMB > 0
+        ? `${formatMB(budget.automationMB)} MB of it kept for what its flows still running create ` +
+          'under these records'
+        : 'nothing kept for its flows: none still running creates records under these' +
+          (muted ? ' (--mute-automation keeps the others quiet)' : '');
+  const head =
+    heldBy === 'caps'
+      ? `fit: the caps asked, within the ${fits} MB that fit`
+      : `fit: share ${shareWords(report.share ?? 1)}, ${heldWords[heldBy]}`;
+  const width = Math.max(...report.objects.map((o) => o.objectApiName.length));
+  const objectLine = (object: (typeof report.objects)[number]): string => {
+    const withParent = object.cutWithParent.reduce((sum, cut) => sum + cut.count, 0);
+    const cut = object.cutSpread + withParent;
+    const parts = [
+      ...object.cutWithParent.map(
+        (entry) => `${entry.count} with their ${entry.parent} (${entry.field})`,
+      ),
+      ...(object.cutSpread > 0 ? [`${object.cutSpread} spread over the table`] : []),
+    ];
+    return (
+      `  ${object.objectApiName.padEnd(width)}  ${object.kept} of ${object.inSource}` +
+      (cut > 0 ? `  cut ${cut}: ${parts.join(', ')}` : '')
+    );
+  };
+  const emptied = report.emptied.map(
+    (entry) =>
+      `${entry.objectApiName}.${entry.field} on ${entry.count} (` +
+      (entry.why === 'selfReference'
+        ? 'the record of its own object it names was cut'
+        : 'the record it names, written after, was cut') +
+      ')',
+  );
+  return [
+    `${head}; ${room}`,
+    ...report.objects.map(objectLine),
+    ...report.parents.map(
+      (parent) => `  ${parent.objectApiName}: ${parent.records}, those the kept records name`,
+    ),
+    ...(emptied.length > 0 ? [`  left empty: ${emptied.join(', ')}`] : []),
+    ...(budget.notCounted ?? []).map((entry) => `  not counted: ${notCountedWords(entry)}`),
+    `  fitted plan: ${report.records} record(s), about ${formatMB(report.estimateMB)} MB` +
+      (budget.automationMB > 0
+        ? ` and ${formatMB(budget.automationMB)} MB for what its flows create under them`
+        : '') +
+      `; ${report.requestsRead} requests read to fit it`,
+    `  ${target} counts a load in what it says it has left up to ${STORAGE_RECOUNT_SECONDS} ` +
+      'seconds after it: a run started sooner after another may read room it no longer has',
+  ];
+}
+
+/**
+ * What the summary's JSON says of a fit: its report, what held it, and when
+ * the plan was fitted, the ids of the records kept, as it names the ids it
+ * created. Exported so it can be tested.
+ */
+export function autopilotFitJson(fit: AutopilotPlanFit): Record<string, unknown> {
+  return {
+    applied: fit.fitted !== undefined,
+    ...fit.report,
+    heldBy: fit.heldBy,
+    ...(fit.cannotFit !== undefined ? { cannotFit: fit.cannotFit } : {}),
+    ...(fit.automationUnread !== undefined ? { automationUnread: fit.automationUnread } : {}),
+    ...(fit.fitted ? { keptIds: Object.fromEntries(fit.keptIds) } : {}),
+  };
+}
+
 /**
  * What the plan copies of each object and what it leaves out: the selected
  * objects whole, the others by the records the selection references, and
@@ -918,7 +1210,13 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
   const cutNames = new Set((scope.cutShort ?? []).map((cut) => cut.objectApiName));
   const whole = scope.selected.filter((name) => !cutNames.has(name));
   const lines = [`scope: depth ${scope.maxDepth}, at most ${scope.maxObjects} object(s)`];
-  if (whole.length > 0 || scope.selected.length === 0) {
+  // A fitted plan copies no object whole: the fit's lines say what it keeps.
+  if (scope.fitted) {
+    const kept = scope.fitted.objects.map(
+      (object) => `${object.objectApiName} ${object.kept} of ${object.inSource}`,
+    );
+    lines.push(`  fitted to the target's storage, read by id: ${kept.join(', ')}`);
+  } else if (whole.length > 0 || scope.selected.length === 0) {
     lines.push(`  copied whole, as selected: ${whole.join(', ') || '(none)'}`);
   }
   for (const cut of scope.cutShort ?? []) {
@@ -1052,6 +1350,13 @@ export function outcomeLines(result: ExecutionResult): string[] {
       lines.push(
         `      ${outcome.withTheirPersonAccount} contact(s) of person accounts left to the ` +
           'platform, which wrote each with its account: linked to it, not sent',
+      );
+    }
+    // Nor what came to name a record the fit cut: it stays out with that record.
+    if (outcome.cutSinceFit !== undefined) {
+      lines.push(
+        `      ${CUT_WITH_PARENT} x${outcome.cutSinceFit}: read naming a record the fit cut, ` +
+          'and left out with it: neither written nor refused',
       );
     }
     // Sent in another currency than read: the target does not hold theirs active.
