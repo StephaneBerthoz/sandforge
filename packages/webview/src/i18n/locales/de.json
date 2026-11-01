@@ -5392,7 +5392,7 @@
       }
     },
     "recordTypeHeldBack": {
-      "explanation": "Der Benutzer, unter dem der Lauf schreibt, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde.",
+      "explanation": "Der Benutzer, unter dem der Lauf schreibt, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Die Datensätze dieses Typs wurden daher zurückgehalten, bevor sie geschrieben wurden.",
       "action": "Geben Sie diesem Benutzer in der Ziel-Org Zugriff auf den Datensatztyp, oder aktivieren Sie ihn, falls er inaktiv ist, und starten Sie dann erneut.",
       "forge": {
         "explanation": "Der Benutzer, unter dem der Klon läuft, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde, und die davon abhängigen Objekte wurden übersprungen.",

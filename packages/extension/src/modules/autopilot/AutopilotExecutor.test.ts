@@ -22,6 +22,10 @@ import {
 import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
 import { accountsOfPersonContactsSoql, type SoqlQuery } from '../../core/common/platformRecords.js';
 import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
+import {
+  parseRecordTypeCounts,
+  type RecordTypeAvailability,
+} from '../../core/metadata/recordTypeAvailability.js';
 import { RECORD_TYPES_SOQL } from '../sync/RecordTypeMapper.js';
 import { logger } from '../../logger.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
@@ -928,30 +932,6 @@ describe('AutopilotExecutor — a record type the running user cannot use', () =
     return { result, failed };
   }
 
-  it('holds the object back before its first page when some of its records use a closed type', async () => {
-    const deps = makeDeps({
-      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
-      describeRecordTypes: async () => ACCOUNT_TYPES,
-      countRecordTypes: async () =>
-        new Map([
-          [PARTNER, 12],
-          [CUSTOMER, 28],
-        ]),
-    });
-
-    const { result, failed } = await run(deps);
-
-    expect(deps.query).not.toHaveBeenCalled();
-    expect(deps.insert).not.toHaveBeenCalled();
-    expect(result.failedObjects).toEqual(['Account']);
-    expect(result.totalFailure).toBe(40);
-    expect(failed[0].errors).toEqual([
-      'RECORD_TYPE_UNAVAILABLE: 12 Account records use record type Partner, which the running ' +
-        'user cannot use in the target org. Give the running user access to record type Partner ' +
-        'on Account, or map it to one they have.',
-    ]);
-  });
-
   it('does not count the records when every type in the target is open to the running user', async () => {
     const countRecordTypes = vi.fn(async () => new Map([[CUSTOMER, 40]]));
     const deps = makeDeps({
@@ -1008,6 +988,24 @@ function sourceOf(rows: Record<string, Record<string, unknown>[]>): QueryFn {
 /** Record counts for the rows of {@link sourceOf}. */
 function countsOf(rows: Record<string, Record<string, unknown>[]>): Map<string, number> {
   return new Map(Object.entries(rows).map(([name, list]) => [name, list.length]));
+}
+
+/**
+ * The source's count of each object's records per record type, as
+ * `recordTypeCountSoql` answers it — a row per `RecordTypeId`, the master's
+ * null — and as the run reads that answer.
+ */
+function recordTypeCountsOf(
+  rows: Record<string, Record<string, unknown>[]>,
+): (objectApiName: string) => Promise<Map<string, number>> {
+  return async (objectApiName) => {
+    const counted = new Map<unknown, number>();
+    for (const row of rows[objectApiName] ?? []) {
+      const type = row['RecordTypeId'] ?? null;
+      counted.set(type, (counted.get(type) ?? 0) + 1);
+    }
+    return parseRecordTypeCounts([...counted].map(([RecordTypeId, n]) => ({ RecordTypeId, n })));
+  };
 }
 
 /** A plan of one object per wave, in the order given. */
@@ -3371,6 +3369,8 @@ describe("AutopilotExecutor — a person account's contact", () => {
       platform?: Record<string, string | null>;
       personAccounts?: boolean;
       failLookup?: boolean;
+      /** A record type of Contact the running user cannot use in the target. */
+      closedContactType?: string;
     } = {},
   ) {
     const insert = vi.fn<InsertFn>(async (name, records) =>
@@ -3389,6 +3389,25 @@ describe("AutopilotExecutor — a person account's contact", () => {
       describeLookups: async (name) =>
         name === 'Account' && options.personAccounts !== false ? [personContact] : [],
       queryTarget,
+      ...(options.closedContactType
+        ? {
+            describeRecordTypes: async (name: string) =>
+              name === 'Contact'
+                ? [
+                    {
+                      recordTypeId: options.closedContactType ?? '',
+                      developerName: 'Closed_Contact',
+                      name: 'Closed contact',
+                      available: false,
+                      active: true,
+                      master: false,
+                      defaultRecordTypeMapping: false,
+                    },
+                  ]
+                : [],
+            countRecordTypes: recordTypeCountsOf(source),
+          }
+        : {}),
       batchSize: 200,
     });
     const result = await new AutopilotExecutor(deps).execute(
@@ -3448,6 +3467,31 @@ describe("AutopilotExecutor — a person account's contact", () => {
     expect(result.objectOutcomes?.['Case']).toMatchObject({
       failed: 1,
       refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED' })],
+    });
+  });
+
+  it('links the contact of a person account to the one the platform wrote, whatever record type it was read on', async () => {
+    // The platform's contact, never sent: a record type of contacts closed
+    // to the running user holds back the others alone.
+    const CLOSED = '012TGT00000ClsdAAA';
+    const onClosed = {
+      ...rows,
+      Contact: rows.Contact.map((contact) => ({ ...contact, RecordTypeId: CLOSED })),
+    };
+
+    const { result, sentOf } = await run(onClosed, {
+      platform: { AccT1: 'conPlatform' },
+      closedContactType: CLOSED,
+    });
+
+    expect(sentOf('Contact')).toEqual([]);
+    expect(sentOf('Case')[0]['ContactId']).toBe('conPlatform');
+    expect(result.objectOutcomes?.['Contact']).toMatchObject({
+      written: 0,
+      linked: 1,
+      failed: 1,
+      withTheirPersonAccount: 1,
+      refusals: [expect.objectContaining({ statusCode: 'RECORD_TYPE_UNAVAILABLE', count: 1 })],
     });
   });
 
@@ -3583,13 +3627,18 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
     expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 3, failed: 0 });
   });
 
-  it('holds back the children of an object held back whole for a record type the running user cannot use', async () => {
+  it('holds back the children of the records it held back for a record type the running user cannot use', async () => {
     const CLOSED = '012Fk00000RtDeFIAV';
+    // Both accounts on it: the object fails, and the deals under them are held.
+    const onClosed = {
+      Account: rows.Account.map((account) => ({ ...account, RecordTypeId: CLOSED })),
+      Opportunity: rows.Opportunity,
+    };
     const insert = vi.fn<InsertFn>(async (_name, records) =>
       written(...records.map((_, i) => `OppT${i}`)),
     );
     const deps = makeDeps({
-      query: sourceOf(accountsAndDeals),
+      query: sourceOf(onClosed),
       insert,
       remapper: new RecordIdRemapper(),
       describeCreateableFields: async () => new Set(['Name', 'RecordTypeId', 'AccountId']),
@@ -3607,7 +3656,7 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
               },
             ]
           : [],
-      countRecordTypes: async () => new Map([[CLOSED, 2]]),
+      countRecordTypes: recordTypeCountsOf(onClosed),
       batchSize: 200,
     });
 
@@ -3615,11 +3664,19 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
       wavesOf('Account', 'Opportunity'),
       [accountEdge],
       [],
-      countsOf(accountsAndDeals),
+      countsOf(onClosed),
     );
 
+    expect(sentOf(insert, 'Account')).toEqual([]);
+    expect(result.failedObjects).toEqual(['Account']);
     expect(sentOf(insert, 'Opportunity').map((r) => r['Name'])).toEqual(['Deal C']);
-    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 1, failed: 2 });
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({
+      written: 1,
+      failed: 2,
+      refusals: [
+        expect.objectContaining({ statusCode: 'PARENT_REFUSED', fields: ['AccountId'], count: 2 }),
+      ],
+    });
   });
 });
 
@@ -3634,6 +3691,11 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
  * the record it pointed at in the source.
  *
  * Its lookups are the plan's edges: the field, and whether it is required.
+ * Its record types, per object, are what its describe gives the running user:
+ * a record sent on one the user may not use, or on an id the object has no
+ * type of, is refused `INVALID_CROSS_REFERENCE_KEY` on `RecordTypeId`, which
+ * names the id and not the reason, as Salesforce refuses it. An object given
+ * none takes any record type.
  */
 class MemoryTarget {
   /** The records the org holds, by object, each under the id it gave it. */
@@ -3642,11 +3704,36 @@ class MemoryTarget {
   private readonly ids = new Set<string>();
   private next = 0;
 
-  constructor(private readonly edges: readonly AutopilotEdge[]) {}
+  constructor(
+    private readonly edges: readonly AutopilotEdge[],
+    private readonly recordTypes: Readonly<Record<string, readonly RecordTypeAvailability[]>> = {},
+  ) {}
 
   /** The insert the run is given. */
   readonly insert = vi.fn<InsertFn>(async (objectApiName, records) =>
     records.map((record) => this.insertOne(objectApiName, record)),
+  );
+
+  /** The object's record types, as the describe gives them to the running user. */
+  readonly describeRecordTypes = async (
+    objectApiName: string,
+  ): Promise<readonly RecordTypeAvailability[]> => this.recordTypes[objectApiName] ?? [];
+
+  /** Its active record types, as `RECORD_TYPES_SOQL` reads them by name. */
+  readonly query = vi.fn<SoqlQuery>(async (soql) =>
+    soql.startsWith(RECORD_TYPES_SOQL)
+      ? Object.entries(this.recordTypes).flatMap(([SobjectType, types]) =>
+          types
+            .filter((type) => type.active && !type.master)
+            .map((type) => ({
+              Id: type.recordTypeId,
+              Name: type.name,
+              DeveloperName: type.developerName,
+              NamespacePrefix: null,
+              SobjectType,
+            })),
+        )
+      : [],
   );
 
   /** The records of an object the org holds. */
@@ -3660,6 +3747,18 @@ class MemoryTarget {
   }
 
   private insertOne(objectApiName: string, record: Record<string, unknown>): SaveOutcome {
+    const types = this.recordTypes[objectApiName];
+    const recordType = record['RecordTypeId'];
+    if (types && typeof recordType === 'string') {
+      const type = types.find((t) => t.recordTypeId.slice(0, 15) === recordType.slice(0, 15));
+      if (!type?.available) {
+        return refused(
+          'INVALID_CROSS_REFERENCE_KEY',
+          `Record Type ID: this ID value isn't valid for the user: ${recordType}`,
+          ['RecordTypeId'],
+        );
+      }
+    }
     const lookups = new Map<string, boolean>();
     for (const edge of this.edges.filter((e) => e.to === objectApiName)) {
       lookups.set(edge.fieldApiName, (lookups.get(edge.fieldApiName) ?? false) || edge.required);
@@ -4037,6 +4136,251 @@ describe('AutopilotExecutor — a record whose parent the run was to write and d
       ],
       leftToDefault: [{ field: 'Campaign__c', count: 1 }],
     });
+  });
+});
+
+describe('AutopilotExecutor — a record on a record type the running user cannot use in the target', () => {
+  // Run between two orgs, one opportunity of 27 on a type closed to the
+  // running user in the target held back all 27 — every one counted refused,
+  // nothing written — and every line under them.
+  /** One record type of each org per name, under ids of their own. */
+  const SOURCE = {
+    open: '012SRC00000OpenAAA',
+    hidden: '012SRC00000HidEAAA',
+    partner: '012SRC00000PrtnAAA',
+  };
+  const TARGET = {
+    open: '012TGT00000OpenAAA',
+    hidden: '012TGT00000HidEAAA',
+    partner: '012TGT00000PrtnAAA',
+  };
+
+  /** A record type of Opportunity, as a describe gives it to the running user. */
+  function type(
+    recordTypeId: string,
+    developerName: string,
+    name: string,
+    available: boolean,
+  ): RecordTypeAvailability {
+    return {
+      recordTypeId,
+      developerName,
+      name,
+      available,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: developerName === 'Open_Deal',
+    };
+  }
+
+  /** Each org's Opportunity types: in the target, two of the three are closed to the user. */
+  const sourceTypes = [
+    type(SOURCE.open, 'Open_Deal', 'Open deal', true),
+    type(SOURCE.hidden, 'Hidden_Deal', 'Hidden deal', true),
+    type(SOURCE.partner, 'Partner_Deal', 'Partner deal', true),
+  ];
+  const targetTypes = [
+    type(TARGET.open, 'Open_Deal', 'Open deal', true),
+    type(TARGET.hidden, 'Hidden_Deal', 'Hidden deal', false),
+    type(TARGET.partner, 'Partner_Deal', 'Partner deal', false),
+  ];
+
+  const accountEdge = makeEdge({
+    from: 'Account' as ApiName,
+    to: 'Opportunity' as ApiName,
+    fieldApiName: 'AccountId',
+  });
+  const lineEdge = makeEdge({
+    from: 'Opportunity' as ApiName,
+    to: 'OpportunityLineItem' as ApiName,
+    fieldApiName: 'OpportunityId',
+    relationshipType: 'master_detail',
+    required: true,
+  });
+
+  /** What the run says of the records held back for one closed type. */
+  const closedTo = (count: number, developerName: string, name: string): string =>
+    `${count} Opportunity record${count === 1 ? ' uses' : 's use'} record type ` +
+    `${developerName} (${name}), which the running user cannot use in the target org. Give ` +
+    `the running user access to record type ${developerName} on Opportunity, or map it to ` +
+    `one they have.`;
+
+  /** Every reason anything of the run was refused or held back for. */
+  const codesOf = (result: ExecutionResult): string[] =>
+    Object.values(result.objectOutcomes ?? {}).flatMap((outcome) =>
+      outcome.refusals.map((refusal) => refusal.statusCode),
+    );
+
+  /**
+   * Run `rows` from a source holding them into a target in miniature, both
+   * answering for their record types as Salesforce does: the target's
+   * describe, both orgs' types by name, the source's count per type.
+   */
+  async function copy(
+    rows: Record<string, Record<string, unknown>[]>,
+    edges: readonly AutopilotEdge[],
+    skip: readonly string[] = [],
+  ): Promise<{ result: ExecutionResult; target: MemoryTarget }> {
+    const target = new MemoryTarget(edges, { Opportunity: targetTypes });
+    const source = new MemoryTarget([], { Opportunity: sourceTypes });
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        querySource: source.query,
+        queryTarget: target.query,
+        describeCreateableFields: async () =>
+          new Set(['Name', 'RecordTypeId', 'AccountId', 'OpportunityId', 'Description']),
+        describeRecordTypes: target.describeRecordTypes,
+        countRecordTypes: recordTypeCountsOf(rows),
+        // Pages of two: the records held back are counted across them.
+        batchSize: 2,
+      }),
+    );
+    for (const name of skip) executor.skip(name);
+    const result = await executor.execute(
+      wavesOf(...Object.keys(rows)),
+      [...edges],
+      [],
+      countsOf(rows),
+    );
+    return { result, target };
+  }
+
+  const deals = {
+    Opportunity: [
+      { Id: 'oppOpen1', Name: 'Open one', RecordTypeId: SOURCE.open },
+      { Id: 'oppHidden1', Name: 'Hidden one', RecordTypeId: SOURCE.hidden },
+      { Id: 'oppMaster', Name: 'On the master', RecordTypeId: null },
+      { Id: 'oppPartner', Name: 'Partner one', RecordTypeId: SOURCE.partner },
+      { Id: 'oppHidden2', Name: 'Hidden two', RecordTypeId: SOURCE.hidden },
+      { Id: 'oppOpen2', Name: 'Open two', RecordTypeId: SOURCE.open },
+    ],
+    OpportunityLineItem: [
+      { Id: 'lineOfHidden', Description: 'Under hidden', OpportunityId: 'oppHidden1' },
+      { Id: 'lineOfOpen', Description: 'Under open', OpportunityId: 'oppOpen1' },
+    ],
+  };
+
+  it('writes the records on a type the user may use and holds back alone each one on a type they may not, counted per type with what to change', async () => {
+    const { result, target } = await copy(deals, [lineEdge]);
+
+    // The others go, each on the target's type of the same name.
+    expect(target.of('Opportunity').map((r) => [r['Name'], r['RecordTypeId']])).toEqual([
+      ['Open one', TARGET.open],
+      ['On the master', undefined],
+      ['Open two', TARGET.open],
+    ]);
+    expect(result.objectOutcomes?.['Opportunity']).toEqual({
+      written: 3,
+      linked: 0,
+      failed: 3,
+      refusals: [
+        {
+          statusCode: 'RECORD_TYPE_UNAVAILABLE',
+          fields: ['RecordTypeId'],
+          count: 2,
+          message: closedTo(2, 'Hidden_Deal', 'Hidden deal'),
+        },
+        {
+          statusCode: 'RECORD_TYPE_UNAVAILABLE',
+          fields: ['RecordTypeId'],
+          count: 1,
+          message: closedTo(1, 'Partner_Deal', 'Partner deal'),
+        },
+      ],
+    });
+    expect(result.completedObjects).toContain('Opportunity');
+    expect(result.failedObjects).toEqual([]);
+    // Held back before their write: none was sent for the target to refuse.
+    expect(codesOf(result)).not.toContain('INVALID_CROSS_REFERENCE_KEY');
+  });
+
+  it('holds back the records under one it held back for its record type, and writes those under the others', async () => {
+    const { result, target } = await copy(deals, [lineEdge]);
+
+    expect(target.of('OpportunityLineItem')).toEqual([
+      {
+        Id: expect.any(String),
+        Description: 'Under open',
+        OpportunityId: target.idOf('Opportunity', 'Name', 'Open one'),
+      },
+    ]);
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toEqual({
+      written: 1,
+      linked: 0,
+      failed: 1,
+      refusals: [
+        {
+          statusCode: 'PARENT_REFUSED',
+          fields: ['OpportunityId'],
+          count: 1,
+          message:
+            'the Opportunity record its OpportunityId names was refused in this run, and ' +
+            'written without it this record would stand without its Opportunity.',
+        },
+      ],
+    });
+    expect(codesOf(result)).not.toContain('REQUIRED_FIELD_MISSING');
+  });
+
+  it('fails an object whose every record is on a type the user may not use, nothing of it written, and holds back what is under it', async () => {
+    const allHidden = {
+      Opportunity: [
+        { Id: 'oppHidden1', Name: 'Hidden one', RecordTypeId: SOURCE.hidden },
+        { Id: 'oppHidden2', Name: 'Hidden two', RecordTypeId: SOURCE.hidden },
+        { Id: 'oppHidden3', Name: 'Hidden three', RecordTypeId: SOURCE.hidden },
+      ],
+      OpportunityLineItem: deals.OpportunityLineItem.slice(0, 1),
+    };
+
+    const { result, target } = await copy(allHidden, [lineEdge]);
+
+    expect(target.insert).not.toHaveBeenCalled();
+    expect(result.failedObjects).toEqual(['Opportunity', 'OpportunityLineItem']);
+    expect(result.nodeErrors?.['Opportunity']).toBe(
+      `RECORD_TYPE_UNAVAILABLE: ${closedTo(3, 'Hidden_Deal', 'Hidden deal')}`,
+    );
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({
+      written: 0,
+      failed: 3,
+      refusals: [expect.objectContaining({ statusCode: 'RECORD_TYPE_UNAVAILABLE', count: 3 })],
+    });
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toMatchObject({
+      written: 0,
+      failed: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED', count: 1 })],
+    });
+    expect(result.totalFailure).toBe(4);
+  });
+
+  it('holds back a record on such a type for its type, whatever its parent: under an account the user skipped, the others for the account', async () => {
+    // The fault is the record's own, and still there once the account is
+    // copied; what it needs is a change in the target.
+    const withAccounts = {
+      Account: [{ Id: 'accA', Name: 'Acme' }],
+      Opportunity: [
+        { Id: 'oppHidden', Name: 'Hidden', AccountId: 'accA', RecordTypeId: SOURCE.hidden },
+        { Id: 'oppOpen1', Name: 'Open one', AccountId: 'accA', RecordTypeId: SOURCE.open },
+        { Id: 'oppOpen2', Name: 'Open two', AccountId: 'accA', RecordTypeId: null },
+        { Id: 'oppAlone', Name: 'Alone', AccountId: null, RecordTypeId: SOURCE.open },
+      ],
+    };
+
+    const { result, target } = await copy(withAccounts, [accountEdge], ['Account']);
+
+    expect(target.of('Opportunity').map((r) => r['Name'])).toEqual(['Alone']);
+    expect(
+      result.objectOutcomes?.['Opportunity']?.refusals.map((r) => [
+        r.statusCode,
+        r.fields,
+        r.count,
+      ]),
+    ).toEqual([
+      ['PARENT_NOT_WRITTEN', ['AccountId'], 2],
+      ['RECORD_TYPE_UNAVAILABLE', ['RecordTypeId'], 1],
+    ]);
   });
 });
 

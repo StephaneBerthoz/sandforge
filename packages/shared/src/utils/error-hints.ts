@@ -159,10 +159,11 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
       'errors.invalidCrossReferenceKey.forge.action',
     ],
   },
-  // Not a platform code: a run's own, for an object it held back before
-  // writing because the running user cannot use a record type its records
-  // carry. The message names the type and the count; the hint says what
-  // holding back cost and what to change.
+  // Not a platform code: a run's own, for the records it held back before
+  // writing because the running user cannot use the record type they carry
+  // — Sync and Autopilot those records alone, a clone the whole object. The
+  // message names the type and the count; the hint says what holding back
+  // cost and what to change.
   RECORD_TYPE_UNAVAILABLE: {
     severity: 'error',
     own: true,

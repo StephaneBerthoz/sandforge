@@ -409,6 +409,97 @@ describe('sandforge-autopilot — the run summary', () => {
       `  ${'Opportunity'.padEnd(28)} FAILED: QUERY_TIMEOUT: Your query request was running for too long.`,
     ]);
   });
+
+  it('says the records a run held back for a record type the user may not use, per type, beside what it wrote', async () => {
+    // Held back whole, the object's line said refused 3 of 3, its one reason
+    // counting 1, and nothing written.
+    const HIDDEN = '012TGT00000HidEAAA';
+    const PARTNER = '012TGT00000PrtnAAA';
+    const rows: Record<string, Record<string, unknown>[]> = {
+      Opportunity: [
+        { Id: 'oppA', Name: 'Open', RecordTypeId: null },
+        { Id: 'oppB', Name: 'Hidden', RecordTypeId: HIDDEN },
+        { Id: 'oppC', Name: 'Partner', RecordTypeId: PARTNER },
+      ],
+    };
+    const closed = (recordTypeId: string, developerName: string) => ({
+      recordTypeId,
+      developerName,
+      name: developerName,
+      available: false,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: false,
+    });
+    const executor = new AutopilotExecutor({
+      query: async (objectApiName, afterId) =>
+        afterId === undefined ? (rows[objectApiName] ?? []).map((row) => ({ ...row })) : [],
+      insert: async (objectApiName, records) =>
+        records.map((_, i) => ({
+          id: `${objectApiName.slice(0, 3)}T${i}`,
+          success: true,
+          errors: [],
+        })),
+      describeRecordTypes: async () => [
+        closed(HIDDEN, 'Hidden_Deal'),
+        closed(PARTNER, 'Partner_Deal'),
+      ],
+      countRecordTypes: async () =>
+        new Map([
+          [HIDDEN, 1],
+          [PARTNER, 1],
+        ]),
+      anonymizer: new SmartAnonymizer(),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+    const plan: ExecutionPlan = {
+      waves: [{ order: 0, objects: ['Opportunity' as ApiName], dependsOn: [] }],
+      totalRecords: 3,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 2,
+      complianceFramework: 'none',
+      anonymizationSummary: {
+        totalPiiFields: 0,
+        totalFieldsToAnonymize: 0,
+        methodBreakdown: {
+          fake: 0,
+          mask: 0,
+          hash: 0,
+          nullify: 0,
+          redact: 0,
+          shuffle: 0,
+          truncate: 0,
+          preserve_format: 0,
+          age_band: 0,
+          generalize: 0,
+          constant: 0,
+        },
+        objectsWithPii: [],
+      },
+      cycleResolutions: [],
+    };
+
+    const result = await executor.execute(
+      plan,
+      [],
+      [],
+      new Map([['Opportunity', 3]]),
+      undefined,
+      new Map(),
+      { keepContactPoints: true },
+    );
+
+    expect(outcomeLines(result)).toEqual([
+      `  ${'Opportunity'.padEnd(28)} written 1  linked 0  refused 2`,
+      '      RECORD_TYPE_UNAVAILABLE [RecordTypeId] x1: 1 Opportunity record uses record type ' +
+        'Hidden_Deal, which the running user cannot use in the target org. Give the running ' +
+        'user access to record type Hidden_Deal on Opportunity, or map it to one they have.',
+      '      RECORD_TYPE_UNAVAILABLE [RecordTypeId] x1: 1 Opportunity record uses record type ' +
+        'Partner_Deal, which the running user cannot use in the target org. Give the running ' +
+        'user access to record type Partner_Deal on Opportunity, or map it to one they have.',
+    ]);
+  });
 });
 
 describe('sandforge-autopilot — the plan', () => {

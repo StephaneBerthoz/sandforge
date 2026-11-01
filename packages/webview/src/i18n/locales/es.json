@@ -5392,7 +5392,7 @@
       }
     },
     "recordTypeHeldBack": {
-      "explanation": "El usuario con el que escribe la ejecución no puede usar este tipo de registro en la org de destino, así que el objeto se retuvo antes de escribir ninguno de sus registros.",
+      "explanation": "El usuario con el que escribe la ejecución no puede usar este tipo de registro en la org de destino, así que los registros de este tipo se retuvieron antes de escribirse.",
       "action": "En la org de destino, dé a ese usuario acceso al tipo de registro, o actívelo si está inactivo, y vuelva a ejecutar.",
       "forge": {
         "explanation": "El usuario con el que se ejecuta el clon no puede usar este tipo de registro en la org de destino, así que el objeto se retuvo antes de escribir ninguno de sus registros y se omitieron los objetos que dependen de él.",

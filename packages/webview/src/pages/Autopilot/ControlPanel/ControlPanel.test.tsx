@@ -568,6 +568,77 @@ describe('ControlPanel node detail — what the node came to', () => {
     });
   });
 
+  describe('a node that held back records for record types the running user cannot use', () => {
+    /** Two of the deals on one closed type, one on another; the others written. */
+    const heldDeals = () =>
+      settledOrder({
+        objectApiName: 'Opportunity',
+        recordCount: 3,
+        successCount: 3,
+        failureCount: 3,
+        linkedCount: 0,
+        refusals: [
+          {
+            statusCode: 'RECORD_TYPE_UNAVAILABLE',
+            fields: ['RecordTypeId'],
+            count: 2,
+            message:
+              '2 Opportunity records use record type Hidden_Deal, which the running user cannot ' +
+              'use in the target org. Give the running user access to record type Hidden_Deal ' +
+              'on Opportunity, or map it to one they have.',
+          },
+          {
+            statusCode: 'RECORD_TYPE_UNAVAILABLE',
+            fields: ['RecordTypeId'],
+            count: 1,
+            message:
+              '1 Opportunity record uses record type Partner_Deal, which the running user cannot ' +
+              'use in the target org. Give the running user access to record type Partner_Deal ' +
+              'on Opportunity, or map it to one they have.',
+          },
+        ],
+        statusRefusals: undefined,
+      });
+
+    it('says each record type on a line of its own, with its records and what to change', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockStoreState.selectedNode = heldDeals;
+      try {
+        render(<ControlPanel />);
+        fireEvent.click(screen.getByTestId('control-tab-node'));
+
+        const lines = within(screen.getByTestId('node-refusals')).getAllByRole('listitem');
+        expect(lines.map((line) => line.textContent)).toEqual([
+          expect.stringMatching(/2 records.*record type Hidden_Deal/),
+          expect.stringMatching(/1 record.*record type Partner_Deal/),
+        ]);
+        // Both lines under one code and field: React said two children had
+        // the same key, and may keep one line for the other.
+        expect(consoleError.mock.calls.map(([first]) => String(first))).not.toContainEqual(
+          expect.stringContaining('same key'),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('says under them that the records on the type were held back, not the whole object', () => {
+      // The node wrote three of six: the hint said the object was held back
+      // before any of its records were written.
+      mockStoreState.selectedNode = heldDeals;
+      render(<ControlPanel />);
+      fireEvent.click(screen.getByTestId('control-tab-node'));
+
+      const [hint] = within(screen.getByTestId('node-refusals')).getAllByTestId('error-hint');
+      expect(hint.textContent).toContain(en.errors.recordTypeHeldBack.explanation);
+      expect(en.errors.recordTypeHeldBack.explanation).toContain(
+        'the records on it were held back',
+      );
+      expect(hint.textContent).not.toContain('object was held back');
+      expect(hint.textContent).toContain(en.errors.recordTypeHeldBack.action);
+    });
+  });
+
   it('shows none of it for a node that wrote everything', () => {
     mockStoreState.selectedNode = () =>
       settledOrder({

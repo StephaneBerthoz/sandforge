@@ -130,6 +130,12 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           fields: FieldInfo[];
         };
         const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
+        /**
+         * Per target connection, the objects whose describe showed a record
+         * type closed to the running user: read again by the next run, never
+         * within the one that read it.
+         */
+        const readAgainNextRun = new WeakMap<Connection, Set<string>>();
         const describeTarget = async (
           target: Connection,
           objectApiName: string,
@@ -193,6 +199,10 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             // Freeze per execution: a scan starting mid-run must not swap the
             // connections of an in-flight executor.
             const { source, target } = connections;
+            for (const name of readAgainNextRun.get(target) ?? []) {
+              describedByTarget.get(target)?.delete(name);
+            }
+            readAgainNextRun.delete(target);
             return new AutopilotExecutor({
               // A page of the table after the last id read, never past an
               // OFFSET the platform caps at 2 000: see `pageSoql`.
@@ -289,16 +299,19 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               // closed to the running user is what the run tells the user to
               // change in the target, so that answer is not kept past this
               // run: the next one reads the target again and sees the change.
+              // Kept to its end, as the run writes the object's other records
+              // and reads their fields from it.
               describeRecordTypes: async (objectApiName: string) => {
                 const { recordTypes } = await describeTarget(target, objectApiName);
                 if (recordTypes.some((type) => !type.available && !type.master)) {
-                  describedByTarget.get(target)?.delete(objectApiName);
+                  const names = readAgainNextRun.get(target) ?? new Set<string>();
+                  readAgainNextRun.set(target, names.add(objectApiName));
                 }
                 return recordTypes;
               },
               // Asked only when the target has a record type the running user
-              // cannot use: the run reads a page at a time and has to know
-              // every type its records carry before the first page is written.
+              // cannot use: which of those types the object's records carry,
+              // known before its first page; the records on them are held back.
               // From the same describe: what a record's amounts are converted
               // in when its currency is one the target does not hold active.
               describeCurrencyFields: async (objectApiName: string) =>

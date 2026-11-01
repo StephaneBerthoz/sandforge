@@ -26,7 +26,9 @@ const RefusalHint: React.FC<{ refusal: AutopilotRefusal }> = ({ refusal }) => {
  * Why the target refused records: one line per status code and fields, with
  * how many records and the message as the target wrote it. The code comes
  * first because it is what names the problem in every language; the message
- * is in the language of the org's running user.
+ * is in the language of the org's running user. Records held back for a
+ * record type the running user cannot use take a line per record type, each
+ * under the same code and field: the message tells them apart.
  */
 const RefusalList: React.FC<{ title: string; refusals: AutopilotRefusal[]; testId: string }> = ({
   title,
@@ -40,7 +42,7 @@ const RefusalList: React.FC<{ title: string; refusals: AutopilotRefusal[]; testI
       <ul className="flex flex-col gap-1.5">
         {refusals.map((refusal) => (
           <li
-            key={`${refusal.statusCode}|${refusal.fields.join(',')}`}
+            key={`${refusal.statusCode}|${refusal.fields.join(',')}|${refusal.message}`}
             className="flex flex-col gap-0.5 text-xs"
           >
             <span className="flex flex-wrap items-baseline gap-x-1.5">

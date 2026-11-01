@@ -5392,7 +5392,7 @@
       }
     },
     "recordTypeHeldBack": {
-      "explanation": "The user the run writes as cannot use this record type in the target org, so the object was held back before any of its records were written.",
+      "explanation": "The user the run writes as cannot use this record type in the target org, so the records on it were held back before they were written.",
       "action": "In the target org, give that user access to the record type, or activate it if it is inactive, then run again.",
       "forge": {
         "explanation": "The user the clone runs as cannot use this record type in the target org, so the object was held back before any of its records were written, and the objects that depend on it were skipped.",

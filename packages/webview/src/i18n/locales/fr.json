@@ -5392,7 +5392,7 @@
       }
     },
     "recordTypeHeldBack": {
-      "explanation": "L'utilisateur sous lequel l'exécution écrit ne peut pas utiliser ce type d'enregistrement dans l'org cible : l'objet a été retenu avant qu'aucun de ses enregistrements ne soit écrit.",
+      "explanation": "L'utilisateur sous lequel l'exécution écrit ne peut pas utiliser ce type d'enregistrement dans l'org cible : les enregistrements de ce type ont été retenus avant d'être écrits.",
       "action": "Dans l'org cible, donnez à cet utilisateur l'accès au type d'enregistrement, ou activez-le s'il est inactif, puis relancez.",
       "forge": {
         "explanation": "L'utilisateur sous lequel le clone s'exécute ne peut pas utiliser ce type d'enregistrement dans l'org cible : l'objet a été retenu avant qu'aucun de ses enregistrements ne soit écrit, et les objets qui en dépendent ont été ignorés.",

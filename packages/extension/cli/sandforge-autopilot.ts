@@ -461,8 +461,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // when its currency is one the target does not hold active.
         describeCurrencyFields: async (objectApiName) =>
           (await describeTarget(objectApiName)).currencyFields,
-        // The same count the panel asks, for the same reason: every record
-        // type an object carries has to be known before its first page.
+        // The same count the panel asks, for the same reason: whether any
+        // record of an object carries a type the running user cannot use,
+        // known before its first page.
         countRecordTypes: async (objectApiName) => {
           const counted = await sourceConn.query<Record<string, unknown>>(
             recordTypeCountSoql(objectApiName),

@@ -17,6 +17,7 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   AutopilotExecutor,
+  type AutopilotExecutorDeps,
   type ExecutionResult,
   type QueryFn,
 } from '../../modules/autopilot/AutopilotExecutor.js';
@@ -180,6 +181,8 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
     query: QueryFn;
     insert: (objectApiName: string, records: Record<string, unknown>[]) => SaveOutcome[];
     batchSize: number;
+    /** What else the executor is given of the two orgs. */
+    orgs?: Partial<AutopilotExecutorDeps>;
   }): Promise<{ running: Promise<boolean>; result: () => ExecutionResult | undefined }> {
     const anonymizer = {
       anonymize: vi.fn((records: Record<string, unknown>[]) => records),
@@ -193,6 +196,7 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
           anonymizer,
           remapper: new RecordIdRemapper(),
           batchSize: options.batchSize,
+          ...options.orgs,
         }),
     } as unknown as AutopilotOrchestratorDeps);
     let ended: ExecutionResult | undefined;
@@ -388,6 +392,82 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
         expect.objectContaining({ objectApiName: 'Lead' }),
       ]);
     });
+  });
+
+  it('ends an object of which it held back one record for its record type as completed, with what it wrote, and the audit counts that record among the failed', async () => {
+    // Held back whole, the object ended failed with nothing written, its
+    // every record counted failed, and the lines under it with it.
+    const CLOSED = '012TGT00000HidEAAA';
+    const rows: Record<string, Record<string, unknown>[]> = {
+      Opportunity: [
+        { Id: 'opp1', Name: 'Open', RecordTypeId: null },
+        { Id: 'opp2', Name: 'Hidden', RecordTypeId: CLOSED },
+      ],
+      OpportunityLineItem: [
+        { Id: 'oli1', OpportunityId: 'opp1' },
+        { Id: 'oli2', OpportunityId: 'opp2' },
+      ],
+    };
+    const sent: string[] = [];
+    const { running } = await startRun({
+      id: 'exec-record-type',
+      plan: planOf(['Opportunity'], ['OpportunityLineItem']),
+      rows,
+      edges: [lookup('Opportunity', 'OpportunityLineItem', 'OpportunityId')],
+      batchSize: 200,
+      query: sourceOf(rows),
+      insert: (objectApiName, records) => {
+        sent.push(...records.map((record) => String(record['Id'])));
+        return records.map((_, i) => ({
+          id: `${objectApiName.slice(0, 3)}T${i}`,
+          success: true,
+          errors: [],
+        }));
+      },
+      orgs: {
+        // The target's describe, and the source's count per record type.
+        describeRecordTypes: async (objectApiName) =>
+          objectApiName === 'Opportunity'
+            ? [
+                {
+                  recordTypeId: CLOSED,
+                  developerName: 'Hidden_Deal',
+                  name: 'Hidden deal',
+                  available: false,
+                  active: true,
+                  master: false,
+                  defaultRecordTypeMapping: false,
+                },
+              ]
+            : [],
+        countRecordTypes: async (objectApiName) =>
+          objectApiName === 'Opportunity' ? new Map([[CLOSED, 1]]) : new Map(),
+      },
+    });
+    await running;
+
+    expect(sent).toEqual(['opp1', 'oli1']);
+    const settled = lastStatusOf();
+    expect(settled['Opportunity']).toMatchObject({
+      status: 'completed',
+      recordCount: 1,
+      failureCount: 1,
+      refusals: [expect.objectContaining({ statusCode: 'RECORD_TYPE_UNAVAILABLE', count: 1 })],
+    });
+    expect(settled['OpportunityLineItem']).toMatchObject({
+      status: 'completed',
+      recordCount: 1,
+      failureCount: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED', count: 1 })],
+    });
+    const [entry] = new AuditTrailStore(deps.configStore as ConfigStore).list().entries;
+    expect(entry?.outcome).toBe('partial');
+    expect(entry?.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ objectApiName: 'Opportunity', created: 1, failed: 1 }),
+        expect.objectContaining({ objectApiName: 'OpportunityLineItem', created: 1, failed: 1 }),
+      ]),
+    );
   });
 
   it('ends each object a stop cut short or came before as stopped, and the one it wrote as completed', async () => {

@@ -5392,7 +5392,7 @@
       }
     },
     "recordTypeHeldBack": {
-      "explanation": "O usuário com que a execução grava não pode usar este tipo de registro na org de destino, então o objeto foi retido antes que qualquer um de seus registros fosse gravado.",
+      "explanation": "O usuário com que a execução grava não pode usar este tipo de registro na org de destino, então os registros desse tipo foram retidos antes de serem gravados.",
       "action": "Na org de destino, dê a esse usuário acesso ao tipo de registro, ou ative-o se estiver inativo, e execute de novo.",
       "forge": {
         "explanation": "O usuário com que o clone roda não pode usar este tipo de registro na org de destino, então o objeto foi retido antes que qualquer um de seus registros fosse gravado, e os objetos que dependem dele foram ignorados.",

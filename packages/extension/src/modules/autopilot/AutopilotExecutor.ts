@@ -443,9 +443,10 @@ export interface AutopilotExecutorDeps {
   describeRecordTypes?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
   /**
    * How many SOURCE records carry each `RecordTypeId`. The run reads an
-   * object a page at a time, so this count is how it knows every record type
-   * before the first page is written. Asked only when the target has a type
-   * the running user cannot use.
+   * object a page at a time, so this count is how it knows, before the first
+   * page, which of the types the running user cannot use its records carry:
+   * the records on those are held back. Asked only when the target has such
+   * a type.
    */
   countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
   /**
@@ -613,6 +614,18 @@ interface ObjectState {
   defaulted: Map<string, number>;
   /** Records the stop kept from the target, once the run was stopped. */
   notSent?: number;
+  /**
+   * The record types of the object the running user cannot use in the
+   * target, by the first fifteen characters of their id there: a record
+   * carrying one is held back alone, before its write.
+   */
+  closedRecordTypes?: ReadonlyMap<string, UnavailableRecordTypeUse>;
+  /**
+   * Of those, the ones records were held back for, by their id in the
+   * target, each counting the records it held: one refusal per record type,
+   * where the tally would merge them under their one code and field.
+   */
+  heldForRecordType: Map<string, UnavailableRecordTypeUse>;
 }
 
 /** An object's totals before any of its records is written. */
@@ -625,6 +638,17 @@ function emptyObjectState(): ObjectState {
     refusals: new RefusalTally(),
     apiCallsUsed: 0,
     defaulted: new Map(),
+    heldForRecordType: new Map(),
+  };
+}
+
+/** What the records held back for one record type the running user cannot use come to. */
+function recordTypeRefusal(use: UnavailableRecordTypeUse): AutopilotRefusal {
+  return {
+    statusCode: RECORD_TYPE_UNAVAILABLE,
+    fields: ['RecordTypeId'],
+    count: use.recordCount,
+    message: recordTypeBlockedReason(use),
   };
 }
 
@@ -750,8 +774,6 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * for in turn.
    */
   private readonly refusedRecords = new Map<string, string>();
-  /** The objects held back whole before their first page: none of their records is in the target. */
-  private readonly heldWhole = new Set<string>();
   /**
    * The objects of the plan the run did not write, with why: skipped by the
    * user, or whose write threw. Of these, only the records the run mapped are
@@ -853,13 +875,62 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
   /** Records per record type, keyed by the target's ids where the mapping knows one. */
   private inTargetRecordTypes(counts: ReadonlyMap<string, number>): Map<string, number> {
-    const targetIdOf = new Map(this.recordTypeMappings?.map((m) => [m.sourceId, m.targetId]));
     const translated = new Map<string, number>();
     for (const [id, count] of counts) {
-      const target = targetIdOf.get(id) ?? id;
+      const target = this.targetRecordTypeOf(id);
       translated.set(target, (translated.get(target) ?? 0) + count);
     }
     return translated;
+  }
+
+  /**
+   * A source record type's id as a record goes in with it: the target's,
+   * where the two orgs' types were matched, as read otherwise — as
+   * `translateRecordTypes` sends it.
+   */
+  private targetRecordTypeOf(id: string): string {
+    return this.recordTypeMappings?.find((m) => m.sourceId === id)?.targetId ?? id;
+  }
+
+  /**
+   * The records of a page that may go: one on a record type the running user
+   * cannot use in the target is held back alone, before its write, counted
+   * among the refused under `RECORD_TYPE_UNAVAILABLE` for its record type
+   * with what to change in the target, and remembered for the records that
+   * name it, held back in their turn under `PARENT_REFUSED`, as Sync holds
+   * them. Sent, it was refused INVALID_CROSS_REFERENCE_KEY, which names the
+   * id and not the reason. A contact of a person account is the platform's,
+   * never sent: `linkPersonContacts` settles it.
+   */
+  private holdOnClosedRecordTypes(
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    state: ObjectState,
+  ): Record<string, unknown>[] {
+    const closed = state.closedRecordTypes;
+    if (!closed) return rows;
+    const kept: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      const value = row['RecordTypeId'];
+      const platforms = objectApiName === CONTACT && isPersonAccountRow(row);
+      const use =
+        typeof value === 'string' && value.length >= 15 && !platforms
+          ? closed.get(idKey(this.targetRecordTypeOf(value)))
+          : undefined;
+      if (!use) {
+        kept.push(row);
+        continue;
+      }
+      state.failed++;
+      const known = state.heldForRecordType.get(use.recordTypeId);
+      state.heldForRecordType.set(use.recordTypeId, {
+        ...use,
+        recordCount: (known?.recordCount ?? 0) + 1,
+      });
+      const id = row['Id'];
+      if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), objectApiName);
+    }
+    return kept;
   }
 
   /**
@@ -1386,37 +1457,35 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   ): Promise<ObjectResult> {
     const objStart = Date.now();
     const state = emptyObjectState();
-    const finish = (): ObjectResult => ({
-      success: state.written,
-      linked: state.linked,
-      failure: state.failed,
-      errors: state.errors,
-      refusals: state.refusals.list(),
-      apiCallsUsed: state.apiCallsUsed,
-      elapsedMs: Date.now() - objStart,
-      leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
-      ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
-    });
+    const finish = (): ObjectResult => {
+      // Each record type said with the records it held, the first of the
+      // node's errors when it held them all.
+      const held = [...state.heldForRecordType.values()];
+      return {
+        success: state.written,
+        linked: state.linked,
+        failure: state.failed,
+        errors: [...held.map(recordTypeBlockedMessage), ...state.errors],
+        refusals: [...state.refusals.list(), ...held.map(recordTypeRefusal)].sort(
+          (a, b) => b.count - a.count,
+        ),
+        apiCallsUsed: state.apiCallsUsed,
+        elapsedMs: Date.now() - objStart,
+        leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
+        ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
+      };
+    };
 
-    // Held back whole, before its first page: a run translates a record type
-    // into the target's own but never picks another one, so there is no
-    // default to fall back on without the user choosing it. The node fails
-    // with what to change in the target, and nothing of it is written.
-    const heldBack = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
-    if (heldBack.length > 0) {
-      this.heldWhole.add(objectApiName);
-      state.failed = totalRecords;
-      state.errors.push(...heldBack.map(recordTypeBlockedMessage));
-      for (const use of heldBack) {
-        state.refusals.addCounted({
-          statusCode: RECORD_TYPE_UNAVAILABLE,
-          fields: ['RecordTypeId'],
-          count: use.recordCount,
-          message: recordTypeBlockedReason(use),
-        });
-      }
-      state.apiCallsUsed = 1;
-      return finish();
+    // A run translates a record type into the target's own but never picks
+    // another one, so there is no default to fall back on without the user
+    // choosing it: a record on a type the running user cannot use in the
+    // target is held back, with what to change there. Alone, before its write
+    // (`holdOnClosedRecordTypes`). Held back whole, the object lost every
+    // record for one: one opportunity of 27 on such a type held back all 27,
+    // and every line under them. The node fails only when none of it went.
+    const closed = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
+    if (closed.length > 0) {
+      state.closedRecordTypes = new Map(closed.map((use) => [idKey(use.recordTypeId), use]));
     }
 
     const progress = (processed: number): void => {
@@ -1665,6 +1734,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       rows = batch.filter((record) => record['Id'] !== standardBook.source);
       state.linked += batch.length - rows.length;
     }
+    // A record on a record type the running user cannot use is held back
+    // first, whatever its parents: it would be refused with them in the
+    // target, and what it needs is a change there.
+    rows = this.holdOnClosedRecordTypes(objectApiName, rows, state);
     // A record naming one the run could not write, or did not, stays out with it.
     rows = await this.holdBehindRefusedParents(objectApiName, rows, edges, state);
     // An email on a case names its task, which the task node still to come
@@ -2301,10 +2374,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * run set out to write and did not is held back with it, and the records
    * naming it in turn, as Forge, Sync and Frozen Dataset hold them. Counted
    * among the refused, under `PARENT_REFUSED` when the target refused that
-   * record, the run held it back, or its object was held back whole; under
-   * `PARENT_NOT_WRITTEN` when its object is one the plan holds and the run
-   * did not write — the user skipped it, or its write threw — and of which
-   * the run mapped no such record.
+   * record or the run held it back — for its own parent, or its record type
+   * (`holdOnClosedRecordTypes`); under `PARENT_NOT_WRITTEN` when its object
+   * is one the plan holds and the run did not write — the user skipped it,
+   * or its write threw — and of which the run mapped no such record.
    *
    * Written, such a record stands without its parent. Run into an org with
    * person accounts, the twenty accounts of a run were refused and the
@@ -2327,7 +2400,6 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   ): Promise<Record<string, unknown>[]> {
     if (
       this.refusedRecords.size === 0 &&
-      this.heldWhole.size === 0 &&
       this.notWritten.size === 0 &&
       this.skippedObjects.size === 0
     ) {
@@ -2353,7 +2425,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         if (this.deps.remapper.getTargetId(edge.from, value) !== undefined) continue;
         const refusedRecord = this.refusedRecords.get(idKey(value)) === edge.from;
         const notWritten = this.notWrittenOf(edge.from);
-        if (!refusedRecord && !this.heldWhole.has(edge.from) && notWritten === undefined) continue;
+        if (!refusedRecord && notWritten === undefined) continue;
         // Of an object whose records not written the run knows by no id, only
         // a value that is one of its records holds the record back.
         const field = parentsOf.get(edge.fieldApiName) ?? 0;
@@ -2361,8 +2433,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           continue;
         }
         const { from, fieldApiName } = edge;
-        // Refused by the target, held back by the run, or of an object held
-        // back whole: refused in this run. Otherwise not written, and why.
+        // Refused by the target or held back by the run: refused in this run.
+        // Otherwise not written, and why.
         held =
           refusedRecord || notWritten === undefined
             ? {
@@ -2414,7 +2486,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   /**
    * Whether the id a lookup holds is a record of the edge's parent, for a
    * parent whose records the run did not write are known to it by no id — an
-   * object held back whole, skipped, or whose write threw.
+   * object skipped, or whose write threw.
    *
    * The plan has an edge for each object of its own a lookup may point at,
    * and none for the others: a task's `WhatId` has one edge, at the accounts,
