@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { injectVSCodeApiMock, sendExtensionMessage } from './mocks/vscode-api';
 import { MockBridge } from './helpers';
 import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX } from './fixtures';
@@ -348,6 +348,70 @@ test.describe('Responsive layout', () => {
       expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.documentClientWidth);
       const badge = await panel.getByText('Vorabprüfung', { exact: true }).boundingBox();
       expect(badge!.x + badge!.width).toBeLessThanOrEqual(side!.x + side!.width);
+    });
+  });
+
+  /*
+   * DataOps, Automation and Reports hold their working area — forms, tables,
+   * confirmations — in a bento tile, which lifted under the pointer as Home's
+   * tiles do: scaled by 1% and raised by 2 pixels, the panel grew some 6
+   * pixels on each side and jumped each time the pointer crossed its edge.
+   * The lift is a transform, which framer-motion leaves out under reduced
+   * motion, so each test asks for motion: Home's tile, which still lifts,
+   * shows the measure would see one.
+   */
+  test.describe('a working area holds still under the pointer', () => {
+    /** The tile's box, then its box once the pointer has rested on it. */
+    async function boxesAroundHover(page: Page, tile: Locator) {
+      await tile.scrollIntoViewIfNeeded();
+      const before = await tile.boundingBox();
+      await tile.hover({ position: { x: 24, y: 24 } });
+      // Long enough for the spring that lifts a tile to have settled.
+      await page.waitForTimeout(800);
+      const after = await tile.boundingBox();
+      if (!before || !after) throw new Error('the tile has no box');
+      return { before, after };
+    }
+
+    /** Boot a module panel the way the extension does, orgs connected. */
+    async function openModule(page: Page, moduleId: string, testId: string): Promise<void> {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await page.setViewportSize(DESKTOP);
+      const bridge = new MockBridge();
+      await bridge.setup(page);
+      await page.addInitScript((id: string) => {
+        (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
+      }, moduleId);
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId(testId).waitFor({ timeout: 10_000 });
+    }
+
+    for (const [moduleId, testId] of [
+      ['dataops', 'dataops-page'],
+      ['automation', 'automation-page'],
+      ['reports', 'reports-page'],
+    ] as const) {
+      test(`on ${moduleId}`, async ({ page }) => {
+        await openModule(page, moduleId, testId);
+        const tile = page.getByTestId(testId).getByTestId('bento-tile');
+        await expect(tile).toHaveCount(1);
+
+        const { before, after } = await boxesAroundHover(page, tile);
+
+        expect(after).toEqual(before);
+      });
+    }
+
+    test('while a Home tile still lifts', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await openHomeAt(page, DESKTOP);
+      const tile = page.getByTestId('bento-tile').first();
+
+      const { before, after } = await boxesAroundHover(page, tile);
+
+      expect(after.width).toBeGreaterThan(before.width);
+      expect(after.y).toBeLessThan(before.y);
     });
   });
 

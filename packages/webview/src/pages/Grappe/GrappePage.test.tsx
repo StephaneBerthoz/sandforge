@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { useAppStore } from '../../stores/useAppStore';
@@ -29,7 +29,7 @@ function sent(type: string): unknown[] {
 describe('GrappePage empty state', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
-    useAppStore.setState({ currentRoute: 'grappe' });
+    useAppStore.setState({ currentRoute: 'grappe', grappeEnabled: false });
     useGrappeStore.setState({
       active: false,
       totalPartitions: 0,
@@ -100,6 +100,81 @@ describe('GrappePage empty state', () => {
     }
     expect(screen.getByText(en.grappe.emptyDesc)).toBeDefined();
   });
+
+  it('says what the page is for before anything about a setting', () => {
+    // It opened on "Grappe needs sandforge.grappe.enabled." under "No Active
+    // Grappes", a setting id to a newcomer who did not know what Grappe was.
+    render(<GrappePage />);
+    const empty = screen.getByTestId('grappe-empty');
+
+    expect(within(empty).getByRole('heading').textContent).toBe('No large run in progress');
+    expect(empty.textContent).toContain(
+      "Grappe shows a large run's progress, partition by partition. Turn it on to follow your next Seed of 10,000 records or more.",
+    );
+    expect(empty.textContent).not.toContain('sandforge.grappe.enabled');
+  });
+
+  it('keeps the setting id on the button that opens it, said when it is pointed at or focused', async () => {
+    render(<GrappePage />);
+    const button = screen.getByTestId('grappe-open-setting');
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    fireEvent.focus(button);
+
+    expect((await screen.findByRole('tooltip')).textContent).toBe('sandforge.grappe.enabled');
+  });
+
+  it('no longer asks to turn Grappe on once it is on', () => {
+    useAppStore.setState({ grappeEnabled: true });
+    render(<GrappePage />);
+
+    const empty = screen.getByTestId('grappe-empty');
+    expect(empty.textContent).toContain(en.grappe.emptyDescOn);
+    expect(empty.textContent).not.toContain('Turn it on');
+  });
+});
+
+describe('GrappePage layout', () => {
+  beforeEach(() => {
+    useAppStore.setState({ currentRoute: 'grappe', grappeEnabled: false });
+    useGrappeStore.setState({
+      active: false,
+      totalPartitions: 2,
+      totalRecords: 12000,
+      partitions: new Map(),
+      totalProcessed: 11000,
+      totalFailed: 3,
+    });
+  });
+
+  it('opens on the page header its neighbours use, not a header of its own', () => {
+    render(<GrappePage />);
+
+    const header = screen.getByTestId('page-header');
+    expect(within(header).getByRole('heading', { level: 1 }).textContent).toBe('Grappe');
+    expect(screen.getByTestId('page-header-subtitle').textContent).toBe(en.grappe.subtitle);
+    // Full width, as every other page: it sat in a centred max-w-6xl column.
+    expect(screen.getByTestId('grappe-page').className).not.toContain('max-w-6xl');
+  });
+
+  it('shows its totals on KPI cards labelled in sentence case', () => {
+    // "Partitions", "Records", "processed", "failed": two of four in lower case.
+    render(<GrappePage />);
+
+    const cards = within(screen.getByTestId('grappe-kpi-row')).getAllByTestId('kpi-card');
+    expect(cards.map((card) => card.querySelector('.text-sm')?.textContent)).toEqual([
+      'Partitions',
+      'Records',
+      'Processed',
+      'Failed',
+    ]);
+    expect(cards.map((card) => within(card).getByTestId('kpi-value').textContent)).toEqual([
+      '2',
+      '12,000',
+      '11,000',
+      '3',
+    ]);
+  });
 });
 
 describe('GrappePage active run', () => {
@@ -122,6 +197,15 @@ describe('GrappePage active run', () => {
     const overall = screen.getByRole('progressbar', { name: 'Grappe progress' });
     expect(overall.getAttribute('aria-valuenow')).toBe('20');
     expect(screen.getByRole('progressbar', { name: 'Account-1' })).toBeDefined();
+  });
+
+  it('heads the run with what it is, and says how far it is in one phrase', () => {
+    // "Grappe — Active Execution" under a page already titled Grappe, and
+    // "20% Completed" built from a number and a capitalised word.
+    render(<GrappePage />);
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Run in progress' })).toBeDefined();
+    expect(screen.getByText('20% complete')).toBeDefined();
   });
 
   it('keeps the Grappe colours on the bars', () => {

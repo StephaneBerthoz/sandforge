@@ -25,6 +25,14 @@ export interface BentoTileProps {
   children: React.ReactNode;
   /** Additional CSS classes for the tile. */
   className?: string;
+  /**
+   * Whether the tile lifts under the pointer (true by default). A tile that
+   * holds a page's working area — forms, tables, confirmations — turns it
+   * off: scaled by 1% and raised by 2 px, the panel grew some 6 px on each
+   * side, jumped, and redrew its text scaled each time the pointer crossed
+   * its edge.
+   */
+  hover?: boolean;
 }
 
 /** Tailwind gap class lookup by size token. */
@@ -83,13 +91,15 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
 
 /**
  * Animated tile card for use inside a BentoGrid.
- * Uses framer-motion cardHover preset for hover lift effect.
+ * Uses framer-motion cardHover preset for hover lift effect, unless `hover`
+ * is false.
  */
 export const BentoTile: React.FC<BentoTileProps> = ({
   colSpan = 1,
   rowSpan = 1,
   children,
   className,
+  hover = true,
 }) => {
   return (
     <m.div
@@ -100,7 +110,7 @@ export const BentoTile: React.FC<BentoTileProps> = ({
         rowSpanClass[rowSpan],
         className,
       )}
-      whileHover={cardHover.whileHover}
+      whileHover={hover ? cardHover.whileHover : undefined}
       transition={SPRING}
     >
       {children}

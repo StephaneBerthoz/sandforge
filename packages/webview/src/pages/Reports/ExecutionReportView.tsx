@@ -4,6 +4,7 @@ import type { GeneratedReport } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { moduleName } from './moduleName';
 
 /** ExecutionReportView component props. */
 export interface ExecutionReportViewProps {
@@ -73,7 +74,9 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                   <div className="flex flex-col gap-3">
                     {/* Metadata */}
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="default">{selectedReport.metadata.module}</Badge>
+                      <Badge variant="default">
+                        {moduleName(t, selectedReport.metadata.module)}
+                      </Badge>
                       {selectedReport.metadata.recordCount !== undefined && (
                         <span className="text-[10px] text-text-secondary">
                           {t('common.recordCount', {

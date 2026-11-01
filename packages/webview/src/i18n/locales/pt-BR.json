@@ -3357,8 +3357,8 @@
     "grappe": {
       "step1": "Clique em Abrir a configuração do Grappe e ative sandforge.grappe.enabled.",
       "step2": "Deixe a página do Grappe aberta, abra o Seed no painel lateral e execute um Seed de 10.000 registros ou mais.",
-      "step3": "Volte à página do Grappe durante a execução: Execução ativa mostra o andamento de cada partição.",
-      "step4": "Ao fim da execução, leia os totais nos cartões Partições, Registros, processados e falhos.",
+      "step3": "Volte à página do Grappe durante a execução: Execução em andamento mostra o progresso de cada partição.",
+      "step4": "Ao fim da execução, leia os totais nos cartões Partições, Registros, Processados e Com falha.",
       "tip": "Reduza sandforge.grappe.autoActivateThreshold para acompanhar execuções menores; o Grappe não executa nada por si só nem acelera nenhuma execução."
     },
     "ai": {
@@ -5248,19 +5248,19 @@
     }
   },
   "grappe": {
-    "emptyDesc": "O Grappe precisa de sandforge.grappe.enabled. Uma execução de Seed acima do limite de registros passa a informar cada partição ao concluí-la, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim.",
+    "emptyDesc": "O Grappe mostra o progresso de uma execução grande, partição por partição. Ative-o para acompanhar seu próximo Seed de 10.000 registros ou mais.",
     "active": "Grappe",
     "completed": "Concluído",
     "partitions": "Partições",
     "totalRecords": "Registros",
-    "processed": "processados",
-    "failed": "falhos",
+    "processed": "Processados",
+    "failed": "Com falha",
     "subtitle": "Progresso por partição para operações de dados em larga escala",
-    "activeTitle": "Execução ativa",
-    "emptyTitle": "Nenhum grappe ativo",
+    "activeTitle": "Execução em andamento",
+    "emptyTitle": "Nenhuma execução grande em andamento",
     "howItWorks": "Como o Grappe funciona",
-    "step1Title": "Particionamento inteligente",
-    "step1Desc": "Os dados são divididos em partições ideais conforme as dependências e o tamanho",
+    "step1Title": "Divisão em partições",
+    "step1Desc": "Um Seed é dividido em partições de 5.000 registros (sandforge.grappe.grappeSize), gravadas na ordem de inserção; um Sync informa uma partição por objeto, e um plano do Autopilot apenas seu início e seu fim.",
     "step2Title": "Fila de partições",
     "step2Desc": "As partições são processadas uma após a outra e informadas a cada conclusão",
     "step3Title": "Totais da execução",
@@ -5272,7 +5272,9 @@
     "failedCount_one": "{{formatted}} com falha",
     "failedCount_other": "{{formatted}} com falha",
     "partitionCount_one": "{{count}} partição",
-    "partitionCount_other": "{{count}} partições"
+    "partitionCount_other": "{{count}} partições",
+    "emptyDescOn": "O Grappe está ativado: seu próximo Seed ou Sync acima do limite de registros, 10.000 por padrão, aparece aqui enquanto é executado.",
+    "percentComplete": "{{percent}}% concluído"
   },
   "errorBoundary": {
     "title": "Algo deu errado",

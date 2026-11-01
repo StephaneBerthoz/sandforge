@@ -16,6 +16,16 @@ export interface LineageGraphProps {
 
 type NodeType = LineageNode['type'];
 
+/**
+ * A node's width, and the distance from one column to the next. The edge
+ * between two columns carries its label, "1,200 records" or "upsert": columns
+ * 220 apart for nodes 180 wide left it 40 pixels, and the nodes on either
+ * side cut "1,200 records" to "00 recor". 140 pixels hold it, and React
+ * Flow's fitView still fits four columns to the panel.
+ */
+const NODE_WIDTH = 180;
+const COLUMN_STEP = 320;
+
 /** Left to right, the order a record passes through the node types. */
 const COLUMN_ORDER: readonly NodeType[] = [
   'source',
@@ -78,7 +88,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
 
       return {
         id: node.id,
-        position: { x: col * 220 + 20, y: row * 90 + 20 },
+        position: { x: col * COLUMN_STEP + 20, y: row * 90 + 20 },
         data: { label: labelOf(node) },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -89,7 +99,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
           borderRadius: '6px',
           padding: '8px 12px',
           fontSize: '11px',
-          width: 180,
+          width: NODE_WIDTH,
         },
       };
     });

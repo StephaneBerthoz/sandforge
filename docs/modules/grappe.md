@@ -8,8 +8,8 @@ A progress page, not an engine: once `sandforge.grappe.enabled` is on (off by de
 
 1. Click Open the Grappe setting and turn on sandforge.grappe.enabled.
 2. Leave the Grappe page open, open Seed in the side panel, and seed 10,000 records or more.
-3. Return to the Grappe page during the run: Active Execution shows each partition's progress.
-4. When the run ends, read its totals on the Partitions, Records, processed and failed cards.
+3. Return to the Grappe page during the run: Run in progress shows each partition's progress.
+4. When the run ends, read its totals on the Partitions, Records, Processed and Failed cards.
 
 **Tip:** Lower sandforge.grappe.autoActivateThreshold to watch smaller runs; Grappe runs nothing itself and makes no run faster.
 

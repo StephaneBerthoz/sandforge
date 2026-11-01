@@ -24,6 +24,7 @@ import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
 import { AnalyticsDashboard, LineageGraph } from './reportsPanels';
+import { moduleName } from './moduleName';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { uiLocale } from '../../utils/formatters';
 import { useHeldFailure } from '../../hooks/useHeldFailure';
@@ -341,7 +342,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
       {tabs.length > 0 && <Tabs tabs={tabs} activeTab={shownTab} onTabChange={setActiveTab} />}
 
-      <BentoTile className="p-0">
+      <BentoTile className="p-0" hover={false}>
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -447,7 +448,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                           options={lineageRuns.map((run) => ({
                             value: run.operationId,
                             label: [
-                              run.action ? t(`reports.auditActions.${run.action}`) : run.module,
+                              run.action
+                                ? t(`reports.auditActions.${run.action}`)
+                                : run.module && moduleName(t, run.module),
                               run.targetLabel,
                               run.generatedAt.slice(0, 16).replace('T', ' '),
                             ]

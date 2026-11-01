@@ -16,6 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { moduleName, namesModule } from './moduleName';
 
 /** The module and org a trail is narrowed to. */
 export interface AuditFilter {
@@ -191,7 +192,7 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
 
   const moduleOptions = [
     { value: '', label: t('reports.allModules') },
-    ...offered.modules.map((m) => ({ value: m, label: m })),
+    ...offered.modules.map((m) => ({ value: m, label: moduleName(t, m) })),
   ];
 
   const orgOptions = [
@@ -366,18 +367,26 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                 onOpenRun && operationId !== undefined && runsWithLineage?.has(operationId)
                   ? operationId
                   : undefined;
+              // Named once: beside "Forge Clone" the module said Forge a
+              // second time, while "Cleanup Delete", which five modules
+              // record, needs it to say whose removal it was.
+              const action = actionLabel(entry.action);
+              const module = moduleName(t, entry.module);
               return (
                 <div key={entry.id} data-testid={`audit-${entry.id}`}>
                   <Card>
                     <CardBody>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={getActionVariant(entry.action)}>
-                            {actionLabel(entry.action)}
-                          </Badge>
-                          <span className="text-xs text-[var(--sf-text-primary)]">
-                            {entry.module}
-                          </span>
+                          <Badge variant={getActionVariant(entry.action)}>{action}</Badge>
+                          {!namesModule(action, module) && (
+                            <span
+                              data-testid={`audit-module-${entry.id}`}
+                              className="text-xs text-[var(--sf-text-primary)]"
+                            >
+                              {module}
+                            </span>
+                          )}
                           {target && (
                             <span className="text-xs text-[var(--sf-text-primary)]">
                               {t('reports.intoOrg', { org: target })}

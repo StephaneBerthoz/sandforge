@@ -374,6 +374,25 @@ describe('ReportsPage', () => {
       fireEvent.change(screen.getByTestId('lineage-run'), { target: { value: 'op-0' } });
       expect(onSelectLineageRun).toHaveBeenCalledWith('op-0');
     });
+
+    it('names a traced run without an action by its module, as the navigation does', () => {
+      render(
+        <ReportsPage
+          lineageData={lineageData}
+          lineageRuns={[
+            { operationId: 'op-1', generatedAt: '2026-02-20T10:00:00Z', module: 'frozen' },
+            { operationId: 'op-0', generatedAt: '2026-02-19T10:00:00Z', module: 'dataops' },
+          ]}
+          onSelectLineageRun={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
+
+      expect(
+        screen.getByRole('option', { name: 'Frozen Dataset · 2026-02-20 10:00' }),
+      ).toBeDefined();
+      expect(screen.getByRole('option', { name: 'DataOps · 2026-02-19 10:00' })).toBeDefined();
+    });
   });
 
   it('should render KPI summary row', () => {

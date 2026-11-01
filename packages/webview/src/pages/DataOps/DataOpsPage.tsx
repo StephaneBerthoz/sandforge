@@ -707,7 +707,7 @@ export const DataOpsPage: React.FC = () => {
 
       <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <BentoTile className="p-0">
+      <BentoTile className="p-0" hover={false}>
         <div className="p-4" data-testid="dataops-content" aria-busy={tabReading || undefined}>
           {tabLoading && (
             <div className="flex flex-col gap-(--sf-space-3)" data-testid="dataops-skeleton">

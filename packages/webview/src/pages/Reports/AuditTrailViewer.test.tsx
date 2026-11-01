@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import i18n from '../../i18n';
+import de from '../../i18n/locales/de.json';
+import fr from '../../i18n/locales/fr.json';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import type { AuditAction, AuditLogEntry } from '@sandforge/shared';
 import en from '../../i18n/locales/en.json';
@@ -78,10 +80,60 @@ describe('AuditTrailViewer', () => {
     expect(screen.queryByText('forge_execute')).toBeNull();
   });
 
-  it('should show module names', () => {
-    render(<AuditTrailViewer entries={entries} />);
-    expect(screen.getAllByText('seed').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('dataops').length).toBeGreaterThan(0);
+  describe('the module an entry was recorded by', () => {
+    /** A removal, which Forge, Frozen, Seed, Sync and Compare all record. */
+    const frozenRemoval: AuditLogEntry = {
+      id: 'aud-cleanup',
+      action: 'cleanup_delete',
+      module: 'frozen',
+      orgId: '00D000000000001AAA',
+      orgAlias: 'target-sandbox',
+      details: {},
+      timestamp: '2026-09-11T12:00:00.000Z',
+    };
+
+    it('is named as the navigation names its page, not by the id it was recorded under', () => {
+      // "Cleanup Delete frozen into QASandbox": the id, in lower case, beside
+      // a navigation that says Frozen Dataset.
+      render(<AuditTrailViewer entries={[frozenRemoval, entries[1]]} />);
+
+      expect(screen.getByTestId('audit-module-aud-cleanup').textContent).toBe('Frozen Dataset');
+      expect(screen.getByTestId('audit-module-aud-2').textContent).toBe('DataOps');
+      expect(screen.queryByText('frozen')).toBeNull();
+      expect(screen.queryByText('dataops')).toBeNull();
+    });
+
+    it('is said once, where the action already names it', () => {
+      // "Forge Clone forge into …" said it twice.
+      render(<AuditTrailViewer entries={[forgeRun, entries[0]]} />);
+
+      expect(screen.queryByTestId('audit-module-aud-forge')).toBeNull();
+      expect(screen.queryByTestId('audit-module-aud-1')).toBeNull();
+      expect(screen.getByTestId('audit-aud-forge').textContent).toContain('Forge Clone');
+    });
+
+    it('is shown as recorded when the navigation has no name for it', () => {
+      render(<AuditTrailViewer entries={[{ ...frozenRemoval, module: 'cli' }]} />);
+
+      expect(screen.getByTestId('audit-module-aud-cleanup').textContent).toBe('cli');
+    });
+
+    it('is named in the reader’s language', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<AuditTrailViewer entries={[frozenRemoval, forgeRun]} />);
+
+        expect(screen.getByTestId('audit-module-aud-cleanup').textContent).toBe(
+          'Jeu de données figé',
+        );
+        // "Clonage Forge" names it already.
+        expect(screen.queryByTestId('audit-module-aud-forge')).toBeNull();
+        expect(screen.getByRole('option', { name: 'Jeu de données figé' })).toBeDefined();
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
   });
 
   it('should show timestamps', () => {
@@ -414,8 +466,10 @@ describe('AuditTrailViewer', () => {
       module: 'forge',
       orgId: '00D000000000003AAA',
     });
-    // Offered from the whole trail, including a module this page does not hold.
-    expect(screen.getByRole('option', { name: 'sync' })).toBeDefined();
+    // Offered from the whole trail, including a module this page does not
+    // hold, under the name the navigation gives it.
+    expect(screen.getByRole('option', { name: 'Sync' })).toBeDefined();
+    expect(screen.getByRole('option', { name: 'Forge' })).toHaveProperty('value', 'forge');
     // An org recorded without an alias is offered under its id.
     expect(screen.getByRole('option', { name: '00D000000000003AAA' })).toBeDefined();
   });
@@ -499,6 +553,42 @@ describe('AuditTrailViewer', () => {
       'Not anonymized · Emails and phones neutralized',
     );
   });
+
+  it.each([
+    ['fr', fr, /Répét/],
+    ['de', de, /Probe\b|geprobt/],
+  ] as const)(
+    'names a rehearsal in %s with the word its button says, not the old one',
+    async (lng, catalogue, old) => {
+      // Forge's button became « Essai à blanc » and „Probelauf“; the trail
+      // still said « Répétition Forge », « Répété 2 min avant », „Forge-Probe“.
+      const rehearsal: AuditLogEntry = {
+        ...forgeRun,
+        action: 'forge_rehearse',
+        context: {
+          anonymized: false,
+          contactPoints: 'neutralized',
+          reviewSkipped: false,
+          rehearsedMinutesBefore: 2,
+        },
+      };
+      i18n.addResourceBundle(lng, 'translation', catalogue, true, true);
+      await i18n.changeLanguage(lng);
+      try {
+        render(<AuditTrailViewer entries={[rehearsal]} />);
+
+        const word = catalogue.forgeRun.rehearsal.action;
+        const row = screen.getByTestId('audit-aud-forge');
+        const badge = catalogue.reports.auditActions.forge_rehearse;
+        expect(badge).toContain(word);
+        expect(within(row).getByText(badge)).toBeDefined();
+        expect(screen.getByTestId('audit-context-aud-forge').textContent).toContain(`${word} 2 `);
+        expect(row.textContent).not.toMatch(old);
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    },
+  );
 
   it('shows no set-up line for an entry that says nothing of it', () => {
     render(<AuditTrailViewer entries={[forgeRun]} />);

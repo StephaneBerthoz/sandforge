@@ -15,12 +15,22 @@ vi.mock('@xyflow/react', () => ({
     nodes,
     edges,
   }: {
-    nodes: Array<{ id: string; data: { label: string }; position: { x: number } }>;
+    nodes: Array<{
+      id: string;
+      data: { label: string };
+      position: { x: number };
+      style: { width: number };
+    }>;
     edges: Array<{ id: string; label?: string }>;
   }) => (
     <div data-testid="mock-reactflow" data-nodes={nodes.length} data-edges={edges.length}>
       {nodes.map((n) => (
-        <span key={n.id} data-testid={`node-${n.id}`} data-x={n.position.x}>
+        <span
+          key={n.id}
+          data-testid={`node-${n.id}`}
+          data-x={n.position.x}
+          data-width={n.style.width}
+        >
           {n.data.label}
         </span>
       ))}
@@ -135,8 +145,20 @@ describe('LineageGraph', () => {
       render(<LineageGraph lineage={seedRun} />);
 
       const x = (id: string) => Number(screen.getByTestId(`node-${id}`).getAttribute('data-x'));
-      expect([x('source'), x('object:Account'), x('target')]).toEqual([20, 240, 460]);
-      expect(x('object:Contact')).toBe(240);
+      expect([x('source'), x('object:Account'), x('target')]).toEqual([20, 340, 660]);
+      expect(x('object:Contact')).toBe(340);
+    });
+
+    it('leaves the edge between two columns room for its label', () => {
+      // Columns 220 apart for nodes 180 wide left 40 pixels of edge, and the
+      // nodes cut "1,200 records" to "00 recor". The rendered check is in
+      // axe-accessibility.spec.ts: no edge label under a node.
+      render(<LineageGraph lineage={seedRun} />);
+
+      const x = (id: string) => Number(screen.getByTestId(`node-${id}`).getAttribute('data-x'));
+      const width = Number(screen.getByTestId('node-source').getAttribute('data-width'));
+      expect(width).toBe(180);
+      expect(x('object:Account') - (x('source') + width)).toBeGreaterThanOrEqual(140);
     });
 
     it('lists in its legend only the kinds of node it draws', () => {

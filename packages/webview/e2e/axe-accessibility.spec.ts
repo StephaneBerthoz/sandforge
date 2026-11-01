@@ -1712,6 +1712,32 @@ async function outOfGraphCellRow(page: Page, testId: string, graph: string): Pro
   );
 }
 
+/**
+ * The edge labels of the graph `testId` that a node covers, by their text:
+ * React Flow draws its edges under its nodes, and Lineage's columns, 220
+ * pixels apart for nodes 180 wide, left an edge 40 pixels for "1,200
+ * records", which the nodes on either side cut to "00 recor".
+ */
+async function edgeLabelsUnderNodes(page: Page, testId: string): Promise<string[]> {
+  return page.getByTestId(testId).evaluate((graph) => {
+    const nodes = [...graph.querySelectorAll('.react-flow__node')].map((node) =>
+      node.getBoundingClientRect(),
+    );
+    return [...graph.querySelectorAll('.react-flow__edge-text')]
+      .filter((label) => {
+        const box = label.getBoundingClientRect();
+        return nodes.some(
+          (node) =>
+            box.left < node.right &&
+            box.right > node.left &&
+            box.top < node.bottom &&
+            box.bottom > node.top,
+        );
+      })
+      .map((label) => label.textContent ?? '');
+  });
+}
+
 /** The test id of the Forge graph's pane. */
 const FORGE_GRAPH = 'live-graph';
 
@@ -4617,6 +4643,31 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Grappe page saying what it is for, its setting named on its button, then once it is on', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'grappe', 'grappe-page', { theme });
+      // The setting's id, on the button that opens it, rather than the
+      // sentence the empty page opened on.
+      await page.getByTestId('grappe-open-setting').focus();
+      await expect(page.getByRole('tooltip')).toHaveText('sandforge.grappe.enabled');
+      const description = page.getByTestId('grappe-empty').locator('p');
+      await expect(description).toContainText("Grappe shows a large run's progress");
+      await expect(description).not.toContainText('sandforge.grappe.enabled');
+      const withTooltip = await checkAccessibility(page);
+      expectNoViolations(withTooltip);
+      expect(
+        await contrastMeasuredIn(page, withTooltip, '[data-testid="grappe-empty"]'),
+      ).toBeGreaterThan(0);
+
+      await sendExtensionMessage(page, {
+        type: 'settings:response',
+        payload: { settings: {}, grappeEnabled: true },
+      });
+      await expect(description).toContainText('Grappe is on');
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Seed page', async ({ page }) => {
       await navigateToModule(bridge, page, 'seed', 'panel-app', { theme });
       await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
@@ -5678,6 +5729,18 @@ for (const theme of SCANNED_THEMES) {
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();
+      // Each module goes by its navigation name, said once: "Cleanup Delete
+      // frozen", "Forge Clone forge".
+      await expect(page.getByTestId('audit-module-audit-removal')).toHaveText('Frozen Dataset');
+      await expect(page.getByTestId('audit-module-audit-restore')).toHaveText('DataOps');
+      await expect(page.getByTestId('audit-module-audit-forge')).toHaveCount(0);
+      await expect(page.getByTestId('module-filter').locator('option')).toHaveText([
+        'Filter by module',
+        'All Modules',
+        'DataOps',
+        'Forge',
+        'Frozen Dataset',
+      ]);
       // And how the clone was set up, with its export buttons.
       await expect(page.getByTestId('audit-context-audit-forge')).toContainText(
         'Review skipped · Simulated 6 min before',
@@ -5710,6 +5773,8 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByRole('tab', { name: 'Data Lineage' }).click();
       await page.waitForSelector('[data-testid="lineage-run"]', { timeout: 10_000 });
+      await expect(page.locator('.react-flow__edge-text')).toHaveCount(2, { timeout: 10_000 });
+      expect(await edgeLabelsUnderNodes(page, 'lineage-flow')).toEqual([]);
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -13883,6 +13948,8 @@ for (const theme of STATE_THEMES) {
       const lineage = page.getByTestId('lineage-graph');
       await lineage.scrollIntoViewIfNeeded();
       await expect(lineage.locator('.react-flow__edge-text')).toHaveCount(3, { timeout: 10_000 });
+      // Read whole: no node covers a label.
+      expect(await edgeLabelsUnderNodes(page, 'lineage-flow')).toEqual([]);
 
       await expectReadable(page, theme, '[data-testid="lineage-graph"]');
     });

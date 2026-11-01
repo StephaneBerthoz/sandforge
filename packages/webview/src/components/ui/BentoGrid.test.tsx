@@ -1,6 +1,16 @@
+import type { ReactElement } from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MotionProvider } from '../../motion/MotionProvider';
 import { BentoGrid, BentoTile } from './BentoGrid';
+
+/** The tile, once the pointer has entered it, under the panel's motion features. */
+function hovered(tile: ReactElement): HTMLElement {
+  render(<MotionProvider>{tile}</MotionProvider>);
+  const element = screen.getByTestId('bento-tile');
+  fireEvent.pointerEnter(element, { pointerType: 'mouse', isPrimary: true });
+  return element;
+}
 
 describe('BentoGrid', () => {
   it('should render children', () => {
@@ -108,5 +118,21 @@ describe('BentoTile', () => {
     render(<BentoTile className="tile-extra">Content</BentoTile>);
     const tile = screen.getByTestId('bento-tile');
     expect(tile.className).toContain('tile-extra');
+  });
+
+  it('lifts under the pointer, as Home and its checkpoint tile draw it', async () => {
+    const tile = hovered(<BentoTile>Content</BentoTile>);
+
+    await waitFor(() => expect(tile.style.transform).toContain('scale'));
+  });
+
+  it('holds still under the pointer when it holds a working area', async () => {
+    // DataOps, Automation and Reports put their forms and tables in one: the
+    // panel grew some 6 px on each side and jumped each time the pointer
+    // crossed its edge.
+    const tile = hovered(<BentoTile hover={false}>Content</BentoTile>);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(tile.style.transform).toBe('');
   });
 });

@@ -4941,7 +4941,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe には sandforge.grappe.enabled が必要です。レコードしきい値を超えた Seed の実行は各パーティションの完了を報告し、しきい値を超えた Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します。",
+    "emptyDesc": "Grappe は大規模な実行の進捗をパーティションごとに表示します。有効にすると、10,000 件以上のレコードの次の Seed を追跡できます。",
     "active": "Grappe",
     "completed": "完了",
     "partitions": "パーティション",
@@ -4950,10 +4950,10 @@
     "failed": "失敗",
     "subtitle": "大規模データ操作のパーティション単位の進捗",
     "activeTitle": "実行中",
-    "emptyTitle": "アクティブな Grappe はありません",
+    "emptyTitle": "進行中の大規模な実行はありません",
     "howItWorks": "Grappe のしくみ",
-    "step1Title": "スマートパーティショニング",
-    "step1Desc": "依存関係とサイズに基づいて、データを最適なパーティションに分割します",
+    "step1Title": "パーティションへの分割",
+    "step1Desc": "Seed は 5,000 件ずつのパーティション（sandforge.grappe.grappeSize）に分割され、挿入順に書き込まれます。Sync はオブジェクトごとに 1 パーティション、Autopilot プランは開始と終了だけを報告します。",
     "step2Title": "パーティションキュー",
     "step2Desc": "パーティションは順番に処理され、完了ごとに報告されます",
     "step3Title": "実行の合計",
@@ -4962,7 +4962,9 @@
     "openSetting": "Grappe の設定を開く",
     "processedCount_other": "{{formatted}}件処理済み",
     "failedCount_other": "{{formatted}}件失敗",
-    "partitionCount_other": "{{count}}パーティション"
+    "partitionCount_other": "{{count}}パーティション",
+    "emptyDescOn": "Grappe は有効です。レコードしきい値（既定は 10,000 件）を超える次の Seed または Sync が、実行中にここに表示されます。",
+    "percentComplete": "{{percent}}% 完了"
   },
   "errorBoundary": {
     "title": "問題が発生しました",

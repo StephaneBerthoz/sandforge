@@ -113,7 +113,22 @@ describe('ExecutionReportView', () => {
 
   it('should show metadata', () => {
     render(<ExecutionReportView reports={reports} selectedReportId="rpt-1" />);
-    expect(screen.getByText('seed')).toBeDefined();
     expect(screen.getByText('12.0s')).toBeDefined();
+  });
+
+  it('names the module of a report as the navigation names its page, not by its id', () => {
+    // The badge printed "seed" in lower case, where the navigation says Seed.
+    const { unmount } = render(<ExecutionReportView reports={reports} selectedReportId="rpt-1" />);
+    expect(screen.getByText('Seed')).toBeDefined();
+    expect(screen.queryByText('seed')).toBeNull();
+    unmount();
+
+    render(
+      <ExecutionReportView
+        reports={[{ ...reports[1], metadata: { module: 'frozen' } }]}
+        selectedReportId="rpt-2"
+      />,
+    );
+    expect(screen.getByText('Frozen Dataset')).toBeDefined();
   });
 });

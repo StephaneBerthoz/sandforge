@@ -2683,7 +2683,7 @@
     "title": "Notifications"
   },
   "reports": {
-    "title": "Rapports & Analytiques",
+    "title": "Rapports et analyses",
     "executions": "Exécutions",
     "analytics": "Analytiques",
     "audit": "Journal d'audit",
@@ -2723,7 +2723,7 @@
       "template_delete": "Suppression modèle",
       "forge_execute": "Clonage Forge",
       "forge_verify": "Vérification Forge",
-      "forge_rehearse": "Répétition Forge",
+      "forge_rehearse": "Essai à blanc Forge",
       "seed_csv_import": "Import CSV",
       "seed_clone": "Clonage d'enregistrements",
       "autopilot_execute": "Exécution Autopilot",
@@ -2744,7 +2744,7 @@
     "allModules": "Tous les modules",
     "noAuditEntries": "Aucune entrée d'audit",
     "action": "Action",
-    "details": "Details",
+    "details": "Détails",
     "nodes": "Nœuds",
     "edges": "Liens",
     "source": "Source",
@@ -2831,7 +2831,7 @@
       },
       "reviewSkipped": "Revue sautée",
       "simulatedBefore": "Simulé {{minutes}} min avant",
-      "rehearsedBefore": "Répété {{minutes}} min avant",
+      "rehearsedBefore": "Essai à blanc {{minutes}} min avant",
       "firedOnInsert": "Se déclenche à l'insertion : {{list}}",
       "firedOnUpdate": "Se déclenche à la mise à jour : {{list}}",
       "nothingFired": "Rien ne se déclenche à l'insertion",
@@ -3358,7 +3358,7 @@
       "step1": "Cliquez sur Ouvrir le paramètre Grappe et activez sandforge.grappe.enabled.",
       "step2": "Laissez la page Grappe ouverte, ouvrez Seed dans le panneau latéral et lancez un Seed d'au moins 10 000 enregistrements.",
       "step3": "Revenez sur la page Grappe pendant l'exécution : Exécution en cours montre l'avancement de chaque partition.",
-      "step4": "À la fin de l'exécution, lisez ses totaux sur les cartes Partitions, Enregistrements, traités et échoués.",
+      "step4": "À la fin de l'exécution, lisez ses totaux sur les cartes Partitions, Enregistrements, Traités et En échec.",
       "tip": "Baissez sandforge.grappe.autoActivateThreshold pour suivre des exécutions plus petites ; Grappe n'exécute rien lui-même et n'accélère aucune exécution."
     },
     "ai": {
@@ -5248,19 +5248,19 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe nécessite sandforge.grappe.enabled. Un Seed au-delà du seuil d'enregistrements signale ensuite chaque partition à sa fin, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin.",
+    "emptyDesc": "Grappe montre la progression d'une grande exécution, partition par partition. Activez-le pour suivre votre prochain Seed de 10 000 enregistrements ou plus.",
     "active": "Grappe",
     "completed": "Terminé",
     "partitions": "Partitions",
     "totalRecords": "Enregistrements",
-    "processed": "traités",
-    "failed": "échoués",
+    "processed": "Traités",
+    "failed": "En échec",
     "subtitle": "Progression par partition pour les opérations de données à grande échelle",
     "activeTitle": "Exécution en cours",
-    "emptyTitle": "Aucune grappe active",
+    "emptyTitle": "Aucune grande exécution en cours",
     "howItWorks": "Comment fonctionne Grappe",
-    "step1Title": "Partitionnement intelligent",
-    "step1Desc": "Les données sont découpées en partitions optimales selon les dépendances et la taille",
+    "step1Title": "Découpage en partitions",
+    "step1Desc": "Un Seed est découpé en partitions de 5 000 enregistrements (sandforge.grappe.grappeSize), écrites dans l'ordre d'insertion ; une Sync signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin.",
     "step2Title": "File de partitions",
     "step2Desc": "Les partitions sont traitées l'une après l'autre, chacune signalée à sa fin",
     "step3Title": "Totaux de l'exécution",
@@ -5272,7 +5272,9 @@
     "failedCount_one": "{{formatted}} en échec",
     "failedCount_other": "{{formatted}} en échec",
     "partitionCount_one": "{{count}} partition",
-    "partitionCount_other": "{{count}} partitions"
+    "partitionCount_other": "{{count}} partitions",
+    "emptyDescOn": "Grappe est activé : votre prochain Seed ou votre prochaine Sync au-delà du seuil d'enregistrements, 10 000 par défaut, s'affiche ici pendant son exécution.",
+    "percentComplete": "{{percent}} % terminé"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",

@@ -5,16 +5,17 @@ import fr from './locales/fr.json';
 /**
  * French labels are written in sentence case.
  *
- * Autopilot's and Monitor's French copied the English Title Case — "Vérifier
- * le Plan", "Durée Estimée", "Champs à Anonymiser", "Temps Écoulé", "Règle
- * Appliquée" —, which a French consultant reads as machine translation. A
+ * Autopilot's, Monitor's and Reports' French copied the English Title Case —
+ * "Vérifier le Plan", "Durée Estimée", "Champs à Anonymiser", "Temps Écoulé",
+ * "Règle Appliquée", "Rapports & Analytiques" —, which a French consultant
+ * reads as machine translation. A
  * label (a string without sentence punctuation, six words at most) capitalises
  * its first word and the names below, nothing else. Acronyms, written in
  * capitals, are not words this check reads.
  */
 
 /** The namespaces whose French labels have been through the pass. */
-const NAMESPACES = ['autopilot', 'monitor'] as const;
+const NAMESPACES = ['autopilot', 'monitor', 'reports', 'grappe'] as const;
 
 /** Names French writes with a capital wherever they stand. */
 const PROPER_NAMES = new Set([
@@ -22,12 +23,15 @@ const PROPER_NAMES = new Set([
   'Autopilot',
   'Flow',
   'Flows',
+  'Forge',
+  'Grappe',
   'Harbor',
   'Id',
   'Moniteur',
   'Safe',
   'Salesforce',
   'SandForge',
+  'Seed',
 ]);
 
 type Catalogue = Record<string, unknown>;
