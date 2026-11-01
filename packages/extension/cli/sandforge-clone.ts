@@ -234,9 +234,32 @@ import {
   storageRefusal,
   writePlanLines,
   writePlanOf,
+  forgeWriteBudgetOf,
+  readApiBudget,
+  takeCheckpointFirst,
+  apiBudgetRefusal,
+  API_BUDGET_EXCEEDED,
+  CHECKPOINT_REFUSED,
+  type ApiBudget,
+  type ApiBudgetCheck,
   type DataStorage,
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import {
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointOrgOf,
+  checkpointRefusedWords,
+  checkpointSettledLines,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+  type CommandCheckpoints,
+} from './beforeRunCheckpoint.js';
 import {
   dryRunMuteOf,
   isMuteRefusedError,
@@ -264,7 +287,13 @@ import {
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
-import { auditMutedOf, type MutedAutomation } from '@sandforge/shared';
+import { auditMutedOf, stillRunningOf, type MutedAutomation } from '@sandforge/shared';
+import type {
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
+} from '@sandforge/shared';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -352,6 +381,12 @@ export interface CliArgs {
    * user the run writes as for the run alone, taken back as it ends.
    */
   muteAutomation: boolean;
+  /**
+   * Take a checkpoint of what the run writes before its first write
+   * (`--checkpoint-first`): the days it is kept and the objects left out of
+   * it. undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
   /** The most records a run may write in all; past it, nothing is written (`--max-total`). */
   maxTotal: number;
   /**
@@ -459,8 +494,10 @@ Usage:
 
   Once every row is read and before the first is written, the clone counts
   the records it is about to write, per object, and the data storage they
-  take by the sizes Salesforce documents. It writes nothing past --max-total,
-  nor more than the target's data storage has left. It says the emails the
+  take by the sizes Salesforce documents, and the daily API requests they
+  take, with those of a checkpoint taken first and of the record types read
+  back after. It writes nothing past --max-total, nor more than the target's
+  data storage or its daily API requests have left. It says the emails the
   target's flows send as the records go in, against the daily limits it has
   left — a Developer Edition's email alerts counted against its single emails
   too — and writes nothing past them: a record whose flow fails in the save
@@ -564,6 +601,7 @@ Options:
                          for a user who cannot assign permission sets, exit 1;
                          a dry run says what would be muted and assigns nothing
                                                                 (default: off)
+${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
   --max-total <n>        most records the run may write in all  (default: 10000)
                          Counted once every row is read: past it, nothing is
                          written. --max caps each object, this the whole run.
@@ -817,6 +855,26 @@ const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 
 /** An SObject or field API name — the pattern the ForgeConfig schema enforces. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * The daily API requests the run takes of the target, against what it has
+ * left, as a sync says them: a clone's and an Autopilot run's, every part
+ * together. Exported so it can be tested.
+ */
+export function apiRequestsLine(api: ApiBudgetCheck, target: string): string {
+  if (api.verdict === 'unread') {
+    return `  API requests: about ${api.estimate}; what ${target} has left today could not be read (${api.unread})`;
+  }
+  return (
+    `  API requests: about ${api.estimate}, of the ${api.remaining} ${target} has left ` +
+    `of its ${api.max} a day` +
+    (api.verdict === 'exceeds'
+      ? ': more than it has left'
+      : api.verdict === 'near'
+        ? ': it would leave less than a tenth of them'
+        : '')
+  );
+}
 
 /** What refused a field rows were written again without, as the summary says it. */
 const REFUSED_IT: Readonly<Record<ForgeFieldRefusal, string>> = {
@@ -1144,6 +1202,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--write-uncertain',
     '--files',
     '--files-as-is',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
     // A removal's, refused with its own words below.
     '--include-changed',
   ],
@@ -1171,6 +1230,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--remap-csv',
     '--max-file-size',
     '--audit',
+    ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
@@ -1295,6 +1355,21 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     process.exit(2);
   }
   const summary = summaryArg(args);
+  // A checkpoint of what the run writes, taken before its first write: of a
+  // run that writes, and keeps, what it writes.
+  const checkpointFirst = checkpointFirstArgs(args, [
+    {
+      flag: '--rehearse',
+      why: 'a rehearsal keeps nothing it creates in the target, and there is nothing to take back.',
+    },
+    { flag: '--list-objects', why: 'it lists the objects of the graph, and writes nothing.' },
+    {
+      flag: '--resume',
+      why:
+        'a run taken up is the run its first part began, and a checkpoint taken now would hold ' +
+        'what that part wrote: rewind to the one it took, if it took one.',
+    },
+  ]);
 
   // A template's depth and caps, each unless its flag is given.
   const depthRaw = get('--depth') ?? template?.config.depth ?? 'custom';
@@ -1547,6 +1622,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     files,
     acceptAutomation: has('--accept-automation'),
     muteAutomation: has('--mute-automation'),
+    ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     maxTotal,
     readCeiling,
     ...(pageSize !== undefined ? { pageSize } : {}),
@@ -5346,6 +5422,18 @@ interface CloneInterrupts {
   release?: () => void;
 }
 
+/**
+ * Thrown from the write gate when Ctrl-C came while the checkpoint asked
+ * first was taken: nothing of it was kept, nothing written, and the clone
+ * ends as one stopped before it started.
+ */
+class CheckpointTakeInterrupted extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CheckpointTakeInterrupted';
+  }
+}
+
 /** One clone from the given command line: see {@link main}. */
 async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<void> {
   const t0 = Date.now();
@@ -5409,8 +5497,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
     });
   };
+  /** The target as its Organization record says it is, once typed. */
+  let typedTarget: TypedOrg | undefined;
   if (!args.dryRun && !args.listObjects) {
     const target = await typeOrg(conns.get(args.target)!);
+    typedTarget = target;
     targetOrgId = target.id;
     audited.set(target.id, { alias: args.target, username: targetOrg.username });
     if (args.audit && !args.rehearse) {
@@ -5424,6 +5515,24 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.exit(1);
     }
   }
+  // The checkpoint the run takes of what it writes before its first write:
+  // scoped at the write gate once the rows are read, taken once the gate lets
+  // them through and before the mute's lease, kept or deleted as the run
+  // ends. A dry run says what it would hold and cost, and takes nothing. It
+  // reads the target through a connection of its own: the run's calls stay
+  // the run's.
+  const checkpoints: CommandCheckpoints | undefined = args.checkpointFirst
+    ? commandCheckpoints({
+        module: 'forge',
+        operationId,
+        request: args.checkpointFirst,
+        session: targetOrg,
+        org: checkpointOrgOf(targetOrg, typedTarget ?? (await typeOrg(conns.get(args.target)!))),
+        connect: makeConn,
+        journalDir: journalDirOf(),
+        say,
+      })
+    : undefined;
   // Every request either org is sent: the run's calls are the record types'
   // read for it and those sent while the executor has it, as the extension
   // counts them; discovery's and the preflight's are not.
@@ -5846,6 +5955,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
 
   /** The statements read through the org's cursor, and the pages the org answered them in. */
   const pagedReads = { statements: 0, pages: 0 };
+  /**
+   * Whether the target took a write of the run: what keeps the checkpoint it
+   * took first, however the run ends. One that wrote nothing deletes it.
+   */
+  let wroteToTarget = false;
+  const noting = <T extends { success: boolean }>(outcomes: T[]): T[] => {
+    if (outcomes.some((outcome) => outcome.success)) wroteToTarget = true;
+    return outcomes;
+  };
   const executorDeps: ForgeExecutorDeps = {
     queryRecords: async (orgId, soql, onTruncated) => {
       const c = conns.get(orgId);
@@ -5909,7 +6027,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
       // With the records a blocking duplicate rule matched: the run links a
       // row the target already holds to the one record the refusal names.
-      return toSaveOutcomes(r, name);
+      return noting(toSaveOutcomes(r, name));
     },
     updateRecords: async (orgId, name, records) => {
       if (args.dryRun) return [];
@@ -5923,12 +6041,14 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
       const arr = Array.isArray(r) ? r : [r];
       // With each error's code and fields, as the panel reads them.
-      return arr.map((x, i) => ({
-        id: x.id ?? (records[i]['Id'] as string) ?? '',
-        success: x.success,
-        errors: (x.errors ?? []).map(formatSaveError),
-        errorDetails: (x.errors ?? []).map(saveErrorDetail),
-      }));
+      return noting(
+        arr.map((x, i) => ({
+          id: x.id ?? (records[i]['Id'] as string) ?? '',
+          success: x.success,
+          errors: (x.errors ?? []).map(formatSaveError),
+          errorDetails: (x.errors ?? []).map(saveErrorDetail),
+        })),
+      );
     },
     describeFields: async (orgId, name) => {
       const meta = await describe(orgId, name);
@@ -5988,7 +6108,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       const r = await c.sobject(name).upsert(records, externalIdField, {
         headers: forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules }),
       });
-      return toSaveOutcomes(r, name);
+      return noting(toSaveOutcomes(r, name));
     },
     // What --files reads and writes: one file per request each way, and the
     // target's file storage before any of them.
@@ -6001,7 +6121,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (args.dryRun) return { id: '', success: true, errors: [] };
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      return insertFile(c, objectApiName, record);
+      const [inserted] = noting([await insertFile(c, objectApiName, record)]);
+      return inserted;
     },
     remainingFileStorageMB: async (orgId) => {
       const c = conns.get(orgId);
@@ -6158,6 +6279,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         emailsUncounted?: string;
       }
     | undefined;
+  /**
+   * The checkpoint the run takes first, as its gate scoped it: what it is
+   * asked to hold and what it would hold and cost. A dry run gives it with
+   * --json under `checkpoint`.
+   */
+  let checkpointPlanned: { ask: CommandCheckpointAsk; estimate: RunCheckpointEstimate } | undefined;
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
@@ -6169,6 +6296,46 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const check = storageCheckOf(plan, storage);
     say('');
     for (const line of writePlanLines(plan, check, args.target)) say(line);
+    // The daily API requests the rows take of the target, read with its
+    // storage, or on their own when the storage could not be read: a clone
+    // into an org whose integrations had spent the day's requests stopped part
+    // way through, its records refused with REQUEST_LIMIT_EXCEEDED.
+    const budget: ApiBudget | { unread: string } | undefined =
+      'unread' in storage
+        ? await readApiBudget(targetConn).catch((err: unknown) => ({
+            unread: extractErrorMessage(err),
+          }))
+        : storage.dailyApiRequests;
+    // The checkpoint asked first, scoped from the objects the rows go to and
+    // what still runs as they go in — what the mute keeps quiet held quiet —
+    // before its requests are counted with the run's: they are among them.
+    let checkpointFailed: string | undefined;
+    if (checkpoints && plan.totalRows > 0) {
+      const writing = new Set(plan.objects.map(({ objectApiName }) => objectApiName));
+      const ask: CommandCheckpointAsk = {
+        written: boundary.objects
+          .map(({ objectApiName }) => objectApiName)
+          .filter((name) => writing.has(name)),
+        running: { firing: stillRunningOf(gated, undefined, runWrites).firing },
+      };
+      try {
+        checkpointPlanned = { ask, estimate: await checkpoints.scope(ask) };
+      } catch (err: unknown) {
+        checkpointFailed = beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '');
+      }
+    }
+    const gate = forgeWriteBudgetOf({
+      plan,
+      updatedAfterInsert: [...updatedNames],
+      ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+      ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+      budget,
+      target: args.target,
+    });
+    say(apiRequestsLine(gate.api, args.target));
+    if (checkpointPlanned) {
+      for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) say(line);
+    }
     // The emails the target's flows send as these records go in, against what
     // it has left today, as the target counts them — a Developer Edition's
     // email alerts against its single emails too: read only when they send
@@ -6203,7 +6370,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           '--max-total.'
         : undefined;
     const overStorage = storageRefusal(check, args.target);
-    const reasons = [overTotal, overStorage, overEmails].filter(
+    // The checkpoint's refusal in the command's words, and the requests past
+    // what the target has left, each said whatever else refuses the run.
+    const checkpointRefused =
+      checkpointFailed ??
+      (gate.stop?.refusal !== undefined ? checkpointRefusedWords(gate.stop.refusal) : undefined);
+    const overBudget = apiBudgetRefusal(gate.api, args.target)?.replace(
+      / Nothing was written\.$/,
+      '',
+    );
+    const reasons = [checkpointRefused, overTotal, overStorage, overEmails, overBudget].filter(
       (reason): reason is string => reason !== undefined,
     );
     if (boundary.dryRun) {
@@ -6220,7 +6396,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
     if (reasons.length > 0) {
       throw new ForgeRunGateError(
-        overTotal ? 'MAX_TOTAL_EXCEEDED' : overStorage ? 'STORAGE_EXCEEDED' : 'EMAILS_EXCEEDED',
+        checkpointRefused
+          ? CHECKPOINT_REFUSED
+          : overTotal
+            ? 'MAX_TOTAL_EXCEEDED'
+            : overStorage
+              ? 'STORAGE_EXCEEDED'
+              : overEmails
+                ? 'EMAILS_EXCEEDED'
+                : API_BUDGET_EXCEEDED,
         `${reasons.join(' ')} Nothing was written.`,
       );
     }
@@ -6301,6 +6485,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     result: jsonResult(counted, args.readCeiling),
     // Of a dry run, what its gate counted, and what a real run would be refused for.
     ...(args.dryRun && dryRunWritePlan !== undefined ? { writePlan: dryRunWritePlan } : {}),
+    // The checkpoint it took of what it writes before its first write
+    // (--checkpoint-first): kept, or deleted once it wrote nothing; of a dry
+    // run, what a real run's would hold and cost.
+    ...checkpointDocument(),
     ...(args.dryRun && dryRunRefusals.length > 0 ? { wouldBeRefused: dryRunRefusals } : {}),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
@@ -6310,6 +6498,39 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     ...(journalPart() !== undefined ? { part: journalPart() } : {}),
     ...state,
   });
+
+  /** The checkpoint the run took before its first write, once taken. */
+  let checkpointTaken: RunCheckpointTaken | undefined;
+  /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
+  let checkpointInfo: RunCheckpointInfo | undefined;
+  /** The checkpoint as the summary gives it: the dry run's estimate, the run's checkpoint. */
+  const checkpointDocument = (): {
+    checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
+  } => {
+    const checkpoint = args.dryRun
+      ? checkpointPlanned?.estimate
+      : (checkpointInfo ?? checkpointTaken);
+    return checkpoint !== undefined ? { checkpoint } : {};
+  };
+  /**
+   * Keep the checkpoint the run took first once it wrote a record, whatever
+   * became of it after; delete it when it wrote none. Once, as the run ends.
+   */
+  const settleCheckpoint = async (): Promise<void> => {
+    if (!checkpoints || !checkpointTaken || checkpointInfo) return;
+    try {
+      checkpointInfo = await checkpoints.settle(checkpointTaken, wroteToTarget);
+    } catch (err: unknown) {
+      // Only its deletion can fail: kept, and said, never the run's failure.
+      checkpointInfo = checkpointTaken;
+      say(
+        `warning: the checkpoint '${checkpointTaken.name}' taken before the run, which wrote ` +
+          `nothing, could not be deleted (${extractErrorMessage(err)}): delete it with ` +
+          `sandforge-checkpoint delete --org ${args.target} --checkpoint ${checkpointTaken.checkpointId}`,
+      );
+    }
+    for (const line of checkpointSettledLines(checkpointInfo)) say(line);
+  };
 
   // The journal the run writes as it goes: begun with how the run was set up,
   // or the journal of the run it takes up, gone on in as a part of its own.
@@ -6405,13 +6626,38 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     boundary: ForgeWriteBoundary,
   ): Promise<ForgeWriteGateAnswer | undefined> => {
     await beforeWrite(boundary);
-    if (boundary.dryRun || args.dryRun || !mute?.prepared || held) return undefined;
-    const lease = await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
-      if (!isMuteRefusedError(err)) throw err;
-      recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
-      process.stderr.write(`${err.message}\n`);
-      process.exit(1);
-    });
+    if (boundary.dryRun || args.dryRun) return undefined;
+    // The checkpoint asked first is taken once the gate let the rows through,
+    // the flag the answer a question would have had, and before the lease:
+    // the bypass is held for the writes alone, and the lease dates no record
+    // the checkpoint holds.
+    if (checkpoints && checkpointPlanned && !checkpointTaken) {
+      const planned = checkpointPlanned;
+      const took = await takeCheckpointFirst(() =>
+        checkpoints.take(planned.ask, planned.estimate, { signal: runController.signal }),
+      );
+      if ('stop' in took) {
+        if (took.stop.code !== CHECKPOINT_REFUSED) {
+          throw new CheckpointTakeInterrupted(checkpointStopWords(took.stop));
+        }
+        throw new ForgeRunGateError(CHECKPOINT_REFUSED, checkpointStopWords(took.stop));
+      }
+      checkpointTaken = took.checkpoint;
+      for (const line of checkpointTakenLines(took.checkpoint, args.target, muteAutomation)) {
+        say(line);
+      }
+    }
+    if (!mute?.prepared || held) return undefined;
+    const lease = await mute.prepared
+      .acquire(`sandforge-clone ${t0}`)
+      .catch(async (err: unknown) => {
+        if (!isMuteRefusedError(err)) throw err;
+        recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
+        // Refused before its first write: the checkpoint taken for it goes.
+        await settleCheckpoint();
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      });
     held = lease;
     mutedAutomation = lease.outcome;
     return {
@@ -6452,6 +6698,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         }
       });
     summary = withRecordTypeCalls(executed);
+    await settleCheckpoint();
     // The diagnostic says what went through the cursor, as the paged read it shows.
     if (args.pageSize !== undefined) {
       say(
@@ -6460,6 +6707,21 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       );
     }
   } catch (err: unknown) {
+    // Ctrl-C while the checkpoint was taken first: nothing of it was kept,
+    // and nothing written, recorded stopped before it started.
+    if (err instanceof CheckpointTakeInterrupted) {
+      recordClone({
+        outcome: 'stopped',
+        code: ABORTED_BEFORE_START,
+        context: runAudit().context(),
+      });
+      await endJournal('cancelled', false);
+      say(err.message);
+      process.exit(stopExitCode(interrupted ?? 'SIGINT'));
+    }
+    // A checkpoint taken first is kept once the run wrote a record, and
+    // deleted when it wrote none, before what the run did is said.
+    await settleCheckpoint();
     // Recorded as the panel records a run that did not end: stopped at its
     // gate under the gate's code; stopped by Ctrl-C, partial once it wrote;
     // failed otherwise, with what it wrote before it threw.

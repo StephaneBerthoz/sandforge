@@ -5,13 +5,13 @@ import { AutopilotExecutor } from '../src/modules/autopilot/AutopilotExecutor.js
 import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
 import { SmartAnonymizer } from '../src/modules/autopilot/SmartAnonymizer.js';
 import {
-  apiRequestsLine,
   contactPointLines,
   everyPage,
   outcomeLines,
   personAccountLines,
   scopeLines,
 } from './sandforge-autopilot';
+import { apiRequestsLine } from './sandforge-clone';
 
 describe('sandforge-autopilot — what it asks of the target', () => {
   it('reads every page of the answer, not the first alone', async () => {

@@ -29,10 +29,15 @@ import type {
   AutopilotRefusal,
   ComplianceFrameworkType,
   ExecutionPlan,
+  ForgeTargetAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
 } from '@sandforge/shared';
-import { recordWriteHeaders } from '@sandforge/shared';
+import { recordWriteHeaders, stillRunningOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import { refuseProductionTarget } from './targetKind.js';
+import { refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode, type RunStatus } from './exitCodes.js';
@@ -78,6 +83,7 @@ import {
   objectsThePlanWrites,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
 import {
+  CHECKPOINT_REFUSED,
   DEFAULT_MAX_TOTAL,
   apiBudgetRefusal,
   emailCheckLines,
@@ -87,11 +93,26 @@ import {
   readEmailLimits,
   storageCheckOf,
   storageRefusal,
+  takeCheckpointFirst,
   writePlanLines,
-  type ApiBudgetCheck,
+  type ApiBudget,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
-import { targetAutomationReader } from './sandforge-clone.js';
+import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { apiRequestsLine, journalDirOf, targetAutomationReader } from './sandforge-clone.js';
+import {
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointOrgOf,
+  checkpointRefusedWords,
+  checkpointSettledLines,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+} from './beforeRunCheckpoint.js';
 import {
   dryRunMuteOf,
   isMuteRefusedError,
@@ -142,6 +163,11 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --plan-only, says what would be muted and
                          assigns nothing                   (default: off)
+${checkpointFirstHelp({
+  run: 'the run',
+  simulation: '--plan-only',
+  note: ['An Autopilot run has no removal: a rewind to this', 'checkpoint is what takes it back.'],
+})}
   --json                 emit the run summary as JSON, with the id
                          of every record the run created          (default: off)
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
@@ -189,6 +215,12 @@ interface CliArgs {
   failOnPartial: boolean;
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation: boolean;
+  /**
+   * Take a checkpoint of what the run writes before its first write
+   * (`--checkpoint-first`): the days it is kept and the objects left out of
+   * it. undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -203,6 +235,7 @@ const FLAGS: CommandFlags = {
     '--json',
     '--fail-on-partial',
     '--mute-automation',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
     '--source',
@@ -213,6 +246,7 @@ const FLAGS: CommandFlags = {
     '--max-total',
     '--compliance',
     '--batch-size',
+    ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
@@ -275,6 +309,9 @@ export function parseArgs(argv: string[]): CliArgs {
   const maxDepth = whole('--max-depth', DEFAULT_SCAN_DEPTH);
   const maxObjects = whole('--max-objects', DEFAULT_SCAN_OBJECTS);
   const maxTotal = whole('--max-total', DEFAULT_MAX_TOTAL);
+  // A checkpoint of what the run writes, taken before its first write; with
+  // --plan-only, what it would hold and cost.
+  const checkpointFirst = checkpointFirstArgs(args);
 
   return {
     source,
@@ -291,6 +328,7 @@ export function parseArgs(argv: string[]): CliArgs {
     json: args.includes('--json'),
     failOnPartial: args.includes('--fail-on-partial'),
     muteAutomation: args.includes('--mute-automation'),
+    ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
   };
 }
 
@@ -327,17 +365,37 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`objects: ${args.objects.join(', ')}`);
 
   const sourceConn = makeConn(await loadOrg(args.source));
-  const targetConn = makeConn(await loadOrg(args.target));
+  const targetSession = await loadOrg(args.target);
+  const targetConn = makeConn(targetSession);
   // Refused before the scan on a production org, or one that will not say
   // what it is: nothing keeps what an Autopilot run creates, and its write
   // gate held it to volumes alone. --plan-only only reads.
-  if (!args.planOnly) {
-    await refuseProductionTarget(targetConn, args.target, {
-      tool: 'sandforge-autopilot',
-      action: 'write',
-      readOnly: '--plan-only',
-    });
-  }
+  const typedTarget = !args.planOnly
+    ? await refuseProductionTarget(targetConn, args.target, {
+        tool: 'sandforge-autopilot',
+        action: 'write',
+        readOnly: '--plan-only',
+      })
+    : undefined;
+  // The checkpoint the run takes of what it writes before its first write:
+  // scoped once the plan and its mute are known, taken once the gate lets the
+  // run through and before the mute's lease, kept or deleted as the run ends.
+  // With --plan-only, what it would hold and cost. It reads the target
+  // through a connection of its own.
+  const checkpoints = args.checkpointFirst
+    ? commandCheckpoints({
+        module: 'autopilot',
+        operationId: `sandforge-autopilot-${t0}`,
+        request: args.checkpointFirst,
+        session: targetSession,
+        org: checkpointOrgOf(targetSession, typedTarget ?? (await typeTarget(targetConn))),
+        connect: makeConn,
+        journalDir: journalDirOf(),
+        say: log,
+      })
+    : undefined;
+  /** Whether the target took a write of the run: what keeps the checkpoint it took first. */
+  let wroteToTarget = false;
   /** Ids of the records this run created, per object. */
   const created = new Map<string, string[]>();
 
@@ -420,21 +478,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               .create(cleaned, { headers: recordWriteHeaders() }),
             objectApiName,
           );
+          if (outcomes.some((o) => o.success)) wroteToTarget = true;
           // Every id a run creates is reported, so the run can be undone to
           // the record: nothing else tells its records from anyone else's.
           const ids = outcomes.filter((o) => o.success && o.id).map((o) => o.id);
           created.set(objectApiName, [...(created.get(objectApiName) ?? []), ...ids]);
           return outcomes;
         },
-        update: async (objectApiName, records) =>
-          toSaveOutcomes(
+        update: async (objectApiName, records) => {
+          const outcomes = toSaveOutcomes(
             await targetConn
               .sobject(objectApiName)
               .update(records as Array<Record<string, unknown> & { Id: string }>, {
                 headers: recordWriteHeaders(),
               }),
             objectApiName,
-          ),
+          );
+          if (outcomes.some((o) => o.success)) wroteToTarget = true;
+          return outcomes;
+        },
         // Each read of the source is bounded, as it is for the panel; the
         // target is read to its last page.
         querySource: async (soql) =>
@@ -520,11 +582,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const check = storageCheckOf(writePlan, storage);
   // Its calls against the daily API requests the target has left, as the
   // panel's run is held to them: a run past them stopped part way through,
-  // its records refused with REQUEST_LIMIT_EXCEEDED.
-  const api = await autopilotApiCheck(writePlan, storage, () => readApiBudget(targetConn));
+  // its records refused with REQUEST_LIMIT_EXCEEDED. Asked of the target
+  // once, whatever counts them again.
+  let budget: Promise<ApiBudget> | undefined;
+  const readBudget = (): Promise<ApiBudget> => (budget ??= readApiBudget(targetConn));
+  let api = await autopilotApiCheck(writePlan, storage, readBudget);
   log('');
   for (const line of writePlanLines(writePlan, check, args.target)) log(line);
-  log(apiRequestsLine(api, args.target));
+  // A run that takes a checkpoint first says them once it is scoped, its
+  // requests among them.
+  if (!checkpoints) log(apiRequestsLine(api, args.target));
   for (const line of personAccountLines(scan.personAccounts)) log(line);
   // The emails the target's flows send as the plan's records go in, against
   // what it has left today: its automation read as Forge reads it, its limits
@@ -533,12 +600,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // it writes before it counts their emails, which then leave out what the
   // mute keeps quiet. Refused on a production org or for a user who cannot
   // assign, a real run writes nothing; --plan-only says so, and assigns nothing.
+  /** What the target runs on the objects the plan writes, read once for its mute and its checkpoint. */
+  let automationRead: Promise<ForgeTargetAutomation | { unread: string }> | undefined;
+  const readTheAutomation = (): Promise<ForgeTargetAutomation | { unread: string }> =>
+    (automationRead ??= targetAutomationReader(targetConn)
+      .read(args.target, objectsThePlanWrites(plan))
+      .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) })));
   let mute: RunMute | undefined;
   let muteRefused: string | undefined;
   if (args.muteAutomation) {
-    const read = await targetAutomationReader(targetConn)
-      .read(args.target, objectsThePlanWrites(plan))
-      .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+    const read = await readTheAutomation();
     try {
       mute = await muteForRun(async () => muteOrgOf(targetConn), read, {
         writes: (_objectApiName, write) => write === 'insert' || write === 'update',
@@ -549,11 +620,52 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       muteRefused = err.message.replace(/ Nothing was assigned\.$/, '');
     }
   }
+  // The checkpoint asked first, scoped from the objects the plan writes and
+  // what still runs as it inserts and updates them — what the mute keeps
+  // quiet held quiet — before its requests are counted with the plan's.
+  // What could not be read creates nothing the scope can name.
+  let checkpointPlanned: { ask: CommandCheckpointAsk; estimate: RunCheckpointEstimate } | undefined;
+  let checkpointFailed: string | undefined;
+  if (checkpoints && writePlan.totalRows > 0) {
+    const writing = new Set(writePlan.objects.map(({ objectApiName }) => objectApiName));
+    const read = mute?.automation ?? (await readTheAutomation());
+    const ask: CommandCheckpointAsk = {
+      written: objectsThePlanWrites(plan).filter((name) => writing.has(name)),
+      running:
+        typeof read.unread === 'string'
+          ? { firing: [] }
+          : {
+              firing: stillRunningOf(
+                read as ForgeTargetAutomation,
+                undefined,
+                (_objectApiName, write) => write === 'insert' || write === 'update',
+              ).firing,
+            },
+    };
+    try {
+      checkpointPlanned = { ask, estimate: await checkpoints.scope(ask) };
+    } catch (err: unknown) {
+      checkpointFailed = beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '');
+    }
+  }
+  if (checkpoints) {
+    api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate);
+    log(apiRequestsLine(api, args.target));
+    if (checkpointPlanned) {
+      for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) log(line);
+    }
+  }
   const emails = await autopilotEmails({
     plan: writePlan,
     objects: objectsThePlanWrites(plan),
-    readAutomation: async (objects) =>
-      mute?.automation ?? targetAutomationReader(targetConn).read(args.target, objects),
+    readAutomation: async (objects) => {
+      if (mute?.automation) return mute.automation;
+      // The read the mute or the checkpoint made, when it was made and held.
+      const read = automationRead ? await automationRead : undefined;
+      return read !== undefined && typeof read.unread !== 'string'
+        ? (read as ForgeTargetAutomation)
+        : targetAutomationReader(targetConn).read(args.target, objects);
+    },
     readLimits: () => readEmailLimits(targetConn),
   });
   for (const line of emailCheckLines(emails.checks, args.target)) log(line);
@@ -561,6 +673,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log(`  emails: not counted, ${emails.unread} could not be read`);
   }
   const refusals = [
+    // The checkpoint's refusal in the command's words, said with the rest.
+    checkpointFailed ??
+      (checkpointPlanned?.estimate.refusal !== undefined
+        ? checkpointRefusedWords(checkpointPlanned.estimate.refusal)
+        : undefined),
     writePlan.totalRows > args.maxTotal
       ? `The run would write ${writePlan.totalRows} records, more than --max-total ` +
         `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
@@ -594,6 +711,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             // What a real run's mute would assign, silence, leave running
             // and lift beside, as the lines say it.
             ...dryRunMuteOf(mute),
+            // What the checkpoint a real run takes first would hold and cost.
+            ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
           },
           null,
           2,
@@ -626,7 +745,31 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let result: ExecutionResult;
   /** What the run muted of the target's automation, once it ended. */
   let mutedAutomation: MutedAutomation | undefined;
+  /** The checkpoint the run took before its first write, once taken. */
+  let checkpointTaken: RunCheckpointTaken | undefined;
+  /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
+  let checkpointInfo: RunCheckpointInfo | undefined;
   try {
+    // The checkpoint asked first is taken once the gate let the run through,
+    // the flag the answer a question would have had, and before the lease:
+    // the bypass is held for the writes alone. Ctrl-C stops it between two
+    // reads, keeping nothing.
+    if (checkpoints && checkpointPlanned) {
+      const planned = checkpointPlanned;
+      const took = await takeCheckpointFirst(() =>
+        checkpoints.take(planned.ask, planned.estimate, { signal: stop.signal }),
+      );
+      if ('stop' in took) {
+        if (took.stop.code === CHECKPOINT_REFUSED) throw new Error(checkpointStopWords(took.stop));
+        process.stderr.write(`${checkpointStopWords(took.stop)}\n`);
+        endWith(stopExitCode(stoppedBy ?? 'SIGINT'));
+        return;
+      }
+      checkpointTaken = took.checkpoint;
+      for (const line of checkpointTakenLines(took.checkpoint, args.target, args.muteAutomation)) {
+        log(line);
+      }
+    }
     // The lease is taken before the first write and given back as the run
     // ends, written, failed, stopped or thrown alike.
     const held = mute?.prepared
@@ -649,6 +792,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       });
   } finally {
     releaseStop();
+    // Kept once the run wrote a record, whatever became of it after;
+    // deleted when it wrote none — its lease refused, a stop before its
+    // first write. Only the deletion can fail: then it is kept, and said.
+    if (checkpoints && checkpointTaken) {
+      const taken = checkpointTaken;
+      checkpointInfo = await checkpoints.settle(taken, wroteToTarget).catch((err: unknown) => {
+        log(
+          `warning: the checkpoint '${taken.name}' taken before the run, which wrote nothing, ` +
+            `could not be deleted (${extractErrorMessage(err)}): delete it with ` +
+            `sandforge-checkpoint delete --org ${args.target} --checkpoint ${taken.checkpointId}`,
+        );
+        return taken;
+      });
+      for (const line of checkpointSettledLines(checkpointInfo)) log(line);
+    }
   }
   for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   const elapsedMs = Date.now() - t0;
@@ -663,7 +821,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
     if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;
@@ -798,25 +956,6 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
     );
   }
   return lines;
-}
-
-/**
- * The daily API requests the run takes of the target, against what it has
- * left, as a sync says them. Exported so it can be tested.
- */
-export function apiRequestsLine(api: ApiBudgetCheck, target: string): string {
-  if (api.verdict === 'unread') {
-    return `  API requests: about ${api.estimate}; what ${target} has left today could not be read (${api.unread})`;
-  }
-  return (
-    `  API requests: about ${api.estimate}, of the ${api.remaining} ${target} has left ` +
-    `of its ${api.max} a day` +
-    (api.verdict === 'exceeds'
-      ? ': more than it has left'
-      : api.verdict === 'near'
-        ? ': it would leave less than a tenth of them'
-        : '')
-  );
 }
 
 /**

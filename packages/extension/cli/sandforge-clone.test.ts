@@ -1941,9 +1941,11 @@ describe('sandforge-clone describes', () => {
       expect(recordTypes).toHaveLength(2);
       expect(reads.length).toBeGreaterThan(0);
       expect(sent.length).toBeGreaterThan(recordTypes.length + reads.length);
-      // And the target's limits, read once every row is in hand.
+      // And the target's limits, read once every row is in hand, then again
+      // for its daily API requests, which an answer without its storage
+      // does not give.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 2} (requests the run sent to both orgs)`,
       );
     });
 
@@ -2001,9 +2003,11 @@ describe('sandforge-clone describes', () => {
       );
       expect(recordTypes).toHaveLength(4);
       expect(printed).toContain('record-types: 2 mappings');
-      // And the target's limits, read once every row is in hand.
+      // And the target's limits, read once every row is in hand, then again
+      // for its daily API requests, which an answer without its storage
+      // does not give.
       expect(printed).toContain(
-        `calls:   ${recordTypes.length + reads.length + 1} (requests the run sent to both orgs)`,
+        `calls:   ${recordTypes.length + reads.length + 2} (requests the run sent to both orgs)`,
       );
     });
 

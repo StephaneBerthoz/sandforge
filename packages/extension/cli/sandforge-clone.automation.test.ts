@@ -11,13 +11,31 @@ vi.mock('./sfSession.js', async (importOriginal) => {
   return { ...actual, loadOrg: vi.fn(actual.loadOrg), makeConn: vi.fn(actual.makeConn) };
 });
 
+// The checkpoint a run takes first is the command line's own glue, tested on
+// its own: here, when the clone asks it what, and what it does with the answer.
+vi.mock('./beforeRunCheckpoint.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./beforeRunCheckpoint.js')>();
+  return { ...actual, commandCheckpoints: vi.fn(actual.commandCheckpoints) };
+});
+
+import type { RunCheckpointEstimate, RunCheckpointTaken } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
+import {
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+  type CommandCheckpoints,
+} from './beforeRunCheckpoint.js';
+import {
+  BEFORE_RUN_DELETED_WORDS,
+  type BeforeRunTake,
+} from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { CHECKPOINT_STOPPED_WORDS } from '../src/modules/forge/ForgeRunGate.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../src/test/memoryPermissionOrg.js';
-import { main, parseRemoveArgs } from './sandforge-clone';
+import { main, parseArgs, parseRemoveArgs } from './sandforge-clone';
 import {
   writePathOrderDefects,
   type WritePathStep,
@@ -1018,60 +1036,60 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
   });
 
-  describe('--mute-automation', () => {
-    /** The permission set the target's bypass of the welcome flow is held by. */
-    const DATA_LOAD = '0PSxx0000000001AAA';
+  /** The permission set the target's bypass of the welcome flow is held by. */
+  const DATA_LOAD = '0PSxx0000000001AAA';
 
-    /**
-     * The target, its permission sets and their assignments answered as
-     * Salesforce answers them, and every write in the order it was sent: the
-     * assignments and the records alike.
-     */
-    function mutableTarget(
-      setup: MemoryPermissionOrgSetup = {},
-      describes: Record<string, DescribeSObjectResult> = DESCRIBES,
-    ) {
-      const events: string[] = [];
-      const perms = memoryPermissionOrg({
-        sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
-        beforeWrite: (write) => {
-          events.push(`assignment ${write.kind}`);
-        },
-        ...setup,
-      });
-      const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }], describes });
-      const base = target.conn as unknown as {
-        query: (soql: string) => Promise<unknown>;
-        sobject: (name: string) => Record<string, unknown> & {
-          create: (records: unknown[], options?: unknown) => Promise<unknown>;
+  /**
+   * The target, its permission sets and their assignments answered as
+   * Salesforce answers them, and every write in the order it was sent: the
+   * assignments and the records alike.
+   */
+  function mutableTarget(
+    setup: MemoryPermissionOrgSetup = {},
+    describes: Record<string, DescribeSObjectResult> = DESCRIBES,
+  ) {
+    const events: string[] = [];
+    const perms = memoryPermissionOrg({
+      sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
+      beforeWrite: (write) => {
+        events.push(`assignment ${write.kind}`);
+      },
+      ...setup,
+    });
+    const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }], describes });
+    const base = target.conn as unknown as {
+      query: (soql: string) => Promise<unknown>;
+      sobject: (name: string) => Record<string, unknown> & {
+        create: (records: unknown[], options?: unknown) => Promise<unknown>;
+      };
+    };
+    const permsConn = perms.connection as unknown as {
+      query: (soql: string) => Promise<unknown>;
+      sobject: (name: string) => unknown;
+      identity: () => Promise<unknown>;
+    };
+    const conn = Object.assign(Object.create(null) as object, target.conn, {
+      identity: permsConn.identity,
+      query: (soql: string) =>
+        /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+          ? permsConn.query(soql)
+          : base.query(soql),
+      sobject: (name: string) => {
+        if (name === 'PermissionSetAssignment') return permsConn.sobject(name);
+        const object = base.sobject(name);
+        return {
+          ...object,
+          create: async (records: unknown[], options?: unknown) => {
+            events.push(`write ${name}`);
+            return object.create(records, options);
+          },
         };
-      };
-      const permsConn = perms.connection as unknown as {
-        query: (soql: string) => Promise<unknown>;
-        sobject: (name: string) => unknown;
-        identity: () => Promise<unknown>;
-      };
-      const conn = Object.assign(Object.create(null) as object, target.conn, {
-        identity: permsConn.identity,
-        query: (soql: string) =>
-          /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
-            ? permsConn.query(soql)
-            : base.query(soql),
-        sobject: (name: string) => {
-          if (name === 'PermissionSetAssignment') return permsConn.sobject(name);
-          const object = base.sobject(name);
-          return {
-            ...object,
-            create: async (records: unknown[], options?: unknown) => {
-              events.push(`write ${name}`);
-              return object.create(records, options);
-            },
-          };
-        },
-      });
-      return { target: { ...target, conn: conn as unknown as Connection }, perms, events };
-    }
+      },
+    });
+    return { target: { ...target, conn: conn as unknown as Connection }, perms, events };
+  }
 
+  describe('--mute-automation', () => {
     it('assigns the set holding the bypass before the first write, asks only for what still runs, and takes it back after the last', async () => {
       const { target, perms, events } = mutableTarget();
       withOrgs(target);
@@ -1334,6 +1352,323 @@ describe('sandforge-clone target automation', () => {
           '--mute-automation',
         ]).muteAutomation,
       ).toBe(true);
+    });
+  });
+
+  describe('--checkpoint-first', () => {
+    /** What the checkpoint of the clone would hold and cost, as its scope says. */
+    const ESTIMATE: RunCheckpointEstimate = {
+      state: 'planned',
+      estimate: {
+        records: 38,
+        apiRequests: 68,
+        apiRequestsLeft: 14_000,
+        seconds: 44,
+        bytes: 2_200_000,
+      },
+      objects: ['Account', 'Contact'],
+      added: [],
+      notHeld: [],
+      keepDays: 7,
+    };
+    /** The checkpoint the take keeps. */
+    const TAKEN: RunCheckpointTaken = {
+      state: 'taken',
+      checkpointId: 'ck-20261101-100000-a1b2',
+      name: 'Before Forge run 2026-11-01 10:00 UTC',
+      takenAt: '2026-11-01T10:00:05.000Z',
+      expiresAt: '2026-11-08T10:00:00.000Z',
+      objects: ['Account', 'Contact'],
+      records: 2,
+      bytes: 4_096,
+      requests: 66,
+      added: [],
+      notHeld: [],
+    };
+
+    /**
+     * The checkpoint the clone asks for, each call in `events` with the
+     * target's writes: its scope answers `estimate`, its take `take`.
+     */
+    function checkpointsOf(
+      events: string[],
+      options: { estimate?: Partial<RunCheckpointEstimate>; take?: BeforeRunTake } = {},
+    ) {
+      const asked: CommandCheckpointAsk[] = [];
+      const port: CommandCheckpoints = {
+        scope: vi.fn(async (ask: CommandCheckpointAsk) => {
+          asked.push(ask);
+          events.push('scope');
+          return { ...ESTIMATE, ...options.estimate };
+        }),
+        take: vi.fn(async () => {
+          events.push('take');
+          return options.take ?? { taken: true as const, checkpoint: TAKEN };
+        }),
+        settle: vi.fn(async (taken: RunCheckpointTaken, wrote: boolean) => {
+          events.push(`settle ${String(wrote)}`);
+          return wrote ? taken : { state: 'deleted' as const, deleted: 'nothingWritten' as const };
+        }),
+      };
+      vi.mocked(commandCheckpoints).mockReturnValue(port);
+      return { port, asked };
+    }
+
+    it('takes it once the gate let the rows through, before the lease and the first write, and keeps it once the run wrote', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      const { asked } = checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+
+      expect(events).toEqual([
+        'scope',
+        'take',
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+        'settle true',
+      ]);
+      // The flags stand for the question a command line is never asked.
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'scope') return 'stillRunning';
+        if (event === 'take') return 'checkpointTake';
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        if (event.startsWith('write')) return 'write';
+        return 'result';
+      });
+      expect(writePathOrderDefects(['reads', 'leasePlan', 'question', ...steps])).toEqual([]);
+      expect(perms.assignments()).toEqual([]);
+      // The objects the rows go to, and nothing the muted flow would have started.
+      expect(asked).toEqual([{ written: ['Account', 'Contact'], running: { firing: [] } }]);
+      expect(vi.mocked(commandCheckpoints).mock.calls[0][0]).toMatchObject({
+        module: 'forge',
+        request: {},
+        session: { alias: 'TGT' },
+        org: { id: '00D000000000002AAA', orgType: 'Sandbox' },
+      });
+      expect(JSON.parse(stdout).checkpoint).toEqual(TAKEN);
+      // Said before the first write, with the command that rewinds to it, muting as the run did.
+      expect(errored).toContain(
+        "checkpoint before the run: ck-20261101-100000-a1b2 'Before Forge run 2026-11-01 10:00 " +
+          "UTC', 2 object(s), 2 record(s), kept until 2026-11-08",
+      );
+      expect(errored).toContain(
+        '  rewind to it: sandforge-checkpoint rewind --org TGT --checkpoint ' +
+          'ck-20261101-100000-a1b2 --mute-automation',
+      );
+    });
+
+    it('scopes it from what still runs as the rows go in: the flow that fires, unless the mute keeps it quiet', async () => {
+      const unmuted: string[] = [];
+      withOrgs(mutableTarget().target);
+      const { asked } = checkpointsOf(unmuted);
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--checkpoint-first')),
+      ).toBeUndefined();
+      expect(asked[0].running.firing.map((entry) => [entry.name, entry.write])).toEqual([
+        ['Contact welcome', 'insert'],
+      ]);
+
+      withOrgs(mutableTarget().target);
+      const muted = checkpointsOf([]);
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first')),
+      ).toBeUndefined();
+      expect(muted.asked[0].running.firing).toEqual([]);
+    });
+
+    it('says on a dry run what it would hold and cost, gives it under checkpoint, and takes nothing', async () => {
+      const events: string[] = [];
+      withOrgs(fakeOrg({ noFlows: true }));
+      const { port } = checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+
+      expect(events).toEqual(['scope']);
+      expect(port.take).not.toHaveBeenCalled();
+      expect(orgs.TGT.written).toEqual([]);
+      expect(JSON.parse(stdout).checkpoint).toEqual(ESTIMATE);
+      expect(errored).toContain(
+        '  Checkpoint first: about 38 records of 2 objects, 68 API requests, 44 s, 2.1 MB on ' +
+          "this machine, unencrypted, and none of the org's storage, kept 7 days.",
+      );
+    });
+
+    it('refuses the run before the take, the lease and any write when its scope is refused, in the command’s words', async () => {
+      const refusal = {
+        code: 'RUN_WRITING' as const,
+        message:
+          'A SandForge run is writing to TGT: start this run once it has ended. No record was read.',
+      };
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, { estimate: { refusal } });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events).toEqual(['scope']);
+      expect(perms.assignments()).toEqual([]);
+      expect(stderr).toBe(
+        'The checkpoint before the run was refused: A SandForge run is writing to TGT: start ' +
+          'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
+          'write without one. Nothing was written.\n',
+      );
+
+      // A dry run says it, and gives it under wouldBeRefused.
+      withOrgs(mutableTarget().target);
+      checkpointsOf([], { estimate: { refusal } });
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--checkpoint-first', '--json')),
+      ).toBeUndefined();
+      expect(JSON.parse(stdout).wouldBeRefused).toContain(
+        'The checkpoint before the run was refused: A SandForge run is writing to TGT: start ' +
+          'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
+          'write without one.',
+      );
+    });
+
+    it('writes nothing and assigns nothing when the take is refused', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, {
+        take: {
+          taken: false,
+          refusal: { code: 'DISK', message: 'Too little room. No record was read.' },
+        },
+      });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events).toEqual(['scope', 'take']);
+      expect(perms.assignments()).toEqual([]);
+      expect(stderr).toBe(
+        'The checkpoint before the run was refused: Too little room. Fix what refuses it, leave ' +
+          'an object out of it (--checkpoint-exclude-object <ApiName>), or run without ' +
+          '--checkpoint-first to write without one. Nothing was written.\n',
+      );
+    });
+
+    it('deletes the checkpoint of a run whose lease was refused after the take, before any write', async () => {
+      const { target, events } = mutableTarget({
+        refuseAssigning: { [DATA_LOAD]: 'INSUFFICIENT_ACCESS_OR_READONLY' },
+      });
+      withOrgs(target);
+      checkpointsOf(events);
+      // The process ends there: the checkpoint is deleted before it does.
+      vi.mocked(process.exit).mockImplementation((code?: string | number | null) => {
+        events.push('exit');
+        throw new ExitCalled(typeof code === 'number' ? code : undefined);
+      });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        1,
+      );
+
+      expect(events.filter((event) => !event.startsWith('assignment'))).toEqual([
+        'scope',
+        'take',
+        'settle false',
+        'exit',
+      ]);
+      expect(events.some((event) => event.startsWith('write'))).toBe(false);
+      expect(printed).toContain(BEFORE_RUN_DELETED_WORDS);
+    });
+
+    it('stops at Ctrl-C during the take with nothing kept and nothing written, and exits 130', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+      checkpointsOf(events, { take: { taken: false, stopped: true } });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first'))).toBe(
+        130,
+      );
+
+      expect(events).toEqual(['scope', 'take']);
+      expect(perms.assignments()).toEqual([]);
+      expect(printed).toContain(CHECKPOINT_STOPPED_WORDS);
+    });
+
+    it("refuses a run whose checkpoint takes it past the target's daily API requests, naming the checkpoint's part", async () => {
+      const limits = {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        DailyApiRequests: { Max: 15_000, Remaining: 50 },
+      };
+      const events: string[] = [];
+      withOrgs(fakeOrg({ noFlows: true, limits }));
+      const { port } = checkpointsOf(events);
+
+      expect(await run(argv('--skip-preflight', '--checkpoint-first'))).toBe(1);
+
+      expect(stderr).toBe(
+        'The run takes about 70 API requests (68 of them for the checkpoint taken first), and ' +
+          'TGT has 50 of its 15000 daily requests left: it would stop part way through, its ' +
+          'records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to ' +
+          'spare — the limit is counted over the last 24 hours — or write fewer records. ' +
+          'Nothing was written.\n',
+      );
+      expect(port.take).not.toHaveBeenCalled();
+      expect(orgs.TGT.written).toEqual([]);
+
+      // Without the checkpoint, the run's own requests fit.
+      withOrgs(fakeOrg({ noFlows: true, limits }));
+      expect(await run(argv('--skip-preflight'))).toBeUndefined();
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it("refuses a run past the target's daily API requests whatever it asks, saying them before it writes", async () => {
+      withOrgs(
+        fakeOrg({
+          noFlows: true,
+          limits: {
+            DataStorageMB: { Max: 200, Remaining: 150 },
+            DailyApiRequests: { Max: 15_000, Remaining: 1 },
+          },
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(printed).toContain(
+        '  API requests: about 2, of the 1 TGT has left of its 15000 a day: more than it has left',
+      );
+      expect(stderr).toBe(
+        'The run takes about 2 API requests, and TGT has 1 of its 15000 daily requests left: it ' +
+          'would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it ' +
+          'once the org has requests to spare — the limit is counted over the last 24 hours — or ' +
+          'write fewer records. Nothing was written.\n',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('refuses the option where nothing would be kept to take back, or a run that wrote already is taken up', () => {
+      for (const flag of [['--rehearse'], ['--list-objects'], ['--resume', 'run-1']]) {
+        stderr = '';
+        expect(() => parseArgs(argv('--checkpoint-first', ...flag))).toThrow(ExitCalled);
+        expect(stderr).toMatch(new RegExp(`^--checkpoint-first does not go with ${flag[0]}: `));
+      }
+      expect(() =>
+        parseRemoveArgs([
+          'node',
+          'sandforge-clone.ts',
+          '--remove',
+          'summary.json',
+          '--target',
+          'TGT',
+          '--checkpoint-first',
+        ]),
+      ).toThrow(ExitCalled);
     });
   });
 });

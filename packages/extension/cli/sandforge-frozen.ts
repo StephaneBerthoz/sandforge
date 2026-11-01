@@ -43,13 +43,14 @@
  * pnpm build:shared.
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
 import type {
   ForgeSweepListing,
   ForgeSweepResult,
+  ForgeTargetAutomation,
   FrozenDiscoveryOrigin,
   FrozenLoadPlanInfo,
   FrozenLoadReportInfo,
@@ -60,12 +61,42 @@ import type {
   FrozenSelectionStop,
   FrozenVerifyVerdict,
   OrgType,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
+  StillRunning,
 } from '@sandforge/shared';
-import { orgTypeOf } from '@sandforge/shared';
-import { loadOrg, makeConn } from './sfSession.js';
-import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
+import { orgTypeOf, stillRunningOf } from '@sandforge/shared';
+import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import {
+  journalDirOf,
+  sweepLines,
+  sweepListingLines,
+  targetAutomationReader,
+} from './sandforge-clone.js';
 import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
+import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import {
+  CHECKPOINT_REFUSED,
+  CHECKPOINT_STOPPED_WORDS,
+  takeCheckpointFirst,
+} from '../src/modules/forge/ForgeRunGate.js';
+import {
+  CHECKPOINT_FIRST,
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointRefusedWords,
+  checkpointSettledLines,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  type CommandCheckpointAsk,
+  type CommandCheckpoints,
+} from './beforeRunCheckpoint.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
@@ -145,6 +176,18 @@ Options:
                          runs, and is named. Refused on a production org and for a user
                          who cannot assign permission sets, exit 1; with --dry-run,
                          says what would be muted and assigns nothing
+${checkpointFirstHelp({
+  run: 'the load',
+  simulation: '--dry-run',
+  step: 'with load: ',
+  note: [
+    'Taken by this command once the load may write, before',
+    "the load's lease; deleted when the load is refused before",
+    'it writes or reports it wrote nothing, and kept when it',
+    'stops or fails part way: what it wrote then is not told',
+    'here.',
+  ],
+})}
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --sweep                with remove: before the load's records go, delete too what
@@ -232,6 +275,11 @@ interface CliArgs {
   writeEncrypted: boolean;
   /** With load: mute the target's automation for the load, through its own bypass. */
   muteAutomation: boolean;
+  /**
+   * With load: take a checkpoint of what the load writes before its first
+   * write (`--checkpoint-first`). undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
   includeChanged: boolean;
   /** With remove: sweep first what the target's automation created during the load. */
   sweep: boolean;
@@ -260,8 +308,18 @@ const FLAGS: CommandFlags = {
     '--preview',
     '--yes',
     '--json',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
-  values: ['--config', '--source', '--target', '--author', '--salt-file', '--store', '--max-total'],
+  values: [
+    '--config',
+    '--source',
+    '--target',
+    '--author',
+    '--salt-file',
+    '--store',
+    '--max-total',
+    ...CHECKPOINT_FIRST_FLAGS.values,
+  ],
 };
 
 /** The most records `--max-total` takes: the bound of the load's request. */
@@ -319,6 +377,13 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--mute-automation goes with load. Run with --help.\n');
     process.exit(2);
   }
+  if (args.includes(CHECKPOINT_FIRST) && step !== 'load') {
+    process.stderr.write(`${CHECKPOINT_FIRST} goes with load. Run with --help.\n`);
+    process.exit(2);
+  }
+  // A checkpoint of what a load writes, taken before its first write; with
+  // --dry-run, what it would hold and cost.
+  const checkpointFirst = checkpointFirstArgs(args);
   if (args.includes('--preview') && step !== 'remove') {
     // A load's is --dry-run; a removal's is --preview, as for the other removals.
     process.stderr.write(
@@ -362,6 +427,7 @@ export function parseArgs(argv: string[]): CliArgs {
     dryRun: args.includes('--dry-run'),
     writeEncrypted: args.includes('--write-encrypted'),
     muteAutomation: args.includes('--mute-automation'),
+    ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
@@ -430,6 +496,7 @@ async function registerOrg(
   alias: string,
   orgs: Map<string, KnownOrg>,
   conns?: Map<string, Connection>,
+  sessions?: Map<string, { session: SfOrg; typed: TypedOrg }>,
 ): Promise<string> {
   const session = await loadOrg(alias);
   const conn = makeConn(session);
@@ -450,6 +517,7 @@ async function registerOrg(
     credentials: { accessToken: session.accessToken, instanceUrl: session.instanceUrl },
   });
   conns?.set(typed.id, conn);
+  sessions?.set(typed.id, { session, typed });
   return typed.id;
 }
 
@@ -1325,6 +1393,12 @@ export interface FrozenAnswer {
   mutedAutomation?: MutedAutomation;
   /** The plan that is made from. */
   mutePlan?: MutePlan;
+  /**
+   * The checkpoint a load took of what it writes before its first write
+   * (`--checkpoint-first`), kept or deleted once it wrote nothing; of a dry
+   * run, what a real load's would hold and cost.
+   */
+  checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
 }
 
 /** What an answer is built from beside what was posted. */
@@ -1339,6 +1413,8 @@ export interface FrozenAnswerContext {
   refusals?: readonly string[];
   /** Of a dry run asked to mute, what a real load's mute would do. */
   mute?: { mutedAutomation: MutedAutomation; mutePlan: MutePlan };
+  /** The checkpoint the load took first, or of a dry run, the one a real load would take. */
+  checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
 }
 
 /** A dataset's folder, digest and version, or undefined when no dataset is there. */
@@ -1491,6 +1567,7 @@ export async function frozenAnswer(
   refusals.push(...(context.refusals ?? []));
   if (refusals.length > 0) answer.refusals = refusals;
   if (context.mute) Object.assign(answer, context.mute);
+  if (context.checkpoint) answer.checkpoint = context.checkpoint;
   return answer;
 }
 
@@ -1513,8 +1590,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const orgs = new Map<string, KnownOrg>();
   const conns = new Map<string, Connection>();
+  const sessions = new Map<string, { session: SfOrg; typed: TypedOrg }>();
   const sourceOrgId = args.source ? await registerOrg(args.source, orgs) : undefined;
-  const targetOrgId = args.target ? await registerOrg(args.target, orgs, conns) : undefined;
+  const targetOrgId = args.target
+    ? await registerOrg(args.target, orgs, conns, sessions)
+    : undefined;
 
   // What the panel would have received, printed instead of posted — but for
   // what a step reads for itself.
@@ -1546,6 +1626,29 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // What the target's flows create, which a sweep looks at: read as the panel
   // reads it, through Forge's reader.
   const targetConn = targetOrgId ? conns.get(targetOrgId) : undefined;
+  // The checkpoint a load takes of what it writes before its first write: by
+  // this command, once the load may write and before the handler takes the
+  // mute's lease, kept or deleted by what the load reports. A dry run says
+  // what it would hold and cost. It reads the target through a connection of
+  // its own.
+  const target = targetOrgId ? sessions.get(targetOrgId) : undefined;
+  const checkpoints: CommandCheckpoints | undefined =
+    args.checkpointFirst && target
+      ? commandCheckpoints({
+          module: 'frozen',
+          operationId: `sandforge-frozen-load-${t0}`,
+          request: args.checkpointFirst,
+          session: target.session,
+          org: {
+            id: target.typed.id,
+            orgType: target.typed.orgType,
+            ...(target.typed.edition !== undefined ? { edition: target.typed.edition } : {}),
+          },
+          connect: makeConn,
+          journalDir: journalDirOf(),
+          say: log,
+        })
+      : undefined;
   if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
   // The salt from the environment, or the file given; none is made up here.
   handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
@@ -1560,6 +1663,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   handler.setRegistry(registry);
   /** The request the handler has, which a Ctrl-C before its run started cancels. */
   let underWay: string | undefined;
+  /** The take of the checkpoint asked first, while it reads: what a Ctrl-C stops then. */
+  let taking: AbortController | undefined;
+  /** Whether a Ctrl-C stopped that take: nothing of it kept, nothing written. */
+  let stoppedTaking = false;
   let interrupted: StopSignal | undefined;
   const interrupt = (signal: StopSignal): void => {
     interrupted = signal;
@@ -1567,6 +1674,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `\ninterrupted: the ${args.step} stops after the call under way, and says what it wrote ` +
         '(Ctrl-C again ends it at once)\n',
     );
+    // The checkpoint taken first stops between two reads and keeps nothing.
+    if (taking) {
+      taking.abort();
+      return;
+    }
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
     if (underWay) registry.cancelBeforeStart(underWay);
     // Nothing under way — a question on the terminal: nothing was written.
@@ -1580,6 +1692,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const refusals: string[] = [];
   /** What a dry run asked to mute says a real load's mute would do. */
   let dryRunMute: FrozenAnswerContext['mute'];
+  /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
+  let checkpointAnswer: FrozenAnswerContext['checkpoint'];
   /**
    * What a step prints on stdout with --json: what the panel would have
    * received, and beside it what an environment reads of the step.
@@ -1592,6 +1706,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ...(targetOrgId ? { targetOrgId } : {}),
       ...(refusals.length > 0 ? { refusals } : {}),
       ...(dryRunMute ? { mute: dryRunMute } : {}),
+      ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
     process.stdout.write(
       `${JSON.stringify({ ...answer, ...(ended ? { ended } : {}) }, null, 2)}\n`,
@@ -1623,7 +1738,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   if (interrupted) {
     await emit();
-    process.stderr.write(`${frozenInterruptedLine(args.preview ? 'preview' : args.step)}\n`);
+    process.stderr.write(
+      `${stoppedTaking ? CHECKPOINT_STOPPED_WORDS : frozenInterruptedLine(args.preview ? 'preview' : args.step)}\n`,
+    );
     process.exitCode = stopExitCode(interrupted);
     return;
   }
@@ -1683,17 +1800,39 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // What a load with --mute-automation would assign, silence, leave
           // running and lift beside, read from the target as the load would
           // read it; nothing assigned, and said in the summary as in the lines.
+          let automation: ForgeTargetAutomation | undefined;
           if (args.muteAutomation && plan && targetConn) {
-            const automation = await targetAutomationReader(targetConn).read(
+            automation = await targetAutomationReader(targetConn).read(
               targetOrgId!,
               plan.perObject.map((object) => object.objectApiName),
             );
-            const { planned, plan: mutePlan } = planMute(
-              automation,
-              (_objectApiName, write) => write === 'insert' || write === 'update',
-            );
+            const { planned, plan: mutePlan } = planMute(automation, LOAD_WRITES);
             for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
             dryRunMute = { mutedAutomation: planned, mutePlan };
+          }
+          // What the checkpoint a real load takes first would hold and cost:
+          // the objects the plan writes, and what still runs as it writes
+          // them, what the mute keeps quiet held quiet.
+          const written = plan ? loadPlanWrites(plan) : [];
+          if (checkpoints && plan && targetConn && written.length > 0) {
+            automation ??= await targetAutomationReader(targetConn)
+              .read(
+                targetOrgId!,
+                plan.perObject.map((object) => object.objectApiName),
+              )
+              .catch(() => undefined);
+            const { estimate, refused } = await scopeCheckpoint(checkpoints, {
+              written,
+              running: runningFor(automation, dryRunMute?.mutePlan),
+            });
+            if (estimate) {
+              checkpointAnswer = estimate;
+              for (const line of checkpointEstimateLines(estimate)) log(line);
+            }
+            if (refused !== undefined) {
+              refusals.push(refused);
+              log(`a load would be refused: ${refused}`);
+            }
           }
           break;
         }
@@ -1706,6 +1845,61 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             return 'ended';
           }
         }
+        // The checkpoint asked first, once the load may write — the answer
+        // or --yes given — and before the handler takes the mute's lease and
+        // writes: of the objects the dataset holds, and of what still runs as
+        // the load writes them. Refused, the load is not sent.
+        let taken: RunCheckpointTaken | undefined;
+        if (checkpoints && targetConn) {
+          const objects = datasetObjectsOf(datasetDir);
+          const automation = await targetAutomationReader(targetConn)
+            .read(targetOrgId!, objects)
+            .catch(() => undefined);
+          const ask: CommandCheckpointAsk = {
+            written: objects,
+            running: runningFor(
+              automation,
+              args.muteAutomation && automation
+                ? planMute(automation, LOAD_WRITES).plan
+                : undefined,
+            ),
+          };
+          const { estimate, refused } = await scopeCheckpoint(checkpoints, ask);
+          if (estimate) {
+            checkpointAnswer = estimate;
+            for (const line of checkpointEstimateLines(estimate)) log(line);
+          }
+          if (refused !== undefined || estimate === undefined) {
+            log(`${refused ?? ''} Nothing was written.`.trim());
+            failed = true;
+            return 'ended';
+          }
+          taking = new AbortController();
+          const signal = taking.signal;
+          const took = await takeCheckpointFirst(() =>
+            checkpoints.take(ask, estimate, { signal }),
+          ).finally(() => {
+            taking = undefined;
+          });
+          if ('stop' in took) {
+            if (took.stop.code !== CHECKPOINT_REFUSED) {
+              stoppedTaking = true;
+              return 'ended';
+            }
+            log(checkpointStopWords(took.stop));
+            failed = true;
+            return 'ended';
+          }
+          taken = took.checkpoint;
+          checkpointAnswer = taken;
+          for (const line of checkpointTakenLines(
+            taken,
+            args.target ?? 'the target',
+            args.muteAutomation,
+          )) {
+            log(line);
+          }
+        }
         log(`loading into ${args.target}${args.pilot ? ' (pilot)' : ''}…`);
         await send('frozen:load', {
           targetOrgId,
@@ -1715,6 +1909,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...(args.maxTotal !== undefined ? { maxRecords: args.maxTotal } : {}),
           ...(args.muteAutomation ? { muteAutomation: true } : {}),
         });
+        // Kept once the load wrote a record; deleted when it reports it wrote
+        // none, or was refused before it wrote.
+        if (checkpoints && taken) {
+          const kept = taken;
+          checkpointAnswer = await checkpoints
+            .settle(kept, frozenLoadWrote(posted))
+            .catch((err: unknown) => {
+              log(
+                `warning: the checkpoint '${kept.name}' taken before the load could not be ` +
+                  `deleted (${err instanceof Error ? err.message : String(err)}): delete it ` +
+                  `with sandforge-checkpoint delete --org ${args.target ?? ''} --checkpoint ` +
+                  kept.checkpointId,
+              );
+              return kept;
+            });
+          for (const line of checkpointSettledLines(checkpointAnswer)) log(line);
+        }
         break;
       }
       case 'verify':
@@ -1783,6 +1994,116 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         break;
     }
     return 'through';
+  }
+}
+
+/** The writes of a load the target's automation fires on, as its mute plans for them. */
+const LOAD_WRITES = (_objectApiName: string, write: string): boolean =>
+  write === 'insert' || write === 'update';
+
+/** What still runs as a load writes, the mute's plan held; nothing named when the read failed. */
+function runningFor(
+  automation: ForgeTargetAutomation | undefined,
+  plan: MutePlan | undefined,
+): Pick<StillRunning<unknown>, 'firing'> {
+  return { firing: automation ? stillRunningOf(automation, plan, LOAD_WRITES).firing : [] };
+}
+
+/**
+ * The objects a load's plan writes: those it inserts, purges or deactivates,
+ * and those it makes placeholders of. Exported so it can be tested.
+ */
+export function loadPlanWrites(
+  plan: Pick<FrozenLoadPlanInfo, 'perObject' | 'placeholders'>,
+): string[] {
+  const names = [
+    ...plan.perObject
+      .filter((object) => object.toInsert > 0 || object.toPurge > 0 || object.toDeactivate > 0)
+      .map((object) => object.objectApiName),
+    ...(plan.placeholders ?? []).map((placeholder) => placeholder.placeholderObjectApiName),
+  ];
+  return [...new Set(names)];
+}
+
+/**
+ * The objects a frozen dataset holds records of, as its manifest counts
+ * them, or by the files of its data folder when it counts none: those a
+ * load writes. Exported so it can be tested.
+ */
+export function datasetObjectsOf(dir: string): string[] {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as {
+      volumetry?: { measured?: Record<string, unknown> };
+    };
+    const measured = Object.entries(manifest.volumetry?.measured ?? {})
+      .filter(([, records]) => typeof records === 'number' && records > 0)
+      .map(([objectApiName]) => objectApiName);
+    if (measured.length > 0) return measured;
+  } catch {
+    // Read from its files below.
+  }
+  try {
+    return readdirSync(join(dir, 'data'))
+      .filter((file) => file.endsWith('.json'))
+      .map((file) => file.slice(0, -'.json'.length))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** The codes of a load refused before it wrote anything: its payload, its replace, its mute. */
+const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
+  'INVALID_PAYLOAD',
+  'REPLACE_LEAVES_RECORDS',
+  'MUTE_PRODUCTION',
+  'MUTE_NO_RIGHT',
+  'MUTE_FAILED',
+]);
+
+/**
+ * Whether a load wrote to the target, as what it posted says: its report's
+ * inserts, placeholders, purge and deactivations; refused before it wrote by
+ * the code of its error; written, as far as can be told, when it stopped or
+ * failed part way, whose error does not say. Exported so it can be tested.
+ */
+export function frozenLoadWrote(posted: readonly Posted[]): boolean {
+  const last = (type: string): Record<string, unknown> | undefined =>
+    posted.filter((message) => message.type === type).at(-1)?.payload;
+  const report = last('frozen:load:response')?.report as FrozenLoadReportInfo | undefined;
+  if (report) {
+    const counted = (by: Record<string, number> | undefined): number =>
+      Object.values(by ?? {}).reduce((sum, count) => sum + count, 0);
+    return (
+      report.perObject.some((object) => object.inserted > 0) ||
+      (report.placeholders ?? []).length > 0 ||
+      counted(report.purge?.deleted) > 0 ||
+      counted(report.purge?.deactivated) > 0
+    );
+  }
+  const code = last('frozen:load:error')?.code;
+  return !(typeof code === 'string' && LOAD_REFUSED_BEFORE_WRITING.has(code));
+}
+
+/**
+ * The checkpoint a load takes first, as its scope said it: what it would
+ * hold and cost, and the refusal a real load would meet in the command's
+ * words — the scope's own, or why it could not be read.
+ */
+async function scopeCheckpoint(
+  checkpoints: CommandCheckpoints,
+  ask: CommandCheckpointAsk,
+): Promise<{ estimate?: RunCheckpointEstimate; refused?: string }> {
+  try {
+    const estimate = await checkpoints.scope(ask);
+    return {
+      estimate,
+      ...(estimate.refusal !== undefined
+        ? { refused: checkpointRefusedWords(estimate.refusal) }
+        : {}),
+    };
+  } catch (err: unknown) {
+    return { refused: beforeRunFailedWords(err).replace(/ Nothing was written\.$/, '') };
   }
 }
 
