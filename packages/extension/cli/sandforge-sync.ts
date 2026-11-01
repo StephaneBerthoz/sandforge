@@ -58,6 +58,7 @@ import type {
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RecordTypeGiven,
   SyncConfig,
   SyncDeltaOutcome,
   SyncLookupsLeftOut,
@@ -194,12 +195,14 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
 import {
   journalDirOf,
+  recordTypeGivenLines,
   sweepLines,
   sweepListingLines,
   targetAutomationReader,
@@ -877,6 +880,30 @@ export function cliSourceIdsFn(conn: Connection) {
   };
 }
 
+/**
+ * The mute of a run, its lease kept as the gate takes it (`keep`): what the
+ * run hands its orchestrator (`leaseOfTheGate`), which gives the lease back
+ * once its last write is through and, when it assigned a permission set,
+ * reads the record types of the objects it writes again before its first.
+ * A mute with nothing to assign takes no lease, and goes as it was.
+ * Exported so it can be tested.
+ */
+export function keepingTheLease(mute: RunMute, keep: (held: HeldMute) => void): RunMute {
+  const prepared = mute.prepared;
+  if (!prepared) return mute;
+  return {
+    ...mute,
+    prepared: {
+      ...prepared,
+      acquire: async (runId) => {
+        const held = await prepared.acquire(runId);
+        keep(held);
+        return held;
+      },
+    },
+  };
+}
+
 /** How each daily email limit is said. */
 const EMAIL_LIMIT_WORDS: Readonly<Record<SyncWriteCheck['emails'][number]['limit'], string>> = {
   SingleEmail: 'single emails',
@@ -984,8 +1011,50 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   return lines;
 }
 
-/** What a simulation found, as the lines the command prints. */
-export function simulationLines(simulation: SyncSimulationResult, target = 'the target'): string[] {
+/**
+ * What the command says of the records a run created — a dry run, would
+ * create — without a record type into a target whose object has one besides
+ * Master, as a clone says it (`recordTypeGivenLines`): per object, how many,
+ * why, and the type the target gives them; of a dry run, what the describe
+ * of the user the run writes as says, and of a real run what the first of
+ * them were read back holding. A record on Master in the source goes in with
+ * the type the target gives that user, not always the default its describe
+ * names. Exported so it can be tested.
+ *
+ * @param muteAssigns - Whether a real run's mute would assign permission
+ *   sets, which may open record types a dry run's describe does not show.
+ */
+export function recordTypeGivenOfObjectsLines(
+  objects: ReadonlyArray<{ recordTypeGiven?: RecordTypeGiven }>,
+  dryRun: boolean,
+  muteAssigns = false,
+): string[] {
+  const given = objects.flatMap((object) =>
+    object.recordTypeGiven ? [object.recordTypeGiven] : [],
+  );
+  const lines = recordTypeGivenLines(given, dryRun);
+  // A dry run assigns nothing, and what it says is what the user has now.
+  if (lines.length > 0 && dryRun && muteAssigns) {
+    lines.push(
+      '  the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary ' +
+        'says what the target gave',
+    );
+  }
+  return lines;
+}
+
+/**
+ * What a simulation found, as the lines the command prints.
+ *
+ * @param muteAssigns - Whether a real run's mute would assign permission sets
+ *   (`recordTypeGivenOfObjectsLines`).
+ */
+export function simulationLines(
+  simulation: SyncSimulationResult,
+  target = 'the target',
+  muteAssigns = false,
+): string[] {
   const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
   // The order the run writes the objects in, and what moved.
   if (simulation.writeOrder) {
@@ -1071,6 +1140,9 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
       `  the target's validation rules could not be listed (${simulation.validationRulesUnread}): ` +
         'any of them may refuse a record counted as written',
     );
+  }
+  for (const line of recordTypeGivenOfObjectsLines(simulation.objects, true, muteAssigns)) {
+    lines.push(`  ${line}`);
   }
   if (simulation.cancelled) lines.push('  stopped by a cancel before its last object');
   if (simulation.error) {
@@ -1666,7 +1738,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   });
   // Asked to mute, the run's gate plans the mute from what the target runs on
   // the objects it writes, measures what still runs, and takes the lease
-  // once it lets the run write; it is given back as the run ends.
+  // once it lets the run write. The run gives it back once its last write is
+  // through, before it reads back the record types the target gave; it is
+  // given back again as the run ends, and answers the same.
+  let leaseHeld: HeldMute | undefined;
   const muting =
     args.muteAutomation && !args.dryRun
       ? mutingSyncWriteGate(
@@ -1677,7 +1752,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               writes: syncRunWrites,
             });
             for (const line of muteLines(planned.muted, args.target)) log(`  ${line}`);
-            return planned;
+            return keepingTheLease(planned, (held) => {
+              leaseHeld = held;
+            });
           },
           `sandforge-sync ${runId}`,
         )
@@ -1772,6 +1849,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }),
     // The parents its objects' lookups name written first.
     describeTargetFields,
+    // The same, asked of the org again once the mute's lease assigned a
+    // permission set, which may have opened record types to the user.
+    describeTargetFieldsAgain: async (objectApiName) =>
+      targetWriteFieldsOf(await targetConn.sobject(objectApiName).describe()),
+    // The lease the gate took, given back once the last write is through.
+    leaseOfTheGate: () => {
+      const held = leaseHeld;
+      return held
+        ? { assigned: held.outcome.assigned.length, giveBack: () => held.release() }
+        : undefined;
+    },
+    // What reads back the record types the target gave the records the run
+    // created without one, once its writes are through.
+    queryTargetRows: targetRows,
     // What it writes, counted before the first write and held to the gate,
     // and what an earlier run of a saved configuration copied, left as it is.
     countSource: cliCountFn(sourceConn),
@@ -1864,7 +1955,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
-    for (const line of simulationLines(simulation, args.target)) log(line);
+    const muteAssigns = (planned?.plan?.assign.length ?? 0) > 0;
+    for (const line of simulationLines(simulation, args.target, muteAssigns)) log(line);
     log(`\ndone in ${elapsed}ms`);
     return;
   }
@@ -2054,6 +2146,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     const delta = entry.delta as SyncDeltaOutcome | undefined;
     if (delta) log(`      ${deltaLine(delta)}`);
+  }
+  // The record types the target gave the records the run created without
+  // one, as the first of them were read back once its writes were through.
+  for (const line of recordTypeGivenOfObjectsLines(
+    objects as ReadonlyArray<{ recordTypeGiven?: RecordTypeGiven }>,
+    false,
+  )) {
+    log(`  ${line}`);
   }
   // Said once for the run, as Forge's command line says it.
   for (const line of contactPointLines(

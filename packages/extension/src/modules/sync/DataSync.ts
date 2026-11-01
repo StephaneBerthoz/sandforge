@@ -6,8 +6,10 @@ import type {
   SyncObjectResult,
   SyncOperation,
   SyncWrittenWithoutFields,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
+import { RECORD_TYPE_READ_BACK_IDS } from '../../core/metadata/recordTypeGiven.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import {
   addWrittenWithoutFields,
@@ -17,7 +19,9 @@ import {
 } from '../../core/common/refusedFields.js';
 import {
   addressedBy,
+  namedTargetRecordTypes,
   prepareSyncRows,
+  recordTypeGivenOfRows,
   type DeferredLookup,
   type SyncRunLinks,
   type SyncWriteRun,
@@ -356,6 +360,7 @@ export class DataSync {
       // and the lookups they were to be given once written.
       const owners = ownersLeftOutOf(ownerLeftOut, err.written);
       const sent = aligned(err.written);
+      noteCreatedWithoutRecordType(config, prepared.withoutRecordType, sent, target, run);
       throw new WriteCancelledError(
         config.objectApiName,
         sent,
@@ -379,6 +384,9 @@ export class DataSync {
     if (run) for (const owner of retried.ownersRefused) run.links.noteOwnerRefused(owner);
 
     const all = aligned(retried.outcomes);
+    // What it created without a record type, kept for the run to read back
+    // what the target gave them once its writes are through, however it ends.
+    noteCreatedWithoutRecordType(config, prepared.withoutRecordType, all, target, run);
     const owners = ownersLeftOutOf(ownerLeftOut, retried.outcomes);
     const notes = [...prepared.notes, ...retried.notes];
     const lookupsLeftOut = [...(owners ? [owners] : []), ...retried.lookupsLeftOut];
@@ -1026,6 +1034,41 @@ async function sendInTurn(
       err.writtenWithoutFields,
     );
   }
+}
+
+/**
+ * Keep in the run (`SyncWriteRun.createdWithoutRecordType`) the records of an
+ * object the write created without a record type: how many and why, the type
+ * the target's describe says it gives them — the describe read again under
+ * the mute's lease when the lease assigned a permission set —, and the first
+ * of their ids, which the run reads back once its writes are through. Created
+ * as the run keeps what it created (`createdIds`): every record an insert
+ * wrote, those an upsert says it created. A record refused, or one an upsert
+ * updated, keeps its own type, and nothing is said of it.
+ */
+function noteCreatedWithoutRecordType(
+  config: SyncObjectConfig,
+  without: ReadonlyMap<number, WithoutRecordTypeWhy>,
+  outcomes: readonly OperationOutcome[],
+  target: TargetWriteFields | null,
+  run: SyncWriteRun | undefined,
+): void {
+  if (!run?.createdWithoutRecordType || without.size === 0) return;
+  const whys: WithoutRecordTypeWhy[] = [];
+  const ids: string[] = [];
+  for (const [index, why] of without) {
+    const outcome = outcomes[index];
+    if (!outcome?.success || typeof outcome.id !== 'string' || outcome.id === '') continue;
+    if (config.operation !== 'insert' && outcome.created !== true) continue;
+    whys.push(why);
+    if (ids.length < RECORD_TYPE_READ_BACK_IDS) ids.push(outcome.id);
+  }
+  const types = namedTargetRecordTypes(
+    run.recordTypesUnderTheLease ?? target?.recordTypes ?? [],
+    run.recordTypes,
+  );
+  const given = recordTypeGivenOfRows(config.objectApiName, whys, types);
+  if (given) run.createdWithoutRecordType.set(config.objectApiName, { given, types, ids });
 }
 
 function noteInRun(

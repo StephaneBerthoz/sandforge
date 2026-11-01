@@ -23,7 +23,6 @@ import type {
   WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
-import * as z from 'zod';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { isNotFound } from './ForgeMetadataDiff.js';
@@ -40,7 +39,14 @@ import {
   namesMasterRecordType,
   warnUnmappedRecordType,
 } from '../sync/RecordTypeMapper.js';
-import { predictedRecordTypeOf, recordTypeGivenOf } from '../../core/metadata/recordTypeGiven.js';
+import {
+  RECORD_TYPE_READ_BACK_IDS,
+  givenRecordTypeId,
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+} from '../../core/metadata/recordTypeGiven.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
 import {
@@ -3193,84 +3199,6 @@ interface RecordTypeTally {
 }
 
 /**
- * The ids a read back of the record types the target gave asks about: the
- * first records of an object the run created, in one request. What a record
- * created without a type gets is one fact of the user and the object for the
- * whole run, the lease holding still as it writes; only the target's
- * automation can set another on some of them, and the first records show it
- * when it does. Read back whole, a large clone would send a request per 200
- * of its records again, as many as its writes.
- */
-export const RECORD_TYPE_READ_BACK_IDS = 200;
-
-/** A record id as the target answered it, fit to go into a statement as a literal. */
-const RECORD_ID = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
-
-/**
- * The read of the record types the records `ids` hold in the target, counted
- * by type: one request, the first {@link RECORD_TYPE_READ_BACK_IDS} of them.
- * A record on Master reads an empty `RecordTypeId`.
- */
-export function recordTypeReadBackSoql(objectApiName: string, ids: readonly string[]): string {
-  const asked = ids
-    .filter((id) => RECORD_ID.test(id))
-    .slice(0, RECORD_TYPE_READ_BACK_IDS)
-    .map((id) => `'${id}'`);
-  return (
-    `SELECT RecordTypeId, COUNT(Id) n FROM ${assertSoqlIdentifier(objectApiName)} ` +
-    `WHERE Id IN (${asked.join(', ')}) GROUP BY RecordTypeId`
-  );
-}
-
-/** One row of that read, as the org answers it: external input, checked before it is read. */
-const readBackRowSchema = z.object({
-  RecordTypeId: z.string().nullish(),
-  n: z.number().int().nonnegative(),
-});
-
-/**
- * What a read back found, from the rows the org answered: per record type,
- * named as the object's describe names it — Master for an empty
- * `RecordTypeId` —, how many of the records read hold it, the most first.
- * Rows the read cannot tell are its failure, said in words.
- *
- * @param types - The object's record types in the target, named.
- */
-export function recordTypesReadBack(
-  rows: readonly unknown[],
-  types: readonly RecordTypeAvailability[],
-): NonNullable<RecordTypeGiven['readBack']> {
-  const parsed = z.array(readBackRowSchema).safeParse(rows);
-  if (!parsed.success) {
-    return { read: 0, types: [], unread: 'the org answered rows that name no record type count' };
-  }
-  const byType = new Map<string, RecordTypeNamed & { rows: number }>();
-  for (const { RecordTypeId, n } of parsed.data) {
-    const named = recordTypeNamedOf(RecordTypeId ?? null, types);
-    const known = byType.get(named.developerName);
-    if (known) known.rows += n;
-    else byType.set(named.developerName, { ...named, rows: n });
-  }
-  const found = [...byType.values()].sort((a, b) => b.rows - a.rows);
-  return { read: found.reduce((sum, type) => sum + type.rows, 0), types: found };
-}
-
-/** A record type read back, by the name its object's describe gives it: its id when the describe has none. */
-function recordTypeNamedOf(
-  id: string | null,
-  types: readonly RecordTypeAvailability[],
-): RecordTypeNamed {
-  if (id === null || namesMasterRecordType(id)) {
-    const master = types.find((type) => type.master);
-    return { developerName: master?.developerName ?? 'Master', label: master?.name ?? 'Master' };
-  }
-  const known = types.find((type) => type.recordTypeId.slice(0, 15) === id.slice(0, 15));
-  return known
-    ? { developerName: known.developerName, label: known.name }
-    : { developerName: id, label: id };
-}
-
-/**
  * Why a row the run created went without a record type: the run writes no
  * `RecordTypeId` for its object — the source has none, or the user excluded
  * or renamed the field —; a decision sent its type to the target's default;
@@ -3291,22 +3219,6 @@ function withoutRecordTypeWhy(
   return 'RecordTypeId' in built.source && namesMasterRecordType(read)
     ? 'masterInSource'
     : 'notRead';
-}
-
-/**
- * The id of the record type the target gives a record sent without one, from
- * the describe of the user the run writes as: the type `recordTypeGivenOf`
- * names, or Master's own id when the record stays on it; undefined with no
- * describe, or one that lists no Master.
- */
-function givenRecordTypeId(
-  infos: readonly RecordTypeAvailability[] | undefined,
-): string | undefined {
-  if (!infos) return undefined;
-  const given = recordTypeGivenOf(infos);
-  return given.kind === 'given'
-    ? given.info.recordTypeId
-    : infos.find((type) => type.master)?.recordTypeId;
 }
 
 /** What a run's summary says of an object's records created without a record type, from its tally. */

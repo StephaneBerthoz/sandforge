@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
 import { parseRecordTypeInfos, type RecordTypeAvailability } from './recordTypeAvailability.js';
-import { predictedRecordTypeOf, recordTypeGivenOf } from './recordTypeGiven.js';
+import {
+  RECORD_TYPE_READ_BACK_IDS,
+  givenRecordTypeId,
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+} from './recordTypeGiven.js';
 
 let made = 0;
 
@@ -138,5 +145,101 @@ describe('predictedRecordTypeOf', () => {
 
   it('says nothing when the org keeps Master', () => {
     expect(predictedRecordTypeOf({ kind: 'master' })).toBeUndefined();
+  });
+});
+
+/** The id of a type of the scratch target's Opportunity, by its DeveloperName. */
+const idOf = (developerName: string): string =>
+  TARGET_OPPORTUNITY.find((i) => i.developerName === developerName)!.recordTypeId;
+
+describe('givenRecordTypeId', () => {
+  it('gives the id of the type given, or Master’s own when the record stays on it', () => {
+    expect(givenRecordTypeId(TARGET_OPPORTUNITY)).toBe(idOf('SFX_Retail'));
+    expect(
+      givenRecordTypeId(
+        read(info('SFX_Hidden'), info('SFX_Retail'), master({ defaultRecordTypeMapping: true })),
+      ),
+    ).toBe('012000000000000AAA');
+  });
+
+  it('gives nothing without a describe, or one that lists no Master', () => {
+    expect(givenRecordTypeId(undefined)).toBeUndefined();
+    expect(givenRecordTypeId([])).toBeUndefined();
+  });
+});
+
+/** A fake record id: the object's prefix, then a counter. */
+const recordId = (prefix: string, n: number): string =>
+  `${prefix}${String(n).padStart(12, '0')}AAA`;
+
+/** The record types statement a read back sends, its ids taken out. */
+const READ_BACK =
+  /^SELECT RecordTypeId, COUNT\(Id\) n FROM (\w+) WHERE Id IN \((.*)\) GROUP BY RecordTypeId$/;
+
+describe('the read back of the record types the target gave', () => {
+  it('asks for at most 200 ids in one statement, counted by record type', () => {
+    const ids = Array.from({ length: 250 }, (_, i) => recordId('006', i));
+
+    const soql = recordTypeReadBackSoql('Opportunity', ids);
+
+    expect(RECORD_TYPE_READ_BACK_IDS).toBe(200);
+    expect(soql).toMatch(READ_BACK);
+    expect([...soql.matchAll(/'([^']+)'/g)].map(([, asked]) => asked)).toEqual(ids.slice(0, 200));
+  });
+
+  it('asks for no id the target could not have answered', () => {
+    const soql = recordTypeReadBackSoql('Opportunity', [recordId('006', 1), "006') OR (Id != '"]);
+
+    expect([...soql.matchAll(/'([^']+)'/g)].map(([, asked]) => asked)).toEqual([
+      recordId('006', 1),
+    ]);
+  });
+
+  it('refuses an object name that is not one', () => {
+    expect(() => recordTypeReadBackSoql('Opportunity WHERE', [recordId('006', 1)])).toThrow();
+  });
+
+  it('names an empty record type Master, and each other by the describe, the most held first', () => {
+    const found = recordTypesReadBack(
+      [
+        { RecordTypeId: idOf('SFX_Retail'), n: 3 },
+        { RecordTypeId: null, n: 20 },
+      ],
+      TARGET_OPPORTUNITY,
+    );
+
+    expect(found).toEqual({
+      read: 23,
+      types: [
+        { developerName: 'Master', label: 'Master', rows: 20 },
+        { developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 },
+      ],
+    });
+  });
+
+  it('names a type by its 15-character id as the org may answer it, and one the describe lacks by its id', () => {
+    const unknown = '0120000000009Z9AAA';
+    const found = recordTypesReadBack(
+      [
+        { RecordTypeId: idOf('SFX_Retail').slice(0, 15), n: 2 },
+        { RecordTypeId: unknown, n: 1 },
+      ],
+      TARGET_OPPORTUNITY,
+    );
+
+    expect(found.types).toEqual([
+      { developerName: 'SFX_Retail', label: 'SFX Retail', rows: 2 },
+      { developerName: unknown, label: unknown, rows: 1 },
+    ]);
+  });
+
+  it('says it could not read rows that count no records, rather than read none', () => {
+    expect(recordTypesReadBack([{ RecordTypeId: idOf('SFX_Retail') }], TARGET_OPPORTUNITY)).toEqual(
+      {
+        read: 0,
+        types: [],
+        unread: 'the org answered rows that name no record type count',
+      },
+    );
   });
 });

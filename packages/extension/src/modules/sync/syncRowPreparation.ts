@@ -26,7 +26,9 @@ import type {
   AddOnField,
   CurrencyReplaced,
   FieldMapping,
+  RecordTypeGiven,
   SyncObjectConfig,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import {
@@ -35,11 +37,15 @@ import {
   leftOutForAccountKind,
 } from '../../core/common/platformRecords.js';
 import {
-  defaultRecordTypeOf,
   recordTypeBlockedMessage,
   withRecordTypeNames,
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
+import {
+  givenRecordTypeId,
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+} from '../../core/metadata/recordTypeGiven.js';
 import { recordTypeNameOf } from '../../core/metadata/recordTypeNames.js';
 import { namesMasterRecordType } from './RecordTypeMapper.js';
 import { mapFields } from './FieldMapping.js';
@@ -208,6 +214,73 @@ export interface SyncWriteRun {
    * once they are written.
    */
   later?: ReadonlySet<string>;
+  /**
+   * The object's record types in the target as a describe read again once
+   * the mute's lease assigned a permission set gives them: a set may open a
+   * record type to the user the run writes as, and what a record created
+   * without one gets changes with it. Only what the run says of the type
+   * given reads them; a row of a type the describe the run began with closed
+   * to that user is held back as it said. Absent when the lease assigned
+   * none, or the run took none.
+   */
+  recordTypesUnderTheLease?: readonly RecordTypeAvailability[];
+  /**
+   * Where the write keeps, by object, the records it created without a record
+   * type into a target object with one besides Master: what the run reads
+   * back once its writes are through (`CreatedWithoutRecordType`). Absent,
+   * it keeps none, and says nothing of them.
+   */
+  createdWithoutRecordType?: Map<string, CreatedWithoutRecordType>;
+}
+
+/**
+ * The records of one object a write created without a record type, into a
+ * target whose object has one besides Master: what the run says of them
+ * before they are read back, the object's record types that what a read
+ * back finds is named by, and the first of their ids, which it asks about.
+ */
+export interface CreatedWithoutRecordType {
+  given: RecordTypeGiven;
+  /** The object's record types in the target, named (`namedTargetRecordTypes`). */
+  types: readonly RecordTypeAvailability[];
+  /** The first ids created, `RECORD_TYPE_READ_BACK_IDS` at most. */
+  ids: string[];
+}
+
+/**
+ * What a run says of the records of one object it created — or a simulation
+ * would create — without a record type (`PreparedSyncRows.withoutRecordType`):
+ * how many, why each went without one, and the type the target's describe
+ * says it gives them (`recordTypeGivenOf`), absent when it keeps them on
+ * Master. Undefined when there were none, or the target has no type of the
+ * object besides Master: there is nothing to say.
+ *
+ * @param whys - Why each record went without one, an entry a record.
+ * @param types - The object's record types in the target, named.
+ */
+export function recordTypeGivenOfRows(
+  objectApiName: string,
+  whys: readonly WithoutRecordTypeWhy[],
+  types: readonly RecordTypeAvailability[],
+): RecordTypeGiven | undefined {
+  if (whys.length === 0 || !types.some((type) => !type.master)) return undefined;
+  const why: Partial<Record<WithoutRecordTypeWhy, number>> = {};
+  for (const one of whys) why[one] = (why[one] ?? 0) + 1;
+  const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+  return { objectApiName, rows: whys.length, why, ...(predicted ? { predicted } : {}) };
+}
+
+/**
+ * The target's record types of an object as a line names them: by the
+ * `RecordType` rows of the target the run read when a record carried a type
+ * of its own — `ns__Retail` for a package's —, by the describe's names
+ * otherwise. Naming them asks nothing more of the target.
+ */
+export function namedTargetRecordTypes(
+  infos: readonly RecordTypeAvailability[],
+  recordTypes: SyncRecordTypes | undefined,
+): RecordTypeAvailability[] {
+  return withRecordTypeNames(infos, recordTypes?.target ?? []);
 }
 
 /** A row held back before the write. */
@@ -263,6 +336,16 @@ export interface PreparedSyncRows {
    * notes, in the user's language where the panel shows them.
    */
   currencies: CurrencyReplaced[];
+  /**
+   * The rows a write that creates records — an insert, an upsert — sends
+   * without a record type into a target whose object has one besides
+   * Master, by their place among the records handed over, and why: on
+   * Master in the source (`masterInSource`), or with no `RecordTypeId` to
+   * write, the source object having none or the run not writing it
+   * (`notRead`). The target gives each the type it gives the user the run
+   * writes as, which the run says. Empty for any other write.
+   */
+  withoutRecordType: Map<number, WithoutRecordTypeWhy>;
 }
 
 /** What {@link prepareSyncRows} reads. */
@@ -393,8 +476,12 @@ function recordTypeOf(
 /**
  * Whether the target takes a person account's row as a business account, as
  * Forge tells it (`takenAsBusinessAccounts`): it has no person accounts, or
- * the record type the row goes in with — the one it carries, or the running
- * user's default when it carries none — is no person account's.
+ * the record type the row goes in with — the one it carries, or, when it
+ * carries none, the one the target gives the user the run writes as
+ * (`givenRecordTypeId`), Master among them — is no person account's. Read
+ * from the default the describe names, a row sent without its type into a
+ * target whose describe named Master, with the person type the only one open
+ * to the user, was taken for a business account, and sent with its name.
  */
 function takenAsBusiness(
   target: TargetWriteFields | null,
@@ -403,7 +490,7 @@ function takenAsBusiness(
 ): boolean {
   if (target?.personAccounts === false) return true;
   if (!personTypes) return false;
-  const type = recordTypeId ?? defaultRecordTypeOf(target?.recordTypes ?? [])?.recordTypeId;
+  const type = recordTypeId ?? givenRecordTypeId(target?.recordTypes);
   return type !== undefined && !personTypes.has(idKey(type));
 }
 
@@ -461,6 +548,7 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
     deferredAcross: [],
     notes: [],
     currencies: [],
+    withoutRecordType: new Map(),
   };
   /** Each row to send, by its place among the records handed over. */
   const staged = new Map<number, { payload: Record<string, unknown>; settled: Set<string> }>();
@@ -475,6 +563,10 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   // The rows of this write that create their record, by source id: a lookup
   // at one of them waits for its copy.
   const creates = config.operation === 'insert' || config.operation === 'upsert';
+  // A row it creates without a record type gets the one the target gives the
+  // user the run writes as, which the run says: of an object with no type
+  // besides Master, there is nothing to say; an update keeps the record's.
+  const saysTypeGiven = creates && infos.some((info) => !info.master);
   const inThisWrite = new Map<string, number>();
   if (run && creates) {
     run.sources.forEach((source, index) => {
@@ -549,10 +641,14 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
     // `RecordTypeId: null` and sent so, an opportunity the simulation counted
     // written was refused "Record Type ID: this ID value isn't valid for the
     // user" by a target whose user had a record type of Opportunity
-    // (`withoutMasterRecordType`).
+    // (`withoutMasterRecordType`). Left out of the payload, never set empty:
+    // a Bulk API job leaves a cell empty for it, which leaves the field unset
+    // and the target gives the record its type, where a null went as `#N/A`
+    // and was refused as the master's id is (INVALID_CROSS_REFERENCE_KEY).
     const value = payload['RecordTypeId'];
     let recordTypeSent: string | undefined;
-    if (namesMasterRecordType(value)) {
+    const masterInSource = namesMasterRecordType(value);
+    if (masterInSource) {
       delete payload['RecordTypeId'];
     } else if (typeof value === 'string' && RECORD_ID.test(value)) {
       const type = recordTypeOf(value, infos, run?.recordTypes);
@@ -620,6 +716,9 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       }
     }
 
+    if (saysTypeGiven && !('RecordTypeId' in payload)) {
+      prepared.withoutRecordType.set(index, masterInSource ? 'masterInSource' : 'notRead');
+    }
     staged.set(index, { payload, settled });
   });
 
@@ -640,6 +739,9 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   }
   prepared.deferred = prepared.deferred.filter(({ index }) => staged.has(index));
   prepared.deferredAcross = prepared.deferredAcross.filter(({ index }) => staged.has(index));
+  for (const index of [...prepared.withoutRecordType.keys()]) {
+    if (!staged.has(index)) prepared.withoutRecordType.delete(index);
+  }
   prepared.held.sort((a, b) => a.index - b.index);
 
   // A row in a currency the target does not hold active was refused for it,

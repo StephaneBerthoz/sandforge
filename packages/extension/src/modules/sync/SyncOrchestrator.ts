@@ -1,5 +1,6 @@
 import type {
   ConflictRecord,
+  RecordTypeGiven,
   SyncConfig,
   SyncDeltaOutcome,
   SyncExecutionResult,
@@ -54,7 +55,20 @@ import {
   targetKeyOf,
   type SimulatedRecord,
 } from './SyncSimulation.js';
-import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
+import {
+  SyncRunLinks,
+  namedTargetRecordTypes,
+  prepareSyncRows,
+  recordTypeGivenOfRows,
+  type CreatedWithoutRecordType,
+  type SyncWriteRun,
+} from './syncRowPreparation.js';
+import {
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+} from '../../core/metadata/recordTypeGiven.js';
+import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
+import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import {
   namesAPricebook,
   settleSyncPrices,
@@ -229,6 +243,34 @@ export interface SyncOrchestratorDeps {
    * a simulation takes every field the records carry as written.
    */
   describeTargetFields?: (objectApiName: string) => Promise<TargetWriteFields>;
+  /**
+   * The same, read again from the target rather than from what the run
+   * holds: asked of the objects a run creates records of once the mute's
+   * lease assigned a permission set (`leaseOfTheGate`), which may have opened
+   * record types to the user the run writes as. Absent, such a run says what
+   * the describe it holds gives a record created without a record type, and
+   * reads back what the target gave all the same.
+   */
+  describeTargetFieldsAgain?: (objectApiName: string) => Promise<TargetWriteFields>;
+  /**
+   * The lease of the target's automation mute the run's gate took as it let
+   * the run write (`mutingSyncWriteGate`), asked once the gate has answered:
+   * how many permission sets it assigned the user the run writes as, and how
+   * to give it back. The run gives it back once its last write is through,
+   * before it reads back the record types the target gave: the bypass is
+   * held no longer than the writes. Whoever took it gives it back again as
+   * the run ends, however it ends; given back twice, a lease answers the
+   * same. Absent, or answering nothing, the run took no lease.
+   */
+  leaseOfTheGate?: () => ForgeWriteGateAnswer['lease'];
+  /**
+   * The rows a statement over the target returns: what reads back, once the
+   * run's writes are through, the record types the target gave the records
+   * it created without one (`recordTypeReadBackSoql`), one request an object.
+   * Without it, the run says what the describe says the target gives them,
+   * and reads nothing back.
+   */
+  queryTargetRows?: (soql: string) => Promise<readonly unknown[]>;
   /** For {@link SyncOrchestrator.simulate}: called before each object is read. */
   onSimulationProgress?: (done: number, total: number, objectApiName: string) => void;
   /**
@@ -332,6 +374,18 @@ interface RunContext {
    * it (`laterInCycles`): what its rows' lookups at them wait for.
    */
   later?: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * Per object, the target's record types as a describe read again once the
+   * mute's lease assigned a permission set gives them: see
+   * `SyncWriteRun.recordTypesUnderTheLease`.
+   */
+  recordTypesUnderTheLease?: ReadonlyMap<string, readonly RecordTypeAvailability[]>;
+  /**
+   * The records the run created without a record type, by object, kept as
+   * each write answers: what it reads back once its writes are through. A
+   * simulation keeps none: it creates nothing.
+   */
+  createdWithoutRecordType?: Map<string, CreatedWithoutRecordType>;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -399,6 +453,7 @@ async function writeRunOf(
       ? await run.currencies()
       : undefined;
   const later = run.later?.get(objectApiName);
+  const underTheLease = run.recordTypesUnderTheLease?.get(objectApiName);
   return {
     links: run.links,
     sources,
@@ -406,6 +461,10 @@ async function writeRunOf(
     ...(currencies ? { currencies, currencyChangesById: run.currencyChangesById } : {}),
     ...(run.contactPoints ? { contactPoints: run.contactPoints } : {}),
     ...(later && later.size > 0 ? { later } : {}),
+    ...(underTheLease ? { recordTypesUnderTheLease: underTheLease } : {}),
+    ...(run.createdWithoutRecordType
+      ? { createdWithoutRecordType: run.createdWithoutRecordType }
+      : {}),
   };
 }
 
@@ -564,15 +623,35 @@ export const SYNC_EARLIER_UNREAD = 'SYNC_EARLIER_UNREAD';
 const PERSON_ACCOUNT_OBJECTS: ReadonlySet<string> = new Set(['Account', 'Contact']);
 
 /**
+ * What a run's gate is handed: what it writes, and the requests the run
+ * sends once its writes are through to read back the record types the target
+ * gave the records it created without one — the `readBack` part of its API
+ * requests (`RunRequestParts.readBack`): one an object it creates records of
+ * whose target has a type besides Master. At most: counted before a row is
+ * read, an object none of whose rows goes without a type is read back by
+ * none. Absent when there is none to read.
+ */
+type GateInput = SyncCountedWrite & { readBack?: number };
+
+/** Whether an object's write creates records: an insert, or an upsert that may. */
+function createsRecords(operation: SyncObjectConfig['operation']): boolean {
+  return operation === 'insert' || operation === 'upsert';
+}
+
+/**
  * What the run writes, as its gate measures it: each object's records as
  * counted, less those an earlier run copied, which an insert leaves as they are.
+ *
+ * @param readBack - The objects whose records created without a record type
+ *   the run reads back once written (`GateInput.readBack`).
  */
 function countedWriteOf(
   objects: readonly SyncObjectConfig[],
   counted: ReadonlyMap<string, { rows: number; personAccounts?: number }>,
   copied: AlreadyCopied,
   refused: ReadonlyMap<string, TargetRefusal> = new Map(),
-): SyncCountedWrite {
+  readBack: ReadonlySet<string> = new Set(),
+): GateInput {
   let alreadyCopied = 0;
   const measured = objects.map((objectConfig): SyncCountedObject => {
     const name = objectConfig.objectApiName;
@@ -592,10 +671,16 @@ function countedWriteOf(
     const refusal = refused.get(object.objectApiName);
     return refusal ? [{ ...object, why: refusal.why }] : [];
   });
+  const written = measured.filter((object) => !refused.has(object.objectApiName));
+  const reads = written.filter(
+    (object) =>
+      object.rows > 0 && createsRecords(object.operation) && readBack.has(object.objectApiName),
+  ).length;
   return {
-    objects: measured.filter((object) => !refused.has(object.objectApiName)),
+    objects: written,
     alreadyCopied,
     ...(unwritable.length > 0 ? { unwritable } : {}),
+    ...(reads > 0 ? { readBack: reads } : {}),
   };
 }
 
@@ -710,9 +795,13 @@ export class SyncOrchestrator {
       ordered: sortedObjects,
       order,
       refused: unwritable,
+      typed,
     } = await this.writeOrderOf(config.objects);
     // Of each object a cycle of lookups ties to others, those written after it.
     const later = laterInCycles(order);
+    // The objects whose records created without a record type the run reads
+    // back once its writes are through: none when it has no way to read.
+    const readsBack = this.deps.queryTargetRows ? typed : new Set<string>();
     const deltaLoad = this.deltaLoadOf(config);
     /** The run refused before its first write, with nothing written. */
     const refuse = (message: string, code: string): SyncRunRefused =>
@@ -785,13 +874,48 @@ export class SyncOrchestrator {
     /** The objects the target takes none of, left out as the user confirmed, with their rows. */
     const leftOutOfRun = new Map<string, number>();
     if (this.deps.writeGate && 'counted' in counts) {
-      const measured = countedWriteOf(sortedObjects, counts.counted, copied, unwritable);
+      const measured = countedWriteOf(sortedObjects, counts.counted, copied, unwritable, readsBack);
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
       for (const object of measured.unwritable ?? []) {
         leftOutOfRun.set(object.objectApiName, object.rows);
       }
     }
+    // The lease the gate took as it let the run write, given back once the
+    // last write is through. One that assigned a permission set has the
+    // record types of the objects the run creates records of read again
+    // before the first write: a set may open a record type to the user the
+    // run writes as, and a fresh describe says so at once.
+    let lease = this.deps.leaseOfTheGate?.();
+    const recordTypesUnderTheLease =
+      lease && lease.assigned > 0
+        ? await this.recordTypesReadAgain(
+            sortedObjects
+              .map((object) => object.objectApiName)
+              .filter((name) => typed.has(name) && !leftOutOfRun.has(name)),
+          )
+        : undefined;
+    /** The records the run created without a record type, by object, as each write answers. */
+    const createdWithoutRecordType = new Map<string, CreatedWithoutRecordType>();
+    /**
+     * Once the last write is through, however the run came to its end: the
+     * lease given back, then the record types the target gave the records
+     * created without one read back, and said in each object's result.
+     */
+    const afterTheWrites = async (): Promise<void> => {
+      const held = lease;
+      lease = undefined;
+      // A lease never throws as it is given back; should one, the writes
+      // stand, and whoever took it gives it back again and says what it left.
+      await held?.giveBack().catch(() => undefined);
+      for (const [name, given] of await this.readBackRecordTypes(createdWithoutRecordType)) {
+        for (let at = objectResults.length - 1; at >= 0; at--) {
+          if (objectResults[at].objectApiName !== name) continue;
+          objectResults[at] = { ...objectResults[at], recordTypeGiven: given };
+          break;
+        }
+      }
+    };
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
@@ -1073,6 +1197,7 @@ export class SyncOrchestrator {
       reason?: string,
     ): Promise<SyncExecutionResult> => {
       leaveUnset();
+      await afterTheWrites();
       endGrappe();
       await recorder?.flush();
       await linksKept;
@@ -1125,6 +1250,8 @@ export class SyncOrchestrator {
             standardPricebooks,
             ...(contactPoints ? { contactPoints } : {}),
             later,
+            ...(recordTypesUnderTheLease ? { recordTypesUnderTheLease } : {}),
+            createdWithoutRecordType,
           },
           plan ? read : undefined,
           written,
@@ -1343,6 +1470,9 @@ export class SyncOrchestrator {
       }
     }
 
+    // The last write is through: the bypass the gate's lease holds is held no
+    // longer, and what follows only reads.
+    await afterTheWrites();
     const status = determineStatus(objectResults);
 
     endGrappe();
@@ -1350,6 +1480,63 @@ export class SyncOrchestrator {
     await recorder?.flush();
     await linksKept;
     return finish(buildResult(config.id, operationId, objectResults, startTime, status));
+  }
+
+  /**
+   * Read again from the target the record types of `objects`, once the
+   * mute's lease assigned a permission set: a set may open a record type to
+   * the user the run writes as, and a record created without one then gets
+   * another. On a scratch org, a describe read just after an assignment
+   * already said what it opened. One that fails leaves the describe the run
+   * holds, and the read back says what the target gave all the same.
+   */
+  private async recordTypesReadAgain(
+    objects: readonly string[],
+  ): Promise<Map<string, readonly RecordTypeAvailability[]>> {
+    const again = this.deps.describeTargetFieldsAgain;
+    const read = new Map<string, readonly RecordTypeAvailability[]>();
+    if (!again) return read;
+    await Promise.all(
+      objects.map(async (name) => {
+        try {
+          read.set(name, (await again(name)).recordTypes ?? []);
+        } catch {
+          // The describe the run holds says what the target gives.
+        }
+      }),
+    );
+    return read;
+  }
+
+  /**
+   * What each object's result says of the records the run created without a
+   * record type, read back once its writes are through: one request an
+   * object, of its first records (`recordTypeReadBackSoql`), each type named
+   * by the target's describe. A read that fails is said in the org's words,
+   * and fails nothing: the records are in. Without a way to read the target,
+   * what the describe says the target gives them.
+   */
+  private async readBackRecordTypes(
+    created: ReadonlyMap<string, CreatedWithoutRecordType>,
+  ): Promise<Map<string, RecordTypeGiven>> {
+    const query = this.deps.queryTargetRows;
+    const said = new Map<string, RecordTypeGiven>();
+    await Promise.all(
+      [...created].map(async ([name, { given, types, ids }]) => {
+        if (!query || ids.length === 0) {
+          said.set(name, given);
+          return;
+        }
+        try {
+          const rows = await query(recordTypeReadBackSoql(name, ids));
+          said.set(name, { ...given, readBack: recordTypesReadBack(rows, types) });
+        } catch (err: unknown) {
+          const unread = err instanceof Error ? err.message : String(err);
+          said.set(name, { ...given, readBack: { read: 0, types: [], unread } });
+        }
+      }),
+    );
+    return said;
   }
 
   /**
@@ -1695,16 +1882,27 @@ export class SyncOrchestrator {
    * will take no record of as the run writes them (`targetAccessOf`), which
    * the run holds to its gate before its first write. An object whose
    * describe fails keeps its place, ordered without its lookups.
+   *
+   * `typed` names the objects, of those the run creates records of, whose
+   * target has a record type besides Master: a record created there without
+   * one gets the type the target gives the user the run writes as, which the
+   * run reads back once written.
    */
   private async writeOrderOf(objects: readonly SyncObjectConfig[]): Promise<{
     ordered: SyncObjectConfig[];
     order?: SyncWriteOrder;
     refused: ReadonlyMap<string, TargetRefusal>;
+    typed: ReadonlySet<string>;
   }> {
     const describe = this.deps.describeTargetFields;
     const refused = new Map<string, TargetRefusal>();
+    const typed = new Set<string>();
     if (!describe) {
-      return { ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder), refused };
+      return {
+        ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder),
+        refused,
+        typed,
+      };
     }
     const lookups = new Map<string, WriteLookup[]>();
     for (const objectConfig of objects) {
@@ -1717,9 +1915,15 @@ export class SyncOrchestrator {
       if ('refused' in access) refused.set(objectConfig.objectApiName, access.refused);
       if ('target' in access && access.target) {
         lookups.set(objectConfig.objectApiName, lookupsOf(objectConfig, access.target));
+        if (
+          createsRecords(objectConfig.operation) &&
+          (access.target.recordTypes ?? []).some((type) => !type.master)
+        ) {
+          typed.add(objectConfig.objectApiName);
+        }
       }
     }
-    return { ...orderSyncObjects(objects, lookups), refused };
+    return { ...orderSyncObjects(objects, lookups), refused, typed };
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */
@@ -1750,7 +1954,7 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     // In the order the run writes them, said with the simulation.
-    const { ordered, order: writeOrder, refused } = await this.writeOrderOf(config.objects);
+    const { ordered, order: writeOrder, refused, typed } = await this.writeOrderOf(config.objects);
     let filePlan: SyncFilePlan | undefined;
     let writeCheck: SyncWriteCheck | undefined;
     let writeCheckUnread: string | undefined;
@@ -1811,7 +2015,17 @@ export class SyncOrchestrator {
     if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
     if (gate && counts && 'counted' in counts) {
       try {
-        writeCheck = await gate.measure(countedWriteOf(ordered, counts.counted, copied, refused));
+        // With the requests a run sends to read back the record types the
+        // target gave, as its gate counts them.
+        writeCheck = await gate.measure(
+          countedWriteOf(
+            ordered,
+            counts.counted,
+            copied,
+            refused,
+            this.deps.queryTargetRows ? typed : new Set<string>(),
+          ),
+        );
       } catch (err: unknown) {
         writeCheckUnread = err instanceof Error ? err.message : String(err);
       }
@@ -1979,11 +2193,17 @@ export class SyncOrchestrator {
     }
 
     // What the write would send, and the rows it would hold back.
+    const writeRun = await writeRunOf(
+      run,
+      prepared.records,
+      prepared.sources,
+      objectConfig.objectApiName,
+    );
     const rows = prepareSyncRows({
       config: { ...objectConfig, fieldMappings: [], addOnFields: [] },
       records: prepared.records,
       target,
-      run: await writeRunOf(run, prepared.records, prepared.sources, objectConfig.objectApiName),
+      run: writeRun,
     });
     const sentRecords = rows.sentAt.map((at) => prepared.records[at]);
 
@@ -2094,11 +2314,25 @@ export class SyncOrchestrator {
       });
     }
 
+    // Of the records it would create, those it sends without a record type,
+    // and the type the target's describe says it gives them: what the run
+    // reads back once written. An update keeps the record's own.
+    const recordTypeGiven = recordTypeGivenOfRows(
+      objectConfig.objectApiName,
+      kept.flatMap((k) => {
+        const why =
+          simulated[k] === 'insert' ? rows.withoutRecordType.get(rows.sentAt[k]) : undefined;
+        return why ? [why] : [];
+      }),
+      namedTargetRecordTypes(target?.recordTypes ?? [], writeRun.recordTypes),
+    );
+
     const withHeld: SyncObjectSimulation = {
       ...outcome,
       skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied,
       ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
       ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
+      ...(recordTypeGiven ? { recordTypeGiven } : {}),
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [
         ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),

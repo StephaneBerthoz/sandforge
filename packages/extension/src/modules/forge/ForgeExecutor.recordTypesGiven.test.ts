@@ -1,11 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import {
-  ForgeExecutor,
-  RECORD_TYPE_READ_BACK_IDS,
-  recordTypeReadBackSoql,
-  recordTypesReadBack,
-} from './ForgeExecutor.js';
+import { ForgeExecutor } from './ForgeExecutor.js';
 import type {
   ExecuteOptions,
   FieldInfo,
@@ -16,7 +11,10 @@ import type {
   TargetObjectInfo,
 } from './ForgeExecutor.js';
 import { finishedRunStatus } from './runResult.js';
-import { recordTypeGivenOf } from '../../core/metadata/recordTypeGiven.js';
+import {
+  RECORD_TYPE_READ_BACK_IDS,
+  recordTypeGivenOf,
+} from '../../core/metadata/recordTypeGiven.js';
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import { RECORD_TYPE_NAMES_SOQL } from '../../core/metadata/recordTypeNames.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
@@ -556,49 +554,6 @@ describe('ForgeExecutor, the record type the target gives a record sent without 
 
       expect(typedGate.seen[0]).not.toHaveProperty('readBack');
       expect(dryGate.seen[0]).not.toHaveProperty('readBack');
-    });
-  });
-});
-
-describe('the read back of the record types the target gave', () => {
-  it('asks for at most 200 ids in one statement, counted by record type', () => {
-    const ids = Array.from({ length: 250 }, (_, i) => id('006', i));
-
-    const soql = recordTypeReadBackSoql('Opportunity', ids);
-
-    expect(soql).toMatch(READ_BACK);
-    expect([...soql.matchAll(/'([^']+)'/g)].map(([, asked]) => asked)).toEqual(ids.slice(0, 200));
-  });
-
-  it('asks for no id the target could not have answered', () => {
-    const soql = recordTypeReadBackSoql('Opportunity', [id('006', 1), "006') OR (Id != '"]);
-
-    expect([...soql.matchAll(/'([^']+)'/g)].map(([, asked]) => asked)).toEqual([id('006', 1)]);
-  });
-
-  it('names an empty record type Master, and each other by the describe, the most held first', () => {
-    const found = recordTypesReadBack(
-      [
-        { RecordTypeId: TARGET_RETAIL, n: 3 },
-        { RecordTypeId: null, n: 20 },
-      ],
-      TARGET_OPPORTUNITY,
-    );
-
-    expect(found).toEqual({
-      read: 23,
-      types: [
-        { developerName: 'Master', label: 'Master', rows: 20 },
-        { developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 },
-      ],
-    });
-  });
-
-  it('says it could not read rows that count no records, rather than read none', () => {
-    expect(recordTypesReadBack([{ RecordTypeId: TARGET_RETAIL }], TARGET_OPPORTUNITY)).toEqual({
-      read: 0,
-      types: [],
-      unread: 'the org answered rows that name no record type count',
     });
   });
 });

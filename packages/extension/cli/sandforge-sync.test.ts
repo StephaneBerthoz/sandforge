@@ -11,10 +11,14 @@ import {
   objectErrorLines,
   objectPriceLines,
   objectWrittenLines,
+  keepingTheLease,
   readSavedConfig,
+  recordTypeGivenOfObjectsLines,
   simulationLines,
   writeCheckLines,
 } from './sandforge-sync.js';
+import type { RecordTypeGiven } from '@sandforge/shared';
+import type { HeldMute, RunMute } from '../src/modules/forge/AutomationMuteLease.js';
 
 describe('what a run prints of an object', () => {
   it('prints the first refusals, and every line on what it held back', () => {
@@ -953,5 +957,163 @@ describe('what a run says before its first write', () => {
     expect(lines).toContain(
       '      2 already copied by an earlier run of this configuration, left as they are',
     );
+  });
+});
+
+describe('what a run prints of the record types the target gave', () => {
+  /** What a run with the opportunity on Master of the scratch source says of it. */
+  const given = (over: Partial<RecordTypeGiven> = {}): RecordTypeGiven => ({
+    objectApiName: 'Opportunity',
+    rows: 1,
+    why: { masterInSource: 1 },
+    predicted: { developerName: 'SFX_Retail', label: 'SFX Retail', basis: 'onlyOneOpen' },
+    ...over,
+  });
+
+  /** A simulation of one object, its line of the record types given as told. */
+  const simulation = (recordTypeGiven?: RecordTypeGiven) => ({
+    configId: 'cli-1',
+    operationId: 'sync-simulation-1',
+    direction: 'source_to_target' as const,
+    conflictStrategy: 'source_wins' as const,
+    objects: [
+      {
+        objectApiName: 'Opportunity',
+        operation: 'insert' as const,
+        read: 1,
+        insert: 1,
+        update: 0,
+        delete: 0,
+        skipped: 0,
+        refused: 0,
+        conflicts: 0,
+        conflictFields: [],
+        notes: [],
+        ...(recordTypeGiven ? { recordTypeGiven } : {}),
+      },
+    ],
+    duration: 5,
+    timestamp: '2026-11-01T00:00:00.000Z',
+  });
+
+  it('says in a dry run the type the target would give, and why, after the objects', () => {
+    const lines = simulationLines(simulation(given()), 'TGT');
+
+    expect(lines.slice(-2)).toEqual([
+      '  record types the target would give the records created without one (1 object(s)):',
+      '    Opportunity  1 record(s) on Master in the source: would go in as SFX_Retail (SFX ' +
+        'Retail), the only other Opportunity record type open to the user the run writes as, ' +
+        'whose describe names Master the default',
+    ]);
+  });
+
+  it('says in a dry run that the sets a muted run assigns may open other types', () => {
+    const lines = simulationLines(simulation(given()), 'TGT', true);
+
+    expect(lines.at(-1)).toBe(
+      '    the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary ' +
+        'says what the target gave',
+    );
+  });
+
+  it('says nothing of an object whose records go with their own type', () => {
+    expect(simulationLines(simulation(), 'TGT').join('\n')).not.toContain('record types');
+    expect(recordTypeGivenOfObjectsLines([{}, {}], false)).toEqual([]);
+    // Nor of the mute, with nothing to say of a type.
+    expect(recordTypeGivenOfObjectsLines([{}], true, true)).toEqual([]);
+  });
+
+  it('says after a run what the records were read back holding', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            readBack: {
+              read: 1,
+              types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 1 }],
+            },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines).toEqual([
+      'record types the target gave the records created without one (1 object(s)):',
+      '  Opportunity  1 record(s) on Master in the source: went in as SFX_Retail (SFX Retail), ' +
+        'read back on 1',
+    ]);
+  });
+
+  it('names the target’s automation when what was read back is not what the describe said', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            rows: 250,
+            why: { masterInSource: 250 },
+            readBack: {
+              read: 200,
+              types: [{ developerName: 'SFX_Hidden', label: 'SFX Hidden', rows: 200 }],
+            },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines[1]).toBe(
+      '  Opportunity  250 record(s) on Master in the source: read back on 200 of 250: 200 ' +
+        'SFX_Hidden (SFX Hidden); the describe said SFX_Retail: an automation of the target sets ' +
+        'the record type',
+    );
+  });
+
+  it('says the org’s words when the read back failed', () => {
+    const lines = recordTypeGivenOfObjectsLines(
+      [
+        {
+          recordTypeGiven: given({
+            readBack: { read: 0, types: [], unread: 'INVALID_TYPE: not supported' },
+          }),
+        },
+      ],
+      false,
+    );
+
+    expect(lines[1]).toContain(
+      'the record types they hold could not be read back: ' + 'INVALID_TYPE: not supported',
+    );
+  });
+});
+
+describe('the mute’s lease, kept as the gate takes it', () => {
+  const held: HeldMute = {
+    outcome: {
+      status: 'muted',
+      assigned: ['SFX_Bypass'],
+    } as unknown as HeldMute['outcome'],
+    release: vi.fn(async () => held.outcome),
+  };
+
+  it('hands over the lease the gate takes, as it takes it', async () => {
+    const acquire = vi.fn(async () => held);
+    const mute = { prepared: { acquire } } as unknown as RunMute;
+    const kept: HeldMute[] = [];
+
+    const keeping = keepingTheLease(mute, (lease) => kept.push(lease));
+    expect(kept).toEqual([]);
+    const taken = await keeping.prepared?.acquire('run-1');
+
+    expect(acquire).toHaveBeenCalledWith('run-1');
+    expect(taken).toBe(held);
+    expect(kept).toEqual([held]);
+  });
+
+  it('leaves a mute with nothing to assign as it was', () => {
+    const mute = { muted: {} } as unknown as RunMute;
+
+    expect(keepingTheLease(mute, () => undefined)).toBe(mute);
   });
 });
