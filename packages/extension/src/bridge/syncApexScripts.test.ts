@@ -164,13 +164,21 @@ function relativeSorted(root: string, files: string[]): string[] {
  */
 const DELIVERABILITY_READ = 'extension/src/modules/forge/targetDeliverability.ts';
 
+/**
+ * The fake org the rewind's tests run against, which answers that read as a
+ * closed org does: it names the endpoint to match it, and runs nothing.
+ */
+const DELIVERABILITY_FAKE = 'extension/src/test/memoryRemovalOrg.ts';
+
 describe('no production source runs anonymous Apex but the deliverability read', () => {
   it('nothing under packages/ calls executeAnonymous but the deliverability read', () => {
     const offenders = productionSources(PACKAGES_ROOT).filter((file) =>
       readFileSync(file, 'utf8').includes('executeAnonymous'),
     );
 
-    expect(relativeSorted(PACKAGES_ROOT, offenders)).toEqual([DELIVERABILITY_READ]);
+    expect(relativeSorted(PACKAGES_ROOT, offenders)).toEqual(
+      [DELIVERABILITY_READ, DELIVERABILITY_FAKE].sort(),
+    );
   });
 
   it('the deliverability read runs its one fixed line, with nothing a run is given put into it', () => {
