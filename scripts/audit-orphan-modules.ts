@@ -178,7 +178,20 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
+  {
+    path: 'packages/extension/src/core/metadata/recordTypeGiven.ts',
+    reason: 'wave 46 contract (C0): Forge reads it once RT-B lands',
+  },
+  {
+    path: 'packages/extension/src/modules/checkpoint/beforeRunCheckpoint.ts',
+    reason: 'wave 46 contract (C0): the checkpoint host calls it once AC1 lands',
+  },
+  {
+    path: 'packages/extension/src/modules/forge/fitBudget.ts',
+    reason: "wave 46 contract (C0): Seed's storage gate calls it once FS-A lands",
+  },
+];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {
