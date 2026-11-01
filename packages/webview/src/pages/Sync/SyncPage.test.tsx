@@ -120,6 +120,7 @@ let mockExecuteMutationState = {
   loading: false,
   error: null as string | null,
   reset: mockExecuteReset,
+  requestId: null as string | null,
 };
 
 const mockSimulateMutate = vi.fn();
@@ -320,6 +321,7 @@ describe('SyncPage', () => {
       loading: false,
       error: null,
       reset: mockExecuteReset,
+      requestId: null,
     };
     mockSimulateMutate.mockClear();
     mockSimulateMutationState = {
@@ -693,6 +695,114 @@ describe('SyncPage', () => {
       fireEvent.click(screen.getByTestId('sync-run'));
 
       expect(mockExecuteMutate.mock.calls[0][0]).toMatchObject({ muteAutomation: true });
+    });
+
+    it('offers beside Run the checkpoint first, off, says Simulate has its cost, and asks it once ticked', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      const toggle = screen.getByTestId('sync-checkpoint-first-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(screen.getByTestId('sync-checkpoint-first-cost-said').textContent).toMatch(
+        /^Simulate/,
+      );
+      fireEvent.click(screen.getByTestId('sync-run'));
+      expect(mockExecuteMutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByTestId('sync-run'));
+      expect(mockExecuteMutate.mock.calls[1][0]).toMatchObject({ checkpointFirst: {} });
+    });
+
+    it('names under the run’s error the checkpoint it deleted', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.requestId = 'run-1';
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      fromHost({
+        id: 'e1',
+        type: 'sync:error',
+        correlationId: 'run-1',
+        payload: {
+          message: 'Refused.',
+          code: 'MUTE_NO_RIGHT',
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        },
+      });
+
+      expect(screen.getByTestId('sync-error-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+
+    it('names under the removal the checkpoint the run took, with the way to rewind to it', () => {
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'run',
+        status: 'success',
+        objectResults: [],
+        totalProcessed: 0,
+        totalSuccess: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-11-01T10:15:01.000Z',
+        checkpoint: {
+          state: 'taken',
+          checkpointId: 'ck-20261101-101500-a1b2',
+          name: 'Before Sync run 2026-11-01 10:15 UTC',
+          takenAt: '2026-11-01T10:15:00.000Z',
+          expiresAt: '2026-11-08T10:15:00.000Z',
+          objects: ['Account'],
+          records: 38,
+          bytes: 2_200_000,
+          requests: 68,
+          added: [],
+          notHeld: [],
+        },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-result-checkpoint-taken').textContent).toContain(
+        'Before Sync run 2026-11-01 10:15 UTC',
+      );
+      expect(screen.getByTestId('sync-result-checkpoint-action').textContent).toBe(
+        'Rewind to before this run…',
+      );
     });
 
     it('runs a configuration that is not the one saved under a fresh id', () => {

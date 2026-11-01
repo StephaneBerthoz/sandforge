@@ -1,9 +1,15 @@
 import { useState, useCallback, useMemo } from 'react';
 import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
-import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
+import type {
+  CsvColumnMapping,
+  CsvValidationResult,
+  RunCheckpointInfo,
+  SeedFieldInfo,
+} from '@sandforge/shared';
 import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { useStoppedRunCheckpoint } from '../../../hooks/useStoppedRunCheckpoint';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { formatNumber } from '../../../utils/formatters';
 
@@ -12,6 +18,18 @@ export type CsvImportStep = 'upload' | 'map' | 'validate' | 'execute';
 
 /** Execution status for the CSV import flow. */
 export type CsvExecutionStatus = 'idle' | 'validating' | 'executing' | 'complete' | 'error';
+
+/**
+ * The refusals of an import that wrote nothing, which Execute can meet again
+ * once what they say is changed: Checkpoint first unticked, for one. On any
+ * other error the step stays empty, as its rows may have gone in part.
+ */
+const REFUSED_BEFORE_WRITING: readonly (string | null)[] = [
+  'CHECKPOINT_REFUSED',
+  'API_BUDGET_EXCEEDED',
+  'SEED_WRITE_DECLINED',
+  'SEED_CONFIRMATION_UNAVAILABLE',
+];
 
 /** Execution result shape from the operation completed event. */
 export interface CsvExecutionResult {
@@ -25,6 +43,11 @@ export interface CsvExecutionResult {
    * results or Earlier seeds. Absent when it created nothing.
    */
   runId?: string;
+  /**
+   * The checkpoint of the object it writes, when it took one first: taken,
+   * or deleted as it wrote nothing.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /** Return type of the useCsvImport hook. */
@@ -61,6 +84,11 @@ export interface CsvImportState {
   runRequestId: string | null;
   /** Execution result after completion. */
   executionResult: CsvExecutionResult | null;
+  /** Whether the import takes a checkpoint of its object first, as its box is left: off unless ticked. */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last import took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
   /** Error message from the last failed step, if any. */
   error: string | null;
   /** Current wizard step. */
@@ -171,6 +199,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
   const [validationResult, setValidationResult] = useState<CsvValidationResult | null>(null);
   const [executionStatus, setExecutionStatus] = useState<CsvExecutionStatus>('idle');
   const [executionResult, setExecutionResult] = useState<CsvExecutionResult | null>(null);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<CsvImportStep>('upload');
 
@@ -186,6 +215,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     timeoutMs: WRITE_RUN_TIMEOUT_MS,
     runOutlivesWait: true,
   });
+  const stoppedCheckpoint = useStoppedRunCheckpoint('seed:csv:error', executeMutation.requestId);
 
   const handleFileSelected = useCallback(
     (selectedFile: File) => {
@@ -272,12 +302,18 @@ export function useCsvImport(t: TFunction): CsvImportState {
     setError(validateMutation.error);
   }
   if (executeMutation.error && executionStatus === 'executing') {
-    setExecutionStatus('error');
-    // A missing Production Guard is said by its code: the host's words are English.
+    setExecutionStatus(
+      REFUSED_BEFORE_WRITING.includes(executeMutation.errorCode) ? 'idle' : 'error',
+    );
+    // A missing Production Guard is said by its code: the host's words are
+    // English. So is the import cancelled at its question, which would read
+    // as a seed's.
     setError(
       executeMutation.errorCode === 'NOT_INITIALIZED'
         ? t('common.refusal.guardMissing')
-        : executeMutation.error,
+        : executeMutation.errorCode === 'SEED_WRITE_DECLINED'
+          ? t('seed.csv.wizard.writeDeclined')
+          : executeMutation.error,
     );
   }
 
@@ -340,8 +376,8 @@ export function useCsvImport(t: TFunction): CsvImportState {
     const payload = importPayload();
     if (!payload) return;
     setExecutionStatus('executing');
-    executeMutation.mutate(payload);
-  }, [importPayload, executeMutation]);
+    executeMutation.mutate({ ...payload, ...(checkpointFirst ? { checkpointFirst: {} } : {}) });
+  }, [importPayload, checkpointFirst, executeMutation]);
 
   const reset = useCallback(() => {
     setFile(null);
@@ -355,6 +391,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     setValidationResult(null);
     setExecutionStatus('idle');
     setExecutionResult(null);
+    setCheckpointFirst(false);
     setError(null);
     setStep('upload');
     describeMutation.reset();
@@ -376,6 +413,9 @@ export function useCsvImport(t: TFunction): CsvImportState {
     executionStatus,
     runRequestId: executeMutation.requestId,
     executionResult,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     error,
     step,
     describeLoading: describeMutation.loading,

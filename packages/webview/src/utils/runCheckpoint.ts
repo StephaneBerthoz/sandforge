@@ -1,4 +1,71 @@
-import type { RunCheckpointEstimate, RunCheckpointInfo } from '@sandforge/shared';
+import {
+  panelWordingOf,
+  type RunCheckpointEstimate,
+  type RunCheckpointInfo,
+} from '@sandforge/shared';
+
+/**
+ * What refused a checkpoint a run was to take first, by the take's code, in
+ * the interface language: the host says it in English, and the page said
+ * only that it was refused. A code with no words of its own is said as the
+ * take's guards refusing it.
+ */
+const REFUSAL_KEYS: ReadonlyMap<string, string> = new Map([
+  ['DISK', 'runResults.checkpoint.refusal.disk'],
+  ['RUN_WRITING', 'runResults.checkpoint.refusal.runWriting'],
+  ['NOTHING_HELD', 'runResults.checkpoint.refusal.nothingHeld'],
+  ['TOO_MANY_RECORDS', 'runResults.checkpoint.refusal.tooManyRecords'],
+  ['API_BUDGET', 'runResults.checkpoint.refusal.apiBudget'],
+  ['PERMISSIONS', 'runResults.checkpoint.refusal.permissions'],
+  ['PRODUCTION', 'runResults.checkpoint.refusal.production'],
+  ['SCRATCH_EXPIRED', 'runResults.checkpoint.refusal.scratchExpired'],
+]);
+
+/**
+ * Why a checkpoint taken before a run was refused, as a sentence: by the
+ * take's own refusal code when the run's stop names one, and as a take that
+ * could not be taken when it names none — a take that failed, or a host
+ * that did not say.
+ *
+ * @param reason - The take's `CheckpointRefusalCode`, as the stop carries it.
+ * @param t - Translates a key in the interface language.
+ */
+export function checkpointRefusalWords(
+  reason: string | undefined,
+  t: (key: string) => string,
+): string {
+  if (reason === undefined) return t('runResults.checkpoint.refusal.unsaid');
+  return t(REFUSAL_KEYS.get(reason) ?? 'runResults.checkpoint.refusal.other');
+}
+
+/**
+ * The words the panel gives an error by its code (`panelWordingOf`), or
+ * undefined for a code it leaves to the host: what happened and what to do,
+ * as one text, with what refused the checkpoint of a run stopped for one
+ * between the two, which the error carries beside its code. A Sync run, a
+ * seed, a CSV import and a clone are refused alike; the host's words are
+ * English.
+ *
+ * @param payload - The error's payload, read for its `checkpointRefusal`.
+ * @param t - Translates a key in the interface language.
+ */
+export function panelRefusalWords(
+  code: string | null | undefined,
+  payload: Record<string, unknown>,
+  t: (key: string) => string,
+): string | undefined {
+  const worded = panelWordingOf(code);
+  if (!worded) return undefined;
+  const { checkpointRefusal } = payload;
+  const why =
+    code === 'CHECKPOINT_REFUSED'
+      ? `${checkpointRefusalWords(
+          typeof checkpointRefusal === 'string' ? checkpointRefusal : undefined,
+          t,
+        )} `
+      : '';
+  return `${t(worded.explanationKey)} ${why}${t(worded.actionKey)}`;
+}
 
 /** Whether `value` is a list of objects, each named with why. */
 function notesIn(value: unknown): boolean {

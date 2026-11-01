@@ -461,16 +461,39 @@ describe('useQuickSyncFlow', () => {
     });
   });
 
-  it('starts every Quick Sync with the box unticked', () => {
+  it('relays the run taking a checkpoint first once its box was ticked as Go was pressed', () => {
+    persistedValues = { quickSyncDraft: filledDraft, quickSyncStep: 'preview' };
+    const { result, rerender } = renderHook(() => useQuickSyncFlow());
+    expect(result.current.state.checkpointFirst).toBe(false);
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    // Unticked while the configuration is prepared: the run goes as Go found it.
+    act(() => {
+      result.current.setCheckpointFirst(false);
+    });
+    mockPrepareState.data = { syncConfig: fakeSyncConfig, objectCount: 1 };
+    rerender();
+
+    expect(mockSyncMutate).toHaveBeenCalledWith({ config: fakeSyncConfig, checkpointFirst: {} });
+  });
+
+  it('starts every Quick Sync with the boxes unticked', () => {
     persistedValues = { quickSyncDraft: filledDraft, quickSyncStep: 'preview' };
     const { result } = renderHook(() => useQuickSyncFlow());
     act(() => {
       result.current.setMuteAutomation(true);
+      result.current.setCheckpointFirst(true);
     });
     act(() => {
       result.current.reset();
     });
     expect(result.current.state.muteAutomation).toBe(false);
+    expect(result.current.state.checkpointFirst).toBe(false);
   });
 
   it('completes the flow when sync:execute returns the execution result', () => {

@@ -25,6 +25,7 @@ vi.mock('./useQuickSyncFlow', () => ({
     goToObjects: vi.fn(),
     goToPreview: vi.fn(),
     setMuteAutomation: vi.fn(),
+    setCheckpointFirst: vi.fn(),
     execute: vi.fn(),
     reset,
     canGoToObjects: true,
@@ -58,6 +59,8 @@ const OBJECTS: QuickSyncFlowState = {
   runOperationId: null,
   error: null,
   muteAutomation: false,
+  checkpointFirst: false,
+  stoppedCheckpoint: undefined,
 };
 
 describe('QuickSyncFlow between its screens', () => {

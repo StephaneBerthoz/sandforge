@@ -15,6 +15,7 @@ import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
 import { SeedObjectBadge } from './SeedObjectBadge';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import type { ObjectLabels } from '../../utils/objectLabels';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
@@ -62,6 +63,13 @@ export function buildSeedResultsCsv(
 export interface SeedResultsStepProps {
   /** Execution result returned by the backend, if any. */
   executionResult: SeedExecutionResult | undefined;
+  /** Whether the run started from this step is going, its result to come. */
+  isRunning?: boolean;
+  /**
+   * Whether the last run stopped with no result: refused, or failed. The
+   * banner above and, for what fits, the card under the refusal say why.
+   */
+  stopped?: boolean;
   /** The template the run was built from, saved by "Save as template". */
   template: SeedTemplate | null;
   /** How the org the run wrote to is named: its alias, or its username. */
@@ -74,9 +82,17 @@ export interface SeedResultsStepProps {
   onSeedAgain: () => void;
 }
 
-/** Step 4 (Results) of the Seed wizard: summary, per-object cards, actions. */
+/**
+ * Step 4 (Results) of the Seed wizard: summary, per-object cards, actions.
+ *
+ * The run starts from this step, on its Confirm: it said "No data available"
+ * before the run, through it, and beside the counts that fit once it was
+ * refused, where nothing was missing.
+ */
 export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,
+  isRunning = false,
+  stopped = false,
   template,
   orgName,
   orgId,
@@ -124,9 +140,15 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-results-content">
       {!executionResult ? (
-        <div className="text-center py-8 text-xs text-(--sf-text-secondary)">
-          {t('common.noData')}
-        </div>
+        !stopped && (
+          <p
+            role="status"
+            className="text-center py-8 text-xs text-(--sf-text-secondary)"
+            data-testid="seed-results-waiting"
+          >
+            {isRunning ? t('seed.running') : t('seed.results.notRun')}
+          </p>
+        )
       ) : (
         <>
           {/* Summary table */}
@@ -203,6 +225,14 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
           {executionResult.totalRecordsCreated > 0 && (
             <SeedRunRemoval runId={executionResult.operationId} />
           )}
+          {/* Under the removal, which takes back what the run wrote alone: the
+              rewind takes back everything since, whoever did it. */}
+          <RewindBeforeRun
+            checkpoint={executionResult.checkpoint}
+            orgId={orgId}
+            beside="run"
+            testId="seed-result-checkpoint"
+          />
 
           {/* Action buttons: the seeded data in the org first, then Save,
               Export CSV, Seed Again */}

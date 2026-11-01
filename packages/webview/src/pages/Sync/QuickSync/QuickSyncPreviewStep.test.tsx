@@ -215,6 +215,64 @@ describe('QuickSyncPreviewStep', () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
+  it('offers beside Go the checkpoint first, its cost said in the question', () => {
+    useOrgStore.setState({ orgs: [org('org-tgt', 'DEV-SANDBOX')] });
+    const onChange = vi.fn();
+    const { rerender } = render(<QuickSyncPreviewStep {...defaultProps} targetOrgId="org-tgt" />);
+    expect(screen.queryByTestId('quick-sync-checkpoint-first')).toBeNull();
+
+    rerender(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        checkpoint={{ checked: false, onChange }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(screen.getByTestId('quick-sync-checkpoint-first-toggle'));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('names in the results the checkpoint the run took, and one it deleted', () => {
+    useOrgStore.setState({ orgs: [org('org-tgt', 'DEV-SANDBOX')] });
+    const { rerender } = render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        result={{
+          ...mockResult,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20240101-000000-a1b2',
+            name: 'Before Sync run 2024-01-01 00:00 UTC',
+            takenAt: '2024-01-01T00:00:00.000Z',
+            expiresAt: '2024-01-08T00:00:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+
+    rerender(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        result={{ ...mockResult, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } }}
+      />,
+    );
+    expect(screen.getByTestId('quick-sync-result-checkpoint-deleted')).toBeDefined();
+  });
+
   it('says in the results what the run muted', () => {
     render(
       <QuickSyncPreviewStep

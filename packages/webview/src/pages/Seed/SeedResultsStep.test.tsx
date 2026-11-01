@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import type { SeedExecutionResult, SeedObjectResult, SeedTemplate } from '@sandforge/shared';
-import '../../i18n';
+import type {
+  RunCheckpointTaken,
+  SeedExecutionResult,
+  SeedObjectResult,
+  SeedTemplate,
+} from '@sandforge/shared';
+import i18n from '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
@@ -115,6 +120,20 @@ function executionResult(objectResults: SeedObjectResult[]): SeedExecutionResult
   };
 }
 
+const TAKEN: RunCheckpointTaken = {
+  state: 'taken',
+  checkpointId: 'ck-20261101-101500-a1b2',
+  name: 'Before Seed run 2026-11-01 10:15 UTC',
+  takenAt: '2026-11-01T10:15:00.000Z',
+  expiresAt: '2026-11-08T10:15:00.000Z',
+  objects: ['Account'],
+  records: 38,
+  bytes: 2_200_000,
+  requests: 68,
+  added: [],
+  notHeld: [],
+};
+
 describe('SeedResultsStep', () => {
   beforeEach(() => {
     saveTemplateMutate.mockClear();
@@ -125,6 +144,78 @@ describe('SeedResultsStep', () => {
     saveTemplateState.saving = false;
     saveTemplateState.real = false;
     mockVSCodeApi.postMessage.mockClear();
+  });
+
+  describe('before it has a result', () => {
+    const shown = (props: { isRunning?: boolean; stopped?: boolean }) =>
+      render(
+        <SeedResultsStep
+          orgName="dev1"
+          executionResult={undefined}
+          onSeedAgain={vi.fn()}
+          template={null}
+          {...props}
+        />,
+      );
+
+    it('says what Confirm does, where it said no data was available', () => {
+      shown({});
+      expect(screen.getByTestId('seed-results-waiting').textContent).toBe(
+        'Nothing has been written yet: Confirm starts the seed.',
+      );
+      expect(screen.queryByText('No data available')).toBeNull();
+    });
+
+    it('says the run goes while it goes', () => {
+      shown({ isRunning: true });
+      expect(screen.getByTestId('seed-results-waiting').textContent).toBe(i18n.t('seed.running'));
+    });
+
+    it('says nothing beside the refusal of a run stopped: nothing is missing', () => {
+      shown({ stopped: true });
+      expect(screen.queryByTestId('seed-results-waiting')).toBeNull();
+      expect(screen.queryByText('No data available')).toBeNull();
+    });
+  });
+
+  it('names under the removal the checkpoint the run took, with the way to rewind to it', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    render(
+      <SeedResultsStep
+        orgName="DEV-SB"
+        orgId="org-dev"
+        executionResult={{ ...executionResult([objectResult()]), checkpoint: TAKEN }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-checkpoint-taken').textContent).toContain(TAKEN.name);
+    fireEvent.click(screen.getByTestId('seed-result-checkpoint-action'));
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      previewCheckpointId: TAKEN.checkpointId,
+      targetOrgId: 'org-dev',
+    });
+  });
+
+  it('says a run that wrote nothing deleted its checkpoint', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    render(
+      <SeedResultsStep
+        orgName="DEV-SB"
+        orgId="org-dev"
+        executionResult={{
+          ...executionResult([]),
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
   });
 
   it('offers the removal of what the run created, asking for it by the run’s id', () => {

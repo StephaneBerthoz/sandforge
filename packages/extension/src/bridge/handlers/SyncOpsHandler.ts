@@ -84,7 +84,6 @@ import {
   syncSimulatePayloadSchema,
   syncRunControlPayloadSchema,
   syncCannotCopy,
-  checkpointFirstPayloadSchema,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import { notSentAsRead } from '../../modules/sync/FieldMapping.js';
@@ -198,15 +197,6 @@ const NOTHING_READ = 'Nothing was read.';
  * written, rather than run without the rewind the option promised.
  */
 const NO_CHECKPOINTS_HERE = 'the checkpoints of this window are not open to the Sync page';
-
-/**
- * A simulation's request, with the checkpoint a run of it would take first:
- * the simulation says what it would hold and cost, and the refusal a real run
- * would meet, and takes nothing.
- */
-const syncSimulateAskedSchema = syncSimulatePayloadSchema.extend({
-  checkpointFirst: checkpointFirstPayloadSchema.optional(),
-});
 
 /**
  * The checkpoint a run asked to take first, bound to the run: what its gate
@@ -1424,7 +1414,7 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private async handleSimulate(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(syncSimulateAskedSchema, msg, 'sync:error', this.deps);
+    const parsed = validatePayload(syncSimulatePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
     if (this.refusedFieldless(msg, parsed.config, 'sync:simulate', 'sync:error', NOTHING_READ)) {
       return;
@@ -2774,6 +2764,11 @@ export class SyncOpsHandler implements DomainHandler {
       if (err instanceof SyncRunRefused) {
         const refusal = checkpoint?.refusal();
         const message = deleted ? `${err.message} ${BEFORE_RUN_DELETED_WORDS}` : err.message;
+        // The page says what became of the checkpoint itself, in its language.
+        const beside = {
+          ...(refusal ? { checkpointRefusal: refusal.code } : {}),
+          ...(kept ? { checkpoint: kept } : {}),
+        };
         recordWriteRun(this.deps, {
           action: 'sync_execute',
           module: 'sync',
@@ -2784,9 +2779,9 @@ export class SyncOpsHandler implements DomainHandler {
           code: err.code,
           details: { triggeredBy, ...(refusal ? { checkpointRefusal: refusal.code } : {}) },
         });
-        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
+        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, {
           code: err.code,
-          ...(refusal ? { extraPayload: { checkpointRefusal: refusal.code } } : {}),
+          extraPayload: beside,
         });
         sendOperationFailed(this.deps, operationId, message, false, {
           context: {
@@ -2840,11 +2835,13 @@ export class SyncOpsHandler implements DomainHandler {
       // carries the lifecycle, sync:error settles the in-flight mutation with
       // the real message. Scheduled runs have no listener — the extra message
       // is simply ignored. A run that failed before its first write says its
-      // checkpoint is gone with it.
+      // checkpoint is gone with it: the page in its language, from `checkpoint`.
       const failed = deleted
         ? new Error(`${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`)
         : err;
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, failed);
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, {
+        ...(kept ? { extraPayload: { checkpoint: kept } } : {}),
+      });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(failed), true, {
         context: { module: 'sync', operation: msg.type, ...objectsFailureContext(config.objects) },
       });

@@ -94,6 +94,13 @@ export interface SeedWizardState {
   /** Whether the run mutes the target's automation, as the Execute step's box is left. */
   muteAutomation: boolean;
   setMuteAutomation: (mute: boolean) => void;
+  /** Whether the run takes a checkpoint first, as the Execute step's box is left. */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: SeedExecutionState['stoppedCheckpoint'];
+  /** Why the last run stopped with no result, once it did. */
+  executionError: string | undefined;
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
   /** Overall completion 0-100, from the live operation:progress stream. */

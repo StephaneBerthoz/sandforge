@@ -741,6 +741,50 @@ describe('useMessageResponse', () => {
       },
     );
 
+    it.each([
+      ['CHECKPOINT_REFUSED', { checkpointRefusal: 'RUN_WRITING' }, 'Another SandForge run, take'],
+      ['CHECKPOINT_REFUSED', {}, 'the SandForge output says why'],
+      ['SEED_CONFIRMATION_UNAVAILABLE', {}, 'it needed your confirmation'],
+    ] as const)('says %s in the interface language, %o beside it', (code, beside, words) => {
+      const said = 'The checkpoint before the run was refused: in the English of the log.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse('org:error', { message: said, code, ...beside }, 'req-1');
+      });
+
+      expect(result.current.errorCode).toBe(code);
+      expect(result.current.error).toContain(words);
+      expect(result.current.error).not.toContain(said);
+    });
+
+    it('says a Sync or Seed run stopped as it took its checkpoint in the interface language, and no other cancel so', () => {
+      const said =
+        'The run was stopped while it took the checkpoint first: in the English of the log.';
+      const stoppedOn = (errorType: string): string | null => {
+        const { result } = renderHook(() =>
+          useMessageResponse<unknown>({ ...defaultOptions, errorType }),
+        );
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(errorType, { message: said, code: 'RUN_CANCELLED' }, 'req-1');
+        });
+        return result.current.error;
+      };
+
+      for (const errorType of ['sync:error', 'seed:error', 'seed:csv:error']) {
+        expect(stoppedOn(errorType), errorType).toBe(i18n.t('autopilot.refusal.runCancelled'));
+      }
+      // A Forge run's error carries the code for any cancel.
+      expect(stoppedOn('forge:execute:error')).toBe(said);
+    });
+
     it('says a seed its emails stopped in the interface language, with the figures and the ways out', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
       act(() => {

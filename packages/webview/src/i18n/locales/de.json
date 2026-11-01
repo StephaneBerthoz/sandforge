@@ -846,7 +846,8 @@
         "cancelled_one": "Abgebrochen: {{count}} vor dem Stopp importierter Datensatz bleibt in der Org",
         "cancelled_other": "Abgebrochen: {{count}} vor dem Stopp importierte Datensätze bleiben in der Org",
         "tooManyRows": "Diese Datei enthält {{rows}} Zeilen; der CSV-Upload nimmt {{max}} auf einmal. Teilen Sie sie in Dateien mit höchstens {{max}} Zeilen auf und laden Sie jede hoch.",
-        "tooManyColumns": "{{columns}} Spalten sind zugeordnet; der CSV-Upload nimmt {{max}} auf einmal. Lassen Sie die nicht benötigten Spalten unzugeordnet oder teilen Sie die Datei nach Spalten auf."
+        "tooManyColumns": "{{columns}} Spalten sind zugeordnet; der CSV-Upload nimmt {{max}} auf einmal. Lassen Sie die nicht benötigten Spalten unzugeordnet oder teilen Sie die Datei nach Spalten auf.",
+        "writeDeclined": "Sie haben den Import abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben."
       }
     },
     "modeSelect": {
@@ -1017,7 +1018,8 @@
         "NOT_PREVIEWED": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Er nannte keine Vorschau, und ein Klonvorgang läuft nur aus der Vorschau, für die er erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "PREVIEW_NOT_HELD": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Die genannte Vorschau wird nicht mehr gehalten — SandForge behält die letzten 50 Vorschauen und vergisst sie beim Neustart der Erweiterung. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
-        "detail": "Einzelheiten: {{detail}}"
+        "detail": "Einzelheiten: {{detail}}",
+        "SEED_WRITE_DECLINED": "Sie haben den Klon abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben."
       }
     },
     "emptyState": {
@@ -1029,7 +1031,8 @@
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
       "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
-      "openRecord": "Ersten erstellten Datensatz ({{object}}) in {{org}} öffnen"
+      "openRecord": "Ersten erstellten Datensatz ({{object}}) in {{org}} öffnen",
+      "notRun": "Noch wurde nichts geschrieben: Bestätigen startet den Seed."
     },
     "sampleRecordCount_one": "{{count}} Beispieldatensatz",
     "sampleRecordCount_other": "{{count}} Beispieldatensätze",
@@ -4387,7 +4390,7 @@
       }
     },
     "controls": {
-      "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. Die Zahlen des Plans wurden vorher gelesen.",
+      "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. „Zuerst ein Prüfpunkt“ ist die Ausnahme: Nur Simulation und Ausführung nehmen ihn mit. Die Zahlen des Plans wurden vorher gelesen.",
       "objectTitle": "Je Objekt",
       "object": "Objekt",
       "objectPlaceholder": "Ein Objekt des Laufs wählen…",
@@ -6044,6 +6047,14 @@
     "syncEarlierUnread": {
       "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Was frühere Läufe dieser Konfiguration kopiert haben, konnte nicht gelesen werden, und ihre Einfügungen würden diese Datensätze ein zweites Mal kopieren.",
       "action": "Prüfen Sie, ob SandForge seinen Speicherordner lesen kann, und führen Sie sie dann erneut aus."
+    },
+    "checkpointRefused": {
+      "explanation": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt.",
+      "action": "Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt."
+    },
+    "seedConfirmationUnavailable": {
+      "explanation": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
+      "action": "Starten Sie ihn auf der Seed-Seite, wo Sie ihn bestätigen können."
     }
   },
   "moduleSummary": {

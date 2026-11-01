@@ -4,10 +4,11 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // otherwise have to provide its initialiser.
 import i18n from 'i18next';
 
-import { TRANSFORM_RULE_NO_FIELD, panelWordingOf, type BaseMessage } from '@sandforge/shared';
+import { TRANSFORM_RULE_NO_FIELD, type BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
 import { muteRefusalWords } from '../utils/muteRefusal';
+import { panelRefusalWords } from '../utils/runCheckpoint';
 
 /**
  * Options for the useMessageResponse hook.
@@ -68,6 +69,18 @@ function requestError(
   return i18n.isInitialized ? i18n.t(key, options) : key;
 }
 
+/**
+ * The error channels on which a run's `RUN_CANCELLED` says one thing only:
+ * its Stop came while it took the checkpoint it was to take first. A Sync
+ * run, a seed and a CSV import stopped later end with a result saying so;
+ * a Forge run's error carries the code for any cancel.
+ */
+const STOPPED_DURING_THE_TAKE: ReadonlySet<string> = new Set([
+  'sync:error',
+  'seed:error',
+  'seed:csv:error',
+]);
+
 /** What every write path writes before the reason Production Guard gave. */
 const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
 
@@ -94,8 +107,8 @@ function guardRefusal(
   // CLI command once: an expired session, an org that failed several times
   // in a row and is left alone for a moment, an import that found no org in
   // the CLI. The error catalogue words them, what happened and what to do.
-  const worded = panelWordingOf(code);
-  if (worded) return `${i18n.t(worded.explanationKey)} ${i18n.t(worded.actionKey)}`;
+  const worded = panelRefusalWords(code, payload, (key) => i18n.t(key));
+  if (worded !== undefined) return worded;
   // A seed its records' data storage stopped before the first write, with the
   // figures the host measured: the host's sentence is English.
   if (code === 'SEED_STORAGE_EXCEEDED') {
@@ -401,7 +414,9 @@ export function useMessageResponse<T>(
           const said = typeof payloadMessage === 'string' ? payloadMessage : undefined;
           setErrorCode(code);
           setError(
-            guardRefusal(code, said, eventData.payload) ??
+            (code === 'RUN_CANCELLED' && STOPPED_DURING_THE_TAKE.has(errorType)
+              ? i18n.t('autopilot.refusal.runCancelled')
+              : guardRefusal(code, said, eventData.payload)) ??
               said ??
               requestError('bridge.failed', { request: requestType }),
           );

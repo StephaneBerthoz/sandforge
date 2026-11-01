@@ -5,10 +5,12 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
@@ -191,6 +193,17 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 />
               )}
 
+              {/* The run's question says its cost, before anything is taken. */}
+              {quickSeed.selectedOrgId && written.length > 0 && (
+                <CheckpointFirstOption
+                  checked={quickSeed.checkpointFirst}
+                  onChange={quickSeed.setCheckpointFirst}
+                  orgId={quickSeed.selectedOrgId}
+                  costSaid="question"
+                  testId="quick-seed-checkpoint-first"
+                />
+              )}
+
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
@@ -241,6 +254,30 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               onChangeCounts={quickSeed.seedAgain}
               testId="quick-seed-fit"
             />
+          )}
+          {/* What became of the checkpoint a stopped run took first. */}
+          {!quickSeed.isRunning && (
+            <RewindBeforeRun
+              checkpoint={quickSeed.stoppedCheckpoint}
+              orgId={quickSeed.selectedOrgId}
+              beside="run"
+              compact
+              testId="quick-seed-error-checkpoint"
+            />
+          )}
+          {/* Stopped with no counts to offer: back to what the refusal says to
+              change, Checkpoint first among it. The screen had no way out. */}
+          {quickSeed.canSetUpAgain && !quickSeed.fitProposal && (
+            <div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={quickSeed.backToConfirm}
+                data-testid="btn-quick-seed-back-to-confirm"
+              >
+                {t('common.back')}
+              </Button>
+            </div>
           )}
           {/* Offered once the run has reported progress, i.e. is registered:
               the wizard's Cancel, which the one-click path did not have. */}
@@ -337,6 +374,13 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               {quickSeed.executionResult.totalRecordsCreated > 0 && (
                 <SeedRunRemoval runId={quickSeed.executionResult.operationId} />
               )}
+              {/* Under the removal, which takes back what the run wrote alone. */}
+              <RewindBeforeRun
+                checkpoint={quickSeed.executionResult.checkpoint}
+                orgId={quickSeed.selectedOrgId}
+                beside="run"
+                testId="quick-seed-result-checkpoint"
+              />
 
               <div className="flex flex-wrap gap-2 pt-2" data-testid="quick-seed-result-actions">
                 {/* The seeded data, in the org: the payoff, first. */}

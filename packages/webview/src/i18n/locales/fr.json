@@ -846,7 +846,8 @@
         "cancelled_one": "Annulé : {{count}} enregistrement importé avant l'arrêt reste dans l'org",
         "cancelled_other": "Annulé : {{count}} enregistrements importés avant l'arrêt restent dans l'org",
         "tooManyRows": "Ce fichier contient {{rows}} lignes ; l'import CSV en prend {{max}} à la fois. Découpez-le en fichiers de {{max}} lignes au plus, et importez-les un par un.",
-        "tooManyColumns": "{{columns}} colonnes sont mappées ; l'import CSV en prend {{max}} à la fois. Laissez non mappées les colonnes inutiles, ou découpez le fichier par colonnes."
+        "tooManyColumns": "{{columns}} colonnes sont mappées ; l'import CSV en prend {{max}} à la fois. Laissez non mappées les colonnes inutiles, ou découpez le fichier par colonnes.",
+        "writeDeclined": "Vous avez annulé l'import avant qu'il n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible."
       }
     },
     "modeSelect": {
@@ -1017,7 +1018,8 @@
         "NOT_PREVIEWED": "SandForge a refusé cette exécution avant de lire l'une ou l'autre org : elle ne désignait aucun aperçu, et un clonage ne part que de l'aperçu pour lequel il a été fait. Refaites l'aperçu, puis lancez le clonage.",
         "PREVIEW_NOT_HELD": "SandForge a refusé cette exécution avant de lire l'une ou l'autre org : l'aperçu qu'elle désignait n'est plus conservé — SandForge garde les 50 derniers aperçus et les oublie au redémarrage de l'extension. Refaites l'aperçu, puis lancez le clonage.",
         "generic": "Le clonage n'a pas pu être mené à son terme.",
-        "detail": "Détail : {{detail}}"
+        "detail": "Détail : {{detail}}",
+        "SEED_WRITE_DECLINED": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible."
       }
     },
     "emptyState": {
@@ -1029,7 +1031,8 @@
     "results": {
       "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
       "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}.",
-      "openRecord": "Ouvrir le premier enregistrement créé ({{object}}) dans {{org}}"
+      "openRecord": "Ouvrir le premier enregistrement créé ({{object}}) dans {{org}}",
+      "notRun": "Rien n'a encore été écrit : Confirmer lance le seed."
     },
     "sampleRecordCount_one": "{{count}} enregistrement d'exemple",
     "sampleRecordCount_other": "{{count}} enregistrements d'exemple",
@@ -4387,7 +4390,7 @@
       }
     },
     "controls": {
-      "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Les comptes du plan ont été lus avant.",
+      "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Point de contrôle d'abord fait exception : il ne part qu'avec la simulation et l'exécution. Les comptes du plan ont été lus avant.",
       "objectTitle": "Par objet",
       "object": "Objet",
       "objectPlaceholder": "Choisir un objet de l'exécution…",
@@ -6044,6 +6047,14 @@
     "syncEarlierUnread": {
       "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ce que les exécutions précédentes de cette configuration ont copié n'a pas pu être lu, et ses insertions copieraient ces enregistrements une seconde fois.",
       "action": "Vérifiez que SandForge peut lire son dossier de stockage, puis relancez-la."
+    },
+    "checkpointRefused": {
+      "explanation": "L'exécution a été refusée avant d'écrire quoi que ce soit : le point de contrôle qu'elle devait prendre d'abord des objets qu'elle écrit a été refusé.",
+      "action": "Rien n'a été écrit. Décochez Point de contrôle d'abord pour la lancer sans lui, ou corrigez ce qui le refuse."
+    },
+    "seedConfirmationUnavailable": {
+      "explanation": "L'exécution a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
+      "action": "Lancez-la depuis la page Seed, où vous pouvez la confirmer."
     }
   },
   "moduleSummary": {

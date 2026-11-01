@@ -45,6 +45,45 @@ function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulati
 }
 
 describe('SyncSimulationResults', () => {
+  it('says what the checkpoint asked first would hold and cost, and the refusal a run would meet', () => {
+    render(
+      <SyncSimulationResults
+        simulation={simulation({
+          checkpoint: {
+            state: 'planned',
+            estimate: {
+              records: 7_588,
+              apiRequests: 43,
+              apiRequestsLeft: 14_000,
+              seconds: 22,
+              bytes: 2_200_000,
+            },
+            objects: ['Account', 'Contact'],
+            added: [{ objectApiName: 'Task', reason: "The target's flow creates Task records." }],
+            notHeld: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are never held.' }],
+            keepDays: 7,
+            refusal: { code: 'DISK', message: 'No room on this machine.' },
+          },
+        })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-checkpoint-cost').textContent).toContain(
+      'A real run would take a checkpoint first: about 7,588 records of Account and Contact, 43 API requests',
+    );
+    expect(screen.getByTestId('sync-simulation-checkpoint-added-Task')).toBeDefined();
+    expect(screen.getByTestId('sync-simulation-checkpoint-not-held-FeedItem')).toBeDefined();
+    expect(screen.getByTestId('sync-simulation-checkpoint-refusal').textContent).toBe(
+      "A real run would be refused for its checkpoint. This machine's disk has too little room for it.",
+    );
+  });
+
+  it('says nothing of a checkpoint a simulation was not asked about', () => {
+    render(<SyncSimulationResults simulation={simulation()} onRun={vi.fn()} />);
+    expect(screen.queryByTestId('sync-simulation-checkpoint')).toBeNull();
+  });
+
   it('says what a run would meet before its first write, and what an earlier run copied', () => {
     const base = simulation();
     render(

@@ -119,6 +119,47 @@ const mockBothOverflowResult: CloneExecutionResult = {
 };
 
 describe('CloneResultsPanel', () => {
+  it('names the checkpoint the clone took with the way to rewind to it, and one it deleted', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const { rerender } = render(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20261101-101500-a1b2',
+            name: 'Before Seed run 2026-11-01 10:15 UTC',
+            takenAt: '2026-11-01T10:15:00.000Z',
+            expiresAt: '2026-11-08T10:15:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        }}
+        targetOrgId="org-dev"
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('clone-results-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+
+    rerender(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        }}
+        targetOrgId="org-dev"
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('clone-results-checkpoint-deleted')).toBeDefined();
+  });
+
   it('should render success status with counts', () => {
     render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 

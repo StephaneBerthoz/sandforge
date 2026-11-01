@@ -18,7 +18,7 @@ import type {
   RunCheckpointTaken,
   SeedTemplate,
 } from '@sandforge/shared';
-import { CRM_STARTER, SALES_CLOUD_STARTER } from '@sandforge/shared';
+import { CRM_STARTER, RETAIL_ORDERS_PACK, SALES_CLOUD_STARTER } from '@sandforge/shared';
 
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -460,6 +460,33 @@ describe('SeedOpsHandler — a seed that takes a checkpoint first', () => {
     expect(auditEntry()).toMatchObject({ outcome: 'success', checkpointId: TAKEN.checkpointId });
   });
 
+  it('takes it, and mutes, for a scenario as for a template: the page asks both of a pack', async () => {
+    const org = permissionOrg();
+    developerEdition(org);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'seed-ck',
+        type: 'seed:scenario:execute',
+        timestamp: Date.now(),
+        payload: {
+          orgId: 'org-1',
+          pack: RETAIL_ORDERS_PACK,
+          options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+          muteAutomation: true,
+          checkpointFirst: {},
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(steps).toContain('result'));
+
+    expect(checkpoints.scope.mock.calls[0]?.[0]).toMatchObject({ module: 'seed', request: {} });
+    expect(steps.indexOf('checkpoint take')).toBeLessThan(steps.indexOf('assign'));
+    expect(steps.indexOf('assign')).toBeLessThan(steps.indexOf('write'));
+    expect(org.assignments()).toEqual([]);
+    expect(posted('seed:execute:response')[0]?.payload).toMatchObject({ checkpoint: TAKEN });
+  });
+
   it("counts the checkpoint's requests at the storage gate: a seed that fits alone is refused with them", async () => {
     // 50 requests left of 15 000: the seed's own two fit, the take's 68 do not.
     const org = permissionOrg();
@@ -551,7 +578,14 @@ describe('SeedOpsHandler — a seed that takes a checkpoint first', () => {
     expect(checkpoints.take).toHaveBeenCalledTimes(1);
     expect(checkpoints.settle).toHaveBeenCalledWith(TAKEN, false);
     expect(create).not.toHaveBeenCalled();
-    expect(String(posted('seed:error')[0]?.payload.message)).toContain(BEFORE_RUN_DELETED_WORDS);
+    // Said once, in the page's language, from what the error carries; the
+    // lifecycle's message keeps it for Live Operations and the log.
+    const [error] = posted('seed:error');
+    expect(error?.payload.checkpoint).toEqual({ state: 'deleted', deleted: 'nothingWritten' });
+    expect(String(error?.payload.message)).not.toContain(BEFORE_RUN_DELETED_WORDS);
+    expect(String(posted('operation:failed')[0]?.payload.error)).toContain(
+      BEFORE_RUN_DELETED_WORDS,
+    );
     expect(org.assignments()).toEqual([]);
   });
 

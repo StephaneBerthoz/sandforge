@@ -66,7 +66,9 @@ import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -316,6 +318,9 @@ export const SyncPage: React.FC = () => {
     handleChangeTransformConfig,
     muteAutomation,
     setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     handleExecute,
     handleSimulate,
     handleSaveConfig,
@@ -988,6 +993,17 @@ export const SyncPage: React.FC = () => {
             {currentStep === 4 && (
               <div className="flex flex-col gap-3" data-testid="sync-step-execute">
                 <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
+                {/* Stopped on this step: what became of the checkpoint it took
+                    first, under the error that says why. */}
+                {!busy && (
+                  <RewindBeforeRun
+                    checkpoint={stoppedCheckpoint}
+                    orgId={targetOrgId}
+                    beside="run"
+                    compact
+                    testId="sync-error-checkpoint"
+                  />
+                )}
                 {/* While it runs: back on this step afterwards, Run is the
                   wizard's, unless another page opened a saved configuration
                   here (Migration's "Open in Sync"): Simulate and Run below
@@ -1072,6 +1088,22 @@ export const SyncPage: React.FC = () => {
                       onChange={setMuteAutomation}
                       org={targetOrgName}
                       testId="sync-mute"
+                    />
+                    {/* Simulate says its cost, and the run's question again. */}
+                    <CheckpointFirstOption
+                      checked={checkpointFirst}
+                      onChange={setCheckpointFirst}
+                      orgId={targetOrgId}
+                      costSaid="simulation"
+                      estimate={
+                        simulation?.checkpoint
+                          ? {
+                              of: simulation.checkpoint,
+                              lead: t('runResults.checkpoint.estimate.lastSimulation'),
+                            }
+                          : null
+                      }
+                      testId="sync-checkpoint-first"
                     />
                     <p className="text-xs text-text-secondary">{t('sync.simulation.hint')}</p>
                     <div className="flex items-center gap-(--sf-space-2)">
@@ -1196,6 +1228,14 @@ export const SyncPage: React.FC = () => {
                     {result.created && (
                       <SyncRunRemoval runId={result.created.runId} testId="sync-result-removal" />
                     )}
+                    {/* Under the removal, which takes back what the run wrote
+                        alone: the rewind takes back everything since. */}
+                    <RewindBeforeRun
+                      checkpoint={result.checkpoint}
+                      orgId={targetOrgId}
+                      beside="run"
+                      testId="sync-result-checkpoint"
+                    />
                     {/* The emails and phone numbers it wrote, said once for the
                       run as a Forge run says them: no refusal of any object. */}
                     {result.contactPoints && (

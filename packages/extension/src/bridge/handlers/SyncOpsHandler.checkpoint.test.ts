@@ -682,10 +682,45 @@ describe('a Sync run that takes a checkpoint first, from the page', () => {
     expect(checkpoints.settle).toHaveBeenCalledWith(TAKEN, false);
     expect(create).not.toHaveBeenCalled();
     const [error] = posted(deps, 'sync:error');
-    expect(String(error.payload.message)).toContain(BEFORE_RUN_DELETED_WORDS);
+    // Said once, in the page's language, from what the error carries; the
+    // lifecycle's message keeps it for Live Operations and the log.
+    expect(error.payload.checkpoint).toEqual({ state: 'deleted', deleted: 'nothingWritten' });
+    expect(String(error.payload.message)).not.toContain(BEFORE_RUN_DELETED_WORDS);
+    expect(String(posted(deps, 'operation:failed')[0]?.payload.error)).toContain(
+      BEFORE_RUN_DELETED_WORDS,
+    );
     // No file of a run that wrote nothing, and nothing left assigned.
     expect(await creations.get('run-lease')).toBeUndefined();
     expect(org.assignments()).toEqual([]);
+  });
+
+  it('names on its error the checkpoint it deleted when it fails before its first write', async () => {
+    const org = permissionOrg();
+    const { create } = mockOrgs(3, org);
+    const open = vi.mocked(getJsforceConnection).getMockImplementation();
+    vi.mocked(getJsforceConnection).mockImplementation(async (...args) => {
+      const conn = await (open as typeof getJsforceConnection)(...args);
+      return args[0] === 'tgt-org'
+        ? conn
+        : ({
+            ...conn,
+            query: vi.fn(async (soql: string) => {
+              if (/^SELECT Id, LastName\b/.test(soql)) throw new Error('The source went away.');
+              return conn.query(soql);
+            }),
+          } as never);
+    });
+
+    await send(handler, 'sync:execute', 'run-fails', { config: config(), checkpointFirst: {} });
+    await vi.waitFor(() => expect(posted(deps, 'sync:error')).toHaveLength(1));
+
+    const [error] = posted(deps, 'sync:error');
+    expect(error.payload).toMatchObject({
+      checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    expect(String(error.payload.message)).not.toContain(BEFORE_RUN_DELETED_WORDS);
+    expect(checkpoints.settle).toHaveBeenCalledWith(TAKEN, false);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('takes nothing once the question is declined', async () => {

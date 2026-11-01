@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
-import type { BaseMessage, SalesforceOrg, SeedRunRemovalInfo } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  RunCheckpointTaken,
+  SalesforceOrg,
+  SeedRunRemovalInfo,
+} from '@sandforge/shared';
 import '../../i18n';
 
 const mockPostMessage = vi.fn();
@@ -100,11 +105,104 @@ function answer(requestType: string, type: string, payload: unknown): void {
   });
 }
 
+const TAKEN: RunCheckpointTaken = {
+  state: 'taken',
+  checkpointId: 'ck-20261101-101500-a1b2',
+  name: 'Before Seed run 2026-11-01 10:15 UTC',
+  takenAt: '2026-11-01T10:15:00.000Z',
+  expiresAt: '2026-11-08T10:15:00.000Z',
+  objects: ['Account'],
+  records: 38,
+  bytes: 2_200_000,
+  requests: 68,
+  added: [],
+  notHeld: [],
+};
+
 describe('SeedRunHistory', () => {
   beforeEach(() => {
     removalFile.unfetched = false;
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  it('names on a run’s line the checkpoint it took, and what a rewind takes that its removal kept', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          ...RUNS[0],
+          checkpoint: TAKEN,
+          removed: {
+            removedAt: '2026-10-18T09:00:00.000Z',
+            deleted: 3,
+            alreadyGone: 0,
+            kept: 2,
+            refused: 0,
+          },
+        },
+        RUNS[1],
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-checkpoint-op-2-taken').textContent).toContain(
+      TAKEN.name,
+    );
+    expect(screen.getByTestId('seed-run-history-checkpoint-op-2-after-removal')).toBeDefined();
+    expect(screen.queryByTestId('seed-run-history-checkpoint-op-1')).toBeNull();
+  });
+
+  it('names no checkpoint on the line of a run still writing', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [{ ...RUNS[0], running: true, checkpoint: TAKEN }],
+    });
+    expect(screen.queryByTestId('seed-run-history-checkpoint-op-2')).toBeNull();
+  });
+
+  it('marks rewound whole a run a rewind took to the checkpoint it took first', () => {
+    render(<SeedRunHistory />);
+    // Its reads began before the take: its dates alone read it as rewound in part.
+    const started = {
+      ...RUNS[0],
+      startedAt: '2026-10-18T07:59:00.000Z',
+      endedAt: '2026-10-18T08:05:00.000Z',
+    };
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          ...started,
+          runId: 'own',
+          checkpoint: { ...TAKEN, checkpointId: 'ck-20261018-080000-aaaa' },
+        },
+        { ...started, runId: 'dates' },
+      ],
+    });
+    answer('checkpoint:rewinds', 'checkpoint:rewinds:response', {
+      rewinds: [
+        {
+          kind: 'rewind',
+          rewindId: 'rw-20261018-100000-aaaa',
+          checkpointId: 'ck-20261018-080000-aaaa',
+          checkpointName: TAKEN.name,
+          organizationId: '00D000000000001AAA',
+          mode: 'everything',
+          objects: ['Account'],
+          readFrom: '2026-10-18T08:00:00.000Z',
+          takenAt: '2026-10-18T08:01:00.000Z',
+          startedAt: '2026-10-18T10:00:00.000Z',
+          endedAt: '2026-10-18T10:10:00.000Z',
+          status: 'success',
+          totals: { deleted: 5, restored: 0, undeleted: 0, recreated: 0 },
+          orgIds: ['org-dev'],
+        },
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-rewound-own').textContent).toMatch(/^Rewound on /);
+    expect(screen.getByTestId('seed-run-history-rewound-dates').textContent).toMatch(
+      /^Rewound in part on /,
+    );
   });
 
   it('lists the seeds kept, newest first, and says which can still be removed', () => {

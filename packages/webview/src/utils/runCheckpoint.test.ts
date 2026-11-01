@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { RunCheckpointEstimate, RunCheckpointTaken } from '@sandforge/shared';
-import { runCheckpointEstimateOf, runCheckpointOf, takenOrDeleted } from './runCheckpoint';
+import i18n from '../i18n';
+import {
+  checkpointRefusalWords,
+  panelRefusalWords,
+  runCheckpointEstimateOf,
+  runCheckpointOf,
+  takenOrDeleted,
+} from './runCheckpoint';
+
+const t = (key: string): string => i18n.t(key);
 
 const TAKEN: RunCheckpointTaken = {
   state: 'taken',
@@ -60,5 +69,74 @@ describe('takenOrDeleted and runCheckpointEstimateOf', () => {
     expect(takenOrDeleted(undefined)).toBeUndefined();
     expect(runCheckpointEstimateOf(PLANNED)).toBe(PLANNED);
     expect(runCheckpointEstimateOf(TAKEN)).toBeUndefined();
+  });
+});
+
+describe('checkpointRefusalWords', () => {
+  it.each([
+    ['DISK', "This machine's disk has too little room for it."],
+    [
+      'RUN_WRITING',
+      'Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.',
+    ],
+    [
+      'NOTHING_HELD',
+      'It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.',
+    ],
+    [
+      'TOO_MANY_RECORDS',
+      'The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.',
+    ],
+    ['API_BUDGET', 'Its API requests are past what the org has left today.'],
+    ['PRODUCTION', 'SandForge takes no checkpoint of a production org.'],
+    ['SCRATCH_EXPIRED', 'The scratch org has expired.'],
+  ])('words %s', (reason, words) => {
+    expect(checkpointRefusalWords(reason, t)).toBe(words);
+  });
+
+  it('says the output has it for a code with no words of its own, and for a take that failed', () => {
+    expect(checkpointRefusalWords('OTHER_ORG', t)).toBe(
+      'Its guards refused it: the SandForge output says why.',
+    );
+    expect(checkpointRefusalWords(undefined, t)).toBe(
+      'It was refused, or could not be taken: the SandForge output says why.',
+    );
+  });
+});
+
+describe('panelRefusalWords', () => {
+  const explained = i18n.t('errors.checkpointRefused.explanation');
+  const action = i18n.t('errors.checkpointRefused.action');
+
+  it('says what refused the checkpoint, by the code its error carries, between what happened and what to do', () => {
+    expect(panelRefusalWords('CHECKPOINT_REFUSED', { checkpointRefusal: 'DISK' }, t)).toBe(
+      `${explained} This machine's disk has too little room for it. ${action}`,
+    );
+  });
+
+  it('says the output has why for a take that failed, whose error names no refusal', () => {
+    expect(panelRefusalWords('CHECKPOINT_REFUSED', {}, t)).toBe(
+      `${explained} It was refused, or could not be taken: the SandForge output says why. ${action}`,
+    );
+    // Read as the untrusted field of a message it is.
+    expect(panelRefusalWords('CHECKPOINT_REFUSED', { checkpointRefusal: 3 }, t)).toContain(
+      'the SandForge output says why',
+    );
+  });
+
+  it('says a seed nobody could answer for in the catalogue’s words', () => {
+    expect(panelRefusalWords('SEED_CONFIRMATION_UNAVAILABLE', {}, t)).toBe(
+      `${i18n.t('errors.seedConfirmationUnavailable.explanation')} ${i18n.t(
+        'errors.seedConfirmationUnavailable.action',
+      )}`,
+    );
+  });
+
+  it('adds no reason to another code, and leaves to the host what the panel does not word', () => {
+    expect(panelRefusalWords('SYNC_WRITE_DECLINED', { checkpointRefusal: 'DISK' }, t)).toBe(
+      `${i18n.t('errors.syncWriteDeclined.explanation')} ${i18n.t('errors.syncWriteDeclined.action')}`,
+    );
+    expect(panelRefusalWords('API_BUDGET_EXCEEDED', {}, t)).toBeUndefined();
+    expect(panelRefusalWords(null, {}, t)).toBeUndefined();
   });
 });

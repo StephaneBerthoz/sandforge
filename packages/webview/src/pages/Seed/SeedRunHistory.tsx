@@ -10,6 +10,7 @@ import { useRewoundMarks } from '../../hooks/useRewoundMarks';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { PartBoundary } from '../../components/ui/PartBoundary';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
 
 /*
@@ -99,6 +100,10 @@ export const SeedRunHistory: React.FC = () => {
                 startedAt: run.startedAt,
                 ...(run.running || run.runningElsewhere ? {} : { endedAt: run.endedAt }),
                 ...(run.objects ? { objects: run.objects } : {}),
+                // Its own checkpoint, by id: a rewind to it took the run back whole.
+                ...(run.checkpoint?.state === 'taken'
+                  ? { checkpointId: run.checkpoint.checkpointId }
+                  : {}),
               });
               // Its removal found them gone, and the rewind's undo brought them
               // back: the line said nothing was left, and offered nothing.
@@ -222,6 +227,17 @@ export const SeedRunHistory: React.FC = () => {
                         />
                       </Suspense>
                     </PartBoundary>
+                  )}
+                  {/* Under the removal: the rewind reaches past what the run wrote. */}
+                  {!run.running && !run.runningElsewhere && (
+                    <RewindBeforeRun
+                      checkpoint={run.checkpoint}
+                      orgId={run.targetOrgId}
+                      beside="run"
+                      compact
+                      leftByRemoval={run.removed !== undefined && run.left.length > 0}
+                      testId={`seed-run-history-checkpoint-${run.runId}`}
+                    />
                   )}
                   {run.scenario && tests === run.runId && (
                     <PartBoundary data-testid="seed-scenario-tests-failed">

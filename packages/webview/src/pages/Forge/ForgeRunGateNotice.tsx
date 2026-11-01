@@ -6,7 +6,7 @@ import {
   type ForgeRunGateCode,
   type ForgeRunGateStop,
 } from '@sandforge/shared';
-import { checkpointRefusalWords } from '../../components/ui/CheckpointFirstOption';
+import { checkpointRefusalWords } from '../../utils/runCheckpoint';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';

@@ -886,17 +886,12 @@ export class SeedCsvHandler implements DomainHandler {
       // carries the lifecycle, and seed:csv:error settles the page's request,
       // which waits on it — it was sent `operation:failed` alone, and the page
       // waited out its two minutes on an import Production Guard had refused.
-      sendHandlerError(
-        this.deps,
-        'seed:csv:execute',
-        'seed:csv:error',
-        msg,
-        settled?.state === 'deleted' ? new Error(failed) : err,
-        {
-          code: guardRefusalCode(err),
-          retryable: true,
-        },
-      );
+      // The page says what became of the checkpoint itself, in its language.
+      sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, err, {
+        code: guardRefusalCode(err),
+        retryable: true,
+        ...(settled ? { extraPayload: { checkpoint: settled } } : {}),
+      });
       sendOperationFailed(this.deps, operationId, failed, true, {
         context: failure,
       });

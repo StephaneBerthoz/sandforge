@@ -4,11 +4,12 @@ import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
-import { productionOrg } from '../Checkpoint/testing/checkpointFixtures';
+import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type {
+  RunCheckpointTaken,
   SalesforceOrg,
   SeedTemplate,
   SeedExecutionResult,
@@ -130,6 +131,9 @@ const baseQuickSeed: QuickSeedState = {
   selectedOrgId: '',
   locale: '',
   muteAutomation: false,
+  checkpointFirst: false,
+  stoppedCheckpoint: undefined,
+  canSetUpAgain: false,
   isRunning: false,
   executionResult: undefined,
   objectProgress: [],
@@ -144,12 +148,44 @@ const baseQuickSeed: QuickSeedState = {
   selectOrg: vi.fn(),
   setLocale: vi.fn(),
   setMuteAutomation: vi.fn(),
+  setCheckpointFirst: vi.fn(),
   execute: vi.fn(),
   seedFitted: vi.fn(),
   cancel: vi.fn(),
   seedAgain: vi.fn(),
+  backToConfirm: vi.fn(),
   reset: vi.fn(),
   setError: vi.fn(),
+};
+
+const TAKEN: RunCheckpointTaken = {
+  state: 'taken',
+  checkpointId: 'ck-20261101-101500-a1b2',
+  name: 'Before Seed run 2026-11-01 10:15 UTC',
+  takenAt: '2026-11-01T10:15:00.000Z',
+  expiresAt: '2026-11-08T10:15:00.000Z',
+  objects: ['Account'],
+  records: 38,
+  bytes: 2_200_000,
+  requests: 68,
+  added: [],
+  notHeld: [],
+};
+
+/** What fits, enough for the flow to know it has a proposal to show. */
+const FIT_PROPOSAL: SeedFitProposal = {
+  share: 0.5,
+  budget: {
+    budgetMB: 1,
+    remainingMB: 2,
+    maxMB: 5,
+    share: 0.8,
+    roundingMB: 0.5,
+    limitedBy: 'storage',
+    automationMB: 0,
+  },
+  objects: [{ objectApiName: 'Account', before: 10, after: 5 }],
+  estimateMB: 1,
 };
 
 /* Mock GrappeProgressPanel used inside Step7Execute */
@@ -160,6 +196,74 @@ vi.mock('../../stores/useGrappeStore', () => ({
 describe('QuickSeedFlow', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
+  });
+
+  describe('after a run stopped for its checkpoint', () => {
+    const stopped: QuickSeedState = {
+      ...baseQuickSeed,
+      phase: 'executing',
+      selectedTemplate: mockTemplate,
+      selectedOrgId: 'org-1',
+      error: 'The run was refused before it wrote anything.',
+      canSetUpAgain: true,
+    };
+
+    it('goes back to the confirmation, where the box it says to untick is', () => {
+      const backToConfirm = vi.fn();
+      render(<QuickSeedFlow quickSeed={{ ...stopped, backToConfirm }} orgs={mockOrgs} />);
+
+      fireEvent.click(screen.getByTestId('btn-quick-seed-back-to-confirm'));
+      expect(backToConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no second way back under the counts that fit', () => {
+      render(
+        <QuickSeedFlow
+          quickSeed={{ ...stopped, fitProposal: { ...FIT_PROPOSAL } }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.queryByTestId('btn-quick-seed-back-to-confirm')).toBeNull();
+    });
+
+    it('says what became of the checkpoint it took', () => {
+      useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+      render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...stopped,
+            stoppedCheckpoint: { state: 'deleted', deleted: 'nothingWritten' },
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.getByTestId('quick-seed-error-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+  });
+
+  it('names in the results the checkpoint the run took, with the way to rewind to it', () => {
+    useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+    render(
+      <QuickSeedFlow
+        quickSeed={{
+          ...baseQuickSeed,
+          phase: 'results',
+          selectedTemplate: mockTemplate,
+          selectedOrgId: 'org-1',
+          executionResult: { ...mockExecutionResult, checkpoint: TAKEN },
+        }}
+        orgs={mockOrgs}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-seed-result-checkpoint-taken').textContent).toContain(
+      TAKEN.name,
+    );
+    expect(screen.getByTestId('quick-seed-result-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
   });
 
   describe('the one confirmation of a template', () => {
@@ -406,6 +510,28 @@ describe('QuickSeedFlow', () => {
       expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
         false,
       );
+    });
+
+    it('offers on the confirmation the checkpoint first of the org picked, off', () => {
+      useOrgStore.setState({ orgs: [developerOrg({ id: 'org-1' })] });
+      const setCheckpointFirst = vi.fn();
+      render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...baseQuickSeed,
+            phase: 'confirm',
+            selectedTemplate: mockTemplate,
+            selectedOrgId: 'org-1',
+            setCheckpointFirst,
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+
+      const toggle = screen.getByTestId('quick-seed-checkpoint-first-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      fireEvent.click(toggle);
+      expect(setCheckpointFirst).toHaveBeenCalledWith(true);
     });
 
     it('offers on the confirmation the box that mutes what a set of the org silences, ticking the run', () => {

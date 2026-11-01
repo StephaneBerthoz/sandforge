@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  RunCheckpointInfo,
   SyncExecutionResult,
   FieldMapping,
   TransformRule,
@@ -35,6 +36,7 @@ import {
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { useStoppedRunCheckpoint } from '../../hooks/useStoppedRunCheckpoint';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
@@ -225,6 +227,11 @@ export interface SyncPageData {
    */
   muteAutomation: boolean;
   setMuteAutomation: (mute: boolean) => void;
+  /** Whether the run takes a checkpoint of what it writes first, as its box is left: off unless ticked. */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
   /** Simulate the sync with current configuration: read, compare, write nothing. */
@@ -617,6 +624,8 @@ export function useSyncPageData(): SyncPageData {
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
   /** The box beside Run: the run mutes the target's automation, through its own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
+  /** The other box: the run takes a checkpoint of what it writes before its first write. */
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
 
   // Bridge query: the objects the source's user may read, and once the target
   // is picked, those the target takes — what its user may create is read
@@ -642,6 +651,8 @@ export function useSyncPageData(): SyncPageData {
     timeoutMs: WRITE_RUN_TIMEOUT_MS,
   });
 
+  const stoppedCheckpoint = useStoppedRunCheckpoint('sync:error', executeMutation.requestId);
+
   // Bridge mutation: simulate sync — the same reads, nothing written
   const simulateMutation = useBridgeMutation<SyncSimulationResult>('sync:simulate', {
     responseType: 'sync:simulate:response',
@@ -661,13 +672,15 @@ export function useSyncPageData(): SyncPageData {
   );
   /**
    * The saved configuration asked to run or to simulate now, until it is read
-   * back and sent: whether to simulate it, and whether the run mutes the
-   * target's automation, as the box beside Run was left.
+   * back and sent: whether to simulate it, whether the run mutes the target's
+   * automation and whether it takes a checkpoint first, as the boxes beside
+   * Run were left.
    */
   const [savedRunAsked, setSavedRunAsked] = useState<{
     id: string;
     simulate: boolean;
     muteAutomation: boolean;
+    checkpointFirst: boolean;
   } | null>(null);
   /** The label of the saved configuration the run on the page is of; null for the wizard's own. */
   const [savedRunLabel, setSavedRunLabel] = useState<string | null>(null);
@@ -1095,23 +1108,24 @@ export function useSyncPageData(): SyncPageData {
     saved: { id: string; label: string },
     simulate: boolean,
     mute: boolean,
+    checkpoint: boolean,
   ): void => {
     if (busy) return;
     setError(null);
     executeMutation.reset();
     simulateMutation.reset();
     setSavedRunLabel(saved.label);
-    setSavedRunAsked({ id: saved.id, simulate, muteAutomation: mute });
+    setSavedRunAsked({ id: saved.id, simulate, muteAutomation: mute, checkpointFirst: checkpoint });
     if (simulate) setSimulatedFor(simulatedConfig);
     setCurrentStep(4);
     loadConfigMutation.mutate({ id: saved.id });
   };
 
   const handleExecute = () => {
-    // A saved configuration opened here runs as it was saved, the box beside
-    // Run as it is left.
+    // A saved configuration opened here runs as it was saved, the boxes beside
+    // Run as they are left.
     if (openedConfig !== null) {
-      readBackSaved(openedConfig, false, muteAutomation);
+      readBackSaved(openedConfig, false, muteAutomation, checkpointFirst);
       return;
     }
     if (!sourceOrgId || !targetOrgId || busy || filesNeedSave || transformsNeedField) return;
@@ -1132,6 +1146,7 @@ export function useSyncPageData(): SyncPageData {
     executeMutation.mutate({
       config: config as unknown as Record<string, unknown>,
       ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   };
 
@@ -1149,7 +1164,7 @@ export function useSyncPageData(): SyncPageData {
     if (busy) return;
     // Run now names its configuration: one opened here before is put away.
     if (openedConfig?.id !== configId) setOpenedConfig(null);
-    readBackSaved({ id: configId, label }, false, false);
+    readBackSaved({ id: configId, label }, false, false, false);
   };
 
   // The saved configuration read back goes to the run or the simulation
@@ -1165,13 +1180,15 @@ export function useSyncPageData(): SyncPageData {
       return;
     }
     setSyncStartedAt(Date.now());
+    const checkpoint = asked.checkpointFirst ? { checkpointFirst: {} } : {};
     if (asked.simulate) {
-      simulateMutation.mutate({ config: loaded.config });
+      simulateMutation.mutate({ config: loaded.config, ...checkpoint });
       return;
     }
     executeMutation.mutate({
       config: loaded.config,
       ...(asked.muteAutomation ? { muteAutomation: true } : {}),
+      ...checkpoint,
     });
   });
   useEffect(() => {
@@ -1186,7 +1203,7 @@ export function useSyncPageData(): SyncPageData {
   const handleSimulate = () => {
     // A saved configuration opened here is simulated as it was saved.
     if (openedConfig !== null) {
-      readBackSaved(openedConfig, true, false);
+      readBackSaved(openedConfig, true, false, checkpointFirst);
       return;
     }
     if (!sourceOrgId || !targetOrgId || busy || filesNeedSave || transformsNeedField) return;
@@ -1205,7 +1222,10 @@ export function useSyncPageData(): SyncPageData {
     setSimulatedFor(simulatedConfig);
     setSyncStartedAt(Date.now());
     setCurrentStep(4);
-    simulateMutation.mutate({ config: config as unknown as Record<string, unknown> });
+    simulateMutation.mutate({
+      config: config as unknown as Record<string, unknown>,
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+    });
   };
 
   /**
@@ -1312,6 +1332,9 @@ export function useSyncPageData(): SyncPageData {
     handleChangeTransformConfig,
     muteAutomation,
     setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     handleExecute,
     handleSimulate,
     handleSaveConfig,

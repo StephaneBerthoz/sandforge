@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useQuickSeed, isSeedTargetCandidate } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { CRM_STARTER, OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg, SeedFitProposal, SeedTemplate } from '@sandforge/shared';
@@ -37,6 +38,7 @@ let mockMutationState = {
   data: null as Record<string, unknown> | null,
   loading: false,
   error: null as string | null,
+  errorCode: null as string | null,
   reset: mockReset,
   requestId: null as string | null,
 };
@@ -123,6 +125,7 @@ describe('useQuickSeed', () => {
       data: null,
       loading: false,
       error: null,
+      errorCode: null,
       reset: mockReset,
       requestId: null,
     };
@@ -337,6 +340,88 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate);
     });
     expect(result.current.muteAutomation).toBe(false);
+  });
+
+  it('takes a checkpoint first only once the confirmation’s box is ticked, unticked for every template', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', checkpointFirst: {} });
+
+    act(() => {
+      result.current.seedAgain();
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+    act(() => {
+      result.current.setCheckpointFirst(true);
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+  });
+
+  it('goes back from a refusal to the confirmation with the boxes as they were set', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+      result.current.setMuteAutomation(true);
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      error: 'Refused.',
+      errorCode: 'CHECKPOINT_REFUSED',
+    };
+    rerender();
+    expect(result.current.phase).toBe('executing');
+    expect(result.current.canSetUpAgain).toBe(true);
+
+    act(() => {
+      result.current.backToConfirm();
+    });
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.error).toBeNull();
+    expect(result.current.checkpointFirst).toBe(true);
+    expect(result.current.muteAutomation).toBe(true);
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no way back while a run the page stopped waiting for may still be writing', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = {
+      ...mockMutationState,
+      error: 'The wait ended.',
+      errorCode: RUN_OUTLIVED_WAIT,
+    };
+    rerender();
+
+    expect(result.current.canSetUpAgain).toBe(false);
   });
 
   it('keeps the locale chosen for the next template, as it keeps the org', () => {
@@ -757,6 +842,7 @@ describe('useQuickSeed — a template refused for what its org has left', () => 
       data: null,
       loading: false,
       error: null,
+      errorCode: null,
       reset: mockReset,
       requestId: null,
     };

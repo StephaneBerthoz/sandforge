@@ -410,6 +410,7 @@ export async function measureSyncWrite(
         }
       : {}),
     verdict,
+    ...(checkpointFailed !== undefined ? { checkpointUnread: checkpointFailed } : {}),
   };
   return {
     check,

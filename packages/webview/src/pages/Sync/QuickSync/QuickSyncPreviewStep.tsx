@@ -16,7 +16,9 @@ import { SyncRunRemoval } from '../syncRemovalParts';
 import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { OrgBadge } from '../../../components/ui/OrgBadge';
 import { Icon } from '../../../components/ui/Icon';
 import { useOrgStore } from '../../../stores/useOrgStore';
@@ -44,6 +46,8 @@ export interface QuickSyncPreviewStepProps {
   onOpenHistory?: (operationId: string) => void;
   /** Whether the run mutes the target's automation, and the box's toggle; no box without. */
   mute?: { checked: boolean; onChange: (mute: boolean) => void; org: string };
+  /** Whether the run takes a checkpoint first, and the box's toggle; no box without. */
+  checkpoint?: { checked: boolean; onChange: (first: boolean) => void };
 }
 
 const statusVariant: Record<string, BadgeVariant> = {
@@ -73,6 +77,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   targetOrgId = '',
   onOpenHistory,
   mute,
+  checkpoint,
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
@@ -134,6 +139,13 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
         {result.created && (
           <SyncRunRemoval runId={result.created.runId} testId="quick-sync-result-removal" />
         )}
+        {/* Under the removal, which takes back what the run wrote alone. */}
+        <RewindBeforeRun
+          checkpoint={result.checkpoint}
+          orgId={targetOrgId}
+          beside="run"
+          testId="quick-sync-result-checkpoint"
+        />
         {/* The emails and phone numbers it wrote, said once for the run. */}
         {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
         {result.objectResults.map((obj) => (
@@ -298,6 +310,17 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           onChange={mute.onChange}
           org={mute.org}
           testId="quick-sync-mute"
+        />
+      )}
+
+      {/* Quick Sync simulates nothing: the run's question says the cost. */}
+      {preview && checkpoint && (
+        <CheckpointFirstOption
+          checked={checkpoint.checked}
+          onChange={checkpoint.onChange}
+          orgId={targetOrgId}
+          costSaid="question"
+          testId="quick-sync-checkpoint-first"
         />
       )}
 

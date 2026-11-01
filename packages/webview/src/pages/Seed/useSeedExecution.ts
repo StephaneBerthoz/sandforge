@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { TFunction } from 'i18next';
 import type {
   FieldRule,
+  RunCheckpointInfo,
   SeedExecutionResult,
   SeedFitProposal,
   SeedTemplate,
@@ -12,6 +13,7 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useElapsedSince } from '../../hooks/useElapsedSince';
+import { useStoppedRunCheckpoint } from '../../hooks/useStoppedRunCheckpoint';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { ObjectProgress } from './Step7_Execute';
 import type { CheckedRelation } from './seedRelationDrafts';
@@ -39,6 +41,14 @@ export interface SeedExecutionState {
    */
   muteAutomation: boolean;
   setMuteAutomation: (mute: boolean) => void;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write, as its box on the Execute step is left: off unless ticked.
+   */
+  checkpointFirst: boolean;
+  setCheckpointFirst: (first: boolean) => void;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
   /** Trigger seed execution with the current configuration. */
   handleExecute: () => void;
   /** Per-object progress entries derived from selected objects and volumes. */
@@ -118,6 +128,7 @@ export function useSeedExecution(
   /** Set when the run is fired, so elapsed time is real rather than hardcoded 0. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [muteAutomation, setMuteAutomation] = useState(false);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [sentFrom, setSentFrom] = useState<SentFrom | null>(null);
   const [fitApplied, setFitApplied] = useState<FittedSeedRun | null>(null);
 
@@ -131,6 +142,7 @@ export function useSeedExecution(
   });
 
   const isRunning = executeSeedMutation.loading;
+  const stoppedCheckpoint = useStoppedRunCheckpoint('seed:error', executeSeedMutation.requestId);
 
   /* Navigate to results step on completion */
   useEffect(() => {
@@ -267,6 +279,7 @@ export function useSeedExecution(
       // The org's own locale unless one was chosen: the extension reads it.
       ...(locale ? { locale } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   }, [
     selectedOrgId,
@@ -278,6 +291,7 @@ export function useSeedExecution(
     recordTypeChoices,
     locale,
     muteAutomation,
+    checkpointFirst,
     executeSeedMutation,
   ]);
 
@@ -300,9 +314,9 @@ export function useSeedExecution(
 
   /*
    * The refused run sent again at the counts that fit, and nothing else
-   * changed: the template it was built from, its locale, and the mute as the
-   * box is left. Its request says the fit, for the audit trail; the gate is
-   * met again by the counts, as for any run.
+   * changed: the template it was built from, its locale, and the mute and
+   * the checkpoint as their boxes are left. Its request says the fit, for the
+   * audit trail; the gate is met again by the counts, as for any run.
    */
   const seedFitted = useCallback(() => {
     if (!selectedOrgId || !lastTemplate || !fitProposal || fitProposal.cannotFit !== undefined) {
@@ -328,9 +342,18 @@ export function useSeedExecution(
       template: template as unknown as Record<string, unknown>,
       ...(locale ? { locale } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
       fit: fitted.fit,
     });
-  }, [selectedOrgId, lastTemplate, fitProposal, locale, muteAutomation, executeSeedMutation]);
+  }, [
+    selectedOrgId,
+    lastTemplate,
+    fitProposal,
+    locale,
+    muteAutomation,
+    checkpointFirst,
+    executeSeedMutation,
+  ]);
 
   // Live figures from the extension, for this run only: SeedOpsHandler uses the
   // request id as the operationId, and every panel receives every run's events.
@@ -383,6 +406,9 @@ export function useSeedExecution(
     lastTemplate,
     muteAutomation,
     setMuteAutomation,
+    checkpointFirst,
+    setCheckpointFirst,
+    stoppedCheckpoint,
     handleExecute,
     objectProgress,
     overallPercent: progress?.percentage ?? 0,

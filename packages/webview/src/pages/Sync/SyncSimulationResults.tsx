@@ -4,6 +4,7 @@ import type { SyncObjectSimulation, SyncSimulationResult } from '@sandforge/shar
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOption';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
 import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
@@ -89,6 +90,15 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         unread={simulation.writeCheckUnread}
         order={simulation.writeOrder}
       />
+      {/* What the checkpoint it asked first would hold and cost: nothing taken. */}
+      {simulation.checkpoint && (
+        <CheckpointFirstEstimate
+          estimate={simulation.checkpoint}
+          lead={t('runResults.checkpoint.estimate.simulation')}
+          testId="sync-simulation-checkpoint"
+          className="text-xs text-text-primary"
+        />
+      )}
       {simulation.files && (
         <SyncFilesStorageLine storage={simulation.files} testId="sync-simulation-files-storage" />
       )}

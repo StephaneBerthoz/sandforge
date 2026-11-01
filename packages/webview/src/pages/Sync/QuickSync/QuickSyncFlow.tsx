@@ -7,6 +7,7 @@ import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
 import { Badge } from '../../../components/ui/Badge';
 import { Icon } from '../../../components/ui/Icon';
 import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 import { useLatestRef } from '../../../hooks/useLatestRef';
 import { useOrgStore } from '../../../stores/useOrgStore';
@@ -174,6 +175,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
               onChange: flow.setMuteAutomation,
               org: targetOrgName,
             }}
+            checkpoint={{ checked: state.checkpointFirst, onChange: flow.setCheckpointFirst }}
             {...(onOpenHistory ? { onOpenHistory } : {})}
           />
         )}
@@ -189,6 +191,14 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
           {state.error}
         </div>
       )}
+      {/* What became of the checkpoint a stopped run took first. */}
+      <RewindBeforeRun
+        checkpoint={state.stoppedCheckpoint}
+        orgId={state.targetOrgId}
+        beside="run"
+        compact
+        testId="quick-sync-error-checkpoint"
+      />
     </div>
   );
 };

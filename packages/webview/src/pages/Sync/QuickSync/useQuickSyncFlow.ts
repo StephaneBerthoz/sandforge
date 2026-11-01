@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
+import type { QuickSyncPreview, RunCheckpointInfo, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
 import { useLatestRef } from '../../../hooks/useLatestRef';
+import { useStoppedRunCheckpoint } from '../../../hooks/useStoppedRunCheckpoint';
 
 /** Step in the Quick Sync 3-screen flow. */
 export type QuickSyncStep = 'orgs' | 'objects' | 'preview' | 'executing' | 'results';
@@ -39,6 +40,14 @@ export interface QuickSyncFlowState {
    * reload, as nothing of a run under way is.
    */
   muteAutomation: boolean;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write, as its box beside Go is left: off unless ticked, and not kept
+   * across a reload either.
+   */
+  checkpointFirst: boolean;
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
 }
 
 /** Draft state persisted across webview reloads. */
@@ -71,6 +80,8 @@ export interface QuickSyncFlowActions {
   goToPreview: () => void;
   /** Tick or untick the box that mutes the target's automation for the run. */
   setMuteAutomation: (mute: boolean) => void;
+  /** Tick or untick the box that takes a checkpoint before the run's first write. */
+  setCheckpointFirst: (first: boolean) => void;
   /** Execute the Quick Sync. */
   execute: () => void;
   /** Reset all state to initial. */
@@ -116,8 +127,10 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [muteAutomation, setMuteAutomation] = useState(false);
-  /** The box as Go found it: the run is sent once its configuration is prepared. */
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
+  /** The boxes as Go found them: the run is sent once its configuration is prepared. */
   const muteAsked = useRef(false);
+  const checkpointAsked = useRef(false);
 
   /**
    * A persisted `executing` step is a corpse from a webview killed mid-run:
@@ -148,6 +161,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     // run waits on a person; operation:progress keeps flowing meanwhile.
     timeoutMs: WRITE_RUN_TIMEOUT_MS,
   });
+  const stoppedCheckpoint = useStoppedRunCheckpoint('sync:error', syncMutation.requestId);
 
   // Sync preview mutation response into state (handler wraps it in { preview })
   useEffect(() => {
@@ -171,6 +185,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
       syncMutateRef.current({
         config: prepareMutation.data.syncConfig,
         ...(muteAsked.current ? { muteAutomation: true } : {}),
+        ...(checkpointAsked.current ? { checkpointFirst: {} } : {}),
       });
     }
   }, [prepareMutation.data]);
@@ -286,6 +301,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
 
   const execute = useCallback(() => {
     muteAsked.current = muteAutomation;
+    checkpointAsked.current = checkpointFirst;
     setIsExecuting(true);
     setError(null);
     setStep('executing');
@@ -297,7 +313,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
         parentObjects: draft.parentObjects,
       },
     });
-  }, [draft, muteAutomation, prepareMutation, setIsExecuting, setError, setStep]);
+  }, [draft, muteAutomation, checkpointFirst, prepareMutation, setIsExecuting, setError, setStep]);
 
   const reset = useCallback(() => {
     setDraft(INITIAL_DRAFT);
@@ -307,6 +323,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setIsExecuting(false);
     setError(null);
     setMuteAutomation(false);
+    setCheckpointFirst(false);
     previewMutation.reset();
     prepareMutation.reset();
     syncMutation.reset();
@@ -334,6 +351,8 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     runOperationId: syncMutation.loading ? syncMutation.requestId : null,
     error,
     muteAutomation,
+    checkpointFirst,
+    stoppedCheckpoint,
   };
 
   return {
@@ -347,6 +366,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     goToObjects,
     goToPreview,
     setMuteAutomation,
+    setCheckpointFirst,
     execute,
     reset,
     canGoToObjects,

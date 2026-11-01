@@ -1973,12 +1973,14 @@ export class SeedCloneHandler implements DomainHandler {
           ? `${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`
           : extractErrorMessage(err);
       this.deps.log(`[ERR] seed:clone:execute: ${message}`);
-      sendOperationFailed(this.deps, operationId, message, true, {
+      // The page says what became of the checkpoint itself, in its language.
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
         extraPayload: {
           code: message.startsWith(GUARD_BLOCKED_PREFIX)
             ? CLONE_FAILURE_CODES.guardBlocked
             : CLONE_FAILURE_CODES.failed,
+          ...(settled ? { checkpoint: settled } : {}),
         },
       });
       // Nothing when the clone was stopped before it was listed.

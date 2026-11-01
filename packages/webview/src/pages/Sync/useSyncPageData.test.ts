@@ -208,6 +208,26 @@ describe('useSyncPageData', () => {
     expect(execution.mutate.mock.calls[1][0]).toMatchObject({ muteAutomation: true });
   });
 
+  it('asks a run and a simulation to take a checkpoint first only once its box is ticked', () => {
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleSourceOrgChange('org-1');
+      result.current.handleTargetOrgChange('org-2');
+      result.current.handleAddObject('Account');
+    });
+    act(() => result.current.handleExecute());
+    act(() => result.current.handleSimulate());
+    expect(result.current.checkpointFirst).toBe(false);
+    expect(execution.mutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+    expect(simulation.mutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => result.current.setCheckpointFirst(true));
+    act(() => result.current.handleExecute());
+    act(() => result.current.handleSimulate());
+    expect(execution.mutate.mock.calls[1][0]).toMatchObject({ checkpointFirst: {} });
+    expect(simulation.mutate.mock.calls[1][0]).toMatchObject({ checkpointFirst: {} });
+  });
+
   it('sends the transform rule with the settings typed for it', () => {
     // TransformBuilder's inputs were handed a no-op, so a prefix, a replacement
     // or a truncate length never left the page: every value-based rule reached
@@ -1037,6 +1057,26 @@ describe('useSyncPageData', () => {
       expect(execution.mutate).toHaveBeenCalledWith({ config: SAVED, muteAutomation: true });
       expect(simulation.mutate).not.toHaveBeenCalled();
       expect(result.current.savedRunLabel).toBe('Nightly accounts');
+    });
+
+    it('runs and simulates it taking a checkpoint first, as the box beside Run is left', () => {
+      const { result, rerender } = openedFromMigration();
+
+      act(() => result.current.setCheckpointFirst(true));
+      act(() => result.current.handleExecute());
+      readBack.data = { config: SAVED };
+      rerender();
+      expect(execution.mutate).toHaveBeenCalledWith({ config: SAVED, checkpointFirst: {} });
+
+      readBack.data = null;
+      rerender();
+      act(() => result.current.handleSimulate());
+      readBack.data = { config: { ...SAVED } };
+      rerender();
+      expect(simulation.mutate).toHaveBeenCalledWith({
+        config: { ...SAVED },
+        checkpointFirst: {},
+      });
     });
 
     it('simulates it as it was saved, and writes nothing', () => {

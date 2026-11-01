@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import { useHeldFailure } from '../../hooks/useHeldFailure';
+import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Step7Execute } from './Step7_Execute';
 import type { ObjectProgress } from './Step7_Execute';
@@ -14,7 +16,7 @@ import { personaName } from './Persona/personaText';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import type { SeedAutomationState } from './useSeedAutomation';
 import { SeedLocalePicker } from './SeedLocalePicker';
-import type { SeedFitProposal } from '@sandforge/shared';
+import type { RunCheckpointInfo, SeedFitProposal } from '@sandforge/shared';
 import { SeedFitProposalCard } from './SeedFitProposal';
 
 /** Props for the SeedExecuteStep section. */
@@ -45,10 +47,16 @@ export interface SeedExecuteStepProps {
   automation?: SeedAutomationState;
   /** The org the run writes to, as the panel names it. */
   orgName?: string;
+  /** The org the run writes to, by its id in this machine's registry. */
+  orgId?: string;
   /** The records the run creates, by object. */
   records?: Readonly<Record<string, number>>;
   /** Whether the run mutes the org's automation, and the box's toggle, beside what it runs. */
   mute?: { checked: boolean; onChange: (mute: boolean) => void };
+  /** Whether the run takes a checkpoint first, and the box's toggle; absent, no box. */
+  checkpoint?: { checked: boolean; onChange: (first: boolean) => void };
+  /** What became of the checkpoint the last run took first, when its error says. */
+  stoppedCheckpoint?: RunCheckpointInfo;
   /**
    * The counts that fit, as the refusal of the last run for the storage or
    * the API requests the org has left carried them, and what seeds them;
@@ -83,8 +91,11 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   volumes,
   automation,
   orgName = '',
+  orgId,
   records = {},
   mute,
+  checkpoint,
+  stoppedCheckpoint,
   fit,
 }) => {
   const { t, i18n } = useTranslation();
@@ -131,6 +142,18 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
         <div className="mb-2">
           <SeedFitProposalCard proposal={fit.proposal} org={orgName} onSeed={fit.onSeed} />
         </div>
+      )}
+
+      {/* The same: what became of the checkpoint a stopped run took first. */}
+      {!isRunning && (
+        <RewindBeforeRun
+          checkpoint={stoppedCheckpoint}
+          orgId={orgId}
+          beside="run"
+          compact
+          className="mb-2"
+          testId="seed-execute-error-checkpoint"
+        />
       )}
 
       {/* Adaptive: what the run's rules are when configure was skipped, and
@@ -203,6 +226,19 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
             orgName={orgName}
             records={records}
             {...(mute ? { mute } : {})}
+          />
+        </div>
+      )}
+
+      {/* The run's question says its cost, before anything is taken. */}
+      {checkpoint && !isRunning && (
+        <div className="mb-2">
+          <CheckpointFirstOption
+            checked={checkpoint.checked}
+            onChange={checkpoint.onChange}
+            orgId={orgId}
+            costSaid="question"
+            testId="seed-checkpoint-first"
           />
         </div>
       )}

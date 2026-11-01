@@ -45,6 +45,10 @@ function rewoundRunOf(entry: SyncHistoryEntry): RewoundRun {
     startedAt: entry.startTime,
     endedAt: entry.endTime,
     objects: entry.configSnapshot.objects.map((object) => object.objectApiName),
+    // Its own checkpoint, by id: a rewind to it took the run back whole.
+    ...(entry.result.checkpoint?.state === 'taken'
+      ? { checkpointId: entry.result.checkpoint.checkpointId }
+      : {}),
   };
 }
 

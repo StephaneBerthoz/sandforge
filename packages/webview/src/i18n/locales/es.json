@@ -846,7 +846,8 @@
         "cancelled_one": "Cancelado: {{count}} registro importado antes de la detención permanece en la org",
         "cancelled_other": "Cancelado: {{count}} registros importados antes de la detención permanecen en la org",
         "tooManyRows": "Este archivo contiene {{rows}} filas; Subir CSV admite {{max}} a la vez. Divídalo en archivos de {{max}} filas como máximo y suba cada uno.",
-        "tooManyColumns": "Hay {{columns}} columnas mapeadas; Subir CSV admite {{max}} a la vez. Deje sin mapear las columnas que no necesite o divida el archivo por columnas."
+        "tooManyColumns": "Hay {{columns}} columnas mapeadas; Subir CSV admite {{max}} a la vez. Deje sin mapear las columnas que no necesite o divida el archivo por columnas.",
+        "writeDeclined": "Canceló la importación antes de que escribiera nada. No se escribió nada en la org de destino."
       }
     },
     "modeSelect": {
@@ -1017,7 +1018,8 @@
         "NOT_PREVIEWED": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: no indicaba ninguna vista previa, y una clonación solo se ejecuta a partir de la vista previa para la que se hizo. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "PREVIEW_NOT_HELD": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: la vista previa que indicaba ya no se conserva — SandForge guarda las 50 últimas vistas previas y las olvida al reiniciar la extensión. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "generic": "No se pudo completar la clonación.",
-        "detail": "Detalles: {{detail}}"
+        "detail": "Detalles: {{detail}}",
+        "SEED_WRITE_DECLINED": "Canceló la clonación antes de que escribiera nada. No se escribió nada en la org de destino."
       }
     },
     "emptyState": {
@@ -1029,7 +1031,8 @@
     "results": {
       "aiFallback": "La IA no devolvió ningún valor, así que estos campos recibieron frases generadas: {{fields}}. La IA está desactivada, o la llamada fue rechazada (el registro de SandForge indica el motivo).",
       "aiFallbackShort": "A la respuesta de la IA le faltaban valores, así que estos campos recibieron frases generadas: {{fields}}.",
-      "openRecord": "Abrir el primer registro creado ({{object}}) en {{org}}"
+      "openRecord": "Abrir el primer registro creado ({{object}}) en {{org}}",
+      "notRun": "Aún no se ha escrito nada: Confirmar inicia el seed."
     },
     "sampleRecordCount_one": "{{count}} registro de muestra",
     "sampleRecordCount_other": "{{count}} registros de muestra",
@@ -4387,7 +4390,7 @@
       }
     },
     "controls": {
-      "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Los recuentos del plan se leyeron antes.",
+      "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Primero un punto de control es la excepción: solo lo llevan la simulación y la ejecución. Los recuentos del plan se leyeron antes.",
       "objectTitle": "Por objeto",
       "object": "Objeto",
       "objectPlaceholder": "Elegir un objeto de la ejecución…",
@@ -6044,6 +6047,14 @@
     "syncEarlierUnread": {
       "explanation": "La sincronización se rechazó antes de escribir nada: no se pudo leer lo que copiaron las ejecuciones anteriores de esta configuración, y sus inserciones copiarían esos registros por segunda vez.",
       "action": "Compruebe que SandForge puede leer su carpeta de almacenamiento y vuelva a ejecutarla."
+    },
+    "checkpointRefused": {
+      "explanation": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó.",
+      "action": "No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza."
+    },
+    "seedConfirmationUnavailable": {
+      "explanation": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
+      "action": "Ejecútela desde la página Seed, donde puede confirmarla."
     }
   },
   "moduleSummary": {

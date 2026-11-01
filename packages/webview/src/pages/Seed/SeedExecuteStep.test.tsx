@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import type { SeedFitProposal } from '@sandforge/shared';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { SeedExecuteStep } from './SeedExecuteStep';
 import type { SeedExecuteStepProps } from './SeedExecuteStep';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -68,6 +70,41 @@ function renderStep(overrides: Partial<SeedExecuteStepProps> = {}): SeedExecuteS
 }
 
 describe('SeedExecuteStep', () => {
+  it('offers the checkpoint first of the org it writes to, off, its cost said in the question', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    const onChange = vi.fn();
+    renderStep({ orgId: 'org-dev', checkpoint: { checked: false, onChange } });
+
+    const toggle = screen.getByTestId('seed-checkpoint-first-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByTestId('seed-checkpoint-first-cost-said').textContent).toContain(
+      'the question before the first write',
+    );
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('does not offer it while the run goes', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    renderStep({
+      isRunning: true,
+      orgId: 'org-dev',
+      checkpoint: { checked: true, onChange: vi.fn() },
+    });
+    expect(screen.queryByTestId('seed-checkpoint-first')).toBeNull();
+  });
+
+  it('says, back on the step, what became of the checkpoint a stopped run took', () => {
+    useOrgStore.setState({ orgs: [developerOrg()] });
+    renderStep({
+      orgId: 'org-dev',
+      stoppedCheckpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    expect(screen.getByTestId('seed-execute-error-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
+  });
+
   beforeEach(() => {
     useSeedWizardStore.getState().resetSeedWizard();
     useSeedWizardStore.setState({ selectedObjects: ['Account', 'Contact'] });

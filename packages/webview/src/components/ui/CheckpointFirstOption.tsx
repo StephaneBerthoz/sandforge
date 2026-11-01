@@ -11,41 +11,8 @@ import {
 import { useOrgStore } from '../../stores/useOrgStore';
 import { cn } from '../../theme';
 import { formatNumber } from '../../utils/formatters';
+import { checkpointRefusalWords } from '../../utils/runCheckpoint';
 import { namedObjects } from './RewindBeforeRun';
-
-/**
- * What refused a checkpoint a run was to take first, by the take's code, in
- * the interface language: the host says it in English, and the page said
- * only that it was refused. A code with no words of its own is said as the
- * take's guards refusing it.
- */
-const REFUSAL_KEYS: ReadonlyMap<string, string> = new Map([
-  ['DISK', 'runResults.checkpoint.refusal.disk'],
-  ['RUN_WRITING', 'runResults.checkpoint.refusal.runWriting'],
-  ['NOTHING_HELD', 'runResults.checkpoint.refusal.nothingHeld'],
-  ['TOO_MANY_RECORDS', 'runResults.checkpoint.refusal.tooManyRecords'],
-  ['API_BUDGET', 'runResults.checkpoint.refusal.apiBudget'],
-  ['PERMISSIONS', 'runResults.checkpoint.refusal.permissions'],
-  ['PRODUCTION', 'runResults.checkpoint.refusal.production'],
-  ['SCRATCH_EXPIRED', 'runResults.checkpoint.refusal.scratchExpired'],
-]);
-
-/**
- * Why a checkpoint taken before a run was refused, as a sentence: by the
- * take's own refusal code when the run's stop names one, and as a take that
- * could not be taken when it names none — a take that failed, or a host
- * that did not say.
- *
- * @param reason - The take's `CheckpointRefusalCode`, as the stop carries it.
- * @param t - Translates a key in the interface language.
- */
-export function checkpointRefusalWords(
-  reason: string | undefined,
-  t: (key: string) => string,
-): string {
-  if (reason === undefined) return t('runResults.checkpoint.refusal.unsaid');
-  return t(REFUSAL_KEYS.get(reason) ?? 'runResults.checkpoint.refusal.other');
-}
 
 /** Props for {@link CheckpointFirstEstimate}. */
 export interface CheckpointFirstEstimateProps {

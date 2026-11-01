@@ -5,11 +5,13 @@ import type {
   CloneObjectConfig,
   ClonePreviewResult,
   CloneExecutionResult,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useMessageListener } from '../../../hooks/useMessageBus';
 import { listWords } from '../../../utils/listWords';
+import { panelRefusalWords, runCheckpointOf } from '../../../utils/runCheckpoint';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -46,6 +48,7 @@ const CLONE_ERROR_CODES = [
   'CLONE_FAILED',
   'CLONE_EMAILS_EXCEEDED',
   'API_BUDGET_EXCEEDED',
+  'SEED_WRITE_DECLINED',
 ];
 
 /**
@@ -124,9 +127,12 @@ export interface UseCloneReturn {
   /**
    * The org that result was written to: the target of the preview the run
    * followed, which stays the run's when another org is selected after it.
-   * Undefined without a result, or once that preview is set aside.
+   * Undefined without a result or a run stopped on a checkpoint, or once that
+   * preview is set aside.
    */
   resultTargetOrgId: string | undefined;
+  /** What became of the checkpoint the last run took first, when its failure says. */
+  stoppedCheckpoint: RunCheckpointInfo | undefined;
   /** Current wizard step. */
   step: CloneStep;
   /** Whether source objects are loading. */
@@ -143,6 +149,10 @@ export interface UseCloneReturn {
   keepContactPoints: boolean;
   /** Change {@link UseCloneReturn.keepContactPoints}. */
   setKeepContactPoints: (keep: boolean) => void;
+  /** Whether the run takes a checkpoint of what it writes first, as its box is left: off unless ticked. */
+  checkpointFirst: boolean;
+  /** Change {@link UseCloneReturn.checkpointFirst}. */
+  setCheckpointFirst: (first: boolean) => void;
   /** Handle source org selection -- fetches available objects. */
   handleSourceOrgSelected: (orgId: string) => void;
   /** Toggle an object in the selection. */
@@ -190,6 +200,8 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   const [error, setError] = useState<string | null>(null);
   const [previewedFor, setPreviewedFor] = useState<PreviewedFor | null>(null);
   const [keepContactPoints, setKeepContactPoints] = useState(false);
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
+  const [stoppedCheckpoint, setStoppedCheckpoint] = useState<RunCheckpointInfo | undefined>();
 
   const describeMutation = useBridgeMutation<{
     objects: Array<{ apiName: string; label: string; recordCount: number }>;
@@ -272,7 +284,14 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     if (failed?.operationId !== executeRequestId) return;
     executeMutation.reset();
     setExecutionStatus('error');
+    setStoppedCheckpoint(runCheckpointOf(failed.checkpoint));
     const code = typeof failed.code === 'string' ? failed.code : '';
+    // What the error catalogue words, a checkpoint refused by what refused it.
+    const worded = panelRefusalWords(code, failed, (key) => t(key));
+    if (worded !== undefined) {
+      setError(worded);
+      return;
+    }
     // Refused for its emails, the clone says how many against how many left,
     // and the ways out: from the figures, as a seed refused for them says it.
     if (code === 'CLONE_EMAILS_EXCEEDED') {
@@ -362,6 +381,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       setPreviewResult(null);
       setPreviewedFor(null);
       setExecutionResult(null);
+      setStoppedCheckpoint(undefined);
       setExecutionStatus('idle');
       setError(null);
       describeMutation.reset();
@@ -413,6 +433,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     }
     // A new preview is a new clone: the last run's result is not its own.
     setExecutionResult(null);
+    setStoppedCheckpoint(undefined);
     executeMutation.reset();
     setPreviewResult(null);
     setExecutionStatus('previewing');
@@ -449,6 +470,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       return;
     }
     setExecutionResult(null);
+    setStoppedCheckpoint(undefined);
     setExecutionStatus('executing');
     setError(null);
     setStep('execute');
@@ -460,6 +482,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       objects: previewedFor.objects,
       previewId,
       ...(keepContactPoints ? { keepContactPoints: true } : {}),
+      ...(checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   }, [
     executionStatus,
@@ -470,6 +493,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     executeMutation,
     previewMutation.requestId,
     keepContactPoints,
+    checkpointFirst,
     t,
   ]);
 
@@ -493,6 +517,8 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     setStep('source');
     setError(null);
     setKeepContactPoints(false);
+    setCheckpointFirst(false);
+    setStoppedCheckpoint(undefined);
     describeMutation.reset();
     previewMutation.reset();
     executeMutation.reset();
@@ -506,13 +532,16 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     previewResult,
     executionStatus,
     executionResult,
-    resultTargetOrgId: executionResult ? previewedFor?.targetOrgId : undefined,
+    resultTargetOrgId: executionResult || stoppedCheckpoint ? previewedFor?.targetOrgId : undefined,
+    stoppedCheckpoint,
     step,
     loadingSource: describeMutation.loading,
     loadingPreview: previewMutation.loading,
     error,
     keepContactPoints,
     setKeepContactPoints,
+    checkpointFirst,
+    setCheckpointFirst,
     handleSourceOrgSelected,
     handleObjectToggle,
     handleWhereClauseChange,

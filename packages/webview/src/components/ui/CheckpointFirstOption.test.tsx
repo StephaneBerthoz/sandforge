@@ -2,14 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import type { RunCheckpointEstimate } from '@sandforge/shared';
-import i18n from '../../i18n';
+import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { developerOrg, productionOrg } from '../../pages/Checkpoint/testing/checkpointFixtures';
-import {
-  CheckpointFirstEstimate,
-  CheckpointFirstOption,
-  checkpointRefusalWords,
-} from './CheckpointFirstOption';
+import { CheckpointFirstEstimate, CheckpointFirstOption } from './CheckpointFirstOption';
 
 const ESTIMATE: RunCheckpointEstimate = {
   state: 'planned',
@@ -30,8 +26,6 @@ const ESTIMATE: RunCheckpointEstimate = {
   notHeld: [{ objectApiName: 'FeedItem', reason: 'Chatter posts: a rewind leaves its records.' }],
   keepDays: 7,
 };
-
-const t = (key: string, options?: Record<string, unknown>): string => i18n.t(key, options);
 
 describe('CheckpointFirstOption', () => {
   beforeEach(() => {
@@ -229,37 +223,5 @@ describe('CheckpointFirstEstimate', () => {
       <CheckpointFirstEstimate estimate={{ ...ESTIMATE, keepDays: 1 }} lead="" testId="estimate" />,
     );
     expect(screen.getByTestId('estimate-cost')).toHaveTextContent('kept 1 day.');
-  });
-});
-
-describe('checkpointRefusalWords', () => {
-  it.each([
-    ['DISK', "This machine's disk has too little room for it."],
-    [
-      'RUN_WRITING',
-      'Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.',
-    ],
-    [
-      'NOTHING_HELD',
-      'It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.',
-    ],
-    [
-      'TOO_MANY_RECORDS',
-      'The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.',
-    ],
-    ['API_BUDGET', 'Its API requests are past what the org has left today.'],
-    ['PRODUCTION', 'SandForge takes no checkpoint of a production org.'],
-    ['SCRATCH_EXPIRED', 'The scratch org has expired.'],
-  ])('words %s', (reason, words) => {
-    expect(checkpointRefusalWords(reason, t)).toBe(words);
-  });
-
-  it('says the output has it for a code with no words of its own, and for a take that failed', () => {
-    expect(checkpointRefusalWords('OTHER_ORG', t)).toBe(
-      'Its guards refused it: the SandForge output says why.',
-    );
-    expect(checkpointRefusalWords(undefined, t)).toBe(
-      'It was refused, or could not be taken: the SandForge output says why.',
-    );
   });
 });

@@ -25,6 +25,15 @@ const PAST_EMAILS: SyncWriteCheck = {
 };
 
 describe('SyncWriteCheckCard', () => {
+  it('says why a run would be refused for a checkpoint whose scope could not be read', () => {
+    const why = 'The checkpoint before the run could not be taken: the org would not say.';
+    render(
+      <SyncWriteCheckCard check={{ ...PAST_EMAILS, verdict: 'refused', checkpointUnread: why }} />,
+    );
+    expect(screen.getByTestId('sync-write-check-checkpoint-unread').textContent).toBe(why);
+    expect(screen.getByTestId('sync-write-check-verdict').className).toContain('text-status-error');
+  });
+
   it('says what a run would meet before its first write, and that it asks first', () => {
     render(<SyncWriteCheckCard check={PAST_EMAILS} />);
 

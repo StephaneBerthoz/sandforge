@@ -528,6 +528,26 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     wordsTheMessage: true,
     keys: ['errors.syncEarlierUnread.explanation', 'errors.syncEarlierUnread.action'],
   },
+  // A run refused for the checkpoint it was to take first, at its scope or at
+  // its take: the panel says what refused it between the two, by the take's
+  // code, which the error carries beside its own (`checkpointRefusal`).
+  CHECKPOINT_REFUSED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.checkpointRefused.explanation', 'errors.checkpointRefused.action'],
+  },
+  // A seed, a CSV import or a clone with a question to put before its first
+  // write, its checkpoint's cost among them, and nobody to answer it.
+  SEED_CONFIRMATION_UNAVAILABLE: {
+    severity: 'warning',
+    own: true,
+    wordsTheMessage: true,
+    keys: [
+      'errors.seedConfirmationUnavailable.explanation',
+      'errors.seedConfirmationUnavailable.action',
+    ],
+  },
 };
 
 /**

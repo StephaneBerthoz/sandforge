@@ -26,6 +26,7 @@ import {
   CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
   CSV_IMPORT_MAX_COLUMNS,
   CSV_IMPORT_MAX_ROWS,
+  RETAIL_ORDERS_PACK,
 } from '@sandforge/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +37,7 @@ import {
   sfApiNameSchema,
   whereClauseSchema,
   syncExecutePayloadSchema,
+  syncSimulatePayloadSchema,
   seedExecutePayloadSchema,
   frozenConfigSavePayloadSchema,
   dataOpsBackupPayloadSchema,
@@ -52,6 +54,7 @@ import {
   pipelineRunPayloadSchema,
   savedPipelineSchema,
   seedCsvPayloadSchema,
+  seedScenarioExecutePayloadSchema,
   checkpointListPayloadSchema,
   checkpointScopePayloadSchema,
   checkpointTakePayloadSchema,
@@ -1191,7 +1194,25 @@ describe('the contract of wave 46 on the requests of a run', () => {
     ],
     ['frozen:load', frozenLoadPayloadSchema, { targetOrgId: ORG }],
     ['autopilot:execute', autopilotExecutePayloadSchema, { grappeThreshold: 0 }],
+    ['sync:simulate', syncSimulatePayloadSchema, { config: validSyncConfig() }],
+    [
+      'seed:scenario:execute',
+      seedScenarioExecutePayloadSchema,
+      {
+        orgId: 'org-1',
+        pack: RETAIL_ORDERS_PACK,
+        options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+      },
+    ],
   ];
+
+  it('mutes a scenario as it mutes a template’s seed', () => {
+    const [, schema, payload] = runs[runs.length - 1];
+    expect(schema.parse({ ...payload, muteAutomation: true })).toMatchObject({
+      muteAutomation: true,
+    });
+    expect(schema.safeParse({ ...payload, muteAutomation: 'yes' }).success).toBe(false);
+  });
 
   it('reads the checkpoint a run asks to take first as the shared contract declares it', () => {
     expectTypeOf<

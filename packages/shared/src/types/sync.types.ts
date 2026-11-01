@@ -939,6 +939,11 @@ export interface SyncWriteCheck {
    * email limit too, and the command line past either.
    */
   verdict: 'writes' | 'asks' | 'refused';
+  /**
+   * Why what the checkpoint asked first would hold could not be read, which
+   * refuses the run: its verdict alone said refused, with no reason.
+   */
+  checkpointUnread?: string;
 }
 
 /**

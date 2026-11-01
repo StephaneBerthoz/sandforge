@@ -242,6 +242,31 @@ describe('useSeedExecution', () => {
     expect(bridge.mutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-1', muteAutomation: true });
   });
 
+  it('asks the run to take a checkpoint first only once its box is ticked, a fitted run too', () => {
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 5, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.checkpointFirst).toBe(false);
+    expect(bridge.mutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+
+    act(() => {
+      result.current.setCheckpointFirst(true);
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(bridge.mutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-1', checkpointFirst: {} });
+  });
+
   it('sends no lookup rule to an object the run does not seed', () => {
     const configs: ObjectFieldConfig[] = [
       {

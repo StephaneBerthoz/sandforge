@@ -7,6 +7,7 @@ import { Accordion } from '../../../components/ui/Accordion';
 import { DataTable } from '../../../components/ui/DataTable';
 import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { Card, CardHeader, CardBody } from '../../../components/ui/Card';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { ArrowDown } from 'lucide-react';
 
 /** Large clone threshold for showing a performance warning. */
@@ -24,6 +25,8 @@ export interface ClonePreviewPanelProps {
   keepContactPoints?: boolean;
   /** Change {@link ClonePreviewPanelProps.keepContactPoints}. */
   onKeepContactPointsChange?: (keep: boolean) => void;
+  /** Whether the clone takes a checkpoint first, its toggle, and the org it writes to; absent, no box. */
+  checkpoint?: { checked: boolean; onChange: (first: boolean) => void; orgId: string };
 }
 
 /**
@@ -44,6 +47,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   onBack,
   keepContactPoints = false,
   onKeepContactPointsChange,
+  checkpoint,
 }) => {
   const { t } = useTranslation();
   const requiredWarningId = useId();
@@ -271,6 +275,17 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
             </p>
           )}
         </div>
+      )}
+
+      {/* The clone's question says its cost, before anything is taken. */}
+      {checkpoint && (
+        <CheckpointFirstOption
+          checked={checkpoint.checked}
+          onChange={checkpoint.onChange}
+          orgId={checkpoint.orgId}
+          costSaid="question"
+          testId="clone-checkpoint-first"
+        />
       )}
 
       {/* Actions */}

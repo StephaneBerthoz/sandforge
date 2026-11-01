@@ -432,6 +432,17 @@ describe('SeedCsvHandler — an import that takes a checkpoint first', () => {
     expect(checkpoints.settle).not.toHaveBeenCalled();
   });
 
+  it('names on its error the checkpoint it kept when it fails once a row went', async () => {
+    writer.insert.mockRejectedValueOnce(new Error('The org went away.'));
+    target();
+
+    await handler.handle(buildMsg({ checkpointFirst: {} }));
+
+    const [error] = posted('seed:csv:error');
+    expect(error?.payload).toMatchObject({ message: 'The org went away.', checkpoint: TAKEN });
+    expect(checkpoints.settle).toHaveBeenCalledWith(TAKEN, true);
+  });
+
   it('ends as an import cancelled before its first row when its Stop comes while the take reads', async () => {
     checkpoints.take.mockResolvedValue({ taken: false, stopped: true });
     target();

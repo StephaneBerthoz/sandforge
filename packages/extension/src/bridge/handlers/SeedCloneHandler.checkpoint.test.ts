@@ -463,6 +463,23 @@ describe('SeedCloneHandler — a clone that takes a checkpoint first', () => {
     expect(checkpoints.settle).not.toHaveBeenCalled();
   });
 
+  it('names on its failure the checkpoint it deleted when it stops before its first record', async () => {
+    orgs();
+    await handler.handle(buildMsg('seed:clone:preview', clonePayload));
+    linker.lookupsFilledAfter.mockImplementationOnce(() => {
+      throw new Error('The source went away.');
+    });
+
+    await handler.handle(buildMsg('seed:clone:execute', { ...clonePayload, checkpointFirst: {} }));
+
+    expect(failed()[0]?.payload).toMatchObject({
+      error: 'The source went away.',
+      checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    expect(checkpoints.settle).toHaveBeenCalledWith(TAKEN, false);
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('ends as a clone cancelled before it wrote when its Stop comes while the take reads', async () => {
     checkpoints.take.mockResolvedValue({ taken: false, stopped: true });
     orgs();

@@ -14,7 +14,7 @@ import type {
   SeedFitApplied,
   SeedFitProposal,
 } from '../seed.types.js';
-import type { RunCheckpointRequest } from '../checkpoint.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from '../checkpoint.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 import type { ForgeSweepListing } from '../forge.types.js';
 import type { ScenarioCompileOptions, ScenarioPack } from '../scenario.types.js';
@@ -145,7 +145,20 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
  */
 export interface SeedErrorResponse extends BaseMessage {
   type: 'seed:error';
-  payload: { message: string; code: string; retryable: boolean; fit?: SeedFitProposal };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    fit?: SeedFitProposal;
+    /**
+     * Under `CHECKPOINT_REFUSED`: the take's own refusal, by its code
+     * (`CheckpointRefusalCode`), which the page words. Absent for a take that
+     * failed rather than refused.
+     */
+    checkpointRefusal?: string;
+    /** What became of the checkpoint the run took first, when it took one before it stopped. */
+    checkpoint?: RunCheckpointInfo;
+  };
 }
 
 /**
@@ -416,13 +429,30 @@ export interface SeedCsvValidateResponse extends BaseMessage {
  */
 export interface SeedCsvExecuteResponse extends BaseMessage {
   type: 'seed:csv:execute:response';
-  payload: { insertedCount: number; failedCount: number; errors: string[] };
+  payload: {
+    insertedCount: number;
+    failedCount: number;
+    errors: string[];
+    /**
+     * The checkpoint of the object it writes, when it was asked to take one
+     * before its first write: taken, or deleted as it wrote nothing.
+     */
+    checkpoint?: RunCheckpointInfo;
+  };
 }
 
 /** Error response for CSV validate/execute failures (emitted via sendHandlerError). */
 export interface SeedCsvErrorResponse extends BaseMessage {
   type: 'seed:csv:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /** Under `CHECKPOINT_REFUSED`: the take's own refusal, by its code, which the page words. */
+    checkpointRefusal?: string;
+    /** What became of the checkpoint the import took first, when it took one before it stopped. */
+    checkpoint?: RunCheckpointInfo;
+  };
 }
 
 // ─── Clone Messages ─────────────────────────────────────────────────────────
@@ -596,6 +626,10 @@ export interface SeedScenarioExecuteRequest extends BaseMessage {
     pack: ScenarioPack;
     options: ScenarioCompileOptions;
     locale?: string;
+    /** Mute the org's automation for the run, as a template's seed does. */
+    muteAutomation?: boolean;
+    /** Take a checkpoint of what the run writes before its first write, as a template's seed does. */
+    checkpointFirst?: RunCheckpointRequest;
   };
 }
 

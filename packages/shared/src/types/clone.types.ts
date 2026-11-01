@@ -5,7 +5,7 @@
  */
 
 import type { ForgeContactPointsReport } from './forge.types.js';
-import type { RunCheckpointRequest } from './checkpoint.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from './checkpoint.types.js';
 
 /**
  * Configuration for a single object to clone.
@@ -171,6 +171,12 @@ export interface CloneExecutionResult {
    * Set when it created a record; a record it linked to was the target's.
    */
   runId?: string;
+  /**
+   * The checkpoint of what the clone writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as it wrote
+   * nothing.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /**

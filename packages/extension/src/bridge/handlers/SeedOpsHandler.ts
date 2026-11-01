@@ -919,6 +919,8 @@ export class SeedOpsHandler implements DomainHandler {
         orgId: parsed.orgId,
         template: template.data,
         ...(parsed.locale !== undefined ? { locale: parsed.locale } : {}),
+        ...(parsed.muteAutomation !== undefined ? { muteAutomation: parsed.muteAutomation } : {}),
+        ...(parsed.checkpointFirst ? { checkpointFirst: parsed.checkpointFirst } : {}),
       },
       { pack: parsed.pack, options: parsed.options, compiled },
     );
@@ -2603,9 +2605,10 @@ export class SeedOpsHandler implements DomainHandler {
       // the in-flight webview mutation, operation:failed carries the
       // lifecycle. Both carry the offline retryHint on transport failures.
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, failed, {
+      // The page says what became of the checkpoint itself, in its language.
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
         retryable: true,
-        extraPayload: offlineHint,
+        extraPayload: { ...offlineHint, ...(settled ? { checkpoint: settled } : {}) },
       });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(failed), true, {
         extraPayload: offlineHint,

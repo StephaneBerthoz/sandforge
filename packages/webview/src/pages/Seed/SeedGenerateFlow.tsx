@@ -9,6 +9,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
 import { SeedSelectStep } from './SeedSelectStep';
@@ -260,8 +261,11 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               volumes={state.volumes}
               automation={state.selectedOrgId ? wizardAutomation : undefined}
               orgName={wizardOrgName}
+              orgId={state.selectedOrgId}
               records={wizardRecords}
               mute={{ checked: state.muteAutomation, onChange: state.setMuteAutomation }}
+              checkpoint={{ checked: state.checkpointFirst, onChange: state.setCheckpointFirst }}
+              {...(state.stoppedCheckpoint ? { stoppedCheckpoint: state.stoppedCheckpoint } : {})}
               fit={{ proposal: state.fitProposal, onSeed: state.seedFitted }}
             />
           )}
@@ -279,6 +283,15 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
                 onSeed={state.seedFitted}
               />
             )}
+          {state.currentStep === 3 && !state.isRunning && !state.executionResult && (
+            <RewindBeforeRun
+              checkpoint={state.stoppedCheckpoint}
+              orgId={state.selectedOrgId}
+              beside="run"
+              compact
+              testId="seed-results-error-checkpoint"
+            />
+          )}
           {state.currentStep === 3 && state.fitApplied && state.executionResult && (
             <SeedFitResultLine
               fitted={state.fitApplied}
@@ -289,6 +302,8 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
           {state.currentStep === 3 && (
             <SeedResultsStep
               executionResult={state.executionResult}
+              isRunning={state.isRunning}
+              stopped={state.executionError !== undefined}
               template={state.lastTemplate}
               orgName={wizardOrgName}
               orgId={state.selectedOrgId}

@@ -62,7 +62,12 @@ vi.mock('../../../hooks/useBridgeMutation', () => ({
 }));
 
 /** Deliver an `operation:failed` the way the extension posts it. */
-function operationFailed(operationId: string, error: string, code?: string): void {
+function operationFailed(
+  operationId: string,
+  error: string,
+  code?: string,
+  beside: Record<string, unknown> = {},
+): void {
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -70,7 +75,7 @@ function operationFailed(operationId: string, error: string, code?: string): voi
           id: 'host-failed',
           type: 'operation:failed',
           timestamp: Date.now(),
-          payload: { operationId, error, retryable: false, ...(code ? { code } : {}) },
+          payload: { operationId, error, retryable: false, ...(code ? { code } : {}), ...beside },
         },
       }),
     );
@@ -928,6 +933,86 @@ describe('useClone', () => {
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe(en.seed.clone.error.PRODUCTION_CONFIRMATION_DECLINED);
     expect(mockExecuteReset).toHaveBeenCalled();
+  });
+
+  /** A preview run, the clone sent and under way. */
+  function running(checkpointFirst = false): RenderHookResult<UseCloneReturn, unknown> {
+    const hook = previewed();
+    if (checkpointFirst) {
+      act(() => {
+        hook.result.current.setCheckpointFirst(true);
+      });
+    }
+    act(() => {
+      hook.result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    hook.rerender();
+    return hook;
+  }
+
+  it('asks the run to take a checkpoint first only once its box is ticked', () => {
+    running();
+    expect(mockExecuteMutate.mock.calls[0][0]).not.toHaveProperty('checkpointFirst');
+    mockExecuteMutate.mockClear();
+    mockExecuteState = { ...mockExecuteState, loading: false, requestId: null };
+
+    running(true);
+    expect(mockExecuteMutate.mock.calls[0][0]).toMatchObject({ checkpointFirst: {} });
+  });
+
+  it('says a clone refused for its checkpoint by what refused it, and goes back to its preview', () => {
+    const { result, rerender } = running(true);
+
+    operationFailed(
+      'wv-clone-run',
+      'The checkpoint before the run was refused.',
+      'CHECKPOINT_REFUSED',
+      {
+        checkpointRefusal: 'DISK',
+      },
+    );
+    rerender();
+
+    expect(result.current.error).toContain("This machine's disk has too little room for it.");
+    expect(result.current.error).not.toContain('The checkpoint before the run was refused.');
+    expect(result.current.step).toBe('preview');
+    expect(result.current.checkpointFirst).toBe(true);
+  });
+
+  it('says a clone nobody could answer for in the catalogue’s words', () => {
+    const { result } = running(true);
+
+    operationFailed('wv-clone-run', 'No one to ask.', 'SEED_CONFIRMATION_UNAVAILABLE');
+
+    expect(result.current.error).toContain(en.errors.seedConfirmationUnavailable.explanation);
+    expect(result.current.error).not.toContain('No one to ask.');
+  });
+
+  it('says a clone declined at its question as a clone', () => {
+    const { result } = running(true);
+
+    operationFailed('wv-clone-run', 'The clone was cancelled.', 'SEED_WRITE_DECLINED');
+
+    expect(result.current.error).toBe(en.seed.clone.error.SEED_WRITE_DECLINED);
+  });
+
+  it('says what became of the checkpoint of a stopped clone, until another run starts', () => {
+    const { result } = running(true);
+
+    operationFailed('wv-clone-run', 'It broke.', 'CLONE_FAILED', {
+      checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+    });
+    expect(result.current.stoppedCheckpoint).toEqual({
+      state: 'deleted',
+      deleted: 'nothingWritten',
+    });
+    expect(result.current.resultTargetOrgId).toBe('target-1');
+
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.stoppedCheckpoint).toBeUndefined();
   });
 
   it('shows the declined production confirmation in French, not the English the host logged', async () => {

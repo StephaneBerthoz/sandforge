@@ -164,6 +164,12 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.emailsUnread', { reason: check.emailsUnread })}
                 </p>
               )}
+              {/* The host's sentence: it holds what the org or this machine said. */}
+              {check.checkpointUnread !== undefined && (
+                <p className="text-status-warning" data-testid="sync-write-check-checkpoint-unread">
+                  {check.checkpointUnread}
+                </p>
+              )}
               {(check.unwritable ?? []).map(({ objectApiName, rows, why }) => (
                 <p
                   key={objectApiName}

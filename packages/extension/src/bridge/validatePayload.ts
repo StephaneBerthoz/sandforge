@@ -428,8 +428,15 @@ export const syncExecutePayloadSchema = z.object({
   // Take a checkpoint of what the run writes before its first write.
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
-/** `sync:simulate` — the configuration a run would be given, checked as one is. */
-export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSchema });
+/**
+ * `sync:simulate` — the configuration a run would be given, checked as one
+ * is, and the checkpoint it would take first, which a simulation says the
+ * hold, the cost and the refusal of, and takes nothing.
+ */
+export const syncSimulatePayloadSchema = z.object({
+  config: syncConfigPayloadSchema,
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
+});
 /** `sync:pause` / `sync:resume` — the run, by the id of the request that started it. */
 export const syncRunControlPayloadSchema = z.object({ operationId: opaqueIdSchema });
 export const syncConfigSavePayloadSchema = z.object({ config: syncConfigPayloadSchema });
@@ -754,6 +761,10 @@ export const seedScenarioExecutePayloadSchema = z
       .string()
       .regex(/^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$/)
       .optional(),
+    // Mute the org's automation for the run, as a template's seed does.
+    muteAutomation: z.boolean().optional(),
+    // Take a checkpoint of what the run writes before its first write.
+    checkpointFirst: checkpointFirstPayloadSchema.optional(),
   })
   .strict();
 

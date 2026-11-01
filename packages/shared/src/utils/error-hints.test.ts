@@ -588,6 +588,17 @@ describe('the connection errors a panel words by their code', () => {
     expect(translateError('', { code: 'SYNC_STORAGE_EXCEEDED' })?.docUrl).toBeUndefined();
   });
 
+  it('words a run refused for its checkpoint, and a seed nobody could answer for, in the panel', () => {
+    expect(panelWordingOf('CHECKPOINT_REFUSED')?.explanationKey).toBe(
+      'errors.checkpointRefused.explanation',
+    );
+    expect(panelWordingOf('SEED_CONFIRMATION_UNAVAILABLE')?.actionKey).toBe(
+      'errors.seedConfirmationUnavailable.action',
+    );
+    expect(translateError('', { code: 'CHECKPOINT_REFUSED' })?.docUrl).toBeUndefined();
+    expect(bannerHintOf('Refused.', 'SEED_CONFIRMATION_UNAVAILABLE')).toBeNull();
+  });
+
   it('says no hint under a banner whose message the panel already worded by that code', () => {
     expect(bannerHintOf('The session with this org has expired.', 'ORG_AUTH_EXPIRED')).toBeNull();
     // Forge shows the host's message as it came: the hint says it there.

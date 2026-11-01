@@ -17,7 +17,9 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { SyncHistoryDetail } from './SyncHistoryDetail';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 
 const makeMockEntry = (): SyncHistoryEntry => ({
@@ -93,6 +95,51 @@ describe('SyncHistoryDetail', () => {
       loading: false,
       error: null,
     });
+  });
+
+  it('names the checkpoint the run took, with the way to rewind to it, and one it deleted', () => {
+    const entry = makeMockEntry();
+    useOrgStore.setState({ orgs: [developerOrg({ id: 'org-2' })] });
+    useSyncHistoryStore.setState({
+      selectedEntry: {
+        ...entry,
+        result: {
+          ...entry.result,
+          checkpoint: {
+            state: 'taken',
+            checkpointId: 'ck-20240101-000000-a1b2',
+            name: 'Before Sync run 2024-01-01 00:00 UTC',
+            takenAt: '2024-01-01T00:00:00.000Z',
+            expiresAt: '2024-01-08T00:00:00.000Z',
+            objects: ['Account'],
+            records: 38,
+            bytes: 2_200_000,
+            requests: 68,
+            added: [],
+            notHeld: [],
+          },
+        },
+      },
+    });
+    const { unmount } = render(<SyncHistoryDetail />);
+    expect(screen.getByTestId('history-checkpoint-taken').textContent).toContain(
+      'Before Sync run 2024-01-01 00:00 UTC',
+    );
+    expect(screen.getByTestId('history-checkpoint-action').textContent).toBe(
+      'Rewind to before this run…',
+    );
+    unmount();
+
+    useSyncHistoryStore.setState({
+      selectedEntry: {
+        ...entry,
+        result: { ...entry.result, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+      },
+    });
+    render(<SyncHistoryDetail />);
+    expect(screen.getByTestId('history-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
   });
 
   it('asks, before Run again, what the last run between the orgs left of the objects it inserts', () => {

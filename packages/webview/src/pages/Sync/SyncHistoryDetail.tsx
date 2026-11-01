@@ -18,6 +18,7 @@ import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 import { heldRecordChoiceOf } from './heldRecordChoice';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
 import type { RewoundMark as RewoundMarkOf } from '@sandforge/shared';
 
@@ -262,6 +263,15 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
           {...(rewound ? { rewound } : {})}
         />
       )}
+
+      {/* Under the removal: the rewind reaches past what the run wrote. */}
+      <RewindBeforeRun
+        checkpoint={result.checkpoint}
+        orgId={configSnapshot.targetOrgId}
+        beside="run"
+        compact
+        testId="history-checkpoint"
+      />
 
       {/* Config snapshot summary */}
       <div className="flex flex-col gap-(--sf-space-1)">

@@ -24,6 +24,7 @@ vi.mock('./useQuickSyncFlow', () => ({
     goToObjects: vi.fn(),
     goToPreview: vi.fn(),
     setMuteAutomation: vi.fn(),
+    setCheckpointFirst: vi.fn(),
     execute: vi.fn(),
     reset: vi.fn(),
     canGoToObjects: true,
@@ -55,6 +56,8 @@ const INITIAL: QuickSyncFlowState = {
   runOperationId: null,
   error: null,
   muteAutomation: false,
+  checkpointFirst: false,
+  stoppedCheckpoint: undefined,
 };
 
 const RESULT: SyncExecutionResult = {
