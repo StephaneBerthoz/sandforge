@@ -29,6 +29,7 @@ import {
   EyeOff,
   File,
   FileOutput,
+  FileUp,
   Flame,
   GitCompare,
   HelpCircle,
@@ -57,6 +58,7 @@ import {
   Shield,
   SkipForward,
   Snowflake,
+  Sprout,
   Trash2,
   TriangleAlert,
   Trophy,
@@ -114,6 +116,8 @@ const ICONS = {
   eye: Eye,
   'eye-closed': EyeOff,
   file: File,
+  // Migration's, as the side panel draws it: a file going up into an org.
+  'file-up': FileUp,
   flame: Flame,
   gear: Settings,
   'git-compare': GitCompare,
@@ -139,6 +143,8 @@ const ICONS = {
   server: Server,
   shield: Shield,
   snowflake: Snowflake,
+  // Seed's, as the side panel draws it.
+  sprout: Sprout,
   // The codicon's cube, beside an Apex class in Monitor's job groups.
   'symbol-method': Box,
   sync: RefreshCw,

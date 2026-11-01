@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSalesforceLoginHost, parseSalesforceLoginUrl } from './salesforceLoginHost.js';
+import { isSalesforceLoginHost, parseSalesforceLoginUrl } from './salesforce-login-host.js';
 
 /**
  * The gate a login URL crosses before credentials are sent to it or it is

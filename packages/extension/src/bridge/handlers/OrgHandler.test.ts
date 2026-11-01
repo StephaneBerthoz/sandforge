@@ -211,7 +211,7 @@ describe('OrgHandler', () => {
       expect(connectError()?.code).toBe('INVALID_LOGIN_URL');
     });
 
-    it('points a login host on another Salesforce cloud to SFDX Import', async () => {
+    it('points a login host on another Salesforce cloud to Import from Salesforce CLI, as the button reads', async () => {
       const authenticate = vi.fn();
       deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];
 
@@ -230,7 +230,7 @@ describe('OrgHandler', () => {
         .map((c) => c[0] as { type: string; payload: { code?: string; message?: string } })
         .find((m) => m.type === 'org:error');
       expect(reply?.payload.code).toBe('INVALID_LOGIN_URL');
-      expect(reply?.payload.message).toMatch(/SFDX Import/);
+      expect(reply?.payload.message).toMatch(/then add it with Import from Salesforce CLI\./);
       expect(reply?.payload.message).toMatch(/sf org login web --instance-url/);
     });
 
@@ -935,8 +935,8 @@ describe('OrgHandler', () => {
         code: 'SFDX_IMPORT_FAILED',
         message:
           'The Salesforce CLI cannot reach these orgs, so they were not imported: acme-old (the ' +
-          'CLI reports RefreshTokenAuthError). Log in to each again with the CLI, or sign in ' +
-          'with OAuth (Web); a scratch org past its date is gone, create a new one.',
+          'CLI reports RefreshTokenAuthError). Log in to each again with the CLI, or use Log ' +
+          'in with your browser; a scratch org past its date is gone, create a new one.',
       });
     });
   });

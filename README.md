@@ -60,7 +60,7 @@ Side by side, with sources: [SandForge, SFDMU and Data Loader compared](https://
 
 Two orgs, one holding real records (a UAT or partial-copy sandbox, say) and one to fill? Forge copies a record and everything around it from the first into the second.
 
-1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open the org dropdown at the top of the launcher, choose **New organization...**, then **Import from SF CLI** to pull in every org authenticated in the Salesforce CLI.
+1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open the org dropdown at the top of the launcher, choose **New organization...**, then **Import from Salesforce CLI** to pull in every org authenticated in the Salesforce CLI.
 2. **Open Forge**: click the flame icon in the sidebar, or run **SandForge: Open Forge** from the Command Palette.
 3. **Paste a root record ID** from the org you copy from into **Record ID or Salesforce URL** (an Account works well), and pick the org you fill as the target.
 4. Tune **Depth**, **Records per object**, and **Anonymize PII** on the same form, then click **Discover Graph**.

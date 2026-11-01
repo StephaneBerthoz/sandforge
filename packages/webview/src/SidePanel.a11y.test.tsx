@@ -228,7 +228,7 @@ describe('SidePanel first org import', () => {
   it('names the import by the most orgs it can bring in, not as a count of what it will', async () => {
     await renderWith('en', 3);
     expect(screen.getByTestId('sidepanel-first-org-import').textContent).toBe(
-      'Import up to 3 orgs from the Salesforce CLI',
+      'Import up to 3 orgs from Salesforce CLI',
     );
   });
 

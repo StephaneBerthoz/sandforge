@@ -181,7 +181,7 @@ describe('ForgePage', () => {
     expect(screen.getByText('Populate your sandbox from a real record')).toBeDefined();
     expect(screen.getByTestId('empty-steps')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org (sign in with your browser)',
+      'Connect an org: import it from the Salesforce CLI or log in with your browser',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
       'Paste a root record ID (e.g. an Account from UAT)',
@@ -192,7 +192,7 @@ describe('ForgePage', () => {
   it('should offer the connect CTA when no orgs exist', () => {
     mockOrgState = { orgs: [], selectedOrgId: null };
     render(<ForgePage />);
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('should offer the select CTA when orgs exist but none is selected', () => {

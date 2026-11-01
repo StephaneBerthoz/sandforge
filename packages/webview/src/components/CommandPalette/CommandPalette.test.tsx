@@ -111,19 +111,51 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('command-palette-item-nav-settings')).toBeDefined();
   });
 
-  it('should show action items', () => {
+  it('lists no "action" that only opens a page its navigation row opens', () => {
+    // Quick Forge, Refresh Monitor and Open Pipelines opened Forge, Monitor
+    // and Automation; Quick Forge answered "se" for its keywords seed and sync.
     render(<CommandPalette />);
     openPalette();
-    expect(screen.getByTestId('command-palette-item-quick-forge')).toBeDefined();
-    expect(screen.getByTestId('command-palette-item-refresh-monitor')).toBeDefined();
+    expect(screen.queryByTestId('command-palette-item-quick-forge')).toBeNull();
+    expect(screen.queryByTestId('command-palette-item-refresh-monitor')).toBeNull();
+    expect(screen.queryByTestId('command-palette-item-run-pipeline')).toBeNull();
+    const rows = screen
+      .getByTestId('command-palette-results')
+      .querySelectorAll('[data-testid^="command-palette-item-"]');
+    expect([...rows].every((row) => row.getAttribute('data-testid')?.includes('-nav-'))).toBe(true);
   });
 
-  it('labels the pipeline action as opening Automation, since it runs nothing', () => {
+  it('draws each page its own icon, never the generic file', () => {
+    // Seed, Frozen, Checkpoints, Sync, Migration and Autopilot drew the file.
     render(<CommandPalette />);
     openPalette();
-    const item = screen.getByTestId('command-palette-item-run-pipeline');
-    expect(item.textContent).toContain('Open Pipelines');
-    expect(screen.queryByText('Run Last Pipeline')).toBeNull();
+    const rows = screen
+      .getByTestId('command-palette-results')
+      .querySelectorAll('[data-testid^="command-palette-item-nav-"]');
+    expect(rows.length).toBe(18);
+    const icons = [...rows].map(
+      (row) => row.querySelector('[data-testid^="icon-"]')?.getAttribute('data-testid') ?? 'none',
+    );
+    expect(icons).not.toContain('icon-file');
+    expect(icons).not.toContain('none');
+    const iconOf = (route: string): string | null | undefined =>
+      screen
+        .getByTestId(`command-palette-item-nav-${route}`)
+        .querySelector('[data-testid^="icon-"]')
+        ?.getAttribute('data-testid');
+    expect(iconOf('seed')).toBe('icon-sprout');
+    expect(iconOf('frozen')).toBe('icon-snowflake');
+    expect(iconOf('checkpoint')).toBe('icon-history');
+    expect(iconOf('sync')).toBe('icon-sync');
+    expect(iconOf('migration')).toBe('icon-file-up');
+    expect(iconOf('autopilot')).toBe('icon-rocket');
+  });
+
+  it('names a row once: its group is its heading, not a word on its right', () => {
+    render(<CommandPalette />);
+    openPalette();
+    const row = screen.getByTestId('command-palette-item-nav-forge');
+    expect(row.textContent).toBe('Forge');
   });
 
   it('should filter items based on query', () => {
@@ -218,9 +250,9 @@ describe('CommandPalette', () => {
   it('should group items by category', () => {
     render(<CommandPalette />);
     openPalette();
-    // Should have Navigation and Actions category headers
-    expect(screen.getAllByText('Navigation').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Actions').length).toBeGreaterThanOrEqual(1);
+    // One heading for the pages: the palette registers navigation alone.
+    expect(screen.getAllByText('Navigation')).toHaveLength(1);
+    expect(screen.queryByText('Actions')).toBeNull();
   });
 
   it('should use the command store open state', async () => {

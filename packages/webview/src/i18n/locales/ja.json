@@ -136,8 +136,7 @@
     }
   },
   "status": {
-    "apiUsage": "API 使用量",
-    "activeJobs": "アクティブジョブ"
+    "apiUsage": "API 使用量"
   },
   "nav": {
     "home": "ホーム",
@@ -201,7 +200,7 @@
     "openNotFound": "{{alias}} は登録されていないため、開きませんでした。",
     "openFailed": "ブラウザで {{alias}} を開けませんでした: {{reason}}",
     "moreMethods": "その他の方法",
-    "cliMissing": "このマシンで Salesforce CLI（sf）が応答しません。「SF CLI からインポート」と「OAuth（Web）」は CLI を使います。",
+    "cliMissing": "このマシンで Salesforce CLI（sf）が応答しません。「Salesforce CLI からインポート」と「ブラウザでログイン」は CLI を使います。",
     "aliasOptionalHint": "任意です。指定しない場合、組織はユーザー名で表示されます。",
     "connectedNext": {
       "title": "{{alias}} が接続されました",
@@ -3166,9 +3165,9 @@
     }
   },
   "emptyState": {
-    "connectViaSfdx": "組織を接続します（ブラウザでログイン）",
-    "connectTwoViaSfdx": "ソースとターゲットの 2 つの組織を接続します（ブラウザでログイン）",
-    "connectSecondViaSfdx": "2 つ目の組織を接続します（ブラウザでログイン）",
+    "connectViaSfdx": "組織を接続します。Salesforce CLI からインポートするか、ブラウザでログインしてください",
+    "connectTwoViaSfdx": "ソースとターゲットの 2 つの組織を接続します。Salesforce CLI からインポートするか、ブラウザでログインしてください",
+    "connectSecondViaSfdx": "2 つ目の組織を接続します。Salesforce CLI からインポートするか、ブラウザでログインしてください",
     "connectOrg": "組織を接続",
     "selectOrgCta": "組織を選択",
     "onlyOneOrgSeed": "組織が 1 つだけですか？ Seed で現実的なデータを生成"
@@ -3177,9 +3176,6 @@
     "connectedOrgs": "接続済みの組織",
     "noOrgsConnected": "接続されている組織はありません",
     "quickActions": "クイックアクション",
-    "quickForge": "クイック Forge",
-    "refreshMonitor": "モニターを更新",
-    "openPipelines": "パイプラインを開く",
     "recentOperations": "最近の操作",
     "noRecentOps": "最近の操作はありません",
     "healthSummary": "健全性サマリー",
@@ -3203,7 +3199,6 @@
     "recordIdPlaceholder": "レコード ID（例： 001...）",
     "startForge": "Forge を開始",
     "invalidRecordId": "有効な Salesforce レコード ID または URL ではありません",
-    "sandboxHealth": "Sandbox の健全性",
     "smartAction": {
       "title": "推奨アクション",
       "execute": "設定する",
@@ -3214,13 +3209,20 @@
       "reasonClone": "ソース組織にデータがあります — ターゲットにクローンしましょう",
       "reasonSync": "両方の組織にデータがあります — 同期して整合を保ちましょう",
       "whyTooltip": "この推奨の理由は？",
-      "confidence": "信頼度{{value}}%",
       "action": {
-        "quick-seed": "クイック Seed",
         "clone": "クローン",
         "sync": "Sync"
       },
-      "reasonSampleOnly": "この組織にはサンプルレコードが数件しかありません。デモデータで満たしましょう"
+      "reasonSampleOnly": "この組織にはサンプルレコードが数件しかありません。デモデータで満たしましょう",
+      "counts": "{{org}}：{{accounts}}、{{contacts}}、{{opportunities}}、{{cases}}、{{leads}}",
+      "countsUnderCeiling": "{{org}}：{{accounts}}、{{contacts}}、{{opportunities}}、{{cases}}、{{leads}}（いずれも {{ceiling}} 件未満）",
+      "count": {
+        "Account_other": "取引先 {{count}} 件",
+        "Contact_other": "取引先責任者 {{count}} 件",
+        "Opportunity_other": "商談 {{count}} 件",
+        "Case_other": "ケース {{count}} 件",
+        "Lead_other": "リード {{count}} 件"
+      }
     },
     "opStatus": {
       "success": "成功",
@@ -3229,10 +3231,8 @@
       "failed": "失敗",
       "cancelled": "キャンセル済み"
     },
-    "sandboxBanner": "Sandbox は空です。Seed または Sync でデータを投入しましょう",
     "openSeed": "Seed を開く",
     "openSync": "Sync を開く",
-    "populateSandbox": "Sandbox にデータを投入",
     "openForge": "Forge を開く",
     "openFrozen": "凍結データセットを開く",
     "openMonitor": "モニターを開く",
@@ -3244,7 +3244,14 @@
       "take": "チェックポイントを作成",
       "expiresSoon": "「{{name}}」の有効期限: {{when}}",
       "keep": "保持する"
-    }
+    },
+    "openAutomation": "自動化を開く",
+    "openOpModule": "{{module}} を開く",
+    "fillOrg": "デモデータで満たす：{{alias}}",
+    "fillOrgAction": "デモデータで満たす",
+    "fillOrgDesc": "Seed テンプレートで、確認は一度だけ、AI キーは不要",
+    "importFromCli": "Salesforce CLI からインポート",
+    "loginWeb": "ブラウザでログイン"
   },
   "commandPalette": {
     "placeholder": "コマンドを検索...",
@@ -3261,11 +3268,11 @@
     "securityToken": "セキュリティトークン",
     "securityTokenHint": "オプション - IP がホワイトリストに登録されていない場合に必要",
     "openBrowser": "ブラウザを開く",
-    "oauthWeb": "OAuth（Web）",
+    "oauthWeb": "ブラウザでログイン",
     "oauthDevice": "OAuth（デバイス）",
     "jwt": "JWT Bearer",
     "usernamePassword": "ユーザー名 / パスワード",
-    "sfdxImport": "SF CLI からインポート",
+    "sfdxImport": "Salesforce CLI からインポート",
     "sfdxImportDesc": "Salesforce CLI で認証済みのすべての組織を自動検出",
     "oauthWebDesc": "ブラウザで OAuth 2.0により認証",
     "usernamePasswordDesc": "ユーザー名、パスワード、セキュリティトークンで認証",
@@ -3285,7 +3292,17 @@
     "deviceVerificationPage": "確認ページ：",
     "deviceExpires": "コードの有効期限：{{time}}",
     "deviceWaiting": "承認を待っています…",
-    "deviceCancel": "サインインをキャンセル"
+    "deviceCancel": "サインインをキャンセル",
+    "loginCustom": "カスタムドメイン（私のドメイン）…",
+    "myDomainUrl": "私のドメインの URL",
+    "myDomainPlaceholder": "https://yourcompany--uat.sandbox.my.salesforce.com",
+    "myDomainHint": "login.salesforce.com と test.salesforce.com をブロックしている組織向け：［設定］→［私のドメイン］に表示されるログイン URL です。",
+    "loginUrlRefused": {
+      "invalid": "Web アドレスではありません。",
+      "notHttps": "アドレスは https:// で始めてください。",
+      "notOrigin": "ドメインだけを入力してください。後ろにパス、クエリ、ポート、認証情報は付けません。",
+      "notSalesforce": "Salesforce のログインドメインではありません。.my.salesforce.com、.force.com、.cloudforce.com のいずれかで終わる必要があります。別の Salesforce クラウドの組織は、Salesforce CLI でログインしてから「Salesforce CLI からインポート」を使ってください。"
+    }
   },
   "forge": {
     "recordTab": "レコード",
@@ -5398,7 +5415,7 @@
     },
     "noCliOrgs": {
       "explanation": "Salesforce CLI にはまだ組織がありません。",
-      "action": "OAuth（Web）でログインしてください。ブラウザで Salesforce のログイン画面が開きます。"
+      "action": "代わりにブラウザでログインしてください。Salesforce のログイン画面が開きます。"
     },
     "cycleFkUnresolved": {
       "explanation": "項目 '{{fieldName}}' は、この実行で書き込まれなかったレコード（ソース ID {{sourceRefId}}）を指しています。そのレコード自体が失敗したか、そのオブジェクトが失敗またはスキップされたか、ターゲット組織に書き込めないオブジェクトです。レコードはその関連なしで書き込まれました。",

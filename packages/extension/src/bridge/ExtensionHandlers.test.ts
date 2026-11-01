@@ -478,7 +478,7 @@ describe('ExtensionHandlers', () => {
       expect(notification.payload.message).toContain('not found');
     });
 
-    it('should show warning when no connected orgs found', async () => {
+    it('says as information, not as a warning, that the CLI holds no org yet', async () => {
       (sfdxBridge.listOrgs as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
@@ -487,7 +487,7 @@ describe('ExtensionHandlers', () => {
       const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
         payload: { level: string };
       };
-      expect(notification.payload.level).toBe('warning');
+      expect(notification.payload.level).toBe('info');
     });
   });
 

@@ -1,9 +1,15 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Sparkles, Copy, RefreshCw, HelpCircle } from 'lucide-react';
-import type { SmartActionRecommendation, SmartActionType } from '@sandforge/shared';
+import type {
+  OrgRecordCounts,
+  SmartActionObject,
+  SmartActionRecommendation,
+  SmartActionType,
+} from '@sandforge/shared';
+import { SAMPLE_DATA_CEILING } from '@sandforge/shared';
 import { Card, CardBody } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -18,7 +24,7 @@ export interface SmartActionCardProps {
   onExecute: () => void;
   /** Whether the confirmation dialog is showing. */
   showConfirmation: boolean;
-  /** Called when the user confirms execution. */
+  /** Called when the user confirms execution, and for a fill, as the button is clicked. */
   onConfirm: () => void;
   /** Called when the user cancels confirmation. */
   onCancel: () => void;
@@ -34,19 +40,49 @@ const ACTION_ICONS: Record<SmartActionType, React.FC<{ className?: string }>> = 
   none: Sparkles,
 };
 
-/** Map confidence to badge variant. */
-function confidenceBadgeVariant(confidence: number): 'success' | 'warning' | 'default' {
-  if (confidence >= 0.85) return 'success';
-  if (confidence >= 0.7) return 'warning';
-  return 'default';
+/** What the confirmation of a clone or a sync names the page it opens by. */
+const CONFIRMED_ACTION_KEYS: Record<'clone' | 'sync', string> = {
+  clone: 'home.smartAction.action.clone',
+  sync: 'home.smartAction.action.sync',
+};
+
+/** Each counted object: its plural key, and its slot in the sentence that lists them. */
+const COUNTED: ReadonlyArray<{ object: SmartActionObject; key: string; slot: string }> = [
+  { object: 'Account', key: 'home.smartAction.count.Account', slot: 'accounts' },
+  { object: 'Contact', key: 'home.smartAction.count.Contact', slot: 'contacts' },
+  { object: 'Opportunity', key: 'home.smartAction.count.Opportunity', slot: 'opportunities' },
+  { object: 'Case', key: 'home.smartAction.count.Case', slot: 'cases' },
+  { object: 'Lead', key: 'home.smartAction.count.Lead', slot: 'leads' },
+];
+
+/**
+ * What was counted in one org, in the panel's language: "DevSandbox: 13
+ * accounts, 20 contacts, …", and "fewer than 50 of each" when it holds sample
+ * data at most and something at all.
+ */
+function countsOf(t: TFunction, org: string, counts: OrgRecordCounts): string {
+  const values = COUNTED.map(({ object }) => counts[object] ?? 0);
+  const vars: Record<string, string | number> = { org, ceiling: SAMPLE_DATA_CEILING };
+  COUNTED.forEach(({ key, slot }, i) => {
+    vars[slot] = t(key, { count: values[i] });
+  });
+  const sampleOnly = values.some((n) => n > 0) && values.every((n) => n < SAMPLE_DATA_CEILING);
+  return t(sampleOnly ? 'home.smartAction.countsUnderCeiling' : 'home.smartAction.counts', vars);
 }
 
 /**
  * Prominent recommendation card displayed above the BentoGrid on the HomePage.
  *
- * Shows the recommended action with an icon, translated reason text,
- * confidence badge, "Why?" tooltip, and an Execute button that triggers
- * a confirmation flow before routing to the appropriate module.
+ * Shows the recommended action with an icon, its translated reason, a "Why?"
+ * tooltip saying what was counted in each org, and the button that acts on
+ * it. A fill reads "Fill <org> with demo data", the words the side panel,
+ * Organizations and Home's Quick Actions give the same act, and opens Seed's
+ * gallery at once as they do: it read "Set it up", then asked "Open Quick
+ * Seed for <org>?", three names for one act that writes nothing before
+ * Seed's own confirmation. A clone or a sync still asks which page opens.
+ *
+ * It showed an "NN% confidence" badge, a fixed number per rule rather than a
+ * measurement, and a tooltip in English whatever the language.
  *
  * Hidden (returns null) when the recommendation action is 'none'.
  */
@@ -59,12 +95,16 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
   loading,
 }) => {
   const { t } = useTranslation();
-  // The recommendation carries the org id. The confirmation is read by
+  // The recommendation carries the org ids. The confirmation is read by
   // somebody who picked that org by its alias and has never seen its id, so
   // the name is resolved here and the id is only the last resort.
-  const targetOrgId = recommendation.details.targetOrgId;
-  const targetOrg = useOrgStore((state) => state.orgs.find((org) => org.id === targetOrgId));
-  const targetOrgName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const { targetOrgId, sourceOrgId, recordCounts, sourceRecordCounts } = recommendation.details;
+  const orgs = useOrgStore((state) => state.orgs);
+  const nameOf = (id: string): string => {
+    const org = orgs.find((candidate) => candidate.id === id);
+    return org?.alias || org?.username || id;
+  };
+  const targetOrgName = nameOf(targetOrgId);
 
   if (loading) {
     return (
@@ -78,9 +118,10 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
     return null;
   }
 
-  const ActionIcon = ACTION_ICONS[recommendation.action];
+  const action = recommendation.action;
+  const ActionIcon = ACTION_ICONS[action];
 
-  if (showConfirmation) {
+  if (showConfirmation && action !== 'quick-seed') {
     return (
       <Card data-testid="smart-action-card">
         <CardBody>
@@ -89,7 +130,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
               <ActionIcon className="w-5 h-5 text-(--sf-text-link)" />
               <span className="text-sm text-text-primary font-medium">
                 {t('home.smartAction.confirmMsg', {
-                  action: t(`home.smartAction.action.${recommendation.action}`),
+                  action: t(CONFIRMED_ACTION_KEYS[action]),
                   org: targetOrgName,
                 })}
               </span>
@@ -118,6 +159,13 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
     );
   }
 
+  const why = [
+    countsOf(t, targetOrgName, recordCounts),
+    ...(sourceOrgId && sourceRecordCounts
+      ? [countsOf(t, nameOf(sourceOrgId), sourceRecordCounts)]
+      : []),
+  ].join('\n');
+
   return (
     <Card data-testid="smart-action-card">
       <CardBody>
@@ -134,12 +182,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
                 <span className="text-sm font-semibold text-text-primary truncate">
                   {t('home.smartAction.title')}
                 </span>
-                <Badge variant={confidenceBadgeVariant(recommendation.confidence)}>
-                  {t('home.smartAction.confidence', {
-                    value: Math.round(recommendation.confidence * 100),
-                  })}
-                </Badge>
-                <Tooltip content={recommendation.reason}>
+                <Tooltip content={why} className="whitespace-pre-line">
                   <button
                     type="button"
                     className="text-text-secondary hover:text-text-primary"
@@ -158,10 +201,12 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
           <Button
             variant="primary"
             size="sm"
-            onClick={onExecute}
+            onClick={action === 'quick-seed' ? onConfirm : onExecute}
             data-testid="smart-action-execute-btn"
           >
-            {t('home.smartAction.execute')}
+            {action === 'quick-seed'
+              ? t('home.fillOrg', { alias: targetOrgName })
+              : t('home.smartAction.execute')}
           </Button>
         </div>
       </CardBody>

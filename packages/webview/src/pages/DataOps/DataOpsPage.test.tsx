@@ -316,14 +316,14 @@ describe('DataOpsPage', () => {
     render(<DataOpsPage />);
     expect(screen.getByText('Protect your org data')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org (sign in with your browser)',
+      'Connect an org: import it from the Salesforce CLI or log in with your browser',
     );
     // A backup reads only what the templates mask: it is no way back from a
     // run on any other object, as "before any risky operation" said.
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
       'Back up the fields a template masks before you anonymize',
     );
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('should navigate to orgs when empty state CTA clicked', () => {

@@ -34,8 +34,6 @@ function createRecommendation(
 ): SmartActionRecommendation {
   return {
     action: 'quick-seed',
-    confidence: 0.9,
-    reason: 'Your sandbox is empty — seed it with demo data',
     reasonKey: 'home.smartAction.reasonEmpty',
     details: {
       targetOrgId: 'org-1',
@@ -66,7 +64,7 @@ describe('SmartActionCard', () => {
   it('should return null when action is none', () => {
     const { container } = render(
       <SmartActionCard
-        recommendation={createRecommendation({ action: 'none', confidence: 0, reasonKey: '' })}
+        recommendation={createRecommendation({ action: 'none', reasonKey: '' })}
         onExecute={vi.fn()}
         showConfirmation={false}
         onConfirm={vi.fn()}
@@ -83,7 +81,7 @@ describe('SmartActionCard', () => {
 
     render(
       <SmartActionCard
-        recommendation={createRecommendation()}
+        recommendation={createRecommendation({ action: 'clone' })}
         onExecute={vi.fn()}
         showConfirmation={true}
         onConfirm={onConfirm}
@@ -106,7 +104,7 @@ describe('SmartActionCard', () => {
 
     render(
       <SmartActionCard
-        recommendation={createRecommendation()}
+        recommendation={createRecommendation({ action: 'sync' })}
         onExecute={onExecute}
         showConfirmation={false}
         onConfirm={vi.fn()}
@@ -138,7 +136,6 @@ describe('SmartActionCard', () => {
       <SmartActionCard
         recommendation={createRecommendation({
           action: 'clone',
-          confidence: 0.85,
           reasonKey: 'home.smartAction.reasonClone',
         })}
         onExecute={vi.fn()}
@@ -149,6 +146,185 @@ describe('SmartActionCard', () => {
     );
 
     expect(screen.getByTestId('smart-action-card')).toBeDefined();
+  });
+});
+
+/*
+ * One act, filling an org with demo data, read "Set it up", then "Open Quick
+ * Seed for <org>?": the side panel, Organizations and Home's Quick Actions say
+ * "Fill <org> with demo data" and open Seed's gallery at once.
+ */
+describe('SmartActionCard names a fill as every other surface does', () => {
+  afterEach(() => {
+    useOrgStore.setState({ orgs: [] });
+  });
+
+  it('labels the fill with the org, and opens the gallery on the click, without a second question', () => {
+    useOrgStore.setState({ orgs: [createOrg()] });
+    const onConfirm = vi.fn();
+    const onExecute = vi.fn();
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation()}
+        onExecute={onExecute}
+        showConfirmation={false}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const button = screen.getByTestId('smart-action-execute-btn');
+    expect(button.textContent).toBe('Fill Dev Sandbox with demo data');
+    fireEvent.click(button);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Quick Seed/)).toBeNull();
+  });
+
+  it('keeps "Set it up" and its question for a clone, which opens a wizard on two orgs', () => {
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation({ action: 'clone' })}
+        onExecute={vi.fn()}
+        showConfirmation={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('smart-action-execute-btn').textContent).toBe('Set it up');
+  });
+});
+
+/*
+ * The card showed "90% confidence", a fixed number per rule, and a tooltip in
+ * English in every language, repeating the line under it.
+ */
+describe('SmartActionCard says why from what it counted', () => {
+  afterEach(() => {
+    useOrgStore.setState({ orgs: [] });
+  });
+
+  /** Hover the "Why?" button and read the tooltip it shows. */
+  async function readWhy(): Promise<string> {
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseEnter(screen.getByTestId('smart-action-why-btn'));
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      return screen.getByRole('tooltip').textContent ?? '';
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('shows no confidence score', () => {
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation()}
+        onExecute={vi.fn()}
+        showConfirmation={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('smart-action-card').textContent).not.toMatch(/confidence|%/);
+  });
+
+  it('lists each object counted in the org, and says sample data is under the ceiling', async () => {
+    useOrgStore.setState({ orgs: [createOrg()] });
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation({
+          reasonKey: 'home.smartAction.reasonSampleOnly',
+          details: {
+            targetOrgId: 'org-1',
+            recordCounts: { Account: 13, Contact: 1, Opportunity: 31, Case: 0, Lead: 22 },
+          },
+        })}
+        onExecute={vi.fn()}
+        showConfirmation={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(await readWhy()).toBe(
+      'Dev Sandbox: 13 accounts, 1 contact, 31 opportunities, 0 cases, 22 leads, fewer than 50 of each',
+    );
+  });
+
+  it('names both orgs a clone was read from, the source with the counts that make it one', async () => {
+    useOrgStore.setState({
+      orgs: [createOrg(), createOrg({ id: 'org-2', alias: 'UAT' })],
+    });
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation({
+          action: 'clone',
+          reasonKey: 'home.smartAction.reasonClone',
+          details: {
+            targetOrgId: 'org-1',
+            sourceOrgId: 'org-2',
+            recordCounts: { Account: 0, Contact: 0, Opportunity: 0, Case: 0, Lead: 0 },
+            sourceRecordCounts: {
+              Account: 900,
+              Contact: 2000,
+              Opportunity: 400,
+              Case: 300,
+              Lead: 120,
+            },
+          },
+        })}
+        onExecute={vi.fn()}
+        showConfirmation={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect((await readWhy()).split('\n')).toEqual([
+      'Dev Sandbox: 0 accounts, 0 contacts, 0 opportunities, 0 cases, 0 leads',
+      'UAT: 900 accounts, 2000 contacts, 400 opportunities, 300 cases, 120 leads',
+    ]);
+  });
+
+  it('says it in the panel’s language', async () => {
+    useOrgStore.setState({ orgs: [createOrg()] });
+    // Handed to the card through the provider alone: `initReactI18next` would
+    // make it every later render's instance, in French.
+    const instance: I18n = createInstance();
+    await instance.init({
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      lng: 'fr',
+      fallbackLng: 'en',
+      interpolation: { escapeValue: false },
+    });
+    act(() => {
+      render(
+        <I18nextProvider i18n={instance}>
+          <SmartActionCard
+            recommendation={createRecommendation({
+              details: {
+                targetOrgId: 'org-1',
+                recordCounts: { Account: 1, Contact: 2, Opportunity: 0, Case: 3, Lead: 4 },
+              },
+            })}
+            onExecute={vi.fn()}
+            showConfirmation={false}
+            onConfirm={vi.fn()}
+            onCancel={vi.fn()}
+          />
+        </I18nextProvider>,
+      );
+    });
+
+    expect(await readWhy()).toBe(
+      'Dev Sandbox : 1 compte, 2 contacts, 0 opportunité, 3 requêtes, 4 pistes, moins de 50 de chaque',
+    );
+    expect(screen.getByTestId('smart-action-execute-btn').textContent).toBe(
+      'Remplir Dev Sandbox de données de démonstration',
+    );
   });
 });
 
@@ -166,7 +342,7 @@ describe('SmartActionCard confirmation names the org and the outcome', () => {
   function renderConfirmation(): void {
     render(
       <SmartActionCard
-        recommendation={createRecommendation()}
+        recommendation={createRecommendation({ action: 'clone' })}
         onExecute={vi.fn()}
         showConfirmation={true}
         onConfirm={vi.fn()}
@@ -223,7 +399,7 @@ describe('SmartActionCard confirmation names the org and the outcome', () => {
       render(
         <I18nextProvider i18n={instance}>
           <SmartActionCard
-            recommendation={createRecommendation()}
+            recommendation={createRecommendation({ action: 'clone' })}
             onExecute={vi.fn()}
             showConfirmation={true}
             onConfirm={vi.fn()}

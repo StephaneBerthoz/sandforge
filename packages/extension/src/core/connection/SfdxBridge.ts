@@ -1,8 +1,12 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
-import { SF_LIMITS, orgRegistrationOf, orgTypeOf } from '@sandforge/shared';
+import {
+  SF_LIMITS,
+  orgRegistrationOf,
+  orgTypeOf,
+  parseSalesforceLoginUrl,
+} from '@sandforge/shared';
 import * as z from 'zod';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
-import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
 import { typeTarget } from '../precheck/orgKindLive.js';
 import type { TypedTarget } from '../precheck/orgKindLive.js';
 import { isUsableAccessToken, refreshTokenViaCli } from './ConnectionHelper.js';

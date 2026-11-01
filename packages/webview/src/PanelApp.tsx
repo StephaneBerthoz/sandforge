@@ -32,7 +32,7 @@ import { sendBridgeMessage } from './bridge/sendBridgeMessage';
 const WelcomePage = lazy(
   withEnglish(
     () => import('./pages/Welcome/WelcomePage').then((module) => ({ default: module.WelcomePage })),
-    ['errors', 'onboarding', 'settings'],
+    ['errors', 'home', 'onboarding', 'settings'],
   ),
 );
 const WhatsNewPage = lazy(
@@ -286,11 +286,16 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
        * The panel body is the page's single `main` landmark: screen readers
        * jump straight here, and `tabIndex={-1}` makes it a valid target for
        * SkipLink's programmatic focus (a `main` is not focusable otherwise).
+       * Positioned, so what a page places absolutely — the `sr-only` texts
+       * among it — is placed within it and scrolls with it: placed against
+       * the window, an `sr-only` text far down a long page stretched the
+       * document under the panel, which then scrolled twice (Forge Review by
+       * 249 pixels more than its content).
        */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="h-screen w-full overflow-auto bg-(--sf-bg-primary) text-(--sf-text-primary)"
+        className="relative h-screen w-full overflow-auto bg-(--sf-bg-primary) text-(--sf-text-primary)"
         data-testid="panel-app"
       >
         {/*

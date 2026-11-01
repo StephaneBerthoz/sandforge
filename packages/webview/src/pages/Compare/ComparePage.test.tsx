@@ -143,14 +143,14 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('empty-state')).toBeDefined();
     expect(screen.getByTestId('illustration-compare')).toBeDefined();
     expect(screen.getByText('Spot differences between two orgs')).toBeDefined();
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('should prompt for a second org in the empty state when exactly one org exists', () => {
     useOrgStore.setState({ orgs: [twoOrgs[0]] });
     render(<ComparePage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect a second org (sign in with your browser)',
+      'Connect a second org: import it from the Salesforce CLI or log in with your browser',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick source and target orgs');
   });

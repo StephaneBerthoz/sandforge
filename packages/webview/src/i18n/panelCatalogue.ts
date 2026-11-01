@@ -13,14 +13,6 @@
  * not bring this module back to itself. src/PanelRouter.english.test.ts
  * checks these are the namespaces the shell renders keys from.
  */
-import {
-  a11y,
-  bridge,
-  commandPalette,
-  common,
-  errorBoundary,
-  home,
-  nav,
-} from '../i18n/locales/en.json';
+import { a11y, bridge, commandPalette, common, errorBoundary, nav } from '../i18n/locales/en.json';
 
-export default { a11y, bridge, commandPalette, common, errorBoundary, home, nav };
+export default { a11y, bridge, commandPalette, common, errorBoundary, nav };

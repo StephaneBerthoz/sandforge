@@ -42,7 +42,7 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 
 ```
 1. Connect your orgs with the Salesforce CLI import
-     → Sidebar → SandForge → Organizations → "Import from SF CLI"
+     → Sidebar → SandForge → Organizations → "Import from Salesforce CLI"
        (imports every org already authenticated with the Salesforce CLI)
 2. Open Forge (sidebar), pick the orgs and paste a root record ID
      → the Source Org is already the org selected in the side panel:

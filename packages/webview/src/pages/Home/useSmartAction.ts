@@ -32,8 +32,9 @@ export interface SmartActionState {
  * Hook that manages the Smart Action analysis lifecycle.
  *
  * Sends a `smart-action:analyze` bridge query on mount when an org to fill is
- * connected, and provides a confirmation flow before opening the page for the
- * recommended action.
+ * connected, and provides a confirmation flow before opening the page for a
+ * recommended clone or sync. The card confirms a fill as its button is
+ * clicked: the button names the org and the act.
  *
  * The org analysed is the selected one when it is a sandbox, a scratch org or
  * a Developer Edition, else the first connected org that is: it was the first

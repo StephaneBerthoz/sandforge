@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
-import { SAMPLE_DATA_CEILING, SmartActionAnalyzer } from './SmartActionAnalyzer';
+import { SAMPLE_DATA_CEILING } from '@sandforge/shared';
+import { SmartActionAnalyzer } from './SmartActionAnalyzer';
 import type { SmartActionAnalyzerDeps } from './SmartActionAnalyzer';
 
 /** Creates a mock jsforce Connection that returns configured counts. */
@@ -43,7 +44,6 @@ describe('SmartActionAnalyzer', () => {
     const result = await analyzer.analyzeOrg('target-org-1');
 
     expect(result.action).toBe('quick-seed');
-    expect(result.confidence).toBe(0.9);
     expect(result.reasonKey).toBe('home.smartAction.reasonEmpty');
     expect(result.details.targetOrgId).toBe('target-org-1');
     expect(result.details.recordCounts).toEqual(emptyCounts);
@@ -67,9 +67,10 @@ describe('SmartActionAnalyzer', () => {
     const result = await analyzer.analyzeOrg('target-org', 'source-org');
 
     expect(result.action).toBe('clone');
-    expect(result.confidence).toBe(0.85);
     expect(result.reasonKey).toBe('home.smartAction.reasonClone');
     expect(result.details.sourceOrgId).toBe('source-org');
+    // The panel says why from what was counted, in both orgs.
+    expect(result.details.sourceRecordCounts).toEqual(sourceCounts);
   });
 
   it('should recommend sync when both orgs have data', async () => {
@@ -90,7 +91,6 @@ describe('SmartActionAnalyzer', () => {
     const result = await analyzer.analyzeOrg('target-org', 'source-org');
 
     expect(result.action).toBe('sync');
-    expect(result.confidence).toBe(0.7);
     expect(result.reasonKey).toBe('home.smartAction.reasonSync');
   });
 
@@ -106,8 +106,20 @@ describe('SmartActionAnalyzer', () => {
     const result = await analyzer.analyzeOrg('target-org');
 
     expect(result.action).toBe('none');
-    expect(result.confidence).toBe(0);
     expect(result.reasonKey).toBe('');
+    expect(result.details.sourceRecordCounts).toBeUndefined();
+  });
+
+  it('sends no score and no English reason: the panel says why from the counts', async () => {
+    // A fixed number per rule read as a measured "90% confidence", and the
+    // English reason stayed English in every language.
+    const deps: SmartActionAnalyzerDeps = {
+      getConnection: vi.fn().mockResolvedValue(createMockConnection({})),
+    };
+
+    const result = await new SmartActionAnalyzer(deps).analyzeOrg('target-org');
+
+    expect(Object.keys(result).sort()).toEqual(['action', 'details', 'reasonKey']);
   });
 
   it('recommends Quick Seed to an org holding only sample data, as a new Developer Edition does', async () => {

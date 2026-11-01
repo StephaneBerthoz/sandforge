@@ -5,6 +5,7 @@ import {
   SF_LIMITS,
   orgRegistrationOf,
   orgTypeOf,
+  parseSalesforceLoginUrl,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
@@ -26,7 +27,6 @@ import {
   withDeadline,
 } from '../../core/connection/ConnectionHelper.js';
 import { typeTarget } from '../../core/precheck/orgKindLive.js';
-import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
 import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
 import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
 import type {
@@ -80,11 +80,12 @@ const TYPE_ON_IMPORT_TIMEOUT_MS = 15_000;
 
 /**
  * What an import that found nothing says. It named a terminal command, on the
- * page whose OAuth (Web) button runs that very command; the page opens the
- * browser sign-in on this code.
+ * page whose Log in with your browser button runs that very command; the page
+ * opens the browser sign-in on this code. A CLI with no org yet is how a first
+ * run starts, so it is said as information, not as a connection error.
  */
 export const NO_CLI_ORGS_MESSAGE =
-  'The Salesforce CLI holds no connected org yet. Sign in with OAuth (Web) on the Organizations page: it opens the Salesforce login in your browser.';
+  'The Salesforce CLI holds no connected org yet. Use Log in with your browser on the Organizations page: it opens the Salesforce login page.';
 
 /**
  * Domain handler for org-related webview-to-extension messages.
@@ -289,7 +290,7 @@ export class OrgHandler implements DomainHandler {
         // dismissed, and the banner that outlives it carries the same step: it
         // used to stop at "No connected orgs found in SF CLI.", then named a
         // terminal command. The page opens the browser sign-in on the code.
-        sendNotification(this.deps, 'warning', 'Import', NO_CLI_ORGS_MESSAGE, {
+        sendNotification(this.deps, 'info', 'Import', NO_CLI_ORGS_MESSAGE, {
           autoDismissMs: null,
         });
         this.failConnect(msg, NO_CLI_ORGS_MESSAGE, 'NO_CLI_ORGS');
@@ -349,8 +350,8 @@ export class OrgHandler implements DomainHandler {
       ...(notConnected.length > 0
         ? [
             `The Salesforce CLI cannot reach these orgs, so they were not imported: ` +
-              `${named(notConnected)}. Log in to each again with the CLI, or sign in with ` +
-              'OAuth (Web); a scratch org past its date is gone, create a new one.',
+              `${named(notConnected)}. Log in to each again with the CLI, or use Log in with ` +
+              'your browser; a scratch org past its date is gone, create a new one.',
           ]
         : []),
       ...(noToken.length > 0
@@ -589,7 +590,7 @@ export class OrgHandler implements DomainHandler {
       parsed.reason === 'not-https'
         ? 'Login URL must use HTTPS.'
         : parsed.reason === 'not-salesforce'
-          ? `Login URL must be a Salesforce login host (login.salesforce.com, test.salesforce.com or a My Domain): "${loginUrl}". For an org on another Salesforce cloud, log in with "sf org login web --instance-url <url>", then add it with SFDX Import.`
+          ? `Login URL must be a Salesforce login host (login.salesforce.com, test.salesforce.com or a My Domain): "${loginUrl}". For an org on another Salesforce cloud, log in with "sf org login web --instance-url <url>", then add it with Import from Salesforce CLI.`
           : parsed.reason === 'not-origin'
             ? `Login URL must name a host only, with no path, query or credentials: "${loginUrl}".`
             : `Invalid login URL: "${loginUrl}".`;

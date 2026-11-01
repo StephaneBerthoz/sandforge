@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
-import { Flame } from 'lucide-react';
+import { Flame, Sprout } from 'lucide-react';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
@@ -16,11 +16,8 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Icon } from '../../components/ui/Icon';
 import { formatRelativeTimeI18n } from '../../utils/formatters';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { OrgBadge } from '../../components/ui/OrgBadge';
 import { staggerContainer, slideUp, fadeIn } from '../../motion/presets';
-import { SandboxBanner } from '../../components/ui/SandboxBanner';
-import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { extractRecordId } from '../../utils/recordId';
@@ -51,8 +48,20 @@ const STATUS_BADGES: Record<RecentOp['status'], { variant: BadgeVariant; labelKe
 
 /**
  * Home page dashboard -- bento command center for SandForge.
- * Shows KPI row, Forge hero card, sandbox health, quick actions,
- * recent operations, and getting started guide for new users.
+ * Shows the KPI row, a hero chosen by the orgs connected, the connected orgs,
+ * quick actions, recent operations and the selected org's checkpoints.
+ *
+ * The hero was Forge's in every case, with Home's only h1, though Forge copies
+ * from one org into another: with no org it asked for a record id, and the
+ * card that connects one came last, under every tile. It now leads with what
+ * the orgs connected allow, as the side panel does: none, Getting started and
+ * the two ways to connect one; one org to fill, alone, filling it with demo
+ * data; two or more, Forge.
+ *
+ * A banner said "Your sandbox is empty" whenever a sandbox, a scratch org or a
+ * Developer Edition was connected, measuring nothing, beside a full-copy
+ * sandbox marked Staging. It is gone: the recommended action counts what the
+ * org holds before it says anything.
  */
 export const HomePage: React.FC = () => {
   const { t } = useTranslation();
@@ -74,6 +83,19 @@ export const HomePage: React.FC = () => {
 
   const hasOrgs = connectedOrgs.length > 0;
 
+  /** The org to fill with demo data, of those connected: the selected one when it is one. */
+  const orgToFillNow = orgToFill(connectedOrgs, selectedOrgId);
+  /** One org connected, and one to fill: nothing to copy between, so the hero fills it. */
+  const fillTarget = connectedOrgs.length === 1 ? orgToFillNow : undefined;
+  const hero: 'loading' | 'connect' | 'fill' | 'forge' = hasOrgs
+    ? fillTarget
+      ? 'fill'
+      : 'forge'
+    : orgsLoading
+      ? 'loading'
+      : 'connect';
+  const nameOf = (org: SalesforceOrg): string => org.alias || org.username;
+
   /** Last 5 recent operations for the tile. */
   const recentOpsSlice = useMemo(() => recentOps.slice(0, 5), [recentOps]);
 
@@ -82,7 +104,6 @@ export const HomePage: React.FC = () => {
     () => recentOps.filter((op) => op.status === 'running').length,
     [recentOps],
   );
-  const { hasSandbox } = useSandboxDetection();
   const smartAction = useSmartAction();
 
   const showSmartAction =
@@ -208,9 +229,6 @@ export const HomePage: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Sandbox Banner */}
-      <SandboxBanner onNavigate={(page) => navigate(page)} />
-
       {/* Smart Action Recommendation */}
       <AnimatePresence mode="wait">
         {(showSmartAction || smartAction.loading) && smartAction.recommendation && (
@@ -235,65 +253,136 @@ export const HomePage: React.FC = () => {
 
       {/* Bento Grid */}
       <BentoGrid columns={3}>
-        {/* Forge Hero Tile */}
-        <BentoTile colSpan={2} className="border-forge/30">
-          <div className="flex flex-col h-full" data-testid="forge-hero-card">
-            <div className="flex items-center gap-2 mb-3">
-              <Flame className="w-6 h-6 text-hue-forge" />
-              <h1 tabIndex={-1} className="text-lg font-semibold text-text-primary">
-                {t('home.forgeASandbox')}
-              </h1>
+        {/* Hero: chosen by the orgs connected, as the side panel's is */}
+        <BentoTile colSpan={2} className={hero === 'forge' ? 'border-forge/30' : undefined}>
+          {hero === 'loading' && (
+            <div data-testid="home-hero-loading">
+              <Skeleton variant="rect" height="140px" />
             </div>
-            {/* The one sentence every surface says Forge in: the side panel,
-                Home, its empty state and Help. */}
-            <p className="text-sm text-text-secondary mb-6">{t('moduleSummary.forge')}</p>
-            <div className="mt-auto">
-              <div className="flex items-center gap-2">
-                <input
-                  ref={heroInputRef}
-                  type="text"
-                  value={heroRecordId}
-                  onChange={(e) => {
-                    setHeroRecordId(e.target.value);
-                    setHeroIdInvalid(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleStartForge();
-                  }}
-                  placeholder={t('home.recordIdPlaceholder')}
-                  aria-label={t('home.recordIdPlaceholder')}
-                  aria-invalid={heroIdInvalid}
-                  aria-describedby={heroIdInvalid ? 'forge-record-error' : undefined}
-                  className={cn(
-                    'flex-1 rounded-sm border bg-surface-2 px-3 py-1.5 text-sm',
-                    'text-text-primary placeholder:text-text-secondary',
-                    'focus:outline-hidden focus:ring-1 focus:ring-(--sf-accent)',
-                    heroIdInvalid ? 'border-(--sf-error)' : 'border-subtle',
-                  )}
-                  data-testid="forge-record-input"
-                />
-                <Button variant="primary" onClick={handleStartForge} data-testid="start-forge-btn">
-                  {t('home.startForge')}
+          )}
+          {hero === 'connect' && (
+            <div className="flex flex-col h-full" data-testid="getting-started-card">
+              <h1 tabIndex={-1} className="text-lg font-semibold text-text-primary mb-2">
+                {t('home.gettingStarted')}
+              </h1>
+              <p className="text-sm text-text-secondary mb-4">{t('home.gettingStartedDesc')}</p>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-text-primary">
+                <li>{t('home.step1')}</li>
+                <li>{t('home.step2')}</li>
+                <li>{t('home.step3')}</li>
+                <li>{t('home.step4')}</li>
+              </ol>
+              {/* The two ways to connect, by the names Organizations gives
+                  them, each starting there as the side panel's first card
+                  does. */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() => navigate('orgs', { orgAction: 'import-cli' })}
+                  icon={<Icon name="cloud-download" />}
+                  data-testid="home-import-cli-btn"
+                >
+                  {t('home.importFromCli')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => navigate('orgs', { orgAction: 'login-web' })}
+                  icon={<Icon name="link" />}
+                  data-testid="home-login-web-btn"
+                >
+                  {t('home.loginWeb')}
                 </Button>
               </div>
-              {heroIdInvalid && (
-                <p
-                  id="forge-record-error"
-                  className="mt-1.5 text-xs text-status-error"
-                  data-testid="forge-record-error"
-                >
-                  {t('home.invalidRecordId')}
-                </p>
-              )}
             </div>
-          </div>
+          )}
+          {hero === 'fill' && fillTarget && (
+            <div className="flex flex-col h-full" data-testid="fill-hero-card">
+              <div className="flex items-center gap-2 mb-3">
+                <Sprout className="w-6 h-6 shrink-0 text-hue-green" aria-hidden="true" />
+                <h1
+                  tabIndex={-1}
+                  className="text-lg font-semibold text-text-primary min-w-0 break-words"
+                >
+                  {t('home.fillOrg', { alias: nameOf(fillTarget) })}
+                </h1>
+              </div>
+              <p className="text-sm text-text-secondary mb-6">{t('home.fillOrgDesc')}</p>
+              <div className="mt-auto">
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    navigate('seed', { seedMode: 'quick-seed', targetOrgId: fillTarget.id })
+                  }
+                  data-testid="fill-hero-btn"
+                >
+                  {t('home.fillOrgAction')}
+                </Button>
+              </div>
+            </div>
+          )}
+          {hero === 'forge' && (
+            <div className="flex flex-col h-full" data-testid="forge-hero-card">
+              <div className="flex items-center gap-2 mb-3">
+                <Flame className="w-6 h-6 text-hue-forge" />
+                <h1 tabIndex={-1} className="text-lg font-semibold text-text-primary">
+                  {t('home.forgeASandbox')}
+                </h1>
+              </div>
+              {/* The one sentence every surface says Forge in: the side panel,
+                  Home, its empty state and Help. */}
+              <p className="text-sm text-text-secondary mb-6">{t('moduleSummary.forge')}</p>
+              <div className="mt-auto">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={heroInputRef}
+                    type="text"
+                    value={heroRecordId}
+                    onChange={(e) => {
+                      setHeroRecordId(e.target.value);
+                      setHeroIdInvalid(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleStartForge();
+                    }}
+                    placeholder={t('home.recordIdPlaceholder')}
+                    aria-label={t('home.recordIdPlaceholder')}
+                    aria-invalid={heroIdInvalid}
+                    aria-describedby={heroIdInvalid ? 'forge-record-error' : undefined}
+                    className={cn(
+                      'flex-1 rounded-sm border bg-surface-2 px-3 py-1.5 text-sm',
+                      'text-text-primary placeholder:text-text-secondary',
+                      'focus:outline-hidden focus:ring-1 focus:ring-(--sf-accent)',
+                      heroIdInvalid ? 'border-(--sf-error)' : 'border-subtle',
+                    )}
+                    data-testid="forge-record-input"
+                  />
+                  <Button
+                    variant="primary"
+                    onClick={handleStartForge}
+                    data-testid="start-forge-btn"
+                  >
+                    {t('home.startForge')}
+                  </Button>
+                </div>
+                {heroIdInvalid && (
+                  <p
+                    id="forge-record-error"
+                    className="mt-1.5 text-xs text-status-error"
+                    data-testid="forge-record-error"
+                  >
+                    {t('home.invalidRecordId')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </BentoTile>
 
-        {/* Sandbox Health Tile */}
+        {/* Connected orgs: a list, not the health measure its title promised */}
         <BentoTile colSpan={1} rowSpan={1}>
           <div data-testid="health-tile">
             <h3 className="text-sm font-semibold text-text-primary mb-3">
-              {t('home.sandboxHealth')}
+              {t('home.connectedOrgs')}
             </h3>
             {hasOrgs ? (
               <div className="flex flex-col gap-2" data-testid="connected-orgs-card">
@@ -307,7 +396,12 @@ export const HomePage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <EmptyState icon={<Icon name="plug" />} title={t('home.noOrgsConnected')} />
+              <EmptyState
+                icon={<Icon name="plug" />}
+                title={t('home.noOrgsConnected')}
+                actionLabel={t('home.connectOrg')}
+                onAction={() => navigate('orgs')}
+              />
             )}
           </div>
         </BentoTile>
@@ -323,10 +417,21 @@ export const HomePage: React.FC = () => {
                 <EmptyState icon={<Icon name="history" />} title={t('home.noRecentOps')} />
               ) : (
                 <div className="space-y-1.5">
+                  {/* Each opens the page of the module that ran it, where a
+                      failed run says why and can be run again: a "Failed —
+                      Sync Contacts" row led nowhere. */}
                   {recentOpsSlice.map((op) => (
-                    <div
+                    <button
+                      type="button"
                       key={op.id}
-                      className="flex items-center gap-2 py-1 px-2 rounded-sm text-xs bg-surface-2"
+                      className={cn(
+                        'w-full flex items-center gap-2 py-1 px-2 rounded-sm text-xs text-left bg-surface-2',
+                        // A ring, not a hover background: the time beside
+                        // the label fell under AA on the hover colour.
+                        'hover:ring-1 hover:ring-(--sf-accent) transition-shadow',
+                      )}
+                      onClick={() => navigate(op.type)}
+                      title={t('home.openOpModule', { module: t(`nav.${op.type}`) })}
                       data-testid="recent-op-item"
                     >
                       <Badge variant={STATUS_BADGES[op.status].variant}>
@@ -336,7 +441,7 @@ export const HomePage: React.FC = () => {
                       <span className="text-text-secondary shrink-0">
                         {formatRelativeTimeI18n(op.timestamp, t, 'home')}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -350,15 +455,18 @@ export const HomePage: React.FC = () => {
             <h3 className="text-sm font-semibold text-text-primary mb-3">
               {t('home.quickActions')}
             </h3>
+            {/* Each says the page it opens: Quick Forge, Refresh Monitor and
+                Open Pipelines opened Forge, Monitor and Automation, refreshed
+                nothing and named no page of that name. */}
             <div className="grid grid-cols-2 gap-2" data-testid="quick-actions-card">
               <Button
                 variant="secondary"
                 size="sm"
                 icon={<Icon name="flame" />}
                 onClick={() => navigate('forge')}
-                data-testid="quick-forge-btn"
+                data-testid="open-forge-btn"
               >
-                {t('home.quickForge')}
+                {t('home.openForge')}
               </Button>
               {/* Grappe only shows a run's partitions while sandforge.grappe.enabled
                   is on: off, its button opened an empty page. */}
@@ -376,35 +484,35 @@ export const HomePage: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                icon={<Icon name="refresh" />}
+                icon={<Icon name="pulse" />}
                 onClick={() => navigate('monitor')}
-                data-testid="refresh-monitor-btn"
+                data-testid="open-monitor-btn"
               >
-                {t('home.refreshMonitor')}
+                {t('home.openMonitor')}
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
-                icon={<Icon name="circuit-board" />}
+                icon={<Icon name="zap" />}
                 onClick={() => navigate('automation')}
-                data-testid="run-pipeline-btn"
+                data-testid="open-automation-btn"
               >
-                {t('home.openPipelines')}
+                {t('home.openAutomation')}
               </Button>
-              {hasSandbox && (
+              {/* The act the side panel and Organizations name with the same
+                  words, on the org they would fill; the hero offers it
+                  already when that org is the only one. */}
+              {orgToFillNow && hero !== 'fill' && (
                 <Button
                   variant="secondary"
                   size="sm"
-                  icon={<Icon name="database" />}
+                  icon={<Icon name="sprout" />}
                   onClick={() =>
-                    navigate('seed', {
-                      seedMode: 'quick-seed',
-                      targetOrgId: orgToFill(connectedOrgs, selectedOrgId)?.id,
-                    })
+                    navigate('seed', { seedMode: 'quick-seed', targetOrgId: orgToFillNow.id })
                   }
-                  data-testid="populate-sandbox-btn"
+                  data-testid="fill-org-btn"
                 >
-                  {t('home.populateSandbox')}
+                  {t('home.fillOrg', { alias: nameOf(orgToFillNow) })}
                 </Button>
               )}
             </div>
@@ -415,12 +523,11 @@ export const HomePage: React.FC = () => {
         <CheckpointTile org={connectedOrgs.find((org) => org.id === selectedOrgId)} />
       </BentoGrid>
 
-      {/* Health Summary — shown when orgs are connected */}
+      {/* Health Summary — shown when orgs are connected. The org count and
+          the active jobs are the KPI row's: this row repeated both, under
+          labels French and German wrote the same. */}
       {hasOrgs && (
-        <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
-          data-testid="health-summary"
-        >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="health-summary">
           {health.loading ? (
             <Skeleton variant="rect" height="112px" />
           ) : (
@@ -434,12 +541,6 @@ export const HomePage: React.FC = () => {
               }
             />
           )}
-          <KPICard
-            icon="organization"
-            label={t('home.connectedOrgs')}
-            value={connectedOrgs.length}
-            variant="success"
-          />
           {health.loading ? (
             <Skeleton variant="rect" height="112px" />
           ) : (
@@ -450,41 +551,7 @@ export const HomePage: React.FC = () => {
               variant="default"
             />
           )}
-          <KPICard
-            icon="tasklist"
-            label={t('status.activeJobs')}
-            value={activeJobsCount}
-            variant="default"
-          />
         </div>
-      )}
-
-      {/* Getting Started -- shown when no orgs are connected */}
-      {!hasOrgs && !orgsLoading && (
-        <Card data-testid="getting-started-card">
-          <CardHeader title={t('home.gettingStarted')} />
-          <CardBody>
-            <p className="text-sm text-(--sf-text-secondary) mb-4">
-              {t('home.gettingStartedDesc')}
-            </p>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-(--sf-text-primary)">
-              <li>{t('home.step1')}</li>
-              <li>{t('home.step2')}</li>
-              <li>{t('home.step3')}</li>
-              <li>{t('home.step4')}</li>
-            </ol>
-            <div className="mt-4">
-              <Button
-                variant="primary"
-                onClick={() => navigate('orgs')}
-                icon={<Icon name="plug" />}
-                data-testid="connect-org-btn"
-              >
-                {t('home.connectOrg')}
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
       )}
     </m.div>
   );

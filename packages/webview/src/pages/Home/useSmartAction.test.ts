@@ -110,8 +110,6 @@ describe('useSmartAction', () => {
     mockQueryState.data = {
       recommendation: {
         action: 'quick-seed',
-        confidence: 0.9,
-        reason: 'Your sandbox is empty',
         reasonKey: 'home.smartAction.reasonEmpty',
         details: {
           targetOrgId: 'org-1',
@@ -122,7 +120,7 @@ describe('useSmartAction', () => {
 
     const { result } = renderHook(() => useSmartAction());
     expect(result.current.recommendation?.action).toBe('quick-seed');
-    expect(result.current.recommendation?.confidence).toBe(0.9);
+    expect(result.current.recommendation?.reasonKey).toBe('home.smartAction.reasonEmpty');
   });
 
   it('should manage confirmation flow', () => {
@@ -130,8 +128,6 @@ describe('useSmartAction', () => {
     mockQueryState.data = {
       recommendation: {
         action: 'quick-seed',
-        confidence: 0.9,
-        reason: 'Empty sandbox',
         reasonKey: 'home.smartAction.reasonEmpty',
         details: {
           targetOrgId: 'org-1',
@@ -160,8 +156,6 @@ describe('useSmartAction', () => {
     mockQueryState.data = {
       recommendation: {
         action: 'quick-seed',
-        confidence: 0.9,
-        reason: 'Empty sandbox',
         reasonKey: 'home.smartAction.reasonEmpty',
         details: {
           targetOrgId: 'org-1',
@@ -199,8 +193,6 @@ describe('useSmartAction', () => {
     mockQueryState.data = {
       recommendation: {
         action: 'clone',
-        confidence: 0.8,
-        reason: 'Source org has data',
         reasonKey: 'home.smartAction.reasonClone',
         details: {
           targetOrgId: 'target-1',
@@ -239,8 +231,6 @@ describe('useSmartAction', () => {
     mockQueryState.data = {
       recommendation: {
         action: 'sync',
-        confidence: 0.7,
-        reason: 'Both have data',
         reasonKey: 'home.smartAction.reasonSync',
         details: {
           targetOrgId: 'target-1',

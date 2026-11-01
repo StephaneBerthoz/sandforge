@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'url';
 
+import { MOCK_ORGS } from './fixtures';
 import { MockBridge } from './helpers';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
@@ -75,6 +76,14 @@ async function openHome(page: Page): Promise<MockBridge> {
   return bridge;
 }
 
+/**
+ * Connect two orgs: Home leads with Forge, whose hero these strings are read
+ * from, once there are two orgs to copy between (Getting started with none).
+ */
+async function connectTwoOrgs(bridge: MockBridge): Promise<void> {
+  await bridge.seedOrgs(MOCK_ORGS);
+}
+
 /** Every `i18n:locale` request posted so far, unwrapped from its envelope. */
 async function localeRequests(page: Page): Promise<Record<string, unknown>[]> {
   return page.evaluate(() => {
@@ -101,8 +110,9 @@ test.describe('i18n — editor locale is English', () => {
   test.use({ locale: 'en-US' });
 
   test('renders English without asking the host for a bundle', async ({ page }) => {
-    await openHome(page);
+    const bridge = await openHome(page);
     await page.waitForSelector('[data-testid="home-page"]');
+    await connectTwoOrgs(bridge);
 
     await expectEnglishHome(page);
 
@@ -126,6 +136,7 @@ test.describe('i18n — editor locale is French', () => {
     // 500ms and paints English, which is what a user gets whenever the
     // extension host is slow, wedged, or missing its locale files.
     await page.waitForSelector('[data-testid="home-page"]');
+    await connectTwoOrgs(bridge);
     await expectEnglishHome(page);
     await expect(page.getByText(FR.heroTitle)).toHaveCount(0);
   });
@@ -140,6 +151,7 @@ test.describe('i18n — editor locale is French', () => {
     );
 
     await page.waitForSelector('[data-testid="home-page"]');
+    await connectTwoOrgs(bridge);
     await expect(page.getByTestId('forge-hero-card').getByRole('heading')).toHaveText(FR.heroTitle);
     await expect(page.getByTestId('start-forge-btn')).toHaveText(FR.startForge);
     await expect(page.getByTestId('quick-actions-tile').getByRole('heading')).toHaveText(
@@ -165,6 +177,7 @@ test.describe('i18n — language pushed by the extension', () => {
   test('switches to French when settings:response carries a saved language', async ({ page }) => {
     const bridge = await openHome(page);
     await page.waitForSelector('[data-testid="home-page"]');
+    await connectTwoOrgs(bridge);
     await expectEnglishHome(page);
 
     // The webview state is per-document and dies with the panel; the settings

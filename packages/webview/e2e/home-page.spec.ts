@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { injectVSCodeApiMock, sendExtensionMessage } from './mocks/vscode-api';
-import { MOCK_ORGS } from './fixtures';
+import { DEV_SANDBOX, MOCK_ORGS } from './fixtures';
 
 /**
  * Answer *every* in-flight `org:list`, not just the first one captured.
@@ -62,22 +62,36 @@ test.describe('Home page', () => {
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
-  test('displays the forge hero card', async ({ page }) => {
+  /**
+   * The hero follows the orgs connected, as the launcher's does: Forge, which
+   * copies from one org into another, once there are two.
+   */
+  test('displays the forge hero card once two orgs are connected', async ({ page }) => {
+    await answerOrgList(page, MOCK_ORGS);
     await expect(page.getByTestId('forge-hero-card')).toBeVisible();
-  });
-
-  test('displays the forge record input and start button', async ({ page }) => {
     await expect(page.getByTestId('forge-record-input')).toBeVisible();
     await expect(page.getByTestId('start-forge-btn')).toBeVisible();
+  });
+
+  test('leads with filling the one Developer Edition connected, not with Forge', async ({
+    page,
+  }) => {
+    await answerOrgList(page, [{ ...DEV_SANDBOX, orgType: 'Developer' }]);
+    const hero = page.getByTestId('fill-hero-card');
+    await expect(hero.getByRole('heading', { level: 1 })).toHaveText(
+      `Fill ${DEV_SANDBOX.alias} with demo data`,
+    );
+    await expect(page.getByTestId('forge-hero-card')).toHaveCount(0);
   });
 
   test('displays quick actions tile with action buttons', async ({ page }) => {
     const quickActions = page.getByTestId('quick-actions-tile');
     await expect(quickActions).toBeVisible();
 
-    await expect(page.getByTestId('quick-forge-btn')).toBeVisible();
-    await expect(page.getByTestId('refresh-monitor-btn')).toBeVisible();
-    await expect(page.getByTestId('run-pipeline-btn')).toBeVisible();
+    // Each named by the page it opens: they open it and do nothing more.
+    await expect(page.getByTestId('open-forge-btn')).toHaveText('Open Forge');
+    await expect(page.getByTestId('open-monitor-btn')).toHaveText('Open Monitor');
+    await expect(page.getByTestId('open-automation-btn')).toHaveText('Open Automation');
     // Grappe shows nothing until sandforge.grappe.enabled is on.
     await expect(page.getByTestId('quick-grappe-btn')).toHaveCount(0);
     await sendExtensionMessage(page, {
@@ -107,7 +121,10 @@ test.describe('Home page', () => {
 
     const card = page.getByTestId('getting-started-card');
     await expect(card).toBeVisible();
-    await expect(card.getByTestId('connect-org-btn')).toBeVisible();
+    // It is the hero now, with the page's heading, and not under every tile.
+    await expect(card.getByRole('heading', { level: 1 })).toHaveText('Getting started');
+    await expect(card.getByTestId('home-import-cli-btn')).toHaveText('Import from Salesforce CLI');
+    await expect(card.getByTestId('home-login-web-btn')).toHaveText('Log in with your browser');
 
     // BridgeProvider fills the org store from any `org:list:response`, so a
     // second answer carrying connected orgs is the real path out of the
@@ -122,17 +139,40 @@ test.describe('Home page', () => {
    * swaps what PanelRouter renders inside `panel-app` — so "went to the orgs
    * page" is observable as the org manager replacing Home in the same panel.
    */
-  test('connect org button swaps the panel to the org manager', async ({ page }) => {
+  test('the browser login button swaps the panel to the org manager, its form open', async ({
+    page,
+  }) => {
     await answerOrgList(page, []);
     await page.getByTestId('getting-started-card').waitFor({ state: 'visible' });
 
     // Precondition, so the assertion below cannot pass on a panel that was
     // already showing the org manager.
     await expect(page.getByTestId('org-manager-page')).toHaveCount(0);
-    await page.getByTestId('connect-org-btn').click();
+    await page.getByTestId('home-login-web-btn').click();
 
     await expect(page.getByTestId('org-manager-page')).toBeVisible();
+    await expect(page.getByTestId('org-inline-form')).toBeVisible();
     await expect(page.getByTestId('home-page')).toHaveCount(0);
+  });
+
+  test('a recent operation opens the page of the module that ran it', async ({ page }) => {
+    await answerOrgList(page, MOCK_ORGS);
+    await sendExtensionMessage(page, {
+      type: 'operation:started',
+      id: 'op-started',
+      payload: { operationId: 'op-sync', module: 'sync', description: 'Sync Contacts' },
+    });
+    await sendExtensionMessage(page, {
+      type: 'operation:failed',
+      id: 'op-failed',
+      payload: { operationId: 'op-sync', error: 'refused', retryable: false },
+    });
+    const row = page.getByTestId('recent-op-item');
+    await expect(row).toContainText('Sync Contacts');
+    await row.click();
+
+    await expect(page.getByTestId('home-page')).toHaveCount(0);
+    await expect(page).toHaveTitle('SandForge: Sync');
   });
 
   /**
@@ -140,11 +180,11 @@ test.describe('Home page', () => {
    * testid) until an org is selected, so the org list has to be answered with
    * connected orgs before the click — BridgeProvider auto-selects the first.
    */
-  test('quick forge button swaps the panel to the forge module', async ({ page }) => {
+  test('the Open Forge button swaps the panel to the forge module', async ({ page }) => {
     await answerOrgList(page, MOCK_ORGS);
 
     await expect(page.getByTestId('forge-page')).toHaveCount(0);
-    await page.getByTestId('quick-forge-btn').click();
+    await page.getByTestId('open-forge-btn').click();
 
     await expect(page.getByTestId('forge-page')).toBeVisible();
     await expect(page.getByTestId('home-page')).toHaveCount(0);

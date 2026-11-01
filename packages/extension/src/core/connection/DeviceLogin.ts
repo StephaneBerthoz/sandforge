@@ -1,7 +1,6 @@
 import * as z from 'zod';
-import { SF_DEVICE_CODE_LIFETIME_MS } from '@sandforge/shared';
+import { SF_DEVICE_CODE_LIFETIME_MS, isSalesforceLoginHost } from '@sandforge/shared';
 import { parseHttpsUrl } from '../common/parseHttpsUrl.js';
-import { isSalesforceLoginHost } from '../common/salesforceLoginHost.js';
 
 /**
  * The OAuth 2.0 device flow, spoken to Salesforce directly.

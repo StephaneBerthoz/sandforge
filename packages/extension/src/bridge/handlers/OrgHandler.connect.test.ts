@@ -120,11 +120,12 @@ describe('org:connect answers on every branch', () => {
     expect(replies[0].correlationId).toBe('req-connect');
   });
 
-  it('keeps the no-orgs toast up, and sends the user to OAuth (Web), not to a terminal', async () => {
+  it('keeps the no-orgs toast up, as information, and sends the user to the browser login, not to a terminal', async () => {
     // The toast was gone after five seconds, and the banner that outlives it
     // said only "No connected orgs found in SF CLI." — the one step that fixes
     // it was in the toast alone. Then both named `sf org login web`, which the
-    // OAuth (Web) button next to them runs.
+    // button next to them runs, under a name no button had: OAuth (Web). A CLI
+    // holding no org is how a first run starts, not a failure.
     deps.sfdxBridge = {
       isCliAvailable: vi.fn().mockResolvedValue(true),
       listOrgs: vi.fn().mockResolvedValue([]),
@@ -137,7 +138,9 @@ describe('org:connect answers on every branch', () => {
     );
     const toast = posted.find((m) => m.type === 'notification');
     expect(toast?.payload).not.toHaveProperty('autoDismissMs');
-    expect(toast?.payload.message).toMatch(/OAuth \(Web\)/);
+    expect(toast?.payload.level).toBe('info');
+    expect(toast?.payload.message).toMatch(/Log in with your browser/);
+    expect(toast?.payload.message).not.toMatch(/OAuth/);
     expect(toast?.payload.message).not.toMatch(/sf org login/);
     const error = posted.find((m) => m.type === 'org:error');
     expect(error?.payload.message).toBe(toast?.payload.message);

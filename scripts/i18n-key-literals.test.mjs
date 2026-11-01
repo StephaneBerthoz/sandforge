@@ -294,6 +294,8 @@ const UNION_BACKED = [
     from: { file: 'packages/shared/src/types/smart-action.types.ts', union: 'SmartActionType' },
     guarded: {
       none: "SmartActionCard returns null when the action is 'none', before it reads the key",
+      'quick-seed':
+        'SmartActionCard opens the gallery for a fill as its button is clicked: only a clone or a sync is confirmed, under its own key',
     },
   },
 ];

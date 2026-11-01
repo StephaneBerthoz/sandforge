@@ -362,6 +362,11 @@ export {
   syncConfigNameTaken,
   type SyncConfigNamed,
 } from './utils/sync-config-names.js';
+export {
+  isSalesforceLoginHost,
+  parseSalesforceLoginUrl,
+  type SalesforceLoginUrlParse,
+} from './utils/salesforce-login-host.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

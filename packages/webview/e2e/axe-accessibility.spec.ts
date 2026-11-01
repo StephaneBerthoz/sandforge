@@ -1923,6 +1923,33 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Home with no org: Getting started leads, with the two ways to connect', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await answerAll(page, 'org:list', 'org:list:response', { orgs: [] });
+      const hero = page.getByTestId('getting-started-card');
+      await expect(hero.getByRole('heading', { level: 1 })).toHaveText('Getting started');
+      await expect(hero.getByTestId('home-import-cli-btn')).toBeVisible();
+      await expect(
+        page.getByTestId('health-tile').getByRole('button', { name: 'Connect an org' }),
+      ).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Home with one Developer Edition: filling it leads, as on the launcher', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await bridge.seedOrgs([{ ...DEV_SANDBOX, orgType: 'Developer' }]);
+      await expect(
+        page.getByTestId('fill-hero-card').getByRole('heading', { level: 1 }),
+      ).toHaveText(`Fill ${DEV_SANDBOX.alias} with demo data`);
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Home with an org of each kind, a sandbox marked Staging among them, each badge naming its type', async ({
       page,
     }) => {
@@ -6390,7 +6417,7 @@ for (const theme of SCANNED_THEMES) {
         { type: 'sidebar:cliOrgs', payload: { count: 3 } },
       ]);
       const card = page.getByTestId('sidepanel-first-org');
-      await expect(card).toContainText('Import up to 3 orgs from the Salesforce CLI');
+      await expect(card).toContainText('Import up to 3 orgs from Salesforce CLI');
       await expect(page.getByTestId('sidepanel-metrics')).toHaveCount(0);
 
       await expectReadable(page, theme);
@@ -6563,7 +6590,28 @@ for (const theme of SCANNED_THEMES) {
         },
       });
       await expect(page.getByTestId('org-inline-form')).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByTestId('org-connect-error')).toContainText('OAuth (Web)');
+      // Information, not a red connection error: a CLI with no org is how a
+      // first run starts.
+      await expect(page.getByTestId('org-cli-empty')).toContainText('Log in with your browser');
+      await expect(page.getByTestId('org-connect-error')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Organizations with a My Domain login URL refused, said why under the field', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'orgs', theme);
+      await bridge.seedOrgs([]);
+      await page.getByTestId('org-auth-oauth_web').click();
+      await page.getByTestId('inline-login-url-select').selectOption('custom');
+      const field = page.getByTestId('inline-my-domain-input');
+      await field.fill('https://login.example.com');
+      await expect(field).toHaveAttribute('aria-invalid', 'true');
+      await expect(page.getByTestId('org-inline-form')).toContainText(
+        'Not a Salesforce login domain',
+      );
+      await expect(page.getByTestId('org-inline-connect')).toBeDisabled();
 
       await expectReadable(page, theme);
     });

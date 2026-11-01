@@ -346,14 +346,14 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('empty-state')).toBeDefined();
     expect(screen.getByTestId('illustration-sync')).toBeDefined();
     expect(screen.getByText('Keep two orgs in sync')).toBeDefined();
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('should prompt for a second org when exactly one org exists', () => {
     useOrgStore.setState({ orgs: [mockOrgs[0]] });
     render(<SyncPage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect a second org (sign in with your browser)',
+      'Connect a second org: import it from the Salesforce CLI or log in with your browser',
     );
   });
 
@@ -361,7 +361,7 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: [] });
     render(<SyncPage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect two orgs, a source and a target (sign in with your browser)',
+      'Connect two orgs, a source and a target: import them from the Salesforce CLI or log in with your browser',
     );
     // Nothing to fill yet: no Seed link.
     expect(screen.queryByTestId('empty-tour-link')).toBeNull();

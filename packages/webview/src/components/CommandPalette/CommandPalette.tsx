@@ -20,17 +20,28 @@ const MAX_RECENT_SEARCHES = 5;
 /** Storage key for recent searches. */
 const RECENT_SEARCHES_KEY = 'sf-command-palette-recent';
 
-/** Route-to-icon mapping for navigation items. */
-const ROUTE_ICONS: Record<string, IconName> = {
+/**
+ * Each page's icon in the palette's navigation, one for every route it lists,
+ * the side panel's glyph where it has one. Seed, Frozen, Checkpoints, Sync,
+ * Migration and Autopilot were missing and drew the generic file once icons
+ * drew at all; keyed by the routes, a route left out does not compile.
+ */
+const ROUTE_ICONS: Record<Exclude<ModuleRoute, 'welcome'>, IconName> = {
   home: 'home',
   orgs: 'plug',
   forge: 'flame',
+  frozen: 'snowflake',
+  checkpoint: 'history',
   grappe: 'server',
   monitor: 'pulse',
+  seed: 'sprout',
+  sync: 'sync',
   compare: 'diff',
   dataops: 'shield',
   automation: 'zap',
+  migration: 'file-up',
   ai: 'hubot',
+  autopilot: 'rocket',
   reports: 'graph',
   settings: 'gear',
   help: 'question',
@@ -174,48 +185,26 @@ export const CommandPalette: React.FC = () => {
   const registerItemsRef = useLatestRef(registerItems);
   const removeItemsRef = useLatestRef(removeItems);
 
-  /** Build and register navigation + action items on mount. */
+  /**
+   * Register the navigation items on mount: one per page. Three "actions"
+   * sat beside them — Quick Forge, Refresh Monitor, Open Pipelines — that
+   * only opened Forge, Monitor and Automation, as their navigation rows do,
+   * and Quick Forge answered "se" for its keywords seed and sync.
+   */
   useEffect(() => {
-    const navItems: CommandItem[] = ALL_ROUTES.filter((r) => r !== 'welcome').map(
-      (route: ModuleRoute) => ({
-        id: `nav-${route}`,
-        label: t(ROUTE_LABEL_KEYS[route] ?? `nav.${route}`),
-        group: 'navigate' as const,
-        icon: ROUTE_ICONS[route] ?? 'file',
-        action: () => navigateRef.current(route),
-        keywords: [route],
-      }),
-    );
+    const navItems: CommandItem[] = ALL_ROUTES.filter(
+      (r): r is Exclude<ModuleRoute, 'welcome'> => r !== 'welcome',
+    ).map((route) => ({
+      id: `nav-${route}`,
+      label: t(ROUTE_LABEL_KEYS[route] ?? `nav.${route}`),
+      group: 'navigate' as const,
+      icon: ROUTE_ICONS[route],
+      action: () => navigateRef.current(route),
+      keywords: [route],
+    }));
 
-    const actionItems: CommandItem[] = [
-      {
-        id: 'quick-forge',
-        label: t('home.quickForge'),
-        group: 'actions' as const,
-        icon: 'flame',
-        action: () => navigateRef.current('forge'),
-        keywords: ['forge', 'seed', 'sync', 'quick'],
-      },
-      {
-        id: 'refresh-monitor',
-        label: t('home.refreshMonitor'),
-        group: 'actions' as const,
-        icon: 'refresh',
-        action: () => navigateRef.current('monitor'),
-        keywords: ['monitor', 'refresh'],
-      },
-      {
-        id: 'run-pipeline',
-        label: t('home.openPipelines'),
-        group: 'actions' as const,
-        icon: 'circuit-board',
-        action: () => navigateRef.current('automation'),
-        keywords: ['pipeline', 'automation'],
-      },
-    ];
-
-    const ids = [...navItems, ...actionItems].map((i) => i.id);
-    registerItemsRef.current([...navItems, ...actionItems]);
+    const ids = navItems.map((i) => i.id);
+    registerItemsRef.current(navItems);
 
     const remove = removeItemsRef.current;
     return () => {
@@ -381,8 +370,9 @@ export const CommandPalette: React.FC = () => {
                       data-testid={`command-palette-item-${item.id}`}
                     >
                       {item.icon && <Icon name={item.icon} />}
+                      {/* The group's name is its heading, once: every row
+                          repeated it on its right, Navigation under NAVIGATION. */}
                       <span className="flex-1">{item.label}</span>
-                      <span className="text-xs text-text-primary">{groupHeading(item.group)}</span>
                     </Command.Item>
                   ))}
                 </Command.Group>

@@ -28,7 +28,7 @@ declare global {
 const SidePanel = lazy(
   withEnglish(
     () => import('./SidePanel').then((module) => ({ default: module.SidePanel })),
-    ['sidePanel'],
+    ['home', 'sidePanel'],
   ),
 );
 

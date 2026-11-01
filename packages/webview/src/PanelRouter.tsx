@@ -29,6 +29,7 @@ function page<K extends string>(
 const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   home: page(() => import('./pages/Home/HomePage'), 'HomePage', [
     'errors',
+    'home',
     'moduleSummary',
     'status',
   ]),
@@ -43,6 +44,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'forge',
+    'home',
     'howTo',
     'moduleSummary',
     'orgAutomation',
@@ -71,6 +73,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'governance',
+    'home',
     'howTo',
     'monitor',
   ]),
@@ -112,13 +115,19 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'errors',
     'settings',
   ]),
-  help: page(() => import('./pages/Help/HelpPage'), 'HelpPage', ['help', 'howTo', 'moduleSummary']),
+  help: page(() => import('./pages/Help/HelpPage'), 'HelpPage', [
+    'help',
+    'home',
+    'howTo',
+    'moduleSummary',
+  ]),
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [
     'automationMute',
     'emptyState',
     'errors',
     'grappe',
+    'home',
     'howTo',
     'list',
     'moduleSummary',
@@ -133,6 +142,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'grappe',
+    'home',
     'howTo',
     'list',
     // The name field and the button its Review saves with are Migration's:

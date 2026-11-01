@@ -311,7 +311,7 @@ describe('signing in with the device flow', () => {
 
     // The banner's own import button is disabled while a sign-in runs; the
     // empty state's is not.
-    const importButtons = screen.getAllByRole('button', { name: 'Import from SF CLI' });
+    const importButtons = screen.getAllByRole('button', { name: 'Import from Salesforce CLI' });
     const enabled = importButtons.filter((button) => !(button as HTMLButtonElement).disabled);
     expect(enabled).toHaveLength(1);
     fireEvent.click(enabled[0]);

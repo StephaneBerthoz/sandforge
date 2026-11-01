@@ -345,6 +345,31 @@ describe('SidePanel', () => {
     expect(screen.getByTestId('sidepanel-last-op')).toHaveTextContent('Clone Accounts');
   });
 
+  it('opens the page of the module that ran the last operation when it is clicked', () => {
+    // A red Last Operation led nowhere: it was a plain block.
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'sync',
+          label: 'Sync Contacts',
+          status: 'failed',
+          timestamp: Date.now() - 60000,
+        },
+      ],
+    });
+    render(<SidePanel />);
+
+    const lastOp = screen.getByTestId('sidepanel-last-op');
+    expect(lastOp.tagName).toBe('BUTTON');
+    mockPostMessage.mockClear();
+    fireEvent.click(lastOp);
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: 'sidebar:navigate',
+      payload: { route: 'sync' },
+    });
+  });
+
   it('says the last operation happened at an unknown time when its time is not a number', () => {
     // Every sum on it was NaN: the panel read "NaN h ago".
     useRecentOpsStore.setState({

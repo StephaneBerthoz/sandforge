@@ -1257,19 +1257,29 @@ export const SidePanel: React.FC = () => {
         </div>
       )}
 
-      {/* Last Operation */}
+      {/* Last Operation: opens the page of the module that ran it, where a
+          failed run says why and can be run again. It could not be clicked,
+          so a red one led nowhere. */}
       {lastOp && !runningOp && (
         <div className="px-3 pt-3">
-          <div className="rounded-lg bg-surface-1 px-3 py-2" data-testid="sidepanel-last-op">
-            <div className="text-[10px] text-text-secondary mb-1">{t('sidePanel.lastOp')}</div>
-            <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="w-full text-left rounded-lg bg-surface-1 px-3 py-2 text-text-primary hover:bg-surface-2 transition-colors"
+            onClick={() => navigate(lastOp.type)}
+            title={t('home.openOpModule', { module: t(`nav.${lastOp.type}`) })}
+            data-testid="sidepanel-last-op"
+          >
+            <span className="block text-[10px] text-text-secondary mb-1">
+              {t('sidePanel.lastOp')}
+            </span>
+            <span className="flex items-center gap-2">
               <StatusIcon status={lastOp.status} />
               <span className="text-xs truncate flex-1">{lastOp.label}</span>
               <span className="text-[10px] text-text-secondary shrink-0">
                 {formatRelativeTimeI18n(lastOp.timestamp, t, 'common.relativeTime')}
               </span>
-            </div>
-          </div>
+            </span>
+          </button>
         </div>
       )}
 

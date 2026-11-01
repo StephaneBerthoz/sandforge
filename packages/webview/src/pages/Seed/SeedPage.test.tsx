@@ -481,9 +481,9 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('illustration-seed')).toBeDefined();
     expect(screen.getByText('Fill your sandbox with realistic test data')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org (sign in with your browser)',
+      'Connect an org: import it from the Salesforce CLI or log in with your browser',
     );
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('names on its empty state the ways to seed as the page names them, in every language', () => {

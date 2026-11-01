@@ -4,7 +4,7 @@ import { create } from 'zustand';
 export interface RecentOp {
   /** Unique identifier for the operation. */
   id: string;
-  /** Module that produced the operation. */
+  /** Module that produced the operation: the page a click on it opens. */
   type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation' | 'frozen' | 'grappe';
   /** Short human-readable label. */
   label: string;

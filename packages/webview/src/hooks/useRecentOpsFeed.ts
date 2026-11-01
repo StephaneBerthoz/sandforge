@@ -20,11 +20,12 @@ const KNOWN_MODULES: ReadonlySet<string> = new Set([
  * Map the free-form `module` string sent by extension handlers
  * (SeedOpsHandler, SyncOpsHandler, ForgeHandler, DataOpsHandler,
  * AutomationHandler, FrozenDatasetHandler, GrappeHandler) to the store's
- * category union.
- * Unknown/future module ids collapse to 'automation': the field is a coarse
- * tag that is never rendered — the description carries the visible label.
+ * category union: the page a click on the operation opens. A Seed clone says
+ * `clone`, and is Seed's: it collapsed to Automation with the unknown ids,
+ * which was harmless while the field was never read.
  */
 function toRecentOpType(module: string): RecentOp['type'] {
+  if (module === 'clone') return 'seed';
   return KNOWN_MODULES.has(module) ? (module as RecentOp['type']) : 'automation';
 }
 

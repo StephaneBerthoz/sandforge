@@ -144,8 +144,7 @@
     }
   },
   "status": {
-    "apiUsage": "Uso de API",
-    "activeJobs": "Jobs ativos"
+    "apiUsage": "Uso de API"
   },
   "nav": {
     "home": "Início",
@@ -209,7 +208,7 @@
     "openNotFound": "{{alias}} não está mais registrada, então não foi aberta.",
     "openFailed": "O navegador não abriu {{alias}}: {{reason}}",
     "moreMethods": "Mais métodos",
-    "cliMissing": "A Salesforce CLI (sf) não responde nesta máquina. Importar do SF CLI e OAuth (Web) dependem dela.",
+    "cliMissing": "A Salesforce CLI (sf) não responde nesta máquina. Importar da Salesforce CLI e Entrar pelo navegador dependem dela.",
     "aliasOptionalHint": "Opcional: sem alias, a org recebe o nome do seu nome de usuário.",
     "connectedNext": {
       "title": "{{alias}} está conectada",
@@ -3344,9 +3343,9 @@
     }
   },
   "emptyState": {
-    "connectViaSfdx": "Conecte uma org (entrada pelo navegador)",
-    "connectTwoViaSfdx": "Conecte duas orgs, uma origem e um destino (entrada pelo navegador)",
-    "connectSecondViaSfdx": "Conecte uma segunda org (entrada pelo navegador)",
+    "connectViaSfdx": "Conecte uma org: importe-a da Salesforce CLI ou entre pelo navegador",
+    "connectTwoViaSfdx": "Conecte duas orgs, uma origem e um destino: importe-as da Salesforce CLI ou entre pelo navegador",
+    "connectSecondViaSfdx": "Conecte uma segunda org: importe-a da Salesforce CLI ou entre pelo navegador",
     "connectOrg": "Conectar uma org",
     "selectOrgCta": "Selecionar uma org",
     "onlyOneOrgSeed": "Só uma org? Gere dados realistas com o Seed"
@@ -3355,9 +3354,6 @@
     "connectedOrgs": "Orgs conectadas",
     "noOrgsConnected": "Nenhuma org conectada",
     "quickActions": "Ações rápidas",
-    "quickForge": "Forge rápido",
-    "refreshMonitor": "Atualizar Monitor",
-    "openPipelines": "Abrir pipelines",
     "recentOperations": "Operações recentes",
     "noRecentOps": "Sem operações recentes",
     "healthSummary": "Resumo de saúde",
@@ -3368,7 +3364,7 @@
     "step2": "Preencha-a com dados de demonstração de um modelo do Seed",
     "step3": "Clone um registro real de outra org com o Forge",
     "step4": "Acompanhe limites de API, jobs e armazenamento no Monitor",
-    "connectOrg": "Conectar uma Org",
+    "connectOrg": "Conectar uma org",
     "viewAll": "Ver tudo",
     "justNow": "agora mesmo",
     "minutesAgo": "{{count}}min atrás",
@@ -3381,7 +3377,6 @@
     "recordIdPlaceholder": "ID do registro (ex. 001...)",
     "startForge": "Iniciar Forge",
     "invalidRecordId": "ID ou URL de registro do Salesforce inválido",
-    "sandboxHealth": "Saúde da sandbox",
     "smartAction": {
       "title": "Ação recomendada",
       "execute": "Configurar",
@@ -3392,13 +3387,25 @@
       "reasonClone": "A org de origem tem dados — clone-os para o destino",
       "reasonSync": "Ambas as orgs têm dados — sincronize para mantê-las alinhadas",
       "whyTooltip": "Por que esta recomendação?",
-      "confidence": "{{value}}% de confiança",
       "action": {
-        "quick-seed": "Seed rápido",
         "clone": "Clonar",
         "sync": "Sync"
       },
-      "reasonSampleOnly": "Sua org tem só alguns registros de exemplo — preencha-a com dados de demonstração"
+      "reasonSampleOnly": "Sua org tem só alguns registros de exemplo — preencha-a com dados de demonstração",
+      "counts": "{{org}}: {{accounts}}, {{contacts}}, {{opportunities}}, {{cases}}, {{leads}}",
+      "countsUnderCeiling": "{{org}}: {{accounts}}, {{contacts}}, {{opportunities}}, {{cases}}, {{leads}}, menos de {{ceiling}} de cada",
+      "count": {
+        "Account_one": "{{count}} conta",
+        "Account_other": "{{count}} contas",
+        "Contact_one": "{{count}} contato",
+        "Contact_other": "{{count}} contatos",
+        "Opportunity_one": "{{count}} oportunidade",
+        "Opportunity_other": "{{count}} oportunidades",
+        "Case_one": "{{count}} caso",
+        "Case_other": "{{count}} casos",
+        "Lead_one": "{{count}} lead",
+        "Lead_other": "{{count}} leads"
+      }
     },
     "opStatus": {
       "success": "Bem-sucedida",
@@ -3407,10 +3414,8 @@
       "failed": "Falhou",
       "cancelled": "Cancelada"
     },
-    "sandboxBanner": "Sua sandbox está vazia — preencha-a com Seed ou Sync",
     "openSeed": "Abrir Seed",
     "openSync": "Abrir Sync",
-    "populateSandbox": "Preencher sandbox",
     "openForge": "Abrir Forge",
     "openFrozen": "Abrir Dataset congelado",
     "openMonitor": "Abrir Monitor",
@@ -3422,7 +3427,14 @@
       "take": "Criar um ponto de verificação",
       "expiresSoon": "“{{name}}” expira {{when}}",
       "keep": "Guardar"
-    }
+    },
+    "openAutomation": "Abrir Automação",
+    "openOpModule": "Abrir {{module}}",
+    "fillOrg": "Preencher {{alias}} com dados de demonstração",
+    "fillOrgAction": "Preencher com dados de demonstração",
+    "fillOrgDesc": "Um modelo do Seed, uma confirmação, sem chave de IA",
+    "importFromCli": "Importar da Salesforce CLI",
+    "loginWeb": "Entrar pelo navegador"
   },
   "commandPalette": {
     "placeholder": "Buscar comandos...",
@@ -3439,11 +3451,11 @@
     "securityToken": "Token de segurança",
     "securityTokenHint": "Opcional — necessário se o IP não estiver na lista de permissões",
     "openBrowser": "Abrir navegador",
-    "oauthWeb": "OAuth (Web)",
+    "oauthWeb": "Entrar pelo navegador",
     "oauthDevice": "OAuth (dispositivo)",
     "jwt": "JWT Bearer",
     "usernamePassword": "Usuário / Senha",
-    "sfdxImport": "Importar do SF CLI",
+    "sfdxImport": "Importar da Salesforce CLI",
     "sfdxImportDesc": "Detecta automaticamente todas as orgs autenticadas via Salesforce CLI",
     "oauthWebDesc": "Autentique pelo navegador com OAuth 2.0",
     "usernamePasswordDesc": "Autentique com usuário, senha e token de segurança",
@@ -3463,7 +3475,17 @@
     "deviceVerificationPage": "Página de verificação:",
     "deviceExpires": "O código expira às {{time}}.",
     "deviceWaiting": "Aguardando a sua aprovação…",
-    "deviceCancel": "Cancelar o login"
+    "deviceCancel": "Cancelar o login",
+    "loginCustom": "Domínio personalizado (My Domain)…",
+    "myDomainUrl": "URL do My Domain",
+    "myDomainPlaceholder": "https://yourcompany--uat.sandbox.my.salesforce.com",
+    "myDomainHint": "Para uma org que bloqueia login.salesforce.com e test.salesforce.com: a URL de login dela, como Configuração → My Domain a mostra.",
+    "loginUrlRefused": {
+      "invalid": "Isto não é um endereço da web.",
+      "notHttps": "O endereço deve começar com https://.",
+      "notOrigin": "Informe só o domínio, sem caminho, consulta, porta nem credenciais depois dele.",
+      "notSalesforce": "Não é um domínio de login do Salesforce: ele deve terminar em .my.salesforce.com, .force.com ou .cloudforce.com. Para uma org em outra nuvem do Salesforce, entre com a Salesforce CLI e depois use Importar da Salesforce CLI."
+    }
   },
   "forge": {
     "recordTab": "Registro",
@@ -5706,7 +5728,7 @@
     },
     "noCliOrgs": {
       "explanation": "A Salesforce CLI ainda não tem nenhuma org.",
-      "action": "Entre com OAuth (Web): ele abre o login do Salesforce no seu navegador."
+      "action": "Em vez disso, entre pelo navegador: ele abre a página de login do Salesforce."
     },
     "cycleFkUnresolved": {
       "explanation": "O campo '{{fieldName}}' aponta para um registro que esta execução não gravou (ID de origem {{sourceRefId}}): o registro falhou, ou seu objeto falhou, foi ignorado ou não pode ser gravado na org de destino. O registro foi gravado sem esse vínculo.",

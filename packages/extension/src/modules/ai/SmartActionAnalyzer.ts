@@ -4,22 +4,7 @@ import type {
   SmartActionType,
   OrgRecordCounts,
 } from '@sandforge/shared';
-
-/** Standard objects queried for smart action analysis. */
-const STANDARD_OBJECTS = ['Account', 'Contact', 'Opportunity', 'Case', 'Lead'] as const;
-
-/**
- * Below this many records of every one of the five objects, an org is one to
- * fill.
- *
- * Quick Seed was recommended only to an org holding none at all, and no new
- * org is such an org: a Developer Edition, a Trailhead playground and a
- * scratch org made with sample data each come with a dozen accounts and a
- * few dozen contacts, opportunities, cases and leads. The org SandForge is
- * for, the one Salesforce gives away, never got the recommendation; an org
- * holding a working set of any one of the five still does not.
- */
-export const SAMPLE_DATA_CEILING = 50;
+import { SAMPLE_DATA_CEILING, SMART_ACTION_OBJECTS } from '@sandforge/shared';
 
 /** Whether an org holds no more than sample data: under the ceiling on every object. */
 function holdsSampleDataAtMost(counts: OrgRecordCounts): boolean {
@@ -56,7 +41,7 @@ export class SmartActionAnalyzer {
    *
    * @param targetOrgId - The target org to analyze.
    * @param sourceOrgId - Optional source org for clone/sync analysis.
-   * @returns A recommendation with action, confidence, and reason.
+   * @returns A recommendation with its action, the key of its reason and the counts read.
    */
   async analyzeOrg(targetOrgId: string, sourceOrgId?: string): Promise<SmartActionRecommendation> {
     const targetConn = await this.deps.getConnection(targetOrgId);
@@ -83,7 +68,7 @@ export class SmartActionAnalyzer {
    */
   private async queryRecordCounts(conn: Connection): Promise<OrgRecordCounts> {
     const results = await Promise.all(
-      STANDARD_OBJECTS.map(async (objectName) => {
+      SMART_ACTION_OBJECTS.map(async (objectName) => {
         try {
           const result = await conn.query(`SELECT COUNT() FROM ${objectName}`);
           return { objectName, count: result.totalSize };
@@ -124,41 +109,30 @@ export class SmartActionAnalyzer {
     const sourceHasData = sourceCounts !== undefined && !holdsSampleDataAtMost(sourceCounts);
 
     let action: SmartActionType = 'none';
-    let confidence = 0;
-    let reason = '';
     let reasonKey = '';
 
     if (targetToFill && sourceHasData && sourceOrgId) {
       action = 'clone';
-      confidence = 0.85;
-      reason = 'Source org has data — clone it to your target';
       reasonKey = 'home.smartAction.reasonClone';
     } else if (targetToFill && targetTotal === 0) {
       action = 'quick-seed';
-      confidence = 0.9;
-      reason = 'Your sandbox is empty — seed it with demo data';
       reasonKey = 'home.smartAction.reasonEmpty';
     } else if (targetToFill) {
       action = 'quick-seed';
-      confidence = 0.85;
-      reason = 'Your org holds only a few sample records — fill it with demo data';
       reasonKey = 'home.smartAction.reasonSampleOnly';
     } else if (sourceHasData && sourceOrgId) {
       action = 'sync';
-      confidence = 0.7;
-      reason = 'Both orgs have data — sync to keep them aligned';
       reasonKey = 'home.smartAction.reasonSync';
     }
 
     return {
       action,
-      confidence,
-      reason,
       reasonKey,
       details: {
         targetOrgId,
         sourceOrgId,
         recordCounts: targetCounts,
+        ...(sourceCounts ? { sourceRecordCounts: sourceCounts } : {}),
       },
     };
   }

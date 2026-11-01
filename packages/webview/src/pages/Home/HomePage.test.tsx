@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import i18n from '../../i18n';
+import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+import ja from '../../i18n/locales/ja.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
@@ -184,23 +189,95 @@ describe('HomePage', () => {
     expect(screen.queryByTestId('checkpoint-tile')).toBeNull();
   });
 
+  /** Two connected orgs to copy between: what Forge needs, so Home leads with it. */
+  function connectTwoOrgs(): void {
+    useOrgStore.setState({
+      orgs: [createMockOrg(), createMockOrg({ id: 'org-2', alias: 'QASandbox' })],
+      selectedOrgId: 'org-1',
+    });
+  }
+
   it('should render the home page', () => {
     render(<HomePage />);
     expect(screen.getByTestId('home-page')).toBeDefined();
   });
 
-  it('should show getting started when no orgs connected', () => {
+  /* ---------------------------------------------------------------- */
+  /* The hero, chosen by the orgs connected                            */
+  /* ---------------------------------------------------------------- */
+
+  it('leads with Getting started and its heading when no org is connected, not with Forge', () => {
+    // Forge, which copies from one org into another, held the hero and the
+    // page's only h1 with no org at all; the card that connects one was last.
     render(<HomePage />);
-    expect(screen.getByText('Getting Started')).toBeDefined();
+
+    const hero = screen.getByTestId('getting-started-card');
+    expect(within(hero).getByRole('heading', { level: 1 }).textContent).toBe('Getting started');
     expect(screen.getByText('Connect your first Salesforce org')).toBeDefined();
+    expect(screen.queryByTestId('forge-hero-card')).toBeNull();
+    expect(hero.parentElement?.className).toContain('col-span-2');
   });
 
-  it('should show connect org button in getting started', () => {
+  it('offers the two ways to connect by the names Organizations gives them, each starting there', () => {
     render(<HomePage />);
-    const btn = screen.getByTestId('connect-org-btn');
-    expect(btn).toBeDefined();
-    fireEvent.click(btn);
-    expect(useAppStore.getState().currentRoute).toBe('orgs');
+
+    const importButton = screen.getByTestId('home-import-cli-btn');
+    expect(importButton.textContent).toBe('Import from Salesforce CLI');
+    fireEvent.click(importButton);
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'orgs',
+      orgAction: 'import-cli',
+    });
+
+    fireEvent.click(screen.getByTestId('home-login-web-btn'));
+    expect(screen.getByTestId('home-login-web-btn').textContent).toBe('Log in with your browser');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'orgs',
+      orgAction: 'login-web',
+    });
+  });
+
+  it('leads with filling the one org connected, as the side panel does, when it is one to fill', () => {
+    useOrgStore.setState({
+      orgs: [createMockOrg({ orgType: 'Developer' })],
+      selectedOrgId: 'org-1',
+    });
+    render(<HomePage />);
+
+    const hero = screen.getByTestId('fill-hero-card');
+    expect(within(hero).getByRole('heading', { level: 1 }).textContent).toBe(
+      'Fill DevSandbox with demo data',
+    );
+    expect(screen.queryByTestId('forge-hero-card')).toBeNull();
+    expect(screen.queryByTestId('getting-started-card')).toBeNull();
+    // The hero offers the fill: the quick action does not say it twice.
+    expect(screen.queryByTestId('fill-org-btn')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('fill-hero-btn'));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'seed',
+      seedMode: 'quick-seed',
+      targetOrgId: 'org-1',
+    });
+  });
+
+  it('leads with Forge once two orgs are connected, or one that is not to fill', () => {
+    connectTwoOrgs();
+    const { unmount } = render(<HomePage />);
+    expect(screen.getByTestId('forge-hero-card')).toBeDefined();
+    expect(screen.queryByTestId('fill-hero-card')).toBeNull();
+    unmount();
+
+    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)], selectedOrgId: 'org-1' });
+    render(<HomePage />);
+    expect(screen.getByTestId('forge-hero-card')).toBeDefined();
+  });
+
+  it('holds the hero while the org list is in flight, rather than calling the panel empty', () => {
+    mockOrgListState.loading = true;
+    render(<HomePage />);
+    expect(screen.getByTestId('home-hero-loading')).toBeDefined();
+    expect(screen.queryByTestId('getting-started-card')).toBeNull();
   });
 
   it('should show skeleton loading when orgs are loading', () => {
@@ -211,12 +288,33 @@ describe('HomePage', () => {
     expect(skeletons.length).toBeGreaterThanOrEqual(4);
   });
 
+  /* ---------------------------------------------------------------- */
+  /* Connected orgs                                                    */
+  /* ---------------------------------------------------------------- */
+
   it('should show connected orgs in health tile when available', () => {
     const mockOrg = createMockOrg();
     useOrgStore.setState({ orgs: [mockOrg] });
     render(<HomePage />);
     expect(screen.getByTestId('connected-orgs-card')).toBeDefined();
-    expect(screen.getByText('DevSandbox')).toBeDefined();
+    expect(screen.getAllByText('DevSandbox').length).toBeGreaterThan(0);
+  });
+
+  it('names the org tile for what it lists, not a health it does not measure', () => {
+    render(<HomePage />);
+    const tile = screen.getByTestId('health-tile');
+    expect(within(tile).getAllByRole('heading', { level: 3 })[0].textContent).toBe(
+      'Connected orgs',
+    );
+    expect(screen.queryByText('Sandbox Health')).toBeNull();
+  });
+
+  it('gives the empty org tile a way to connect one', () => {
+    render(<HomePage />);
+    const tile = screen.getByTestId('health-tile');
+    const action = within(tile).getByRole('button', { name: 'Connect an org' });
+    fireEvent.click(action);
+    expect(useAppStore.getState().currentRoute).toBe('orgs');
   });
 
   it('should show health summary when orgs are connected', () => {
@@ -225,18 +323,46 @@ describe('HomePage', () => {
     expect(screen.getByTestId('health-summary')).toBeDefined();
   });
 
+  it('counts the orgs and the active jobs once, in the KPI row, not again under it', () => {
+    // The health row repeated both under labels French and German wrote the same.
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    render(<HomePage />);
+    const summary = screen.getByTestId('health-summary');
+    expect(within(summary).getAllByTestId('kpi-card')).toHaveLength(2);
+    expect(summary.textContent).toContain('Health Score');
+    expect(summary.textContent).toContain('API usage');
+    expect(summary.textContent).not.toContain('Active jobs');
+    expect(summary.textContent).not.toContain('Connected orgs');
+  });
+
   it('should not show getting started when orgs are connected', () => {
     useOrgStore.setState({ orgs: [createMockOrg()] });
     render(<HomePage />);
-    expect(screen.queryByText('Getting Started')).toBeNull();
+    expect(screen.queryByTestId('getting-started-card')).toBeNull();
   });
 
-  it('should render quick actions', () => {
+  /* ---------------------------------------------------------------- */
+  /* Quick actions                                                     */
+  /* ---------------------------------------------------------------- */
+
+  it('names each quick action by the page it opens, since none does more', () => {
+    // Quick Forge, Refresh Monitor and Open Pipelines opened Forge, Monitor
+    // and Automation: Refresh refreshed nothing, Pipelines named no page.
     render(<HomePage />);
-    expect(screen.getByTestId('quick-actions-card')).toBeDefined();
-    expect(screen.getByTestId('quick-forge-btn')).toBeDefined();
-    expect(screen.getByTestId('refresh-monitor-btn')).toBeDefined();
-    expect(screen.getByTestId('run-pipeline-btn')).toBeDefined();
+    const quick = screen.getByTestId('quick-actions-card');
+    const buttons = within(quick).getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      'Open Forge',
+      'Open Monitor',
+      'Open Automation',
+    ]);
+
+    fireEvent.click(screen.getByTestId('open-forge-btn'));
+    expect(useAppStore.getState().currentRoute).toBe('forge');
+    fireEvent.click(screen.getByTestId('open-monitor-btn'));
+    expect(useAppStore.getState().currentRoute).toBe('monitor');
+    fireEvent.click(screen.getByTestId('open-automation-btn'));
+    expect(useAppStore.getState().currentRoute).toBe('automation');
   });
 
   it('offers Grappe only while sandforge.grappe.enabled is on: off, its page is empty', () => {
@@ -250,12 +376,6 @@ describe('HomePage', () => {
     expect(screen.getByTestId('quick-grappe-btn')).toBeDefined();
   });
 
-  it('should navigate to forge on quick forge click', () => {
-    render(<HomePage />);
-    fireEvent.click(screen.getByTestId('quick-forge-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('forge');
-  });
-
   it('should navigate to grappe on quick grappe click', () => {
     useAppStore.setState({ grappeEnabled: true });
     render(<HomePage />);
@@ -263,24 +383,60 @@ describe('HomePage', () => {
     expect(useAppStore.getState().currentRoute).toBe('grappe');
   });
 
-  it('should navigate to monitor on refresh monitor click', () => {
+  it('names the fill quick action as the side panel and Organizations do, with the org it fills', () => {
+    // It read "Populate Sandbox", for a scratch org or a Developer Edition too.
+    const prod = createMockOrg({ ...PRODUCTION, id: 'prod', alias: 'Live' });
+    const sandbox = createMockOrg({ orgType: 'Sandbox', id: 'sbx', alias: 'UAT' });
+    useOrgStore.setState({ orgs: [prod, sandbox], selectedOrgId: 'prod' });
     render(<HomePage />);
-    fireEvent.click(screen.getByTestId('refresh-monitor-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('monitor');
+
+    const fill = screen.getByTestId('fill-org-btn');
+    expect(fill.textContent).toBe('Fill UAT with demo data');
+    expect(screen.queryByText('Populate Sandbox')).toBeNull();
+    fireEvent.click(fill);
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'seed',
+      seedMode: 'quick-seed',
+      targetOrgId: 'sbx',
+    });
   });
 
-  it('should navigate to automation on run pipeline click', () => {
+  it('offers to fill a Developer Edition org, as a sandbox', () => {
+    // A Trailhead playground is one: it was taken for a production org, and
+    // the Home page offered nothing to fill it with.
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({ ...PRODUCTION, id: 'prod' }),
+        createMockOrg({
+          id: 'de',
+          alias: 'Playground',
+          orgType: 'Developer',
+          metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+        }),
+      ],
+    });
     render(<HomePage />);
-    fireEvent.click(screen.getByTestId('run-pipeline-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('automation');
+    expect(screen.getByTestId('fill-org-btn').textContent).toBe('Fill Playground with demo data');
   });
 
-  it('labels the pipeline quick action as opening Automation, since it runs nothing', () => {
+  it('offers to fill no production org', () => {
+    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
     render(<HomePage />);
-    const button = screen.getByTestId('run-pipeline-btn');
-    expect(button.textContent).toBe('Open Pipelines');
-    expect(screen.queryByText('Run Last Pipeline')).toBeNull();
+    expect(screen.queryByTestId('fill-org-btn')).toBeNull();
   });
+
+  it('says nothing is empty that nothing measured: no banner over the page', () => {
+    // "Your sandbox is empty" showed for any sandbox, a full copy marked
+    // Staging included, beside the recommendation that did count.
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox', staging: true })] });
+    render(<HomePage />);
+    expect(screen.queryByTestId('sandbox-banner')).toBeNull();
+    expect(screen.getByTestId('home-page').textContent).not.toContain('Your sandbox is empty');
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Recent operations                                                 */
+  /* ---------------------------------------------------------------- */
 
   it('should render recent operations section', () => {
     render(<HomePage />);
@@ -312,12 +468,34 @@ describe('HomePage', () => {
     expect(row.textContent).not.toContain('NaN');
   });
 
+  it('opens the page of the module that ran an operation when its row is clicked', () => {
+    // A "Failed — Sync Contacts" row led nowhere: it was a plain line.
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'sync',
+          label: 'Sync Contacts',
+          status: 'failed',
+          timestamp: Date.now() - 60_000,
+        },
+      ],
+    });
+    render(<HomePage />);
+
+    const row = screen.getByRole('button', { name: /Sync Contacts/ });
+    expect(row).toBe(screen.getByTestId('recent-op-item'));
+    expect(row.getAttribute('title')).toBe('Open Sync');
+    fireEvent.click(row);
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+  });
+
   it('should use bridge data when store is empty', () => {
     mockOrgListState.data = {
       orgs: [createMockOrg({ id: 'bridge-org', alias: 'BridgeOrg' })],
     };
     render(<HomePage />);
-    expect(screen.getByText('BridgeOrg')).toBeDefined();
+    expect(screen.getAllByText(/BridgeOrg/).length).toBeGreaterThan(0);
   });
 
   /* ---------------------------------------------------------------- */
@@ -330,6 +508,7 @@ describe('HomePage', () => {
   });
 
   it('should render the forge hero card', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     expect(screen.getByTestId('forge-hero-card')).toBeDefined();
     expect(screen.getByText('Forge a Sandbox')).toBeDefined();
@@ -339,6 +518,8 @@ describe('HomePage', () => {
   });
 
   it('should navigate to forge on Start Forge click', () => {
+    connectTwoOrgs();
+    useOrgStore.setState({ selectedOrgId: null });
     render(<HomePage />);
     const startBtn = screen.getByTestId('start-forge-btn');
     expect(startBtn).toBeDefined();
@@ -364,6 +545,7 @@ describe('HomePage', () => {
   });
 
   it('should render the forge record input', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     expect(screen.getByTestId('forge-record-input')).toBeDefined();
   });
@@ -373,7 +555,7 @@ describe('HomePage', () => {
   /* ---------------------------------------------------------------- */
 
   it('hands the typed record id and the selected org over to Forge with the navigation', () => {
-    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    connectTwoOrgs();
     render(<HomePage />);
     fireEvent.change(screen.getByTestId('forge-record-input'), {
       target: { value: '0015g00000ABCDEAA3' },
@@ -389,6 +571,7 @@ describe('HomePage', () => {
   });
 
   it('should extract the record id from a pasted Salesforce URL', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     fireEvent.change(screen.getByTestId('forge-record-input'), {
       target: {
@@ -401,6 +584,7 @@ describe('HomePage', () => {
   });
 
   it('hands the record id over when Enter is pressed in the record input', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     const input = screen.getByTestId('forge-record-input');
     fireEvent.change(input, { target: { value: '0015g00000ABCDEAA3' } });
@@ -411,6 +595,7 @@ describe('HomePage', () => {
   });
 
   it('should keep focus in the field and not navigate when the record id is unparseable', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     const input = screen.getByTestId('forge-record-input');
     fireEvent.change(input, { target: { value: 'not-an-id' } });
@@ -423,6 +608,7 @@ describe('HomePage', () => {
   });
 
   it('should size the forge hero tile to its content rather than spanning two rows', () => {
+    connectTwoOrgs();
     render(<HomePage />);
     const tile = screen.getByTestId('forge-hero-card').parentElement;
     expect(tile?.className).toContain('col-span-2');
@@ -477,67 +663,6 @@ describe('HomePage', () => {
 
     expect(screen.queryByText('Limit Warnings')).toBeNull();
     expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
-  });
-
-  it('should show sandbox banner when sandbox org exists', () => {
-    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
-    render(<HomePage />);
-    expect(screen.getByTestId('sandbox-banner')).toBeDefined();
-  });
-
-  it('should not show sandbox banner when no sandbox org', () => {
-    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
-    render(<HomePage />);
-    expect(screen.queryByTestId('sandbox-banner')).toBeNull();
-  });
-
-  it('should show populate sandbox button when sandbox org exists', () => {
-    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
-    render(<HomePage />);
-    expect(screen.getByTestId('populate-sandbox-btn')).toBeDefined();
-  });
-
-  it('offers to populate a Developer Edition org, as a sandbox, and its banner', () => {
-    // A Trailhead playground is one: it was taken for a production org, and
-    // the Home page offered nothing to fill it with.
-    useOrgStore.setState({
-      orgs: [
-        createMockOrg({
-          orgType: 'Developer',
-          metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
-        }),
-      ],
-    });
-    render(<HomePage />);
-    expect(screen.getByTestId('populate-sandbox-btn')).toBeDefined();
-    expect(screen.getByTestId('sandbox-banner')).toBeDefined();
-  });
-
-  it('should not show populate sandbox button when no sandbox org', () => {
-    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
-    render(<HomePage />);
-    expect(screen.queryByTestId('populate-sandbox-btn')).toBeNull();
-  });
-
-  it('should navigate to seed when populate sandbox is clicked', () => {
-    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
-    render(<HomePage />);
-    fireEvent.click(screen.getByTestId('populate-sandbox-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('seed');
-  });
-
-  it('opens Seed on its gallery with the org to fill preselected, not a production org', () => {
-    const prod = createMockOrg({ ...PRODUCTION, id: 'prod' });
-    const sandbox = createMockOrg({ orgType: 'Sandbox', id: 'sbx' });
-    useOrgStore.setState({ orgs: [prod, sandbox], selectedOrgId: 'prod' });
-    render(<HomePage />);
-    fireEvent.click(screen.getByTestId('populate-sandbox-btn'));
-
-    expect(useAppStore.getState().navigationIntent).toMatchObject({
-      route: 'seed',
-      seedMode: 'quick-seed',
-      targetOrgId: 'sbx',
-    });
   });
 
   it('should display recent ops from the store', () => {
@@ -601,8 +726,6 @@ describe('HomePage', () => {
     useOrgStore.setState({ orgs: [createMockOrg()] });
     mockSmartActionState.recommendation = {
       action: 'quick-seed',
-      confidence: 0.9,
-      reason: 'Your sandbox is empty',
       reasonKey: 'home.smartAction.reasonEmpty',
       details: {
         targetOrgId: 'org-1',
@@ -617,8 +740,6 @@ describe('HomePage', () => {
     useOrgStore.setState({ orgs: [createMockOrg()] });
     mockSmartActionState.recommendation = {
       action: 'none',
-      confidence: 0,
-      reason: '',
       reasonKey: '',
       details: {
         targetOrgId: 'org-1',
@@ -632,8 +753,6 @@ describe('HomePage', () => {
   it('should not show SmartActionCard when no orgs connected', () => {
     mockSmartActionState.recommendation = {
       action: 'quick-seed',
-      confidence: 0.9,
-      reason: 'Empty sandbox',
       reasonKey: 'home.smartAction.reasonEmpty',
       details: {
         targetOrgId: 'org-1',
@@ -642,5 +761,24 @@ describe('HomePage', () => {
     };
     render(<HomePage />);
     expect(screen.queryByTestId('smart-action-card')).toBeNull();
+  });
+});
+
+/*
+ * Home words the side panel's and Organizations' acts from its own namespace,
+ * since a page loads no other page's English: the same words, kept the same
+ * in every language, so one act keeps one name.
+ */
+describe('Home and the side panel say one act in one set of words', () => {
+  const LOCALES = { en, fr, de, es, 'pt-BR': ptBR, ja } as const;
+
+  it.each(Object.entries(LOCALES))('in %s', (_locale, catalogue) => {
+    expect(catalogue.home.fillOrg).toBe(catalogue.sidePanel.fillOrg);
+    expect(catalogue.home.fillOrgAction).toBe(catalogue.sidePanel.fillOrgAction);
+    expect(catalogue.home.fillOrgDesc).toBe(catalogue.sidePanel.fillOrgDesc);
+    expect(catalogue.home.importFromCli).toBe(catalogue.auth.sfdxImport);
+    expect(catalogue.home.importFromCli).toBe(catalogue.sidePanel.firstOrg.import);
+    expect(catalogue.home.loginWeb).toBe(catalogue.auth.oauthWeb);
+    expect(catalogue.home.loginWeb).toBe(catalogue.sidePanel.firstOrg.loginWeb);
   });
 });

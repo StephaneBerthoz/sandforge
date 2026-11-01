@@ -1,4 +1,12 @@
-import { parseHttpsUrl } from './parseHttpsUrl.js';
+/**
+ * Which login URLs SandForge sends a sign-in to.
+ *
+ * Shared by the extension, which checks every `org:connect` before anything
+ * leaves it, and by the Organizations page, which checks a My Domain URL as it
+ * is typed: the page offered login.salesforce.com and test.salesforce.com
+ * alone, so an org that blocks both and wants its My Domain could not be
+ * connected from it, though the host accepted one.
+ */
 
 /** Hosts that serve the Salesforce login page under their own name. */
 const LOGIN_HOSTS: ReadonlySet<string> = new Set(['login.salesforce.com', 'test.salesforce.com']);
@@ -58,9 +66,13 @@ export function isSalesforceLoginHost(hostname: string): boolean {
  * @returns The origin, or why the URL was refused.
  */
 export function parseSalesforceLoginUrl(raw: string): SalesforceLoginUrlParse {
-  const parsed = parseHttpsUrl(raw);
-  if (!parsed.ok) return { ok: false, reason: parsed.reason };
-  const { url } = parsed;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (url.protocol !== 'https:') return { ok: false, reason: 'not-https' };
   if (
     url.username !== '' ||
     url.password !== '' ||

@@ -245,10 +245,10 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
     expect(screen.getByText('Keep an eye on your org health')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org (sign in with your browser)',
+      'Connect an org: import it from the Salesforce CLI or log in with your browser',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick the org to watch');
-    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
   it('says when Monitor reads the org, never that it watches it in real time', () => {

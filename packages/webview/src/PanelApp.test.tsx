@@ -105,6 +105,17 @@ describe('PanelApp', () => {
     expect(screen.getByTestId('panel-app')).toBeDefined();
   });
 
+  it('places what a page positions absolutely within its main, which scrolls it', () => {
+    // Unpositioned, an `sr-only` text far down a long page was placed against
+    // the window and stretched the document: the panel scrolled twice.
+    render(<PanelApp moduleId="monitor" />);
+    const main = screen.getByTestId('panel-app');
+    expect(main.tagName).toBe('MAIN');
+    expect(main.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['relative', 'h-screen', 'overflow-auto']),
+    );
+  });
+
   it('should render within BridgeProvider', () => {
     render(<PanelApp moduleId="monitor" />);
     expect(screen.getByTestId('bridge')).toBeDefined();

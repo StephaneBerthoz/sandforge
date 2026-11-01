@@ -18,7 +18,9 @@ import {
   SF_CLI_MISSING_MESSAGE,
   SF_DEVICE_CODE_LIFETIME_MS,
   bannerHintOf,
+  parseSalesforceLoginUrl,
 } from '@sandforge/shared';
+import type { SalesforceLoginUrlParse } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -90,6 +92,23 @@ interface CliStatusPayload {
 
 /** What the host answers to `org:open-in-browser`: what the browser did. */
 type OrgOpenOutcome = { status: 'opened' } | { status: 'error'; message: string };
+
+/** The Login URL choices that name a host; the third, a My Domain, is typed in. */
+const LOGIN_PRODUCTION = 'https://login.salesforce.com';
+const LOGIN_SANDBOX = 'https://test.salesforce.com';
+/** The Login URL choice under which the page asks for a My Domain URL. */
+const LOGIN_CUSTOM = 'custom';
+
+/** Why the page refuses a typed login URL, by the reason the shared check gives. */
+const LOGIN_URL_REFUSALS: Record<
+  Extract<SalesforceLoginUrlParse, { ok: false }>['reason'],
+  string
+> = {
+  invalid: 'auth.loginUrlRefused.invalid',
+  'not-https': 'auth.loginUrlRefused.notHttps',
+  'not-origin': 'auth.loginUrlRefused.notOrigin',
+  'not-salesforce': 'auth.loginUrlRefused.notSalesforce',
+};
 
 /**
  * Above this many orgs the list gets a filter box. Below it every card is
@@ -286,7 +305,14 @@ export const OrgManagerPage: React.FC = () => {
 
   // Inline form state
   const [alias, setAlias] = useState('');
-  const [loginUrl, setLoginUrl] = useState('https://login.salesforce.com');
+  /**
+   * The Login URL choice: one of the two Salesforce login hosts, or a My
+   * Domain typed in. The page offered the two hosts alone, so an org that
+   * blocks both and wants its My Domain could not be connected from it, by
+   * any of the four methods the field serves, though the host accepts one.
+   */
+  const [loginChoice, setLoginChoice] = useState(LOGIN_PRODUCTION);
+  const [customLoginUrl, setCustomLoginUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [securityToken, setSecurityToken] = useState('');
@@ -300,9 +326,19 @@ export const OrgManagerPage: React.FC = () => {
   const submitRef = useRef<HTMLButtonElement>(null);
 
   const loginUrlOptions = [
-    { value: 'https://login.salesforce.com', label: t('auth.loginProduction') },
-    { value: 'https://test.salesforce.com', label: t('auth.loginSandbox') },
+    { value: LOGIN_PRODUCTION, label: t('auth.loginProduction') },
+    { value: LOGIN_SANDBOX, label: t('auth.loginSandbox') },
+    { value: LOGIN_CUSTOM, label: t('auth.loginCustom') },
   ];
+  // A My Domain is checked as it is typed, by the rule the host applies again
+  // before anything leaves it, and sent as the origin that rule keeps.
+  const customLogin =
+    loginChoice === LOGIN_CUSTOM ? parseSalesforceLoginUrl(customLoginUrl.trim()) : null;
+  const loginUrl = customLogin ? (customLogin.ok ? customLogin.origin : '') : loginChoice;
+  const customLoginError =
+    customLogin && !customLogin.ok && customLoginUrl.trim().length > 0
+      ? t(LOGIN_URL_REFUSALS[customLogin.reason])
+      : undefined;
 
   // Fetch org list on mount via bridge
   const orgListQuery = useBridgeQuery<OrgListPayload>('org:list');
@@ -452,7 +488,7 @@ export const OrgManagerPage: React.FC = () => {
 
   // An import that found no org in the CLI opens the browser sign-in, the
   // way that needs none: it answered with a terminal command, on the page
-  // whose OAuth (Web) button runs it.
+  // whose Log in with your browser button runs it.
   const noCliOrgs = connectMutation.errorCode === 'NO_CLI_ORGS';
   useEffect(() => {
     if (noCliOrgs) setActiveMethod('oauth_web');
@@ -479,7 +515,8 @@ export const OrgManagerPage: React.FC = () => {
 
   const resetForm = (): void => {
     setAlias('');
-    setLoginUrl('https://login.salesforce.com');
+    setLoginChoice(LOGIN_PRODUCTION);
+    setCustomLoginUrl('');
     setUsername('');
     setPassword('');
     setSecurityToken('');
@@ -545,19 +582,22 @@ export const OrgManagerPage: React.FC = () => {
   const hasAlias = alias.trim().length > 0;
   // `sf org login web` names the org itself when given no alias: the alias is
   // optional there, and the browser login could not start until one was typed.
+  // A My Domain the check refuses, or none typed, starts nothing.
   const canSubmit =
-    activeMethod === 'oauth_web'
-      ? true
-      : activeMethod === 'usernamePassword'
-        ? hasAlias && username.trim().length > 0 && password.length > 0
-        : activeMethod === 'jwt'
-          ? hasAlias &&
-            username.trim().length > 0 &&
-            clientId.trim().length > 0 &&
-            jwtKeyFile.trim().length > 0
-          : activeMethod === 'oauth_device'
-            ? hasAlias && clientId.trim().length > 0
-            : false;
+    loginUrl === ''
+      ? false
+      : activeMethod === 'oauth_web'
+        ? true
+        : activeMethod === 'usernamePassword'
+          ? hasAlias && username.trim().length > 0 && password.length > 0
+          : activeMethod === 'jwt'
+            ? hasAlias &&
+              username.trim().length > 0 &&
+              clientId.trim().length > 0 &&
+              jwtKeyFile.trim().length > 0
+            : activeMethod === 'oauth_device'
+              ? hasAlias && clientId.trim().length > 0
+              : false;
 
   const submitLabel =
     activeMethod === 'oauth_web'
@@ -581,10 +621,8 @@ export const OrgManagerPage: React.FC = () => {
       resetForm();
       setActiveMethod(org.authMethod);
       setAlias(org.alias);
-      setLoginUrl(
-        org.orgType === 'Sandbox' || org.orgType === 'Scratch'
-          ? 'https://test.salesforce.com'
-          : 'https://login.salesforce.com',
+      setLoginChoice(
+        org.orgType === 'Sandbox' || org.orgType === 'Scratch' ? LOGIN_SANDBOX : LOGIN_PRODUCTION,
       );
       if (org.authMethod === 'usernamePassword') setUsername(org.username);
     },
@@ -793,9 +831,14 @@ export const OrgManagerPage: React.FC = () => {
             </a>
           </div>
         )}
-        {cliHoldsNoOrg && !noCliOrgs && orgs.length === 0 && (
+        {/* A CLI holding no org is how a first run starts, not a failure:
+            said as information, before a click when the CLI already said
+            so, and after an import that found none, where it read as a red
+            "Connection error" with the browser sign-in opened under it. */}
+        {(noCliOrgs || (cliHoldsNoOrg && orgs.length === 0)) && (
           <div
             className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-text-secondary"
+            role="status"
             data-testid="org-cli-empty"
           >
             {t('errors.noCliOrgs.explanation')} {t('errors.noCliOrgs.action')}
@@ -824,7 +867,7 @@ export const OrgManagerPage: React.FC = () => {
 
         {/* Connect failure — surfaced in the banner so it is visible for the
             form-less methods (sfdx_import) too. `mutate` clears it on retry. */}
-        {connectError && (
+        {connectError && !noCliOrgs && (
           <div
             className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-status-error"
             role="alert"
@@ -890,9 +933,25 @@ export const OrgManagerPage: React.FC = () => {
                 <Select
                   label={t('auth.loginUrl')}
                   options={loginUrlOptions}
-                  value={loginUrl}
-                  onChange={(e) => setLoginUrl(e.target.value)}
+                  value={loginChoice}
+                  onChange={(e) => setLoginChoice(e.target.value)}
+                  data-testid="inline-login-url-select"
                 />
+
+                {loginChoice === LOGIN_CUSTOM && (
+                  <Input
+                    label={t('auth.myDomainUrl')}
+                    value={customLoginUrl}
+                    onChange={(e) => setCustomLoginUrl(e.target.value)}
+                    placeholder={t('auth.myDomainPlaceholder')}
+                    hint={t('auth.myDomainHint')}
+                    error={customLoginError}
+                    type="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    data-testid="inline-my-domain-input"
+                  />
+                )}
 
                 <Input
                   label={t('org.alias')}

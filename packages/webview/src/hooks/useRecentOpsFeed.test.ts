@@ -63,6 +63,20 @@ describe('useRecentOpsFeed', () => {
     expect(useRecentOpsStore.getState().ops[0]?.type).toBe('frozen');
   });
 
+  it('files a Seed clone under Seed, the page a click on it opens, not under Automation', () => {
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-clone',
+        module: 'clone',
+        description: 'Clone 3 object(s)',
+      });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.type).toBe('seed');
+  });
+
   it('maps the grappe module to its own category', () => {
     renderHook(() => useRecentOpsFeed());
 
