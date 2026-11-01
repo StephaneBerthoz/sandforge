@@ -17,9 +17,22 @@
  *   which takes them, and what was created under them since;
  * - records that stay because records of the org depend on them;
  * - what the org's automation created as the records went in, unless
- *   `--sweep` takes it, as the run's user, in each run's window;
+ *   `--sweep` takes it: what the run's user created tied to the run's
+ *   records — under them, pointed at by them, or hanging from those —
+ *   within a minute of them. What came later, or is tied to nothing of the
+ *   run, is listed and kept;
  * - what the platform does not take back: a person's contact apart from its
  *   account, a lead converted since, a contract activated since.
+ *
+ * Each removal tells its sweep what ties a record to its run as the panel's
+ * does — the other runs of this machine in its window, what an earlier sweep
+ * of it found made for it, beside its summary — so the destroy passes the
+ * same ties without a word of its own: the environment's other resources,
+ * applied one after another by the same user, are runs of this machine whose
+ * clones keep their journals, and seeds their files, in the journal folder.
+ * Their records are never swept as the automation's of the one before. A
+ * Frozen load is not among those runs: its mapping lives in its dataset's
+ * store, and the panel's handler its removal goes through tells its own.
  *
  * A removal refused before it deletes — the org runs automation as records
  * go and the line gave no `--accept-automation`, a user who may not delete

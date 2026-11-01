@@ -1169,8 +1169,21 @@ describe('docs/environments.md', () => {
     expect(DESTROY).toContain(
       'children deleted before their parent\n * cannot come back with it from the recycle bin.',
     );
+    // The seed's sweep takes what is tied to the run, and lists and keeps
+    // what came late or is tied to nothing; the destroy asks for neither.
     expect(SEED).toContain(
-      'Refused when that user\n                         created records in the window on objects neither the\n                         run nor the automation reaches (hand work, likely).',
+      "Listed and kept: what is tied to the run but came\n                         later, up to 15 minutes, or as the org's Automated\n                         Process user; and what the run's user created in the\n                         window tied to nothing of the run.",
+    );
+    expect(DESTROY).toContain(
+      'What came later, or is tied to nothing of the\n *   run, is listed and kept;',
+    );
+    expect(DESTROY).not.toContain('--sweep-late');
+    // Each removal tells its sweep the other runs of this machine, read from
+    // the journals and run files of the journal folder.
+    const clone = source(`${CLI_DIR}/sandforge-clone.ts`);
+    expect(clone).toContain("const forgeRuns = joinPath(dir, 'forge-runs');");
+    expect(clone).toContain(
+      'for (const runs of [nodeSyncRunCreations(dir), nodeSyncRunCreations(dir, SEED_RUNS_DIR)])',
     );
 
     expect(limits).toContain(
@@ -1179,7 +1192,10 @@ describe('docs/environments.md', () => {
     expect(limits).toContain('**Records that stay because records of the org depend on them.**');
     expect(limits).toContain('unless `--sweep` takes it');
     expect(limits).toContain(
-      'refused when that user created records in the window that neither the run nor the automation reaches, likely by hand',
+      "what the run's user created in the run's window tied to nothing of it, are listed and kept: a destroy takes neither",
+    );
+    expect(limits).toContain(
+      "the environment's other forge and seed resources, applied one after the other as the same user, are among them",
     );
     expect(limits).toContain(
       "a person's contact apart from its account, a lead converted since, a contract activated since",

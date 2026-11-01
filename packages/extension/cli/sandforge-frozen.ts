@@ -70,7 +70,11 @@ import type {
 import { orgTypeOf, stillRunningOf } from '@sandforge/shared';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import {
+  SWEEP_CLASS_FLAGS,
+  automationHeldLines,
   journalDirOf,
+  platformCopiesWords,
+  sweepClassArgsOf,
   sweepLines,
   sweepListingLines,
   targetAutomationReader,
@@ -191,18 +195,32 @@ ${checkpointFirstHelp({
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --sweep                with remove: before the load's records go, delete too what
-                         the target's automation created during the load, as the
-                         load's user, that the load's mapping does not hold — in the
-                         objects the load wrote, tasks, events, feed, email
-                         messages, notes, case comments, and the objects the
-                         target's flows create; the window is the load's writes,
-                         from a second before the first to a minute after the
-                         last. Refused when that user created records in the
+                         the target's automation made for the load, that the
+                         load's mapping does not hold: what the load's user
+                         created under the load's records, what they point at,
+                         or what hangs from those, three links at most, at most
+                         a minute after the record it is tied to — in the
+                         objects the load wrote and their children, tasks,
+                         events, feed, email messages, notes, case comments, and
+                         the objects the target's flows create; the window is
+                         the load's writes, from a second before the first to a
+                         minute after the last. What a record of the load points
+                         at by a lookup the org refuses the delete for goes once
+                         that record is gone. Listed and kept: what is tied to
+                         the load but came later, up to 15 minutes, or as the
+                         org's Automated Process user; and what the load's user
+                         created in the window tied to nothing of it. Such
+                         records then keep none of the load's records as records
+                         that stay (off otherwise)
+  --sweep-late           with --sweep: take too what it lists as made late
+  --sweep-untied         with --sweep: take too what it lists as tied to nothing of
+                         the load; refused when another run wrote to the target
+                         in the window, or when that user created records in the
                          window on objects neither the load nor the automation
-                         reaches (hand work, likely). Such records then keep none
-                         of the load's records as records that stay (off otherwise)
+                         reaches (hand work, likely)
   --sweep-list           with remove: list what --sweep would delete, per object
-                         with a few names, and delete nothing
+                         with a few names and how many it ties to the load, and
+                         delete nothing
   --preview              with remove: say what the removal would do, per object — the
                          records it would delete, those it would keep as changed since
                          the load and who changed them, those gone already, those it
@@ -285,6 +303,13 @@ interface CliArgs {
   sweep: boolean;
   /** With remove: list what a sweep would delete, and delete nothing. */
   sweepList: boolean;
+  /** With the sweep: take too what it lists as made late (`--sweep-late`). Absent unless given. */
+  sweepLate?: true;
+  /**
+   * With the sweep: take too what it lists as tied to nothing of the load
+   * (`--sweep-untied`), unless that is refused. Absent unless given.
+   */
+  sweepUntied?: true;
   /** With remove: say what the removal would do, and delete nothing. */
   preview: boolean;
   /** With load: the most records it may insert. */
@@ -305,6 +330,7 @@ const FLAGS: CommandFlags = {
     '--include-changed',
     '--sweep',
     '--sweep-list',
+    ...SWEEP_CLASS_FLAGS,
     '--preview',
     '--yes',
     '--json',
@@ -398,6 +424,11 @@ export function parseArgs(argv: string[]): CliArgs {
     );
     process.exit(2);
   }
+  const classes = sweepClassArgsOf(args);
+  if ('refusal' in classes) {
+    process.stderr.write(`${classes.refusal} Run with --help.\n`);
+    process.exit(2);
+  }
   let maxTotal: number | undefined;
   if (args.includes('--max-total')) {
     const raw = get('--max-total');
@@ -431,6 +462,7 @@ export function parseArgs(argv: string[]): CliArgs {
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    ...classes,
     preview: args.includes('--preview'),
     ...(maxTotal !== undefined ? { maxTotal } : {}),
     yes: args.includes('--yes'),
@@ -591,6 +623,23 @@ function perRecordNote(perRecord: 'token' | 'unique' | 'name', example?: string)
 /** How many records a removal of the load would take. */
 function recordsToTake(records: LoadRecords): number {
   return records.created.reduce((sum, object) => sum + object.count, 0);
+}
+
+/**
+ * What the command line asks of the removal it sends: the records changed
+ * since, the sweep, and what the sweep takes beside what is tied to the load,
+ * as the panel's boxes ask them; the panel's handler tells it the ties.
+ * Exported so it can be tested.
+ */
+export function removalAsked(
+  args: Pick<CliArgs, 'includeChanged' | 'sweep' | 'sweepLate' | 'sweepUntied'>,
+): Record<string, true> {
+  return {
+    ...(args.includeChanged ? { includeChanged: true } : {}),
+    ...(args.sweep ? { sweep: true } : {}),
+    ...(args.sweepLate ? { sweepLate: true } : {}),
+    ...(args.sweepUntied ? { sweepUntied: true } : {}),
+  };
 }
 
 /**
@@ -1269,6 +1318,9 @@ export function messageLines(message: Posted): string[] {
           refused: number;
           notReached?: number;
           heldBy: string[];
+          heldByAutomation?: number;
+          automationHolders?: string[];
+          platformCopies?: number;
           unchecked: string[];
           reasons: string[];
           filesLeft?: { count: number; names: string[] };
@@ -1282,7 +1334,7 @@ export function messageLines(message: Posted): string[] {
         `removal: ${r.status.toUpperCase()}` +
           (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
         ...r.objects.flatMap((o) => [
-          `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}`,
+          `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
           ...o.reasons.map((reason) => `      ${reason}`),
           ...(o.filesLeft && o.filesLeft.count > 0 ? [`      ${filesLeftLine(o.filesLeft)}`] : []),
         ]),
@@ -1291,6 +1343,9 @@ export function messageLines(message: Posted): string[] {
           : []),
         // Never sent to be deleted, and never counted refused.
         ...keptByThePlatformLine(r.keptByThePlatform),
+        // What kept records of the load for records the automation likely
+        // made under them, and what takes them.
+        ...automationHeldLines(r.objects, { sweep: r.sweep !== undefined }),
       ];
     }
     case 'frozen:remove:sweep:response':
@@ -1333,7 +1388,9 @@ export function removalPreviewLines(preview: FrozenRemovalPreview): string[] {
       o.undeletable > 0 ? `${o.undeletable} left, the user may not delete them` : '',
       o.unread > 0 ? `${o.unread} left, not read` : '',
     ].filter(Boolean);
-    lines.push(`  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}`);
+    lines.push(
+      `  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+    );
     const by = Object.entries(o.changedBy).sort((a, b) => b[1] - a[1]);
     if (by.length > 0) {
       lines.push(
@@ -1968,8 +2025,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         for (const line of removalPlanLines(records, args.target ?? '')) log(line);
         if (args.sweep) {
           log(
-            "before them, a sweep deletes what the target's automation created during the load, " +
-              "as the load's user — run with --sweep-list to see what",
+            "before them, a sweep deletes what the target's automation made for the load, as " +
+              "the load's user, tied to its records — run with --sweep-list to see what",
           );
         }
         if (!args.yes && removalAsks(records)) {
@@ -1984,8 +2041,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         await send('frozen:remove', {
           targetOrgId,
           loadedAt: records.loadedAt,
-          ...(args.includeChanged ? { includeChanged: true } : {}),
-          ...(args.sweep ? { sweep: true } : {}),
+          ...removalAsked(args),
         });
         break;
       }

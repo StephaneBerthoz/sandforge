@@ -24,7 +24,14 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
-import { failsTheStep, frozenStepExit, main, messageLines } from './sandforge-frozen.js';
+import {
+  failsTheStep,
+  frozenStepExit,
+  main,
+  messageLines,
+  parseArgs,
+  removalAsked,
+} from './sandforge-frozen.js';
 
 /** The target, a sandbox, as its `Organization` record answers. */
 const ORG_ID = '00D000000000009AAA';
@@ -163,6 +170,65 @@ describe('sandforge-frozen remove, with nothing to take', () => {
 
     expect(makeConn).not.toHaveBeenCalled();
     expect(stderr).toContain('"--dry-run=true" is not read');
+  });
+});
+
+describe('what a sweep of a load is asked, and what the removal says', () => {
+  it('asks the panel’s handler for what came late and what is tied to nothing only when told', () => {
+    const line = ['remove', '--config', 'c.json', '--target', 'TGT'];
+
+    expect(removalAsked(parseArgs(argv(...line, '--sweep')))).toEqual({ sweep: true });
+    expect(
+      removalAsked(parseArgs(argv(...line, '--sweep', '--sweep-late', '--sweep-untied'))),
+    ).toEqual({ sweep: true, sweepLate: true, sweepUntied: true });
+    expect(removalAsked(parseArgs(argv(...line)))).toEqual({});
+  });
+
+  it('names the platform’s copies beside their object, and what the automation likely made that kept records', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'partial',
+          objects: [
+            {
+              objectApiName: 'QuoteLineItem',
+              planned: 4,
+              deleted: 4,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              platformCopies: 2,
+              unchecked: [],
+              reasons: [],
+            },
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 0,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 1,
+              refused: 0,
+              heldBy: ['Task'],
+              heldByAutomation: 1,
+              automationHolders: ['Task'],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      '  QuoteLineItem: 4 deleted of 4 (2 the run wrote, and 2 the platform copied between the quote the run synced and its opportunity)',
+    );
+    expect(lines).toContain(
+      "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them)",
+    );
   });
 });
 

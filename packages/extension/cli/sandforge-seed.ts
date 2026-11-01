@@ -41,6 +41,7 @@ import { z } from 'zod';
 import type {
   ForgeEmailLimit,
   ForgeRemovalSteps,
+  ForgeSweepListing,
   ForgeSweepResult,
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
@@ -161,12 +162,25 @@ import {
   seedRunKept,
 } from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
-import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
+import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
 import {
+  SWEEP_CLASS_FLAGS,
+  automationHeldLines,
+  commandSweepTies,
   journalDirOf,
+  otherRunsOf,
+  platformCopiesWords,
+  runMuteSchema,
+  runUserIdOf,
+  sweepClassArgsOf,
+  sweepClassOptions,
   sweepLines,
   sweepListingLines,
+  sweepOrgOf,
+  sweepPartsOptions,
+  syncRunSpanOf,
   targetAutomationReader,
+  type SweepClassArgs,
 } from './sandforge-clone.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import type { ScenarioPack } from '@sandforge/shared';
@@ -325,7 +339,8 @@ requests, it says the counts --fit share would seed.
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
     --remove <summary.json | run file | run id> --target <alias> [--preview]
-    [--include-changed] [--accept-automation] [--sweep | --sweep-list] [--json]
+    [--include-changed] [--accept-automation]
+    [--sweep [--sweep-late] [--sweep-untied] | --sweep-list] [--json]
 
   --remove <file | id>   the summary a run printed with --json, saved to a
                          file; or the run's file, which it names as it
@@ -369,19 +384,39 @@ Remove what a run created:
                          its own bypass, as for a run; what no bypass keeps
                          quiet still needs --accept-automation (default: off)
   --sweep                before the run's records go, delete too what the
-                         target's automation created during the run, as the
-                         run's user, that the run did not write: in the objects
-                         the run wrote, tasks, events, feed, email messages,
-                         notes, case comments, and the objects the target's
-                         flows create. The window is the run's inserts, read
-                         back from its records, from a second before the first
-                         to a minute after the last. Refused when that user
-                         created records in the window on objects neither the
-                         run nor the automation reaches (hand work, likely).
-                         Records someone changed since stay, unless
-                         --include-changed                 (default: off)
+                         target's automation made for the run, that the run did
+                         not write: what the run's user created under the
+                         run's records, what they point at, or what hangs from
+                         those, three links at most, at most a minute after the
+                         record it is tied to — in the objects the run wrote
+                         and their children, tasks, events, feed, email
+                         messages, notes, case comments, and the objects the
+                         target's flows create. What a record of the run
+                         points at by a lookup the org refuses the delete for
+                         goes once that record is gone. The window is the
+                         run's inserts, read back from its records, from a
+                         second before the first to a minute after the last.
+                         Listed and kept: what is tied to the run but came
+                         later, up to 15 minutes, or as the org's Automated
+                         Process user; and what the run's user created in the
+                         window tied to nothing of the run. Records someone
+                         changed since stay, unless --include-changed
+                                                           (default: off)
+  --sweep-late           with --sweep, take too what it lists as made late
+  --sweep-untied         with --sweep, take too what it lists as tied to
+                         nothing of the run. Refused when another run of this
+                         machine wrote to the org in the window, or when that
+                         user created records in the window on objects neither
+                         the run nor the automation reaches (hand work, likely).
   --sweep-list           list what --sweep would delete, per object with a few
-                         names, and delete nothing, the run's records included
+                         names and how many it ties to the run, and delete
+                         nothing, the run's records included. What a sweep
+                         leaves: what another user created; what is tied to
+                         nothing, unless --sweep-untied; what came more than
+                         15 minutes after its record, or after the removal
+                         began; what someone changed since; what the
+                         automation changed rather than created; what left the
+                         org; and what the panel or another machine wrote
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
@@ -2458,8 +2493,8 @@ async function organizationIdOf(conn: ReturnType<typeof makeConn>): Promise<stri
 
 // ─── --remove ────────────────────────────────────────────────────────────────
 
-/** What `--remove` was given. */
-export interface RemoveArgs {
+/** What `--remove` was given; `--sweep-late` and `--sweep-untied` among it, with `--sweep`. */
+export interface RemoveArgs extends SweepClassArgs {
   /** The summary a run printed with `--json`, saved to a file; or the run's file, or its id. */
   summaryPath: string;
   /** sf CLI alias of the org the run wrote to. */
@@ -2492,6 +2527,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--mute-automation',
   '--sweep',
   '--sweep-list',
+  ...SWEEP_CLASS_FLAGS,
   '--leave-undeletable',
   '--json',
 ]);
@@ -2518,8 +2554,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
         `--remove takes --target, --preview, --include-changed, --accept-automation, ` +
-          `--mute-automation, --sweep, --sweep-list, --leave-undeletable and --json, not ` +
-          `"${arg}". Run with --help.\n`,
+          `--mute-automation, --sweep, --sweep-late, --sweep-untied, --sweep-list, ` +
+          `--leave-undeletable and --json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -2550,12 +2586,18 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  const classes = sweepClassArgsOf(args);
+  if ('refusal' in classes) {
+    process.stderr.write(`${classes.refusal} Run with --help.\n`);
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    ...classes,
     json: args.includes('--json'),
     leaveUndeletable: args.includes('--leave-undeletable'),
     acceptAutomation: args.includes('--accept-automation'),
@@ -2664,6 +2706,10 @@ interface RemovalSubject {
   updateRemoval: (change: (state: SyncRunRemovalState) => SyncRunRemovalState) => Promise<void>;
   /** Its file's store, when it is taken back from its file: its jobs are read back into it. */
   runs?: SyncRunCreations;
+  /** The user it wrote as, when its summary or its file keeps it. */
+  runUserId?: string;
+  /** What its mute kept quiet and what still ran, when its summary says it. */
+  muted?: z.infer<typeof runMuteSchema>;
 }
 
 /**
@@ -2708,7 +2754,28 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
     ...(run.removal ? { earlier: run.removal } : {}),
     updateRemoval: (change) => runs.updateRemoval(run.runId, change),
     runs,
+    // The user the run wrote as, where its file keeps it (`SyncRunKept.runUserId`).
+    ...runUserOfRun(run),
   };
+}
+
+/** The user a run's file keeps it wrote as, when it keeps one that reads as an id. */
+function runUserOfRun(run: SyncRunKept): Pick<RemovalSubject, 'runUserId'> {
+  const runUserId = runUserIdOf((run as Partial<Record<'runUserId', unknown>>).runUserId);
+  return runUserId ? { runUserId } : {};
+}
+
+/**
+ * What a run's summary keeps beside its records that its removal's sweep is
+ * told: the user it wrote as, and what its mute kept quiet and what still
+ * ran, in its result. What does not read is left out.
+ */
+function sweptOfSummary(
+  result: Record<string, unknown>,
+): Pick<RemovalSubject, 'runUserId' | 'muted'> {
+  const runUserId = runUserIdOf(result['runUserId']);
+  const muted = runMuteSchema.safeParse(result['mutedAutomation']);
+  return { ...(runUserId ? { runUserId } : {}), ...(muted.success ? { muted: muted.data } : {}) };
 }
 
 /** The run a summary names, and where what its removals did is kept: beside the summary. */
@@ -2773,6 +2840,7 @@ function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): Remova
     run,
     ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
     ...(earlier ? { earlier } : {}),
+    ...sweptOfSummary(summary.result),
     // Kept beside the summary whatever the removal ended on, written whole
     // through a file renamed over it.
     updateRemoval: async (change) => {
@@ -2827,6 +2895,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   if (args.preview) return previewRemoval(args, subject, run, say, t0);
 
+  /**
+   * What the sweep found, said before its first delete: what it took, and
+   * what it listed and kept. Unset when it took nothing, as it then asks
+   * nothing.
+   */
+  let sweepListing: ForgeSweepListing | undefined;
   const output = (
     status: ForgeUndoStatus,
     objects: ForgeUndoObjectResult[],
@@ -2842,18 +2916,26 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             includeChanged: args.includeChanged,
-            result: { status, planned, objects, ...(sweep ? { sweep } : {}) },
+            result: {
+              status,
+              planned,
+              objects,
+              ...(sweep ? { sweep } : {}),
+              ...(sweepListing ? { sweepListing } : {}),
+            },
             elapsedMs: Date.now() - t0,
           },
           null,
           2,
         )}\n`,
       );
+      for (const line of automationHeldLines(objects, args)) say(line);
       return;
     }
     // The sweep ran first, before the run's records went.
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
+    for (const line of automationHeldLines(objects, args)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
@@ -2915,11 +2997,27 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } catch (err: unknown) {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
+    // What tells the records tied to the run from the rest of what its user
+    // created in its window: the other runs of this machine that wrote to
+    // the org meanwhile, its mute, when its first removal began.
+    const ties = commandSweepTies({
+      otherRuns: await otherRunsOf({
+        organizationId: org.id,
+        alias: args.target,
+        span: syncRunSpanOf(run),
+        own: { runId: run.runId, ids: run.created.flatMap((object) => object.ids) },
+      }),
+      ...(subject.muted ? { muted: subject.muted } : {}),
+      ...(earlier?.removalSpans ? { removalSpans: earlier.removalSpans } : {}),
+    });
     return seedSweepInput(
       removalOrg(conn, 'sandforge-seed --sweep'),
       run.created,
       automation,
       signal,
+      undefined,
+      [],
+      { ...(subject.runUserId ? { runUserId: subject.runUserId } : {}), ties },
     );
   };
 
@@ -2927,8 +3025,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
-      removalOrg(conn, 'sandforge-seed --sweep-list'),
+      sweepOrgOf(conn, 'sandforge-seed --sweep-list'),
       await sweepInput(),
+      earlier?.removalSpans ?? [],
     );
     if (args.json) {
       process.stdout.write(
@@ -2957,8 +3056,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (plan.length === 0) say('nothing left of the run to remove');
   if (args.sweep) {
     say(
-      "before them, a sweep deletes what the target's automation created during the run, as " +
-        "the run's user — run with --sweep-list to see what",
+      "before them, a sweep deletes what the target's automation made for the run, as the " +
+        "run's user, tied to its records — run with --sweep-list to see what",
     );
   }
   // What the target runs as the removal takes the run back, said before it
@@ -3011,28 +3110,29 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let state: SyncRunRemovalState = earlier ?? {};
   // The sweep comes before the run's records go, as the panel's does: a task
   // the target's automation opened on one of them would otherwise stay. The
-  // removal makes it once it has read the run's records.
-  const sweepMade: { result?: ForgeSweepResult } = {};
-  const sweepFirst = args.sweep
-    ? async (): Promise<boolean> => {
-        sweepMade.result = await sweepRunRecords(
-          removalOrg(conn, 'sandforge-seed --sweep'),
-          await sweepInput(stop.signal),
-          {
-            includeChanged: args.includeChanged,
-            // What the earlier removals of the run changed while they ran is no
-            // change since the run.
-            removalSpans: state.removalSpans ?? [],
-            // What it found, said before the first delete: --sweep asked for it.
-            approve: async (listing) => {
-              say('');
-              for (const line of sweepListingLines(listing, args.target)) say(line);
-              return undefined;
-            },
+  // removal makes its first part once it has read the run's records, what
+  // hangs from them goes with them, and what one of them points at by a
+  // lookup the org restricts the delete by goes once they are gone
+  // (`sweepParts`).
+  const parts = args.sweep
+    ? sweepParts(
+        sweepOrgOf(conn, 'sandforge-seed --sweep', stop.signal),
+        await sweepInput(stop.signal),
+        {
+          includeChanged: args.includeChanged,
+          // What the earlier removals of the run changed while they ran is no
+          // change since the run.
+          removalSpans: state.removalSpans ?? [],
+          ...sweepClassOptions(args),
+          // What it found, said before the first delete: --sweep asked for it.
+          approve: async (listing) => {
+            sweepListing = listing;
+            say('');
+            for (const line of sweepListingLines(listing, args.target, args)) say(line);
+            return undefined;
           },
-        );
-        return sweepMade.result.objects.some((object) => object.deleted > 0);
-      }
+        },
+      )
     : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
   // The lease is taken before the removal's first delete and given back as it
@@ -3053,7 +3153,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       run,
       org: removalOrg(conn, 'sandforge-seed --remove'),
       includeChanged: args.includeChanged,
-      ...(sweepFirst ? { sweep: sweepFirst } : {}),
+      ...sweepPartsOptions(parts),
+      ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
       onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
       signal: stop.signal,
       store: {
@@ -3078,7 +3179,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // named above, and nothing was removed.
   if (outcome.stoppedForUndeletable) process.exit(1);
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
-  const sweep = sweepMade.result;
+  const sweep = parts?.result();
   output(outcome.result.status, outcome.result.objects, outcome.planned, sweep);
   if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
     process.exit(RECORDS_LEFT_EXIT);
@@ -3157,7 +3258,9 @@ export function removalPreviewLines(
       o.undeletable > 0 ? `${o.undeletable} left, the user may not delete them` : '',
       o.unread > 0 ? `${o.unread} left, not read` : '',
     ].filter(Boolean);
-    lines.push(`  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}`);
+    lines.push(
+      `  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
+    );
     const by = Object.entries(o.changedBy).sort((a, b) => b[1] - a[1]);
     if (by.length > 0) {
       lines.push(
