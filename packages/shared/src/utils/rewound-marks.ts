@@ -5,8 +5,8 @@ import type {
 } from '../types/checkpoint.types.js';
 
 /**
- * Whether a run of Seed, Sync or Forge was taken back by a rewind, told by
- * dates alone: the run's, on this machine's clock, against those the rewind
+ * Whether a run of Seed, Sync, Forge, Autopilot or Frozen Dataset was taken
+ * back by a rewind, told by dates alone: the run's, on this machine's clock, against those the rewind
  * ledger keeps of each rewind (`CheckpointRewindRecord`). No record id is
  * compared — a rewind of the command line never sees the runs the panel
  * keeps, and the other way round —, so the mark is the same whichever tool
@@ -21,6 +21,13 @@ import type {
  * checkpoint holds and the rewind keeps; what it wrote after Tr, the rewind
  * may not have read; and one that had ended before T0 not at all: the
  * checkpoint holds its records, which is why it is never marked.
+ *
+ * A run that took a checkpoint of what it writes before its first write
+ * (Checkpoint first) wrote nothing before that take had ended: its reads of
+ * the source began before T0, and its dates alone read it as rewound in part
+ * by a rewind to that checkpoint, which took back every record it wrote
+ * unless it still wrote as the rewind began reading. Its own checkpoint, by
+ * id, says so.
  */
 
 /**
@@ -32,7 +39,7 @@ import type {
  */
 export const REWOUND_MARGIN_MS = 2 * 60_000;
 
-/** A run of Seed, Sync or Forge, as its history dates it, on this machine's clock. */
+/** A run of Seed, Sync, Forge, Autopilot or Frozen Dataset, as its history dates it, on this machine's clock. */
 export interface RewoundRun {
   /** The org it wrote to, by its id in this machine's registry. */
   orgId: string;
@@ -44,6 +51,11 @@ export interface RewoundRun {
    * the history does not say: the run is then read as within the checkpoint.
    */
   objects?: readonly string[];
+  /**
+   * The checkpoint the run took of what it writes before its first write,
+   * by its id, when it took one: its writes began after that take ended.
+   */
+  checkpointId?: string;
 }
 
 /**
@@ -116,6 +128,7 @@ function coveringOf(
   start: number,
   end: number,
   objects: readonly string[],
+  ownCheckpointId: string | undefined,
 ): Omit<Covering, 'undo'> | undefined {
   const bounds = boundsOf(rewind);
   if (bounds === undefined) return undefined;
@@ -134,10 +147,14 @@ function coveringOf(
   // the rewind left out.
   const notPicked = objects.length > 0 ? objects.filter(leftOut) : rewind.objects.filter(leftOut);
   if (objects.length > 0 && outside.length + notPicked.length === objects.length) return undefined;
+  // A rewind to the checkpoint the run took first: its writes began once the
+  // take had ended, whenever its reads began.
+  const wroteAfterTheTake =
+    ownCheckpointId !== undefined && ownCheckpointId === rewind.checkpointId;
   const kind: RewoundMarkKind =
     rewind.status === 'cancelled'
       ? 'stopped'
-      : start > bounds.t1 + m && end < bounds.tr - m
+      : (wroteAfterTheTake || start > bounds.t1 + m) && end < bounds.tr - m
         ? 'rewound'
         : 'partly';
   return { rewind, bounds, kind, outside, notPicked };
@@ -197,7 +214,7 @@ export function rewoundMarkOf(
 
   const covering: Covering[] = [];
   for (const rewind of rewinds.values()) {
-    const found = coveringOf(rewind, start, end, objects);
+    const found = coveringOf(rewind, start, end, objects, run.checkpointId);
     if (found === undefined) continue;
     const undo = undos.get(rewind.rewindId);
     covering.push(undo ? { ...found, undo } : found);

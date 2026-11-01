@@ -26,6 +26,25 @@ describe('forge run gate stops', () => {
     });
   });
 
+  it('reads what refused the checkpoint taken first, by the refusal code the page words', () => {
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'DISK' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+      reason: 'DISK',
+    });
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'RUN_WRITING' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+      reason: 'RUN_WRITING',
+    });
+    // A reason on any other stop says nothing of it, and is dropped.
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', reason: 'DISK' })).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+    });
+    // A reason is a code, never words a page would show as they came.
+    expect(
+      forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED', reason: 'The disk is full' }),
+    ).toBeNull();
+  });
+
   it('tells a gate code from any other code an execute error carries', () => {
     expect(isForgeRunGateCode('WRITE_DECLINED')).toBe(true);
     expect(isForgeRunGateCode('GUARD_DECLINED')).toBe(false);

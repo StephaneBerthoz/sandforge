@@ -3902,7 +3902,9 @@
       "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden.",
       "checkpointRefused": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt oder konnte nicht erstellt werden. Es wurde nichts geschrieben. Starten Sie ihn ohne vorherigen Prüfpunkt, oder beheben Sie, was ihn ablehnt.",
-      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, ein zuerst erstellter Prüfpunkt eingerechnet, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder schreiben Sie weniger Datensätze."
+      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder schreiben Sie weniger Datensätze.",
+      "checkpointRefusedFor": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt. {{reason}} Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt.",
+      "apiBudgetExceededWithCheckpoint": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, der Prüfpunkt, den er zuerst erstellen sollte, eingerechnet, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, schreiben Sie weniger Datensätze, oder deaktivieren Sie „Zuerst ein Prüfpunkt“."
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -4439,7 +4441,8 @@
         "maxRecordsPerObject": "Nicht gespeichert: eine Grenze ist eine ganze Zahl von 1 bis 1.000.000.",
         "ownerMappings": "Nicht gespeichert: die ID eines Benutzers hat 15 oder 18 Buchstaben und Ziffern, und der Lauf nimmt höchstens 200 Besitzer.",
         "fieldMappings": "Nicht gespeichert: der Lauf benennt höchstens 200 Felder eines Objekts um, auf höchstens 50 Objekten."
-      }
+      },
+      "beforeWritingTitle": "Vor dem Schreiben"
     },
     "decisionsApplied": {
       "title": "Angewendete Entscheidungen",
@@ -4538,7 +4541,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + E-Mails und Telefonnummern",
       "personalDataNone": "Keine: wie in der Quelle kopiert",
       "durationMinutes": "~{{minutes}} Min.",
-      "copyInto": "In {{target}} kopieren"
+      "copyInto": "In {{target}} kopieren",
+      "checkpointRecommended": "Ein Autopilot-Lauf lässt sich danach nicht entfernen: Aktivieren Sie „Zuerst ein Prüfpunkt“, um ihn zurücksetzen zu können."
     },
     "graph": {
       "title": "Abhängigkeitsgraph",
@@ -4634,6 +4638,12 @@
     "emptyState": {
       "title": "Stellen Sie Ihre Sandbox automatisch bereit",
       "cta": "Org auswählen"
+    },
+    "refusal": {
+      "checkpointRefused": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt oder konnte nicht erstellt werden, wie die SandForge-Ausgabe sagt. Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt.",
+      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder kopieren Sie weniger Datensätze.",
+      "apiBudgetExceededWithCheckpoint": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, der Prüfpunkt, den er zuerst erstellen sollte, eingerechnet, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, kopieren Sie weniger Datensätze, oder deaktivieren Sie „Zuerst ein Prüfpunkt“.",
+      "runCancelled": "Der Lauf wurde angehalten, während er zuerst den Prüfpunkt erstellte: Davon wurde nichts behalten, und es wurde nichts geschrieben."
     }
   },
   "sidePanel": {
@@ -5002,6 +5012,10 @@
       "sourceIsTarget": {
         "explanation": "{{org}} ist die Org, aus der dieses Dataset extrahiert wurde: Ein Ladevorgang geht nie in seine Quelle zurück, und nichts wurde geschrieben.",
         "action": "Wählen Sie eine andere Sandbox als Ziel."
+      },
+      "checkpointRefused": {
+        "explanation": "Der Ladevorgang wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt oder konnte nicht erstellt werden, wie die SandForge-Ausgabe sagt. Es wurde nichts geschrieben.",
+        "action": "Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ohne ihn zu laden, oder beheben Sie, was ihn ablehnt."
       }
     }
   },
@@ -5299,6 +5313,58 @@
       "badge": "Zurückgesetzt",
       "undoneAfterRemoval": "Seine Datensätze kamen mit dem Rückgängigmachen vom {{date}} zurück, nach seinem Entfernen",
       "removeAgain": "Erneut entfernen"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Zuerst ein Prüfpunkt",
+        "holds": "Vor seinem ersten Schreibvorgang erstellt der Lauf einen Prüfpunkt von {{org}}: jedes Objekt, das er schreibt, ganz, und die Objekte, die noch laufende Flows der Ziel-Org beim Schreiben erstellen, Dateien eingeschlossen. Ein Zurücksetzen auf ihn nimmt den Lauf zurück.",
+        "leavesOut": "Nie darin: Chatter-Beiträge, Knowledge-Artikelversionen, Benutzer, Berechtigungen und Setup. Ein Apex-Trigger oder ein Flow, den SandForge nicht lesen konnte, kann Datensätze außerhalb erstellen: Ein Zurücksetzen lässt sie, wie sie sind.",
+        "onMachine": "Er hält die Werte dieser Datensätze von {{org}} auf diesem Rechner, unverschlüsselt und nur für Sie lesbar, so viele Tage, wie {{setting}} festlegt (standardmäßig 7); ein Lauf, der nichts schreibt, löscht ihn.",
+        "costAtQuestion": "Was er hält und kostet — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner —, steht in der Frage vor dem ersten Schreibvorgang, wo Sie noch abbrechen können.",
+        "costAtSimulation": "Simulieren sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner —, und die Frage vor dem ersten Schreibvorgang sagt es noch einmal, wo Sie noch abbrechen können.",
+        "costAtPreview": "Die Vorschau sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner. Der Ladevorgang erstellt ihn ohne eigene Frage.",
+        "refused": "Ein abgelehnter oder nicht erstellbarer Prüfpunkt lehnt den Lauf ab: Es wird nichts geschrieben. Ein erneuter Versuch oder eine Fortsetzung erstellt keinen: Sie nennt den Prüfpunkt des Laufs, den sie fortsetzt.",
+        "notOffered": "Nicht angeboten: SandForge erstellt keinen Prüfpunkt von {{org}}, da nicht bekannt ist, dass es eine Sandbox, eine Scratch-Org oder eine Developer Edition ist.",
+        "wayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Der zuerst erstellte Prüfpunkt ist der Weg zurück."
+      },
+      "estimate": {
+        "lastSimulation": "Bei der letzten Simulation:",
+        "simulation": "Ein echter Lauf würde zuerst einen Prüfpunkt erstellen:",
+        "preview": "Der Ladevorgang würde zuerst einen Prüfpunkt erstellen:",
+        "cost_one": "etwa {{records}} Datensätze von {{objects}}, {{requests}} API-Anfragen, {{time}}, {{size}} auf diesem Rechner, {{days}} Tag aufbewahrt.",
+        "cost_other": "etwa {{records}} Datensätze von {{objects}}, {{requests}} API-Anfragen, {{time}}, {{size}} auf diesem Rechner, {{days}} Tage aufbewahrt.",
+        "costKept": "etwa {{records}} Datensätze von {{objects}}, {{requests}} API-Anfragen, {{time}}, {{size}} auf diesem Rechner, aufbewahrt, bis er gelöscht wird.",
+        "added": "Hinzugefügt für das, was die Flows der Ziel-Org erstellen, wenn die Datensätze eingehen:",
+        "wouldRefuse": "Ein echter Lauf würde wegen seines Prüfpunkts abgelehnt. {{reason}}"
+      },
+      "notHeldTitle": "Nicht im Prüfpunkt, von einem Zurücksetzen gelassen, wie sie sind:",
+      "refusal": {
+        "disk": "Die Festplatte dieses Rechners hat nicht genug Platz dafür.",
+        "runWriting": "Ein anderer SandForge-Lauf, ein Prüfpunkt, ein Zurücksetzen oder ein Rückgängigmachen schreibt in die Org: Starten Sie diesen Lauf, sobald er beendet ist.",
+        "nothingHeld": "Er würde keines der Objekte halten, die der Lauf schreibt: Jedes ist ausgelassen oder von einer Art, die kein Prüfpunkt hält.",
+        "tooManyRecords": "Die Objekte, die er halten würde, haben mehr Datensätze, als ein Prüfpunkt aufnimmt: Starten Sie den Lauf ohne ihn, oder lassen Sie Objekte aus dem Lauf heraus.",
+        "apiBudget": "Seine API-Anfragen übersteigen, was die Org heute noch hat.",
+        "permissions": "Es ist nicht belegt, dass der Benutzer, als den SandForge sich verbindet, die Objekte, die er halten würde, ganz liest: Er braucht „Alle Daten anzeigen“ und „Alle Daten ändern“, oder „Alle anzeigen“ und „Alle ändern“ auf jedem.",
+        "production": "SandForge erstellt keinen Prüfpunkt einer Produktions-Org.",
+        "scratchExpired": "Die Scratch-Org ist abgelaufen.",
+        "other": "Seine Prüfungen haben ihn abgelehnt: Die SandForge-Ausgabe sagt, warum.",
+        "unsaid": "Er wurde abgelehnt oder konnte nicht erstellt werden: Die SandForge-Ausgabe sagt, warum."
+      },
+      "taken_one": "Zuerst erstellter Prüfpunkt: „{{name}}“, {{formatted}} Datensatz von {{objects}}.",
+      "taken_other": "Zuerst erstellter Prüfpunkt: „{{name}}“, {{formatted}} Datensätze von {{objects}}.",
+      "keptUntil": "Auf diesem Rechner aufbewahrt bis {{until}}.",
+      "keptUntilDeleted": "Auf diesem Rechner aufbewahrt, bis er gelöscht wird.",
+      "moreObjects_one": "{{formatted}} weiteres Objekt",
+      "moreObjects_other": "{{formatted}} weitere Objekte",
+      "besideRemoval": "Das Entfernen dieses Laufs nimmt zurück, was er geschrieben hat, und nichts sonst. Das Zurücksetzen auf den Stand vor diesem Lauf bringt {{objects}} von {{org}} auf den Stand vom {{time}}: Was seither jemand, auch die Automatisierung der Ziel-Org, dort getan hat, geht mit. Lesen Sie zuerst die Vorschau.",
+      "besideLoadRemoval": "Das Entfernen dieses Ladevorgangs nimmt zurück, was er erstellt hat, und nichts sonst. Das Zurücksetzen auf den Stand vor diesem Ladevorgang bringt {{objects}} von {{org}} auf den Stand vom {{time}}: Was seither jemand, auch die Automatisierung der Ziel-Org, dort getan hat, geht mit. Lesen Sie zuerst die Vorschau.",
+      "noRemoval": "Ein Autopilot-Lauf lässt sich nicht entfernen: Das Zurücksetzen auf diesen Prüfpunkt ist der Weg zurück. Es bringt {{objects}} von {{org}} auf den Stand vom {{time}}: Was seither jemand, auch die Automatisierung der Ziel-Org, dort getan hat, geht mit, und was der Prüfpunkt vom Lauf nicht hält, bleibt. Lesen Sie zuerst die Vorschau.",
+      "notHeld": "Nicht im Prüfpunkt, von einem Zurücksetzen gelassen, wie sie sind: {{objects}}.",
+      "deleted": "Der vor dem Lauf erstellte Prüfpunkt wurde gelöscht: Der Lauf hat nichts geschrieben.",
+      "deletedLoad": "Der vor dem Ladevorgang erstellte Prüfpunkt wurde gelöscht: Der Ladevorgang hat nichts geschrieben.",
+      "rewind": "Auf den Stand vor diesem Lauf zurücksetzen…",
+      "rewindLoad": "Auf den Stand vor diesem Ladevorgang zurücksetzen…",
+      "afterRemoval": "Was das Entfernen behalten hat, nimmt ein Zurücksetzen auf diesen Prüfpunkt zurück."
     }
   },
   "grappe": {

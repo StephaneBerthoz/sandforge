@@ -533,7 +533,7 @@ describe('forge:execute, the checkpoint taken first', () => {
     const [error] = posted('forge:execute:error');
     expect(error?.payload).toMatchObject({
       code: 'CHECKPOINT_REFUSED',
-      gate: { code: 'CHECKPOINT_REFUSED' },
+      gate: { code: 'CHECKPOINT_REFUSED', reason: 'RUN_WRITING' },
     });
     expect(String(error?.payload.message)).toContain(
       'The checkpoint before the run was refused: A SandForge run is writing to DEV',
@@ -558,7 +558,10 @@ describe('forge:execute, the checkpoint taken first', () => {
     expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
     expect(org.writes).toEqual([]);
     expect(calls).not.toContain('written');
-    expect(posted('forge:execute:error')[0]?.payload).toMatchObject({ code: 'CHECKPOINT_REFUSED' });
+    expect(posted('forge:execute:error')[0]?.payload).toMatchObject({
+      code: 'CHECKPOINT_REFUSED',
+      gate: { code: 'CHECKPOINT_REFUSED', reason: 'DISK' },
+    });
   });
 
   it('stops the run when its Stop comes during the take: nothing assigned or written', async () => {

@@ -3818,7 +3818,7 @@ export class ForgeHandler implements DomainHandler {
           : { remaining: requests.api.remaining, max: requests.api.max }),
         ...(requests.api.parts ? { parts: requests.api.parts } : {}),
       });
-      if (requests.stop) throw new ForgeRunGateError(requests.stop.code, requests.stop.message);
+      if (requests.stop) throw ForgeRunGateError.of(requests.stop);
       // The checkpoint asked first, taken once the rows may be written: after
       // the question, as close to the first write as the answer lets it, and
       // before the lease the run takes once this gate returns. A take refused
@@ -3837,7 +3837,7 @@ export class ForgeHandler implements DomainHandler {
         );
         if ('stop' in took) {
           if (took.stop.code === CHECKPOINT_REFUSED) {
-            throw new ForgeRunGateError(CHECKPOINT_REFUSED, took.stop.message);
+            throw ForgeRunGateError.of({ ...took.stop, code: CHECKPOINT_REFUSED });
           }
           throw Object.assign(new Error(took.stop.message), { name: 'ForgeAbortedError' });
         }

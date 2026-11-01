@@ -10,6 +10,7 @@ import type {
   PriceCurrencySettled,
   ExecutionPlan,
   MutedAutomation,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../stores/useAutopilotStore';
@@ -27,6 +28,7 @@ import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { withEnglish } from '../../i18n/englishNamespaces';
+import { runCheckpointOf } from '../../utils/runCheckpoint';
 
 /**
  * The run's graph, in a chunk of its own fetched once the run starts: React
@@ -50,6 +52,30 @@ const AutopilotGrappePanel: React.FC = () => {
   );
 };
 
+/**
+ * The sentence a run stopped before its first write is said in, by its code:
+ * the extension words these in English, for its log and the command line.
+ * Undefined for a code the page has no words of its own for.
+ *
+ * @param code - The code of the run's error.
+ * @param checkpointAsked - Whether the run was to take a checkpoint first: a
+ *   run past the day's API requests counts one among them only then.
+ */
+function refusalKeyOf(code: string | null, checkpointAsked: boolean): string | undefined {
+  switch (code) {
+    case 'CHECKPOINT_REFUSED':
+      return 'autopilot.refusal.checkpointRefused';
+    case 'API_BUDGET_EXCEEDED':
+      return checkpointAsked
+        ? 'autopilot.refusal.apiBudgetExceededWithCheckpoint'
+        : 'autopilot.refusal.apiBudgetExceeded';
+    case 'RUN_CANCELLED':
+      return 'autopilot.refusal.runCancelled';
+    default:
+      return undefined;
+  }
+}
+
 /** The steps the wizard shows; the others are the running view's. */
 const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'review'];
 
@@ -66,6 +92,10 @@ export const AutopilotPage: React.FC = () => {
   const [emailsHeldForTheirTask, setEmailsHeldForTheirTask] = useState(0);
   /** What the run muted of the target's automation, said once it ended. */
   const [mutedAutomation, setMutedAutomation] = useState<MutedAutomation | undefined>(undefined);
+  /** When the run was sent: an error carries no time of its own for it. */
+  const runSentAt = useRef(0);
+  /** Whether the review's option asked for a checkpoint: said of the run it sent. */
+  const askedCheckpoint = useAutopilotStore((s) => s.checkpointFirst);
 
   // Listen for push messages from the AutopilotHandler and update the store
   useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
@@ -179,9 +209,21 @@ export const AutopilotPage: React.FC = () => {
         leftByStop?: AutopilotStopLeftover[];
         emailsHeldForTheirTask?: number;
         mutedAutomation?: MutedAutomation;
+        checkpoint?: RunCheckpointInfo;
       };
     }
   >('autopilot:completed', (msg) => {
+    const ended = useAutopilotStore.getState();
+    if (ended.targetOrgId) {
+      const checkpoint = runCheckpointOf(msg.payload.checkpoint);
+      ended.setRunEnd({
+        orgId: ended.targetOrgId,
+        startedAt: new Date(msg.timestamp - msg.payload.totalElapsedMs).toISOString(),
+        endedAt: new Date(msg.timestamp).toISOString(),
+        objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
+        ...(checkpoint ? { checkpoint } : {}),
+      });
+    }
     setMutedAutomation(msg.payload.mutedAutomation);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
@@ -225,8 +267,10 @@ export const AutopilotPage: React.FC = () => {
     setLeftByStop([]);
     setEmailsHeldForTheirTask(0);
     setMutedAutomation(undefined);
+    runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
+    store.setRunEnd(null);
     store.clearNodeFinishes();
     store.setExecutionStatus('executing');
     store.setStep('executing');
@@ -245,8 +289,31 @@ export const AutopilotPage: React.FC = () => {
       ...(store.neutralizeContactPoints === false ? { keepContactPoints: true } : {}),
       // The target's automation muted through its own bypass, as ticked there too.
       ...(store.muteAutomation ? { muteAutomation: true } : {}),
+      // A checkpoint of what it writes taken first, kept as the setting says.
+      ...(store.checkpointFirst ? { checkpointFirst: {} } : {}),
     });
   }, [executeMutation]);
+
+  // A run that died once its checkpoint was through says what became of it
+  // beside its error: deleted, as it wrote nothing — its mute refused —, or
+  // kept for what it wrote, the one way back of a run with no removal. The
+  // mutation keeps the words and the code alone; the review says it.
+  useMessageListener<BaseMessage & { payload: { checkpoint?: unknown } }>(
+    'autopilot:error',
+    (msg) => {
+      if (msg.correlationId !== executeMutation.requestId) return;
+      const checkpoint = runCheckpointOf(msg.payload.checkpoint);
+      const ended = useAutopilotStore.getState();
+      if (!checkpoint || !ended.targetOrgId) return;
+      ended.setRunEnd({
+        orgId: ended.targetOrgId,
+        startedAt: new Date(runSentAt.current).toISOString(),
+        endedAt: new Date(msg.timestamp).toISOString(),
+        objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
+        checkpoint,
+      });
+    },
+  );
 
   // Execute rejected (validation, production guard declined, execution crash):
   // surface the error back on the review step — the store keeps the wizard state.
@@ -256,12 +323,15 @@ export const AutopilotPage: React.FC = () => {
   // A wait that ended before the run did is not a failed run: the page stays
   // on the run, which may still be writing, and says where to follow it.
   const outlivedWait = executeMutation.errorCode === RUN_OUTLIVED_WAIT;
+  const refusal = refusalKeyOf(executeMutation.errorCode, askedCheckpoint);
   const executeError =
     executeMutation.errorCode === 'NOT_INITIALIZED'
       ? t('common.refusal.guardMissing')
-      : outlivedWait
-        ? null
-        : executeMutation.error;
+      : refusal !== undefined
+        ? t(refusal)
+        : outlivedWait
+          ? null
+          : executeMutation.error;
   useEffect(() => {
     if (!executeError) return;
     const store = useAutopilotStore.getState();

@@ -3902,7 +3902,9 @@
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
-      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, a checkpoint taken first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records."
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.",
+      "checkpointRefusedFor": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused. {{reason}} Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, write fewer records, or untick Checkpoint first."
     },
     "executionTable": {
       "leftOut": "left out",
@@ -4439,7 +4441,8 @@
         "maxRecordsPerObject": "Not kept: a cap is a whole number from 1 to 1,000,000.",
         "ownerMappings": "Not kept: a user's id has 15 or 18 letters and digits, and the run takes 200 owners at most.",
         "fieldMappings": "Not kept: the run renames 200 fields of an object at most, on 50 objects at most."
-      }
+      },
+      "beforeWritingTitle": "Before writing"
     },
     "decisionsApplied": {
       "title": "Decisions applied",
@@ -4538,7 +4541,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + emails and phones",
       "personalDataNone": "None: copied as in the source",
       "durationMinutes": "~{{minutes}} min",
-      "copyInto": "Copy into {{target}}"
+      "copyInto": "Copy into {{target}}",
+      "checkpointRecommended": "An Autopilot run cannot be removed afterwards: tick Checkpoint first to be able to rewind it."
     },
     "graph": {
       "title": "Dependency Graph",
@@ -4634,6 +4638,12 @@
     "emptyState": {
       "title": "Auto-Provision Your Sandbox",
       "cta": "Select an Org"
+    },
+    "refusal": {
+      "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or copy fewer records.",
+      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, copy fewer records, or untick Checkpoint first.",
+      "runCancelled": "The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written."
     }
   },
   "sidePanel": {
@@ -5002,6 +5012,10 @@
       "sourceIsTarget": {
         "explanation": "{{org}} is the org this dataset was extracted from: a load never goes back into its source, and nothing was written.",
         "action": "Pick another sandbox as the target."
+      },
+      "checkpointRefused": {
+        "explanation": "The load was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written.",
+        "action": "Untick Checkpoint first to load without it, or fix what refuses it."
       }
     }
   },
@@ -5299,6 +5313,58 @@
       "badge": "Rewound",
       "undoneAfterRemoval": "Its records came back with the undo of {{date}}, after its removal",
       "removeAgain": "Remove again"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Checkpoint first",
+        "holds": "Before its first write, the run takes a checkpoint of {{org}}: each object it writes, held whole, and those the target's flows that still run create as it writes, files included. A rewind to it takes the run back.",
+        "leavesOut": "Never in it: Chatter posts, Knowledge article versions, users, permissions and setup. An Apex trigger, or a flow SandForge could not read, may create records outside it: a rewind leaves those as they are.",
+        "onMachine": "It keeps the values of those records of {{org}} on this machine, unencrypted and readable by you alone, for the days {{setting}} sets (7 by default); a run that writes nothing deletes it.",
+        "costAtQuestion": "What it holds and costs — records, API requests, time, space on this machine — is said in the question before the first write, where you can still cancel.",
+        "costAtSimulation": "Simulate says what it would hold and cost — records, API requests, time, space on this machine —, and the question before the first write says it again, where you can still cancel.",
+        "costAtPreview": "Preview says what it would hold and cost — records, API requests, time, space on this machine. The load takes it with no question of its own.",
+        "refused": "A checkpoint refused, or that could not be taken, refuses the run: nothing is written. A retry or a resume takes none: it names the checkpoint of the run it takes up.",
+        "notOffered": "Not offered: SandForge takes no checkpoint of {{org}}, which it does not know to be a sandbox, a scratch org or a Developer Edition.",
+        "wayBack": "SandForge cannot remove what this run writes: the checkpoint taken first is the way back."
+      },
+      "estimate": {
+        "lastSimulation": "At the last simulation:",
+        "simulation": "A real run would take a checkpoint first:",
+        "preview": "The load would take a checkpoint first:",
+        "cost_one": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept {{days}} day.",
+        "cost_other": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept {{days}} days.",
+        "costKept": "about {{records}} records of {{objects}}, {{requests}} API requests, {{time}}, {{size}} on this machine, kept until deleted.",
+        "added": "Added, for what the target's flows create as the records go in:",
+        "wouldRefuse": "A real run would be refused for its checkpoint. {{reason}}"
+      },
+      "notHeldTitle": "Not in the checkpoint, left as they are by a rewind:",
+      "refusal": {
+        "disk": "This machine's disk has too little room for it.",
+        "runWriting": "Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.",
+        "nothingHeld": "It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.",
+        "tooManyRecords": "The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.",
+        "apiBudget": "Its API requests are past what the org has left today.",
+        "permissions": "The user SandForge connects as is not shown to read whole the objects it would hold: it needs View All Data and Modify All Data, or View All and Modify All on each.",
+        "production": "SandForge takes no checkpoint of a production org.",
+        "scratchExpired": "The scratch org has expired.",
+        "other": "Its guards refused it: the SandForge output says why.",
+        "unsaid": "It was refused, or could not be taken: the SandForge output says why."
+      },
+      "taken_one": "Checkpoint taken first: “{{name}}”, {{formatted}} record of {{objects}}.",
+      "taken_other": "Checkpoint taken first: “{{name}}”, {{formatted}} records of {{objects}}.",
+      "keptUntil": "Kept on this machine until {{until}}.",
+      "keptUntilDeleted": "Kept on this machine until it is deleted.",
+      "moreObjects_one": "{{formatted}} other object",
+      "moreObjects_other": "{{formatted}} other objects",
+      "besideRemoval": "Removing this run takes back what the run wrote, and nothing else. Rewinding to before this run returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too. Read its preview first.",
+      "besideLoadRemoval": "Removing this load takes back what the load created, and nothing else. Rewinding to before this load returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too. Read its preview first.",
+      "noRemoval": "An Autopilot run has no removal: rewinding to this checkpoint is the way back. It returns {{objects}} of {{org}} to how they were at {{time}}: what anyone, and the target's automation, did there since goes too, and what the checkpoint does not hold of the run stays. Read its preview first.",
+      "notHeld": "Not in the checkpoint, left as they are by a rewind: {{objects}}.",
+      "deleted": "The checkpoint taken before the run was deleted: the run wrote nothing.",
+      "deletedLoad": "The checkpoint taken before the load was deleted: the load wrote nothing.",
+      "rewind": "Rewind to before this run…",
+      "rewindLoad": "Rewind to before this load…",
+      "afterRemoval": "What the removal kept, a rewind to this checkpoint takes back."
     }
   },
   "grappe": {

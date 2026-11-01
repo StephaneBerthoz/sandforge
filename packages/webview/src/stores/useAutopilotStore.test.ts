@@ -391,4 +391,24 @@ describe('useAutopilotStore', () => {
     getState().reset();
     expect(getState().nodeFinishes).toEqual({});
   });
+
+  it('keeps the review’s checkpoint first off until ticked, and the run that ended until reset', () => {
+    expect(getState().checkpointFirst).toBe(false);
+    expect(getState().runEnd).toBeNull();
+
+    getState().setCheckpointFirst(true);
+    const ended = {
+      orgId: 'org-1',
+      startedAt: '2026-11-01T10:00:00.000Z',
+      endedAt: '2026-11-01T10:05:00.000Z',
+      objects: ['Account'],
+    };
+    getState().setRunEnd(ended);
+
+    expect(getState().checkpointFirst).toBe(true);
+    expect(getState().runEnd).toEqual(ended);
+    getState().reset();
+    expect(getState().checkpointFirst).toBe(false);
+    expect(getState().runEnd).toBeNull();
+  });
 });

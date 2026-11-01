@@ -3902,7 +3902,9 @@
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
       "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée.",
       "checkpointRefused": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris. Rien n'a été écrit. Lancez-le sans point de contrôle préalable, ou corrigez ce qui le refuse.",
-      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, un point de contrôle pris d'abord compris, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements."
+      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements.",
+      "checkpointRefusedFor": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé. {{reason}} Rien n'a été écrit. Décochez Point de contrôle d'abord pour le lancer sans lui, ou corrigez ce qui le refuse.",
+      "apiBudgetExceededWithCheckpoint": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, le point de contrôle qu'il devait prendre d'abord compris, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures —, écrivez moins d'enregistrements, ou décochez Point de contrôle d'abord."
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -4439,7 +4441,8 @@
         "maxRecordsPerObject": "Non gardé : une limite est un nombre entier de 1 à 1 000 000.",
         "ownerMappings": "Non gardé : l'identifiant d'un utilisateur a 15 ou 18 lettres et chiffres, et l'exécution prend 200 propriétaires au plus.",
         "fieldMappings": "Non gardé : l'exécution renomme 200 champs d'un objet au plus, sur 50 objets au plus."
-      }
+      },
+      "beforeWritingTitle": "Avant d'écrire"
     },
     "decisionsApplied": {
       "title": "Décisions appliquées",
@@ -4538,7 +4541,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + e-mails et téléphones",
       "personalDataNone": "Aucune : copiées telles que dans la source",
       "durationMinutes": "~{{minutes}} min",
-      "copyInto": "Copier dans {{target}}"
+      "copyInto": "Copier dans {{target}}",
+      "checkpointRecommended": "Une exécution Autopilot ne se supprime pas ensuite : cochez Point de contrôle d'abord pour pouvoir revenir en arrière."
     },
     "graph": {
       "title": "Graphe de dépendances",
@@ -4634,6 +4638,12 @@
     "emptyState": {
       "title": "Provisionnez votre sandbox automatiquement",
       "cta": "Sélectionner une org"
+    },
+    "refusal": {
+      "checkpointRefused": "L'exécution a été refusée avant d'écrire quoi que ce soit : le point de contrôle qu'elle devait prendre d'abord des objets qu'elle écrit a été refusé, ou n'a pas pu être pris, ce que dit la sortie SandForge. Rien n'a été écrit. Décochez Point de contrôle d'abord pour la lancer sans lui, ou corrigez ce qui le refuse.",
+      "apiBudgetExceeded": "L'exécution a été refusée avant d'écrire quoi que ce soit : elle prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêtée en cours de route. Lancez-la quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou copiez moins d'enregistrements.",
+      "apiBudgetExceededWithCheckpoint": "L'exécution a été refusée avant d'écrire quoi que ce soit : elle prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, le point de contrôle qu'elle devait prendre d'abord compris, et se serait arrêtée en cours de route. Lancez-la quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures —, copiez moins d'enregistrements, ou décochez Point de contrôle d'abord.",
+      "runCancelled": "L'exécution a été arrêtée pendant qu'elle prenait le point de contrôle d'abord : rien n'en a été gardé, et rien n'a été écrit."
     }
   },
   "sidePanel": {
@@ -5002,6 +5012,10 @@
       "sourceIsTarget": {
         "explanation": "{{org}} est l'org dont ce jeu de données a été extrait : un chargement ne retourne jamais dans sa source, et rien n'a été écrit.",
         "action": "Choisissez une autre sandbox comme cible."
+      },
+      "checkpointRefused": {
+        "explanation": "Le chargement a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris, ce que dit la sortie SandForge. Rien n'a été écrit.",
+        "action": "Décochez Point de contrôle d'abord pour charger sans lui, ou corrigez ce qui le refuse."
       }
     }
   },
@@ -5299,6 +5313,58 @@
       "badge": "Retour arrière",
       "undoneAfterRemoval": "Ses enregistrements sont revenus avec l’annulation du {{date}}, après son retrait",
       "removeAgain": "Retirer à nouveau"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Point de contrôle d'abord",
+        "holds": "Avant sa première écriture, l'exécution prend un point de contrôle de {{org}} : chaque objet qu'elle écrit, tenu en entier, et ceux que créent les Flows de la cible qui tournent encore pendant qu'elle écrit, fichiers compris. Un retour arrière à ce point annule l'exécution.",
+        "leavesOut": "Jamais dedans : les publications Chatter, les versions d'articles Knowledge, les utilisateurs, les autorisations et la configuration. Un trigger Apex, ou un Flow que SandForge n'a pas pu lire, peut créer des enregistrements hors du point de contrôle : un retour arrière les laisse tels quels.",
+        "onMachine": "Il garde les valeurs de ces enregistrements de {{org}} sur cette machine, non chiffrées et lisibles par vous seul, pendant les jours que fixe {{setting}} (7 par défaut) ; une exécution qui n'écrit rien le supprime.",
+        "costAtQuestion": "Ce qu'il tient et coûte — enregistrements, requêtes d'API, temps, place sur cette machine — est dit dans la question posée avant la première écriture, où vous pouvez encore annuler.",
+        "costAtSimulation": "Simuler dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine —, et la question posée avant la première écriture le redit, où vous pouvez encore annuler.",
+        "costAtPreview": "Aperçu dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine. Le chargement le prend sans poser de question.",
+        "refused": "Un point de contrôle refusé, ou qui n'a pas pu être pris, refuse l'exécution : rien n'est écrit. Une nouvelle tentative ou une reprise n'en prend aucun : elle nomme celui de l'exécution qu'elle reprend.",
+        "notOffered": "Non proposé : SandForge ne prend aucun point de contrôle de {{org}}, dont il ne sait pas que c'est une sandbox, une scratch org ou une Developer Edition.",
+        "wayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : le point de contrôle pris d'abord est le chemin du retour."
+      },
+      "estimate": {
+        "lastSimulation": "À la dernière simulation :",
+        "simulation": "Une vraie exécution prendrait d'abord un point de contrôle :",
+        "preview": "Le chargement prendrait d'abord un point de contrôle :",
+        "cost_one": "environ {{records}} enregistrements de {{objects}}, {{requests}} requêtes d'API, {{time}}, {{size}} sur cette machine, gardé {{days}} jour.",
+        "cost_other": "environ {{records}} enregistrements de {{objects}}, {{requests}} requêtes d'API, {{time}}, {{size}} sur cette machine, gardé {{days}} jours.",
+        "costKept": "environ {{records}} enregistrements de {{objects}}, {{requests}} requêtes d'API, {{time}}, {{size}} sur cette machine, gardé jusqu'à sa suppression.",
+        "added": "Ajoutés, pour ce que créent les Flows de la cible quand les enregistrements entrent :",
+        "wouldRefuse": "Une vraie exécution serait refusée pour son point de contrôle. {{reason}}"
+      },
+      "notHeldTitle": "Hors du point de contrôle, laissés tels quels par un retour arrière :",
+      "refusal": {
+        "disk": "Le disque de cette machine n'a pas assez de place pour lui.",
+        "runWriting": "Une autre exécution SandForge, une prise, un retour arrière ou une annulation écrit dans l'org : lancez celle-ci une fois qu'elle est finie.",
+        "nothingHeld": "Il ne tiendrait aucun des objets que l'exécution écrit : chacun est laissé de côté, ou d'un genre qu'aucun point de contrôle ne tient.",
+        "tooManyRecords": "Les objets qu'il tiendrait ont plus d'enregistrements qu'un point de contrôle n'en prend : lancez l'exécution sans lui, ou laissez des objets hors de l'exécution.",
+        "apiBudget": "Ses requêtes d'API dépassent ce qu'il reste aujourd'hui à l'org.",
+        "permissions": "Rien ne montre que l'utilisateur sous lequel SandForge se connecte lit en entier les objets qu'il tiendrait : il lui faut Afficher toutes les données et Modifier toutes les données, ou Afficher tout et Modifier tout sur chacun.",
+        "production": "SandForge ne prend aucun point de contrôle d'une org de production.",
+        "scratchExpired": "La scratch org a expiré.",
+        "other": "Ses gardes l'ont refusé : la sortie SandForge dit pourquoi.",
+        "unsaid": "Il a été refusé, ou n'a pas pu être pris : la sortie SandForge dit pourquoi."
+      },
+      "taken_one": "Point de contrôle pris d'abord : « {{name}} », {{formatted}} enregistrement de {{objects}}.",
+      "taken_other": "Point de contrôle pris d'abord : « {{name}} », {{formatted}} enregistrements de {{objects}}.",
+      "keptUntil": "Gardé sur cette machine jusqu'au {{until}}.",
+      "keptUntilDeleted": "Gardé sur cette machine jusqu'à ce qu'il soit supprimé.",
+      "moreObjects_one": "{{formatted}} autre objet",
+      "moreObjects_other": "{{formatted}} autres objets",
+      "besideRemoval": "Supprimer cette exécution reprend ce qu'elle a écrit, et rien d'autre. Revenir à l'état d'avant cette exécution ramène {{objects}} de {{org}} à ce qu'ils étaient le {{time}} : ce que quiconque, et les automatisations de la cible, y ont fait depuis part aussi. Lisez d'abord son aperçu.",
+      "besideLoadRemoval": "Supprimer ce chargement reprend ce qu'il a créé, et rien d'autre. Revenir à l'état d'avant ce chargement ramène {{objects}} de {{org}} à ce qu'ils étaient le {{time}} : ce que quiconque, et les automatisations de la cible, y ont fait depuis part aussi. Lisez d'abord son aperçu.",
+      "noRemoval": "Une exécution Autopilot ne se supprime pas : revenir à ce point de contrôle est le seul retour. Il ramène {{objects}} de {{org}} à ce qu'ils étaient le {{time}} : ce que quiconque, et les automatisations de la cible, y ont fait depuis part aussi, et ce que le point de contrôle ne tient pas de l'exécution reste. Lisez d'abord son aperçu.",
+      "notHeld": "Hors du point de contrôle, laissés tels quels par un retour arrière : {{objects}}.",
+      "deleted": "Le point de contrôle pris avant l'exécution a été supprimé : l'exécution n'a rien écrit.",
+      "deletedLoad": "Le point de contrôle pris avant le chargement a été supprimé : le chargement n'a rien écrit.",
+      "rewind": "Revenir à l'état d'avant cette exécution…",
+      "rewindLoad": "Revenir à l'état d'avant ce chargement…",
+      "afterRemoval": "Ce que la suppression a gardé, un retour arrière à ce point de contrôle le reprend."
     }
   },
   "grappe": {

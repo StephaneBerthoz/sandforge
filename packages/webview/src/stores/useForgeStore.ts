@@ -16,11 +16,14 @@ import type {
   ForgeGap,
   ForgeGapSource,
   ForgeTargetGaps,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shared';
 import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
 import { muteRefusalWords } from '../utils/muteRefusal';
+import { runCheckpointEstimateOf, runCheckpointOf } from '../utils/runCheckpoint';
 import type { ForgeGapChoice, ForgeKeptDecision } from '../utils/forgeGapDecisions';
 import {
   withGapDecision,
@@ -106,6 +109,13 @@ export interface ForgeRunError {
    * records before it stopped; null when the error said nothing of them.
    */
   stoppedRun: ForgeExecutionResult | null;
+  /**
+   * What became of the checkpoint the run took first, when the error says:
+   * deleted, as it wrote nothing — its mute refused, its Stop before its
+   * first write —, or kept for what it may have written. A stopped run's
+   * entry says it itself.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /**
@@ -386,6 +396,8 @@ const INITIAL_STATE = {
   anonymizeFieldChoices: null as ForgeAnonymizeFieldChoice[] | null,
   fileCopy: { ...NO_FILE_COPY },
   muteAutomation: false,
+  checkpointFirst: false,
+  checkpointEstimate: null as RunCheckpointEstimate | null,
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
   stoppedAt: null as number | null,
@@ -486,6 +498,23 @@ export interface ForgeState {
   /** Tick or untick Review's box. */
   setMuteAutomation: (mute: boolean) => void;
   /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write, as Review's option was left (`CheckpointFirstOption`): sent with
+   * Execute and with Simulate, which says what it would hold and cost. Kept
+   * apart from `config`, as the mute is: a template or a past run never
+   * brings it back, and a new clone starts with it off. A retry or a resume
+   * takes none of its own: it names the checkpoint of the run it takes up.
+   */
+  checkpointFirst: boolean;
+  /** Tick or untick Review's option. */
+  setCheckpointFirst: (first: boolean) => void;
+  /**
+   * What the last simulation said the checkpoint first would hold and cost,
+   * for Review's option to say once the page is back there; null when none
+   * was asked for it.
+   */
+  checkpointEstimate: RunCheckpointEstimate | null;
+  /**
    * Id of the forge:execute request that started the run on screen, or null.
    * The extension correlates the run's progress, result and error to it.
    */
@@ -522,12 +551,14 @@ export interface ForgeState {
    * @param message - What went wrong.
    * @param stoppedRun - What the run had written, when the error carries it.
    * @param code - The kind of failure, when the error carries it.
+   * @param checkpoint - What became of the checkpoint the run took first, when the error says.
    */
   failRun: (
     requestId: unknown,
     message: string,
     stoppedRun: ForgeExecutionResult | undefined,
     code?: string,
+    checkpoint?: RunCheckpointInfo,
   ) => void;
   /** Show the results of what the run that stopped had written, when its error said. */
   showStoppedRun: () => void;
@@ -845,6 +876,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       result: null,
       fileCopy: { ...NO_FILE_COPY },
       muteAutomation: false,
+      checkpointFirst: false,
+      checkpointEstimate: null,
       discoveryId: null,
       discoveryError: null,
       directDiscoveryId: null,
@@ -929,6 +962,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   setMuteAutomation(muteAutomation: boolean): void {
     set({ muteAutomation });
+  },
+
+  setCheckpointFirst(checkpointFirst: boolean): void {
+    set({ checkpointFirst });
   },
 
   setGraph(graph: ForgeGraph): void {
@@ -1052,6 +1089,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     message: string,
     stoppedRun: ForgeExecutionResult | undefined,
     code?: string,
+    checkpoint?: RunCheckpointInfo,
   ): void {
     set((state) => {
       if (!ofRunOnScreen(state, requestId) || state.runError) return state;
@@ -1061,6 +1099,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
           ...(code ? { code } : {}),
           ...(code === RUN_CANCELLED ? { cancelled: true as const } : {}),
           stoppedRun: stoppedRun ?? null,
+          ...(checkpoint ? { checkpoint } : {}),
         },
         // Said by the page, whose region outlives the screen: where it stopped.
         stoppedAt: settledPercent(state.graph?.nodes ?? []),
@@ -1351,6 +1390,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
           stopRequestedAt: null,
           runClock: endedClock(state.runClock),
           gaps: { ...state.gaps, simulation: result.gaps ?? [] },
+          // Back on Review, the option says what this simulation found.
+          checkpointEstimate: runCheckpointEstimateOf(result.checkpoint) ?? null,
         };
       }
       return {
@@ -1481,6 +1522,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       stopRequestedAt: null,
       fileCopy: { ...NO_FILE_COPY },
       muteAutomation: false,
+      checkpointFirst: false,
+      checkpointEstimate: null,
       discoveryId: null,
       discoveryError: null,
       directDiscoveryId: null,
@@ -1556,7 +1599,12 @@ function takeRunMessage(event: MessageEvent): void {
     const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
     store.finishRun(data.correlationId, payload?.result);
   } else {
-    const payload = (data.payload ?? {}) as { message?: unknown; code?: unknown; result?: unknown };
+    const payload = (data.payload ?? {}) as {
+      message?: unknown;
+      code?: unknown;
+      result?: unknown;
+      checkpoint?: unknown;
+    };
     // The code says what kind of failure it was, whatever words the message
     // has: dropped here, nothing past the store could tell a refusal before
     // the run from a failure during it.
@@ -1573,7 +1621,13 @@ function takeRunMessage(event: MessageEvent): void {
       payload.result && typeof payload.result === 'object'
         ? (payload.result as ForgeExecutionResult)
         : undefined;
-    store.failRun(data.correlationId, message, stoppedRun, code);
+    store.failRun(
+      data.correlationId,
+      message,
+      stoppedRun,
+      code,
+      runCheckpointOf(payload.checkpoint),
+    );
   }
 }
 

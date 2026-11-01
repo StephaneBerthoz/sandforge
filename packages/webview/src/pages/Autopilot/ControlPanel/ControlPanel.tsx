@@ -10,6 +10,9 @@ import { NodeDetail } from './NodeDetail';
 import { AnonymizationPreview } from './AnonymizationPreview';
 import { ComplianceStatus } from './ComplianceStatus';
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
+import { RewoundMark } from '../../../components/ui/RewoundMark';
+import { useRewoundMarks } from '../../../hooks/useRewoundMarks';
 import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Tab identifiers for the control panel. */
@@ -52,6 +55,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const { t } = useTranslation();
   const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
   const target = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId));
+  const runEnd = useAutopilotStore((s) => s.runEnd);
+  // A run has no history to carry the mark of the rewind that took it back:
+  // its result does, for as long as the page keeps it.
+  const markOf = useRewoundMarks(runEnd === null);
+  const rewound = runEnd
+    ? markOf({
+        orgId: runEnd.orgId,
+        startedAt: runEnd.startedAt,
+        endedAt: runEnd.endedAt,
+        objects: runEnd.objects,
+        ...(runEnd.checkpoint?.state === 'taken'
+          ? { checkpointId: runEnd.checkpoint.checkpointId }
+          : {}),
+      })
+    : undefined;
   const [activeTab, setActiveTab] = useState<ControlTab>('stats');
   /** The run Stop was sent for: its button waits for the run to end. */
   const [stopSentFor, setStopSentFor] = useState<string | null>(null);
@@ -211,6 +229,23 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             org={target?.alias || target?.username || (targetOrgId ?? '')}
             testId="control-muted"
           />
+        </div>
+      )}
+
+      {/* The way back of a run with no removal, and that it was taken. */}
+      {runEnd?.checkpoint && (
+        <div className="flex flex-col gap-1 px-4 py-2 border-b border-(--sf-border)">
+          <RewindBeforeRun
+            checkpoint={runEnd.checkpoint}
+            orgId={runEnd.orgId}
+            beside="none"
+            testId="control-checkpoint"
+          />
+        </div>
+      )}
+      {rewound && (
+        <div className="px-4 py-2 border-b border-(--sf-border)">
+          <RewoundMark mark={rewound} testId="control-rewound" />
         </div>
       )}
 

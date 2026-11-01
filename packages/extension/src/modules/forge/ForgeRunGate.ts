@@ -36,6 +36,7 @@ import {
 } from '@sandforge/shared';
 import type {
   CheckpointRefusal,
+  CheckpointRefusalCode,
   EmailDeliverability,
   EmailSender,
   ForgeAutomationWrite,
@@ -1952,18 +1953,41 @@ export class ForgeRunGateError extends Error {
   readonly storage?: { estimateMB: number; remainingMB: number };
   /** For a run cancelled at its read: the most rows of one object it was set to read. */
   readonly ceiling?: number;
+  /**
+   * For a run refused for the checkpoint it was to take first: what refused
+   * the take, by its code (`DISK`, `RUN_WRITING`…). Absent for a take that
+   * failed rather than refused.
+   */
+  readonly reason?: CheckpointRefusalCode;
 
   constructor(
     code: ForgeRunGateErrorCode,
     message: string,
     storage?: { estimateMB: number; remainingMB: number },
     ceiling?: number,
+    reason?: CheckpointRefusalCode,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
     this.code = code;
     if (storage) this.storage = storage;
     if (ceiling !== undefined) this.ceiling = ceiling;
+    if (reason !== undefined) this.reason = reason;
+  }
+
+  /**
+   * The stop a gate check of the run's API requests or of its checkpoint
+   * first came to ({@link forgeWriteBudgetOf}, {@link takeCheckpointFirst}),
+   * with the take's refusal kept by its code: the page said a checkpoint was
+   * refused, never by what — the disk of this machine, another run writing,
+   * its limit of records — which the English message alone named.
+   */
+  static of(stop: {
+    code: ForgeRunGateErrorCode;
+    message: string;
+    refusal?: CheckpointRefusal;
+  }): ForgeRunGateError {
+    return new ForgeRunGateError(stop.code, stop.message, undefined, undefined, stop.refusal?.code);
   }
 
   /** The stop as the page is told it: none for a code of the command line's own. */
@@ -1973,6 +1997,9 @@ export class ForgeRunGateError extends Error {
       code: this.code,
       ...(this.storage ? { storage: this.storage } : {}),
       ...(this.ceiling !== undefined ? { ceiling: this.ceiling } : {}),
+      ...(this.reason !== undefined && this.code === CHECKPOINT_REFUSED
+        ? { reason: this.reason }
+        : {}),
     };
   }
 }

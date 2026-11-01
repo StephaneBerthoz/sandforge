@@ -1,11 +1,21 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShieldAlert, X } from 'lucide-react';
-import { FORGE_READ_CEILING_PER_OBJECT, type ForgeRunGateCode } from '@sandforge/shared';
+import {
+  FORGE_READ_CEILING_PER_OBJECT,
+  type ForgeRunGateCode,
+  type ForgeRunGateStop,
+} from '@sandforge/shared';
+import { checkpointRefusalWords } from '../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
 import { useForgeRunGateStore } from './runGate';
 
-/** The sentence each stop is said in. */
+/**
+ * The sentence each stop is said in, unless the run's checkpoint first has
+ * one of its own ({@link sentenceOf}).
+ */
 const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   PRODUCTION_TARGET: 'forgeRun.gate.productionTarget',
   AUTOMATION_DECLINED: 'forgeRun.gate.automationDeclined',
@@ -25,6 +35,21 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
 ]);
 
 /**
+ * The sentence a stop is said in: a checkpoint refused by what refused it,
+ * and the day's API requests with the checkpoint among them only when the run
+ * was to take one.
+ */
+function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean): string {
+  if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
+    return 'forgeRun.gate.checkpointRefusedFor';
+  }
+  if (stop.code === 'API_BUDGET_EXCEEDED' && checkpointAsked) {
+    return 'forgeRun.gate.apiBudgetExceededWithCheckpoint';
+  }
+  return STOP_KEYS[stop.code];
+}
+
+/**
  * Why the last run stopped at its gate, said where the page goes back to —
  * Review, or the results a retry was started from: refused — a production
  * target, rows the target has no storage left for — or cancelled at a
@@ -34,7 +59,10 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
 export const ForgeRunGateNotice: React.FC = () => {
   const { t } = useTranslation();
   const stop = useForgeRunGateStore((s) => s.stop);
+  const checkpointAsked = useForgeRunGateStore((s) => s.checkpointAsked);
+  const checkpoint = useForgeRunGateStore((s) => s.checkpoint);
   const clear = useForgeRunGateStore((s) => s.clear);
+  const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   if (!stop) return null;
   const cancelled = CANCELLED.has(stop.code);
   return (
@@ -51,14 +79,24 @@ export const ForgeRunGateNotice: React.FC = () => {
         aria-hidden="true"
         className={`mt-0.5 shrink-0 ${cancelled ? 'text-text-secondary' : 'text-status-warning'}`}
       />
-      <p data-testid="forge-run-gate-reason" className="flex-1">
-        {t(STOP_KEYS[stop.code], {
-          estimate: stop.storage?.estimateMB ?? 0,
-          remaining: stop.storage?.remainingMB ?? 0,
-          // The number the run held, which the settings may have raised.
-          ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
-        })}
-      </p>
+      <div className="flex flex-1 flex-col gap-1">
+        <p data-testid="forge-run-gate-reason">
+          {t(sentenceOf(stop, checkpointAsked), {
+            estimate: stop.storage?.estimateMB ?? 0,
+            remaining: stop.storage?.remainingMB ?? 0,
+            // The number the run held, which the settings may have raised.
+            ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
+            reason: checkpointRefusalWords(stop.reason, t),
+          })}
+        </p>
+        <RewindBeforeRun
+          checkpoint={checkpoint}
+          orgId={targetOrgId}
+          beside="run"
+          compact
+          testId="forge-run-gate-checkpoint"
+        />
+      </div>
       <button
         type="button"
         data-testid="forge-run-gate-dismiss"

@@ -1059,6 +1059,100 @@ describe('ForgeResults', () => {
     expect(btn).toBeDefined();
   });
 
+  describe('the checkpoint the run took first', () => {
+    beforeEach(() => {
+      useOrgStore.setState({
+        orgs: [developerOrg({ id: 'org-tgt', alias: 'DEV-SB' })],
+        selectedOrgId: 'org-tgt',
+      });
+      useAppStore.setState({ currentRoute: 'forge', navigationIntent: null });
+    });
+
+    it('names it under the removal, with the way to a rewind of the org it wrote to', () => {
+      mockResult = {
+        ...makeMockResult(),
+        targetOrgId: 'org-tgt',
+        checkpoint: {
+          state: 'taken' as const,
+          checkpointId: 'ck-20260214-170000-a1b2',
+          name: 'Before Forge run 2026-02-14 17:00 UTC',
+          takenAt: '2026-02-14T17:00:00.000Z',
+          expiresAt: '2026-02-21T17:00:00.000Z',
+          objects: ['Account', 'Contact'],
+          records: 38,
+          bytes: 2_100_000,
+          requests: 66,
+          added: [],
+          notHeld: [],
+        },
+      } as typeof mockResult;
+      mockConfig = { ...RUN_CONFIG, targetOrgId: 'org-tgt' };
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-checkpoint-taken').textContent).toContain(
+        '“Before Forge run 2026-02-14 17:00 UTC”, 38 records of Account and Contact.',
+      );
+      expect(screen.getByTestId('forge-results-checkpoint-beside').textContent).toContain(
+        'Removing this run takes back what the run wrote, and nothing else.',
+      );
+      fireEvent.click(screen.getByTestId('forge-results-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        previewCheckpointId: 'ck-20260214-170000-a1b2',
+        targetOrgId: 'org-tgt',
+      });
+    });
+
+    it('says a run that wrote nothing deleted it', () => {
+      mockResult = {
+        ...makeMockResult(),
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-checkpoint-deleted').textContent).toBe(
+        'The checkpoint taken before the run was deleted: the run wrote nothing.',
+      );
+    });
+
+    it('says nothing of a run that took none', () => {
+      mockResult = makeMockResult();
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-checkpoint')).toBeNull();
+      expect(screen.queryByTestId('forge-results-checkpoint-deleted')).toBeNull();
+    });
+
+    it('says what a simulation found it would hold and cost, and the refusal it would meet', () => {
+      mockResult = {
+        ...makeMockResult(),
+        dryRun: true,
+        checkpoint: {
+          state: 'planned' as const,
+          estimate: {
+            records: 38,
+            apiRequests: 68,
+            apiRequestsLeft: 14_000,
+            seconds: 44,
+            bytes: 2_306_867,
+          },
+          objects: ['Account'],
+          added: [],
+          notHeld: [],
+          keepDays: 7,
+          refusal: { code: 'RUN_WRITING' as const, message: 'A Sync run is writing.' },
+        },
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-simulation-checkpoint-cost').textContent).toBe(
+        'A real run would take a checkpoint first: about 38 records of Account, 68 API requests, 44s, 2.2 MB on this machine, kept 7 days.',
+      );
+      expect(
+        screen.getByTestId('forge-results-simulation-checkpoint-refusal').textContent,
+      ).toContain('A real run would be refused for its checkpoint. Another SandForge run');
+      // A simulation took none: nothing to rewind to.
+      expect(screen.queryByTestId('forge-results-checkpoint')).toBeNull();
+    });
+  });
+
   describe('a simulation', () => {
     /** A simulation that would insert 7 records, failed 2, and found one gap. */
     function simulation(): void {

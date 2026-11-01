@@ -23,6 +23,8 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useRewoundMarks } from '../../hooks/useRewoundMarks';
 import { RewoundMark } from '../../components/ui/RewoundMark';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { takenOrDeleted } from '../../utils/runCheckpoint';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DEPTH_KEYS } from './useForgeForm';
@@ -79,11 +81,13 @@ function rewoundRunOf(run: ForgeExecutionResult | ForgeRemovalPlan): RewoundRun 
     );
   }
   const duration = Number.isFinite(run.duration) && run.duration > 0 ? run.duration : 0;
+  const taken = 'checkpoint' in run && run.checkpoint?.state === 'taken' ? run.checkpoint : null;
   return {
     orgId: run.targetOrgId,
     startedAt: new Date(ended - duration).toISOString(),
     endedAt: run.timestamp,
     objects,
+    ...(taken ? { checkpointId: taken.checkpointId } : {}),
   };
 }
 
@@ -497,6 +501,15 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
             </div>
             {rewoundOf(entry)}
             {removalBlock}
+            {/* Under the removal: the rewind reaches past what the run wrote. */}
+            <RewindBeforeRun
+              checkpoint={takenOrDeleted(entry.checkpoint)}
+              orgId={entry.targetOrgId}
+              beside="run"
+              compact
+              leftByRemoval={(entry.undo?.kept ?? 0) + (entry.undo?.refused ?? 0) > 0}
+              testId={`forge-history-checkpoint-${entry.forgeId}`}
+            />
           </div>
         );
       })}

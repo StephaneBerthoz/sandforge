@@ -3902,7 +3902,9 @@
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
       "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "checkpointRefused": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar. No se escribió nada. Láncela sin punto de control previo, o corrija lo que lo rechaza.",
-      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando un punto de control tomado primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros."
+      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros.",
+      "checkpointRefusedFor": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó. {{reason}} No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza.",
+      "apiBudgetExceededWithCheckpoint": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando el punto de control que debía tomar primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, escriba menos registros o desmarque Primero un punto de control."
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -4439,7 +4441,8 @@
         "maxRecordsPerObject": "No guardado: un límite es un número entero de 1 a 1.000.000.",
         "ownerMappings": "No guardado: el id. de un usuario tiene 15 o 18 letras y dígitos, y la ejecución admite 200 propietarios como máximo.",
         "fieldMappings": "No guardado: la ejecución renombra como máximo 200 campos de un objeto, en 50 objetos como máximo."
-      }
+      },
+      "beforeWritingTitle": "Antes de escribir"
     },
     "decisionsApplied": {
       "title": "Decisiones aplicadas",
@@ -4538,7 +4541,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + correos y teléfonos",
       "personalDataNone": "Ninguno: se copian como en el origen",
       "durationMinutes": "~{{minutes}} min",
-      "copyInto": "Copiar en {{target}}"
+      "copyInto": "Copiar en {{target}}",
+      "checkpointRecommended": "Una ejecución de Autopilot no se puede eliminar después: marque Primero un punto de control para poder retrocederla."
     },
     "graph": {
       "title": "Grafo de dependencias",
@@ -4634,6 +4638,12 @@
     "emptyState": {
       "title": "Aprovisione su sandbox automáticamente",
       "cta": "Seleccionar una org"
+    },
+    "refusal": {
+      "checkpointRefused": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar, como dice la salida de SandForge. No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza.",
+      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o copie menos registros.",
+      "apiBudgetExceededWithCheckpoint": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando el punto de control que debía tomar primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, copie menos registros o desmarque Primero un punto de control.",
+      "runCancelled": "La ejecución se detuvo mientras tomaba primero el punto de control: no se conservó nada de él, y no se escribió nada."
     }
   },
   "sidePanel": {
@@ -5002,6 +5012,10 @@
       "sourceIsTarget": {
         "explanation": "{{org}} es la org de la que se extrajo este dataset: una carga nunca vuelve a su origen, y no se escribió nada.",
         "action": "Elija otro sandbox como destino."
+      },
+      "checkpointRefused": {
+        "explanation": "La carga se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar, como dice la salida de SandForge. No se escribió nada.",
+        "action": "Desmarque Primero un punto de control para cargar sin él, o corrija lo que lo rechaza."
       }
     }
   },
@@ -5299,6 +5313,58 @@
       "badge": "Retrocedida",
       "undoneAfterRemoval": "Sus registros volvieron con el deshacer del {{date}}, después de su eliminación",
       "removeAgain": "Eliminar de nuevo"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Primero un punto de control",
+        "holds": "Antes de su primera escritura, la ejecución toma un punto de control de {{org}}: cada objeto que escribe, completo, y los que crean los flujos del destino que siguen activos mientras escribe, archivos incluidos. Retroceder a él deshace la ejecución.",
+        "leavesOut": "Nunca en él: las publicaciones de Chatter, las versiones de artículos de Knowledge, los usuarios, los permisos y la configuración. Un trigger de Apex, o un flujo que SandForge no pudo leer, puede crear registros fuera de él: retroceder los deja como están.",
+        "onMachine": "Guarda los valores de esos registros de {{org}} en esta máquina, sin cifrar y legibles solo por usted, durante los días que fija {{setting}} (7 por defecto); una ejecución que no escribe nada lo elimina.",
+        "costAtQuestion": "Lo que contiene y cuesta — registros, solicitudes de API, tiempo, espacio en esta máquina — se dice en la pregunta antes de la primera escritura, donde aún puede cancelar.",
+        "costAtSimulation": "Simular dice lo que contendría y costaría — registros, solicitudes de API, tiempo, espacio en esta máquina —, y la pregunta antes de la primera escritura lo repite, donde aún puede cancelar.",
+        "costAtPreview": "Vista previa dice lo que contendría y costaría — registros, solicitudes de API, tiempo, espacio en esta máquina. La carga lo toma sin preguntar.",
+        "refused": "Un punto de control rechazado, o que no se pudo tomar, rechaza la ejecución: no se escribe nada. Un reintento o una reanudación no toma ninguno: nombra el de la ejecución que retoma.",
+        "notOffered": "No disponible: SandForge no toma ningún punto de control de {{org}}, que no sabe si es un sandbox, una scratch org o una Developer Edition.",
+        "wayBack": "SandForge no puede quitar lo que escribe esta ejecución: el punto de control tomado primero es el camino de vuelta."
+      },
+      "estimate": {
+        "lastSimulation": "En la última simulación:",
+        "simulation": "Una ejecución real tomaría primero un punto de control:",
+        "preview": "La carga tomaría primero un punto de control:",
+        "cost_one": "unos {{records}} registros de {{objects}}, {{requests}} solicitudes de API, {{time}}, {{size}} en esta máquina, conservado {{days}} día.",
+        "cost_other": "unos {{records}} registros de {{objects}}, {{requests}} solicitudes de API, {{time}}, {{size}} en esta máquina, conservado {{days}} días.",
+        "costKept": "unos {{records}} registros de {{objects}}, {{requests}} solicitudes de API, {{time}}, {{size}} en esta máquina, conservado hasta que se elimine.",
+        "added": "Añadidos, por lo que crean los flujos del destino cuando entran los registros:",
+        "wouldRefuse": "Una ejecución real se rechazaría por su punto de control. {{reason}}"
+      },
+      "notHeldTitle": "Fuera del punto de control, que retroceder deja como están:",
+      "refusal": {
+        "disk": "El disco de esta máquina no tiene espacio suficiente para él.",
+        "runWriting": "Otra ejecución de SandForge, una toma, un retroceso o una anulación está escribiendo en la org: inicie esta ejecución cuando haya terminado.",
+        "nothingHeld": "No contendría ninguno de los objetos que escribe la ejecución: cada uno queda fuera, o es de un tipo que ningún punto de control contiene.",
+        "tooManyRecords": "Los objetos que contendría tienen más registros de los que toma un punto de control: lance la ejecución sin él, o deje objetos fuera de la ejecución.",
+        "apiBudget": "Sus solicitudes de API superan lo que le queda hoy a la org.",
+        "permissions": "Nada muestra que el usuario con el que se conecta SandForge lea completos los objetos que contendría: necesita Ver todos los datos y Modificar todos los datos, o Ver todo y Modificar todo en cada uno.",
+        "production": "SandForge no toma ningún punto de control de una org de producción.",
+        "scratchExpired": "La scratch org ha caducado.",
+        "other": "Sus controles lo rechazaron: la salida de SandForge dice por qué.",
+        "unsaid": "Se rechazó, o no se pudo tomar: la salida de SandForge dice por qué."
+      },
+      "taken_one": "Punto de control tomado primero: «{{name}}», {{formatted}} registro de {{objects}}.",
+      "taken_other": "Punto de control tomado primero: «{{name}}», {{formatted}} registros de {{objects}}.",
+      "keptUntil": "Conservado en esta máquina hasta el {{until}}.",
+      "keptUntilDeleted": "Conservado en esta máquina hasta que se elimine.",
+      "moreObjects_one": "{{formatted}} objeto más",
+      "moreObjects_other": "{{formatted}} objetos más",
+      "besideRemoval": "Eliminar esta ejecución deshace lo que escribió, y nada más. Retroceder a antes de esta ejecución devuelve {{objects}} de {{org}} a como estaban el {{time}}: lo que cualquiera, y las automatizaciones del destino, hicieron allí desde entonces también se va. Lea primero su vista previa.",
+      "besideLoadRemoval": "Eliminar esta carga deshace lo que creó, y nada más. Retroceder a antes de esta carga devuelve {{objects}} de {{org}} a como estaban el {{time}}: lo que cualquiera, y las automatizaciones del destino, hicieron allí desde entonces también se va. Lea primero su vista previa.",
+      "noRemoval": "Una ejecución de Autopilot no se puede eliminar: retroceder a este punto de control es el camino de vuelta. Devuelve {{objects}} de {{org}} a como estaban el {{time}}: lo que cualquiera, y las automatizaciones del destino, hicieron allí desde entonces también se va, y lo que el punto de control no contiene de la ejecución se queda. Lea primero su vista previa.",
+      "notHeld": "Fuera del punto de control, que retroceder deja como están: {{objects}}.",
+      "deleted": "El punto de control tomado antes de la ejecución se eliminó: la ejecución no escribió nada.",
+      "deletedLoad": "El punto de control tomado antes de la carga se eliminó: la carga no escribió nada.",
+      "rewind": "Retroceder a antes de esta ejecución…",
+      "rewindLoad": "Retroceder a antes de esta carga…",
+      "afterRemoval": "Lo que la eliminación conservó, retroceder a este punto de control lo deshace."
     }
   },
   "grappe": {

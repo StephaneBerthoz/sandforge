@@ -198,6 +198,47 @@ describe('ForgeRunGateError, past the budget or for the checkpoint', () => {
   it('tells the page nothing of a code of the command line’s own', () => {
     expect(new ForgeRunGateError('AUTOMATION_NOT_ACCEPTED', 'not accepted').stop).toBeUndefined();
   });
+
+  it('tells the page what refused the checkpoint taken first, by its code, from the gate’s stop', async () => {
+    const refusal = {
+      code: 'DISK' as const,
+      message: 'The disk has 1.0 MB free. No record was read.',
+    };
+    const atTheGate = forgeWriteBudgetOf({
+      plan,
+      checkpoint: estimateOf(68, refusal),
+      budget: { max: 15_000, remaining: 14_000 },
+      target: 'DEV-SB',
+    }).stop;
+    expect(atTheGate).toBeDefined();
+    const scoped = ForgeRunGateError.of(atTheGate!);
+    expect(scoped.stop).toEqual({ code: CHECKPOINT_REFUSED, reason: 'DISK' });
+    expect(scoped.message).toBe(atTheGate!.message);
+
+    const took = await takeCheckpointFirst(async () => ({
+      taken: false,
+      refusal: { code: 'RUN_WRITING', message: 'A Sync run is writing to DEV-SB.' },
+    }));
+    expect(
+      'stop' in took && ForgeRunGateError.of({ ...took.stop, code: CHECKPOINT_REFUSED }).stop,
+    ).toEqual({ code: CHECKPOINT_REFUSED, reason: 'RUN_WRITING' });
+  });
+
+  it('names no reason for a take that failed, nor past the budget', async () => {
+    const failed = await takeCheckpointFirst(async () => {
+      throw new Error('socket hang up');
+    });
+    expect(
+      'stop' in failed && ForgeRunGateError.of({ ...failed.stop, code: CHECKPOINT_REFUSED }).stop,
+    ).toEqual({ code: CHECKPOINT_REFUSED });
+    const over = forgeWriteBudgetOf({
+      plan,
+      checkpoint: estimateOf(68),
+      budget: { max: 500, remaining: 1 },
+      target: 'DEV-SB',
+    }).stop;
+    expect(ForgeRunGateError.of(over!).stop).toEqual({ code: API_BUDGET_EXCEEDED });
+  });
 });
 
 describe('takeCheckpointFirst', () => {

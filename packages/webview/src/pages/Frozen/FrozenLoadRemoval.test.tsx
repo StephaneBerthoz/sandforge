@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type {
   BaseMessage,
   FrozenLoadRecordsInfo,
+  FrozenLoadReportInfo,
   FrozenRemovalResult,
   SalesforceOrg,
 } from '@sandforge/shared';
@@ -25,6 +26,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 
 const DEV = {
@@ -703,6 +705,130 @@ describe('FrozenLoadRemoval', () => {
       } finally {
         await i18n.changeLanguage('en');
       }
+    });
+  });
+
+  describe('the load’s checkpoint and the rewinds of it', () => {
+    /** The report of the load the card shows, as this tab heard it. */
+    const REPORT = {
+      status: 'completed',
+      orgId: 'org-dev',
+      mode: { pilot: false, reload: false },
+      startedAt: '2026-09-24T10:00:00.000Z',
+      durationMs: 300_000,
+      perObject: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }],
+      checkpoint: {
+        state: 'taken',
+        checkpointId: 'ck-20260924-100000-a1b2',
+        name: 'Before Frozen load 2026-09-24 10:00 UTC',
+        takenAt: '2026-09-24T10:00:30.000Z',
+        expiresAt: '2026-10-01T10:00:30.000Z',
+        objects: ['Account', 'Contact'],
+        records: 3,
+        bytes: 2_048,
+        requests: 8,
+        added: [],
+        notHeld: [],
+      },
+    } as unknown as FrozenLoadReportInfo;
+
+    beforeEach(() => {
+      mockPostMessage.mockClear();
+      useOrgStore.setState({ orgs: [developerOrg({ id: 'org-dev', alias: 'DEV-SANDBOX' })] });
+    });
+
+    it('leaves the rewind to the report until a removal ended, then offers it under it', () => {
+      const { rerender } = render(
+        <FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} lastReport={REPORT} />,
+      );
+      expect(screen.queryByTestId('frozen-removal-checkpoint')).toBeNull();
+
+      rerender(
+        <FrozenLoadRemoval
+          records={{
+            ...LOADED,
+            removed: {
+              removedAt: '2026-09-24T11:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 2,
+              refused: 0,
+            },
+          }}
+          onAnswered={vi.fn()}
+          lastReport={REPORT}
+        />,
+      );
+      expect(screen.getByTestId('frozen-removal-checkpoint-after-removal').textContent).toBe(
+        'What the removal kept, a rewind to this checkpoint takes back.',
+      );
+      expect(screen.getByTestId('frozen-removal-checkpoint-action').textContent).toBe(
+        'Rewind to before this load…',
+      );
+    });
+
+    it('holds nothing of a report of another load: the mapping keeps no checkpoint', () => {
+      render(
+        <FrozenLoadRemoval
+          records={{
+            ...LOADED,
+            loadedAt: '2026-09-23T10:05:00.000Z',
+            removed: {
+              removedAt: '2026-09-24T11:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+            },
+          }}
+          onAnswered={vi.fn()}
+          lastReport={REPORT}
+        />,
+      );
+      expect(screen.queryByTestId('frozen-removal-checkpoint')).toBeNull();
+    });
+
+    it('marks the load a rewind to its own checkpoint took back', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} lastReport={REPORT} />);
+      const asked = mockPostMessage.mock.calls
+        .map((call) => (call[0] as { payload: BaseMessage }).payload)
+        .find((message) => message.type === 'checkpoint:rewinds');
+      if (!asked) throw new Error('the rewinds were not read');
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-rewinds',
+              type: 'checkpoint:rewinds:response',
+              timestamp: Date.now(),
+              correlationId: asked.id,
+              payload: {
+                rewinds: [
+                  {
+                    kind: 'rewind',
+                    rewindId: 'rw-20260924-120000-aaaa',
+                    checkpointId: 'ck-20260924-100000-a1b2',
+                    checkpointName: 'Before Frozen load 2026-09-24 10:00 UTC',
+                    organizationId: '00D000000000001AAA',
+                    mode: 'picked',
+                    objects: ['Account', 'Contact'],
+                    readFrom: '2026-09-24T10:00:10.000Z',
+                    takenAt: '2026-09-24T10:00:30.000Z',
+                    startedAt: '2026-09-24T12:00:00.000Z',
+                    endedAt: '2026-09-24T12:05:00.000Z',
+                    status: 'success',
+                    totals: { deleted: 3, restored: 0, undeleted: 0, recreated: 0 },
+                    orgIds: ['org-dev'],
+                  },
+                ],
+              },
+            },
+          }),
+        );
+      });
+      expect(screen.getByTestId('frozen-removal-rewound').getAttribute('data-kind')).toBe(
+        'rewound',
+      );
     });
   });
 });

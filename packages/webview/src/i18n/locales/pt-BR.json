@@ -3902,7 +3902,9 @@
       "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
       "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida.",
       "checkpointRefused": "A execução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado, ou não pôde ser criado. Nada foi gravado. Execute-a sem ponto de verificação prévio, ou corrija o que o recusa.",
-      "apiBudgetExceeded": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, contando um ponto de verificação criado primeiro, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas — ou grave menos registros."
+      "apiBudgetExceeded": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas — ou grave menos registros.",
+      "checkpointRefusedFor": "A execução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado. {{reason}} Nada foi gravado. Desmarque Primeiro um ponto de verificação para executá-la sem ele, ou corrija o que o recusa.",
+      "apiBudgetExceededWithCheckpoint": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, contando o ponto de verificação que devia criar primeiro, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas —, grave menos registros ou desmarque Primeiro um ponto de verificação."
     },
     "executionTable": {
       "leftOut": "excluído",
@@ -4439,7 +4441,8 @@
         "maxRecordsPerObject": "Não mantido: um limite é um número inteiro de 1 a 1.000.000.",
         "ownerMappings": "Não mantido: o ID de um usuário tem 15 ou 18 letras e dígitos, e a execução aceita no máximo 200 proprietários.",
         "fieldMappings": "Não mantido: a execução renomeia no máximo 200 campos de um objeto, em no máximo 50 objetos."
-      }
+      },
+      "beforeWritingTitle": "Antes de gravar"
     },
     "decisionsApplied": {
       "title": "Decisões aplicadas",
@@ -4538,7 +4541,8 @@
       "personalDataFrameworkAndContactPoints": "{{framework}} + e-mails e telefones",
       "personalDataNone": "Nenhum: copiados como na origem",
       "durationMinutes": "~{{minutes}} min",
-      "copyInto": "Copiar para {{target}}"
+      "copyInto": "Copiar para {{target}}",
+      "checkpointRecommended": "Uma execução do Autopilot não pode ser removida depois: marque Primeiro um ponto de verificação para poder retrocedê-la."
     },
     "graph": {
       "title": "Grafo de dependências",
@@ -4634,6 +4638,12 @@
     "emptyState": {
       "title": "Provisione sua sandbox automaticamente",
       "cta": "Selecionar uma org"
+    },
+    "refusal": {
+      "checkpointRefused": "A execução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado, ou não pôde ser criado, como diz a saída do SandForge. Nada foi gravado. Desmarque Primeiro um ponto de verificação para executá-la sem ele, ou corrija o que o recusa.",
+      "apiBudgetExceeded": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas — ou copie menos registros.",
+      "apiBudgetExceededWithCheckpoint": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, contando o ponto de verificação que devia criar primeiro, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas —, copie menos registros ou desmarque Primeiro um ponto de verificação.",
+      "runCancelled": "A execução foi interrompida enquanto criava primeiro o ponto de verificação: nada dele foi mantido, e nada foi gravado."
     }
   },
   "sidePanel": {
@@ -5002,6 +5012,10 @@
       "sourceIsTarget": {
         "explanation": "{{org}} é a org da qual este dataset foi extraído: uma carga nunca volta para a origem, e nada foi gravado.",
         "action": "Escolha outra sandbox como destino."
+      },
+      "checkpointRefused": {
+        "explanation": "A carga foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado, ou não pôde ser criado, como diz a saída do SandForge. Nada foi gravado.",
+        "action": "Desmarque Primeiro um ponto de verificação para carregar sem ele, ou corrija o que o recusa."
       }
     }
   },
@@ -5299,6 +5313,58 @@
       "badge": "Retrocedida",
       "undoneAfterRemoval": "Seus registros voltaram com o desfazer de {{date}}, depois da sua remoção",
       "removeAgain": "Remover novamente"
+    },
+    "checkpoint": {
+      "option": {
+        "label": "Primeiro um ponto de verificação",
+        "holds": "Antes da primeira gravação, a execução cria um ponto de verificação de {{org}}: cada objeto que ela grava, inteiro, e os que os fluxos do destino que continuam ativos criam enquanto ela grava, arquivos incluídos. Retroceder a ele desfaz a execução.",
+        "leavesOut": "Nunca nele: as publicações do Chatter, as versões de artigos do Knowledge, os usuários, as permissões e a configuração. Um trigger Apex, ou um fluxo que o SandForge não conseguiu ler, pode criar registros fora dele: retroceder os deixa como estão.",
+        "onMachine": "Ele guarda os valores desses registros de {{org}} nesta máquina, sem criptografia e legíveis só por você, pelos dias que {{setting}} define (7 por padrão); uma execução que não grava nada o exclui.",
+        "costAtQuestion": "O que ele contém e custa — registros, solicitações de API, tempo, espaço nesta máquina — é dito na pergunta antes da primeira gravação, onde você ainda pode cancelar.",
+        "costAtSimulation": "Simular diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina —, e a pergunta antes da primeira gravação o repete, onde você ainda pode cancelar.",
+        "costAtPreview": "Pré-visualizar diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina. A carga o cria sem perguntar.",
+        "refused": "Um ponto de verificação recusado, ou que não pôde ser criado, recusa a execução: nada é gravado. Uma nova tentativa ou uma retomada não cria nenhum: ela nomeia o da execução que retoma.",
+        "notOffered": "Não disponível: o SandForge não cria ponto de verificação de {{org}}, que ele não sabe se é uma sandbox, uma scratch org ou uma Developer Edition.",
+        "wayBack": "O SandForge não pode remover o que esta execução grava: o ponto de verificação criado primeiro é o caminho de volta."
+      },
+      "estimate": {
+        "lastSimulation": "Na última simulação:",
+        "simulation": "Uma execução real criaria primeiro um ponto de verificação:",
+        "preview": "A carga criaria primeiro um ponto de verificação:",
+        "cost_one": "cerca de {{records}} registros de {{objects}}, {{requests}} solicitações de API, {{time}}, {{size}} nesta máquina, mantido por {{days}} dia.",
+        "cost_other": "cerca de {{records}} registros de {{objects}}, {{requests}} solicitações de API, {{time}}, {{size}} nesta máquina, mantido por {{days}} dias.",
+        "costKept": "cerca de {{records}} registros de {{objects}}, {{requests}} solicitações de API, {{time}}, {{size}} nesta máquina, mantido até ser excluído.",
+        "added": "Adicionados, pelo que os fluxos do destino criam quando os registros entram:",
+        "wouldRefuse": "Uma execução real seria recusada pelo seu ponto de verificação. {{reason}}"
+      },
+      "notHeldTitle": "Fora do ponto de verificação, que retroceder deixa como estão:",
+      "refusal": {
+        "disk": "O disco desta máquina não tem espaço suficiente para ele.",
+        "runWriting": "Outra execução do SandForge, uma criação, um retrocesso ou um desfazer está gravando na org: inicie esta execução quando ela terminar.",
+        "nothingHeld": "Ele não conteria nenhum dos objetos que a execução grava: cada um fica de fora, ou é de um tipo que nenhum ponto de verificação contém.",
+        "tooManyRecords": "Os objetos que ele conteria têm mais registros do que um ponto de verificação aceita: execute sem ele, ou deixe objetos fora da execução.",
+        "apiBudget": "Suas solicitações de API passam do que resta hoje à org.",
+        "permissions": "Nada mostra que o usuário com que o SandForge se conecta lê por inteiro os objetos que ele conteria: ele precisa de Exibir todos os dados e Modificar todos os dados, ou Exibir tudo e Modificar tudo em cada um.",
+        "production": "O SandForge não cria ponto de verificação de uma org de produção.",
+        "scratchExpired": "A scratch org expirou.",
+        "other": "Suas verificações o recusaram: a saída do SandForge diz por quê.",
+        "unsaid": "Ele foi recusado, ou não pôde ser criado: a saída do SandForge diz por quê."
+      },
+      "taken_one": "Ponto de verificação criado primeiro: “{{name}}”, {{formatted}} registro de {{objects}}.",
+      "taken_other": "Ponto de verificação criado primeiro: “{{name}}”, {{formatted}} registros de {{objects}}.",
+      "keptUntil": "Mantido nesta máquina até {{until}}.",
+      "keptUntilDeleted": "Mantido nesta máquina até ser excluído.",
+      "moreObjects_one": "mais {{formatted}} objeto",
+      "moreObjects_other": "mais {{formatted}} objetos",
+      "besideRemoval": "Remover esta execução desfaz o que ela gravou, e nada mais. Retroceder a antes desta execução devolve {{objects}} de {{org}} a como estavam em {{time}}: o que qualquer pessoa, e as automações do destino, fizeram ali desde então também vai embora. Leia primeiro a pré-visualização.",
+      "besideLoadRemoval": "Remover esta carga desfaz o que ela criou, e nada mais. Retroceder a antes desta carga devolve {{objects}} de {{org}} a como estavam em {{time}}: o que qualquer pessoa, e as automações do destino, fizeram ali desde então também vai embora. Leia primeiro a pré-visualização.",
+      "noRemoval": "Uma execução do Autopilot não pode ser removida: retroceder a este ponto de verificação é o caminho de volta. Ele devolve {{objects}} de {{org}} a como estavam em {{time}}: o que qualquer pessoa, e as automações do destino, fizeram ali desde então também vai embora, e o que o ponto de verificação não contém da execução fica. Leia primeiro a pré-visualização.",
+      "notHeld": "Fora do ponto de verificação, que retroceder deixa como estão: {{objects}}.",
+      "deleted": "O ponto de verificação criado antes da execução foi excluído: a execução não gravou nada.",
+      "deletedLoad": "O ponto de verificação criado antes da carga foi excluído: a carga não gravou nada.",
+      "rewind": "Retroceder a antes desta execução…",
+      "rewindLoad": "Retroceder a antes desta carga…",
+      "afterRemoval": "O que a remoção manteve, retroceder a este ponto de verificação desfaz."
     }
   },
   "grappe": {

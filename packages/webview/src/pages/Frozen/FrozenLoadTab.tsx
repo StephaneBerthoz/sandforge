@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, Play, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import type {
+  BaseMessage,
   ErrorHint,
   ForgeFieldRefusal,
   FrozenFieldRemoval,
@@ -10,6 +11,7 @@ import type {
   FrozenLoadReportInfo,
   FrozenLoadResponse,
   FrozenVerifyVerdict,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { translateError } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -33,7 +35,14 @@ import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import {
+  CheckpointFirstEstimate,
+  CheckpointFirstOption,
+} from '../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { useMessageListener } from '../../hooks/useMessageBus';
+import { runCheckpointOf } from '../../utils/runCheckpoint';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 
 /**
@@ -175,6 +184,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const [reload, setReload] = useState(false);
   /** The box beside Load: the load mutes the target's automation, through its own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
+  /** The option beside it: the load takes a checkpoint of what it writes first. */
+  const [checkpointFirst, setCheckpointFirst] = useState(false);
+  /** What became of the checkpoint of a load its error ended, as the error says. */
+  const [checkpointAfterError, setCheckpointAfterError] = useState<RunCheckpointInfo | undefined>(
+    undefined,
+  );
   const [writeEncrypted, setWriteEncrypted] = useState(false);
   // A dataset whose manifest does not say its extraction left out the
   // encrypted fields it read masked may hold their masks: its load leaves out
@@ -198,6 +213,20 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // stops before its next write. The page had no Cancel, and could not have
   // named the load: its id was minted where the page never saw it.
   const loadRequestId = loadMutation.requestId;
+  // The mutation is reset as its error is taken: the last id sent stays here,
+  // for the error that says what became of its checkpoint.
+  const lastLoadId = useRef<string | null>(null);
+  useEffect(() => {
+    if (loadRequestId !== null) lastLoadId.current = loadRequestId;
+  }, [loadRequestId]);
+  useMessageListener<BaseMessage & { payload?: { checkpoint?: unknown } }>(
+    'frozen:load:error',
+    (msg) => {
+      if (msg.correlationId === lastLoadId.current) {
+        setCheckpointAfterError(runCheckpointOf(msg.payload?.checkpoint));
+      }
+    },
+  );
   const { requested: cancelRequested, cancel: cancelLoad } = useOperationCancel(loadRequestId, {
     title: t('frozen.load.cancelRefused'),
     message: t('frozen.load.cancelRefusedDetail'),
@@ -269,6 +298,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     ...(pilot ? { pilot: true } : {}),
     ...(reload ? { reload: true } : {}),
     ...(encryptedUnchecked && writeEncrypted ? { writeEncrypted: true } : {}),
+    // Asked of the preview too, which says what it would hold and cost.
+    ...(checkpointFirst ? { checkpointFirst: {} } : {}),
   });
 
   const handleLoad = (): void => {
@@ -276,6 +307,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     clearProgress();
     setLoadReport(null);
     setVerdict(null);
+    setCheckpointAfterError(undefined);
     previewMutation.reset();
     // Only the load mutes: its preview writes nothing.
     loadMutation.mutate({ ...loadOptions(), ...(muteAutomation ? { muteAutomation: true } : {}) });
@@ -626,6 +658,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               testId="frozen-load-mute"
             />
           )}
+          {/* A load asks nothing of its own: the preview says the cost. */}
+          <CheckpointFirstOption
+            checked={checkpointFirst}
+            onChange={setCheckpointFirst}
+            orgId={effectiveTarget}
+            costSaid="preview"
+            testId="frozen-load-checkpoint-first"
+          />
           {/* The check that writes nothing first, then the write, as Forge
               orders Simulate and its run. */}
           <div className="flex items-center gap-2">
@@ -736,6 +776,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
           {loadMutation.error && (
             <ErrorBanner message={loadMutation.error} code={loadMutation.errorCode} />
           )}
+          <RewindBeforeRun
+            checkpoint={loadReport ? undefined : checkpointAfterError}
+            orgId={effectiveTarget}
+            beside="load"
+            compact
+            testId="frozen-load-error-checkpoint"
+          />
           {verifyMutation.error && (
             <ErrorBanner message={verifyMutation.error} code={verifyMutation.errorCode} />
           )}
@@ -755,6 +802,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 {plan.mode.reload && <Badge variant="info">{t('frozen.load.reload')}</Badge>}
               </div>
               <p className="text-[11px] text-text-secondary">{t('frozen.preview.hint')}</p>
+              {plan.checkpoint && (
+                <CheckpointFirstEstimate
+                  estimate={plan.checkpoint}
+                  lead={t('runResults.checkpoint.estimate.preview')}
+                  testId="frozen-preview-checkpoint"
+                  className="text-[11px] text-text-primary"
+                />
+              )}
               {plan.mode.reload && !plan.mode.pilot && (
                 <p className="text-[11px] text-text-secondary" data-testid="frozen-preview-reload">
                   {t('frozen.preview.earlierLoads', { count: plan.earlierLoads })}
@@ -973,6 +1028,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         records={targetRecords}
         onAnswered={onRefetchStatus}
         busy={loadMutation.loading}
+        {...(loadReport ? { lastReport: loadReport } : {})}
         {...(refusalOnCard
           ? {
               reloadRefusal: {
@@ -1050,6 +1106,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 muted={loadReport.mutedAutomation}
                 org={orgs.find((o) => o.id === loadReport.orgId)?.alias ?? loadReport.orgId}
                 testId="frozen-load-report-muted"
+              />
+              <RewindBeforeRun
+                checkpoint={loadReport.checkpoint}
+                orgId={loadReport.orgId}
+                beside="load"
+                testId="frozen-load-report-checkpoint"
               />
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <KPICard

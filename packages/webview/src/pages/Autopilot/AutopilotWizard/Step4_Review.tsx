@@ -12,9 +12,12 @@ import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
 import { CompliancePicker } from './CompliancePicker';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
+import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { OrgBadge } from '../../../components/ui/OrgBadge';
 import { Icon } from '../../../components/ui/Icon';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -99,6 +102,9 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
+  const checkpointFirst = useAutopilotStore((s) => s.checkpointFirst);
+  const setCheckpointFirst = useAutopilotStore((s) => s.setCheckpointFirst);
+  const runEnd = useAutopilotStore((s) => s.runEnd);
 
   /** Why a lookup is left empty, in the interface language. */
   const reasonOf = (lookup: AutopilotLookupLeftEmpty): string => {
@@ -165,6 +171,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
       {error && <ErrorBanner message={error} code={null} data-testid="autopilot-execute-error" />}
+      {/* A run its error ended comes back here: what became of the checkpoint
+          it took first is said with why it ended, the way back of what it
+          wrote before it did. */}
+      {error && (
+        <RewindBeforeRun
+          checkpoint={runEnd?.checkpoint}
+          orgId={runEnd?.orgId}
+          beside="none"
+          testId="step4-checkpoint"
+        />
+      )}
 
       {/* Emails and phone numbers, neutralized unless unticked, as a Forge
           run's are: the compliance step this replaces defaulted to copying
@@ -200,6 +217,18 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           testId="step4-mute"
         />
       )}
+
+      {/* The run's gate says what it costs in its question, and an Autopilot
+          run has no removal: off unless ticked, as it reads whole tables, and
+          recommended here, where the choice is made. */}
+      <CheckpointFirstOption
+        checked={checkpointFirst}
+        onChange={setCheckpointFirst}
+        orgId={targetOrgId}
+        costSaid="question"
+        recommendation={t('autopilot.step4.checkpointRecommended')}
+        testId="step4-checkpoint-first"
+      />
 
       <details
         className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
@@ -417,7 +446,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         className="text-xs text-text-secondary"
         data-testid="step4-no-way-back"
       >
-        {t('common.noWayBack')}
+        {checkpointFirst ? t('runResults.checkpoint.option.wayBack') : t('common.noWayBack')}
       </p>
       <div className="flex justify-end pt-2">
         <Button

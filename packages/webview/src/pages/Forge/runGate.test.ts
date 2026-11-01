@@ -223,4 +223,38 @@ describe('a retry stopped at its gate', () => {
 
     expect(useForgeStore.getState().phase).toBe('review');
   });
+
+  describe('a run stopped with a checkpoint in question', () => {
+    const stopWith = (payload: Record<string, unknown>): void =>
+      takeGateStop(
+        new MessageEvent('message', {
+          data: {
+            type: 'forge:execute:error',
+            correlationId: useForgeStore.getState().executionRequestId,
+            payload,
+          },
+        }),
+      );
+
+    it('keeps that the run was to take one, as the option stood when it was sent', () => {
+      useForgeStore.getState().setCheckpointFirst(true);
+      startForgeRun();
+      stopWith({ gate: { code: 'API_BUDGET_EXCEEDED' } });
+      expect(useForgeRunGateStore.getState().checkpointAsked).toBe(true);
+    });
+
+    it('keeps what refused it, and what became of one the error names', () => {
+      startForgeRun();
+      stopWith({
+        gate: { code: 'CHECKPOINT_REFUSED', reason: 'DISK' },
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      });
+      const gate = useForgeRunGateStore.getState();
+      expect(gate.stop).toEqual({ code: 'CHECKPOINT_REFUSED', reason: 'DISK' });
+      expect(gate.checkpointAsked).toBe(false);
+      expect(gate.checkpoint).toEqual({ state: 'deleted', deleted: 'nothingWritten' });
+      gate.clear();
+      expect(useForgeRunGateStore.getState().checkpoint).toBeUndefined();
+    });
+  });
 });

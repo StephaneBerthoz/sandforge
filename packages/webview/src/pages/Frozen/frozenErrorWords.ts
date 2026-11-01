@@ -14,8 +14,9 @@ export interface FrozenErrorPayload {
  * A Frozen error the page words itself, in the interface language, or
  * `undefined` to show the host's message: no configuration saved
  * (`CONFIG_MISSING`), no rules file where the extraction reads it
- * (`RULES_MISSING`), and a load refused because its target is the org the
- * dataset was extracted from (`GUARD_REFUSED`, guard `source-is-target`).
+ * (`RULES_MISSING`), a load refused because its target is the org the dataset
+ * was extracted from (`GUARD_REFUSED`, guard `source-is-target`), and one
+ * refused for the checkpoint it was to take first (`CHECKPOINT_REFUSED`).
  *
  * The host words them in English for its log and the command line. Shown as
  * they were, a first-time user read "frozen:config:save: coverage axes, …"
@@ -40,6 +41,11 @@ export function frozenErrorWords(
             'frozen.refusal.rulesMissing.action',
           )}`
         : undefined;
+    case 'CHECKPOINT_REFUSED':
+      // The load's error names no reason of the take: its log does.
+      return `${t('frozen.refusal.checkpointRefused.explanation')} ${t(
+        'frozen.refusal.checkpointRefused.action',
+      )}`;
     case 'GUARD_REFUSED':
       return payload.guard === 'source-is-target' && typeof payload.orgId === 'string'
         ? `${t('frozen.refusal.sourceIsTarget.explanation', { org: aliasOf(payload.orgId) })} ${t(

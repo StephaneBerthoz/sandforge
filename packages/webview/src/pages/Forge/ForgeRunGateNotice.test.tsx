@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 
@@ -84,7 +86,7 @@ describe('ForgeRunGateNotice', () => {
     ],
     [
       'API_BUDGET_EXCEEDED' as const,
-      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, a checkpoint taken first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.',
+      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.',
     ],
   ])('alerts that the run was refused at its write gate (%s)', (code, text) => {
     act(() => useForgeRunGateStore.getState().setStop({ code }));
@@ -102,5 +104,76 @@ describe('ForgeRunGateNotice', () => {
 
     expect(screen.queryByTestId('forge-run-gate-notice')).toBeNull();
     expect(useForgeRunGateStore.getState().stop).toBeNull();
+  });
+
+  describe('a run refused for the checkpoint it was to take first', () => {
+    it('says what refused it, by the take’s own code', () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop({ code: 'CHECKPOINT_REFUSED', reason: 'DISK' }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+        "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused. This machine's disk has too little room for it. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      );
+      expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+    });
+
+    it('says another run holds the org, as it would be told', () => {
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'CHECKPOINT_REFUSED', reason: 'RUN_WRITING' }),
+      );
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'Another SandForge run, take, rewind or undo is writing to the org',
+      );
+    });
+
+    it('says it was refused or could not be taken when the stop names nothing', () => {
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'CHECKPOINT_REFUSED' }));
+      render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'was refused, or could not be taken',
+      );
+    });
+  });
+
+  describe('a run past the day’s API requests', () => {
+    it('names the checkpoint among them only when the run was to take one', () => {
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code: 'API_BUDGET_EXCEEDED' }, { checkpointAsked: true }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'the checkpoint it was to take first among them',
+      );
+      unmount();
+
+      act(() => useForgeRunGateStore.getState().setStop({ code: 'API_BUDGET_EXCEEDED' }));
+      render(<ForgeRunGateNotice />);
+      const reason = screen.getByTestId('forge-run-gate-reason').textContent;
+      expect(reason).toContain('more API requests than the target org has left today');
+      expect(reason).not.toContain('checkpoint');
+    });
+  });
+
+  it('says what became of a checkpoint the run had taken when it stopped', () => {
+    useOrgStore.setState({ orgs: [developerOrg()], selectedOrgId: 'org-dev' });
+    act(() =>
+      useForgeRunGateStore.getState().setStop(
+        { code: 'WRITE_DECLINED' },
+        {
+          checkpointAsked: true,
+          checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+        },
+      ),
+    );
+    render(<ForgeRunGateNotice />);
+    expect(screen.getByTestId('forge-run-gate-checkpoint-deleted').textContent).toBe(
+      'The checkpoint taken before the run was deleted: the run wrote nothing.',
+    );
   });
 });

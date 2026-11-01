@@ -4,6 +4,7 @@ import { Square, Trash2 } from 'lucide-react';
 import type {
   ForgeSweepListing,
   FrozenLoadRecordsInfo,
+  FrozenLoadReportInfo,
   FrozenRemovalResult,
 } from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
@@ -13,6 +14,9 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { RewoundMark } from '../../components/ui/RewoundMark';
+import { useRewoundMarks } from '../../hooks/useRewoundMarks';
 import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
@@ -108,6 +112,27 @@ function keptObjects(kept: NonNullable<FrozenLoadRecordsInfo['keptByThePlatform'
   return kept.map((object) => `${object.objectApiName} (${object.count})`).join(', ');
 }
 
+/** How far a load's last write may lie past its report's end, as two clocks read it. */
+const REPORT_MARGIN_MS = 2 * 60_000;
+
+/**
+ * The report of the load the card shows, when the load is the one this tab
+ * has the report of: the mapping keeps neither when a load began nor the
+ * checkpoint it took, which only its report says. Undefined for a load of an
+ * earlier session, or of another org.
+ */
+function reportOfTheLoad(
+  records: FrozenLoadRecordsInfo,
+  report: FrozenLoadReportInfo | undefined,
+): FrozenLoadReportInfo | undefined {
+  if (!report || report.orgId !== records.orgId || records.earlier) return undefined;
+  const started = Date.parse(report.startedAt);
+  const lastWrite = Date.parse(records.loadedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(lastWrite)) return undefined;
+  const ended = started + report.durationMs + REPORT_MARGIN_MS;
+  return lastWrite >= started - REPORT_MARGIN_MS && lastWrite <= ended ? report : undefined;
+}
+
 /** Props for {@link FrozenLoadRemoval}. */
 export interface FrozenLoadRemovalProps {
   /**
@@ -123,6 +148,8 @@ export interface FrozenLoadRemovalProps {
   onAnswered: () => void;
   /** A load runs from this page: nothing is removed until it ends. */
   busy?: boolean;
+  /** The report of the last load this tab ran: what took it back, and what it took first. */
+  lastReport?: FrozenLoadReportInfo;
   /**
    * A reload into this org the extension refused, in its words, before it
    * wrote anything: a removal of the loads it replaces would leave records.
@@ -152,10 +179,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
   onAnswered,
   busy = false,
+  lastReport,
   reloadRefusal,
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const report = records ? reportOfTheLoad(records, lastReport) : undefined;
+  const markOf = useRewoundMarks(report === undefined);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
@@ -201,6 +231,17 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const org = orgs.find((o) => o.id === records.orgId)?.alias;
   const date = formatStoredDate(records.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
   const created = records.created.reduce((sum, object) => sum + object.count, 0);
+  const rewound = report
+    ? markOf({
+        orgId: records.orgId,
+        startedAt: report.startedAt,
+        endedAt: records.loadedAt,
+        objects: report.perObject.map((object) => object.objectApiName),
+        ...(report.checkpoint?.state === 'taken'
+          ? { checkpointId: report.checkpoint.checkpointId }
+          : {}),
+      })
+    : undefined;
 
   const confirmRemoval = (): void => {
     removal.mutate({
@@ -306,6 +347,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               })}
             </p>
           )}
+          {rewound && <RewoundMark mark={rewound} testId="frozen-removal-rewound" />}
           {action}
           {removal.loading && (
             <div className="flex flex-wrap items-center gap-2">
@@ -344,6 +386,18 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               result={removal.data.result}
               org={org ?? records.orgId}
               subject="load"
+            />
+          )}
+          {/* Under a removal that ended, which took back what the load created
+              alone: the load's report offers the rewind until then. */}
+          {records.removed && (
+            <RewindBeforeRun
+              checkpoint={report?.checkpoint}
+              orgId={records.orgId}
+              beside="load"
+              compact
+              leftByRemoval={records.removed.kept + records.removed.refused > 0}
+              testId="frozen-removal-checkpoint"
             />
           )}
         </div>

@@ -6,6 +6,7 @@ import type {
   ExecutionPlan,
   ComplianceFrameworkType,
   AutopilotAnonymizationRule,
+  RunCheckpointInfo,
 } from '@sandforge/shared';
 import { updateGraphNodeStatus, updateGraphNodeProgress } from '../utils/graphStoreUtils';
 
@@ -68,6 +69,22 @@ export interface LiveStats {
   totalWaves: number;
 }
 
+/**
+ * The run that ended, as what it took first and a rewind's mark read it. Kept
+ * here, not on the page: "Rewind to before this run…" leaves the page, which
+ * comes back to the run it left, with the rewind to mark on it.
+ */
+export interface AutopilotRunEnd {
+  /** The org it wrote to, by its id in this machine's registry. */
+  orgId: string;
+  startedAt: string;
+  endedAt: string;
+  /** The objects it set out to write. */
+  objects: string[];
+  /** What became of the checkpoint it took first; absent when it took none. */
+  checkpoint?: RunCheckpointInfo;
+}
+
 /** Default live stats values */
 const DEFAULT_LIVE_STATS: LiveStats = {
   recordsProcessed: 0,
@@ -90,6 +107,8 @@ const INITIAL_STATE = {
   complianceFramework: 'none' as ComplianceFrameworkType,
   neutralizeContactPoints: true,
   muteAutomation: false,
+  checkpointFirst: false,
+  runEnd: null as AutopilotRunEnd | null,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
   rules: [] as AutopilotAnonymizationRule[],
@@ -130,6 +149,14 @@ export interface AutopilotState {
    * off unless ticked on the review step.
    */
   muteAutomation: boolean;
+  /**
+   * Whether the run takes a checkpoint of what it writes before its first
+   * write: off unless ticked on the review step, which recommends it. An
+   * Autopilot run has no removal: the checkpoint is its way back.
+   */
+  checkpointFirst: boolean;
+  /** The last run that ended, once it has; null before, and from Execute on. */
+  runEnd: AutopilotRunEnd | null;
   /** Dependency graph built from metadata scan */
   graph: AutopilotGraph | null;
   /** Execution plan derived from the graph */
@@ -167,6 +194,10 @@ export interface AutopilotState {
   setNeutralizeContactPoints: (on: boolean) => void;
   /** Mute the target's automation for the run, or not */
   setMuteAutomation: (mute: boolean) => void;
+  /** Tick or untick the review step's option. */
+  setCheckpointFirst: (first: boolean) => void;
+  /** Keep the run that ended, or forget it as another starts. */
+  setRunEnd: (runEnd: AutopilotRunEnd | null) => void;
   /** Set the dependency graph */
   setGraph: (graph: AutopilotGraph | null) => void;
   /** Set the execution plan */
@@ -257,6 +288,14 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
 
   setMuteAutomation(muteAutomation: boolean): void {
     set({ muteAutomation });
+  },
+
+  setCheckpointFirst(checkpointFirst: boolean): void {
+    set({ checkpointFirst });
+  },
+
+  setRunEnd(runEnd: AutopilotRunEnd | null): void {
+    set({ runEnd });
   },
 
   setGraph(graph: AutopilotGraph | null): void {

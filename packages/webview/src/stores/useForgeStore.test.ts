@@ -626,6 +626,38 @@ describe('useForgeStore', () => {
       expect(getState().history).toEqual([]);
     });
 
+    it('keeps what its checkpoint would hold and cost, for Review’s option, past its results', () => {
+      const estimate = {
+        state: 'planned' as const,
+        estimate: {
+          records: 38,
+          apiRequests: 68,
+          apiRequestsLeft: 14_000,
+          seconds: 44,
+          bytes: 2_200_000,
+        },
+        objects: ['Account'],
+        added: [],
+        notHeld: [],
+        keepDays: 7,
+      };
+      getState().setGraph(createMockGraph());
+      getState().setExecutionRequestId('wv-sim');
+      getState().markSimulation();
+      getState().setPhase('execution');
+      getState().finishRun('wv-sim', createMockResult({ dryRun: true, checkpoint: estimate }));
+      expect(getState().checkpointEstimate).toEqual(estimate);
+
+      getState().reviewSimulation();
+      expect(getState().checkpointEstimate).toEqual(estimate);
+
+      // One asked with no checkpoint says nothing of the last one's.
+      getState().setExecutionRequestId('wv-sim-2');
+      getState().setPhase('execution');
+      getState().finishRun('wv-sim-2', createMockResult({ dryRun: true }));
+      expect(getState().checkpointEstimate).toBeNull();
+    });
+
     it('goes back to Review from its results, the graph idle again and the gaps kept', () => {
       simulated();
       getState().updateNodeStatus('Account', 'done', 100);
@@ -907,6 +939,28 @@ describe('useForgeStore', () => {
       addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test log' });
       expect(useForgeStore.getState().logs).toHaveLength(1);
       expect(useForgeStore.getState().logs[0].message).toBe('Test log');
+    });
+  });
+
+  describe('the checkpoint first', () => {
+    it('is off, and a new clone takes it off again, with what a simulation said of it', () => {
+      expect(getState().checkpointFirst).toBe(false);
+      getState().setCheckpointFirst(true);
+      useForgeStore.setState({
+        checkpointEstimate: {
+          state: 'planned',
+          estimate: { records: 1, apiRequests: 1, apiRequestsLeft: 1, seconds: 1, bytes: 1 },
+          objects: [],
+          added: [],
+          notHeld: [],
+          keepDays: 7,
+        },
+      });
+
+      getState().forgeAgain();
+
+      expect(getState().checkpointFirst).toBe(false);
+      expect(getState().checkpointEstimate).toBeNull();
     });
   });
 
@@ -1294,6 +1348,20 @@ describe('useForgeStore', () => {
         message: 'INVALID_SESSION_ID: Session expired or invalid',
       });
       expect(getState().phase).toBe('execution');
+    });
+
+    it('keeps what became of the checkpoint the run took first, when its error says', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'The mute was refused.',
+        code: 'MUTE_REFUSED',
+        checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
+      });
+
+      expect(getState().runError?.checkpoint).toEqual({
+        state: 'deleted',
+        deleted: 'nothingWritten',
+      });
     });
 
     it('keeps what the run had written, when its error carries it', () => {

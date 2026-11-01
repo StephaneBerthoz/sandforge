@@ -23,7 +23,8 @@ import * as z from 'zod';
  *   one to ask.
  * - `CHECKPOINT_REFUSED`: the checkpoint the run was asked to take of what it
  *   writes before its first write (Checkpoint first) was refused, at its
- *   scope or at its take, or could not be taken. The mute assigned nothing.
+ *   scope or at its take — the stop's `reason` says by what —, or could not
+ *   be taken. The mute assigned nothing.
  * - `API_BUDGET_EXCEEDED`: the rows, and the checkpoint taken first, take
  *   more API requests than the target has left today.
  */
@@ -71,12 +72,25 @@ export interface ForgeRunGateStop {
    * it (`sandforge.forge.maxRecordsPerObject`).
    */
   ceiling?: number;
+  /**
+   * For a run refused for the checkpoint it was to take first: the take's
+   * own refusal, by its code (a `CheckpointRefusalCode`: `DISK`,
+   * `RUN_WRITING`, `NOTHING_HELD`, `TOO_MANY_RECORDS`…), which the page words
+   * where it said only that the checkpoint was refused. Absent for a take
+   * that failed rather than refused, and for any other stop.
+   */
+  reason?: string;
 }
 
 const stopSchema = z.object({
   code: z.enum(FORGE_RUN_GATE_CODES),
   storage: z.object({ estimateMB: z.number().nonnegative(), remainingMB: z.number() }).optional(),
   ceiling: z.number().int().positive().optional(),
+  // A refusal's code as the checkpoint's guards spell it: never words.
+  reason: z
+    .string()
+    .regex(/^[A-Z][A-Z_]{0,39}$/)
+    .optional(),
 });
 
 /** Whether `value` is one of the codes a run stops at its gate with. */
@@ -91,10 +105,11 @@ export function isForgeRunGateCode(value: unknown): value is ForgeRunGateCode {
 export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
   const parsed = stopSchema.safeParse(value);
   if (!parsed.success) return null;
-  const { code, storage, ceiling } = parsed.data;
+  const { code, storage, ceiling, reason } = parsed.data;
   return {
     code,
     ...(storage ? { storage } : {}),
     ...(ceiling !== undefined ? { ceiling } : {}),
+    ...(reason !== undefined && code === 'CHECKPOINT_REFUSED' ? { reason } : {}),
   };
 }

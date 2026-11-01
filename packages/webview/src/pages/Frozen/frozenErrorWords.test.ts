@@ -40,6 +40,21 @@ describe('frozenErrorWords', () => {
     );
   });
 
+  it('says a load refused for its checkpoint first wrote nothing, and how to run it without', () => {
+    expect(
+      frozenErrorWords(
+        { code: 'CHECKPOINT_REFUSED', message: 'The checkpoint before the load was refused.' },
+        t,
+        aliasOf,
+      ),
+    ).toBe(
+      'The load was refused before it wrote anything: the checkpoint it was to take first of ' +
+        'the objects it writes was refused, or could not be taken, which the SandForge output ' +
+        'says. Nothing was written. Untick Checkpoint first to load without it, or fix what ' +
+        'refuses it.',
+    );
+  });
+
   it('names the source a load was refused into by the name the panel gives it', () => {
     expect(
       frozenErrorWords(

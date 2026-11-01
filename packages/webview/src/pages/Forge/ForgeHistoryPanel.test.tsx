@@ -26,6 +26,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { ForgeHistoryPanel } from './ForgeHistoryPanel';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeStore } from '../../stores/useForgeStore';
 
 /**
@@ -841,6 +842,129 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     const entry = screen.getByTestId('forge-history-entry-forge-removable');
     expect(within(entry).queryByRole('button', { name: /Remove/ })).toBeNull();
     expect(screen.queryByTestId('forge-history-remove-unrecorded-forge-removable')).toBeNull();
+  });
+
+  describe('a run that took a checkpoint first', () => {
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [developerOrg({ id: DEV.id, alias: DEV.alias })] });
+    });
+
+    const TOOK_ONE: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      checkpoint: {
+        state: 'taken',
+        checkpointId: 'ck-20260214-170000-a1b2',
+        name: 'Before Forge run 2026-02-14 17:00 UTC',
+        takenAt: '2026-02-14T17:00:00.000Z',
+        expiresAt: '2026-02-21T17:00:00.000Z',
+        objects: ['Account', 'Contact'],
+        records: 38,
+        bytes: 2_100_000,
+        requests: 66,
+        added: [],
+        notHeld: [],
+      },
+    };
+
+    it('names it on its line, with the way to a rewind, under the removal', () => {
+      render(<ForgeHistoryPanel entries={[TOOK_ONE]} error={null} onReuseConfig={vi.fn()} />);
+
+      const line = screen.getByTestId(`forge-history-checkpoint-${TOOK_ONE.forgeId}`);
+      expect(line.textContent).toContain('“Before Forge run 2026-02-14 17:00 UTC”');
+      expect(
+        screen.getByTestId(`forge-history-checkpoint-${TOOK_ONE.forgeId}-action`).textContent,
+      ).toBe('Rewind to before this run…');
+      const removal = screen.getByTestId(`forge-history-remove-${TOOK_ONE.forgeId}`);
+      expect(removal.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // On a line: what the rewind does beside the removal is the result's to say.
+      expect(
+        screen.queryByTestId(`forge-history-checkpoint-${TOOK_ONE.forgeId}-beside`),
+      ).toBeNull();
+    });
+
+    it('says a removal that kept records leaves them to the rewind', () => {
+      render(
+        <ForgeHistoryPanel
+          entries={[
+            {
+              ...TOOK_ONE,
+              undo: {
+                removedAt: '2026-02-15T13:00:00.000Z',
+                deleted: 1,
+                alreadyGone: 0,
+                kept: 2,
+                refused: 0,
+              },
+            },
+          ]}
+          error={null}
+          onReuseConfig={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByTestId(`forge-history-checkpoint-${TOOK_ONE.forgeId}-after-removal`)
+          .textContent,
+      ).toBe('What the removal kept, a rewind to this checkpoint takes back.');
+    });
+
+    it('says one that wrote nothing deleted it', () => {
+      render(
+        <ForgeHistoryPanel
+          entries={[
+            { ...REMOVABLE_RUN, checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+          ]}
+          error={null}
+          onReuseConfig={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByTestId(`forge-history-checkpoint-${REMOVABLE_RUN.forgeId}-deleted`).textContent,
+      ).toBe('The checkpoint taken before the run was deleted: the run wrote nothing.');
+    });
+
+    it('marks it rewound whole by a rewind to that checkpoint, its reads begun before the take', () => {
+      render(<ForgeHistoryPanel entries={[TOOK_ONE]} error={null} onReuseConfig={vi.fn()} />);
+      const request = sent('checkpoint:rewinds');
+      if (!request) throw new Error("no 'checkpoint:rewinds' was sent");
+      const ended = Date.parse(TOOK_ONE.timestamp);
+      const rewound = new Date(ended + 3_600_000).toISOString();
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-rewinds',
+              type: 'checkpoint:rewinds:response',
+              timestamp: Date.now(),
+              correlationId: request.id,
+              payload: {
+                rewinds: [
+                  {
+                    kind: 'rewind',
+                    rewindId: 'rw-20260215-100000-aaaa',
+                    checkpointId: 'ck-20260214-170000-a1b2',
+                    checkpointName: 'Before Forge run 2026-02-14 17:00 UTC',
+                    organizationId: '00D000000000001AAA',
+                    mode: 'picked',
+                    objects: ['Account', 'Contact'],
+                    // Taken as the run began: its dates alone read it as running then.
+                    readFrom: new Date(ended - 60_000).toISOString(),
+                    takenAt: new Date(ended - 30_000).toISOString(),
+                    startedAt: rewound,
+                    endedAt: rewound,
+                    status: 'success',
+                    totals: { deleted: 3, restored: 0, undeleted: 0, recreated: 0 },
+                    orgIds: [DEV.id],
+                  },
+                ],
+              },
+            },
+          }),
+        );
+      });
+      expect(
+        screen.getByTestId(`forge-history-rewound-${TOOK_ONE.forgeId}`).getAttribute('data-kind'),
+      ).toBe('rewound');
+    });
   });
 
   describe('a run whose removal found its records gone, a rewind having deleted them', () => {

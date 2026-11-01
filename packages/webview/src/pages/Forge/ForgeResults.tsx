@@ -67,6 +67,9 @@ import { useForgeRunGateStore } from './runGate';
 import { createdTargets, objectResultsCsv, rootCopyOf } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
+import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOption';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { runCheckpointEstimateOf, takenOrDeleted } from '../../utils/runCheckpoint';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -238,6 +241,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // result recorded before the count was carried still falls back on them.
   /** Whether the run was a simulation: nothing was written, and its counts are what a real run would do. */
   const simulation = result?.dryRun === true;
+  /** What the checkpoint a simulation was asked for would hold and cost. */
+  const simulatedCheckpoint = runCheckpointEstimateOf(result?.checkpoint);
   const inserted = useMemo(
     () =>
       simulation
@@ -875,6 +880,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             <p data-testid="forge-results-simulation-gaps">
               {t('forgeRun.simulation.gapsFound', { gaps: result?.gaps?.length ?? 0 })}
             </p>
+            {simulatedCheckpoint && (
+              <CheckpointFirstEstimate
+                estimate={simulatedCheckpoint}
+                lead={t('runResults.checkpoint.estimate.simulation')}
+                testId="forge-results-simulation-checkpoint"
+              />
+            )}
           </div>
           <Button
             variant="secondary"
@@ -1608,6 +1620,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           run={result}
           targetOrgId={config?.targetOrgId}
           onRemoved={handleRemoved}
+        />
+      )}
+      {/* Under the removal, which takes back what the run wrote alone: the
+          rewind takes back everything since, whoever did it. */}
+      {!simulated && (
+        <RewindBeforeRun
+          checkpoint={takenOrDeleted(result?.checkpoint)}
+          orgId={targetOrgId}
+          beside="run"
+          leftByRemoval={(result?.undo?.kept ?? 0) + (result?.undo?.refused ?? 0) > 0}
+          testId="forge-results-checkpoint"
         />
       )}
     </div>

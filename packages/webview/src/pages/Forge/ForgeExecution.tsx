@@ -37,6 +37,7 @@ import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { translateError } from '@sandforge/shared';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
+import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { ForgeExecutionTable } from './ForgeExecutionTable';
 import { ForgeViewToggle } from './ForgeViewToggle';
 
@@ -80,6 +81,7 @@ export const ForgeExecution: React.FC = () => {
   const graph = useForgeStore((s) => s.graph);
   const logs = useForgeStore((s) => s.logs);
   const runError = useForgeStore((s) => s.runError);
+  const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const runClock = useForgeStore((s) => s.runClock);
   const stopRequestedAt = useForgeStore((s) => s.stopRequestedAt);
   const apiCallsSoFar = useForgeStore((s) => s.apiCallsSoFar);
@@ -296,6 +298,16 @@ export const ForgeExecution: React.FC = () => {
                 {t('forgeRun.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}
               </p>
             )}
+            {/* Stopped once the checkpoint it took first was through, with no
+                entry to say what became of it: deleted, or kept for what the
+                run may have written. */}
+            <RewindBeforeRun
+              checkpoint={runError.checkpoint}
+              orgId={targetOrgId}
+              beside="run"
+              compact
+              testId="forge-execution-checkpoint"
+            />
           </div>
           {runError.stoppedRun ? (
             <Button

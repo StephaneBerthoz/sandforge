@@ -26,8 +26,8 @@ export interface StartForgeRunOptions {
  * second sends exactly what the first does: the graph as it stands — the
  * objects included, the fields to anonymize on each — the config, the method
  * chosen for each personal-data category, and the files only once their copy
- * was turned on, and the mute of the target's automation once Review's box
- * was ticked. Every guard the run then meets is the extension's —
+ * was turned on, the mute of the target's automation once Review's box was
+ * ticked, and the checkpoint first once Review's option was. Every guard the run then meets is the extension's —
  * Production Guard, the run's gate (a production target refused, what the
  * target runs on insert and what the run is about to write put to the user in
  * VS Code), the duplicate-run cooldown, one run at a time — and it meets them
@@ -51,7 +51,8 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
   state.resetNodeStatuses();
   // Why the run before stopped at its gate is that run's: this one has its own.
   useForgeRunGateStore.getState().clear();
-  const { anonymizationRules, fileCopy, muteAutomation } = useForgeStore.getState();
+  const { anonymizationRules, fileCopy, muteAutomation, checkpointFirst } =
+    useForgeStore.getState();
   // The methods chosen in the Anonymization tab go with the run: the fields
   // travel on the graph's nodes, and the run used to receive only those, so
   // every category was written with no method at all. So does the choice
@@ -77,6 +78,10 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
     // Review's box, ticked: the target's automation is muted through its own
     // bypass for the run. A simulation assigns nothing, and is not asked.
     ...(muteAutomation && !options.dryRun ? { muteAutomation: true } : {}),
+    // Review's option, ticked: a real run takes its checkpoint before its
+    // first write, kept as the setting says; a simulation takes none, and
+    // says what it would hold and cost.
+    ...(checkpointFirst ? { checkpointFirst: {} } : {}),
   });
   // Mission control takes only the messages correlated to this request.
   const store = useForgeStore.getState();
