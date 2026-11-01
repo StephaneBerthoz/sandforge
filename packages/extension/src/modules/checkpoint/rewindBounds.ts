@@ -20,7 +20,9 @@
  *   history and the audit trail keep the refusal;
  * - an acceptance the rewind needs and was not given: the refusal the command
  *   line gives without its flag (`NO_UNDO`, `RECREATE`, `UNSEEN`,
- *   `AUTOMATION`), saying what gives it — a flag, or the step's setting;
+ *   `AUTOMATION`, then `EMAILS_DELIVERED` for the emails of what still runs,
+ *   which an org on All email delivers), saying what gives it — a flag, or
+ *   the step's setting;
  * - `EMAILS`: more emails of a daily limit than the org has left today, a
  *   Developer Edition's fifteen single emails among them, which nothing lifts.
  *
@@ -47,11 +49,11 @@ import {
   type RewindSelectionPlan,
   type RewindUndoCannot,
   type RewindUndoCannotReason,
+  type RunDeliverability,
 } from '@sandforge/shared';
 
 import { FILE_LINK_OBJECT } from './checkpointScope.js';
-import { objectsWrittenBy } from './previewCheckpoint.js';
-import { emailsRefusal } from './rewindEmails.js';
+import { actEmailsGate, actSendersOf, emailsRefusal } from './rewindEmails.js';
 import { diffOfPicked } from './rewindPlan.js';
 
 /** What a refusal before any write ends with. */
@@ -72,6 +74,32 @@ const toRecreateOf = (o: RewindDiffObject): number => o.toRecreate ?? 0;
 const carriersOf = (o: RewindDiffObject): number => o.toBringBack.carriers ?? 0;
 
 // ─── What a preview says a rewind does ───────────────────────────────────────
+
+/**
+ * The objects a rewind would write to: records to delete, to give values
+ * back, to bring back, or to make again, and records it brings back for a
+ * moment to delete again — counted in none of those, but written twice: the
+ * rewind reads what runs on their object, and refuses it unaccepted. The
+ * link of a file to a record too, when it removes, inserts or updates links:
+ * a trigger on a link — a file attached updates its case — runs on each.
+ */
+export function objectsWrittenBy(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): string[] {
+  const writes = (object: RewindDiffObject): boolean =>
+    toDeleteOf(object) +
+      object.toGiveBack.records +
+      toBringBackOf(object) +
+      carriersOf(object) +
+      toRecreateOf(object) >
+    0;
+  const written = diff.objects.filter(writes).map((object) => object.objectApiName);
+  const links = diff.files;
+  if (links !== undefined && links.unlink + links.relink + links.updateLinks > 0) {
+    written.push(FILE_LINK_OBJECT);
+  }
+  return written;
+}
 
 /**
  * What a rewind to a checkpoint would do, in the three numbers the preview
@@ -186,11 +214,17 @@ export function rewindStepsOf(
 
 /** An acceptance a rewind needs for some of what it does. */
 export type RewindAcceptance =
-  'acceptAutomation' | 'acceptNoUndo' | 'acceptRecreate' | 'acceptUnseen';
+  'acceptAutomation' | 'acceptEmails' | 'acceptNoUndo' | 'acceptRecreate' | 'acceptUnseen';
 
 /** What a rewind is told it may do, by its flags or its step's configuration. */
 export interface RewindAccepted {
   acceptAutomation: boolean;
+  /**
+   * Send the emails what still runs as it writes sends, where the org
+   * delivers them all or would not say whether it does. Not given, not
+   * accepted; `acceptAutomation` never stands for it.
+   */
+  acceptEmails?: boolean;
   acceptNoUndo: boolean;
   acceptRecreate: boolean;
   /** Not given, not accepted. */
@@ -205,6 +239,12 @@ export interface BoundedPreview {
   emails?: readonly CheckpointEmails[];
   /** Why the emails of what fires as the rewind writes were not all counted. */
   emailsUncounted?: string;
+  /**
+   * Whether the org delivers the emails of what still runs as the rewind
+   * writes, as the preview read it; absent when it read none, nothing that
+   * runs sending one.
+   */
+  deliverability?: RunDeliverability;
 }
 
 /**
@@ -217,6 +257,12 @@ export interface BoundWords {
   limit: (max: number) => string;
   /** What lifts each refusal: "give --accept-no-undo to rewind all the same". */
   lift: Readonly<Record<RewindAcceptance | 'maxRecords' | 'refuseWhenActive', string>>;
+  /**
+   * Whether the rewind could mute the org's automation (`--mute-automation`):
+   * a refusal for its emails then names what the mute keeps quiet. A
+   * pipeline's Rewind step mutes nothing.
+   */
+  mutes: boolean;
 }
 
 /**
@@ -225,9 +271,11 @@ export interface BoundWords {
  */
 export const REWIND_STEP_WORDS: BoundWords = {
   limit: (max) => `this step's limit of ${count(max)}`,
+  mutes: false,
   lift: {
     acceptAutomation:
       'turn on acceptAutomation in the step and confirm it again to rewind all the same',
+    acceptEmails: 'turn on acceptEmails in the step and confirm it again to rewind all the same',
     acceptNoUndo: 'turn on acceptNoUndo in the step and confirm it again to rewind all the same',
     acceptRecreate:
       'turn on acceptRecreate in the step and confirm it again to rewind all the same',
@@ -254,23 +302,69 @@ const UNDO_CANNOT_WORDS: ReadonlyArray<{ reason: RewindUndoCannotReason; words: 
   },
 ];
 
+/** The sentence of Forge's refusal for the emails that says what lifts it on the command line. */
+const EMAILS_LIFTED_BY = 'Add --accept-emails to rewind all the same';
+
+/**
+ * The refusal a rewind of what `answer` previewed would meet for its emails:
+ * the org delivers every email what still runs as it writes sends, or would
+ * not say whether it does, and they were not accepted (`EMAILS_DELIVERED`).
+ * Judged by the act's own gate on the preview's reading, and said with what
+ * lifts it where the rewind runs: the command line's flag, a step's setting.
+ * A preview that read none found nothing that sends: the rewind reads the org
+ * again before it writes, whatever this says.
+ */
+function emailsDeliveredRefusal(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'deliverability'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+  mutes: boolean,
+): CheckpointRefusal | undefined {
+  const { automation, deliverability } = answer;
+  if (!automation || !deliverability) return undefined;
+  const steps = rewindStepsOf(answer.diff);
+  const { refusal } = actEmailsGate({
+    act: 'rewind',
+    orgName,
+    automation,
+    steps,
+    accepted: accepted.acceptEmails === true,
+    mayMute: mutes,
+    ...actSendersOf({ automation, steps }),
+    reading: deliverability.reading,
+  });
+  if (!refusal) return undefined;
+  const said = lift.acceptEmails;
+  return {
+    ...refusal,
+    message: refusal.message.replace(
+      EMAILS_LIFTED_BY,
+      `${said.charAt(0).toUpperCase()}${said.slice(1)}`,
+    ),
+  };
+}
+
 /**
  * The refusal a rewind of what `answer` previewed would meet before it
  * writes, for want of an acceptance: deletions Undo couldn't bring back,
  * records to make again with new Ids, deletions that take along records
  * `user` is not proven to see, automation its writes fire — or that could not
- * all be read. Said before the rewind is asked, as the page holds its button
- * until the box is ticked; the rewind itself refuses the same, whatever this
- * says.
+ * all be read —, and emails of what still runs that the org delivers, or
+ * would not say whether it does. Said before the rewind is asked, as the page
+ * holds its button until the box is ticked; the rewind itself refuses the
+ * same, whatever this says.
  *
  * @param lift - What gives each acceptance: {@link BoundWords.lift}.
+ * @param mutes - Whether the rewind could mute the org's automation: {@link BoundWords.mutes}.
  */
 export function acceptanceRefusal(
   orgName: string,
-  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted'>,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted' | 'deliverability'>,
   accepted: RewindAccepted,
   lift: BoundWords['lift'],
   user = 'the user SandForge connects as',
+  mutes = false,
 ): CheckpointRefusal | undefined {
   const { diff, automation, emailsUncounted } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
@@ -318,11 +412,14 @@ export function acceptanceRefusal(
       message: `${said.join(' ')} Rewind refused; ${lift.acceptUnseen}. ${NOTHING_WRITTEN}`,
     };
   }
-  if (!automation || accepted.acceptAutomation) return undefined;
+  if (!automation) return undefined;
+  const emails = (): CheckpointRefusal | undefined =>
+    emailsDeliveredRefusal(orgName, answer, accepted, lift, mutes);
+  if (accepted.acceptAutomation) return emails();
   const steps = rewindStepsOf(diff);
   const fired = firedOnRemovalStepsOf(automation, steps);
   if (fired.length === 0 && !blindedBy(automation.unread) && emailsUncounted === undefined) {
-    return undefined;
+    return emails();
   }
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
   // A link put back is an insert of a link, no record made again.
@@ -415,7 +512,7 @@ export async function boundsRefusal(check: BoundsCheck): Promise<CheckpointRefus
     }
   }
   return (
-    acceptanceRefusal(orgName, preview, check.accepted, words.lift, check.user) ??
+    acceptanceRefusal(orgName, preview, check.accepted, words.lift, check.user, words.mutes) ??
     emailsRefusal('rewind', preview.emails ?? [], orgName)
   );
 }

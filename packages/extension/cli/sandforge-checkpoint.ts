@@ -72,6 +72,7 @@ import {
   type RewindStatus,
   type RewindUndoCannot,
   type RewindUndoCannotReason,
+  type RunDeliverability,
   type SalesforceOrg,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
@@ -107,6 +108,7 @@ import {
   type BoundWords,
   type RewindAccepted,
 } from '../src/modules/checkpoint/rewindBounds.js';
+import { actEmailsGate, actSendersOf } from '../src/modules/checkpoint/rewindEmails.js';
 import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
@@ -177,6 +179,15 @@ rewind:
   --accept-automation            rewind even when the org runs flows, Apex triggers, processes or
                                  workflow rules as records are updated, deleted or brought back;
                                  without it such a rewind writes nothing, exit 1
+  --accept-emails                rewind even when the org delivers every email its automation
+                                 sends (Setup > Deliverability: All email), or would not say
+                                 whether it does, and what still runs as it writes sends some:
+                                 they go to the addresses the records and the alerts name, and to
+                                 the records' owners. Without it such a rewind writes nothing,
+                                 exit 1. --accept-automation never stands for it. Read with one
+                                 line of anonymous Apex that sends nothing, only when something
+                                 that still runs sends an email; what Apex triggers send is not
+                                 read
   --mute-automation              mute the org's automation for the rewind through its own bypass:
                                  assign the user it writes as, for the rewind alone, the permission
                                  sets holding the custom permissions its flows, processes and
@@ -218,6 +229,7 @@ rewind:
                                  step — it stops at its question, exit 2, having written nothing
 undo:
   --accept-automation            as for rewind
+  --accept-emails                as for rewind
   --mute-automation              as for rewind
   --yes                          as for rewind
 delete:
@@ -328,15 +340,19 @@ JSON (--json), one value on stdout:
                      user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
-                      emailsUncounted?, refusal?}: carriers, the records brought back for a
-                     moment and deleted again, in none of the other numbers; diff, estimate,
+                      emailsUncounted?, deliverability?, refusal?}: carriers, the records
+                     brought back for a moment and deleted again, in none of the other numbers;
+                     diff, estimate,
                      automation and refusal as the extension answers them; refusal is the one a
                      rewind would meet now; emails, one per daily limit its writes send
                      against: {limit, emails, verdict, remaining?, max?, alertsCounted?,
                      objects: [{objectApiName, write, records, perRecord, sentBy}]};
                      emailsUncounted, what sends emails as it writes that could not be read — a
                      flow whose definition was refused, a package's, which no user reads — its
-                     emails not counted, which --accept-automation covers;
+                     emails not counted, which --accept-automation covers; deliverability,
+                     when something that still runs may send an email: {reading: {level: all
+                     or withheld} or {unread}, senders: [{objectApiName, kind, name, why}]},
+                     which --accept-emails answers for all and unread;
                      diff.objects[].schemaDrift, of an object whose fields changed since:
                      {removed, added, changed, hidden?, uncertain?: {fields, reason?}}, removed
                      the custom fields deleted since, hidden those field-level security hides
@@ -399,8 +415,9 @@ org matches among the objects and fields compared — with --object, among the o
 whatever still differs in the others; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
 kept, or was already); 1 refused before it read or wrote (a production org,
-missing permissions, automation without --accept-automation, deletions undo could not bring back
-without --accept-no-undo, records to make again with new Ids without --accept-recreate,
+missing permissions, automation without --accept-automation, emails the org delivers or would not
+say it withholds without --accept-emails (refusal code EMAILS_DELIVERED), deletions undo could not
+bring back without --accept-no-undo, records to make again with new Ids without --accept-recreate,
 deletions taking along records the user is not proven to see without --accept-unseen, more than
 --max-total records, more records to rewind than --max-records, people working in the org in the
 hour before with --refuse-when-active, more API requests or emails than the org
@@ -473,6 +490,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       ...COMMON.switches,
       '--dry-run',
       '--accept-automation',
+      '--accept-emails',
       '--mute-automation',
       '--accept-no-undo',
       '--accept-recreate',
@@ -485,7 +503,13 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   undo: {
     words: 1,
-    switches: [...COMMON.switches, '--accept-automation', '--mute-automation', '--yes'],
+    switches: [
+      ...COMMON.switches,
+      '--accept-automation',
+      '--accept-emails',
+      '--mute-automation',
+      '--yes',
+    ],
     values: [...COMMON.values, '--checkpoint'],
   },
   delete: {
@@ -554,6 +578,8 @@ export type CliArgs =
       objects: string[];
       dryRun: boolean;
       acceptAutomation: boolean;
+      /** Send the emails what still runs as it writes sends, where the org delivers them. */
+      acceptEmails: boolean;
       /** Mute the org's automation for the rewind, through its own bypass. */
       muteAutomation: boolean;
       acceptNoUndo: boolean;
@@ -574,6 +600,8 @@ export type CliArgs =
       /** Absent: the checkpoint the org's last rewind went back to. */
       checkpoint?: string;
       acceptAutomation: boolean;
+      /** Send the emails what still runs as it writes sends, where the org delivers them. */
+      acceptEmails: boolean;
       /** Mute the org's automation for the undo, through its own bypass. */
       muteAutomation: boolean;
       yes: boolean;
@@ -780,6 +808,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         objects: objectsNamed(),
         dryRun: args.includes('--dry-run'),
         acceptAutomation: args.includes('--accept-automation'),
+        acceptEmails: args.includes('--accept-emails'),
         muteAutomation: args.includes('--mute-automation'),
         acceptNoUndo: args.includes('--accept-no-undo'),
         acceptRecreate: args.includes('--accept-recreate'),
@@ -801,6 +830,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         org: named,
         ...(checkpoint !== undefined ? { checkpoint } : {}),
         acceptAutomation: args.includes('--accept-automation'),
+        acceptEmails: args.includes('--accept-emails'),
         muteAutomation: args.includes('--mute-automation'),
         yes: args.includes('--yes'),
       };
@@ -1515,8 +1545,37 @@ export interface PreviewAnswer {
   emails?: CheckpointEmails[];
   /** Why the emails of what fires as the rewind writes were not all counted. */
   emailsUncounted?: string;
+  /**
+   * What still runs as the rewind writes that may send an email, and whether
+   * the org delivers them; absent when nothing sends, so it was not read.
+   */
+  deliverability?: RunDeliverability;
   estimate: CheckpointEstimate;
   refusal?: CheckpointRefusal;
+}
+
+/**
+ * The line of a rewind's preview that says whether the org delivers the
+ * emails of what still runs: nothing when nothing sends, which reads nothing.
+ */
+function deliverabilityLines(
+  orgName: string,
+  answer: Pick<PreviewAnswer, 'diff' | 'automation' | 'deliverability'>,
+): string[] {
+  const { automation, deliverability } = answer;
+  if (!automation || !deliverability) return [];
+  const steps = rewindStepsOf(answer.diff);
+  const { line } = actEmailsGate({
+    act: 'rewind',
+    orgName,
+    automation,
+    steps,
+    accepted: true,
+    mayMute: false,
+    ...actSendersOf({ automation, steps }),
+    reading: deliverability.reading,
+  }).gate;
+  return line !== undefined ? [`  ${line}`] : [];
 }
 
 /** How each daily email limit is said. */
@@ -1802,6 +1861,7 @@ export function previewLines(
         'the rewind writes is not known; --accept-automation covers it',
     );
   }
+  lines.push(...deliverabilityLines(orgName, answer));
   lines.push(estimateLine(answer.estimate));
   if (answer.refusal) lines.push(`  a rewind now would be refused: ${answer.refusal.message}`);
   return lines;
@@ -1903,6 +1963,7 @@ export function previewJson(
     ...(answer.automation ? { automation: answer.automation } : {}),
     ...(answer.emails ? { emails: answer.emails } : {}),
     ...(answer.emailsUncounted !== undefined ? { emailsUncounted: answer.emailsUncounted } : {}),
+    ...(answer.deliverability ? { deliverability: answer.deliverability } : {}),
     ...(answer.refusal ? { refusal: answer.refusal } : {}),
   };
 }
@@ -2045,8 +2106,10 @@ async function selectionOf(
 const COMMAND_LINE_WORDS: BoundWords = {
   // As the flag is given: a number with no separator.
   limit: (max) => `--max-records ${max}`,
+  mutes: true,
   lift: {
     acceptAutomation: 'give --accept-automation to rewind all the same',
+    acceptEmails: 'add --accept-emails to rewind all the same',
     acceptNoUndo: 'give --accept-no-undo to rewind all the same',
     acceptRecreate: 'give --accept-recreate to rewind all the same',
     acceptUnseen: 'give --accept-unseen to rewind all the same',
@@ -2061,18 +2124,27 @@ const COMMAND_LINE_WORDS: BoundWords = {
  * `--accept-no-undo`, records to make again with new Ids without
  * `--accept-recreate`, deletions that take along records `user` is not
  * proven to see without `--accept-unseen`, automation its writes fire — or
- * that could not all be read — without `--accept-automation`. Said before the
- * question, as the page holds its button until the box is ticked; the rewind
- * itself refuses the same, whatever this says. A pipeline's Rewind step is
- * refused the same, naming its settings (`rewindBounds.ts`).
+ * that could not all be read — without `--accept-automation`, the emails of
+ * what still runs, which the org delivers or would not say it withholds,
+ * without `--accept-emails`. Said before the question, as the page holds its
+ * button until the box is ticked; the rewind itself refuses the same,
+ * whatever this says. A pipeline's Rewind step is refused the same, naming
+ * its settings (`rewindBounds.ts`).
  */
 export function acceptanceRefusal(
   orgName: string,
-  answer: Pick<PreviewAnswer, 'diff' | 'automation' | 'emailsUncounted'>,
+  answer: Pick<PreviewAnswer, 'diff' | 'automation' | 'emailsUncounted' | 'deliverability'>,
   accepted: RewindAccepted,
   user = 'the user SandForge connects as',
 ): CheckpointRefusalLike | undefined {
-  return acceptanceOf(orgName, answer, accepted, COMMAND_LINE_WORDS.lift, user);
+  return acceptanceOf(
+    orgName,
+    answer,
+    accepted,
+    COMMAND_LINE_WORDS.lift,
+    user,
+    COMMAND_LINE_WORDS.mutes,
+  );
 }
 
 /** The question a rewind asks before it writes: what it does, typed as the page asks it. */
@@ -3413,6 +3485,7 @@ async function rewind(
           previewId: preview.diff.previewId,
           ...(objects ? { objects } : {}),
           acceptAutomation: args.acceptAutomation,
+          ...(args.acceptEmails ? { acceptEmails: true } : {}),
           ...(args.muteAutomation ? { muteAutomation: true } : {}),
           acceptNoUndo: args.acceptNoUndo,
           acceptRecreate: args.acceptRecreate,
@@ -3533,6 +3606,7 @@ async function undo(
           checkpointId: entry.checkpointId,
           rewindId,
           acceptAutomation: args.acceptAutomation,
+          ...(args.acceptEmails ? { acceptEmails: true } : {}),
           ...(args.muteAutomation ? { muteAutomation: true } : {}),
         },
         timeoutMs: WRITE_TIMEOUT_MS,

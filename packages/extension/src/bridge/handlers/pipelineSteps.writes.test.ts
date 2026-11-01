@@ -584,6 +584,33 @@ describe('the Rewind step', () => {
     expect(result.error).toContain("past this step's limit of 2");
   });
 
+  it('hands the rewind the emails its configuration accepts, none unless it says so, and fails on the refusal of those it does not', async () => {
+    const said =
+      'dev delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Turn on acceptEmails in the step and confirm it again to rewind all ' +
+      'the same.';
+    const rewind = vi.fn<NonNullable<PipelineStepRunners['rewind']>>(async () => {
+      throw new CheckpointStepRefused('EMAILS_DELIVERED', said);
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', REWIND),
+      context(),
+    );
+
+    expect(rewind.mock.calls[0][0].config.acceptEmails).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe(said);
+    expect(result.output).toMatchObject({ code: 'EMAILS_DELIVERED' });
+
+    const accepted = runners();
+    await executorWith(accepted).execute(
+      step('rewind', { ...REWIND, acceptEmails: true }),
+      context(),
+    );
+    expect(vi.mocked(accepted.rewind!).mock.calls[0][0].config.acceptEmails).toBe(true);
+  });
+
   it('fails with the counts of a rewind left untouched where nobody could be asked', async () => {
     const rewind = vi.fn(async () => {
       throw new CheckpointStepRefused(

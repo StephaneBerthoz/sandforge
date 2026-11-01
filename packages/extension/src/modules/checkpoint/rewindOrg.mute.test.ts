@@ -126,6 +126,22 @@ describe('heldWhile', () => {
     expect(muted).toMatchObject({ state: 'muted', assigned: ['PS_Case'], released: true });
   });
 
+  it('hands the act the lease as read back, to check against its plan before it writes, and gives it back whatever the act then does', async () => {
+    const { mute, org } = muteOf();
+    const planned = await muteOfSteps(mute, AUTOMATION, STEPS);
+    if ('refusal' in planned) throw new Error(planned.refusal.message);
+
+    const answer = await heldWhile(
+      planned.mute,
+      'rewind-1',
+      async (held) => held?.outcome.assigned,
+      () => undefined,
+    );
+
+    expect(answer).toEqual(['PS_Case']);
+    expect(org.assignments()).toEqual([]);
+  });
+
   it('writes with nothing held when nothing can be muted, and says so', async () => {
     const { mute, org } = muteOf();
     const planned = await muteOfSteps(mute, { ...AUTOMATION, bypassGrants: [] }, STEPS);

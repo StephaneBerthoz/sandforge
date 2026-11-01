@@ -25,6 +25,7 @@ import {
   applySteps,
   removalSubjectOf,
   runResultLines,
+  withEmailsAccepted,
   type EnvStepDeps,
 } from './envApply.js';
 import { readEnvFile, type EnvFileResolved } from './envFile.js';
@@ -481,6 +482,64 @@ describe('how a step ends, and what the apply then does', () => {
     expect(step?.refusal).toBe(last);
     expect(runResultLines(outcome.result, 'apply')).toContain(`      ${last ?? ''}`);
     expect(world.records('Asset')).toEqual([]);
+  });
+
+  it('stops at a seed refused for the emails the org delivers, exit 1, its words in the step and nothing written', async () => {
+    const said =
+      'TGT delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to seed all the same.';
+    const from = world.calls.length;
+    const refusing: CommandRunner = async (script, args, signal) =>
+      args.includes('--dry-run') || args.includes('--remove')
+        ? world.runner(script, args, signal)
+        : { code: 1, stdout: '', stderr: `${said}\n` };
+
+    const outcome = await apply(resolvedOf(), {}, { runner: refusing });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.result.status).toBe('failure');
+    expect(outcome.result.steps).toEqual([
+      expect.objectContaining({ resource: 'assets', status: 'failed', refusal: said }),
+    ]);
+    expect(runsSince(from)).toEqual([]);
+    expect(world.records('Asset')).toEqual([]);
+  });
+
+  it('hands the line’s --accept-emails to the runs of a seed and a clone, and to no other script', async () => {
+    const resolved = resolvedOf();
+    const { plan, dryRuns, state } = await planned(resolved);
+    const lines: string[][] = [];
+    const runner: CommandRunner = async (script, args, signal) => {
+      lines.push([...args]);
+      // The seed of this test's own host reads no such flag: what it was handed is what counts.
+      return world.runner(
+        script,
+        args.filter((arg) => arg !== '--accept-emails'),
+        signal,
+      );
+    };
+
+    const outcome = await applyPlan(deps({ runner }), {
+      plan,
+      resolved,
+      target: TARGET,
+      state,
+      dryRuns,
+      acceptAutomation: false,
+      acceptEmails: true,
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toContain('--accept-emails');
+    expect(withEmailsAccepted({ script: 'sandforge-clone', args: ['--json'] }, true).args).toEqual([
+      '--json',
+      '--accept-emails',
+    ]);
+    expect(withEmailsAccepted({ script: 'sandforge-seed', args: [] }, false).args).toEqual([]);
+    for (const script of ['sandforge-frozen', 'sandforge-dataops']) {
+      expect(withEmailsAccepted({ script, args: ['--json'] }, true).args).toEqual(['--json']);
+    }
   });
 
   it('carries a seed’s refusal its answer gives into the step, in its words: parents deleted between its dry run and its run', async () => {

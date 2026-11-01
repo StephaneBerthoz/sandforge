@@ -430,7 +430,12 @@ describe('sandforge-mcp: confirm', () => {
     await c.call('checkpoint_take', { org: 'DEV', estimate: true });
     await c.call('checkpoint_list', { org: 'DEV' });
     await c.call('env_plan', { file: 'envs/sandforge.yaml', org: 'SB' });
-    await c.call('env_plan', { file: '/repo/sandforge.yaml', org: 'SB', failOnDrift: true });
+    await c.call('env_plan', {
+      file: '/repo/sandforge.yaml',
+      org: 'SB',
+      failOnDrift: true,
+      acceptEmails: true,
+    });
 
     expect(ran).toEqual([
       {
@@ -469,6 +474,7 @@ describe('sandforge-mcp: confirm', () => {
           '--org',
           'SB',
           '--fail-on-drift',
+          '--accept-emails',
           '--json',
         ],
       },
@@ -521,6 +527,7 @@ describe('sandforge-mcp: confirm', () => {
       checkpoint: 'Before UAT',
       confirm: 'DEV',
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
@@ -532,6 +539,7 @@ describe('sandforge-mcp: confirm', () => {
       checkpoint: 'Before UAT',
       confirm: 'DEV',
       acceptAutomation: true,
+      acceptEmails: true,
     });
     await c.call('checkpoint_delete', { org: 'DEV', checkpoint: 'Before UAT', confirm: 'DEV' });
     await c.call('env_apply', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
@@ -541,6 +549,7 @@ describe('sandforge-mcp: confirm', () => {
       confirm: 'SB',
       replace: ['accounts', 'case-contacts'],
       acceptNoState: true,
+      acceptEmails: true,
     });
     await c.call('env_destroy', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
     await c.call('env_destroy', {
@@ -625,6 +634,7 @@ describe('sandforge-mcp: confirm', () => {
           'Before UAT',
           '--yes',
           '--accept-automation',
+          '--accept-emails',
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
@@ -646,6 +656,7 @@ describe('sandforge-mcp: confirm', () => {
           'Before UAT',
           '--yes',
           '--accept-automation',
+          '--accept-emails',
           '--json',
         ],
       },
@@ -670,6 +681,7 @@ describe('sandforge-mcp: confirm', () => {
           '--replace',
           'case-contacts',
           '--accept-no-state',
+          '--accept-emails',
           '--yes',
           '--json',
         ],
@@ -919,6 +931,34 @@ describe("sandforge-mcp: a script's answer", () => {
         'once the person using you has accepted what it lets through.',
     );
     expect(textOf(result)).not.toContain('acceptNoUndo');
+    await c.close();
+  });
+
+  it('names acceptEmails where a rewind or an undo is refused for the emails the org delivers, and never takes it from acceptAutomation', async () => {
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to rewind all the same.';
+    const { run, ran } = scripts(() => ({
+      code: 1,
+      stdout: JSON.stringify({ refusal: { code: 'EMAILS_DELIVERED', message: refusal } }),
+      stderr: `${refusal}\n`,
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('checkpoint_rewind', {
+      org: 'DEV',
+      checkpoint: 'baseline',
+      confirm: 'DEV',
+      acceptAutomation: true,
+    });
+
+    expect(textOf(result)).toContain(
+      "--accept-emails, named above, is this tool's acceptEmails: true. Give it only once the " +
+        'person using you has accepted what it lets through.',
+    );
+    expect(ran[0]?.args).toContain('--accept-automation');
+    expect(ran[0]?.args).not.toContain('--accept-emails');
     await c.close();
   });
 

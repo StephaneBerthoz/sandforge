@@ -440,6 +440,20 @@ export class MemoryRemovalOrg implements RemovalOrg {
   refuseTooling?: { errorCode: string; message: string };
   /** The statements of the Tooling API it was asked, in order. */
   readonly toolingAsked: string[] = [];
+  /**
+   * What it answers a block of anonymous Apex with: the one a run's read of
+   * the org's deliverability sends. An org that delivers none of its
+   * automation's emails unless told, as System email only and No access
+   * answer; a user's Send Email is read from `UserPermissionAccess` after it.
+   */
+  anonymousApex: unknown = {
+    compiled: true,
+    success: false,
+    compileProblem: null,
+    exceptionMessage: 'System.NoAccessException: The organization is not permitted to send email',
+  };
+  /** The blocks of anonymous Apex it was asked to run, in order. */
+  readonly anonymousAsked: string[] = [];
   /** REST requests answered: a composite is one, whatever it holds. */
   requests = 0;
   /** SOAP calls answered (the clock, the user, undeletes), which a count of REST requests misses. */
@@ -791,6 +805,11 @@ export class MemoryRemovalOrg implements RemovalOrg {
       const soql = new URLSearchParams(`q=${tooling[1]}`).get('q') ?? '';
       this.toolingAsked.push(soql);
       return answered(() => this.fieldDefinitions(soql));
+    }
+    const anonymous = /^\/tooling\/executeAnonymous\/?\?anonymousBody=(.*)$/.exec(path);
+    if (anonymous) {
+      this.anonymousAsked.push(decodeURIComponent(anonymous[1]));
+      return { status: 200, body: this.anonymousApex };
     }
     const described = /^\/sobjects\/(\w+)\/describe\/?$/.exec(path);
     if (described) {

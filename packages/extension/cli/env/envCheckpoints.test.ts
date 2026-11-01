@@ -160,6 +160,7 @@ describe('the lines of the checkpoint script', () => {
             checkpoint: CK,
             dryRun,
             acceptAutomation: accept,
+            acceptEmails: accept,
             acceptNoUndo: accept,
             acceptUnseen: accept,
           }),
@@ -171,6 +172,7 @@ describe('the lines of the checkpoint script', () => {
       dryRun: false,
       yes: true,
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: false,
       acceptUnseen: true,
@@ -179,6 +181,7 @@ describe('the lines of the checkpoint script', () => {
       dryRun: true,
       yes: false,
       acceptAutomation: false,
+      acceptEmails: false,
       acceptNoUndo: false,
       acceptUnseen: false,
     });

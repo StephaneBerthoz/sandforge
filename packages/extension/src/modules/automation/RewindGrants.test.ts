@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 import type { PipelineStep } from '@sandforge/shared';
 import { rewindGrantDigest, pipelineRewindStepConfigSchema } from '@sandforge/shared';
@@ -77,6 +79,42 @@ describe('RewindGrants', () => {
     expect(grants.verify('p-1', rewindStep({ ...CONFIG, maxRecords: 0 }))).toEqual({
       refusal: 'changed',
     });
+  });
+
+  it('takes the emails accepted for a change of what the step does: a confirmation given without them does not cover them', () => {
+    const grants = new RewindGrants(storeWith());
+    grants.write(grantOf());
+
+    expect(grants.verify('p-1', rewindStep({ ...CONFIG, acceptEmails: true }))).toEqual({
+      refusal: 'changed',
+    });
+    expect('grant' in grants.verify('p-1', rewindStep({ ...CONFIG, acceptEmails: false }))).toBe(
+      true,
+    );
+  });
+
+  it('holds void a confirmation kept with the digest of before the emails were bound', () => {
+    const grants = new RewindGrants(storeWith());
+    const before = createHash('sha256')
+      .update(
+        JSON.stringify({
+          binding: 'sandforge-rewind-grant/1',
+          orgId: CONFIG.orgId,
+          checkpointId: CONFIG.checkpointId,
+          objects: null,
+          acceptAutomation: false,
+          acceptNoUndo: false,
+          acceptRecreate: false,
+          acceptOutside: false,
+          acceptUnseen: false,
+          maxRecords: CONFIG.maxRecords,
+          refuseWhenActive: true,
+        }),
+      )
+      .digest('hex');
+    grants.write(grantOf({ digest: `sha256:${before}` }));
+
+    expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'changed' });
   });
 
   it('holds a confirmation void once its pipeline is no longer saved', () => {

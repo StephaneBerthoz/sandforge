@@ -109,6 +109,7 @@ const STEP_REGISTRY: StepTypeInfo[] = [
       checkpointId: { type: 'string' },
       objects: { type: 'array', optional: true },
       acceptAutomation: { type: 'boolean', default: false },
+      acceptEmails: { type: 'boolean', default: false },
       acceptNoUndo: { type: 'boolean', default: false },
       acceptRecreate: { type: 'boolean', default: false },
       acceptOutside: { type: 'boolean', default: false },

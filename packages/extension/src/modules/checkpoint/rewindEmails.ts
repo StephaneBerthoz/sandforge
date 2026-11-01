@@ -25,23 +25,53 @@
  * rewind of an org where a package runs a flow on an object the checkpoint
  * holds: it fires as the rewind writes, so the rewind asks for its automation
  * to be accepted, and the question says its emails were not counted.
+ *
+ * Whether the emails leave the org at all is the other half: an org on All
+ * email delivers every one of them, to the addresses the records hold — a
+ * rewind's are the org's own, never under `.invalid` — and to the records'
+ * owners. What still runs as the act writes, once its mute's plan holds, is
+ * judged by Forge's gate (`deliverabilityGate`): nothing that sends, nothing
+ * read; an org that withholds them (System email only, No access), a line;
+ * one that delivers them, or would not say, a refusal (`EMAILS_DELIVERED`)
+ * unless the emails were accepted (`acceptEmails`, `--accept-emails`), which
+ * the acceptance of the automation never stands for. The org is read only
+ * when something that still runs may send one (`deliverabilityOfRun`): one
+ * line of anonymous Apex that sends nothing, as the act's user.
  */
 
 import {
+  emailSendersOf,
   emailsPerWriteOf,
+  removalStepsWrites,
+  stillRunningOf,
   type CheckpointEmails,
   type CheckpointRefusal,
   type CheckpointWrite,
+  type EmailDeliverability,
+  type EmailSender,
   type ForgeEmailLimit,
+  type ForgeRemovalSteps,
   type ForgeTargetAutomation,
+  type MutedAutomation,
+  type MutePlan,
   type RewindDiffObject,
 } from '@sandforge/shared';
 import {
   alertsCountAsSingle,
+  deliverabilityAfterLeaseStop,
+  deliverabilityGate,
   emailsCountedPerRecord,
   emailsUncountedOf,
+  sendersUnreadOf,
+  type DeliverabilityGate,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
+import {
+  deliverabilityOfRun,
+  sendersTheMuteQuiets,
+  type DeliverabilityRead,
+  type RunDeliverabilityRead,
+} from '../forge/targetDeliverability.js';
 import type { RewoundObject } from './rewindEstimate.js';
 import type { RewindPlanObject } from './rewindPlan.js';
 
@@ -285,4 +315,171 @@ export function emailsRefusal(
       'stop for the rest of the day. Turn off what sends them, or assign the user a bypass ' +
       `that keeps it quiet, then ${words.then}. No record was written.`,
   };
+}
+
+// ─── Whether the org delivers them ───────────────────────────────────────────
+
+/** What a rewind's or an undo's gate on whether the org delivers its emails is told. */
+export interface ActEmailsInput {
+  act: 'rewind' | 'undo';
+  /** How the user knows the org: its alias, else its username. */
+  orgName: string;
+  /**
+   * What the org runs as the act writes, as it was read: before the mute's
+   * plan holds it, which `plan` says.
+   */
+  automation: ForgeTargetAutomation;
+  /** What the act writes, object by object, as its mute and its automation's gate take it. */
+  steps: ForgeRemovalSteps;
+  /** The sets the act's lease is to hold; absent for an act that does not mute. */
+  plan?: Pick<MutePlan, 'assign'>;
+  /**
+   * Whether the emails were accepted: `acceptEmails`, `--accept-emails`. The
+   * acceptance of the automation never stands for it: a CI script passes
+   * `--accept-automation` on every run.
+   */
+  accepted: boolean;
+  /**
+   * Whether the act could mute the org's automation and was not asked to
+   * (`--mute-automation`, the page's box): its refusal then names what the
+   * mute would keep quiet. A pipeline's Rewind step mutes nothing.
+   */
+  mayMute: boolean;
+}
+
+/**
+ * What may send an email as the act writes: what still runs once its mute's
+ * plan holds (`stillRunningOf`, `emailSendersOf`), and why what may send
+ * could not all be listed. Reads nothing: what a preview's answer is judged
+ * on again before a rewind is asked, as the act judges what it reads.
+ */
+export function actSendersOf(input: Pick<ActEmailsInput, 'automation' | 'steps' | 'plan'>): {
+  senders: EmailSender[];
+  sendersUnread?: string;
+} {
+  const writes = removalStepsWrites(input.steps);
+  const senders = emailSendersOf(stillRunningOf(input.automation, input.plan, writes), { writes });
+  const sendersUnread = sendersUnreadOf(input.automation.unread);
+  return { senders, ...(sendersUnread !== undefined ? { sendersUnread } : {}) };
+}
+
+/** What an act's gate on whether the org delivers its emails came to. */
+export interface ActEmailsGate {
+  gate: DeliverabilityGate;
+  /**
+   * `EMAILS_DELIVERED`: the org delivers them, or would not say, and they
+   * were not accepted. Absent when the act may go on.
+   */
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * An act's gate on whether the org delivers the emails what still runs
+ * sends: Forge's own (`deliverabilityGate`), on the senders and the reading.
+ * What an act writes back is the org's own values, never put under
+ * `.invalid`: its refusal says the emails go to the addresses the records
+ * hold (`keepsAddresses`).
+ */
+export function actEmailsGate(
+  input: ActEmailsInput & {
+    senders: readonly EmailSender[];
+    sendersUnread?: string;
+    reading?: EmailDeliverability;
+  },
+): ActEmailsGate {
+  const quiets =
+    input.mayMute && input.plan === undefined && input.senders.length > 0
+      ? sendersTheMuteQuiets(input.automation, { writes: removalStepsWrites(input.steps) })
+      : [];
+  const gate = deliverabilityGate({
+    senders: input.senders,
+    ...(input.sendersUnread !== undefined ? { sendersUnread: input.sendersUnread } : {}),
+    ...(input.reading !== undefined ? { reading: input.reading } : {}),
+    accepted: input.accepted,
+    target: input.orgName,
+    run: input.act,
+    muteQuiets: quiets,
+    keepsAddresses: true,
+  });
+  return gate.stop
+    ? { gate, refusal: { code: 'EMAILS_DELIVERED', message: gate.stop.message } }
+    : { gate };
+}
+
+/**
+ * Steps 3 and 4 of an act's write path for its emails, then its gate: what
+ * may send them once the mute's plan holds, the org's deliverability read
+ * only when something may (`deliverabilityOfRun`), and what the gate makes of
+ * the two ({@link actEmailsGate}). An act whose writes start nothing that
+ * sends sends no request for it.
+ *
+ * @param input.read - The read, as the user the act writes as
+ *   (`readEmailDeliverability` through the act's own counted connection).
+ */
+export async function actDeliverability(
+  input: ActEmailsInput & { read: () => Promise<DeliverabilityRead> },
+): Promise<ActEmailsGate & { ofRun: RunDeliverabilityRead }> {
+  const writes = removalStepsWrites(input.steps);
+  const ofRun = await deliverabilityOfRun({
+    running: stillRunningOf(input.automation, input.plan, writes),
+    writes,
+    read: input.read,
+  });
+  return {
+    ofRun,
+    ...actEmailsGate({
+      ...input,
+      senders: ofRun.senders,
+      ...(ofRun.sendersUnread !== undefined ? { sendersUnread: ofRun.sendersUnread } : {}),
+      ...(ofRun.read !== undefined ? { reading: ofRun.read.reading } : {}),
+    }),
+  };
+}
+
+/**
+ * The sets of a mute's plan its lease holds once read back: those it
+ * assigned and those the user held already. One it holds neither way leaves
+ * running what it was to keep quiet.
+ */
+export function heldPlanOf(
+  plan: Pick<MutePlan, 'assign'>,
+  held: Pick<MutedAutomation, 'assigned' | 'held'>,
+): Pick<MutePlan, 'assign'> {
+  const holds = new Set([...held.assigned, ...held.held]);
+  return { assign: plan.assign.filter((set) => holds.has(set.permissionSet)) };
+}
+
+/**
+ * Step 8 of an act's write path for its emails: once its lease is taken and
+ * read back, what then still runs that may send one and that its gate was
+ * not told of — what a set the lease does not hold was to keep quiet —
+ * refuses it before its first write (`deliverabilityAfterLeaseStop`), unless
+ * the emails were accepted or the org withholds them. The act then writes
+ * nothing, and gives the lease back.
+ *
+ * @param input.planned - What may send on the lease's plan ({@link actDeliverability}'s senders).
+ * @param input.held - What the lease holds, read back (`HeldMute.outcome`).
+ */
+export function afterLeaseEmailsRefusal(
+  input: Pick<ActEmailsInput, 'act' | 'orgName' | 'automation' | 'steps' | 'accepted'> & {
+    plan: Pick<MutePlan, 'assign'>;
+    held: Pick<MutedAutomation, 'assigned' | 'held'>;
+    planned: readonly EmailSender[];
+    reading?: EmailDeliverability;
+  },
+): CheckpointRefusal | undefined {
+  const writes = removalStepsWrites(input.steps);
+  const held = emailSendersOf(
+    stillRunningOf(input.automation, heldPlanOf(input.plan, input.held), writes),
+    { writes },
+  );
+  const stop = deliverabilityAfterLeaseStop({
+    planned: input.planned,
+    held,
+    ...(input.reading !== undefined ? { reading: input.reading } : {}),
+    accepted: input.accepted,
+    target: input.orgName,
+    run: input.act,
+  });
+  return stop ? { code: 'EMAILS_DELIVERED', message: stop.message } : undefined;
 }

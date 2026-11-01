@@ -284,6 +284,129 @@ describe('boundsRefusal — the acceptances and the emails', () => {
   });
 });
 
+describe('boundsRefusal — the emails the org delivers', () => {
+  /** A flow that emails an owner as an account is updated: what a rewind of {@link FOUR} starts. */
+  const SENDING: ForgeTargetAutomation = {
+    objectsRead: ['Account'],
+    objects: [
+      {
+        objectApiName: 'Account',
+        flows: [
+          {
+            apiName: 'Account_changed',
+            label: 'Account changed',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+            messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  };
+  const SENDER = {
+    objectApiName: 'Account',
+    kind: 'flow' as const,
+    name: 'Account changed',
+    why: 'email' as const,
+  };
+  const accepted = {
+    acceptAutomation: true,
+    acceptNoUndo: true,
+    acceptRecreate: true,
+    acceptUnseen: true,
+  };
+  const of = (reading: { level: 'all' } | { level: 'withheld' } | { unread: string }) =>
+    acceptanceRefusal(
+      'DEV-SB',
+      { diff: FOUR, automation: SENDING, deliverability: { reading, senders: [SENDER] } },
+      accepted,
+      REWIND_STEP_WORDS.lift,
+      undefined,
+      REWIND_STEP_WORDS.mutes,
+    );
+
+  it('refuses an org that delivers them, naming the step’s setting, though its automation was accepted', () => {
+    const refusal = of({ level: 'all' });
+
+    expect(refusal?.code).toBe('EMAILS_DELIVERED');
+    expect(refusal?.message).toContain(
+      'Turn on acceptEmails in the step and confirm it again to rewind all the same',
+    );
+    expect(refusal?.message).not.toContain('--accept-emails');
+  });
+
+  it('refuses an org that would not say, the reason said, and nothing of an org that withholds them', () => {
+    expect(of({ unread: 'the org answered: no' })?.message).toContain(
+      'could not be read (the org answered: no)',
+    );
+    expect(of({ level: 'withheld' })).toBeUndefined();
+  });
+
+  it('lets the rewind through once the emails are accepted, and asks nothing when nothing sends', () => {
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        {
+          diff: FOUR,
+          automation: SENDING,
+          deliverability: { reading: { level: 'all' }, senders: [SENDER] },
+        },
+        { ...accepted, acceptEmails: true },
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: FOUR, automation: { ...SENDING, objects: [] } },
+        accepted,
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('leaves a preview that read none to the rewind’s own read: it found nothing that sends', () => {
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: FOUR, automation: SENDING },
+        accepted,
+        REWIND_STEP_WORDS.lift,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('comes before the daily limit, which its own acceptance does not lift', async () => {
+    const emails: CheckpointEmails[] = [
+      { limit: 'SingleEmail', emails: 3, objects: [], verdict: 'exceeds', remaining: 1, max: 15 },
+    ];
+    const check = (acceptEmails: boolean) =>
+      boundsRefusal({
+        orgName: 'DEV-SB',
+        preview: {
+          diff: FOUR,
+          automation: SENDING,
+          emails,
+          deliverability: { reading: { level: 'all' }, senders: [SENDER] },
+        },
+        bounds: { refuseWhenActive: false },
+        accepted: { ...accepted, acceptEmails },
+        writers: () => Promise.resolve([SELF]),
+        words: REWIND_STEP_WORDS,
+      });
+
+    expect((await check(false))?.code).toBe('EMAILS_DELIVERED');
+    expect((await check(true))?.code).toBe('EMAILS');
+  });
+});
+
 describe('the counts of a rewind of some objects', () => {
   it('counts what the plan of the objects picked acts on, not the whole preview', () => {
     const plan: RewindSelectionPlan = {

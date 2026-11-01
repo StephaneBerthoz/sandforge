@@ -114,6 +114,7 @@ class CliTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
@@ -984,6 +985,117 @@ describe('sandforge-checkpoint rewind', () => {
     );
     expect(stateOf(h.org)).toEqual(before);
     expect(journalsOf(h, checkpoint)).toEqual([]);
+  });
+
+  describe('on an org that delivers the emails of what still runs', () => {
+    /** What an org on All email answers the read with. */
+    const ALL_EMAIL = { compiled: true, success: true };
+
+    it('refuses a rewind --accept-automation lets through, exit 1, nothing written, naming --accept-emails; rewinds with it', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      const atCheckpoint = stateOf(h.org);
+      demo(h);
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['rewind', '--org', 'DEV-SB', '--checkpoint', 'Before UAT', '--yes'];
+
+      const refused = await h.run(...line, '--accept-automation', '--json');
+
+      expect(refused.code).toBe(1);
+      const answered = JSON.parse(refused.stdout) as { refusal: { code: string; message: string } };
+      expect(answered.refusal.code).toBe('EMAILS_DELIVERED');
+      expect(answered.refusal.message).toContain(
+        'DEV-SB delivers every email its automation sends (Setup > Deliverability: All email)',
+      );
+      expect(answered.refusal.message).toContain('Add --accept-emails to rewind all the same');
+      expect(stateOf(h.org)).toEqual(before);
+
+      const accepted = await h.run(...line, '--accept-automation', '--accept-emails', '--json');
+
+      expect(accepted.code, accepted.stderr).toBe(0);
+      expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+    });
+
+    it('says the deliverability in a preview, and in --dry-run the refusal a rewind would meet, exit 0', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = ALL_EMAIL;
+
+      const { code, stdout, stderr } = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--dry-run',
+        '--accept-automation',
+        '--json',
+      );
+
+      expect(code, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({
+        deliverability: { reading: { level: 'all' }, senders: [] },
+      });
+      expect(stderr).toContain('deliverability: All email');
+      expect(stderr).toContain('a rewind now would be refused: DEV-SB delivers every email');
+    });
+
+    it('asks nothing of an org that withholds them, and says so', async () => {
+      const h = harness();
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+
+      const { code, stdout, stderr } = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+      );
+
+      expect(code, stderr).toBe(0);
+      expect(stdout).toContain('deliverability: System email only or No access');
+    });
+
+    it('refuses an undo --accept-automation lets through, exit 1, nothing written; undoes with --accept-emails', async () => {
+      const h = harness();
+      const checkpoint = await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const rewound = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+      expect(rewound.code, rewound.stderr).toBe(0);
+      clock += 60_000;
+      h.org.anonymousApex = ALL_EMAIL;
+      const before = stateOf(h.org);
+      const line = ['undo', '--org', 'DEV-SB', '--checkpoint', checkpoint.checkpointId, '--yes'];
+
+      const refused = await h.run(...line, '--accept-automation', '--json');
+
+      expect(refused.code).toBe(1);
+      expect(JSON.parse(refused.stdout)).toMatchObject({
+        refusal: {
+          code: 'EMAILS_DELIVERED',
+          message: expect.stringContaining('Add --accept-emails to undo all the same') as unknown,
+        },
+      });
+      expect(stateOf(h.org)).toEqual(before);
+
+      const accepted = await h.run(...line, '--accept-automation', '--accept-emails', '--json');
+
+      expect(accepted.code, accepted.stderr).toBe(0);
+    });
   });
 
   it('refuses with --max-records, before it writes, a rewind of more records than it gives, exit 1, as a pipeline’s Rewind step is refused; rewinds one at the limit', async () => {

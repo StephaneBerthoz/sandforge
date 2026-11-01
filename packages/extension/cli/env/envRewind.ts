@@ -61,6 +61,12 @@ export interface EnvRewindInput {
   state: EnvState | undefined;
   /** Rewind although the org runs automation as records are written back: the line's. */
   acceptAutomation: boolean;
+  /**
+   * Rewind although the org delivers the emails what still runs sends, or
+   * would not say whether it does: the line's. Not given, not accepted;
+   * never `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
   /** Rewind although undo could not bring back some records it deletes: the line's. */
   acceptNoUndo: boolean;
   /**
@@ -178,6 +184,7 @@ export async function previewEnvRewind(
       checkpoint: to.checkpoint,
       dryRun: true,
       acceptAutomation: input.acceptAutomation,
+      acceptEmails: input.acceptEmails,
       acceptNoUndo: input.acceptNoUndo,
       acceptUnseen: input.acceptUnseen,
     }),
@@ -335,6 +342,7 @@ export async function rewindEnvironment(
         checkpoint: to.checkpoint,
         dryRun: false,
         acceptAutomation: input.acceptAutomation,
+        acceptEmails: input.acceptEmails,
         acceptNoUndo: input.acceptNoUndo,
         acceptUnseen: input.acceptUnseen,
       }),

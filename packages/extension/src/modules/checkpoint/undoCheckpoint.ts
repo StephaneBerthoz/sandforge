@@ -10,7 +10,10 @@
  * the org's lock is held, for the undo's whole length, no SandForge run of
  * this machine writes to the org, what the undo's writes fire was accepted,
  * the day's requests are enough, the emails its writes make the org send
- * fit what it has left of each daily limit (`rewindEmails.ts`), and the files
+ * fit what it has left of each daily limit (`rewindEmails.ts`) — and, where
+ * the org delivers the emails of what still runs or would not say whether it
+ * does, were accepted (`EMAILS_DELIVERED`), the lease of a mute read back
+ * before the first write leaving none running unaccepted —, and the files
  * the rewind deleted, which the undo brings back, fit the file storage the
  * org has left: a file in the recycle bin takes none, and its undelete
  * counts it again (P-A8, `FILE_STORAGE`). Each refusal names why, and writes
@@ -61,6 +64,8 @@ import {
   type RewindStatus,
 } from '@sandforge/shared';
 import { isMuteRefusedError } from '../forge/AutomationMuteLease.js';
+import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
+import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
@@ -69,6 +74,8 @@ import { OrgReadStopped, compositeReader } from './compositeQueries.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
 import { actAccessOf, type ActAccess } from './rewindAccess.js';
 import {
+  actDeliverability,
+  afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
@@ -149,6 +156,19 @@ export interface UndoCheckpointRequest {
   rewindId: string;
   /** Undo even though the org runs automation as the undo writes. */
   acceptAutomation: boolean;
+  /**
+   * Undo even though the org delivers every email its automation sends, or
+   * would not say whether it does, and what still runs as the undo writes
+   * sends some (`EMAILS_DELIVERED`). Not given, not accepted; never lifted by
+   * `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
+  /**
+   * Whether the undo could have been asked to mute the org's automation, as
+   * the page and the command line can: not muting, its refusal for the
+   * emails names what the mute keeps quiet.
+   */
+  canMute?: boolean;
 }
 
 /** How an undo ended: what it did and what still differs, or the refusal it met before writing. */
@@ -158,6 +178,12 @@ export type UndoCheckpointOutcome =
       result: RewindResult;
       /** What could not be read, kept or said, in plain words; never thrown. */
       notes: string[];
+      /**
+       * Whether the org delivered the emails what still ran sends, as read
+       * before the first write, for the audit trail; absent when nothing that
+       * ran sends one, so it was not read.
+       */
+      deliverability?: NonNullable<DeliverabilityGate['audit']>;
     }
   | { undone: false; refusal: CheckpointRefusal };
 
@@ -470,9 +496,28 @@ export async function undoCheckpoint(
     }
     // Asked to mute, the undo plans it from what it read, and its gate asks
     // only for what still runs; refused, it writes nothing.
+    const read = automation;
     const muting = objects.length > 0 ? await muteOfSteps(deps.mute, automation, steps) : {};
     if ('refusal' in muting) return { undone: false, refusal: muting.refusal };
     if (muting.automation) automation = muting.automation;
+    const plan = muting.mute?.plan;
+    const acceptEmails = request.acceptEmails === true;
+    // Whether the org delivers the emails of what still runs once the mute's
+    // plan holds, read only when something may send one, as the user it
+    // writes as, through the connection it counts.
+    const emails =
+      objects.length > 0 && read
+        ? await actDeliverability({
+            act: 'undo',
+            orgName,
+            automation: read,
+            steps,
+            ...(plan ? { plan } : {}),
+            accepted: acceptEmails,
+            mayMute: deps.mute === undefined && request.canMute === true,
+            read: () => readEmailDeliverability(count.org),
+          })
+        : undefined;
     // What sends emails and could not be read is not counted below: the
     // acceptance of the automation covers it, and its refusal says so.
     const written = writtenByUndo(rewound, along);
@@ -491,7 +536,17 @@ export async function undoCheckpoint(
       rewound,
       automationRequests: 0,
     });
-    const overBudget = budgetRefusal('undo', count.used() + cost.apiRequests, budget, orgName);
+    // The read of the deliverability named apart from the undo's own requests.
+    const deliverability = deliverabilityPartOf(emails?.ofRun);
+    const overBudget = budgetRefusal(
+      'undo',
+      {
+        run: count.used() - (deliverability.deliverability ?? 0) + cost.apiRequests,
+        ...deliverability,
+      },
+      budget,
+      orgName,
+    );
     if (objects.length > 0 && overBudget) return { undone: false, refusal: overBudget };
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal.
@@ -499,6 +554,9 @@ export async function undoCheckpoint(
       ? emailsRefusal('undo', checkpointEmails(written, automation, budget.emails), orgName)
       : undefined;
     if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };
+    // Where the org delivers them all or would not say, written only once
+    // they were accepted, which the acceptance of the automation never is.
+    if (emails?.refusal) return { undone: false, refusal: emails.refusal };
     if (stopped()) throw new UndoStopped();
 
     // The user it writes as: what it gave back that this user, or the org's
@@ -507,13 +565,30 @@ export async function undoCheckpoint(
     const owners = new Set(rewindWriters(checkpoint.takenBy, userId).map(keyOf));
     progress(20, 'Bringing back what the rewind deleted and giving back what it wrote over');
     let muted: MutedAutomation | undefined;
-    let outcome: Awaited<ReturnType<typeof undoRewind>>;
+    let undone: UndoRewindOutcome | { relit: CheckpointRefusal };
     try {
-      outcome = await heldWhile(
+      undone = await heldWhile<UndoRewindOutcome | { relit: CheckpointRefusal }>(
         muting.mute,
         `undo ${checkpoint.checkpointId} ${rewindId}`,
-        () =>
-          undoRewind({
+        (held) => {
+          // The lease read back against its plan: a set it does not hold
+          // leaves a sender running that no one was asked about.
+          const relit =
+            held && plan && read && emails
+              ? afterLeaseEmailsRefusal({
+                  act: 'undo',
+                  orgName,
+                  automation: read,
+                  steps,
+                  plan,
+                  held: held.outcome,
+                  planned: emails.ofRun.senders,
+                  ...(emails.ofRun.read ? { reading: emails.ofRun.read.reading } : {}),
+                  accepted: acceptEmails,
+                })
+              : undefined;
+          if (relit) return Promise.resolve({ relit });
+          return undoRewind({
             folder,
             rewindId,
             lock: locked.lock,
@@ -527,7 +602,8 @@ export async function undoCheckpoint(
                 20 + Math.round((70 * settled) / Math.max(total, 1)),
                 `${sending}: ${objectApiName} ${settled} / ${total}`,
               ),
-          }),
+          });
+        },
         (ended) => {
           muted = ended;
         },
@@ -539,6 +615,8 @@ export async function undoCheckpoint(
         refusal: { code: 'MUTE', message: `${err.message} No record was written.` },
       };
     }
+    if ('relit' in undone) return { undone: false, refusal: undone.relit };
+    const outcome = undone;
     const residual = residualOf(outcome.residual, owners);
     const status = statusOf(outcome, residual);
     const notes = [...outcome.notes];
@@ -588,6 +666,7 @@ export async function undoCheckpoint(
         ...(muted ? { mutedAutomation: muted } : {}),
       },
       notes,
+      ...(emails?.gate.audit !== undefined ? { deliverability: emails.gate.audit } : {}),
     };
   } finally {
     locked.lock.release();

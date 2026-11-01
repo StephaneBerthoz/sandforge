@@ -189,6 +189,7 @@ describe('parseArgs', () => {
       objects: [],
       dryRun: false,
       acceptAutomation: false,
+      acceptEmails: false,
       muteAutomation: false,
       acceptNoUndo: false,
       acceptRecreate: false,
@@ -211,6 +212,7 @@ describe('parseArgs', () => {
           '--yes',
           '--dry-run',
           '--accept-automation',
+          '--accept-emails',
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
@@ -226,6 +228,7 @@ describe('parseArgs', () => {
       yes: true,
       dryRun: true,
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
@@ -305,13 +308,32 @@ describe('parseArgs', () => {
 
   it('undoes the org’s last rewind unless a checkpoint is named', () => {
     const plain = parseArgs(argv('undo', '--org', 'DEV-SB'));
-    expect(plain).toMatchObject({ command: 'undo', acceptAutomation: false, yes: false });
+    expect(plain).toMatchObject({
+      command: 'undo',
+      acceptAutomation: false,
+      acceptEmails: false,
+      yes: false,
+    });
     expect('checkpoint' in plain).toBe(false);
     expect(
       parseArgs(
-        argv('undo', '--org', 'DEV-SB', '--checkpoint', 'baseline', '--yes', '--accept-automation'),
+        argv(
+          'undo',
+          '--org',
+          'DEV-SB',
+          '--checkpoint',
+          'baseline',
+          '--yes',
+          '--accept-automation',
+          '--accept-emails',
+        ),
       ),
-    ).toMatchObject({ checkpoint: 'baseline', yes: true, acceptAutomation: true });
+    ).toMatchObject({
+      checkpoint: 'baseline',
+      yes: true,
+      acceptAutomation: true,
+      acceptEmails: true,
+    });
   });
 
   it('refuses, exit 2, a rewind or an undo told not to ask that does not name its checkpoint', () => {
@@ -444,7 +466,7 @@ describe('parseArgs', () => {
       'a file given a new version since, which keeps it',
       'the files of a checkpoint taken\nbefore SandForge 1.70, which holds none',
       // What it says of emails it could not count, and of fields gone since.
-      'emailsUncounted?, refusal?}',
+      'emailsUncounted?, deliverability?, refusal?}',
       'emails not counted, which --accept-automation covers',
       '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
       'a field added since, deleted since, or hidden since from\nthe user by field-level security, which the preview tells apart and names in an object something\nchanged in since — in an object nothing changed in, which a rewind writes nothing to, the fields\nare not checked',
@@ -1260,6 +1282,57 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
         ),
       ).toBeUndefined();
     }
+  });
+
+  it('refuses the emails of what still runs without --accept-emails, naming it and the mute, --accept-automation given', () => {
+    const sends = automation({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Welcome',
+              label: 'Welcome',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Hello', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    const sent = {
+      diff,
+      automation: sends,
+      deliverability: {
+        reading: { level: 'all' as const },
+        senders: [
+          {
+            objectApiName: 'Account',
+            kind: 'flow' as const,
+            name: 'Welcome',
+            why: 'email' as const,
+          },
+        ],
+      },
+    };
+    const accepted = { ...NOTHING_ACCEPTED, acceptAutomation: true };
+
+    const refused = acceptanceRefusal('DEV-SB', sent, accepted);
+
+    expect(refused?.code).toBe('EMAILS_DELIVERED');
+    expect(refused?.message).toContain('Add --accept-emails to rewind all the same');
+    expect(refused?.message).toContain('--mute-automation keeps quiet flow "Welcome" on Account');
+    expect(acceptanceRefusal('DEV-SB', sent, { ...accepted, acceptEmails: true })).toBeUndefined();
   });
 
   it('says, refusing automation without --accept-automation, that the emails of what could not be read were not counted', () => {

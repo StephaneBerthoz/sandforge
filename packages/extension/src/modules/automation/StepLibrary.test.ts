@@ -67,6 +67,7 @@ describe('StepLibrary', () => {
         orgId: '',
         checkpointId: '',
         acceptAutomation: false,
+        acceptEmails: false,
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,

@@ -481,6 +481,32 @@ async function forgetMask(
   };
 }
 
+/**
+ * The scripts that read the target's automation before they write, and are
+ * refused for the emails what still runs sends where it delivers them
+ * (`EMAILS_NOT_ACCEPTED`): a seed and a clone. A frozen load and a masking
+ * read none, and ask nothing of them.
+ */
+const SCRIPTS_THAT_ASK_FOR_THE_EMAILS: ReadonlySet<string> = new Set([
+  'sandforge-seed',
+  'sandforge-clone',
+]);
+
+/**
+ * A resource's line, dry run or run, with the accord of the environment's own
+ * line (`--accept-emails`) when its script asks for one: the question it
+ * would put has nobody to answer it, and the file holds no such accord, which
+ * is the person's to give each time.
+ */
+export function withEmailsAccepted<L extends { script: string; args: string[] }>(
+  line: L,
+  acceptEmails: boolean,
+): L {
+  return acceptEmails && SCRIPTS_THAT_ASK_FOR_THE_EMAILS.has(line.script)
+    ? { ...line, args: [...line.args, '--accept-emails'] }
+    : line;
+}
+
 /** What an apply is given beside its plan. */
 export interface EnvApplyInput {
   plan: EnvPlan;
@@ -492,6 +518,12 @@ export interface EnvApplyInput {
   dryRuns: Readonly<Record<string, EnvDryRun>>;
   /** Delete although the target runs automation as the records go: the line's. */
   acceptAutomation: boolean;
+  /**
+   * Write although the target delivers the emails what still runs sends, or
+   * would not say whether it does: the line's, handed to the resources'
+   * runs. Not given, not accepted; never `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
 }
 
 /** A step of an apply: a resource's runs taken back, or its script run. */
@@ -595,6 +627,8 @@ interface RunStepInput {
   readTooEarly: boolean;
   /** Whether the run replaces runs of it still in the org: a frozen resource's is a reload. */
   replace: boolean;
+  /** The line's `--accept-emails`, handed to a run whose script asks for it. */
+  acceptEmails: boolean;
   signal: AbortSignal;
 }
 
@@ -665,13 +699,16 @@ async function runResourceStep(
         },
       }),
     );
-    const line = applyLineOf(resource, {
-      target: target.alias,
-      templateFile,
-      runId,
-      summaryFile: '',
-      ...(seed !== undefined ? { seed } : {}),
-    });
+    const line = withEmailsAccepted(
+      applyLineOf(resource, {
+        target: target.alias,
+        templateFile,
+        runId,
+        summaryFile: '',
+        ...(seed !== undefined ? { seed } : {}),
+      }),
+      input.acceptEmails,
+    );
     const ran = await deps.runner(line.script, line.args, signal);
     const answer = answerOf(readSeedRun, ran.stdout, deps.say);
     const count = answer !== undefined ? seedRunCount(answer) : undefined;
@@ -719,13 +756,16 @@ async function runResourceStep(
   );
   // Held to its dry run's count: a scope that widened since is refused, not written.
   const maxTotal = dryRunTotalOf(dry);
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile,
-    ...(maxTotal !== undefined ? { maxTotal } : {}),
-  });
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile,
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   // The summary as the clone wrote it, read back: it says what the run
   // created however it ended, where stdout says nothing of a run killed.
@@ -1243,6 +1283,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           dry: input.dryRuns[step.resource],
           readTooEarly,
           replace: step.action === 'replace' && replacesInOneRun(resource.kind),
+          acceptEmails: input.acceptEmails === true,
           signal: stop.signal,
         });
         current = outcome.state;

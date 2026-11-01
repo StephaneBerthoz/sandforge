@@ -159,6 +159,7 @@ class HandlerTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
@@ -1023,6 +1024,79 @@ describe('CheckpointHandler — the preview', () => {
     });
   });
 
+  it('answers whether the org delivers the emails in the preview, refuses the rewind unaccepted whatever its automation’s box says, and writes once the request accepts them', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+
+    const answer = answerOf(h, 'wv-preview-1');
+    expect(answer.payload).toMatchObject({
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [
+          { objectApiName: 'Account', kind: 'flow', name: 'Account changed', why: 'email' },
+        ],
+      },
+    });
+    expect(answer.payload.refusal).toBeUndefined();
+    const previewId = (answer.payload.diff as { previewId: string }).previewId;
+
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true }),
+    );
+
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({ code: 'EMAILS_DELIVERED' });
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { code: 'EMAILS_DELIVERED' },
+    });
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true, acceptEmails: true }),
+    );
+
+    expect(resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response').status).toBe('success');
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'success',
+      details: { deliverability: 'all', confirmed: 'emails' },
+    });
+  });
+
+  it('says nothing was confirmed of the emails an org withholds, whatever the request accepts', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    sendingEmail(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true, acceptEmails: true }),
+    );
+
+    expect(resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response').status).toBe('success');
+    const [entry] = h.trail();
+    expect(entry?.details).toMatchObject({ deliverability: 'withheld' });
+    expect(entry?.details).not.toHaveProperty('confirmed');
+  });
+
   it('refuses the preview of a checkpoint of the org before a refresh, without reaching the org', async () => {
     const h = harness();
     const checkpointId = await taken(h);
@@ -1168,6 +1242,37 @@ function noAutomation(h: Harness): void {
       Promise.resolve({
         objectsRead: [...objects],
         objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      } satisfies ForgeTargetAutomation),
+  });
+}
+
+/** A reader of what the org runs that finds a flow emailing an owner as an account is updated. */
+function sendingEmail(h: Harness): void {
+  h.handler.setTargetAutomation({
+    read: (_orgId, objects) =>
+      Promise.resolve({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Account_changed',
+                label: 'Account changed',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
         unread: [],
         conditionsNotRead: 0,
         conditionsBound: 0,
@@ -3048,6 +3153,46 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
     expect(refused.code).toBe('EMAILS');
     expect(writesOf(h.org)).toEqual(before);
+  });
+
+  it('refuses a rewind the org delivers the emails of, naming the step’s setting and no flag of a command line, before it writes; acceptEmails lets it through', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+    const accepted = {
+      acceptAutomation: true,
+      acceptNoUndo: true,
+      acceptRecreate: true,
+      acceptUnseen: true,
+    };
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(rewindStep(checkpointId, accepted)),
+    );
+
+    expect(refused.code).toBe('EMAILS_DELIVERED');
+    expect(refused.message).toContain(
+      'Turn on acceptEmails in the step and confirm it again to rewind all the same',
+    );
+    expect(refused.message).not.toContain('--accept-emails');
+    expect(refused.message).not.toContain('--mute-automation');
+    expect(writesOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    const rewound = await h.handler.rewindForPipeline(
+      rewindStep(checkpointId, { ...accepted, acceptEmails: true }),
+    );
+
+    expect(rewound.result.status).toBe('success');
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      details: { deliverability: 'all', confirmed: 'emails' },
+    });
   });
 
   it('answers no, with nobody to ask, to deleting the rest when its user may not delete some of it: nothing written, the step failing with the objects named', async () => {

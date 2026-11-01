@@ -741,6 +741,19 @@ describe('diffEstimate', () => {
     expect(estimate(2) - estimate(0)).toBe(1);
   });
 
+  it('counts the rewind’s read of the org’s deliverability, which it makes again before it writes', () => {
+    const input = {
+      objects: [held('Account', 1)],
+      diff: { objects: [found('Account', { toRecreate: 1 })], unread: [] },
+      automationRequests: 0,
+    };
+
+    expect(
+      rewindEstimate({ ...input, deliverabilityRequests: 2 }).apiRequests -
+        rewindEstimate(input).apiRequests,
+    ).toBe(2);
+  });
+
   it('prices pre-checks and counts three calls at a time, and their requests one each', () => {
     const objects = (count: number) =>
       Array.from({ length: count }, (_, n) => held(`Object${n}__c`, 1));
@@ -1476,6 +1489,22 @@ describe('the budget gate', () => {
         'written.',
     );
     expect(budgetRefusal('rewind', 10, budget, 'DEV-SB')).toBeUndefined();
+  });
+
+  it('sums the parts of an act’s requests and names the read of the org’s deliverability among them', () => {
+    const budget = { max: 15_000, remaining: 10 };
+
+    expect(budgetRefusal('rewind', { run: 9, deliverability: 2 }, budget, 'DEV-SB')?.message).toBe(
+      'This rewind takes about 11 API requests (2 of them to read whether DEV-SB delivers its ' +
+        'emails); DEV-SB has 10 of its 15000 left today. Rewind once the org has requests to ' +
+        'spare — the limit is counted over the last 24 hours. No record was read or written.',
+    );
+    expect(
+      budgetRefusal('rewind', { run: 9, deliverability: 1 }, budget, 'DEV-SB'),
+    ).toBeUndefined();
+    expect(budgetRefusal('undo', { run: 11 }, budget, 'DEV-SB')?.message).toMatch(
+      /^This undo takes about 11 API requests; DEV-SB/,
+    );
   });
 
   it('reads what the org has left of its file storage from the same answer, and nothing when it does not say', async () => {

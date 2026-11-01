@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import type {
   AuditOutcome,
+  AuditRunContext,
   CheckpointArchiveHeader,
   CheckpointArchiveSummary,
   CheckpointCustomSettings,
@@ -156,10 +157,34 @@ const ACT_WORDS: Readonly<Record<'preview' | 'rewind' | 'undo' | 'export', strin
   export: 'exported',
 };
 
+/** What the audit trail keeps of the read of whether the org delivers its emails. */
+type ActEmailsAudit = NonNullable<AuditRunContext['deliverability']>;
+
 /** How a rewind or an undo that reached the org ended: what it did, or the refusal it met before writing. */
 type WriteOutcome =
-  | { done: true; result: RewindResult; notes: string[] }
+  | {
+      done: true;
+      result: RewindResult;
+      notes: string[];
+      /** Whether the org delivered the emails what still ran sends, as read before it wrote. */
+      deliverability?: ActEmailsAudit;
+    }
   | { done: false; refusal: CheckpointRefusal };
+
+/** A rewind or an undo that went through, as {@link WriteOutcome} says it. */
+function writtenOutcome(outcome: {
+  result: RewindResult;
+  notes: string[];
+  deliverability?: ActEmailsAudit;
+}): WriteOutcome {
+  const { result, notes, deliverability } = outcome;
+  return {
+    done: true,
+    result,
+    notes,
+    ...(deliverability !== undefined ? { deliverability } : {}),
+  };
+}
 
 /** Refusals worth trying again once what refused them has passed: a run writing, the day's requests. */
 const RETRYABLE_REFUSALS: ReadonlySet<CheckpointRefusalCode> = new Set([
@@ -1303,6 +1328,7 @@ export class CheckpointHandler implements DomainHandler {
           ...(preview.emailsUncounted !== undefined
             ? { emailsUncounted: preview.emailsUncounted }
             : {}),
+          ...(preview.deliverability ? { deliverability: preview.deliverability } : {}),
         },
         bounds: { maxRecords: config.maxRecords, refuseWhenActive: config.refuseWhenActive },
         accepted: config,
@@ -1357,6 +1383,7 @@ export class CheckpointHandler implements DomainHandler {
               reusesPreview: preview.diff,
               ...(objects !== undefined ? { objects } : {}),
               acceptAutomation: config.acceptAutomation,
+              acceptEmails: config.acceptEmails,
               acceptNoUndo: config.acceptNoUndo,
               acceptRecreate: config.acceptRecreate,
               acceptOutside: config.acceptOutside,
@@ -1365,12 +1392,13 @@ export class CheckpointHandler implements DomainHandler {
           );
           if (outcome.rewound) notes = outcome.notes;
           return outcome.rewound
-            ? { done: true, result: outcome.result, notes: outcome.notes }
+            ? writtenOutcome(outcome)
             : { done: false, refusal: outcome.refusal };
         },
         (err) => err instanceof m.RewindStopped,
         {
           ...(signal ? { signal } : {}),
+          acceptEmails: config.acceptEmails,
           refusalOf: (ended) =>
             declined.length > 0
               ? m.undeletableUnattendedRefusal(orgName, declined, wroteAny(ended))
@@ -2206,9 +2234,15 @@ export class CheckpointHandler implements DomainHandler {
     org: SalesforceOrg,
     checkpoint: OrgCheckpoint,
     outcome: AuditOutcome,
-    extra: { result?: RewindResult; code?: string; rewindId?: string } = {},
+    extra: {
+      result?: RewindResult;
+      code?: string;
+      rewindId?: string;
+      deliverability?: ActEmailsAudit;
+      acceptEmails?: boolean;
+    } = {},
   ): void {
-    const { result, code } = extra;
+    const { result, code, deliverability } = extra;
     const rewindId = result?.rewindId ?? extra.rewindId;
     const pipeline = at.pipeline;
     recordWriteRun(this.deps, {
@@ -2233,6 +2267,13 @@ export class CheckpointHandler implements DomainHandler {
         ...(rewindId !== undefined ? { rewindId } : {}),
         ...(result ? { status: result.status, passes: result.passes } : {}),
         ...(result?.scope ? { limitedTo: result.scope.objects.join(', ') } : {}),
+        ...(deliverability !== undefined ? { deliverability } : {}),
+        // Accepted, and it mattered: an org that withholds them asks nothing.
+        ...(deliverability !== undefined &&
+        deliverability !== 'withheld' &&
+        extra.acceptEmails === true
+          ? { confirmed: 'emails' }
+          : {}),
         ...(pipeline
           ? {
               pipeline: pipeline.origin.pipeline,
@@ -2522,6 +2563,7 @@ export class CheckpointHandler implements DomainHandler {
         ...(outcome.emailsUncounted !== undefined
           ? { emailsUncounted: outcome.emailsUncounted }
           : {}),
+        ...(outcome.deliverability ? { deliverability: outcome.deliverability } : {}),
         estimate: outcome.estimate,
         ...(outcome.refusal ? { refusal: outcome.refusal } : {}),
       });
@@ -2647,6 +2689,8 @@ export class CheckpointHandler implements DomainHandler {
               ...(reused ? { reusesPreview: reused } : {}),
               ...(objects !== undefined ? { objects } : {}),
               acceptAutomation: parsed.acceptAutomation,
+              acceptEmails: parsed.acceptEmails === true,
+              canMute: true,
               acceptNoUndo: parsed.acceptNoUndo,
               acceptRecreate: parsed.acceptRecreate,
               acceptOutside: parsed.acceptOutside,
@@ -2654,10 +2698,11 @@ export class CheckpointHandler implements DomainHandler {
             },
           );
           return outcome.rewound
-            ? { done: true, result: outcome.result, notes: outcome.notes }
+            ? writtenOutcome(outcome)
             : { done: false, refusal: outcome.refusal };
         },
         (err) => err instanceof m.RewindStopped,
+        { acceptEmails: parsed.acceptEmails === true },
       );
     } catch (err: unknown) {
       this.fail(msg, err, 'REWIND_ERROR');
@@ -2722,14 +2767,16 @@ export class CheckpointHandler implements DomainHandler {
               username: org.username,
               rewindId: parsed.rewindId,
               acceptAutomation: parsed.acceptAutomation,
+              acceptEmails: parsed.acceptEmails === true,
+              canMute: true,
             },
           );
           return outcome.undone
-            ? { done: true, result: outcome.result, notes: outcome.notes }
+            ? writtenOutcome(outcome)
             : { done: false, refusal: outcome.refusal };
         },
         (err) => err instanceof m.UndoStopped,
-        { rewindId: parsed.rewindId },
+        { rewindId: parsed.rewindId, acceptEmails: parsed.acceptEmails === true },
       );
     } catch (err: unknown) {
       this.fail(msg, err, 'UNDO_ERROR');
@@ -2789,6 +2836,8 @@ export class CheckpointHandler implements DomainHandler {
     options: {
       rewindId?: string;
       signal?: AbortSignal;
+      /** Whether the emails were accepted: said in the audit trail where they mattered. */
+      acceptEmails?: boolean;
       refusalOf?: (result: RewindResult) => CheckpointRefusal | undefined;
     } = {},
   ): Promise<RewindResult> {
@@ -2835,7 +2884,11 @@ export class CheckpointHandler implements DomainHandler {
         settle(new Error(outcome.refusal.message));
         throw this.refusalOf(outcome.refusal);
       }
-      const { result, notes } = outcome;
+      const { result, notes, deliverability } = outcome;
+      const emails = {
+        ...(deliverability !== undefined ? { deliverability } : {}),
+        ...(options.acceptEmails === true ? { acceptEmails: true } : {}),
+      };
       for (const note of notes) this.deps.log(`[WARN] checkpoint:${act} ${operationId}: ${note}`);
       // Named as the sweep names the journals it deletes.
       for (const gone of result.removedJournals ?? []) {
@@ -2849,6 +2902,7 @@ export class CheckpointHandler implements DomainHandler {
         this.audit(at, act, org, checkpoint, wroteAny(result) ? 'partial' : 'stopped', {
           result,
           code: refusedAfter.code,
+          ...emails,
         });
         sendOperationCompleted(this.deps, operationId, {
           status: 'refused',
@@ -2858,7 +2912,7 @@ export class CheckpointHandler implements DomainHandler {
         settle(new Error(refusedAfter.message));
         throw new Refused(refusedAfter.code, refusedAfter.message, false, result);
       }
-      this.audit(at, act, org, checkpoint, AUDIT_OUTCOMES[result.status], { result });
+      this.audit(at, act, org, checkpoint, AUDIT_OUTCOMES[result.status], { result, ...emails });
       at.respond?.(`checkpoint:${act}:response`, { result, operationId });
       if (result.status === 'cancelled') {
         // Aborted in the registry already when the stop came through it.

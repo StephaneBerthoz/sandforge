@@ -78,7 +78,13 @@ import { typed } from './prompt.js';
 import { spawnCommand, type CommandRunner } from './scriptRunner.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
-import { applyPlan, removalSubjectOf, runResultLines, type EnvStepDeps } from './env/envApply.js';
+import {
+  applyPlan,
+  removalSubjectOf,
+  runResultLines,
+  withEmailsAccepted,
+  type EnvStepDeps,
+} from './env/envApply.js';
 import { destroyEnvironment } from './env/envDestroy.js';
 import {
   checkEnvFile,
@@ -227,8 +233,8 @@ plan:
                              records deleted or changed since
   --quick                    skip the dry runs and the removal previews: no counts, and no word
                              on what the org holds
-  --replace <resource>, --replace-drifted, --accept-automation, --accept-no-state
-                             plan what apply would do with them; --out keeps them with the plan
+  --replace <resource>, --replace-drifted, --accept-automation, --accept-emails,
+  --accept-no-state          plan what apply would do with them; --out keeps them with the plan
   --out <file>               keep the plan in <file>, for apply --plan: outside the repository
                              that holds the file, unless --out-in-repository
   --out-in-repository        keep it inside that repository all the same, in a folder of it
@@ -240,6 +246,11 @@ apply:
   --replace-drifted          replace every drifted resource
   --accept-automation        take back the runs a replace or a delete takes back although the org
                              runs automation as records go
+  --accept-emails            let the seed and clone resources write although the org delivers every
+                             email its automation sends (Setup > Deliverability: All email), or
+                             would not say whether it does, and what still runs sends some;
+                             without it their dry runs block the plan, and --accept-automation
+                             and accept: { automation: true } never stand for it
   --accept-no-state          apply to a Developer Edition or a sandbox this machine has no state
                              of: records an earlier apply left there would be created twice
   --yes                      do not ask; without it and with no terminal, stop at the question,
@@ -249,6 +260,8 @@ destroy:
                              under them since: on a shared sandbox, a colleague's work
   --sweep                    take also what the org's automation created during each run
   --accept-automation        delete although the org runs automation as records go
+  --accept-emails            with --rewind, rewind although the org delivers the emails what still
+                             runs sends, or would not say whether it does
   --rewind                   rewind the org to the checkpoint taken before the first apply
                              instead: everyone's changes since are taken back, not only the
                              environment's records, and its checkpoints are then deleted
@@ -260,6 +273,8 @@ destroy:
   --yes                      as for apply
 reset:
   --accept-automation        rewind although the org runs automation as records are written back
+  --accept-emails            rewind although the org delivers the emails what still runs sends, or
+                             would not say whether it does
   --accept-no-undo           rewind although undo could not bring back some of the records it
                              deletes
   --accept-unseen            as for destroy --rewind
@@ -341,7 +356,9 @@ the org matches the checkpoint; output: every resource's records named, or taken
 before it read or wrote — a production org, a kind of org or a sandbox the file does not allow, a
 protected org, a state of another org, no state without --accept-no-state, another apply of the
 org under way, a removal refused for automation without --accept-automation, more API requests,
-storage or emails than the org has left, a checkpoint the file asks that its script refuses, a
+storage or emails than the org has left, emails the org delivers or would not say it withholds
+without --accept-emails (a clone's or a seed's EMAILS_NOT_ACCEPTED, a rewind's EMAILS_DELIVERED), a
+checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or
 --accept-unseen, a plan --plan
@@ -378,6 +395,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--quick',
       '--replace-drifted',
       '--accept-automation',
+      '--accept-emails',
       '--accept-no-state',
       '--out-in-repository',
     ],
@@ -385,7 +403,14 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   apply: {
     words: 1,
-    switches: ['--json', '--replace-drifted', '--accept-automation', '--accept-no-state', '--yes'],
+    switches: [
+      '--json',
+      '--replace-drifted',
+      '--accept-automation',
+      '--accept-emails',
+      '--accept-no-state',
+      '--yes',
+    ],
     values: ['--file', '--org', '--alias', '--replace', '--plan'],
   },
   destroy: {
@@ -395,6 +420,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--include-changed',
       '--sweep',
       '--accept-automation',
+      '--accept-emails',
       '--rewind',
       '--accept-no-undo',
       '--accept-unseen',
@@ -404,7 +430,14 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   reset: {
     words: 1,
-    switches: ['--json', '--accept-automation', '--accept-no-undo', '--accept-unseen', '--yes'],
+    switches: [
+      '--json',
+      '--accept-automation',
+      '--accept-emails',
+      '--accept-no-undo',
+      '--accept-unseen',
+      '--yes',
+    ],
     values: ['--file', '--org', '--alias'],
   },
   state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
@@ -440,6 +473,8 @@ export interface CliArgs {
   replace: string[];
   replaceDrifted: boolean;
   acceptAutomation: boolean;
+  /** The emails what still runs sends, for an org that delivers them all: never `acceptAutomation`. */
+  acceptEmails: boolean;
   acceptNoState: boolean;
   includeChanged: boolean;
   sweep: boolean;
@@ -534,7 +569,13 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   const plan = single('--plan');
   if (plan !== undefined) {
     // What the plan replaces and accepts is the line it was made with.
-    const own = ['--replace', '--replace-drifted', '--accept-automation', '--accept-no-state'];
+    const own = [
+      '--replace',
+      '--replace-drifted',
+      '--accept-automation',
+      '--accept-emails',
+      '--accept-no-state',
+    ];
     const given = own.filter((flag) => args.includes(flag));
     if (given.length > 0) {
       refuseLine(
@@ -554,7 +595,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
       );
     }
   } else if (command === 'destroy') {
-    for (const flag of ['--accept-no-undo', '--accept-unseen']) {
+    for (const flag of ['--accept-emails', '--accept-no-undo', '--accept-unseen']) {
       if (args.includes(flag)) {
         refuseLine(`${flag} goes with --rewind: a destroy by removal is no rewind.`);
       }
@@ -576,6 +617,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     replace: [...new Set(replace)],
     replaceDrifted: args.includes('--replace-drifted'),
     acceptAutomation: args.includes('--accept-automation'),
+    acceptEmails: args.includes('--accept-emails'),
     acceptNoState: args.includes('--accept-no-state'),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
@@ -1072,6 +1114,7 @@ async function dryRun(
   say: (line: string) => void,
   signal: AbortSignal,
   seeds: Readonly<Record<string, number>> = {},
+  acceptEmails = false,
 ): Promise<Record<string, EnvDryRun>> {
   const { resolved, target, state, store } = prepared;
   const dryRuns: Record<string, EnvDryRun> = {};
@@ -1120,17 +1163,22 @@ async function dryRun(
       writeFileSync(templateFile, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
       say(`${resource.name}: dry run`);
       const seed = seeds[resource.name];
-      const line = dryRunLineOf(resource, {
-        target: target.alias,
-        templateFile,
-        runId: envRunIdOf(env, resource.name, nextRunNumber(state?.resources[resource.name])),
-        replace: action === 'replace' && replacesInOneRun(resource.kind),
-        ...(seed !== undefined ? { seed } : {}),
-        ...(storeFile !== undefined ? { storeFile } : {}),
-        // A store of the plan's own: a dry run saves the rules as a template,
-        // and the resource's store keeps what its runs did alone.
-        ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),
-      });
+      // Dry-run with the accord of the line: without it, its emails would
+      // block a plan the apply is told it may write.
+      const line = withEmailsAccepted(
+        dryRunLineOf(resource, {
+          target: target.alias,
+          templateFile,
+          runId: envRunIdOf(env, resource.name, nextRunNumber(state?.resources[resource.name])),
+          replace: action === 'replace' && replacesInOneRun(resource.kind),
+          ...(seed !== undefined ? { seed } : {}),
+          ...(storeFile !== undefined ? { storeFile } : {}),
+          // A store of the plan's own: a dry run saves the rules as a template,
+          // and the resource's store keeps what its runs did alone.
+          ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),
+        }),
+        acceptEmails,
+      );
       const ran = await prepared.runner(line.script, line.args, signal);
       try {
         dryRuns[resource.name] = { answer: readDryRunOf(resource.kind, ran.stdout) };
@@ -1241,7 +1289,7 @@ async function planOf(
     drafts.filter((d) => d.action === 'create' || d.action === 'replace').map((d) => d.resource),
   );
   const draws = await drawsOf(prepared, running);
-  const dryRuns = await dryRun(prepared, drafts, draws, say, signal, seeds);
+  const dryRuns = await dryRun(prepared, drafts, draws, say, signal, seeds, args.acceptEmails);
   const budget = await readBudget(prepared.reached.conn);
   const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
   return {
@@ -1641,6 +1689,7 @@ async function rewindVerb(
     target: prepared.target,
     state: prepared.state,
     acceptAutomation: args.acceptAutomation,
+    acceptEmails: args.acceptEmails,
     acceptNoUndo: args.acceptNoUndo,
     acceptUnseen: args.acceptUnseen,
   };
@@ -1731,6 +1780,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
               replace: args.replace,
               replaceDrifted: args.replaceDrifted,
               acceptAutomation: args.acceptAutomation,
+              ...(args.acceptEmails ? { acceptEmails: true } : {}),
               acceptNoState: args.acceptNoState,
             },
             dryRuns,
@@ -1805,6 +1855,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           state: prepared.state,
           dryRuns,
           acceptAutomation: applied.acceptAutomation,
+          acceptEmails: applied.acceptEmails,
         });
         for (const line of runResultLines(outcome.result, 'apply')) say(line);
         answerJson(outcome.result);

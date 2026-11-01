@@ -436,7 +436,16 @@ describe('checkpoint.after, and reset', () => {
   it('passes the acceptances the line gives to the rewind, and no other', async () => {
     await run(line('apply', '--yes'));
 
-    await run(line('reset', '--yes', '--accept-automation', '--accept-no-undo', '--accept-unseen'));
+    await run(
+      line(
+        'reset',
+        '--yes',
+        '--accept-automation',
+        '--accept-emails',
+        '--accept-no-undo',
+        '--accept-unseen',
+      ),
+    );
     await run(line('reset', '--yes'));
 
     const rewinds = world.calls.filter(
@@ -446,12 +455,14 @@ describe('checkpoint.after, and reset', () => {
       expect.arrayContaining([
         '--yes',
         '--accept-automation',
+        '--accept-emails',
         '--accept-no-undo',
         '--accept-unseen',
         '--json',
       ]),
     );
     expect(rewinds[1]?.args).not.toContain('--accept-automation');
+    expect(rewinds[1]?.args).not.toContain('--accept-emails');
     expect(rewinds[1]?.args).not.toContain('--accept-unseen');
     expect(rewinds.flatMap((call) => call.args)).not.toContain('--accept-recreate');
   });

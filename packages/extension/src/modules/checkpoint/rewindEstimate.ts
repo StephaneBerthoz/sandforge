@@ -73,6 +73,7 @@ import {
   type ApiBudget,
   type EmailLimit,
   type LimitsTransport,
+  type RunRequestParts,
 } from '../forge/ForgeRunGate.js';
 import {
   ONE_ROW_CALLS_IN_FLIGHT,
@@ -1475,6 +1476,13 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    */
   automationRequests: number;
   /**
+   * Requests the preview's read of whether the org delivers the emails its
+   * automation sends took (`DeliverabilityRead.requests`): the rewind reads
+   * it again before it writes, when something that still runs sends one.
+   * Absent when the preview read none.
+   */
+  deliverabilityRequests?: number;
+  /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one: the objects it brings records back
    * to are then described as it brings them back.
@@ -1809,6 +1817,7 @@ export function rewindEstimate(
   const cost = sum(
     reads,
     calls(input.automationRequests, SECONDS_PER_READ),
+    calls(input.deliverabilityRequests ?? 0, SECONDS_PER_SMALL_CALL),
     rewindWritesCost(input),
   );
   return {
@@ -2088,21 +2097,48 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
 }
 
 /**
+ * What the parts of an act's requests beside its own are for, as its refusal
+ * names them: a rewind's and an undo's read of whether the org delivers the
+ * emails its automation sends is the one a checkpoint's acts make.
+ */
+const ACT_PART_WORDS: Readonly<
+  Partial<Record<Exclude<keyof RunRequestParts, 'run'>, (orgName: string) => string>>
+> = {
+  deliverability: (orgName) => `to read whether ${orgName} delivers its emails`,
+};
+
+/** The parts a refusal names: " (2 of them to read whether DEV delivers its emails)", or nothing. */
+function actPartsWords(parts: RunRequestParts | undefined, orgName: string): string {
+  if (parts === undefined) return '';
+  const named = Object.entries(ACT_PART_WORDS)
+    .flatMap(([part, words]) => {
+      const requests = parts[part as keyof RunRequestParts] ?? 0;
+      return requests > 0 && words ? [{ requests, words: words(orgName) }] : [];
+    })
+    .map(({ requests, words }, i) => `${requests}${i === 0 ? ' of them' : ''} ${words}`);
+  return named.length > 0 ? ` (${named.join(', ')})` : '';
+}
+
+/**
  * The refusal of an act that would take more API requests than `budget`
  * leaves the org today, in the words a person reads; nothing when it fits.
+ * Given its parts, the shared sum counts them (`apiBudgetCheckOf`), and the
+ * refusal names those beside the act's own.
  */
 export function budgetRefusal(
   act: BudgetedAct,
-  apiRequests: number,
+  apiRequests: number | RunRequestParts,
   budget: ApiBudget,
   orgName: string,
 ): CheckpointRefusal | undefined {
-  if (apiBudgetCheckOf(apiRequests, budget).verdict !== 'exceeds') return undefined;
+  const check = apiBudgetCheckOf(apiRequests, budget);
+  if (check.verdict !== 'exceeds') return undefined;
   const words = BUDGET_WORDS[act];
   return {
     code: 'API_BUDGET',
     message:
-      `${words.what} takes about ${apiRequests} API requests; ${orgName} has ` +
+      `${words.what} takes about ${check.estimate} API requests` +
+      `${actPartsWords(check.parts, orgName)}; ${orgName} has ` +
       `${budget.remaining} of its ${budget.max} left today. ${words.then} ${words.done}`,
   };
 }

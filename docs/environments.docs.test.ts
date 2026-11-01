@@ -498,6 +498,7 @@ describe('docs/environments.md', () => {
         '--include-changed',
         '--sweep',
         '--accept-automation',
+        '--accept-emails',
         '--rewind',
         '--accept-no-undo',
         '--accept-unseen',

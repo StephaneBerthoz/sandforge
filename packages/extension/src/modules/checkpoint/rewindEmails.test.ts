@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { ForgeTargetAutomation, ForgeTargetFlow, RewindDiffObject } from '@sandforge/shared';
 
 import {
+  actDeliverability,
+  actEmailsGate,
+  actSendersOf,
+  afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
   emailsUncountedWords,
+  heldPlanOf,
   writtenByDiff,
   writtenByPlan,
   writtenByUndo,
@@ -381,5 +386,197 @@ describe('checkpointEmailsUncounted', () => {
         'what sends them was not read (the definition of Contact edited on Contact). ',
     );
     expect(emailsUncountedWords('rewind', undefined)).toBe('');
+  });
+});
+
+describe('whether the org delivers the emails of what still runs', () => {
+  const sending = automationOf({ Contact: [flow('Contact changed', 'update', ['SingleEmail'])] });
+  /** A rewind that gives contacts back and deletes nothing. */
+  const steps = { giveBack: ['Contact'] };
+  const input = { act: 'rewind' as const, orgName: 'DEV-ED', steps, mayMute: false };
+  const SENDER = {
+    objectApiName: 'Contact',
+    kind: 'flow' as const,
+    name: 'Contact changed',
+    why: 'email' as const,
+  };
+  /** The same flow, kept quiet for whoever holds the set the org grants its bypass in. */
+  const bypassed = {
+    ...automationOf({
+      Contact: [
+        {
+          ...flow('Contact changed', 'update', ['SingleEmail']),
+          permissions: [{ name: 'Skip_Contact', bypass: true, held: false }],
+        },
+      ],
+    }),
+    bypassGrants: [
+      {
+        permission: 'Skip_Contact',
+        permissionSets: [{ name: 'Skip_Set', label: 'Skip', grants: 1 }],
+      },
+    ],
+  };
+  const plan = {
+    assign: [{ permissionSet: 'Skip_Set', label: 'Skip', permissions: ['Skip_Contact'] }],
+  };
+  let reads = 0;
+  const reading = (level: 'all' | 'withheld') => () => {
+    reads++;
+    return Promise.resolve({ reading: { level }, requests: 1 });
+  };
+
+  it('reads nothing when what the act writes starts nothing that sends', async () => {
+    reads = 0;
+    const emails = await actDeliverability({
+      ...input,
+      automation: sending,
+      steps: { delete: ['Contact'] },
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(reads).toBe(0);
+    expect(emails.gate.verdict).toBe('nothingSends');
+    expect(emails.refusal).toBeUndefined();
+    expect(emails.ofRun).toEqual({ senders: [] });
+  });
+
+  it('refuses it where the org delivers them, the accord alone lifting the refusal', async () => {
+    reads = 0;
+    const refused = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: false,
+      read: reading('all'),
+    });
+    expect(refused.refusal?.code).toBe('EMAILS_DELIVERED');
+    expect(refused.refusal?.message).toContain('Add --accept-emails to rewind all the same');
+    expect(refused.gate.audit).toBe('all');
+
+    const accepted = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: true,
+      read: reading('all'),
+    });
+    expect(accepted.refusal).toBeUndefined();
+    expect(accepted.gate.verdict).toBe('asks');
+    expect(reads).toBe(2);
+  });
+
+  it('says the emails go to the addresses the records hold, an act’s values being the org’s own', async () => {
+    const { refusal } = await actDeliverability({
+      ...input,
+      act: 'undo',
+      automation: sending,
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(refusal?.message).toContain('those of the records this undo writes, as they hold them');
+    expect(refusal?.message).not.toContain('.invalid');
+  });
+
+  it('lets through an org that withholds them, and says so', async () => {
+    const { gate, refusal } = await actDeliverability({
+      ...input,
+      automation: sending,
+      accepted: false,
+      read: reading('withheld'),
+    });
+
+    expect(refusal).toBeUndefined();
+    expect(gate).toMatchObject({
+      verdict: 'withheld',
+      audit: 'withheld',
+      deliverability: { reading: { level: 'withheld' }, senders: [SENDER] },
+    });
+  });
+
+  it('reads the org, and asks, when what sends could not all be read', async () => {
+    reads = 0;
+    const blind = { ...automationOf({}), unread: [{ part: 'flows' as const, reason: 'refused' }] };
+    const { refusal, ofRun } = await actDeliverability({
+      ...input,
+      automation: blind,
+      accepted: false,
+      read: reading('all'),
+    });
+
+    expect(reads).toBe(1);
+    expect(ofRun.sendersUnread).toBe("the target's flows: refused");
+    expect(refusal?.code).toBe('EMAILS_DELIVERED');
+  });
+
+  it('counts what the mute’s plan keeps quiet out of what sends, and reads nothing for it', async () => {
+    reads = 0;
+
+    expect(actSendersOf({ automation: bypassed, steps, plan })).toEqual({ senders: [] });
+    const emails = await actDeliverability({
+      ...input,
+      automation: bypassed,
+      plan,
+      accepted: false,
+      read: reading('all'),
+    });
+    expect(reads).toBe(0);
+    expect(emails.refusal).toBeUndefined();
+  });
+
+  it('names what the mute keeps quiet only to an act that could have been asked to mute', () => {
+    const of = (mayMute: boolean): string | undefined =>
+      actEmailsGate({
+        ...input,
+        mayMute,
+        automation: bypassed,
+        accepted: false,
+        senders: [SENDER],
+        reading: { level: 'all' },
+      }).refusal?.message;
+
+    expect(of(true)).toContain('--mute-automation keeps quiet flow "Contact changed"');
+    expect(of(false)).not.toContain('--mute-automation');
+  });
+
+  describe('the lease read back against its plan', () => {
+    const after = (
+      held: { assigned: string[]; held: string[] },
+      overrides: { accepted?: boolean; reading?: { level: 'all' } | { level: 'withheld' } } = {},
+    ) =>
+      afterLeaseEmailsRefusal({
+        act: 'rewind',
+        orgName: 'DEV-ED',
+        automation: bypassed,
+        steps,
+        plan,
+        held,
+        planned: [],
+        accepted: false,
+        ...overrides,
+      });
+
+    it('holds a set assigned, and one the user held already', () => {
+      expect(heldPlanOf(plan, { assigned: ['Skip_Set'], held: [] })).toEqual(plan);
+      expect(heldPlanOf(plan, { assigned: [], held: ['Skip_Set'] })).toEqual(plan);
+      expect(heldPlanOf(plan, { assigned: [], held: [] })).toEqual({ assign: [] });
+    });
+
+    it('lets through a lease that holds its plan', () => {
+      expect(after({ assigned: ['Skip_Set'], held: [] })).toBeUndefined();
+    });
+
+    it('refuses one that leaves a sender running that no one was asked about', () => {
+      const refusal = after({ assigned: [], held: [] });
+
+      expect(refusal?.code).toBe('EMAILS_DELIVERED');
+      expect(refusal?.message).toContain('flow "Contact changed" on Contact may send emails');
+      expect(refusal?.message).toContain('Add --accept-emails to rewind all the same');
+    });
+
+    it('lets it through once the emails were accepted, or where the org withholds them', () => {
+      expect(after({ assigned: [], held: [] }, { accepted: true })).toBeUndefined();
+      expect(after({ assigned: [], held: [] }, { reading: { level: 'withheld' } })).toBeUndefined();
+    });
   });
 });

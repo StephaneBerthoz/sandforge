@@ -883,7 +883,7 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain('carriers: asCarriers,');
     expect(REWIND).toContain("'record(s) brought back for a moment still in the org");
     expect(UNDO).toContain('carriedAlone: outcome.carriedAlone');
-    expect(PREVIEW).toContain('(object.toBringBack.carriers ?? 0) +');
+    expect(source(`${MODULE_DIR}/rewindBounds.ts`)).toContain('carriersOf(object) +');
 
     const rewinding = section(DOC, '## Rewinding');
     expect(rewinding).toContain(

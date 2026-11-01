@@ -166,7 +166,7 @@ describe('docs/mcp.md', () => {
 
     expect(rule).toContain("`acceptNoState` is `env_apply`'s `--accept-no-state`");
     expect(rule).toContain("`includeChanged` is `env_destroy`'s `--include-changed`");
-    expect(SERVER).toContain("flags: { '--accept-no-state': 'acceptNoState' },");
+    expect(SERVER).toContain("'--accept-no-state': 'acceptNoState'");
     expect(SERVER).toContain("flags: { '--include-changed': 'includeChanged' },");
     expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
   });

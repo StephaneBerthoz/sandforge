@@ -129,6 +129,7 @@ class UndoTestOrg extends MemoryRestoreOrg implements TakeOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('User', { Id: MEMORY_ORG_USER, Name: 'Ada Admin' });

@@ -122,6 +122,7 @@ class PreviewTestOrg extends MemoryRemovalOrg implements TakeOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
     this.add('User', { Id: MEMORY_ORG_USER, Name: 'Ada Admin' });
@@ -556,6 +557,104 @@ describe('previewCheckpoint', () => {
     if (!without.previewed) throw new Error(without.refusal.message);
     expect(without.emails).toBeUndefined();
     expect(without.refusal).toBeUndefined();
+  });
+
+  describe('whether the org delivers the emails of what fires as it writes', () => {
+    /** A flow that emails an account's owner as it is updated. */
+    const sending: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    const SENDER = {
+      objectApiName: 'Account',
+      kind: 'flow',
+      name: 'Account changed',
+      why: 'email',
+    };
+
+    it('answers it beside the rest, asks nothing of it as a refusal, and prices the rewind’s own read', async () => {
+      const t = await taken();
+      changedSince(t.org);
+      t.org.anonymousApex = { compiled: true, success: true };
+      const unread = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: automationRead([]) },
+        request(t),
+      );
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed || !unread.previewed) throw new Error('refused');
+      expect(outcome.deliverability).toEqual({ reading: { level: 'all' }, senders: [SENDER] });
+      // The page's box and the command line's flag answer it, as for the automation.
+      expect(outcome.refusal).toBeUndefined();
+      expect(outcome.estimate.apiRequests - unread.estimate.apiRequests).toBe(1);
+    });
+
+    it('names the read among the requests the rewind would take, past what the org has left today', async () => {
+      const t = await taken();
+      changedSince(t.org);
+      t.org.anonymousApex = { compiled: true, success: true };
+      t.org.limits = { Max: 15_000, Remaining: 5 };
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.refusal).toMatchObject({
+        code: 'API_BUDGET',
+        message: expect.stringMatching(
+          /^This rewind takes about \d+ API requests \(1 of them to read whether DEV-ED delivers its emails\); DEV-ED has 5/,
+        ) as unknown,
+      });
+    });
+
+    it('says an org that withholds them, its user’s Send Email read after its answer', async () => {
+      const t = await taken();
+      changedSince(t.org);
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.deliverability).toEqual({ reading: { level: 'withheld' }, senders: [SENDER] });
+    });
+
+    it('reads nothing when nothing that fires sends one', async () => {
+      const t = await taken();
+      changedSince(t.org);
+
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: automationRead([]) },
+        request(t),
+      );
+
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      expect(outcome.deliverability).toBeUndefined();
+      expect(t.org.anonymousAsked).toEqual([]);
+    });
   });
 
   it('says the emails of a package’s flow on an object the rewind gives back were not counted, though nothing it read sends one, and refuses nothing for it', async () => {

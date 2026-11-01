@@ -32,6 +32,10 @@
  * refused. What sends emails and could not be read — a flow whose definition
  * the org refused, a package's, which no user reads — is named as not
  * counted, even when nothing else sends: what it sends is not known.
+ * Whether the org delivers those emails at all is read once something that
+ * runs may send one, with one line of anonymous Apex that sends nothing
+ * (`rewindEmails.ts`), and answered beside them: where the org delivers
+ * them, or would not say, the rewind is asked to send them (`acceptEmails`).
  *
  * Of a checkpoint that holds files, the files it brings back from the recycle
  * bin are held to the file storage the org has left, read with its requests:
@@ -59,7 +63,8 @@ import {
   type OrgCheckpoint,
   type OrgTypeAndEdition,
   type RewindDiff,
-  type RewindDiffObject,
+  type RewindSelectionPlan,
+  type RunDeliverability,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
@@ -79,14 +84,17 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { actAccessOf } from './rewindAccess.js';
+import { objectsWrittenBy, rewindStepsOf, selectionDiff } from './rewindBounds.js';
 import { rewindDiff } from './rewindDiff.js';
 import { diffOfPicked, planSelection, snapshotRowsOf } from './rewindPlan.js';
 import {
+  actDeliverability,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
   writtenByDiff,
 } from './rewindEmails.js';
+import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import {
   budgetRefusal,
   fileStorageRefusal,
@@ -162,6 +170,13 @@ export type PreviewOutcome =
        * when every one was.
        */
       emailsUncounted?: string;
+      /**
+       * What still runs as it writes that may send an email, and whether the
+       * org delivers them, read only when something may: absent when nothing
+       * sends, or it would write nothing. Not a refusal: the rewind is asked
+       * to send them (`acceptEmails`), as it is asked for its automation.
+       */
+      deliverability?: RunDeliverability;
       estimate: CheckpointEstimate;
       /** The refusal the rewind would meet before writing, when it would meet one. */
       refusal?: CheckpointRefusal;
@@ -198,35 +213,8 @@ function guardConnectionOf(org: TakeOrg): CheckpointGuardConnection {
   } as unknown as CheckpointGuardConnection;
 }
 
-/**
- * The objects a rewind would write to: records to delete, to give values
- * back, to bring back, or to make again, and records it brings back for a
- * moment to delete again — counted in none of those, but written twice: the
- * rewind reads what runs on their object, and refuses it unaccepted. The
- * link of a file to a record too, when it removes, inserts or updates links:
- * a trigger on a link — a file attached updates its case — runs on each.
- */
-export function objectsWrittenBy(
-  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
-): string[] {
-  const writes = (object: RewindDiffObject): boolean =>
-    object.toDelete.createdSince +
-      object.toDelete.broughtBackSince +
-      object.toDelete.comesBackWithParent +
-      object.toGiveBack.records +
-      object.toBringBack.inBin +
-      object.toBringBack.withParent +
-      object.toBringBack.deletedWhileTaken +
-      (object.toBringBack.carriers ?? 0) +
-      (object.toRecreate ?? 0) >
-    0;
-  const written = diff.objects.filter(writes).map((object) => object.objectApiName);
-  const links = diff.files;
-  if (links !== undefined && links.unlink + links.relink + links.updateLinks > 0) {
-    written.push(FILE_LINK_OBJECT);
-  }
-  return written;
-}
+// The objects a rewind would write to, as its bounds read them too.
+export { objectsWrittenBy };
 
 /** The files a rewind brings back from the recycle bin: on their own, or as another user's file the snapshot could not read. */
 function filesBroughtBack(diff: Pick<RewindDiff, 'objects'>): number {
@@ -344,8 +332,9 @@ export async function previewCheckpoint(
   const picked = request.objects !== undefined ? new Set(request.objects) : undefined;
   const selected = diffOfPicked(diff, picked);
   const written = objectsWrittenBy(selected);
+  let plan: RewindSelectionPlan | undefined;
   if (picked !== undefined) {
-    const plan = await planSelection({
+    plan = await planSelection({
       checkpoint,
       previewDir: previewDirOf(request.folder, previewId),
       readAt,
@@ -365,6 +354,25 @@ export async function previewCheckpoint(
     } catch (err: unknown) {
       automation = automationUnread(written, extractErrorMessage(err));
     }
+  }
+  // Whether the org delivers the emails of what fires as the rewind writes,
+  // read only once something that runs may send one, on the writes the
+  // command line's and a pipeline's bounds judge it on: the page asks for
+  // them to be accepted, and the rewind reads it again before it writes.
+  let deliverability: RunDeliverability | undefined;
+  let deliverabilityRequests = 0;
+  if (automation) {
+    const emails = await actDeliverability({
+      act: 'rewind',
+      orgName,
+      automation,
+      steps: rewindStepsOf(plan ? selectionDiff(diff, plan) : selected),
+      accepted: false,
+      mayMute: true,
+      read: () => readEmailDeliverability(org),
+    });
+    deliverability = emails.gate.deliverability;
+    deliverabilityRequests = emails.ofRun.read?.requests ?? 0;
   }
 
   const read = kept.global();
@@ -391,6 +399,7 @@ export async function previewCheckpoint(
     objects: checkpoint.objects,
     diff: selected,
     automationRequests: automation?.requests ?? 0,
+    ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
     relationships,
     ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });
@@ -406,7 +415,15 @@ export async function previewCheckpoint(
       ? lockedRefusal(orgName, holder)
       : writing !== undefined
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
-        : (budgetRefusal('rewind', cost.apiRequests, budget, orgName) ??
+        : (budgetRefusal(
+            'rewind',
+            {
+              run: cost.apiRequests - deliverabilityRequests,
+              deliverability: deliverabilityRequests,
+            },
+            budget,
+            orgName,
+          ) ??
           emailsRefusal('rewind', emails, orgName) ??
           (selected.files !== undefined
             ? fileStorageRefusal(
@@ -422,6 +439,7 @@ export async function previewCheckpoint(
     ...(automation ? { automation } : {}),
     ...(emails.length > 0 ? { emails } : {}),
     ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
+    ...(deliverability ? { deliverability } : {}),
     estimate,
     ...(refusal ? { refusal } : {}),
   };

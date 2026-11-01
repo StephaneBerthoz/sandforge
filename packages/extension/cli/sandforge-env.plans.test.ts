@@ -212,6 +212,8 @@ describe('the command line of saved plans and outputs', () => {
       '--replace-drifted: --plan',
     ],
     [['apply', '--org', 'TGT', '--plan', 'p.json', '--accept-automation'], 'kept in it'],
+    [['apply', '--org', 'TGT', '--plan', 'p.json', '--accept-emails'], '--accept-emails: --plan'],
+    [['destroy', '--org', 'TGT', '--accept-emails'], '--accept-emails goes with --rewind'],
     [['output'], 'output needs --org'],
     [['output', '--org', 'TGT', '--yes'], '"--yes" is not a flag this command reads'],
     [['destroy', '--org', 'TGT', '--plan', 'p.json'], '"--plan" is not a flag this command reads'],
@@ -331,6 +333,67 @@ describe('plan --accept-no-state and --accept-automation', () => {
     );
     expect(accepted.refusal).toBeUndefined();
     expect(accepted.warnings?.[0]).toContain('this machine keeps no state of case-flow on TGT');
+  });
+});
+
+describe('plan --accept-emails', () => {
+  /**
+   * The memory org's scripts as they run, and what each line asked: the seed
+   * of this host reads no such flag, what it was handed is what counts here.
+   */
+  function handed(lines: string[][]): Partial<EnvCliDeps> {
+    return {
+      runner: (script, args, signal) => {
+        lines.push([...args]);
+        return world.runner(
+          script,
+          args.filter((arg) => arg !== '--accept-emails'),
+          signal,
+        );
+      },
+    };
+  }
+
+  it('hands it to the dry runs, keeps it with the plan, and applies the plan with it', async () => {
+    const asked: string[][] = [];
+
+    const planned = await run(
+      ['plan', '--org', 'TGT', '--json', '--out', planFile, '--accept-no-state', '--accept-emails'],
+      handed(asked),
+    );
+
+    expect(planned.code, planned.said).toBe(0);
+    expect(asked.filter((line) => line.includes('--dry-run')).length).toBeGreaterThan(0);
+    for (const line of asked.filter((each) => each.includes('--dry-run'))) {
+      expect(line).toContain('--accept-emails');
+    }
+    expect(kept().line.acceptEmails).toBe(true);
+
+    const applied: string[][] = [];
+    const ran = await run(
+      ['apply', '--org', 'TGT', '--yes', '--json', '--plan', planFile],
+      handed(applied),
+    );
+
+    expect(ran.code, ran.said).toBe(0);
+    const runs = applied.filter(
+      (line) => line.includes('--template-file') && !line.includes('--dry-run'),
+    );
+    expect(runs.length).toBeGreaterThan(0);
+    for (const line of runs) expect(line).toContain('--accept-emails');
+  });
+
+  it('asks for none of a plan made without it, which keeps none', async () => {
+    const asked: string[][] = [];
+
+    const planned = await run(
+      ['plan', '--org', 'TGT', '--json', '--out', planFile, '--accept-no-state'],
+      handed(asked),
+    );
+
+    expect(planned.code, planned.said).toBe(0);
+    expect(asked.flat()).not.toContain('--accept-emails');
+    expect(kept().line).not.toHaveProperty('acceptEmails');
   });
 });
 

@@ -148,6 +148,8 @@ export function checkpointRewindLine(
     checkpoint: string;
     dryRun: boolean;
     acceptAutomation: boolean;
+    /** Not given, not accepted. */
+    acceptEmails?: boolean;
     acceptNoUndo: boolean;
     /** Not given, not accepted. */
     acceptUnseen?: boolean;
@@ -160,6 +162,7 @@ export function checkpointRewindLine(
     checkpointIdSchema.parse(input.checkpoint),
     input.dryRun ? '--dry-run' : '--yes',
     ...(input.acceptAutomation ? ['--accept-automation'] : []),
+    ...(input.acceptEmails === true ? ['--accept-emails'] : []),
     ...(input.acceptNoUndo ? ['--accept-no-undo'] : []),
     ...(input.acceptUnseen === true ? ['--accept-unseen'] : []),
     '--json',

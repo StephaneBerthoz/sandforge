@@ -118,6 +118,7 @@ class McpTestOrg extends MemoryRestoreOrg {
       PermissionsViewAllData: true,
       PermissionsModifyAllData: true,
       PermissionsViewEncryptedData: false,
+      PermissionsEmailSingle: true,
     });
     this.add('Account', { Id: id('001', 1), Name: 'Northwind' });
     this.add('Account', { Id: id('001', 2), Name: 'Contoso' });

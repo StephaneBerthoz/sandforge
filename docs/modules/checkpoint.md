@@ -314,6 +314,15 @@ rewind:
   --accept-automation            rewind even when the org runs flows, Apex triggers, processes or
                                  workflow rules as records are updated, deleted or brought back;
                                  without it such a rewind writes nothing, exit 1
+  --accept-emails                rewind even when the org delivers every email its automation
+                                 sends (Setup > Deliverability: All email), or would not say
+                                 whether it does, and what still runs as it writes sends some:
+                                 they go to the addresses the records and the alerts name, and to
+                                 the records' owners. Without it such a rewind writes nothing,
+                                 exit 1. --accept-automation never stands for it. Read with one
+                                 line of anonymous Apex that sends nothing, only when something
+                                 that still runs sends an email; what Apex triggers send is not
+                                 read
   --mute-automation              mute the org's automation for the rewind through its own bypass:
                                  assign the user it writes as, for the rewind alone, the permission
                                  sets holding the custom permissions its flows, processes and
@@ -355,6 +364,7 @@ rewind:
                                  step — it stops at its question, exit 2, having written nothing
 undo:
   --accept-automation            as for rewind
+  --accept-emails                as for rewind
   --mute-automation              as for rewind
   --yes                          as for rewind
 delete:
@@ -465,15 +475,19 @@ JSON (--json), one value on stdout:
                      user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
-                      emailsUncounted?, refusal?}: carriers, the records brought back for a
-                     moment and deleted again, in none of the other numbers; diff, estimate,
+                      emailsUncounted?, deliverability?, refusal?}: carriers, the records
+                     brought back for a moment and deleted again, in none of the other numbers;
+                     diff, estimate,
                      automation and refusal as the extension answers them; refusal is the one a
                      rewind would meet now; emails, one per daily limit its writes send
                      against: {limit, emails, verdict, remaining?, max?, alertsCounted?,
                      objects: [{objectApiName, write, records, perRecord, sentBy}]};
                      emailsUncounted, what sends emails as it writes that could not be read — a
                      flow whose definition was refused, a package's, which no user reads — its
-                     emails not counted, which --accept-automation covers;
+                     emails not counted, which --accept-automation covers; deliverability,
+                     when something that still runs may send an email: {reading: {level: all
+                     or withheld} or {unread}, senders: [{objectApiName, kind, name, why}]},
+                     which --accept-emails answers for all and unread;
                      diff.objects[].schemaDrift, of an object whose fields changed since:
                      {removed, added, changed, hidden?, uncertain?: {fields, reason?}}, removed
                      the custom fields deleted since, hidden those field-level security hides
@@ -536,8 +550,9 @@ org matches among the objects and fields compared — with --object, among the o
 whatever still differs in the others; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
 kept, or was already); 1 refused before it read or wrote (a production org,
-missing permissions, automation without --accept-automation, deletions undo could not bring back
-without --accept-no-undo, records to make again with new Ids without --accept-recreate,
+missing permissions, automation without --accept-automation, emails the org delivers or would not
+say it withholds without --accept-emails (refusal code EMAILS_DELIVERED), deletions undo could not
+bring back without --accept-no-undo, records to make again with new Ids without --accept-recreate,
 deletions taking along records the user is not proven to see without --accept-unseen, more than
 --max-total records, more records to rewind than --max-records, people working in the org in the
 hour before with --refuse-when-active, more API requests or emails than the org

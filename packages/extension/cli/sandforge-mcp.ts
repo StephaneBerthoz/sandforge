@@ -636,10 +636,12 @@ export const TOOLS: readonly ServedTool[] = [
       'said first in its answer with who last changed what; the answer says what Undo could not ' +
       'bring back, and checkpoint_undo takes the rewind back. Needs confirm, the alias of org: ' +
       'checkpoint_preview first. Refused without acceptAutomation when the org runs automation ' +
-      'as the rewind writes, without acceptNoUndo when Undo could not bring back records it ' +
-      'deletes, without acceptRecreate when records no longer in the recycle bin would be made ' +
-      'again with new Ids, without acceptUnseen when, for a user without View All Data and ' +
-      'Modify All Data, what it deletes takes along records the user is not proven to see. ' +
+      'as the rewind writes, without acceptEmails when the org delivers every email what still ' +
+      'runs sends, or would not say whether it does, without acceptNoUndo when Undo could not ' +
+      'bring back records it deletes, without acceptRecreate when records no longer in the ' +
+      'recycle bin would be made again with new Ids, without acceptUnseen when, for a user ' +
+      'without View All Data and Modify All Data, what it deletes takes along records the user ' +
+      'is not proven to see. ' +
       'Given objects, it rewinds those alone, never adding what they depend on: its answer names ' +
       'what it left of them, the objects to add, and what still differs in the others. A ' +
       'production org is refused.',
@@ -655,6 +657,12 @@ export const TOOLS: readonly ServedTool[] = [
       acceptAutomation: acceptance(
         'Rewind although the org runs flows, Apex triggers, processes or workflow rules as ' +
           'records are updated, deleted or brought back, or would not say what it runs.',
+      ),
+      acceptEmails: acceptance(
+        'Rewind although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'the rewind writes sends some. acceptAutomation never stands for it. Only once the ' +
+          'person using you has accepted that these emails go out.',
       ),
       acceptNoUndo: acceptance(
         'Rewind although Undo could not bring back some records it deletes (objects Salesforce ' +
@@ -682,6 +690,7 @@ export const TOOLS: readonly ServedTool[] = [
     readFirst: 'checkpoint_preview says what it would do, writing nothing',
     flags: {
       '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
       '--accept-no-undo': 'acceptNoUndo',
       '--accept-recreate': 'acceptRecreate',
       '--accept-outside': 'acceptOutside',
@@ -698,6 +707,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--yes',
         ...(args.objects ?? []).flatMap((object) => ['--object', object]),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
         ...(args.acceptRecreate === true ? ['--accept-recreate'] : []),
         ...(args.acceptOutside === true ? ['--accept-outside'] : []),
@@ -712,8 +722,8 @@ export const TOOLS: readonly ServedTool[] = [
     description:
       "Take back org's last rewind to a checkpoint: bring back what it deleted, give back what " +
       'it wrote over, send back to the recycle bin what it brought back; what anyone changed ' +
-      'since the rewind stays, and is said. Needs confirm, the alias of org. acceptAutomation as ' +
-      'for checkpoint_rewind.',
+      'since the rewind stays, and is said. Needs confirm, the alias of org. acceptAutomation ' +
+      'and acceptEmails as for checkpoint_rewind.',
     readOnly: false,
     destructive: true,
     args: z.strictObject({
@@ -724,13 +734,22 @@ export const TOOLS: readonly ServedTool[] = [
         'Undo although the org runs flows, Apex triggers, processes or workflow rules as ' +
           'records are updated, deleted or brought back, or would not say what it runs.',
       ),
+      acceptEmails: acceptance(
+        'Undo although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'the undo writes sends some. acceptAutomation never stands for it. Only once the ' +
+          'person using you has accepted that these emails go out.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes:
       'brings back what its last rewind deleted, gives back what it wrote over and sends back ' +
       'to the recycle bin what it brought back',
     readFirst: 'checkpoint_list says which rewind it would take back, and until when',
-    flags: { '--accept-automation': 'acceptAutomation' },
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+    },
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [
@@ -741,6 +760,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.checkpoint,
         '--yes',
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         '--json',
       ],
     }),
@@ -784,7 +804,13 @@ export const TOOLS: readonly ServedTool[] = [
         .boolean()
         .optional()
         .describe('true: exit 3 when records the environment holds were deleted or changed since.'),
+      acceptEmails: acceptance(
+        'Plan what env_apply would do with acceptEmails: a seed or a clone is otherwise blocked ' +
+          'where the org delivers the emails what still runs sends, or would not say whether it ' +
+          'does.',
+      ),
     }),
+    flags: { '--accept-emails': 'acceptEmails' },
     exits: {
       [PARTIAL_EXIT]:
         'drift: the org no longer holds the environment as applied, records deleted or changed ' +
@@ -799,6 +825,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--org',
         args.org,
         ...(args.failOnDrift === true ? ['--fail-on-drift'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         '--json',
       ],
     }),
@@ -814,7 +841,9 @@ export const TOOLS: readonly ServedTool[] = [
       'refused, and a sandbox the file does not list. Needs confirm, the alias of org: env_plan ' +
       'first. acceptNoState lets it apply to an org this machine has no state of, where records ' +
       "an earlier apply left would be created twice. A resource's accept: { automation: true } " +
-      'in the file is what lets its runs be taken back although the org runs automation. The ' +
+      'in the file is what lets its runs be taken back although the org runs automation. ' +
+      'acceptEmails lets its resources write although the org delivers the emails what still ' +
+      'runs sends, or would not say whether it does. The ' +
       'answer ends with the env_destroy call that takes the environment back.',
     readOnly: false,
     destructive: true,
@@ -836,13 +865,19 @@ export const TOOLS: readonly ServedTool[] = [
           'earlier apply left there would be created twice. Only once the person using you has ' +
           'accepted it.',
       ),
+      acceptEmails: acceptance(
+        'Apply although the org delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), or would not say whether it does, and what still runs as ' +
+          'its resources write sends some. Only once the person using you has accepted that ' +
+          'these emails go out.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes:
       'creates, replaces and deletes the resources of the file there as its plan says, taking ' +
       'back the earlier runs a replace or a delete takes back',
     readFirst: 'env_plan of the same file says what it would do, writing nothing',
-    flags: { '--accept-no-state': 'acceptNoState' },
+    flags: { '--accept-no-state': 'acceptNoState', '--accept-emails': 'acceptEmails' },
     after: (args) => [
       `env_destroy with file "${args.file}" and org "${args.org}" takes this environment back.`,
     ],
@@ -856,6 +891,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
         ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         '--yes',
         '--json',
       ],

@@ -12,8 +12,11 @@
  * this machine writes to the org, the day's requests are enough, the emails
  * the writes make it send fit what it has left of each daily limit
  * (`rewindEmails.ts`), and the deletions Undo couldn't bring back and the
- * automation the writes fire were accepted. Each refusal names why, and
- * writes nothing.
+ * automation the writes fire were accepted — and, where the org delivers the
+ * emails of what still runs or would not say whether it does, the emails too.
+ * Each refusal names why, and writes nothing. Asked to mute, the lease is
+ * read back before the first write: a set it does not hold that leaves a
+ * sender running unaccepted refuses the rewind there, the lease given back.
  *
  * **What it acts on.** Tr is read on the org's clock, then the org is read
  * again since the checkpoint (`rewindDiff`), and the first pass is planned
@@ -209,7 +212,9 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { isMuteRefusedError, type RunMute } from '../forge/AutomationMuteLease.js';
+import { isMuteRefusedError, type HeldMute, type RunMute } from '../forge/AutomationMuteLease.js';
+import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
+import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemoval.js';
 import {
@@ -288,6 +293,8 @@ import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStre
 import { ORG_ACCESS, actAccessOf, type ActAccess } from './rewindAccess.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import {
+  actDeliverability,
+  afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
   emailsRefusal,
@@ -716,18 +723,21 @@ export async function muteOfSteps(
 /**
  * Take the lease of `mute` before the act's first write, run `write`, and give
  * the lease back once it ends, whatever it ended on: what was muted, as it
- * ended, is handed to `ended`.
+ * ended, is handed to `ended`. `write` is handed the lease as it was read
+ * back — none when nothing was to be assigned —, which it checks against its
+ * plan before it writes: refused there, it writes nothing, and the lease is
+ * given back all the same.
  */
 export async function heldWhile<T>(
   mute: RunMute | undefined,
   runId: string,
-  write: () => Promise<T>,
+  write: (held: HeldMute | undefined) => Promise<T>,
   ended: (muted: MutedAutomation) => void,
 ): Promise<T> {
   const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
   if (mute && !held) ended(mute.muted);
   try {
-    return await write();
+    return await write(held);
   } finally {
     if (held) ended(await held.release());
   }
@@ -760,6 +770,19 @@ export interface RewindRequest {
   objects?: readonly string[];
   /** Rewind even though the org runs automation as the rewind writes. */
   acceptAutomation: boolean;
+  /**
+   * Rewind even though the org delivers every email its automation sends, or
+   * would not say whether it does, and what still runs as the rewind writes
+   * sends some (`EMAILS_DELIVERED`). Not given, not accepted; never lifted by
+   * `acceptAutomation`.
+   */
+  acceptEmails?: boolean;
+  /**
+   * Whether the rewind could have been asked to mute the org's automation:
+   * the page's and the command line's can, a pipeline's step cannot. Not
+   * muting, its refusal for the emails then names what the mute keeps quiet.
+   */
+  canMute?: boolean;
   /** Delete records Undo couldn't bring back. */
   acceptNoUndo: boolean;
   /** Make again, with new Ids, the records deleted since that the recycle bin no longer gives back. */
@@ -780,6 +803,12 @@ export type RewindOutcome =
       result: RewindResult;
       /** What could not be read, kept or said, in plain words; never thrown. */
       notes: string[];
+      /**
+       * Whether the org delivered the emails what still ran sends, as read
+       * before the first write, for the audit trail; absent when nothing that
+       * ran sends one, so it was not read.
+       */
+      deliverability?: NonNullable<DeliverabilityGate['audit']>;
     }
   | { rewound: false; refusal: CheckpointRefusal };
 
@@ -1912,11 +1941,31 @@ class Rewind {
     }
     // Asked to mute, the rewind plans it from what it read, and its gate asks
     // only for what still runs; refused, it writes nothing.
+    const read = automation;
     const muting = writing ? await muteOfSteps(this.deps.mute, automation, steps) : {};
     if ('refusal' in muting) return { rewound: false, refusal: muting.refusal };
     if (muting.automation) automation = muting.automation;
+    const plan = muting.mute?.plan;
+    const acceptEmails = this.request.acceptEmails === true;
+    // Whether the org delivers the emails of what still runs once the mute's
+    // plan holds, read only when something may send one: as the user it
+    // writes as, through the connection it counts, before anything is asked.
+    const emails =
+      writing && read
+        ? await actDeliverability({
+            act: 'rewind',
+            orgName,
+            automation: read,
+            steps,
+            ...(plan ? { plan } : {}),
+            accepted: acceptEmails,
+            mayMute: this.deps.mute === undefined && this.request.canMute === true,
+            read: () => readEmailDeliverability(this.org),
+          })
+        : undefined;
     // What it sent so far, its reads and the automation's, and what its
-    // writes and the reads after them take.
+    // writes and the reads after them take; the read of the deliverability
+    // named apart.
     const rest = rewindWritesCost({
       objects: checkpoint.objects,
       diff: diffOfPicked(fresh.diff, this.picked),
@@ -1924,9 +1973,13 @@ class Rewind {
       relationships: await this.relationships(),
       ...(reused ? { reusesPreview: true } : {}),
     });
+    const deliverability = deliverabilityPartOf(emails?.ofRun);
     const overBudget = budgetRefusal(
       'rewind',
-      this.count.used() + rest.apiRequests,
+      {
+        run: this.count.used() - (deliverability.deliverability ?? 0) + rest.apiRequests,
+        ...deliverability,
+      },
       budget,
       orgName,
     );
@@ -1950,6 +2003,10 @@ class Rewind {
     ) {
       return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
+    // The emails of what still runs, where the org delivers them all or would
+    // not say: written only once they were accepted, which the acceptance of
+    // the automation never stands for.
+    if (writing && emails?.refusal) return { rewound: false, refusal: emails.refusal };
     if (this.stopped()) throw new RewindStopped();
     // The user it writes as, read once it will write: what its own writes
     // and the automation they fire are told by, from the first write on.
@@ -1972,7 +2029,27 @@ class Rewind {
       const outcome = await heldWhile(
         muting.mute,
         `rewind ${checkpoint.checkpointId} ${tr}`,
-        () => this.passes(journal, tr, fresh, first, budget.remaining),
+        (held) => {
+          // The lease read back against its plan: a set it does not hold
+          // leaves a sender running that no one was asked about.
+          const relit =
+            held && plan && read && emails
+              ? afterLeaseEmailsRefusal({
+                  act: 'rewind',
+                  orgName,
+                  automation: read,
+                  steps,
+                  plan,
+                  held: held.outcome,
+                  planned: emails.ofRun.senders,
+                  ...(emails.ofRun.read ? { reading: emails.ofRun.read.reading } : {}),
+                  accepted: acceptEmails,
+                })
+              : undefined;
+          return relit
+            ? Promise.resolve<RewindOutcome>({ rewound: false, refusal: relit })
+            : this.passes(journal, tr, fresh, first, budget.remaining);
+        },
         (ended) => {
           muted = ended;
         },
@@ -1985,8 +2062,13 @@ class Rewind {
         }
         throw err;
       });
-      return outcome.rewound && muted
-        ? { ...outcome, result: { ...outcome.result, mutedAutomation: muted } }
+      const said = emails?.gate.audit;
+      return outcome.rewound
+        ? {
+            ...outcome,
+            ...(muted ? { result: { ...outcome.result, mutedAutomation: muted } } : {}),
+            ...(said !== undefined ? { deliverability: said } : {}),
+          }
         : outcome;
     } finally {
       await journal.close();
