@@ -1627,11 +1627,7 @@ export class ForgeRunGateError extends Error {
     if (ceiling !== undefined) this.ceiling = ceiling;
   }
 
-  /**
-   * The stop as the page is told it: none for a code of the command line's
-   * own, nor for one every module is refused under, which the page words by
-   * its code alone.
-   */
+  /** The stop as the page is told it: none for a code of the command line's own. */
   get stop(): ForgeRunGateStop | undefined {
     if (!isForgeRunGateCode(this.code)) return undefined;
     return {

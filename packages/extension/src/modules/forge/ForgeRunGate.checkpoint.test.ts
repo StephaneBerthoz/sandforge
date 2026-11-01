@@ -183,12 +183,20 @@ describe('forgeWriteBudgetOf', () => {
 });
 
 describe('ForgeRunGateError, past the budget or for the checkpoint', () => {
-  it('tells the page nothing beside its code, which every module’s run is refused under', () => {
-    expect(new ForgeRunGateError(API_BUDGET_EXCEEDED, 'past the day').stop).toBeUndefined();
-    expect(new ForgeRunGateError(CHECKPOINT_REFUSED, 'refused').stop).toBeUndefined();
+  it('tells the page the code, for it to say why the run was refused', () => {
+    expect(new ForgeRunGateError(API_BUDGET_EXCEEDED, 'past the day').stop).toEqual({
+      code: API_BUDGET_EXCEEDED,
+    });
+    expect(new ForgeRunGateError(CHECKPOINT_REFUSED, 'refused').stop).toEqual({
+      code: CHECKPOINT_REFUSED,
+    });
     expect(new ForgeRunGateError('WRITE_DECLINED', 'cancelled').stop).toEqual({
       code: 'WRITE_DECLINED',
     });
+  });
+
+  it('tells the page nothing of a code of the command line’s own', () => {
+    expect(new ForgeRunGateError('AUTOMATION_NOT_ACCEPTED', 'not accepted').stop).toBeUndefined();
   });
 });
 
