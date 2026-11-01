@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
 import type { ForgeTargetFlow, ForgeTargetObjectAutomation } from '../types/forge.types.js';
+import type { ForgeAutomationWrite } from './forge-target-automation.js';
 import {
   assignPermsetCommand,
   automationByWrite,
   blindedBy,
   bypassAssignmentsOf,
   bypassPermissionsOf,
+  emailSendersOf,
   emailsPerInsertOf,
   emailsPerWriteOf,
   firedOnInsert,
@@ -18,6 +20,7 @@ import {
   removalRisksOf,
   removalStepsBypassesOf,
 } from './forge-target-automation.js';
+import { mutePlanOf, stillRunningOf } from './automation-mute.js';
 
 /** A flow read with its start condition, naming no permission unless told. */
 function flow(overrides: Partial<ForgeTargetFlow> = {}): ForgeTargetFlow {
@@ -238,6 +241,135 @@ describe('emailsPerWriteOf', () => {
     expect(emailsPerWriteOf(automation, 'delete')).toEqual([]);
     // No flow starts on an undelete.
     expect(emailsPerWriteOf(automation, 'undelete')).toEqual([]);
+  });
+});
+
+describe('emailSendersOf', () => {
+  const inserts = (_object: string, write: ForgeAutomationWrite): boolean => write === 'insert';
+  /** What still runs of a read with no mute, as every gate takes it before it asks. */
+  const sendersOf = (
+    objects: ForgeTargetObjectAutomation[],
+    writes?: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+    options: { applyAssignmentRules?: boolean } = {},
+  ) => {
+    const read = { objects };
+    return emailSendersOf(stillRunningOf(read, undefined, writes), { ...options, writes });
+  };
+
+  it('counts a Send Email, an email alert, a definition not read and a package’s flow, each with why', () => {
+    const contact = object({
+      objectApiName: 'Contact',
+      flows: [
+        flow({
+          label: 'Welcome email',
+          messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+        }),
+        flow({ label: 'Past the bound', apiName: 'Past_The_Bound', condition: 'notRead' }),
+        flow({ label: 'Packaged', apiName: 'pkg__Packaged', condition: 'unreadable' }),
+      ],
+      workflowRules: [
+        flow({
+          label: 'Welcome rule',
+          apiName: 'Welcome_Rule',
+          messages: [{ kind: 'email', name: 'Alert owner', limit: 'DailyWorkflowEmails' }],
+        }),
+      ],
+    });
+
+    expect(sendersOf([contact], inserts)).toEqual([
+      { objectApiName: 'Contact', kind: 'workflowRule', name: 'Welcome rule', why: 'email' },
+      { objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' },
+      { objectApiName: 'Contact', kind: 'flow', name: 'Past the bound', why: 'notRead' },
+      { objectApiName: 'Contact', kind: 'flow', name: 'Packaged', why: 'notRead' },
+    ]);
+  });
+
+  it('counts no Apex trigger, no flow before the save left unread, and nothing that sends no email', () => {
+    const contact = object({
+      objectApiName: 'Contact',
+      triggers: [{ name: 'ContactTrigger', events: ['afterInsert'] }],
+      flows: [
+        flow({ label: 'Defaults', timing: 'beforeSave', condition: 'notRead' }),
+        flow({
+          label: 'Notify owner',
+          messages: [{ kind: 'notification', name: 'Bell' }],
+        }),
+        flow({ label: 'Plain', condition: 'read' }),
+      ],
+    });
+
+    expect(sendersOf([contact], inserts)).toEqual([]);
+  });
+
+  it('counts a flow left unread that runs before a delete, which may send, and nothing on an undelete', () => {
+    const account = object({
+      objectApiName: 'Account',
+      triggers: [{ name: 'AccountUndelete', events: ['afterUndelete'] }],
+      flows: [
+        flow({
+          label: 'Before delete',
+          timing: 'beforeDelete',
+          startsOn: 'delete',
+          condition: 'unreadable',
+        }),
+      ],
+    });
+
+    expect(sendersOf([account], (_o, write) => write === 'delete')).toEqual([
+      { objectApiName: 'Account', kind: 'flow', name: 'Before delete', why: 'notRead' },
+    ]);
+    expect(sendersOf([account], (_o, write) => write === 'undelete')).toEqual([]);
+  });
+
+  it('names a flow that fires on two writes the run makes once', () => {
+    const both = flow({
+      label: 'Contact saved',
+      startsOn: 'createAndUpdate',
+      messages: [{ kind: 'email', name: 'Alert owner', limit: 'DailyWorkflowEmails' }],
+    });
+
+    expect(sendersOf([object({ objectApiName: 'Contact', flows: [both] })])).toEqual([
+      { objectApiName: 'Contact', kind: 'flow', name: 'Contact saved', why: 'email' },
+    ]);
+  });
+
+  it('counts the assignment rules of the objects the run writes only when it applies them', () => {
+    const cases = object({
+      objectApiName: 'Case',
+      assignmentRules: [{ name: 'Support queue' }],
+    });
+    const leads = object({ objectApiName: 'Lead', assignmentRules: [{ name: 'Lead routing' }] });
+    const writesCases = (objectApiName: string, write: ForgeAutomationWrite): boolean =>
+      objectApiName === 'Case' && write === 'insert';
+
+    expect(sendersOf([cases, leads], writesCases, { applyAssignmentRules: true })).toEqual([
+      { objectApiName: 'Case', kind: 'assignmentRule', name: 'Support queue', why: 'assignment' },
+    ]);
+    expect(sendersOf([cases, leads], writesCases)).toEqual([]);
+    expect(sendersOf([cases, leads], writesCases, { applyAssignmentRules: false })).toEqual([]);
+  });
+
+  it('counts nothing a bypass the user holds keeps quiet, nor what the mute’s plan keeps quiet', () => {
+    const welcome = (held: boolean): ForgeTargetFlow =>
+      flow({
+        label: 'Welcome email',
+        permissions: [{ name: 'Skip_Welcome', bypass: true, held }],
+        messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+      });
+    const quiet = { objects: [object({ objectApiName: 'Contact', flows: [welcome(true)] })] };
+    expect(emailSendersOf(stillRunningOf(quiet, undefined, inserts))).toEqual([]);
+
+    const read = {
+      objects: [object({ objectApiName: 'Contact', flows: [welcome(false)] })],
+      bypassGrants: [
+        {
+          permission: 'Skip_Welcome',
+          permissionSets: [{ name: 'Skip_All', label: 'Skip all', grants: 1 }],
+        },
+      ],
+    };
+    expect(emailSendersOf(stillRunningOf(read, undefined, inserts))).toHaveLength(1);
+    expect(emailSendersOf(stillRunningOf(read, mutePlanOf(read, inserts), inserts))).toEqual([]);
   });
 });
 

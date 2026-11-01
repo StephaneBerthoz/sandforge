@@ -280,6 +280,7 @@ export {
   bypassAssignmentsOf,
   bypassesOfWrites,
   bypassPermissionsOf,
+  emailSendersOf,
   emailsPerInsertOf,
   emailsPerWriteOf,
   firedOnInsert,

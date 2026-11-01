@@ -36,6 +36,8 @@ import {
 } from '@sandforge/shared';
 import type {
   CheckpointRefusal,
+  EmailDeliverability,
+  EmailSender,
   ForgeAutomationWrite,
   ForgeConfig,
   ForgeEmailLimit,
@@ -52,6 +54,7 @@ import type {
   ForgeTargetFlow,
   RunCheckpointEstimate,
   RunCheckpointTaken,
+  RunDeliverability,
 } from '@sandforge/shared';
 import {
   beforeRunFailedWords,
@@ -1350,6 +1353,341 @@ export function emailCheckLines(checks: readonly EmailCheck[], org: string): str
   });
 }
 
+/**
+ * The code a command-line run is refused under when the target would deliver
+ * the emails what still runs sends — or would not say whether it does — and
+ * the run was not given `--accept-emails`. `--accept-automation` never lifts
+ * it: it is the flag a CI script passes on every run.
+ */
+export const EMAILS_NOT_ACCEPTED = 'EMAILS_NOT_ACCEPTED';
+
+/**
+ * Why what may send an email as a run writes could not all be listed: the
+ * parts of the target's automation that send them the read could not take —
+ * its flows, processes and workflow rules, and its assignment rules when the
+ * run applies them — each with the org's answer. Undefined when it took them
+ * all. A part refused whole lists nothing, which is not the same as sending
+ * nothing: the run reads the org's deliverability all the same.
+ */
+export function sendersUnreadOf(
+  unread: ForgeTargetAutomation['unread'],
+  options: { applyAssignmentRules?: boolean } = {},
+): string | undefined {
+  const said = [
+    emailSendersUnread(unread, "the target's"),
+    ...(options.applyAssignmentRules === true
+      ? unread
+          .filter(({ part }) => part === 'assignmentRules')
+          .map(({ reason }) => `the target's assignment rules: ${reason}`)
+      : []),
+  ].filter((reason): reason is string => reason !== undefined);
+  return said.length > 0 ? said.join('; ') : undefined;
+}
+
+/**
+ * The `deliverability` part of a run's API requests: what its read of the
+ * target's deliverability sent. Absent for a run with nothing left to send,
+ * which reads none.
+ */
+export function deliverabilityPartOf(
+  read: { read?: { requests: number } } | undefined,
+): Pick<RunRequestParts, 'deliverability'> {
+  const requests = read?.read?.requests ?? 0;
+  return requests > 0 ? { deliverability: requests } : {};
+}
+
+/** The run a deliverability refusal names, as the command lines name it. */
+export type DeliverabilityRun = 'clone' | 'sync' | 'seed' | 'autopilot' | 'rewind' | 'undo';
+
+/** How a refusal names each run, and what `--accept-emails` lets it do. */
+const DELIVERABILITY_RUN_WORDS: Readonly<
+  Record<DeliverabilityRun, { run: string; allTheSame: string }>
+> = {
+  clone: { run: 'this clone', allTheSame: 'to clone all the same' },
+  sync: { run: 'this sync', allTheSame: 'to sync all the same' },
+  seed: { run: 'this seed', allTheSame: 'to seed all the same' },
+  autopilot: { run: 'this Autopilot run', allTheSame: 'to run it all the same' },
+  rewind: { run: 'this rewind', allTheSame: 'to rewind all the same' },
+  undo: { run: 'this undo', allTheSame: 'to undo all the same' },
+};
+
+/** How a sender of emails is named, by its kind. */
+const SENDER_KIND_WORDS: Readonly<Record<EmailSender['kind'], string>> = {
+  flow: 'flow',
+  process: 'process',
+  workflowRule: 'workflow rule',
+  assignmentRule: 'assignment rule',
+};
+
+/** What a sender's name is followed by, by why it counts. */
+const SENDER_WHY_WORDS: Readonly<Record<EmailSender['why'], string>> = {
+  email: '',
+  notRead: ' (its definition was not read)',
+  assignment: ' (applied: it can mail the owner it assigns)',
+};
+
+/** `a`, `a and b`, `a, b and c`. */
+function inWords(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The senders, named object by object in the order they come: `flow "A" and
+ * workflow rule "B" on Contact; assignment rule "C" on Case`, the first
+ * {@link SENDERS_NAMED} of an object named and the rest counted.
+ */
+function sendersWords(senders: readonly EmailSender[]): string {
+  const byObject = new Map<string, string[]>();
+  for (const sender of senders) {
+    const names = byObject.get(sender.objectApiName) ?? [];
+    names.push(`${SENDER_KIND_WORDS[sender.kind]} "${sender.name}"${SENDER_WHY_WORDS[sender.why]}`);
+    byObject.set(sender.objectApiName, names);
+  }
+  return [...byObject]
+    .map(([objectApiName, names]) => {
+      const shown =
+        names.length > SENDERS_NAMED
+          ? [...names.slice(0, SENDERS_NAMED), `${names.length - SENDERS_NAMED} more`]
+          : names;
+      return `${inWords(shown)} on ${objectApiName}`;
+    })
+    .join('; ');
+}
+
+/** Where the line of the read comes from, said on every line that gives what it read. */
+const READ_WITH = 'read with one line of anonymous Apex that sends nothing';
+
+/** Whether a reading says the org delivers none of the emails of its automation. */
+function isWithheld(reading: EmailDeliverability): reading is { level: 'withheld' } {
+  return 'level' in reading && reading.level === 'withheld';
+}
+
+/** What a command line's report of the target's automation says of its deliverability. */
+function deliverabilityLineOf(reading: EmailDeliverability): string {
+  if ('unread' in reading) {
+    return (
+      `deliverability: not read (${reading.unread}) — the run is refused without ` +
+      '--accept-emails, as on All email'
+    );
+  }
+  if (reading.level === 'all') {
+    return `deliverability: All email — the emails of what still runs go out (${READ_WITH})`;
+  }
+  return (
+    'deliverability: System email only or No access — none of the emails its flows, ' +
+    `processes, workflow rules and Apex send goes out (${READ_WITH})`
+  );
+}
+
+/** What a run judged on its emails is told: the senders, what may send beside them, and the read. */
+export interface DeliverabilityGateInput {
+  /** What still runs that may send an email as the run writes (`emailSendersOf`). */
+  senders: readonly EmailSender[];
+  /** Why what may send could not all be listed ({@link sendersUnreadOf}); absent when it was. */
+  sendersUnread?: string;
+  /** The org's deliverability, as read; absent when not read, taken for unread when something sends. */
+  reading?: EmailDeliverability;
+  /**
+   * Whether the run was given the accord to send them: `--accept-emails`,
+   * "Execute and send the emails", `acceptEmails`, or the Approval that
+   * answers a pipeline step's question. Never `--accept-automation`.
+   */
+  accepted: boolean;
+  /** The org, as the refusal names it. */
+  target: string;
+  run: DeliverabilityRun;
+  /**
+   * Those of `senders` a mute would keep quiet (`sendersTheMuteQuiets`), for
+   * a run that does not mute: the refusal names `--mute-automation` for them.
+   * Absent or empty, it does not.
+   */
+  muteQuiets?: readonly EmailSender[];
+  /**
+   * Whether the records the run writes keep the addresses they are written
+   * with: `--keep-contact-points`, or a rewind's values, which are the org's
+   * own. A run that neutralizes them writes them under `.invalid`.
+   */
+  keepsAddresses?: boolean;
+}
+
+/**
+ * A run judged on the emails what still runs sends:
+ *
+ * - `nothingSends`: nothing left sends one, nothing was read, and nothing
+ *   is said;
+ * - `withheld`: the org delivers none of them, said in a line and asked about
+ *   nowhere;
+ * - `asks`: the org delivers them all, or would not say — refused without
+ *   the accord, which nothing else lifts.
+ */
+export interface DeliverabilityGate {
+  verdict: 'nothingSends' | 'withheld' | 'asks';
+  /**
+   * What the run's preview, result and `--json` say of it: the reading and
+   * the senders, whenever something sends. Absent otherwise.
+   */
+  deliverability?: RunDeliverability;
+  /**
+   * What the run's question carries (`AutomationConfirmation.deliverability`,
+   * `WriteConfirmation.deliverability`): the block put first, and the answer
+   * "Execute and send the emails". Set when it asks.
+   */
+  confirmation: { deliverability?: RunDeliverability };
+  /** Why the run is refused, nothing written: it asks, and was not given the accord. */
+  stop?: { code: typeof EMAILS_NOT_ACCEPTED; message: string };
+  /** What a command line's report of the target's automation says of it; absent when nothing sends. */
+  line?: string;
+  /** What the audit trail keeps of the read (`AuditRunContext.deliverability`); absent when nothing sends. */
+  audit?: 'all' | 'withheld' | 'unread';
+}
+
+/**
+ * The words of a refusal for the emails: what the org does with them, who
+ * sends them, where they go, and what lets the run through.
+ */
+function deliverabilityRefusalOf(
+  input: DeliverabilityGateInput,
+  reading: Exclude<EmailDeliverability, { level: 'withheld' }>,
+): string {
+  const { run, allTheSame } = DELIVERABILITY_RUN_WORDS[input.run];
+  const { target } = input;
+  const named = sendersWords(input.senders);
+  const unread = input.sendersUnread;
+  const whoSends =
+    named !== ''
+      ? `what still runs as ${run} writes its records sends some: ${named}` +
+        (unread !== undefined ? `; what could not be read may send more (${unread})` : '')
+      : `what runs as ${run} writes its records could not all be read (${unread ?? ''}), ` +
+        'so it may send some';
+  const parts: string[] = [];
+  if ('unread' in reading) {
+    parts.push(
+      `Whether ${target} delivers the emails its automation sends could not be read ` +
+        `(${reading.unread}), and ${whoSends}.`,
+      `Nothing was written. Add --accept-emails ${allTheSame}, or check Setup > ` +
+        'Deliverability: on System email only or No access, none of them goes out.',
+    );
+  } else {
+    parts.push(
+      `${target} delivers every email its automation sends (Setup > Deliverability: All ` +
+        `email), and ${whoSends}.`,
+      input.keepsAddresses === true
+        ? `They go to the addresses the records and the alerts name: those of the records ` +
+            `${run} writes, as they hold them, the records' owners, the records already in ` +
+            `${target}, and an address an alert names.`
+        : `They go to the addresses the records and the alerts name: those ${run} writes are ` +
+            `under .invalid, but not the records' owners, the records already in ${target}, nor ` +
+            'an address an alert names.',
+      `Nothing was written. Add --accept-emails ${allTheSame}, set the org's deliverability to ` +
+        'System email only, or turn off what sends them.',
+    );
+  }
+  const quiets = input.muteQuiets ?? [];
+  if (quiets.length > 0) {
+    const quieted = new Set(quiets.map((s) => `${s.objectApiName}\u0000${s.kind}\u0000${s.name}`));
+    const rest = input.senders.filter(
+      (s) => !quieted.has(`${s.objectApiName}\u0000${s.kind}\u0000${s.name}`),
+    );
+    parts.push(
+      `--mute-automation keeps quiet ${sendersWords(quiets)}, which ` +
+        `${quiets.length === 1 ? 'tests' : 'test'} a bypass a permission set of ${target} holds` +
+        (rest.length > 0 ? `; it cannot quiet ${sendersWords(rest)}.` : '.'),
+    );
+  }
+  return parts.join(' ');
+}
+
+/**
+ * A run's gate on the emails what still runs sends: on what is left once the
+ * mute's plan holds, and on the org's deliverability, read just before the
+ * question when something sends ({@link DeliverabilityGateInput}).
+ *
+ * | Something sends | Read | The run |
+ * |---|---|---|
+ * | no | not read | nothing said |
+ * | yes | `withheld` | goes on, a line says why nothing goes out |
+ * | yes | `all` | asks; refused without the accord |
+ * | yes | `unread` | asks; refused without the accord, the reason said |
+ *
+ * An unread deliverability asks, as an unread storage or limit asks: what
+ * must not happen here is silence. Only the run's own accord lets it through
+ * (`--accept-emails`, "Execute and send the emails"): the answer to the
+ * automation question covers what fires, not the emails that leave the org,
+ * and a CI script passes `--accept-automation` on every run.
+ */
+export function deliverabilityGate(input: DeliverabilityGateInput): DeliverabilityGate {
+  if (input.senders.length === 0 && input.sendersUnread === undefined) {
+    return { verdict: 'nothingSends', confirmation: {} };
+  }
+  const reading: EmailDeliverability = input.reading ?? { unread: 'the run did not read it' };
+  const deliverability: RunDeliverability = { reading, senders: [...input.senders] };
+  const line = deliverabilityLineOf(reading);
+  if (isWithheld(reading)) {
+    return { verdict: 'withheld', deliverability, confirmation: {}, line, audit: 'withheld' };
+  }
+  return {
+    verdict: 'asks',
+    deliverability,
+    confirmation: { deliverability },
+    ...(input.accepted
+      ? {}
+      : {
+          stop: {
+            code: EMAILS_NOT_ACCEPTED,
+            message: deliverabilityRefusalOf(input, reading),
+          },
+        }),
+    line,
+    audit: 'unread' in reading ? 'unread' : 'all',
+  };
+}
+
+/**
+ * The check of a run's emails once the mute's lease is taken and read back,
+ * before its first write: a set the lease did not hold leaves running what
+ * it was to keep quiet, and a sender among them was asked about by no one.
+ * Refused unless the run had the accord, or the org delivers none of them;
+ * an org whose deliverability was not read — nothing that sent one was to
+ * run — is taken for one that delivers them. The run then writes nothing,
+ * and gives the lease back.
+ *
+ * @param input.planned - The senders of what still runs on the lease's plan.
+ * @param input.held - Those of what still runs once the lease is read back:
+ *   `stillRunningOf` given the sets it holds.
+ */
+export function deliverabilityAfterLeaseStop(input: {
+  planned: readonly EmailSender[];
+  held: readonly EmailSender[];
+  reading?: EmailDeliverability;
+  accepted: boolean;
+  target: string;
+  run: DeliverabilityRun;
+}): { code: typeof EMAILS_NOT_ACCEPTED; message: string; relit: EmailSender[] } | undefined {
+  const key = (s: EmailSender): string => `${s.objectApiName}\u0000${s.kind}\u0000${s.name}`;
+  const planned = new Set(input.planned.map(key));
+  const relit = input.held.filter((sender) => !planned.has(key(sender)));
+  if (relit.length === 0 || input.accepted) return undefined;
+  const reading = input.reading;
+  if (reading !== undefined && isWithheld(reading)) return undefined;
+  const { run, allTheSame } = DELIVERABILITY_RUN_WORDS[input.run];
+  const delivers =
+    reading === undefined
+      ? `whether ${input.target} delivers them was not read, as nothing that sends one was to run`
+      : 'unread' in reading
+        ? `whether ${input.target} delivers them could not be read (${reading.unread})`
+        : `${input.target} delivers every one of them (All email)`;
+  return {
+    code: EMAILS_NOT_ACCEPTED,
+    relit,
+    message:
+      `The mute's lease does not hold every permission set it was to assign, and what they ` +
+      `were to keep quiet still runs for ${run}: ${sendersWords(relit)} may send emails, and ` +
+      `${delivers}. The run's question did not ask about them. Nothing was written. Add ` +
+      `--accept-emails ${allTheSame}, or run it again once the lease can assign them.`,
+  };
+}
+
 /** The storage of a check, as the confirmation says it. */
 export function confirmationStorageOf(check: StorageCheck): WriteConfirmationStorage {
   return check.verdict === 'unread'
@@ -1599,6 +1937,7 @@ export type ForgeRunGateErrorCode =
   | 'MAX_TOTAL_EXCEEDED'
   | 'AUTOMATION_NOT_ACCEPTED'
   | 'EMAILS_EXCEEDED'
+  | typeof EMAILS_NOT_ACCEPTED
   | typeof API_BUDGET_EXCEEDED
   | typeof CHECKPOINT_REFUSED;
 

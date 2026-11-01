@@ -1,4 +1,5 @@
 import type {
+  EmailSender,
   ForgeEmailLimit,
   ForgePermissionSetGrant,
   ForgeRemovalRisk,
@@ -9,6 +10,7 @@ import type {
   ForgeTriggerEvent,
 } from '../types/forge.types.js';
 import { LOCKED_PAST_DRAFT } from '../constants/status-children.js';
+import type { StillRunning } from './automation-mute.js';
 
 /**
  * A write a run or its removal makes of a record: the insert of every record
@@ -323,6 +325,79 @@ export function emailsPerWriteOf(
     }
     return [...byLimit.values()];
   });
+}
+
+/**
+ * What of the target's automation may send an email as a run writes, from
+ * what still runs once its mute's plan holds (`stillRunningOf`): the one list
+ * the run reads the org's deliverability for, and asks about when the org
+ * delivers them. Each once on its object, though it fires on two writes, in
+ * the order the run's objects were given:
+ *
+ * - a flow, a process or a workflow rule with an email action — a Send Email,
+ *   an email alert — on whichever path of it (`email`);
+ * - one whose definition was not read — refused, past the read's bound, or a
+ *   package's, whose flows no user reads — which may send one (`notRead`).
+ *   One that runs before the save sends nothing, and is not among them; one
+ *   that runs before a delete may, and is;
+ * - the assignment rules of the objects the run inserts or writes again, when
+ *   it applies them (`--apply-assignment-rules`): they can mail the owner
+ *   they assign (`assignment`).
+ *
+ * An Apex trigger is never among them: what its code sends is not read
+ * anywhere, and a trigger on every Developer Edition would ask on an email
+ * nothing reads. An undelete fires triggers alone, so it adds none. What a
+ * bypass the user holds, or the mute's plan, keeps quiet is not in `running`.
+ *
+ * @param running - What still runs for the run ({@link StillRunning}).
+ * @param options.writes - The writes the run makes, as `stillRunningOf` was
+ *   given them: which objects' assignment rules it applies. Every write of
+ *   every object when not told.
+ */
+export function emailSendersOf(
+  running: Pick<StillRunning<Pick<ForgeTargetAutomation, 'objects'>>, 'automation' | 'firing'>,
+  options: {
+    applyAssignmentRules?: boolean;
+    writes?: (objectApiName: string, write: ForgeAutomationWrite) => boolean;
+  } = {},
+): EmailSender[] {
+  const writes = options.writes ?? (() => true);
+  const senders: EmailSender[] = [];
+  const seen = new Set<string>();
+  const add = (sender: EmailSender): void => {
+    const key = `${sender.objectApiName}\u0000${sender.kind}\u0000${sender.name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    senders.push(sender);
+  };
+  for (const object of running.automation.objects) {
+    for (const entry of running.firing) {
+      if (entry.objectApiName !== object.objectApiName) continue;
+      const { flow } = entry;
+      if (entry.kind === 'trigger' || flow === undefined) continue;
+      const sends = (flow.messages ?? []).some((message) => message.kind === 'email');
+      const mayHaveSent = flow.condition !== 'read' && flow.timing !== 'beforeSave';
+      if (!sends && !mayHaveSent) continue;
+      add({
+        objectApiName: entry.objectApiName,
+        kind: entry.kind,
+        name: entry.name,
+        why: sends ? 'email' : 'notRead',
+      });
+    }
+    const written =
+      writes(object.objectApiName, 'insert') || writes(object.objectApiName, 'update');
+    if (options.applyAssignmentRules !== true || !written) continue;
+    for (const rule of object.assignmentRules ?? []) {
+      add({
+        objectApiName: object.objectApiName,
+        kind: 'assignmentRule',
+        name: rule.name,
+        why: 'assignment',
+      });
+    }
+  }
+  return senders;
 }
 
 /**

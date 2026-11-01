@@ -178,7 +178,13 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
+  {
+    path: 'packages/extension/src/modules/forge/targetDeliverability.ts',
+    reason:
+      'wave 46 (DL1): the hosts of Forge, Seed, Sync and Autopilot call it once DL2a and DL2b land',
+  },
+];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {

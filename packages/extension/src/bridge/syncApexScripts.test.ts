@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { syncConfigSavePayloadSchema, syncExecutePayloadSchema } from './validatePayload.js';
+import { DELIVERABILITY_APEX } from '../modules/forge/targetDeliverability.js';
 
 /** Minimal valid sync config as sent by the webview. */
 function validSyncConfig(): Record<string, unknown> {
@@ -156,13 +157,34 @@ function relativeSorted(root: string, files: string[]): string[] {
   return files.map((file) => relative(root, file).split(sep).join('/')).sort();
 }
 
-describe('no production source runs anonymous Apex', () => {
-  it('nothing under packages/ calls executeAnonymous', () => {
+/**
+ * The one production source that runs anonymous Apex: the read of whether a
+ * run's target delivers the emails its automation sends, one fixed line that
+ * reserves the capacity of a single email and sends nothing.
+ */
+const DELIVERABILITY_READ = 'extension/src/modules/forge/targetDeliverability.ts';
+
+describe('no production source runs anonymous Apex but the deliverability read', () => {
+  it('nothing under packages/ calls executeAnonymous but the deliverability read', () => {
     const offenders = productionSources(PACKAGES_ROOT).filter((file) =>
       readFileSync(file, 'utf8').includes('executeAnonymous'),
     );
 
-    expect(relativeSorted(PACKAGES_ROOT, offenders)).toEqual([]);
+    expect(relativeSorted(PACKAGES_ROOT, offenders)).toEqual([DELIVERABILITY_READ]);
+  });
+
+  it('the deliverability read runs its one fixed line, with nothing a run is given put into it', () => {
+    const source = readFileSync(join(PACKAGES_ROOT, DELIVERABILITY_READ), 'utf8');
+
+    expect(DELIVERABILITY_APEX).toBe('Messaging.reserveSingleEmailCapacity(1);');
+    // One request runs Apex, and its body is the constant, whole.
+    expect(source.match(/executeAnonymous/g)).toHaveLength(1);
+    expect(source).toMatch(
+      /`\/tooling\/executeAnonymous\?anonymousBody=\$\{encodeURIComponent\(\s*DELIVERABILITY_APEX,?\s*\)\}`/,
+    );
+    expect(source).toMatch(
+      /export const DELIVERABILITY_APEX = 'Messaging\.reserveSingleEmailCapacity\(1\);';/,
+    );
   });
 
   describe('the source walk', () => {
