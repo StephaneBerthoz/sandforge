@@ -36,8 +36,8 @@ import {
 } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as z from 'zod';
-import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
-import { forgeRemovalPlanLeft } from '@sandforge/shared';
+import type { ForgeRemovalSpan, ForgeUndoMark, RunCheckpointTaken } from '@sandforge/shared';
+import { checkpointIdSchema, forgeRemovalPlanLeft } from '@sandforge/shared';
 import { SyncIdMap } from './SyncIdMap.js';
 import { THIS_HOST, type RunWriterHost } from './runWriter.js';
 
@@ -375,6 +375,39 @@ const deletedSchema = z.object({
   }),
 });
 
+/** The most objects a checkpoint's line names in each of its lists. */
+const CHECKPOINT_OBJECTS_KEPT = 1_000;
+
+/** An object a checkpoint holds beside those the run writes, or leaves out, and why, in words. */
+const checkpointNoteSchema = z.object({
+  objectApiName: objectSchema,
+  reason: z.string().max(4_000),
+});
+
+/**
+ * A line once the run took a checkpoint of what it writes before its first
+ * write (Checkpoint first): which one, when, what it holds and what it does
+ * not — what a rewind to before the run is offered from, once the run is
+ * listed again after a reload, or after a window that closed under it. Written
+ * with the file's first line, never alone: a run that wrote nothing leaves no
+ * file, and its checkpoint is deleted. Names and counts alone, never a value.
+ */
+const checkpointSchema = z.object({
+  checkpoint: z.object({
+    state: z.literal('taken'),
+    checkpointId: checkpointIdSchema,
+    name: z.string().min(1).max(500),
+    takenAt: dateSchema,
+    expiresAt: dateSchema.nullable(),
+    objects: z.array(objectSchema).max(CHECKPOINT_OBJECTS_KEPT),
+    records: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative(),
+    requests: z.number().int().nonnegative(),
+    added: z.array(checkpointNoteSchema).max(CHECKPOINT_OBJECTS_KEPT),
+    notHeld: z.array(checkpointNoteSchema).max(CHECKPOINT_OBJECTS_KEPT),
+  }),
+});
+
 /** The last line: how the run ended, on this machine's clock. */
 const endSchema = z.object({
   end: z.object({
@@ -550,6 +583,12 @@ export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
    * Absent when none.
    */
   unkept?: Array<{ objectApiName: string; fields: string[] }>;
+  /**
+   * The checkpoint it took of what it writes before its first write, when it
+   * was asked to (Checkpoint first): where a rewind to before the run goes.
+   * Absent when it took none.
+   */
+  checkpoint?: RunCheckpointTaken;
   /** What its removals did, once one ran. */
   removal?: SyncRunRemovalState;
 }
@@ -595,6 +634,7 @@ function parseLine(line: string): unknown {
 export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefined {
   let head: SyncRunHead | undefined;
   let end: SyncRunKept['end'];
+  let checkpoint: RunCheckpointTaken | undefined;
   let lastWrittenAt: string | undefined;
   let firstWrittenAt: string | undefined;
   let lastWriteAt: string | undefined;
@@ -731,6 +771,11 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       byObject.set(created.data.object, ids);
       continue;
     }
+    const taken = checkpointSchema.safeParse(value);
+    if (taken.success) {
+      checkpoint = taken.data.checkpoint;
+      continue;
+    }
     const ended = endSchema.safeParse(value);
     if (ended.success) end = ended.data.end;
   }
@@ -768,6 +813,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
           })),
         }
       : {}),
+    ...(checkpoint ? { checkpoint } : {}),
   };
 }
 
@@ -1077,6 +1123,13 @@ export interface SyncCreationRecorder {
    * values from before are not kept, written at once, as field names.
    */
   unkept?(objectApiName: string, fields: readonly string[]): void;
+  /**
+   * The run took `taken`, a checkpoint of what it writes, before its first
+   * write: written with the file's first line, right after the line naming
+   * the run, and never alone — a run that writes nothing leaves no file, and
+   * deletes its checkpoint. One that does not read as a checkpoint is left out.
+   */
+  checkpoint?(taken: RunCheckpointTaken): void;
   /** How many records the run has written over so far, as its lines name them. */
   overwrittenCount?(): number;
   /**
@@ -1178,10 +1231,14 @@ export class SyncRunCreations {
      * writes over nothing, and leaves no file.
      */
     let held: unknown;
+    /** The checkpoint taken before the run's first write, until the file begins. */
+    let checkpointHeld: unknown;
     const append = (line: unknown): void => {
       queued = true;
       const before = held;
       held = undefined;
+      const taken = checkpointHeld;
+      checkpointHeld = undefined;
       writes = writes.then(async () => {
         if (failure !== undefined) return;
         try {
@@ -1193,6 +1250,7 @@ export class SyncRunCreations {
             await this.keepWithinBounds(start.runId).catch(() => undefined);
             await this.deps.appendFile(file, `${JSON.stringify({ run: head })}\n`);
           }
+          if (taken !== undefined) await this.deps.appendFile(file, `${JSON.stringify(taken)}\n`);
           if (before !== undefined) await this.deps.appendFile(file, `${JSON.stringify(before)}\n`);
           await this.deps.appendFile(file, `${JSON.stringify(line)}\n`);
         } catch (err: unknown) {
@@ -1327,6 +1385,14 @@ export class SyncRunCreations {
             at: new Date().toISOString(),
           },
         });
+      },
+      checkpoint: (taken) => {
+        const line = checkpointSchema.safeParse({ checkpoint: taken });
+        if (!line.success) return;
+        // Taken before the first write, it waits for the file to begin; one
+        // noted once the file has begun goes at once.
+        if (queued) append(line.data);
+        else checkpointHeld = line.data;
       },
       overwrittenCount: () => overwrites.count,
       flush: async () => {

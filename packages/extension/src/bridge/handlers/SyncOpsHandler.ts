@@ -3,8 +3,13 @@ import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 import type {
   AuditObjectCounts,
   AuditOutcome,
+  CheckpointRefusal,
   GuardDecision,
   MappingType,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
   SyncConfig,
   SyncConfigSummary,
   SyncEncryptedFieldsMasked,
@@ -78,6 +83,7 @@ import {
   syncSimulatePayloadSchema,
   syncRunControlPayloadSchema,
   syncCannotCopy,
+  checkpointFirstPayloadSchema,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import { notSentAsRead } from '../../modules/sync/FieldMapping.js';
@@ -122,7 +128,16 @@ import {
   type SyncFileDeps,
   type SyncFileStore,
 } from '../../modules/sync/SyncFiles.js';
-import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import type {
+  SyncCreationRecorder,
+  SyncRunCreations,
+} from '../../modules/sync/SyncRunCreations.js';
+import {
+  BEFORE_RUN_DELETED_WORDS,
+  beforeRunProgressWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import {
   storeOverwriteBackup,
   syncOverwriteKeeper,
@@ -148,6 +163,7 @@ import {
   mutingSyncWriteGate,
   syncRunWrites,
   syncWriteGate,
+  type SyncCheckpointFirst,
   type SyncGatePolicy,
   type SyncWriteGate,
   type SyncWriteMeasures,
@@ -174,6 +190,37 @@ const NOTHING_DONE = 'Nothing was read or written.';
 
 /** What a simulation refused at its start left undone: it never writes. */
 const NOTHING_READ = 'Nothing was read.';
+
+/**
+ * Why a run asked to take a checkpoint first takes none, in a window whose
+ * checkpoints the Sync handler was never given: the run is refused, nothing
+ * written, rather than run without the rewind the option promised.
+ */
+const NO_CHECKPOINTS_HERE = 'the checkpoints of this window are not open to the Sync page';
+
+/**
+ * A simulation's request, with the checkpoint a run of it would take first:
+ * the simulation says what it would hold and cost, and the refusal a real run
+ * would meet, and takes nothing.
+ */
+const syncSimulateAskedSchema = syncSimulatePayloadSchema.extend({
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
+});
+
+/**
+ * The checkpoint a run asked to take first, bound to the run: what its gate
+ * scopes and takes it through, and what each of them said, for the run to
+ * point at once it has written or to delete when it wrote nothing.
+ */
+interface SyncRunCheckpoint {
+  gate: SyncCheckpointFirst;
+  /** What the gate's scope said it would hold and cost; undefined until it was asked. */
+  planned(): RunCheckpointEstimate | undefined;
+  /** The checkpoint taken; undefined until the take kept one. */
+  taken(): RunCheckpointTaken | undefined;
+  /** The refusal its scope or its take met, by its code; undefined when none did. */
+  refusal(): CheckpointRefusal | undefined;
+}
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -354,6 +401,16 @@ interface SyncReaders {
   maskedSourceFields: (objectApiName: string) => Promise<string[]>;
   countSource: OrchestratorCountFn;
   describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
+  /**
+   * The same describe asked of the target again, past the one the run holds:
+   * see `SyncOrchestratorDeps.describeTargetFieldsAgain`.
+   */
+  describeTargetFieldsAgain: (objectApiName: string) => Promise<TargetWriteFields>;
+  /**
+   * The rows a statement over the target returns, every page of them: what
+   * reads back the record types the target gave (`SyncOrchestratorDeps.queryTargetRows`).
+   */
+  queryTargetRows: (soql: string) => Promise<Array<Record<string, unknown>>>;
   /** Both orgs' record types, what `RecordTypeId` is mapped with: see `readSyncRecordTypes`. */
   recordTypes: () => Promise<SyncRecordTypes>;
   /** Both orgs' currencies, what a row in one the target lacks is written in: see `readRunCurrencies`. */
@@ -474,12 +531,16 @@ export class SyncOpsHandler implements DomainHandler {
    * it, and refused past the emails when nobody watches it.
    *
    * @param policy - Who answers for the run (`SyncGatePolicy`).
+   * @param checkpointFirst - The checkpoint the run takes of what it writes
+   *   before its first write, when asked: counted in its requests and asked
+   *   about at its gate, taken once the question is answered.
    */
   private writeGateFor(
     config: SyncConfig,
     targetConn: Awaited<ReturnType<typeof getJsforceConnection>>,
     policy: SyncGatePolicy,
     readAutomation?: SyncWriteMeasures['readAutomation'],
+    checkpointFirst?: SyncCheckpointFirst,
   ): SyncWriteGate {
     const target = this.deps.orgManager.getOrg(config.targetOrgId);
     const reader = this.targetAutomation;
@@ -505,6 +566,7 @@ export class SyncOpsHandler implements DomainHandler {
             readEmailLimits(targetConn),
           ),
         confirmAboveRecords: this.confirmAboveRecords(),
+        ...(checkpointFirst ? { checkpointFirst } : {}),
       },
       {
         policy,
@@ -570,6 +632,128 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setBackupRecordStore(store: BackupRecordFiles): void {
     this.backupRecords = store;
+  }
+
+  /**
+   * The checkpoints of this window, which a run asked to take one of what it
+   * writes before its first write (Checkpoint first) takes it through, as
+   * every module's run does. Unset, such a run is refused, nothing written.
+   */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
+  /** See {@link setBeforeRunCheckpoints}. */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
+
+  /**
+   * The checkpoint a run of `config` asked to take first, bound to the run:
+   * scoped at its gate from the objects it writes and what still runs as it
+   * writes them, taken once its question is answered and before the mute's
+   * lease — under the run's Stop, its progress the run's, named on the run's
+   * file — and only the run's own file, by its id, left out of what refuses
+   * it. A simulation scopes it, and never takes it.
+   *
+   * @param run - The run's Stop and its file; absent for a simulation.
+   */
+  private runCheckpointOf(
+    config: SyncConfig,
+    operationId: string,
+    request: RunCheckpointRequest,
+    run?: { signal: AbortSignal; recorder?: Pick<SyncCreationRecorder, 'checkpoint'> },
+  ): SyncRunCheckpoint {
+    const checkpoints = this.beforeRunCheckpoints;
+    // The run's file is kept under its operation id, and written by this
+    // process: that file alone does not refuse its own checkpoint.
+    const own = { runId: operationId };
+    let ask: BeforeRunAsk | undefined;
+    let planned: RunCheckpointEstimate | undefined;
+    let taken: RunCheckpointTaken | undefined;
+    let refusal: CheckpointRefusal | undefined;
+    return {
+      gate: {
+        scope: async (written, running) => {
+          if (!checkpoints) throw new Error(NO_CHECKPOINTS_HERE);
+          ask = {
+            module: 'sync',
+            orgId: config.targetOrgId,
+            operationId,
+            written: [...written],
+            running,
+            request,
+          };
+          planned = await checkpoints.scope(ask, own);
+          refusal = planned.refusal;
+          return planned;
+        },
+        take: async (estimate) => {
+          if (!checkpoints || !ask) throw new Error(NO_CHECKPOINTS_HERE);
+          const outcome = await checkpoints.take(ask, own, {
+            planned: estimate,
+            ...(run
+              ? {
+                  signal: run.signal,
+                  onProgress: (progress) => {
+                    const label = beforeRunProgressWords(progress.percentage);
+                    const percent = Math.round(progress.percentage);
+                    const { processedObjects, totalObjects } = progress;
+                    sendOperationProgress(
+                      this.deps,
+                      operationId,
+                      percent,
+                      processedObjects,
+                      totalObjects,
+                      label,
+                    );
+                    this.liveTracker?.updateProgress(
+                      operationId,
+                      percent,
+                      processedObjects,
+                      totalObjects,
+                      label,
+                    );
+                  },
+                }
+              : {}),
+          });
+          if (outcome.taken) {
+            taken = outcome.checkpoint;
+            run?.recorder?.checkpoint?.(outcome.checkpoint);
+          } else if ('refusal' in outcome) {
+            refusal = outcome.refusal;
+          }
+          return outcome;
+        },
+      },
+      planned: () => planned,
+      taken: () => taken,
+      refusal: () => refusal,
+    };
+  }
+
+  /**
+   * What becomes of the checkpoint a run took first, once the run has ended:
+   * kept when it sent a write, whatever became of the run after; deleted when
+   * it sent none — its lease refused after the take, its Stop before its first
+   * write. A checkpoint the store would not delete, or could not be told of,
+   * stays, and is said in the log.
+   */
+  private async settleRunCheckpoint(
+    checkpoint: SyncRunCheckpoint | undefined,
+    wrote: boolean,
+    operationId: string,
+  ): Promise<RunCheckpointInfo | undefined> {
+    const taken = checkpoint?.taken();
+    if (!taken || !this.beforeRunCheckpoints) return undefined;
+    try {
+      return await this.beforeRunCheckpoints.settle(taken, wrote);
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] sync ${operationId}: the checkpoint '${taken.name}' taken before the run is ` +
+          `kept: ${extractErrorMessage(err)}`,
+      );
+      return taken;
+    }
   }
 
   /**
@@ -867,6 +1051,10 @@ export class SyncOpsHandler implements DomainHandler {
       // What started it: the page, a re-run, a schedule or a pipeline.
       details: { triggeredBy },
       ...(result.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
+      // The checkpoint it took first and kept: what a rewind to before it goes to.
+      ...(result.checkpoint?.state === 'taken'
+        ? { checkpointId: result.checkpoint.checkpointId }
+        : {}),
     });
   }
 
@@ -1212,7 +1400,13 @@ export class SyncOpsHandler implements DomainHandler {
     if (this.refusedFieldless(msg, parsed.config, 'sync:execute', 'sync:error', NOTHING_DONE)) {
       return;
     }
-    await this.startExecution(msg, parsed.config, 'manual', parsed.muteAutomation === true);
+    await this.startExecution(
+      msg,
+      parsed.config,
+      'manual',
+      parsed.muteAutomation === true,
+      parsed.checkpointFirst,
+    );
   }
 
   /**
@@ -1229,7 +1423,7 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private async handleSimulate(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(syncSimulatePayloadSchema, msg, 'sync:error', this.deps);
+    const parsed = validatePayload(syncSimulateAskedSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
     if (this.refusedFieldless(msg, parsed.config, 'sync:simulate', 'sync:error', NOTHING_READ)) {
       return;
@@ -1241,7 +1435,13 @@ export class SyncOpsHandler implements DomainHandler {
     sendOperationStarted(this.deps, operationId, 'sync', description);
     this.liveTracker?.register(operationId, 'sync', description);
 
-    const simulation = this.simulateSync(msg, config, operationId, abortController);
+    const simulation = this.simulateSync(
+      msg,
+      config,
+      operationId,
+      abortController,
+      parsed.checkpointFirst,
+    );
     if (this.registry) {
       // The registry reads a `failure` status as a failed operation; a
       // simulation that stopped on an error is one.
@@ -1258,12 +1458,17 @@ export class SyncOpsHandler implements DomainHandler {
    * Run a simulation in the background and answer it on
    * `sync:simulate:response`; `null` when it could not start, which is said on
    * `sync:error`.
+   *
+   * @param checkpointFirst - The checkpoint a run would take first: what it
+   *   would hold and cost, and the refusal a real run would meet, said and
+   *   counted with the run's requests; nothing is taken.
    */
   private async simulateSync(
     msg: InboundRequest,
     config: SyncConfig,
     operationId: string,
     abortController: AbortController,
+    checkpointFirst?: RunCheckpointRequest,
   ): Promise<SyncSimulationResult | null> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     const failure: OperationFailureContext = {
@@ -1301,6 +1506,11 @@ export class SyncOpsHandler implements DomainHandler {
           'SyncOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
         );
       }
+      // The checkpoint a run would take first, scoped as the run's gate
+      // scopes it: never taken, since a simulation's gate only measures.
+      const checkpoint = checkpointFirst
+        ? this.runCheckpointOf(config, operationId, checkpointFirst)
+        : undefined;
       const orchestrator = this.deps.services.syncOrchestrator({
         dataSync,
         conflictResolver: new ConflictResolver(),
@@ -1319,7 +1529,17 @@ export class SyncOpsHandler implements DomainHandler {
         readSourceIds: readers.readSourceIds,
         countSource: readers.countSource,
         countPersonAccounts: readers.countPersonAccounts,
-        writeGate: this.writeGateFor(config, readers.targetConn, 'ask'),
+        writeGate: this.writeGateFor(
+          config,
+          readers.targetConn,
+          'ask',
+          undefined,
+          checkpoint?.gate,
+        ),
+        // What reads back the record types the target gave, as the run reads
+        // them: never called by a simulation, its requests counted as the
+        // run's gate counts them.
+        queryTargetRows: readers.queryTargetRows,
         // Mapped as the run maps them.
         recordTypes: readers.recordTypes,
         // A currency the target does not hold active replaced, and the
@@ -1371,8 +1591,11 @@ export class SyncOpsHandler implements DomainHandler {
         robustnessConfig.timeouts.describe,
       );
 
+      const simulated = await orchestrator.simulate(config);
+      const planned = checkpoint?.planned();
       const result: SyncSimulationResult = {
-        ...(await orchestrator.simulate(config)),
+        ...simulated,
+        ...(planned ? { checkpoint: planned } : {}),
         operationId,
       };
       if (result.cancelled) {
@@ -1670,6 +1893,22 @@ export class SyncOpsHandler implements DomainHandler {
       targetFieldsByObject.set(objectApiName, answer);
       return answer;
     };
+    // Asked of the target again, kept nowhere: once the mute's lease assigned
+    // a permission set, which may open record types to the user the run
+    // writes as, the describe the run holds no longer says which the target
+    // gives a record sent without one. A fresh describe is up to date at once.
+    const describeTargetFieldsAgain = async (objectApiName: string): Promise<TargetWriteFields> =>
+      targetWriteFieldsOf(await targetConn.describe(objectApiName));
+    const queryTargetRows = async (soql: string): Promise<Array<Record<string, unknown>>> =>
+      (
+        await queryAllPages<Record<string, unknown>>(
+          {
+            query: async (q) => targetConn.query<Record<string, unknown>>(q),
+            queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+          },
+          soql,
+        )
+      ).records;
 
     // What a simulation asks the target in place of the write: see
     // `targetLookup`.
@@ -1807,6 +2046,8 @@ export class SyncOpsHandler implements DomainHandler {
       maskedSourceFields,
       countSource,
       describeTargetFields,
+      describeTargetFieldsAgain,
+      queryTargetRows,
       recordTypes,
       currencies,
       standardPricebooks,
@@ -1980,12 +2221,15 @@ export class SyncOpsHandler implements DomainHandler {
    * @param msg - Triggering bridge message (correlation + operation id source).
    * @param rawConfig - Payload-validated sync config (webview or history snapshot).
    * @param triggeredBy - Origin marker persisted in the execution history entry.
+   * @param checkpointFirst - The checkpoint the page asked the run to take of
+   *   what it writes before its first write; absent, it takes none.
    */
   private async startExecution(
     msg: InboundRequest,
     rawConfig: unknown,
     triggeredBy: 'manual' | 'rerun',
     muteAutomation = false,
+    checkpointFirst?: RunCheckpointRequest,
   ): Promise<void> {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
@@ -2102,6 +2346,7 @@ export class SyncOpsHandler implements DomainHandler {
         triggeredBy,
         guardDecision,
         muteAutomation,
+        checkpointFirst,
       );
 
       // Register with BackgroundOperationRegistry if available
@@ -2215,12 +2460,19 @@ export class SyncOpsHandler implements DomainHandler {
     triggeredBy: SyncHistoryEntry['triggeredBy'],
     guardDecision?: GuardDecision,
     muteAutomation = false,
+    checkpointFirst?: RunCheckpointRequest,
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     /** What the run muted of the target's automation, once it ended. */
     let mutedAutomation: import('@sandforge/shared').MutedAutomation | undefined;
     /** The run's gate when it mutes the target's automation, and its lease. */
     let muting: ReturnType<typeof mutingSyncWriteGate> | undefined;
+    /**
+     * Whether the run sent a write to the target: the checkpoint it took
+     * first is kept once it did, whatever became of the run after, and
+     * deleted when it never did.
+     */
+    let wrote = false;
     // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
     const pauseGate = new PauseGate();
     this.pauseGates.set(operationId, pauseGate);
@@ -2245,6 +2497,13 @@ export class SyncOpsHandler implements DomainHandler {
             meta: this.deps.configStore,
           })
         : undefined;
+    // The checkpoint asked first, taken under the run's Stop and named on its file.
+    const checkpoint = checkpointFirst
+      ? this.runCheckpointOf(config, operationId, checkpointFirst, {
+          signal: abortController.signal,
+          ...(creations ? { recorder: creations } : {}),
+        })
+      : undefined;
     /** Say how many records the backup holds, once the run has ended. */
     const closeBackup = (): void => {
       try {
@@ -2260,16 +2519,7 @@ export class SyncOpsHandler implements DomainHandler {
     try {
       const readers = await this.readersFor(config, abortController.signal);
       const { sourceConn, targetConn } = readers;
-      const targetRows = async (soql: string): Promise<Array<Record<string, unknown>>> =>
-        (
-          await queryAllPages<Record<string, unknown>>(
-            {
-              query: async (q) => targetConn.query<Record<string, unknown>>(q),
-              queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
-            },
-            soql,
-          )
-        ).records;
+      const targetRows = readers.queryTargetRows;
       const keeper =
         creations && overwrites
           ? syncOverwriteKeeper({
@@ -2317,13 +2567,27 @@ export class SyncOpsHandler implements DomainHandler {
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
 
+      /** A write about to go to the target: once one goes, the run has written. */
+      const sending = (rows: readonly unknown[]): void => {
+        if (rows.length > 0) wrote = true;
+      };
       const dataSync = new DataSync({
-        upsert: (objectName, externalIdField, records, batchSize) =>
-          writer.upsert(objectName, externalIdField, records, batchSize),
-        insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
-        update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
-        delete: (objectName, recordIds, batchSize) =>
-          writer.delete(objectName, recordIds, batchSize),
+        upsert: (objectName, externalIdField, records, batchSize) => {
+          sending(records);
+          return writer.upsert(objectName, externalIdField, records, batchSize);
+        },
+        insert: (objectName, records, batchSize) => {
+          sending(records);
+          return writer.insert(objectName, records, batchSize);
+        },
+        update: (objectName, records, batchSize) => {
+          sending(records);
+          return writer.update(objectName, records, batchSize);
+        },
+        delete: (objectName, recordIds, batchSize) => {
+          sending(recordIds);
+          return writer.delete(objectName, recordIds, batchSize);
+        },
         describeTargetFields: readers.describeTargetFields,
       });
       const conflictResolver = new ConflictResolver();
@@ -2349,6 +2613,16 @@ export class SyncOpsHandler implements DomainHandler {
         // The parents its objects' lookups name written first, from the
         // describe each write reads too.
         describeTargetFields: readers.describeTargetFields,
+        // The same, asked of the target again once the mute's lease assigned
+        // a permission set, which may have opened record types to the user.
+        describeTargetFieldsAgain: readers.describeTargetFieldsAgain,
+        // The lease the gate took, given back once the last write is through,
+        // before the record types the target gave are read back.
+        leaseOfTheGate: () => muting?.lease(),
+        // What reads back the record types the target gave the records the
+        // run created without one, once its writes are through, as the
+        // command line reads them.
+        queryTargetRows: targetRows,
         // What an earlier run of a saved configuration copied, still in the
         // target, left as it is: found by the ids each insert reads.
         readSourceIds: readers.readSourceIds,
@@ -2356,10 +2630,15 @@ export class SyncOpsHandler implements DomainHandler {
         // Held, before its first write, to the target's data storage, its
         // daily emails and the setting's volume: asked of the user who
         // started it, refused past the emails when nobody watches it.
+        // Asked to take a checkpoint first, the gate scopes it from what still
+        // runs, asks about it, and takes it once the question is answered,
+        // before the mute's lease.
         writeGate: ((): SyncWriteGate => {
           const policy: SyncGatePolicy =
             triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask';
-          if (!muteAutomation) return this.writeGateFor(config, targetConn, policy);
+          if (!muteAutomation) {
+            return this.writeGateFor(config, targetConn, policy, undefined, checkpoint?.gate);
+          }
           // Asked to mute, the gate plans the mute from what the target runs
           // on the objects the run writes, measures what still runs, and
           // takes the lease once it lets the run write.
@@ -2369,7 +2648,7 @@ export class SyncOpsHandler implements DomainHandler {
               reader.read(config.targetOrgId, objects),
             );
           muting = mutingSyncWriteGate(
-            (read) => this.writeGateFor(config, targetConn, policy, read),
+            (read) => this.writeGateFor(config, targetConn, policy, read, checkpoint?.gate),
             readAutomation,
             (read) =>
               muteForRun(async () => muteOrgOf(targetConn), read, {
@@ -2428,7 +2707,14 @@ export class SyncOpsHandler implements DomainHandler {
       const ran = await orchestrator.execute(config).finally(async () => {
         mutedAutomation = await muting?.release();
       });
-      const result = mutedAutomation ? { ...ran, mutedAutomation } : ran;
+      // Its checkpoint kept once it wrote, deleted when it wrote nothing: a
+      // run stopped before its first write, or with no row to write.
+      const kept = await this.settleRunCheckpoint(checkpoint, wrote, operationId);
+      const result: SyncExecutionResult = {
+        ...ran,
+        ...(mutedAutomation ? { mutedAutomation } : {}),
+        ...(kept ? { checkpoint: kept } : {}),
+      };
       await creations?.end({ status: result.status, cancelled: result.cancelled === true });
       closeBackup();
       if (result.cancelled) {
@@ -2471,13 +2757,19 @@ export class SyncOpsHandler implements DomainHandler {
       await creations?.end({ status: 'failure' });
       closeBackup();
       this.dmlTracker.markFailed(operationId);
+      // The checkpoint it took first, kept once it wrote, deleted when it
+      // wrote nothing: its lease refused after the take among them.
+      const kept = await this.settleRunCheckpoint(checkpoint, wrote, operationId);
+      const deleted = kept?.state === 'deleted';
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
       // Refused before its first write — by its write gate, or for an insert
       // that could not tell what earlier runs copied: nothing was written, so
       // it is recorded as stopped, under its code, as a run Production Guard
       // stopped is, and the history keeps no run of it. The page words the
-      // refusal by its code.
+      // refusal by its code; one of its checkpoint's carries the take's.
       if (err instanceof SyncRunRefused) {
+        const refusal = checkpoint?.refusal();
+        const message = deleted ? `${err.message} ${BEFORE_RUN_DELETED_WORDS}` : err.message;
         recordWriteRun(this.deps, {
           action: 'sync_execute',
           module: 'sync',
@@ -2486,10 +2778,13 @@ export class SyncOpsHandler implements DomainHandler {
           outcome: 'stopped',
           guard: guardDecision,
           code: err.code,
-          details: { triggeredBy },
+          details: { triggeredBy, ...(refusal ? { checkpointRefusal: refusal.code } : {}) },
         });
-        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, { code: err.code });
-        sendOperationFailed(this.deps, operationId, err.message, false, {
+        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
+          code: err.code,
+          ...(refusal ? { extraPayload: { checkpointRefusal: refusal.code } } : {}),
+        });
+        sendOperationFailed(this.deps, operationId, message, false, {
           context: {
             module: 'sync',
             operation: msg.type,
@@ -2502,7 +2797,8 @@ export class SyncOpsHandler implements DomainHandler {
           operationId,
           status: 'failure',
           timestamp: new Date().toISOString(),
-          error: err.message,
+          error: message,
+          ...(kept ? { checkpoint: kept } : {}),
         };
       }
       // Transport-level failure: the org was unreachable — queue the config so
@@ -2513,9 +2809,13 @@ export class SyncOpsHandler implements DomainHandler {
       // replays it a second later, and every cycle fires operationQueued +
       // operationExecuted notifications. One replay attempt, then the failure
       // surfaces through the normal operation:failed channel and that's it.
+      // A run asked to take a checkpoint first is not queued either: replayed
+      // from its configuration alone, it would write with no checkpoint to
+      // rewind it to, which the person had asked for.
       if (
         isNetworkError(err) &&
         triggeredBy !== 'rerun' &&
+        checkpointFirst === undefined &&
         this.deps.infraServices?.offlineManager
       ) {
         const queued = this.deps.infraServices.offlineManager.enqueue({
@@ -2535,9 +2835,13 @@ export class SyncOpsHandler implements DomainHandler {
       // Dual channel, single display (see startExecution): operation:failed
       // carries the lifecycle, sync:error settles the in-flight mutation with
       // the real message. Scheduled runs have no listener — the extra message
-      // is simply ignored.
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+      // is simply ignored. A run that failed before its first write says its
+      // checkpoint is gone with it.
+      const failed = deleted
+        ? new Error(`${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`)
+        : err;
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, failed);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(failed), true, {
         context: { module: 'sync', operation: msg.type, ...objectsFailureContext(config.objects) },
       });
       // Failure-status result (instead of a rejection) so scheduled executions
@@ -2559,7 +2863,8 @@ export class SyncOpsHandler implements DomainHandler {
         operationId,
         status: 'failure',
         timestamp: new Date().toISOString(),
-        error: extractErrorMessage(err),
+        error: extractErrorMessage(failed),
+        ...(kept ? { checkpoint: kept } : {}),
       };
 
       // Persist the failed execution too (same contract as the success path

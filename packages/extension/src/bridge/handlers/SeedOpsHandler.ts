@@ -1,7 +1,12 @@
 import type {
   AuditOutcome,
+  CheckpointRefusal,
   CompiledScenario,
   GuardDecision,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
   ScenarioCompileOptions,
   ScenarioPack,
   SeedTemplate,
@@ -16,6 +21,8 @@ import {
   integerDigitsOf,
   sanitizeSoqlObjectName,
   guardTierOf,
+  stillRunningOf,
+  type ForgeAutomationWrite,
   type ForgeTargetAutomation,
   type MutedAutomation,
 } from '@sandforge/shared';
@@ -109,11 +116,20 @@ import { seedFitBudgetOf, seedStorageGate } from '../../modules/seed/seedStorage
 import { seedFitProposalOf, seedRoomOf, seedWritesOf } from '../../modules/seed/seedFit.js';
 import {
   API_BUDGET_EXCEEDED,
+  CHECKPOINT_REFUSED,
   confirmationApiOf,
   confirmationStorageOf,
   formatMB,
   readEmailLimits,
+  takeCheckpointFirst,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  BEFORE_RUN_DELETED_WORDS,
+  beforeRunFailedWords,
+  beforeRunProgressWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import {
   readSeedAutomation,
   seedAutomationLines,
@@ -135,7 +151,7 @@ const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
 const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
 
 /** The code a seed the user declined at its write question is answered with. */
-const SEED_WRITE_DECLINED = 'SEED_WRITE_DECLINED';
+export const SEED_WRITE_DECLINED = 'SEED_WRITE_DECLINED';
 
 /**
  * How long reading what the org runs as a seed's records are created may
@@ -171,6 +187,168 @@ interface SeedRefusal {
   failed?: { authored: boolean };
 }
 
+/**
+ * Why a run of the Seed page asked to take a checkpoint first takes none, in
+ * a window whose checkpoints its handler was never given: the run is refused,
+ * nothing written, rather than run without the rewind the option promised.
+ */
+const NO_CHECKPOINTS_HERE = 'the checkpoints of this window are not open to the Seed page';
+
+/**
+ * The checkpoint a run of the Seed page — a seed, a CSV import, a clone —
+ * asked to take first, as its gate scoped it: what the take is asked, and
+ * what the question said it would hold and cost.
+ */
+export interface SeedCheckpointPlanned {
+  ask: BeforeRunAsk;
+  planned: RunCheckpointEstimate;
+}
+
+/**
+ * A run of the Seed page that stops before its first write for the
+ * checkpoint it takes first: its scope unread, its take refused, failed, or
+ * stopped by its Stop while it read. Nothing was written, and its lease
+ * assigned nothing. `refusal` is the take's own, by its code, when it gave one.
+ */
+export class SeedCheckpointStopped extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly refusal?: CheckpointRefusal,
+  ) {
+    super(message);
+    this.name = 'SeedCheckpointStopped';
+  }
+}
+
+/** What a run of the Seed page says of its progress, as the take of its checkpoint goes. */
+export type SeedCheckpointProgress = (
+  percent: number,
+  processed: number,
+  total: number,
+  label: string,
+) => void;
+
+/**
+ * What the checkpoint a run of the Seed page asked to take first would hold
+ * and cost, read at its gate through the window's checkpoints, no record
+ * read: the refusal a real run would meet is in it, for the run's gate to
+ * refuse it by. The run's file is begun by its first write: none of its own
+ * refuses the scope.
+ *
+ * @throws {SeedCheckpointStopped} When the scope cannot be read, or the
+ *   window keeps no checkpoints: the run is refused, nothing written.
+ */
+export async function scopeSeedCheckpoint(
+  checkpoints: BeforeRunCheckpoints | undefined,
+  ask: BeforeRunAsk,
+): Promise<SeedCheckpointPlanned> {
+  try {
+    if (!checkpoints) throw new Error(NO_CHECKPOINTS_HERE);
+    return { ask, planned: await checkpoints.scope(ask, {}) };
+  } catch (err: unknown) {
+    throw new SeedCheckpointStopped(CHECKPOINT_REFUSED, beforeRunFailedWords(err));
+  }
+}
+
+/**
+ * Take the checkpoint a run of the Seed page asked for first, once its
+ * question was answered and before the mute's lease: under the run's Stop,
+ * its progress the run's, held to what the question said it takes, the run's
+ * own file, by its id, left out of what refuses it.
+ *
+ * @throws {SeedCheckpointStopped} When the take is refused, fails, or the
+ *   run's Stop comes while it reads: nothing is kept, nothing written.
+ */
+export async function takeSeedCheckpoint(
+  checkpoints: BeforeRunCheckpoints | undefined,
+  checkpoint: SeedCheckpointPlanned,
+  runId: string,
+  signal: AbortSignal,
+  progress: SeedCheckpointProgress,
+): Promise<RunCheckpointTaken> {
+  const took = await takeCheckpointFirst(async () => {
+    if (!checkpoints) throw new Error(NO_CHECKPOINTS_HERE);
+    return checkpoints.take(
+      checkpoint.ask,
+      { runId },
+      {
+        planned: checkpoint.planned,
+        signal,
+        onProgress: ({ percentage, processedObjects, totalObjects }) =>
+          progress(
+            Math.round(percentage),
+            processedObjects,
+            totalObjects,
+            beforeRunProgressWords(percentage),
+          ),
+      },
+    );
+  });
+  if ('stop' in took) {
+    throw new SeedCheckpointStopped(took.stop.code, took.stop.message, took.stop.refusal);
+  }
+  return took.checkpoint;
+}
+
+/**
+ * What becomes of the checkpoint a run of the Seed page took first, once it
+ * has ended: kept when it sent a record, whatever became of it after; deleted
+ * when it sent none — its lease refused after the take, its Stop before its
+ * first write. One the store would not delete, or could not be told of,
+ * stays, said in the log.
+ *
+ * @param label - The run, as its log lines name it.
+ */
+export async function settleSeedCheckpoint(
+  checkpoints: BeforeRunCheckpoints | undefined,
+  taken: RunCheckpointTaken | undefined,
+  wrote: boolean,
+  log: (line: string) => void,
+  label: string,
+): Promise<RunCheckpointInfo | undefined> {
+  if (!taken || !checkpoints) return undefined;
+  try {
+    return await checkpoints.settle(taken, wrote);
+  } catch (err: unknown) {
+    log(
+      `[WARN] ${label}: the checkpoint '${taken.name}' taken before the run is kept: ` +
+        extractErrorMessage(err),
+    );
+    return taken;
+  }
+}
+
+/**
+ * What a CSV import or a clone writes of each object, as the target's
+ * automation fires on it: an insert, and an update where it writes records
+ * again — an upsert, and a clone's second pass, which fills the lookups its
+ * inserts left empty on the records it created.
+ */
+export function seedImportWrites(
+  objects: readonly string[],
+  updates: boolean,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  const written = new Set(objects);
+  return (objectApiName, write) =>
+    written.has(objectApiName) && (write === 'insert' || (updates && write === 'update'));
+}
+
+/**
+ * What still runs of the target's automation as a CSV import or a clone
+ * writes, for the scope of the checkpoint it takes first: neither mutes, so
+ * all of it. A read that failed or took too long names nothing, and the
+ * checkpoint then holds the objects the run writes alone.
+ */
+export function seedImportRunning(
+  read: ForgeTargetAutomation | { unread: string },
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+): BeforeRunAsk['running'] {
+  return typeof read.unread === 'string'
+    ? { firing: [] }
+    : stillRunningOf(read as ForgeTargetAutomation, undefined, writes);
+}
+
 /** A seed held to every gate before its first write, ready to run. */
 interface SeedCleared {
   conn: Awaited<ReturnType<typeof getJsforceConnection>>;
@@ -184,7 +362,15 @@ interface SeedCleared {
   orgName: string;
   /** What could not be read or counted, the seed going on: each said in the log. */
   warnings: string[];
+  /** The checkpoint the seed takes first, as its question showed it; absent when not asked. */
+  checkpoint?: SeedCheckpointPlanned;
 }
+
+/** A seed as the page asks for one: the pipeline's, with what only the page asks. */
+type SeedAskedOfThePage = SeedAsked & {
+  muteAutomation?: boolean;
+  checkpointFirst?: RunCheckpointRequest;
+};
 
 /**
  * Who answers the question a seed puts before its first write, when the org
@@ -476,6 +662,26 @@ export class SeedOpsHandler implements DomainHandler {
 
   /** Where and how the mute leases are kept, when not the home directory's. */
   private muteLeases: MuteLeaseOptions = {};
+
+  /**
+   * The checkpoints of this window, which a seed asked to take one of what it
+   * writes before its first write (Checkpoint first) takes it through, as
+   * every module's run does. Unset, such a seed is refused, nothing written.
+   */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
+  /** See {@link setBeforeRunCheckpoints}. */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
+
+  /** The seed's progress, and Live Operations', while its checkpoint is taken. */
+  private checkpointProgress(operationId: string): SeedCheckpointProgress {
+    return (percent, processed, total, label) => {
+      sendOperationProgress(this.deps, operationId, percent, processed, total, label);
+      this.liveTracker?.updateProgress(operationId, percent, processed, total, label);
+    };
+  }
 
   /**
    * `seed:automation`: what the org runs as a seed creates the records of the
@@ -1229,7 +1435,7 @@ export class SeedOpsHandler implements DomainHandler {
    */
   private async runAsked(
     msg: InboundRequest,
-    parsed: SeedAsked,
+    parsed: SeedAskedOfThePage,
     scenario?: ScenarioSeedRun,
   ): Promise<void> {
     // The request id is the operation id, as for sync: the page knows the id of
@@ -1334,7 +1540,7 @@ export class SeedOpsHandler implements DomainHandler {
    * @param publishes - Whether the run publishes its articles once written (a scenario's).
    */
   private async clearSeed(
-    asked: SeedAsked,
+    asked: SeedAskedOfThePage,
     operationId: string,
     failure: OperationFailureContext,
     questions: SeedQuestions,
@@ -1445,6 +1651,45 @@ export class SeedOpsHandler implements DomainHandler {
     // the room what it creates takes under the records: what a fit keeps.
     const stillRunning = seedRoomOf(read, mute?.plan, seedWritesOf(kinds.template, publishes));
 
+    // The checkpoint asked first, scoped from the objects the seed creates
+    // and what still runs as it creates them, the mute's plan holding, so it
+    // holds what those flows create too: no record read, nothing kept. Its
+    // requests are counted with the seed's, and its refusal is the seed's,
+    // before the guard is asked. A scope that cannot be read refuses the
+    // seed: the option promised a rewind the seed could not then have.
+    let checkpoint: SeedCheckpointPlanned | undefined;
+    if (asked.checkpointFirst !== undefined) {
+      const ask: BeforeRunAsk = {
+        module: 'seed',
+        orgId: payload.orgId,
+        operationId,
+        written: written.filter((o) => o.recordCount > 0).map((o) => o.objectApiName),
+        running: stillRunning.running ?? { firing: [] },
+        request: asked.checkpointFirst,
+      };
+      try {
+        checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, ask);
+      } catch (err: unknown) {
+        if (!(err instanceof SeedCheckpointStopped)) throw err;
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          code: err.code,
+        });
+        return {
+          refusal: {
+            code: err.code,
+            message: err.message,
+            extraPayload: {},
+            failed: { authored: true },
+          },
+        };
+      }
+    }
+
     // The storage the records take against what the org has left, before the
     // guard is asked and before anything is written: a template three times
     // a Developer Edition's 5 MB filled the org part way through its run.
@@ -1453,6 +1698,7 @@ export class SeedOpsHandler implements DomainHandler {
       kinds.template,
       kinds.personObjects,
       org?.alias ?? payload.orgId,
+      checkpoint?.planned,
     );
     if (storage.check.verdict === 'unread') {
       warn(
@@ -1461,8 +1707,17 @@ export class SeedOpsHandler implements DomainHandler {
       );
     }
     if (storage.refusal) {
-      const code =
-        storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
+      // Refused for its checkpoint, the seed is refused under the code every
+      // module's run is refused for one, with the take's own beside it: the
+      // page said the data storage was exceeded for a checkpoint this
+      // machine had no disk for.
+      const checkpointRefused = storage.refusedFor === 'checkpoint';
+      const code = checkpointRefused
+        ? CHECKPOINT_REFUSED
+        : storage.refusedFor === 'apiRequests'
+          ? API_BUDGET_EXCEEDED
+          : SEED_STORAGE_EXCEEDED;
+      const takeRefusal = checkpointRefused ? storage.checkpointRefusal?.code : undefined;
       recordWriteRun(this.deps, {
         action: 'seed_execute',
         module: 'seed',
@@ -1470,27 +1725,27 @@ export class SeedOpsHandler implements DomainHandler {
         orgId: payload.orgId,
         outcome: 'stopped',
         code,
+        ...(takeRefusal !== undefined ? { details: { checkpointRefusal: takeRefusal } } : {}),
       });
       const check = storage.check;
       // The counts that fit, by share, from the same /limits, room kept for
       // what the flows that still run create: for the person to apply, after
       // which the seed meets its gate again. A checkpoint's refusal is not
       // one a smaller seed answers.
-      const fit =
-        storage.refusedFor === 'checkpoint'
-          ? undefined
-          : seedFitProposalOf(
-              seedFitBudgetOf(storage),
-              kinds.template,
-              kinds.personObjects,
-              stillRunning.room,
-            );
+      const fit = checkpointRefused
+        ? undefined
+        : seedFitProposalOf(
+            seedFitBudgetOf(storage),
+            kinds.template,
+            kinds.personObjects,
+            stillRunning.room,
+          );
       return {
         refusal: {
           code,
           message: storage.refusal,
           extraPayload: {
-            ...(check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
+            ...(check.verdict === 'unread' || code !== SEED_STORAGE_EXCEEDED
               ? {}
               : {
                   estimateMB: Number(formatMB(check.estimateMB)),
@@ -1498,6 +1753,7 @@ export class SeedOpsHandler implements DomainHandler {
                   maxMB: check.maxMB,
                   org: org?.alias ?? payload.orgId,
                 }),
+            ...(takeRefusal !== undefined ? { checkpointRefusal: takeRefusal } : {}),
             ...(fit ? { fit } : {}),
           },
           failed: { authored: true },
@@ -1598,8 +1854,14 @@ export class SeedOpsHandler implements DomainHandler {
     // it has left, or the seed would leave it short of today's API
     // requests: said only in the log, nobody saw either. With nobody to ask,
     // the page's seed goes on, said in the log as before; a pipeline's is
-    // refused, nobody having approved it.
-    if (storage.check.verdict === 'unread' || storage.api.verdict === 'near') {
+    // refused, nobody having approved it. A checkpoint asked first is always
+    // asked about, its cost that of the target's whole tables, and with
+    // nobody to answer for it the seed is refused, nothing taken.
+    if (
+      storage.check.verdict === 'unread' ||
+      storage.api.verdict === 'near' ||
+      checkpoint !== undefined
+    ) {
       const answer = await questions.ask(guard, {
         stage: 'write',
         module: 'seed',
@@ -1612,6 +1874,7 @@ export class SeedOpsHandler implements DomainHandler {
         storage: confirmationStorageOf(storage.check),
         counted: true,
         ...confirmationApiOf(storage.api),
+        ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
       });
       if (answer === 'declined') {
         recordWriteRun(this.deps, {
@@ -1627,6 +1890,26 @@ export class SeedOpsHandler implements DomainHandler {
           refusal: {
             code: SEED_WRITE_DECLINED,
             message: 'The seed was cancelled before it wrote anything. Nothing was written.',
+            failed: { authored: true },
+          },
+        };
+      }
+      if (answer === 'unavailable' && checkpoint !== undefined) {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: decision,
+          code: PIPELINE_SEED_REFUSAL.unanswered,
+        });
+        return {
+          refusal: {
+            code: PIPELINE_SEED_REFUSAL.unanswered,
+            message:
+              `The seed needed an answer before it wrote — the checkpoint it takes first reads ` +
+              `whole tables of ${orgName} — and there was no one to ask. Nothing was written.`,
             failed: { authored: true },
           },
         };
@@ -1667,6 +1950,7 @@ export class SeedOpsHandler implements DomainHandler {
       automation,
       orgName,
       warnings,
+      ...(checkpoint ? { checkpoint } : {}),
     };
   }
 
@@ -1708,6 +1992,7 @@ export class SeedOpsHandler implements DomainHandler {
       cleared.guardDecision,
       pipeline,
       scenario,
+      cleared.checkpoint,
     );
     return { abortController, execution };
   }
@@ -1854,6 +2139,12 @@ export class SeedOpsHandler implements DomainHandler {
    *
    * A pipeline's run (`pipeline`) names its pipeline in the run's file, and
    * is told how the run ended, its result whole, once the page has been.
+   *
+   * A seed asked to take a checkpoint first (`checkpoint`) takes it here,
+   * under its Stop, once its question was answered and before the mute's
+   * lease: refused, failed or stopped, the seed writes nothing and assigns
+   * nothing. Once it has ended the checkpoint is kept when it sent a record,
+   * and deleted when it sent none.
    */
   private async executeSeed(
     msg: InboundRequest,
@@ -1865,9 +2156,14 @@ export class SeedOpsHandler implements DomainHandler {
     guardDecision?: GuardDecision,
     pipeline?: SeedPipelineRun,
     scenario?: ScenarioSeedRun,
+    checkpoint?: SeedCheckpointPlanned,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     const startedAt = new Date().toISOString();
+    /** The checkpoint the seed took first, once it took one. */
+    let taken: RunCheckpointTaken | undefined;
+    /** Whether the seed sent a record to the org: its checkpoint is kept once it did. */
+    let wrote = false;
     /** The id each case of a scenario was given, by its row key: what its tests are about. */
     const caseIds: Record<string, string> = {};
     const templateName = (payload.template as { name?: unknown }).name;
@@ -1946,6 +2242,7 @@ export class SeedOpsHandler implements DomainHandler {
         records: Record<string, unknown>[],
         batchSize: number,
       ): Promise<InsertResult> => {
+        if (records.length > 0) wrote = true;
         const answer = await insertRecords(orgId, objectApiName, records, batchSize);
         kept?.note(objectApiName, answer.successIds);
         return answer;
@@ -2084,6 +2381,19 @@ export class SeedOpsHandler implements DomainHandler {
       const mute = payload.mute;
       let mutedAutomation: MutedAutomation | undefined = mute?.muted;
       try {
+        // The checkpoint asked first, taken once the question was answered,
+        // under the seed's Stop, and before the lease: refused, it refuses
+        // the seed with nothing assigned. Only the seed's own file, by its
+        // id, is left out of what refuses it.
+        if (checkpoint) {
+          taken = await takeSeedCheckpoint(
+            this.beforeRunCheckpoints,
+            checkpoint,
+            runId,
+            abortController.signal,
+            this.checkpointProgress(operationId),
+          );
+        }
         // The lease is taken before the first write and given back as the
         // seed ends, written, failed, stopped or thrown alike.
         const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
@@ -2092,6 +2402,17 @@ export class SeedOpsHandler implements DomainHandler {
           if (held) mutedAutomation = await held.release();
         });
         if (mutedAutomation) result = { ...result, mutedAutomation };
+        // Kept once the seed sent a record, deleted when it sent none.
+        const settled = await settleSeedCheckpoint(
+          this.beforeRunCheckpoints,
+          taken,
+          wrote,
+          this.deps.log,
+          `seed:execute ${operationId}`,
+        );
+        // Settled once: what fails after is no reason to settle it again.
+        taken = undefined;
+        if (settled) result = { ...result, checkpoint: settled };
       } catch (err: unknown) {
         // What it inserted before it threw stays removable, the run ended failed.
         await kept
@@ -2174,6 +2495,9 @@ export class SeedOpsHandler implements DomainHandler {
         })),
         source,
         ...(result.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
+        ...(result.checkpoint?.state === 'taken'
+          ? { checkpointId: result.checkpoint.checkpointId }
+          : {}),
       });
 
       const response = buildResponse(
@@ -2191,7 +2515,59 @@ export class SeedOpsHandler implements DomainHandler {
       if (result.status === 'failure' && !result.cancelled) return { status: 'failure' };
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
-      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      // The checkpoint it took first, kept once it sent a record, deleted
+      // when it sent none: its lease refused after the take among them.
+      const settled = await settleSeedCheckpoint(
+        this.beforeRunCheckpoints,
+        taken,
+        wrote,
+        this.deps.log,
+        `seed:execute ${operationId}`,
+      );
+      const said =
+        settled?.state === 'deleted'
+          ? `${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`
+          : undefined;
+      const failed = said !== undefined ? new Error(said) : err;
+      // Stopped for its checkpoint before its first write: nothing was
+      // written and nothing assigned, recorded as stopped under its code, the
+      // take's own beside it, which the page words. Its Stop during the take
+      // ends it as a stopped seed ends.
+      if (err instanceof SeedCheckpointStopped) {
+        if (err.code === RUN_CANCELLED) {
+          this.registry?.abort(operationId);
+          sendOperationCompleted(this.deps, operationId, { aborted: true, totalRecords: 0 });
+          this.liveTracker?.cancel(operationId);
+        } else {
+          this.liveTracker?.fail(operationId, err.message);
+          sendOperationFailed(this.deps, operationId, err.message, false, {
+            context: failure,
+            authored: true,
+          });
+        }
+        const takeRefusal = err.refusal?.code;
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          code: err.code,
+          ...(takeRefusal !== undefined ? { details: { checkpointRefusal: takeRefusal } } : {}),
+        });
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+          code: err.code,
+          retryable: false,
+          ...(takeRefusal !== undefined
+            ? { extraPayload: { checkpointRefusal: takeRefusal } }
+            : {}),
+        });
+        pipeline?.ended({ error: err });
+        // Aborted in the registry already, as a stopped seed is.
+        return err.code === RUN_CANCELLED ? undefined : { status: 'failure' };
+      }
+      this.liveTracker?.fail(operationId, extractErrorMessage(failed));
       // What the run inserted before it threw is not counted here: it is
       // kept, for its removal, with the run's creations.
       recordWriteRun(this.deps, {
@@ -2202,20 +2578,21 @@ export class SeedOpsHandler implements DomainHandler {
         outcome: 'failure',
         guard: guardDecision,
         source,
+        ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
       });
       // Dual channel, single display (see handleExecute): seed:error settles
       // the in-flight webview mutation, operation:failed carries the
       // lifecycle. Both carry the offline retryHint on transport failures.
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, failed, {
         retryable: true,
         extraPayload: offlineHint,
       });
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(failed), true, {
         extraPayload: offlineHint,
         context: failure,
       });
-      pipeline?.ended({ error: err });
+      pipeline?.ended({ error: failed });
       // Failure-status result (not a rejection, not a bare resolve) so the
       // BackgroundOperationRegistry marks the operation 'failed' — see the
       // method docstring for the contract.

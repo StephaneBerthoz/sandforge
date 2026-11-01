@@ -914,3 +914,89 @@ describe('SyncRunCreations — what a run deleted, as the source had', () => {
     expect(settled(twice)).toBe(true);
   });
 });
+
+describe('SyncRunCreations — the checkpoint a run took before its first write', () => {
+  const TAKEN = {
+    state: 'taken' as const,
+    checkpointId: 'ck-20261101-101500-a1b2',
+    name: 'Before Sync run 2026-11-01 10:15 UTC',
+    takenAt: '2026-11-01T10:15:04.000Z',
+    expiresAt: '2026-11-08T10:15:04.000Z',
+    objects: ['Contact', 'Task', 'ContentDocument'],
+    records: 38,
+    bytes: 2_200_000,
+    requests: 68,
+    added: [
+      {
+        objectApiName: 'Task',
+        reason:
+          "The target's flow 'Contact follow-up' creates Task records as Contact records go in.",
+      },
+    ],
+    notHeld: [
+      {
+        objectApiName: 'FeedItem',
+        reason: 'Chatter posts. A rewind leaves its records as they are.',
+      },
+    ],
+  };
+
+  it('writes it right after the line naming the run, with the first write, and reads it back', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.checkpoint?.(TAKEN);
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'checkpoint',
+      'object',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.checkpoint).toEqual(TAKEN);
+  });
+
+  it('leaves no file for a run that took a checkpoint and wrote nothing', async () => {
+    // Its checkpoint is deleted: a file of it alone would list a run that
+    // never wrote, with a rewind to offer.
+    const { files, deps } = memoryDisk();
+    const recorder = new SyncRunCreations(deps).recorder(start('run-1'));
+
+    recorder.checkpoint?.(TAKEN);
+    await recorder.end({ status: 'failure' });
+
+    expect(await recorder.flush()).toBeUndefined();
+    expect(files.size).toBe(0);
+  });
+
+  it('writes one noted once the file has begun as it comes', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.checkpoint?.(TAKEN);
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.checkpoint).toEqual(TAKEN);
+  });
+
+  it('keeps out a checkpoint that does not read as one, and reads a file without one as before', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    // An id that could name a folder elsewhere than the store's.
+    recorder.checkpoint?.({ ...TAKEN, checkpointId: '../ck-20261101-101500-a1b2' });
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const run = await store.get('run-1');
+    expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
+    expect(run).not.toHaveProperty('checkpoint');
+  });
+});
