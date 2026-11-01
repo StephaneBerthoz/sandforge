@@ -359,8 +359,12 @@ describe('MonitorPage', () => {
   });
 
   it('should show the last updated timestamp', () => {
+    // The clock stands at the read: the shared payload is stamped when the
+    // file loads, and a slow runner rendered it more than a second later.
+    const readAt = new Date();
+    vi.useFakeTimers({ now: readAt });
     mockMonitorQueryState = {
-      data: standardMonitorPayload,
+      data: { ...standardMonitorPayload, lastUpdated: readAt.toISOString() },
       loading: false,
       error: null,
       refetch: mockRefetch,
