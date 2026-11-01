@@ -4364,6 +4364,8 @@ describe('AutopilotExecutor — a record on a record type the running user canno
           message: closedTo(1, 'Partner_Deal', 'Partner deal'),
         },
       ],
+      // The one on Master went in without a type, which the run says.
+      recordTypeGiven: expect.objectContaining({ rows: 1, why: { masterInSource: 1 } }),
     });
     expect(result.completedObjects).toContain('Opportunity');
     expect(result.failedObjects).toEqual([]);

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   carriesRecordType,
-  defaultRecordTypeOf,
   findUnavailableRecordTypes,
   parseRecordTypeInfos,
   parseRecordTypeCounts,
+  parseRecordTypeCountsWithMaster,
   partsOfRecordType,
   recordTypeBlockedMessage,
   recordTypeCountSoql,
@@ -72,7 +72,9 @@ describe('parseRecordTypeInfos', () => {
       ['Legacy_Account', false, false, false],
       ['Master', false, true, true],
     ]);
-    expect(defaultRecordTypeOf(infos)?.developerName).toBe('Customer_Account');
+    expect(infos.find((info) => info.defaultRecordTypeMapping)?.developerName).toBe(
+      'Customer_Account',
+    );
   });
 
   it('leaves out an entry of the wrong shape and reads anything but a list as none', () => {
@@ -201,6 +203,21 @@ describe('record type counts', () => {
 
     expect([...counts]).toEqual([[PARTNER, 40]]);
     expect(parseRecordTypeCounts(undefined).size).toBe(0);
+  });
+
+  it('keeps, under null, the records with no record type: those on Master, which the target gives a type of its own', () => {
+    const counts = parseRecordTypeCountsWithMaster([
+      { attributes: { type: 'AggregateResult' }, RecordTypeId: PARTNER, n: 40 },
+      { attributes: { type: 'AggregateResult' }, RecordTypeId: null, n: 7 },
+      { attributes: { type: 'AggregateResult' }, RecordTypeId: '', n: 2 },
+      { attributes: { type: 'AggregateResult' }, RecordTypeId: CUSTOMER, n: 'many' },
+    ]);
+
+    expect([...counts]).toEqual([
+      [PARTNER, 40],
+      [null, 9],
+    ]);
+    expect(parseRecordTypeCountsWithMaster('rows').size).toBe(0);
   });
 });
 

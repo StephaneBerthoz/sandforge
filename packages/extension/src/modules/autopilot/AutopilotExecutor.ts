@@ -17,7 +17,12 @@ import type {
   AutopilotEdge,
   AutopilotRefusal,
   ApiName,
+  AutopilotPlanScope,
   ForgeContactPointsReport,
+  RecordTypeGiven,
+  RecordTypeGivenBasis,
+  RecordTypeNamed,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
@@ -32,7 +37,7 @@ import {
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
-import type { FieldInfo } from '../forge/ForgeExecutor.js';
+import type { FieldInfo, ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -44,6 +49,7 @@ import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
+  namesMasterRecordType,
   namespaceMismatchWarning,
   namespaceMismatches,
   parseRecordTypeRows,
@@ -90,7 +96,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import {
   RECORD_TYPE_UNAVAILABLE,
-  defaultRecordTypeOf,
+  parseRecordTypeCountsWithMaster,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
@@ -98,6 +104,14 @@ import {
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
+import {
+  RECORD_TYPE_READ_BACK_IDS,
+  givenRecordTypeId,
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+} from '../../core/metadata/recordTypeGiven.js';
 import {
   CURRENCY_FIELD,
   CurrencyReplacementTally,
@@ -292,6 +306,15 @@ export interface ObjectOutcome {
    * `linked`. Absent when there are none.
    */
   withTheirPersonAccount?: number;
+  /**
+   * The records the run created without a record type into a target whose
+   * object has one besides Master — on Master in the source, or with a field
+   * the run does not write — and the type the target gave them: what the
+   * describe of the user the run writes as says, and what the first of them
+   * were read back holding once the last write was through. Absent when
+   * there is nothing to say.
+   */
+  recordTypeGiven?: RecordTypeGiven;
 }
 
 /**
@@ -323,6 +346,20 @@ export interface AutopilotRunOptions {
    * number a fictional one.
    */
   keepContactPoints?: boolean;
+  /**
+   * The lease of the target's automation mute its caller took just before
+   * the run's first write: how many permission sets it assigned the user the
+   * run writes as, and how to give it back.
+   *
+   * A lease that assigned any has the record types of the plan's objects read
+   * again before the first write (`describeRecordTypesAgain`): a set may open
+   * a record type to that user, and what a record created without one gets
+   * changes with it. The run gives the lease back once its last write is
+   * through, before it reads back the record types the target gave: the
+   * bypass held no longer than the writes. Its caller gives it back as ever,
+   * however the run ends; given back twice, a lease answers the same.
+   */
+  lease?: ForgeWriteGateAnswer['lease'];
 }
 
 export interface ExecutionResult {
@@ -442,13 +479,24 @@ export interface AutopilotExecutorDeps {
    */
   describeRecordTypes?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
   /**
-   * How many SOURCE records carry each `RecordTypeId`. The run reads an
-   * object a page at a time, so this count is how it knows, before the first
-   * page, which of the types the running user cannot use its records carry:
-   * the records on those are held back. Asked only when the target has such
-   * a type.
+   * The same, read again from the TARGET rather than from what the run
+   * holds: asked of the plan's objects once the mute's lease assigned a
+   * permission set, which may have opened record types to the user the run
+   * writes as. Absent, such a run says what the describe it holds gives a
+   * record created without a record type, and reads back what the target
+   * gave all the same.
    */
-  countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
+  describeRecordTypesAgain?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
+  /**
+   * How many SOURCE records carry each `RecordTypeId`, those on Master under
+   * `null` (`parseRecordTypeCountsWithMaster`). The run reads an object a
+   * page at a time, so this count is how it knows, before the first page,
+   * which of the types the running user cannot use its records carry: the
+   * records on those are held back. Asked by a run only when the target has
+   * such a type; by a plan (`recordTypesGivenOf`), when it has one besides
+   * Master, to say how many records go in on the type the target gives.
+   */
+  countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string | null, number>>;
   /**
    * The object's key prefix in the TARGET org. An id a refusal names is
    * linked to only when it carries it: a unique index is per object, so an id
@@ -652,6 +700,49 @@ function recordTypeRefusal(use: UnavailableRecordTypeUse): AutopilotRefusal {
   };
 }
 
+/**
+ * What the target gives a record of one object created without a record
+ * type, as the run holds it: the object's types, named, and the one the
+ * describe of the user the run writes as says it gives, absent for Master.
+ */
+interface GivenRule {
+  types: readonly RecordTypeAvailability[];
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+}
+
+/**
+ * The records of one object the run created without a record type, as their
+ * writes answered: see `ObjectOutcome.recordTypeGiven`.
+ */
+interface RecordTypeTally extends GivenRule {
+  rows: number;
+  why: Partial<Record<WithoutRecordTypeWhy, number>>;
+  /** The first records created, by their id in the target: those the read back asks about. */
+  ids: string[];
+  readBack?: RecordTypeGiven['readBack'];
+}
+
+/** What a tally says, as an object's outcome carries it. */
+function recordTypeGivenOfTally(objectApiName: string, tally: RecordTypeTally): RecordTypeGiven {
+  return {
+    objectApiName,
+    rows: tally.rows,
+    why: { ...tally.why },
+    ...(tally.predicted ? { predicted: tally.predicted } : {}),
+    ...(tally.readBack ? { readBack: tally.readBack } : {}),
+  };
+}
+
+/**
+ * Of a count of an object's records per record type, those on Master: no
+ * record type, or Master's own id as a source may hold it.
+ */
+function onMasterOf(counts: ReadonlyMap<string | null, number>): number {
+  let onMaster = 0;
+  for (const [id, n] of counts) if (namesMasterRecordType(id)) onMaster += n;
+  return onMaster;
+}
+
 /** Result of executing a single object */
 interface ObjectResult {
   success: number;
@@ -786,6 +877,23 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private personTypes: Promise<ReadonlySet<string> | undefined> | undefined;
   /** The contacts of person accounts linked to the one the platform wrote with each account. */
   private personContactsLinked = 0;
+  /**
+   * The records the run created without a record type, by object of the
+   * target with a type besides Master: what each object's outcome says of
+   * the type the target gave them (`ObjectOutcome.recordTypeGiven`).
+   */
+  private readonly recordTypesGiven = new Map<string, RecordTypeTally>();
+  /**
+   * The target's record types of the plan's objects, as a describe read again
+   * once the mute's lease assigned a permission set gives them
+   * (`readAgainUnderTheLease`): what a record created without one gets now.
+   * Empty when the lease assigned none, or there was no lease.
+   */
+  private readonly recordTypesUnderTheLease = new Map<string, readonly RecordTypeAvailability[]>();
+  /** What the target gives a record created without a record type, per object, read once a run. */
+  private readonly givenRules = new Map<string, Promise<GivenRule | undefined>>();
+  /** The lease its caller took, given back once the last write is through: see `AutopilotRunOptions.lease`. */
+  private lease: AutopilotRunOptions['lease'];
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -873,10 +981,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
   }
 
-  /** Records per record type, keyed by the target's ids where the mapping knows one. */
-  private inTargetRecordTypes(counts: ReadonlyMap<string, number>): Map<string, number> {
+  /**
+   * Records per record type, keyed by the target's ids where the mapping
+   * knows one. Those on Master go without one, and no type of theirs is
+   * closed to anyone.
+   */
+  private inTargetRecordTypes(counts: ReadonlyMap<string | null, number>): Map<string, number> {
     const translated = new Map<string, number>();
     for (const [id, count] of counts) {
+      if (id === null) continue;
       const target = this.targetRecordTypeOf(id);
       translated.set(target, (translated.get(target) ?? 0) + count);
     }
@@ -890,6 +1003,230 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    */
   private targetRecordTypeOf(id: string): string {
     return this.recordTypeMappings?.find((m) => m.sourceId === id)?.targetId ?? id;
+  }
+
+  /**
+   * What the target is to give the records of a plan's objects that go in
+   * without a record type, before the run, as its plan says it: per object of
+   * the target with a type besides Master, how many — those on Master in the
+   * source, or every one when the target does not let the run send
+   * `RecordTypeId` — and the type the describe of the user the run writes as
+   * says the target gives them (`recordTypeGivenOf`). Nothing is written.
+   *
+   * The records on Master are counted in the source, a request an object:
+   * of a table, by its `GROUP BY RecordTypeId` count, the records with no
+   * type kept; of a parent read by id, by those ids alone,
+   * {@link IDS_PER_READ} a request; of a table cut to its first records by
+   * Id, no more than the run copies — an estimate that errs says too much.
+   * An object the count fails for, or that no record type could be read of,
+   * is said nothing of: a real run counts what it creates.
+   *
+   * @param recordCounts - The records of each object the run copies, as the scan counted them.
+   * @param parentIds - The objects read by id, with the ids: the scan's `parentIds`.
+   * @param cutShort - The selected objects cut to their first records by Id: the scope's `cutShort`.
+   */
+  async recordTypesGivenOf(
+    plan: ExecutionPlan,
+    recordCounts: ReadonlyMap<string, number>,
+    parentIds: ReadonlyMap<string, readonly string[]> = new Map(),
+    cutShort: AutopilotPlanScope['cutShort'] = [],
+  ): Promise<Map<string, RecordTypeGiven>> {
+    // The target's own names of its types, `ns__Retail` for a package's.
+    await this.mapRecordTypes(plan);
+    const given = new Map<string, RecordTypeGiven>();
+    for (const objectApiName of new Set(plan.waves.flatMap((wave) => wave.objects))) {
+      const copied = recordCounts.get(objectApiName) ?? 0;
+      if (copied === 0) continue;
+      const rule = await this.givenRuleOf(objectApiName);
+      if (!rule) continue;
+      const writable = await this.creatableFieldsOf(objectApiName);
+      let rows: number;
+      let why: WithoutRecordTypeWhy = 'masterInSource';
+      if (writable && !writable.has('RecordTypeId')) {
+        rows = copied;
+        why = 'notRead';
+      } else {
+        const onMaster = await this.onMasterInSource(objectApiName, parentIds.get(objectApiName));
+        if (onMaster === undefined) continue;
+        const cut = cutShort.find((entry) => entry.objectApiName === objectApiName);
+        rows = cut ? Math.min(onMaster, copied) : onMaster;
+      }
+      if (rows === 0) continue;
+      given.set(objectApiName, {
+        objectApiName,
+        rows,
+        why: { [why]: rows },
+        ...(rule.predicted ? { predicted: rule.predicted } : {}),
+      });
+    }
+    return given;
+  }
+
+  /**
+   * How many of an object's records are on Master in the source: of its
+   * whole table, or of `ids` alone, a count {@link IDS_PER_READ} ids at a
+   * time. Undefined when the source cannot say.
+   */
+  private async onMasterInSource(
+    objectApiName: string,
+    ids: readonly string[] | undefined,
+  ): Promise<number | undefined> {
+    try {
+      if (ids === undefined) {
+        const count = this.deps.countRecordTypes;
+        return count ? onMasterOf(await count(objectApiName)) : undefined;
+      }
+      const query = this.deps.querySource;
+      if (!query) return undefined;
+      let onMaster = 0;
+      for (let at = 0; at < ids.length; at += IDS_PER_READ) {
+        // The statement the read back asks of the records a run created,
+        // asked here of the source's records by their ids.
+        const rows = await query(
+          recordTypeReadBackSoql(objectApiName, ids.slice(at, at + IDS_PER_READ)),
+        );
+        onMaster += onMasterOf(parseRecordTypeCountsWithMaster(rows));
+      }
+      return onMaster;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * What the target gives a record of the object created without a record
+   * type, read once a run from the describe it holds, or the one read again
+   * under the lease (`readAgainUnderTheLease`): undefined when the object has
+   * no type besides Master in the target, and there is nothing to say, or
+   * when no describe can say.
+   */
+  private givenRuleOf(objectApiName: string): Promise<GivenRule | undefined> {
+    let rule = this.givenRules.get(objectApiName);
+    if (!rule) {
+      rule = (async () => {
+        const infos =
+          this.recordTypesUnderTheLease.get(objectApiName) ??
+          (await this.deps.describeRecordTypes?.(objectApiName).catch(() => undefined));
+        if (!infos?.some((info) => !info.master)) return undefined;
+        // Named by the target's rows, by id: `ns__Retail` for a package's.
+        const types = withRecordTypeNames(infos, this.targetRecordTypes);
+        const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+        return { types, ...(predicted ? { predicted } : {}) };
+      })();
+      this.givenRules.set(objectApiName, rule);
+    }
+    return rule;
+  }
+
+  /**
+   * Read again from the target the record types of the plan's objects that
+   * have one besides Master, once the mute's lease assigned a permission
+   * set, before the first write: a set may open a record type to the user
+   * the run writes as, and a record created without one then gets another.
+   * On a scratch org, a describe read just after an assignment already said
+   * what it opened.
+   *
+   * Only what the run says of the type given reads them. What the run holds
+   * back for a record type closed to that user stays held back, read from
+   * the describe it holds.
+   */
+  private async readAgainUnderTheLease(
+    plan: ExecutionPlan,
+    recordCounts: ReadonlyMap<string, number>,
+  ): Promise<void> {
+    const again = this.deps.describeRecordTypesAgain;
+    if (!again || !this.lease || this.lease.assigned === 0) return;
+    const objects = [...new Set(plan.waves.flatMap((wave) => wave.objects))].filter(
+      (objectApiName) => (recordCounts.get(objectApiName) ?? 0) > 0,
+    );
+    await Promise.all(
+      objects.map(async (objectApiName) => {
+        const held = await this.deps.describeRecordTypes?.(objectApiName).catch(() => undefined);
+        if (!held?.some((info) => !info.master)) return;
+        try {
+          this.recordTypesUnderTheLease.set(objectApiName, await again(objectApiName));
+        } catch {
+          // Unread, the run says what the describe it holds gives, and reads
+          // back what the target gave all the same.
+        }
+      }),
+    );
+  }
+
+  /** Count a record the target created without a record type, with why, its id kept for the read back. */
+  private countCreatedWithoutRecordType(
+    objectApiName: string,
+    rule: GivenRule,
+    why: WithoutRecordTypeWhy,
+    id: string | undefined,
+  ): void {
+    let tally = this.recordTypesGiven.get(objectApiName);
+    if (!tally) {
+      tally = { ...rule, rows: 0, why: {}, ids: [] };
+      this.recordTypesGiven.set(objectApiName, tally);
+    }
+    tally.rows++;
+    tally.why[why] = (tally.why[why] ?? 0) + 1;
+    if (id && tally.ids.length < RECORD_TYPE_READ_BACK_IDS) tally.ids.push(id);
+  }
+
+  /**
+   * Once the last write is through, however the run came to its end: the
+   * lease given back, then the record types the target gave the records
+   * created without one read back, and said in each object's outcome.
+   */
+  private async afterTheWrites(objectOutcomes: Record<string, ObjectOutcome>): Promise<void> {
+    await this.giveTheLeaseBack();
+    await this.readBackRecordTypes();
+    for (const [objectApiName, tally] of this.recordTypesGiven) {
+      const outcome = objectOutcomes[objectApiName];
+      if (!outcome) continue;
+      objectOutcomes[objectApiName] = {
+        ...outcome,
+        recordTypeGiven: recordTypeGivenOfTally(objectApiName, tally),
+      };
+    }
+  }
+
+  /**
+   * Give back the lease its caller took, once the run's last write is
+   * through. A lease never throws as it is given back; should one, the run's
+   * writes stand, and its caller gives it back again and says what it left.
+   */
+  private async giveTheLeaseBack(): Promise<void> {
+    const lease = this.lease;
+    if (!lease) return;
+    this.lease = undefined;
+    try {
+      await lease.giveBack();
+    } catch (err: unknown) {
+      logger.warn(
+        `[autopilot] the mute's lease was not given back as the writes ended: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Read back, once the writes are through and the lease given back, the
+   * record types the target gave the records the run created without one:
+   * one request an object, of its first records. A read that fails is said
+   * in the org's words, and fails nothing: the records are in. Without a way
+   * to read the target, the outcome says what the describe gives them.
+   */
+  private async readBackRecordTypes(): Promise<void> {
+    const query = this.deps.queryTarget;
+    if (!query) return;
+    await Promise.all(
+      [...this.recordTypesGiven].map(async ([objectApiName, tally]) => {
+        if (tally.ids.length === 0) return;
+        try {
+          const rows = await query(recordTypeReadBackSoql(objectApiName, tally.ids));
+          tally.readBack = recordTypesReadBack(rows, tally.types);
+        } catch (err: unknown) {
+          tally.readBack = { read: 0, types: [], unread: extractErrorMessage(err) };
+        }
+      }),
+    );
   }
 
   /**
@@ -1041,6 +1378,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // written, as a Forge run's are, unless the run keeps them as read.
     this.contactPoints =
       options.keepContactPoints === true ? undefined : new ContactPointNeutralizer();
+    this.lease = options.lease;
     const startTime = Date.now();
     this.signal = signal;
     // A run stopped while paused stops there, rather than waiting for a resume
@@ -1201,6 +1539,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     try {
       await this.matchStandardPricebooks(plan);
       await this.mapRecordTypes(plan);
+      // Under a lease that assigned a permission set, the record types it may
+      // have opened, read before the first write.
+      await this.readAgainUnderTheLease(plan, recordCounts);
       this.planned = new Set(plan.waves.flatMap((wave) => wave.objects));
       const lookups: Record<string, LookupOutcome> = {};
 
@@ -1247,6 +1588,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.stoppedObjects = stoppedObjects;
         this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
+        // What it created before the stop is in: the lease given back, the
+        // record types the target gave them read back.
+        await this.afterTheWrites(objectOutcomes);
         this.reportContactPoints(result);
         result.elapsedMs = Date.now() - startTime;
         return result;
@@ -1267,6 +1611,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const statuses = await this.applyDeferredStatuses();
       if (Object.keys(statuses).length > 0) result.statuses = statuses;
       if (Object.keys(lookups).length > 0) result.lookups = lookups;
+      // Every write is done: the lease given back, and the record types the
+      // target gave the records created without one are final, and read back.
+      await this.afterTheWrites(objectOutcomes);
       // Stopped during the passes after the waves: every object was reached,
       // and the updates after the stop were not sent.
       if (this.stopped()) {
@@ -1304,6 +1651,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       throw err;
     } finally {
       signal?.removeEventListener('abort', letThePauseGo);
+      // A run that died gives the lease back too, before its caller does.
+      await this.giveTheLeaseBack();
     }
   }
 
@@ -1848,6 +2197,20 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })
       : rows;
     payload = this.translateRecordTypes(objectApiName, payload);
+    // The records that go without a record type — on Master in the source,
+    // or with a field the run does not write — and why: once created, they
+    // hold the type the target gives the user the run writes as, which the
+    // object's outcome says. By the record sent, as the filters below keep it.
+    const withoutType = new Map<Record<string, unknown>, WithoutRecordTypeWhy>();
+    payload.forEach((record, index) => {
+      if (record['RecordTypeId'] !== undefined) return;
+      const read = rows[index]?.['RecordTypeId'];
+      const written = !writable || writable.has('RecordTypeId');
+      withoutType.set(
+        record,
+        written && namesMasterRecordType(read) ? 'masterInSource' : 'notRead',
+      );
+    });
     // Two fields the describe calls createable that the platform takes one
     // of: an opportunity's line sent with its unit and total price was
     // refused, "only one of unit price or total price may be specified". Left
@@ -1930,6 +2293,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     const drafts = await this.startAsDrafts(objectApiName, payload);
+    // Said only of an object of the target with a type besides Master.
+    const givenRule = withoutType.size > 0 ? await this.givenRuleOf(objectApiName) : undefined;
     const outcomes = await this.deps.insert(objectApiName, payload);
     state.apiCallsUsed++;
 
@@ -1949,6 +2314,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       if (outcome.success) {
         state.written++;
+        const withoutWhy = givenRule ? withoutType.get(record) : undefined;
+        if (givenRule && withoutWhy) {
+          this.countCreatedWithoutRecordType(objectApiName, givenRule, withoutWhy, outcome.id);
+        }
         const currencyChange = currencyChanges.get(record);
         this.currencyChanges.add(objectApiName, currencyChange);
         if (currencyChange && outcome.id) {
@@ -2733,8 +3102,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * Whether the target takes a person account's row, as it is sent, as a
    * business account, as Forge and Sync tell it: the target has no person
    * accounts — its account has no lookup at a person's contact — or the
-   * record type the row goes in with, or the running user's default when it
-   * goes without one, is a type of the target that is no person account's.
+   * record type the row goes in with, or the one the target gives the user
+   * the run writes as when it goes without one (`givenRecordTypeId`), is a
+   * type of the target that is no person account's.
    * Nothing to say — a describe or a read that fails, a record type the
    * target does not know — and the row goes in as a person account.
    */
@@ -2756,8 +3126,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     if (!personTypes) return () => false;
     const infos = await this.deps.describeRecordTypes?.(ACCOUNT).catch(() => undefined);
     const known = new Set((infos ?? []).map((info) => idKey(info.recordTypeId)));
+    // A row sent without one gets the type the target gives the user the run
+    // writes as, Master among them: read from the default the describe names
+    // alone, a row sent without its type into a target whose describe named
+    // Master, the person type the only one open, was taken for a business
+    // account and sent with its name.
     const fallback = payload.some((record) => typeof record['RecordTypeId'] !== 'string')
-      ? defaultRecordTypeOf(infos ?? [])?.recordTypeId
+      ? givenRecordTypeId(infos)
       : undefined;
     return (record) => {
       const sent = record['RecordTypeId'];

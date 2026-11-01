@@ -56,13 +56,14 @@ import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
 import {
   AutopilotExecutor,
   pageSoql,
+  type AutopilotExecutorDeps,
   type ExecutionResult,
 } from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
 import type { FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
 import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import {
-  parseRecordTypeCounts,
+  parseRecordTypeCountsWithMaster,
   parseRecordTypeInfos,
   recordTypeCountSoql,
   type RecordTypeAvailability,
@@ -100,6 +101,7 @@ import {
 } from '../src/modules/forge/ForgeRunGate.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { apiRequestsLine, journalDirOf, targetAutomationReader } from './sandforge-clone.js';
+import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
 import {
   CHECKPOINT_FIRST_FLAGS,
   checkpointEstimateLines,
@@ -438,6 +440,95 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return answer;
   };
   const anonymizer = new SmartAnonymizer();
+  /** What an executor of the run reads and writes the two orgs with: the run's, and the plan's. */
+  const executorDeps = (): AutopilotExecutorDeps => ({
+    // A page of the table after the last id read, as the panel reads it:
+    // an OFFSET past 2 000 is refused.
+    query: async (objectApiName, afterId, limit) => {
+      const result = await sourceConn.query<Record<string, unknown>>(
+        pageSoql(objectApiName, afterId, limit),
+      );
+      return result.records;
+    },
+    // A parent of the selection, by the ids its records reference.
+    queryByIds: async (objectApiName, ids) => {
+      const list = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+      const result = await sourceConn.query<Record<string, unknown>>(
+        `SELECT FIELDS(ALL) FROM ${objectApiName} WHERE Id IN (${list}) LIMIT ${ids.length}`,
+      );
+      return result.records;
+    },
+    insert: async (objectApiName, records) => {
+      // The same stripping the panel does: Salesforce refuses a create
+      // carrying a source Id or jsforce's own envelope.
+      const cleaned = records.map((r) => {
+        const copy = { ...r };
+        delete copy['Id'];
+        delete copy['attributes'];
+        return copy;
+      });
+      const outcomes = toSaveOutcomes(
+        await targetConn.sobject(objectApiName).create(cleaned, { headers: recordWriteHeaders() }),
+        objectApiName,
+      );
+      if (outcomes.some((o) => o.success)) wroteToTarget = true;
+      // Every id a run creates is reported, so the run can be undone to
+      // the record: nothing else tells its records from anyone else's.
+      const ids = outcomes.filter((o) => o.success && o.id).map((o) => o.id);
+      created.set(objectApiName, [...(created.get(objectApiName) ?? []), ...ids]);
+      return outcomes;
+    },
+    update: async (objectApiName, records) => {
+      const outcomes = toSaveOutcomes(
+        await targetConn
+          .sobject(objectApiName)
+          .update(records as Array<Record<string, unknown> & { Id: string }>, {
+            headers: recordWriteHeaders(),
+          }),
+        objectApiName,
+      );
+      if (outcomes.some((o) => o.success)) wroteToTarget = true;
+      return outcomes;
+    },
+    // Each read of the source is bounded, as it is for the panel; the
+    // target is read to its last page.
+    querySource: async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+    queryTarget: everyPage(targetConn),
+    // Each org's currency settings: whether advanced currency management
+    // is on, which the user's access to dated rates cannot always tell.
+    toolingSource: async (soql) =>
+      (await sourceConn.tooling.query<Record<string, unknown>>(soql)).records,
+    toolingTarget: async (soql) =>
+      (await targetConn.tooling.query<Record<string, unknown>>(soql)).records,
+    describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
+    describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
+    // Emails and phone numbers neutralized before they are written, unless
+    // --keep-contact-points: found by the target's types.
+    describeFields: async (objectApiName) => (await describeTarget(objectApiName)).fields,
+    anonymizer,
+    remapper: new RecordIdRemapper(),
+    describeCreateableFields: async (objectApiName) =>
+      (await describeTarget(objectApiName)).creatable,
+    describeRecordTypes: async (objectApiName) => (await describeTarget(objectApiName)).recordTypes,
+    // The same, asked of the org again once the mute's lease assigned a
+    // permission set, which may have opened record types to the user.
+    describeRecordTypesAgain: async (objectApiName) =>
+      parseRecordTypeInfos((await targetConn.sobject(objectApiName).describe()).recordTypeInfos),
+    // From the same describe: what a record's amounts are converted in
+    // when its currency is one the target does not hold active.
+    describeCurrencyFields: async (objectApiName) =>
+      (await describeTarget(objectApiName)).currencyFields,
+    // The same count the panel asks, for the same reason: whether any
+    // record of an object carries a type the running user cannot use,
+    // known before its first page. The records on Master kept: what a
+    // plan says goes in with the type the target gives.
+    countRecordTypes: async (objectApiName) => {
+      const counted = await sourceConn.query<Record<string, unknown>>(
+        recordTypeCountSoql(objectApiName),
+      );
+      return parseRecordTypeCountsWithMaster(counted.records);
+    },
+  });
   const orchestrator = new AutopilotOrchestrator({
     schemaScanner: new SchemaScanner(),
     graphBuilder: new DependencyGraphBuilder(),
@@ -445,94 +536,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     anonymizer,
     planGenerator: new ExecutionPlanGenerator(),
     remapper: new RecordIdRemapper(),
-    createExecutor: () =>
-      new AutopilotExecutor({
-        // A page of the table after the last id read, as the panel reads it:
-        // an OFFSET past 2 000 is refused.
-        query: async (objectApiName, afterId, limit) => {
-          const result = await sourceConn.query<Record<string, unknown>>(
-            pageSoql(objectApiName, afterId, limit),
-          );
-          return result.records;
-        },
-        // A parent of the selection, by the ids its records reference.
-        queryByIds: async (objectApiName, ids) => {
-          const list = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
-          const result = await sourceConn.query<Record<string, unknown>>(
-            `SELECT FIELDS(ALL) FROM ${objectApiName} WHERE Id IN (${list}) LIMIT ${ids.length}`,
-          );
-          return result.records;
-        },
-        insert: async (objectApiName, records) => {
-          // The same stripping the panel does: Salesforce refuses a create
-          // carrying a source Id or jsforce's own envelope.
-          const cleaned = records.map((r) => {
-            const copy = { ...r };
-            delete copy['Id'];
-            delete copy['attributes'];
-            return copy;
-          });
-          const outcomes = toSaveOutcomes(
-            await targetConn
-              .sobject(objectApiName)
-              .create(cleaned, { headers: recordWriteHeaders() }),
-            objectApiName,
-          );
-          if (outcomes.some((o) => o.success)) wroteToTarget = true;
-          // Every id a run creates is reported, so the run can be undone to
-          // the record: nothing else tells its records from anyone else's.
-          const ids = outcomes.filter((o) => o.success && o.id).map((o) => o.id);
-          created.set(objectApiName, [...(created.get(objectApiName) ?? []), ...ids]);
-          return outcomes;
-        },
-        update: async (objectApiName, records) => {
-          const outcomes = toSaveOutcomes(
-            await targetConn
-              .sobject(objectApiName)
-              .update(records as Array<Record<string, unknown> & { Id: string }>, {
-                headers: recordWriteHeaders(),
-              }),
-            objectApiName,
-          );
-          if (outcomes.some((o) => o.success)) wroteToTarget = true;
-          return outcomes;
-        },
-        // Each read of the source is bounded, as it is for the panel; the
-        // target is read to its last page.
-        querySource: async (soql) =>
-          (await sourceConn.query<Record<string, unknown>>(soql)).records,
-        queryTarget: everyPage(targetConn),
-        // Each org's currency settings: whether advanced currency management
-        // is on, which the user's access to dated rates cannot always tell.
-        toolingSource: async (soql) =>
-          (await sourceConn.tooling.query<Record<string, unknown>>(soql)).records,
-        toolingTarget: async (soql) =>
-          (await targetConn.tooling.query<Record<string, unknown>>(soql)).records,
-        describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
-        describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
-        // Emails and phone numbers neutralized before they are written, unless
-        // --keep-contact-points: found by the target's types.
-        describeFields: async (objectApiName) => (await describeTarget(objectApiName)).fields,
-        anonymizer,
-        remapper: new RecordIdRemapper(),
-        describeCreateableFields: async (objectApiName) =>
-          (await describeTarget(objectApiName)).creatable,
-        describeRecordTypes: async (objectApiName) =>
-          (await describeTarget(objectApiName)).recordTypes,
-        // From the same describe: what a record's amounts are converted in
-        // when its currency is one the target does not hold active.
-        describeCurrencyFields: async (objectApiName) =>
-          (await describeTarget(objectApiName)).currencyFields,
-        // The same count the panel asks, for the same reason: whether any
-        // record of an object carries a type the running user cannot use,
-        // known before its first page.
-        countRecordTypes: async (objectApiName) => {
-          const counted = await sourceConn.query<Record<string, unknown>>(
-            recordTypeCountSoql(objectApiName),
-          );
-          return parseRecordTypeCounts(counted.records);
-        },
-      }),
+    createExecutor: () => new AutopilotExecutor(executorDeps()),
     grappeAdapter: new AutopilotGrappeAdapter(),
   });
 
@@ -690,6 +694,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   ].filter((reason): reason is string => reason !== undefined);
 
   if (args.planOnly) {
+    // What the target gives the records that go in without a record type,
+    // as the describe of the user the run writes as says: on each node of
+    // the graph, its lines said, and in --json. A real run reads it back.
+    const given = await new AutopilotExecutor(executorDeps()).recordTypesGivenOf(
+      plan,
+      recordCounts,
+      scan.parentIds,
+      scan.scope.cutShort,
+    );
+    for (const node of graph.nodes) {
+      const entry = given.get(node.objectApiName);
+      if (entry) node.recordTypeGiven = entry;
+    }
+    const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
+    for (const line of recordTypeGivenOfObjectsLines(graph.nodes, true, muteAssigns)) log(line);
     for (const reason of refusals) log(`  a real run would be refused: ${reason}`);
     if (args.json) {
       process.stdout.write(
@@ -777,16 +796,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       : undefined;
     mutedAutomation = held?.outcome ?? mute?.muted;
     result = await orchestrator
-      .executePlan(
-        plan,
-        graph,
-        rules,
-        recordCounts,
-        undefined,
-        stop.signal,
-        scan.parentIds,
-        args.keepContactPoints ? { keepContactPoints: true } : {},
-      )
+      .executePlan(plan, graph, rules, recordCounts, undefined, stop.signal, scan.parentIds, {
+        ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
+        // Given back by the executor once its last write is through,
+        // before it reads back the record types the target gave; given
+        // back again here, it answers the same.
+        ...(held
+          ? { lease: { assigned: held.outcome.assigned.length, giveBack: () => held.release() } }
+          : {}),
+      })
       .finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
@@ -1059,6 +1077,9 @@ export function outcomeLines(result: ExecutionResult): string[] {
     lines.push(`  ${name.padEnd(28)} statuses applied ${statuses.applied}  refused ${refused}`);
     reasons(statuses.refusals);
   }
+  // The record types the target gave the records created without one, read
+  // back once the last write was through, as a clone says them.
+  lines.push(...recordTypeGivenOfObjectsLines(Object.values(result.objectOutcomes ?? {}), false));
   return lines;
 }
 

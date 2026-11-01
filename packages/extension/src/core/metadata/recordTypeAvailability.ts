@@ -254,11 +254,27 @@ const recordTypeCountRowSchema = z
  */
 export function parseRecordTypeCounts(rows: unknown): Map<string, number> {
   const counts = new Map<string, number>();
+  for (const [id, n] of parseRecordTypeCountsWithMaster(rows)) {
+    if (id) counts.set(id, n);
+  }
+  return counts;
+}
+
+/**
+ * {@link parseRecordTypeCounts}, the records with no record type kept, under
+ * `null`: the records on Master, which go in without one and get the type
+ * the target gives the user the run writes as. Left out, a plan said nothing
+ * of the very records the target gives a type of its own. Rows of the wrong
+ * shape are left out.
+ */
+export function parseRecordTypeCountsWithMaster(rows: unknown): Map<string | null, number> {
+  const counts = new Map<string | null, number>();
   if (!Array.isArray(rows)) return counts;
   for (const row of rows) {
     const parsed = recordTypeCountRowSchema.safeParse(row);
-    if (!parsed.success || !parsed.data.RecordTypeId) continue;
-    counts.set(parsed.data.RecordTypeId, parsed.data.n);
+    if (!parsed.success) continue;
+    const id = parsed.data.RecordTypeId || null;
+    counts.set(id, (counts.get(id) ?? 0) + parsed.data.n);
   }
   return counts;
 }
@@ -307,11 +323,4 @@ export function recordTypeBlockedReason(use: UnavailableRecordTypeUse): string {
 /** {@link recordTypeBlockedReason}, led by its code for a panel that translates errors by code. */
 export function recordTypeBlockedMessage(use: UnavailableRecordTypeUse): string {
   return `${RECORD_TYPE_UNAVAILABLE}: ${recordTypeBlockedReason(use)}`;
-}
-
-/** The running user's default record type for the object, when the describe names one they may use. */
-export function defaultRecordTypeOf(
-  infos: readonly RecordTypeAvailability[],
-): RecordTypeAvailability | undefined {
-  return infos.find((info) => info.defaultRecordTypeMapping && info.available);
 }

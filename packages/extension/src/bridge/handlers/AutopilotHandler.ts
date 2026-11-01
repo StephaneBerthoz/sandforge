@@ -8,6 +8,7 @@ import type {
   AutopilotStopLeftover,
   CurrencyReplaced,
   PriceCurrencySettled,
+  RecordTypeGiven,
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -1000,8 +1001,17 @@ export class AutopilotHandler implements DomainHandler {
         // references: read by id, as the scan found them.
         scanResult.parentIds,
         // Emails and phone numbers neutralized unless the review step's box
-        // was unticked: see `AutopilotRunOptions`.
-        payload.keepContactPoints === true ? { keepContactPoints: true } : {},
+        // was unticked, and the lease, which the executor gives back once its
+        // last write is through, before it reads back the record types the
+        // target gave: see `AutopilotRunOptions`.
+        {
+          ...(payload.keepContactPoints === true ? { keepContactPoints: true } : {}),
+          ...(held
+            ? {
+                lease: { assigned: held.outcome.assigned.length, giveBack: () => held.release() },
+              }
+            : {}),
+        },
       );
       const result = await ran.finally(async () => {
         if (held) mutedAutomation = await held.release();
@@ -1052,6 +1062,8 @@ export class AutopilotHandler implements DomainHandler {
                     ? { currenciesReplaced: outcome.currenciesReplaced }
                     : {}),
                   ...(outcome.pricesSettled ? { pricesSettled: outcome.pricesSettled } : {}),
+                  // The type the target gave the records created without one.
+                  ...(outcome.recordTypeGiven ? { recordTypeGiven: outcome.recordTypeGiven } : {}),
                 }
               : {}),
             ...(statuses
@@ -1434,6 +1446,8 @@ export class AutopilotHandler implements DomainHandler {
       currenciesReplaced?: CurrencyReplaced[];
       /** Prices read in a currency the target lacks, and how each went. */
       pricesSettled?: PriceCurrencySettled[];
+      /** The record type the target gave the records created without one, read back once written. */
+      recordTypeGiven?: RecordTypeGiven;
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

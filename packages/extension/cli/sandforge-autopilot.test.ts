@@ -498,6 +498,11 @@ describe('sandforge-autopilot — the run summary', () => {
       '      RECORD_TYPE_UNAVAILABLE [RecordTypeId] x1: 1 Opportunity record uses record type ' +
         'Partner_Deal, which the running user cannot use in the target org. Give the running ' +
         'user access to record type Partner_Deal on Opportunity, or map it to one they have.',
+      // The one on Master went in without a type, and the target, whose
+      // other types are closed to the user, keeps it on Master.
+      'record types the target gave the records created without one (1 object(s)):',
+      '  Opportunity  1 record(s) on Master in the source: went in, its describe says, on ' +
+        'Master, which the target gives a record sent without one for the user the run writes as',
     ]);
   });
 });

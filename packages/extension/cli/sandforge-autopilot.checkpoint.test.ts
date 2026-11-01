@@ -203,10 +203,14 @@ function muteOf(events: string[], refused = false) {
         if (refused) {
           throw new MuteRefusedError({ code: 'MUTE_FAILED', message: 'The set was refused.' });
         }
+        // Once is enough, and again answers the same, as a lease does: the
+        // run gives it back after its last write, its command as it ends.
+        let released = false;
         return {
           outcome: muted,
           release: async () => {
-            events.push('release');
+            if (!released) events.push('release');
+            released = true;
             return { ...muted, released: true };
           },
         };
