@@ -120,7 +120,8 @@ describe('BackupPanel', () => {
       'Contact: 700 of 1,234 rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).',
       'Lead: 300 rows read — the read failed there.',
     ]);
-    expect(screen.getByText('failed')).toBeDefined();
+    // Marked as the Restore tab marks it: it keeps the rows it read.
+    expect(screen.getByTestId('backup-status-op-1').textContent).toBe('Partial');
   });
 
   it('names the encrypted fields a backup did not keep, read masked, and that a restore leaves them', () => {
@@ -178,10 +179,72 @@ describe('BackupPanel', () => {
     ]);
   });
 
-  it('should show backup status badges', () => {
+  it('says each backup’s status in words of the interface, not its stored code', () => {
+    // It printed "completed" in lower-case English in every language.
     render(<BackupPanel backups={backups} />);
-    expect(screen.getByText('completed')).toBeDefined();
-    expect(screen.getByText('failed')).toBeDefined();
+    expect(screen.getByTestId('backup-status-op-1').textContent).toBe('Completed');
+    expect(screen.getByTestId('backup-status-op-2').textContent).toBe('Failed');
+    expect(screen.queryByText('completed')).toBeNull();
+  });
+
+  it('marks a backup a cap stopped short as Partial, in amber, not Completed in green', () => {
+    // The Backup tab wore a green "completed" above its own note saying a cap
+    // stopped it; the Restore tab called the same backup Partial.
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            partial: true,
+            objectResults: [
+              { objectApiName: 'Contact', recordCount: 700, truncated: true, stoppedAt: 'cap' },
+            ],
+          },
+        ]}
+      />,
+    );
+    const badge = screen.getByTestId('backup-status-op-1');
+    expect(badge.textContent).toBe('Partial');
+    expect(badge.className).toContain('status-warning');
+  });
+
+  it('names the objects each backup holds, beside how many', () => {
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            objectResults: [
+              { objectApiName: 'Contact', recordCount: 60 },
+              { objectApiName: 'Lead', recordCount: 40 },
+            ],
+          },
+          { ...backups[0], operationId: 'op-3' },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('backup-objects-op-1').textContent).toBe('2 objects: Contact, Lead');
+    expect(screen.getByTestId('backup-objects-op-3').textContent).toBe('1 object: Account');
+  });
+
+  describe('the way back from a run on any object', () => {
+    it('says a checkpoint is it, and opens Checkpoints on a take', () => {
+      // The tab told a newcomer to back up before any risky operation, and a
+      // backup reads only the objects the templates mask.
+      const onTakeCheckpoint = vi.fn();
+      render(<BackupPanel onTakeCheckpoint={onTakeCheckpoint} />);
+
+      expect(screen.getByTestId('backup-checkpoint').textContent).toContain(
+        "Before a risky run on a sandbox, take a checkpoint (Checkpoints → Take a checkpoint): Rewind… returns the org's data to it.",
+      );
+      fireEvent.click(screen.getByTestId('backup-checkpoint-take'));
+      expect(onTakeCheckpoint).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing of it where a checkpoint cannot be taken', () => {
+      render(<BackupPanel />);
+      expect(screen.queryByTestId('backup-checkpoint')).toBeNull();
+    });
   });
 
   it('should call onCreate when create button clicked', () => {

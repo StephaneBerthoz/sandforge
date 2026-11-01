@@ -83,7 +83,7 @@ beforeEach(() => {
 
 describe('CleanupPanel', () => {
   it('scans the objects picked with the threshold typed', () => {
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('cleanup-object-option-Account'));
     fireEvent.change(screen.getByTestId('cleanup-stale-days'), { target: { value: '180' } });
@@ -98,7 +98,7 @@ describe('CleanupPanel', () => {
 
   it('asks what a delete takes before it deletes anything', () => {
     states['dataops:cleanup:scan'].data = scanned;
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
 
@@ -116,7 +116,7 @@ describe('CleanupPanel', () => {
 
   it('deletes once the plan is read and the confirmation typed', () => {
     states['dataops:cleanup:scan'].data = scanned;
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
     fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
     states.plan.data = {
       objectApiName: 'Account',
@@ -135,7 +135,11 @@ describe('CleanupPanel', () => {
 
     expect(screen.getByTestId('removal-plan-related').textContent).toContain('Contact: 5 records');
     fireEvent.click(screen.getByTestId('cleanup-delete-btn'));
+    // The org's name arms it, not the word delete: 削除 in Japanese, typed
+    // only through an input method.
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'delete' } });
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(states.remove.mutate).toHaveBeenCalledWith({
@@ -164,7 +168,7 @@ describe('CleanupPanel', () => {
         },
       ],
     } as CleanupScanResult;
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('cleanup-orphans-ParentId-delete'));
 
@@ -187,7 +191,7 @@ describe('CleanupPanel', () => {
       },
       truncated: true,
     };
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
 
@@ -196,7 +200,7 @@ describe('CleanupPanel', () => {
 
   it('counts the object again once a delete has run', () => {
     states['dataops:cleanup:scan'].data = scanned;
-    const { rerender } = render(<CleanupPanel orgId="org-1" />);
+    const { rerender } = render(<CleanupPanel orgId="org-1" orgName="dev1" />);
     expect(states['dataops:cleanup:scan'].mutate).not.toHaveBeenCalled();
 
     // The delete's answer lands on the page the scan filled.
@@ -213,7 +217,7 @@ describe('CleanupPanel', () => {
         errors: [],
       },
     };
-    rerender(<CleanupPanel orgId="org-1" />);
+    rerender(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     expect(states['dataops:cleanup:scan'].mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
@@ -230,7 +234,7 @@ describe('CleanupPanel', () => {
       truncated: false,
       saved: { status: 'saved', path: '/home/me/stale.json' },
     };
-    render(<CleanupPanel orgId="org-1" />);
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('cleanup-stale-export'));
 

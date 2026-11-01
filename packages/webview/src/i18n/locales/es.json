@@ -1913,18 +1913,15 @@
     "backupExported": "Guardada en {{path}}. Registros por objeto: {{records}}.",
     "backupDesc": "Crear y administrar respaldos de datos",
     "restore": "Restaurar",
-    "restoreDesc": "Restaurar datos desde un respaldo",
     "anonymize": "Anonimizar",
     "anonymizeDesc": "Anonimizar datos sensibles",
     "cleanup": "Limpieza",
     "quality": "Calidad",
-    "selectOrg": "Seleccionar Org",
-    "noOrgSelected": "Ninguna org seleccionada: elija una en la página Organizaciones antes de ejecutar un respaldo o una anonimización.",
+    "noOrgSelected": "Ninguna org seleccionada: elija una en la lista de arriba.",
     "noBackups": "No hay respaldos disponibles",
     "createBackup": "Crear respaldo",
     "backupObjectsTemplate": "Respalda {{objects}}: los objetos que enmascara {{name}}.",
     "backupObjectsAll": "Respalda {{objects}}: los objetos que enmascaran las plantillas de anonimización.",
-    "selectBackup": "Seleccione un respaldo para restaurar",
     "restoreInProgress": "Restaurando datos...",
     "restoreRewriteAll": "Volver a escribir cada fila del respaldo, incluidas las que la org ya contiene tal como las guardó el respaldo. Sin marcar, una restauración lee primero la org y solo escribe las filas que cambiaron desde el respaldo.",
     "restoreResult": "Última restauración — escritas: {{written}} · ya como en el respaldo, sin tocar: {{unchanged}} · rechazadas: {{failed}}",
@@ -1978,13 +1975,11 @@
       "constant": "Constante",
       "preserve_format": "Preservar formato"
     },
-    "recordsProcessed": "Registros procesados",
-    "errorRate": "Tasa de error",
-    "anonymizedFields": "Plantillas anonimizadas",
+    "anonymizedFields": "Plantillas de anonimización",
     "emptyState": {
       "title": "Proteja los datos de su org",
       "description": "DataOps respalda, restaura y anonimiza los datos de su org, atiende las solicitudes de interesados y limpia los registros que nadie necesita.",
-      "step2": "Cree un respaldo antes de cualquier operación arriesgada",
+      "step2": "Respalde los campos que una plantilla enmascara antes de anonimizar",
       "step3": "Anonimice campos sensibles con una plantilla",
       "step4": "Restaure un respaldo en la org de la que se tomó"
     },
@@ -2150,9 +2145,8 @@
       "erase_other": "Borrar {{formatted}} registros",
       "confirmTitle_one": "¿Borrar {{formatted}} registro?",
       "confirmTitle_other": "¿Borrar {{formatted}} registros?",
-      "confirmAnonymize": "Los campos listados se sobrescriben en la org, y no se puede deshacer. Haga antes un respaldo si puede necesitarlos.",
+      "confirmAnonymize": "Los campos listados se sobrescriben en la org, y no se puede deshacer. Cualquier respaldo de esta org en este equipo sigue guardando estos valores: elimínelo una vez hecho el borrado.",
       "confirmDelete": "Los registros, y lo que la org elimina junto con ellos, van a la papelera, donde quedan hasta que se vacía.",
-      "confirmWord": "borrar",
       "backupsBefore_one": "Esta org tiene un respaldo en este equipo, hecho antes de este borrado: guarda en claro los registros de la persona, y restaurarlo los trae de vuelta.",
       "backupsBefore_other": "Esta org tiene {{count}} respaldos en este equipo, hechos antes de este borrado: guardan en claro los registros de la persona, y restaurar uno los trae de vuelta.",
       "deleteBackupsBefore_one": "Eliminar este respaldo",
@@ -2242,8 +2236,7 @@
       "deleteRecords_other": "Eliminar {{formatted}} registros",
       "confirmTitle_one": "¿Eliminar {{formatted}} registro?",
       "confirmTitle_other": "¿Eliminar {{formatted}} registros?",
-      "confirmDescription": "Van a la papelera de la org, con lo que la org elimina junto con ellos, y quedan allí hasta que se vacía. Expórtelos antes si puede necesitarlos.",
-      "confirmWord": "eliminar"
+      "confirmDescription": "Van a la papelera de la org, con lo que la org elimina junto con ellos, y quedan allí hasta que se vacía. Expórtelos antes si puede necesitarlos."
     },
     "preview": {
       "description": "Los primeros registros de cada objeto, tal como Aplicar los enmascararía en esta ventana. No se escribió nada. Un nombre inventado puede ser distinto en la ejecución si un registro anterior lo obtiene primero.",
@@ -2269,10 +2262,45 @@
       "taken_one": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registro: Restaurar los devuelve.",
       "taken_other": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registros: Restaurar los devuelve.",
       "openRestore": "Abrir en Restaurar",
-      "refused": "No se pudo conservar ninguna instantánea, así que no se enmascaró nada. Para enmascarar sin vuelta atrás, desmarque «Conservar primero los valores» en la confirmación."
+      "refused": "No se pudo conservar ningún respaldo, así que no se enmascaró nada. Para enmascarar sin vuelta atrás, desmarque «Conservar primero los valores» en la confirmación."
     },
     "backupDeleteConfirmSync": "¿Eliminar este respaldo? Guarda lo que sobrescribió la ejecución de Sync del {{date}}: quitar esa ejecución en Sync ya no devolverá estos valores, y desaparecen para siempre de este equipo.",
-    "restoreSyncPartial": "La ejecución de Sync sigue escribiendo, o se detuvo antes de terminar — su ventana se cerró o la extensión se detuvo: este respaldo guarda lo que había conservado hasta entonces."
+    "restoreSyncPartial": "La ejecución de Sync sigue escribiendo, o se detuvo antes de terminar — su ventana se cerró o la extensión se detuvo: este respaldo guarda lo que había conservado hasta entonces.",
+    "orgPicker": "Org que leen y escriben las pestañas de abajo",
+    "kpi": {
+      "backups": "Respaldos de {{org}}",
+      "partial": "Respaldos parciales o fallidos"
+    },
+    "backupStatus": {
+      "pending": "Pendiente",
+      "running": "En curso",
+      "completed": "Completado",
+      "failed": "Fallido",
+      "expired": "Caducado"
+    },
+    "backupObjectNames_one": "{{count}} objeto: {{objects}}",
+    "backupObjectNames_other": "{{count}} objetos: {{objects}}",
+    "checkpointBeforeRisk": "Antes de una ejecución arriesgada en un sandbox, cree un punto de control (Puntos de control → Crear un punto de control): Retroceder… devuelve los datos de la org a ese punto.",
+    "takeCheckpoint": "Crear un punto de control",
+    "restoreEmpty": "Aún no hay respaldos de {{org}}",
+    "restoreEmptyDesc": "Aquí aparecen los respaldos hechos en la pestaña Respaldo y los que una ejecución de Sync guarda de lo que sobrescribe.",
+    "restoreCreateBackup": "Crear un respaldo",
+    "restorePick": "Haga clic en un respaldo para restaurarlo o eliminarlo.",
+    "restoreConfirm": {
+      "title": "¿Restaurar el respaldo del {{date}} en {{org}}?",
+      "changed": "Las filas modificadas desde el {{date}} recuperan los valores del respaldo, quienquiera que las haya cambiado.",
+      "syncKept": "Los registros que la ejecución de Sync del {{date}} sobrescribió recuperan los valores que tenían antes; los modificados o eliminados desde la ejecución se quedan como están.",
+      "rewriteAll": "Se escribe cada fila del respaldo, incluidas las que la org ya tiene igual que el respaldo.",
+      "objects": "Lo que contiene el respaldo:",
+      "confirm": "Restaurar en {{org}}"
+    },
+    "anonymizeConfirm": {
+      "title": "¿Anonimizar {{org}} con «{{name}}»?",
+      "resumeTitle": "¿Reanudar la anonimización de {{org}} con «{{name}}»?",
+      "description": "Sobrescribe estos campos en cada registro que tenga un valor: {{fields}}.",
+      "resumeDescription": "Sobrescribe estos campos en los registros que dejó la ejecución detenida: {{fields}}."
+    },
+    "deleteTemplateConfirm": "¿Eliminar la plantilla «{{name}}»? Sus reglas desaparecen de este equipo."
   },
   "automation": {
     "title": "Automatización",
@@ -3247,10 +3275,10 @@
       "tip": "Comparar no escribe nada. Desplegar desde diff valida primero en el destino, no elimina nada allí y rechaza un destino de producción."
     },
     "dataops": {
-      "step1": "Compruebe la org indicada en la parte superior de la página y abra la pestaña Anonimizar.",
+      "step1": "Elija la org en la lista de la parte superior de la página y abra la pestaña Anonimizar.",
       "step2": "Elija una plantilla en Seleccionar una plantilla; su tarjeta muestra cada campo que enmascara.",
       "step3": "Haga clic en Vista previa: los primeros registros muestran Original junto a Enmascarado, sin escribir nada.",
-      "step4": "Haga clic en Aplicar, deje marcada la casilla Conservar primero los valores, escriba Anonimizar y haga clic en Confirmar.",
+      "step4": "Haga clic en Aplicar, deje marcada la casilla Conservar primero los valores, escriba el nombre de la org y haga clic en Confirmar.",
       "tip": "Salvo que desmarque Conservar primero los valores, Aplicar respalda los valores que enmascara: haga clic en Abrir en Restaurar y luego en Restaurar para devolverlos."
     },
     "monitor": {

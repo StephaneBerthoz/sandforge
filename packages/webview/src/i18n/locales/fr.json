@@ -1913,18 +1913,15 @@
     "backupExported": "Enregistrée dans {{path}}. Enregistrements par objet : {{records}}.",
     "backupDesc": "Créer et gérer les sauvegardes de données",
     "restore": "Restaurer",
-    "restoreDesc": "Restaurer les données depuis une sauvegarde",
     "anonymize": "Anonymiser",
     "anonymizeDesc": "Anonymiser les données sensibles",
     "cleanup": "Nettoyage",
     "quality": "Qualité",
-    "selectOrg": "Sélectionner l'org",
-    "noOrgSelected": "Aucune org sélectionnée — choisissez-en une depuis la page Organisations avant de lancer une sauvegarde ou une anonymisation.",
+    "noOrgSelected": "Aucune org sélectionnée : choisissez-en une dans la liste ci-dessus.",
     "noBackups": "Aucune sauvegarde disponible",
     "createBackup": "Créer une sauvegarde",
     "backupObjectsTemplate": "Sauvegarde {{objects}} : les objets que {{name}} masque.",
     "backupObjectsAll": "Sauvegarde {{objects}} : les objets que masquent les modèles d’anonymisation.",
-    "selectBackup": "Sélectionnez une sauvegarde à restaurer",
     "restoreInProgress": "Restauration en cours...",
     "restoreRewriteAll": "Réécrire chaque ligne de la sauvegarde, y compris celles que l'org contient déjà telles que la sauvegarde les a gardées. Décoché, une restauration lit d'abord l'org et n'écrit que les lignes modifiées depuis la sauvegarde.",
     "restoreResult": "Dernière restauration — écrites : {{written}} · déjà comme dans la sauvegarde, laissées telles quelles : {{unchanged}} · refusées : {{failed}}",
@@ -1978,13 +1975,11 @@
       "constant": "Constante",
       "preserve_format": "Conserver le format"
     },
-    "recordsProcessed": "Enregistrements traités",
-    "errorRate": "Taux d'erreur",
     "anonymizedFields": "Modèles d'anonymisation",
     "emptyState": {
       "title": "Protégez les données de votre org",
       "description": "DataOps sauvegarde, restaure et anonymise les données de votre org, traite les demandes des personnes concernées et nettoie les enregistrements dont personne n'a besoin.",
-      "step2": "Créez une sauvegarde avant toute opération risquée",
+      "step2": "Sauvegardez les champs qu'un modèle masque avant d'anonymiser",
       "step3": "Anonymisez les champs sensibles avec un modèle",
       "step4": "Restaurez une sauvegarde dans l'org d'où elle provient"
     },
@@ -2150,9 +2145,8 @@
       "erase_other": "Effacer {{formatted}} enregistrements",
       "confirmTitle_one": "Effacer {{formatted}} enregistrement ?",
       "confirmTitle_other": "Effacer {{formatted}} enregistrements ?",
-      "confirmAnonymize": "Les champs listés sont remplacés dans l'org, et c'est irréversible. Faites d'abord une sauvegarde si vous risquez d'en avoir besoin.",
+      "confirmAnonymize": "Les champs listés sont remplacés dans l'org, et c'est irréversible. Toute sauvegarde de cette org sur cette machine conserve encore ces valeurs : supprimez-la une fois l'effacement fait.",
       "confirmDelete": "Les enregistrements, et ce que l'org supprime en même temps qu'eux, vont dans la corbeille, où ils restent jusqu'à ce qu'elle soit vidée.",
-      "confirmWord": "effacer",
       "backupsBefore_one": "Cette org a une sauvegarde sur cette machine, prise avant cet effacement : elle conserve en clair les enregistrements de la personne, et la restaurer les fait revenir.",
       "backupsBefore_other": "Cette org a {{count}} sauvegardes sur cette machine, prises avant cet effacement : elles conservent en clair les enregistrements de la personne, et en restaurer une les fait revenir.",
       "deleteBackupsBefore_one": "Supprimer cette sauvegarde",
@@ -2242,8 +2236,7 @@
       "deleteRecords_other": "Supprimer {{formatted}} enregistrements",
       "confirmTitle_one": "Supprimer {{formatted}} enregistrement ?",
       "confirmTitle_other": "Supprimer {{formatted}} enregistrements ?",
-      "confirmDescription": "Ils vont dans la corbeille de l'org, avec ce que l'org supprime en même temps qu'eux, et y restent jusqu'à ce qu'elle soit vidée. Exportez-les d'abord si vous risquez d'en avoir besoin.",
-      "confirmWord": "supprimer"
+      "confirmDescription": "Ils vont dans la corbeille de l'org, avec ce que l'org supprime en même temps qu'eux, et y restent jusqu'à ce qu'elle soit vidée. Exportez-les d'abord si vous risquez d'en avoir besoin."
     },
     "preview": {
       "description": "Les premiers enregistrements de chaque objet, tels qu'Appliquer les masquerait dans cette fenêtre. Rien n'a été écrit. Un nom inventé peut différer pendant l'exécution si un enregistrement précédent le tire en premier.",
@@ -2269,10 +2262,45 @@
       "taken_one": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrement : Restaurer les remet.",
       "taken_other": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrements : Restaurer les remet.",
       "openRestore": "Ouvrir dans Restaurer",
-      "refused": "Aucun instantané n'a pu être conservé, donc rien n'a été masqué. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs » dans la confirmation."
+      "refused": "Aucune sauvegarde n'a pu être conservée, donc rien n'a été masqué. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs » dans la confirmation."
     },
     "backupDeleteConfirmSync": "Supprimer cette sauvegarde ? Elle contient ce que l'exécution Sync du {{date}} a écrasé : retirer cette exécution dans Sync ne remettra plus ces valeurs, et elles disparaissent définitivement de cette machine.",
-    "restoreSyncPartial": "L'exécution Sync écrit encore, ou s'est arrêtée avant la fin — sa fenêtre s'est fermée, ou l'extension s'est arrêtée : cette sauvegarde contient ce qu'elle avait conservé jusque-là."
+    "restoreSyncPartial": "L'exécution Sync écrit encore, ou s'est arrêtée avant la fin — sa fenêtre s'est fermée, ou l'extension s'est arrêtée : cette sauvegarde contient ce qu'elle avait conservé jusque-là.",
+    "orgPicker": "Org que lisent et écrivent les onglets ci-dessous",
+    "kpi": {
+      "backups": "Sauvegardes de {{org}}",
+      "partial": "Sauvegardes partielles ou échouées"
+    },
+    "backupStatus": {
+      "pending": "En attente",
+      "running": "En cours",
+      "completed": "Terminée",
+      "failed": "Échouée",
+      "expired": "Expirée"
+    },
+    "backupObjectNames_one": "{{count}} objet : {{objects}}",
+    "backupObjectNames_other": "{{count}} objets : {{objects}}",
+    "checkpointBeforeRisk": "Avant une exécution risquée sur une sandbox, créez un point de contrôle (Points de contrôle → Créer un point de contrôle) : Revenir à ce point… y ramène les données de l'org.",
+    "takeCheckpoint": "Créer un point de contrôle",
+    "restoreEmpty": "Aucune sauvegarde de {{org}} pour l'instant",
+    "restoreEmptyDesc": "Les sauvegardes prises dans l'onglet Sauvegarde, et celles qu'une exécution Sync garde de ce qu'elle remplace, sont listées ici.",
+    "restoreCreateBackup": "Créer une sauvegarde",
+    "restorePick": "Cliquez sur une sauvegarde pour la restaurer ou la supprimer.",
+    "restoreConfirm": {
+      "title": "Restaurer la sauvegarde du {{date}} dans {{org}} ?",
+      "changed": "Les lignes modifiées depuis le {{date}} reprennent les valeurs de la sauvegarde, quel que soit l'auteur de la modification.",
+      "syncKept": "Les enregistrements que l'exécution Sync du {{date}} a remplacés reprennent les valeurs qu'ils avaient avant elle ; ceux modifiés ou supprimés depuis l'exécution sont laissés tels quels.",
+      "rewriteAll": "Chaque ligne de la sauvegarde est écrite, y compris celles que l'org contient déjà telles que dans la sauvegarde.",
+      "objects": "Ce que contient la sauvegarde :",
+      "confirm": "Restaurer dans {{org}}"
+    },
+    "anonymizeConfirm": {
+      "title": "Anonymiser {{org}} avec « {{name}} » ?",
+      "resumeTitle": "Reprendre l'anonymisation de {{org}} avec « {{name}} » ?",
+      "description": "Remplace ces champs partout où un enregistrement a une valeur : {{fields}}.",
+      "resumeDescription": "Remplace ces champs dans les enregistrements que l'exécution arrêtée a laissés : {{fields}}."
+    },
+    "deleteTemplateConfirm": "Supprimer le modèle « {{name}} » ? Ses règles disparaissent de cette machine."
   },
   "automation": {
     "title": "Automatisation",
@@ -3247,10 +3275,10 @@
       "tip": "Comparer n'écrit rien. Déployer depuis le diff valide d'abord dans la cible, n'y supprime rien et refuse une cible de production."
     },
     "dataops": {
-      "step1": "Vérifiez l'org indiquée en haut de la page, puis ouvrez l'onglet Anonymiser.",
+      "step1": "Choisissez l'org dans la liste en haut de la page, puis ouvrez l'onglet Anonymiser.",
       "step2": "Choisissez un modèle dans Sélectionner un modèle ; sa carte liste chaque champ qu'il masque.",
       "step3": "Cliquez sur Aperçu : les premiers enregistrements affichent Original à côté de Masqué, et rien n'est écrit.",
-      "step4": "Cliquez sur Appliquer, laissez cochée la case Conserver d'abord les valeurs, saisissez Anonymiser, puis cliquez sur Confirmer.",
+      "step4": "Cliquez sur Appliquer, laissez cochée la case Conserver d'abord les valeurs, saisissez le nom de l'org, puis cliquez sur Confirmer.",
       "tip": "Sauf si vous décochez Conserver d'abord les valeurs, Appliquer sauvegarde les valeurs qu'il masque : Ouvrir dans Restaurer, puis Restaurer, les remet en place."
     },
     "monitor": {

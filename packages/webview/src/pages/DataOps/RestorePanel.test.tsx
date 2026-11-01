@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
@@ -32,9 +33,45 @@ describe('RestorePanel', () => {
     expect(screen.getByTestId('restore-panel')).toBeDefined();
   });
 
-  it('should show empty state when no backups', () => {
-    render(<RestorePanel />);
-    expect(screen.getByText('Select a backup to restore')).toBeDefined();
+  it('says the org has no backup yet, and opens the Backup tab to take one', () => {
+    // It asked to select a backup where none existed, and offered no way on.
+    const onCreateBackup = vi.fn();
+    render(<RestorePanel orgName="dev1" onCreateBackup={onCreateBackup} />);
+
+    expect(screen.getByText('No backup of dev1 yet')).toBeDefined();
+    expect(screen.queryByText('Select a backup to restore')).toBeNull();
+    const action = screen.getByTestId('empty-action-button');
+    expect(action.textContent).toBe('Create a backup');
+    fireEvent.click(action);
+    expect(onCreateBackup).toHaveBeenCalledTimes(1);
+  });
+
+  it('says to click a backup while none is picked, and no longer once one is', () => {
+    // After a delete, two cards and no button stood there, and nothing said why.
+    const { rerender } = render(<RestorePanel orgName="dev1" backups={backups} />);
+    expect(screen.getByTestId('restore-pick').textContent).toBe(
+      'Click a backup to restore or delete it.',
+    );
+
+    rerender(<RestorePanel orgName="dev1" backups={backups} selectedBackupId="op-1" />);
+    expect(screen.queryByTestId('restore-pick')).toBeNull();
+  });
+
+  it('names the objects each backup holds, beside how many', () => {
+    render(
+      <RestorePanel
+        backups={[
+          {
+            ...backups[0],
+            objectResults: [
+              { objectApiName: 'Contact', recordCount: 60 },
+              { objectApiName: 'Lead', recordCount: 40 },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('backup-objects-op-1').textContent).toBe('2 objects: Contact, Lead');
   });
 
   it('should show completed backups', () => {
@@ -140,13 +177,22 @@ describe('RestorePanel', () => {
       ]);
     });
 
-    it('is restored on a click, as a completed one is', () => {
+    it('is restored once confirmed, as a completed one is, the confirmation saying it is partial', () => {
       const onRestore = vi.fn();
       render(
-        <RestorePanel backups={[failedPartWay]} selectedBackupId="op-3" onRestore={onRestore} />,
+        <RestorePanel
+          orgName="dev1"
+          backups={[failedPartWay]}
+          selectedBackupId="op-3"
+          onRestore={onRestore}
+        />,
       );
 
       fireEvent.click(screen.getByTestId('restore-btn-op-3'));
+      expect(screen.getByTestId('restore-confirm-objects').textContent).toContain(
+        en.dataops.backupPartialLead,
+      );
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(onRestore).toHaveBeenCalledWith('op-3');
     });
@@ -200,9 +246,16 @@ describe('RestorePanel', () => {
   });
 
   it('should show selected badge and restore button', () => {
-    render(<RestorePanel backups={backups} selectedBackupId="op-1" onRestore={vi.fn()} />);
+    render(
+      <RestorePanel orgName="dev1" backups={backups} selectedBackupId="op-1" onRestore={vi.fn()} />,
+    );
     expect(screen.getByText('Selected')).toBeDefined();
     expect(screen.getByTestId('restore-btn-op-1')).toBeDefined();
+  });
+
+  it('offers no Restore with no org to name', () => {
+    render(<RestorePanel backups={backups} selectedBackupId="op-1" onRestore={vi.fn()} />);
+    expect(screen.queryByTestId('restore-btn-op-1')).toBeNull();
   });
 
   it('should show restore progress', () => {
@@ -210,11 +263,93 @@ describe('RestorePanel', () => {
     expect(screen.getByTestId('restore-progress')).toBeDefined();
   });
 
-  it('should call onRestore when restore button clicked', () => {
-    const onRestore = vi.fn();
-    render(<RestorePanel backups={backups} selectedBackupId="op-1" onRestore={onRestore} />);
-    fireEvent.click(screen.getByTestId('restore-btn-op-1'));
-    expect(onRestore).toHaveBeenCalledWith('op-1');
+  describe('the question a Restore asks', () => {
+    /** A backup of two objects, as the host lists it. */
+    const two: BackupSummary = {
+      operationId: 'op-9',
+      orgId: 'org-1',
+      timestamp: '2026-01-01T00:00:00Z',
+      status: 'completed',
+      objectResults: [
+        { objectApiName: 'Contact', recordCount: 1_200 },
+        { objectApiName: 'Lead', recordCount: 1 },
+      ],
+      totalRecords: 1_201,
+      totalSize: 0,
+    };
+    const asked = (props: Partial<ComponentProps<typeof RestorePanel>> = {}) => {
+      const onRestore = vi.fn();
+      render(
+        <RestorePanel
+          orgName="dev1"
+          backups={[two]}
+          selectedBackupId="op-9"
+          onRestore={onRestore}
+          {...props}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('restore-btn-op-9'));
+      return onRestore;
+    };
+
+    it('writes nothing on the click: it asks first, naming the org, each object and its records', () => {
+      // A restore went out on the click, under a button that named no org.
+      const onRestore = asked();
+
+      expect(onRestore).not.toHaveBeenCalled();
+      expect(screen.getByTestId('danger-title').textContent).toMatch(
+        /^Restore the backup of .+ into dev1\?$/,
+      );
+      expect(
+        [...screen.getByTestId('restore-confirm-objects').querySelectorAll('li')].map(
+          (li) => li.textContent,
+        ),
+      ).toEqual(['Contact: 1,200 records', 'Lead: 1 record']);
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toBe('Restore into dev1');
+      // A plain question: a restore is no delete, and Production Guard asks on production.
+      expect(screen.queryByTestId('danger-input')).toBeNull();
+    });
+
+    it('says the rows changed since the backup get its values back, whoever changed them', () => {
+      asked();
+      expect(screen.getByRole('dialog').textContent).toMatch(
+        /Rows changed since .+ get the backup's values back, whoever changed them\./,
+      );
+    });
+
+    it('says every row is written when the box says so', () => {
+      asked({ rewriteAll: true });
+      expect(screen.getByRole('dialog').textContent).toContain(
+        en.dataops.restoreConfirm.rewriteAll,
+      );
+    });
+
+    it('says, of a Sync run’s backup, that what changed since the run is left as it is, unless the box says otherwise', () => {
+      asked({ backups: [{ ...two, origin: 'sync' }] });
+      expect(screen.getByRole('dialog').textContent).toMatch(
+        /The records the Sync run of .+ wrote over get back the values they held before it; those changed or deleted since the run are left as they are\./,
+      );
+    });
+
+    it('says, of a Sync run’s backup restored with what changed since, that those get its values back too', () => {
+      asked({ backups: [{ ...two, origin: 'sync' }], includeChanged: true });
+      const said = screen.getByRole('dialog').textContent ?? '';
+      expect(said).toMatch(/Rows changed since .+ get the backup's values back/);
+      expect(said).not.toContain('are left as they are');
+    });
+
+    it('restores once the yes is given', () => {
+      const onRestore = asked();
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(onRestore).toHaveBeenCalledWith('op-9');
+      expect(screen.queryByTestId('danger-title')).toBeNull();
+    });
+
+    it('restores nothing on Cancel', () => {
+      const onRestore = asked();
+      fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+      expect(onRestore).not.toHaveBeenCalled();
+    });
   });
 
   describe('the choice to write every row back', () => {
@@ -295,6 +430,8 @@ describe('RestorePanel', () => {
       expect(screen.queryByTestId('delete-backup-question')).toBeNull();
 
       fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
+      // Its button says it deletes, never a bare Confirm.
+      expect(screen.getByTestId('delete-backup-confirm').textContent).toBe('Delete');
       fireEvent.click(screen.getByTestId('delete-backup-confirm'));
       expect(onDelete).toHaveBeenCalledWith('op-1');
     });
@@ -325,6 +462,9 @@ describe('RestorePanel', () => {
       fireEvent.click(screen.getByTestId('delete-all-backups-btn'));
       expect(screen.getByTestId('delete-backup-question').textContent).toContain(
         en.dataops.backupDeleteAllConfirm_other.replace('{{count}}', '2'),
+      );
+      expect(screen.getByTestId('delete-backup-confirm').textContent).toBe(
+        en.dataops.backupDeleteAll,
       );
       fireEvent.click(screen.getByTestId('delete-backup-confirm'));
       expect(onDeleteAll).toHaveBeenCalledTimes(1);

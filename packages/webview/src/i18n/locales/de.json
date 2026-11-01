@@ -1913,18 +1913,15 @@
     "backupExported": "Gespeichert unter {{path}}. Datensätze pro Objekt: {{records}}.",
     "backupDesc": "Datensicherungen erstellen und verwalten",
     "restore": "Wiederherstellen",
-    "restoreDesc": "Daten aus einer Sicherung wiederherstellen",
     "anonymize": "Anonymisieren",
     "anonymizeDesc": "Sensible Daten anonymisieren",
     "cleanup": "Bereinigung",
     "quality": "Qualität",
-    "selectOrg": "Org auswählen",
-    "noOrgSelected": "Keine Org ausgewählt — wählen Sie eine auf der Seite Organisationen, bevor Sie eine Sicherung oder Anonymisierung starten.",
+    "noOrgSelected": "Keine Org ausgewählt: Wählen Sie oben in der Liste eine aus.",
     "noBackups": "Keine Sicherungen verfügbar",
     "createBackup": "Sicherung erstellen",
     "backupObjectsTemplate": "Sichert {{objects}}: die Objekte, die {{name}} maskiert.",
     "backupObjectsAll": "Sichert {{objects}}: die Objekte, die die Anonymisierungsvorlagen maskieren.",
-    "selectBackup": "Wählen Sie eine Sicherung zur Wiederherstellung",
     "restoreInProgress": "Wiederherstellung läuft...",
     "restoreRewriteAll": "Jede Zeile der Sicherung zurückschreiben, auch die, die die Org bereits so enthält wie die Sicherung. Nicht angehakt, liest eine Wiederherstellung zuerst die Org und schreibt nur die Zeilen, die sich seit der Sicherung geändert haben.",
     "restoreResult": "Letzte Wiederherstellung — geschrieben: {{written}} · bereits wie in der Sicherung, unverändert gelassen: {{unchanged}} · abgelehnt: {{failed}}",
@@ -1978,13 +1975,11 @@
       "constant": "Konstante",
       "preserve_format": "Format beibehalten"
     },
-    "recordsProcessed": "Verarbeitete Datensätze",
-    "errorRate": "Fehlerrate",
-    "anonymizedFields": "Anonymisierte Vorlagen",
+    "anonymizedFields": "Anonymisierungsvorlagen",
     "emptyState": {
       "title": "Schützen Sie die Daten Ihrer Org",
       "description": "DataOps sichert Ihre Org-Daten, stellt sie wieder her und anonymisiert sie, bearbeitet Betroffenenanfragen und bereinigt die Datensätze, die niemand braucht.",
-      "step2": "Vor riskanten Operationen eine Sicherung erstellen",
+      "step2": "Sichern Sie vor dem Anonymisieren die Felder, die eine Vorlage maskiert",
       "step3": "Sensible Felder mit einer Vorlage anonymisieren",
       "step4": "Eine Sicherung in die Org zurückspielen, aus der sie stammt"
     },
@@ -2150,9 +2145,8 @@
       "erase_other": "{{formatted}} Datensätze löschen",
       "confirmTitle_one": "{{formatted}} Datensatz löschen?",
       "confirmTitle_other": "{{formatted}} Datensätze löschen?",
-      "confirmAnonymize": "Die aufgeführten Felder werden in der Org überschrieben, und das ist nicht umkehrbar. Sichern Sie zuerst, falls Sie sie noch brauchen könnten.",
+      "confirmAnonymize": "Die aufgeführten Felder werden in der Org überschrieben, und das ist nicht umkehrbar. Jede Sicherung dieser Org auf diesem Rechner enthält diese Werte weiterhin: Löschen Sie sie, sobald die Datensätze gelöscht sind.",
       "confirmDelete": "Die Datensätze und alles, was die Org mit ihnen löscht, kommen in den Papierkorb und bleiben dort, bis er geleert wird.",
-      "confirmWord": "löschen",
       "backupsBefore_one": "Diese Org hat eine Sicherung auf diesem Rechner, die vor dieser Löschung erstellt wurde: Sie enthält die Datensätze der Person im Klartext, und eine Wiederherstellung bringt sie zurück.",
       "backupsBefore_other": "Diese Org hat {{count}} Sicherungen auf diesem Rechner, die vor dieser Löschung erstellt wurden: Sie enthalten die Datensätze der Person im Klartext, und die Wiederherstellung einer davon bringt sie zurück.",
       "deleteBackupsBefore_one": "Diese Sicherung löschen",
@@ -2242,8 +2236,7 @@
       "deleteRecords_other": "{{formatted}} Datensätze löschen",
       "confirmTitle_one": "{{formatted}} Datensatz löschen?",
       "confirmTitle_other": "{{formatted}} Datensätze löschen?",
-      "confirmDescription": "Sie kommen in den Papierkorb der Org, mit allem, was die Org mit ihnen löscht, und bleiben dort, bis er geleert wird. Exportieren Sie sie zuerst, falls Sie sie noch brauchen könnten.",
-      "confirmWord": "löschen"
+      "confirmDescription": "Sie kommen in den Papierkorb der Org, mit allem, was die Org mit ihnen löscht, und bleiben dort, bis er geleert wird. Exportieren Sie sie zuerst, falls Sie sie noch brauchen könnten."
     },
     "preview": {
       "description": "Die ersten Datensätze jedes Objekts, so wie Anwenden sie in diesem Fenster maskieren würde. Es wurde nichts geschrieben. Ein erfundener Name kann im Lauf abweichen, wenn ein früherer Datensatz ihn zuerst zieht.",
@@ -2269,10 +2262,45 @@
       "taken_one": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensatz aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
       "taken_other": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensätzen aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
       "openRestore": "In „Wiederherstellen“ öffnen",
-      "refused": "Es konnte kein Snapshot aufbewahrt werden, daher wurde nichts maskiert. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“ in der Bestätigung."
+      "refused": "Es konnte keine Sicherung aufbewahrt werden, daher wurde nichts maskiert. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“ in der Bestätigung."
     },
     "backupDeleteConfirmSync": "Diese Sicherung löschen? Sie enthält, was der Sync-Lauf vom {{date}} überschrieben hat: Diesen Lauf in Sync zu entfernen, stellt diese Werte dann nicht mehr wieder her, und sie sind endgültig von diesem Rechner weg.",
-    "restoreSyncPartial": "Der Sync-Lauf schreibt noch, oder er hat vor seinem Ende angehalten — sein Fenster wurde geschlossen oder die Erweiterung hat angehalten: Diese Sicherung enthält, was er bis dahin aufbewahrt hatte."
+    "restoreSyncPartial": "Der Sync-Lauf schreibt noch, oder er hat vor seinem Ende angehalten — sein Fenster wurde geschlossen oder die Erweiterung hat angehalten: Diese Sicherung enthält, was er bis dahin aufbewahrt hatte.",
+    "orgPicker": "Org, die die Registerkarten unten lesen und schreiben",
+    "kpi": {
+      "backups": "Sicherungen von {{org}}",
+      "partial": "Unvollständige oder fehlgeschlagene Sicherungen"
+    },
+    "backupStatus": {
+      "pending": "Ausstehend",
+      "running": "Läuft",
+      "completed": "Abgeschlossen",
+      "failed": "Fehlgeschlagen",
+      "expired": "Abgelaufen"
+    },
+    "backupObjectNames_one": "{{count}} Objekt: {{objects}}",
+    "backupObjectNames_other": "{{count}} Objekte: {{objects}}",
+    "checkpointBeforeRisk": "Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt (Prüfpunkte → Prüfpunkt erstellen): Zurücksetzen… bringt die Daten der Org dorthin zurück.",
+    "takeCheckpoint": "Prüfpunkt erstellen",
+    "restoreEmpty": "Noch keine Sicherung von {{org}}",
+    "restoreEmptyDesc": "Hier stehen die auf der Registerkarte Sicherung erstellten Sicherungen und die, die ein Sync-Lauf von dem aufbewahrt, was er überschreibt.",
+    "restoreCreateBackup": "Sicherung erstellen",
+    "restorePick": "Klicken Sie auf eine Sicherung, um sie wiederherzustellen oder zu löschen.",
+    "restoreConfirm": {
+      "title": "Die Sicherung vom {{date}} in {{org}} wiederherstellen?",
+      "changed": "Seit dem {{date}} geänderte Zeilen erhalten die Werte der Sicherung zurück, egal wer sie geändert hat.",
+      "syncKept": "Die Datensätze, die der Sync-Lauf vom {{date}} überschrieben hat, erhalten ihre Werte von davor zurück; seit dem Lauf geänderte oder gelöschte bleiben, wie sie sind.",
+      "rewriteAll": "Jede Zeile der Sicherung wird geschrieben, auch die, die die Org schon so enthält wie die Sicherung.",
+      "objects": "Was die Sicherung enthält:",
+      "confirm": "In {{org}} wiederherstellen"
+    },
+    "anonymizeConfirm": {
+      "title": "{{org}} mit „{{name}}“ anonymisieren?",
+      "resumeTitle": "Anonymisierung von {{org}} mit „{{name}}“ fortsetzen?",
+      "description": "Überschreibt diese Felder überall, wo ein Datensatz einen Wert hat: {{fields}}.",
+      "resumeDescription": "Überschreibt diese Felder in den Datensätzen, die der angehaltene Lauf übrig gelassen hat: {{fields}}."
+    },
+    "deleteTemplateConfirm": "Die Vorlage „{{name}}“ löschen? Ihre Regeln verschwinden von diesem Rechner."
   },
   "automation": {
     "title": "Automatisierung",
@@ -3247,10 +3275,10 @@
       "tip": "Der Vergleich schreibt nichts. Aus Diff bereitstellen validiert zuerst im Ziel, löscht dort nichts und lehnt eine Produktions-Org als Ziel ab."
     },
     "dataops": {
-      "step1": "Prüfen Sie die oben auf der Seite genannte Org und öffnen Sie dann die Registerkarte Anonymisieren.",
+      "step1": "Wählen Sie die Org in der Liste oben auf der Seite und öffnen Sie dann die Registerkarte Anonymisieren.",
       "step2": "Wählen Sie unter Vorlage auswählen eine Vorlage; ihre Karte listet jedes Feld auf, das sie maskiert.",
       "step3": "Klicken Sie auf Vorschau: Die ersten Datensätze zeigen Original neben Maskiert, und nichts wird geschrieben.",
-      "step4": "Klicken Sie auf Anwenden, lassen Sie das Kästchen Die Werte vorher aufbewahren angehakt, geben Sie Anonymisieren ein und klicken Sie auf Bestätigen.",
+      "step4": "Klicken Sie auf Anwenden, lassen Sie das Kästchen Die Werte vorher aufbewahren angehakt, geben Sie den Namen der Org ein und klicken Sie auf Bestätigen.",
       "tip": "Sofern Sie Die Werte vorher aufbewahren nicht deaktivieren, sichert Anwenden die Werte, die es maskiert: Klicken Sie auf In „Wiederherstellen“ öffnen und dann auf Wiederherstellen, um sie zurückzuschreiben."
     },
     "monitor": {

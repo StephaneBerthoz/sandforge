@@ -5,7 +5,7 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import { orgTypeLabel } from '../../utils/orgFormatters';
-import { OrgBadge } from './OrgBadge';
+import { OrgBadge, OrgTypeBadge } from './OrgBadge';
 
 /** A sandbox as the store holds it, with what a test changes. */
 function org(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
@@ -164,6 +164,19 @@ describe('OrgBadge', () => {
     expect(screen.getByTestId('org-badge-status-dot').getAttribute('aria-label')).toBe(
       i18n.t('a11y.orgStatus', { status: 'unknown' }),
     );
+  });
+
+  describe('the type on its own, beside an org picker', () => {
+    it('writes and fills it as the badge does, under the test id it is given', () => {
+      render(<OrgTypeBadge org={org({ staging: true })} testId="page-org-type" />);
+      const type = screen.getByTestId('page-org-type');
+      expect(type.textContent).toBe('STAGING');
+      expect(type.className).toContain('bg-status-warning');
+      cleanup();
+      render(<OrgTypeBadge org={org({ orgType: 'Production' })} />);
+      expect(typeText()).toBe('PROD');
+      expect(typeClass()).toContain('bg-status-error');
+    });
   });
 
   describe('in another language', () => {

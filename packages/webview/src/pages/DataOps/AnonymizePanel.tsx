@@ -18,9 +18,16 @@ import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { AnonymizationTemplateEditor, ruleTypeLabel } from './AnonymizationTemplateEditor';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { RunStopControl } from './RunStopControl';
+import { DeleteQuestion } from './DeleteQuestion';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
+  /**
+   * The org a run masks, by the name the page shows it under: named in the
+   * confirmation, and the word typed to confirm it. Apply is offered only
+   * with one.
+   */
+  orgName?: string;
   /** The templates the host lists: those that ship, then those the user saved. */
   templates?: ListedAnonymizationTemplate[];
   selectedTemplateId?: string;
@@ -298,6 +305,7 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
 
 /** Panel for anonymizing sensitive data. */
 export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
+  orgName,
   templates = [],
   selectedTemplateId,
   onSelectTemplate,
@@ -331,6 +339,8 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   const [editing, setEditing] = useState(false);
   // Held by id: a delete asked about one template is not a delete of the next one picked.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const deleteQuestionId = useId();
+  const deleteTemplateButton = useRef<HTMLButtonElement>(null);
 
   const selectedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
   // An answer for another template is not this one's.
@@ -470,6 +480,8 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                       size="sm"
                       onClick={() => setConfirming('apply')}
                       loading={isApplying}
+                      // Its confirmation names the org and asks for its name.
+                      disabled={!orgName}
                       data-testid="apply-btn"
                     >
                       {t('dataops.applyAnonymization')}
@@ -482,7 +494,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         variant="secondary"
                         size="sm"
                         onClick={() => setConfirming('resume')}
-                        disabled={isApplying}
+                        disabled={isApplying || !orgName}
                         data-testid="resume-btn"
                       >
                         {t('dataops.resumeAnonymization')}
@@ -495,41 +507,41 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         testId="anonymize-stop"
                       />
                     )}
-                    {selectedTemplate.saved &&
-                      onDeleteTemplate &&
-                      (confirmDeleteId === selectedTemplate.id ? (
-                        <>
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => {
-                              setConfirmDeleteId(null);
-                              onDeleteTemplate(selectedTemplate.id);
-                            }}
-                            data-testid="confirm-delete-template-btn"
-                          >
-                            {t('common.confirm')}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setConfirmDeleteId(null)}
-                            data-testid="cancel-delete-template-btn"
-                          >
-                            {t('common.cancel')}
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setConfirmDeleteId(selectedTemplate.id)}
-                          data-testid="delete-template-btn"
-                        >
-                          {t('dataops.deleteTemplate')}
-                        </Button>
-                      ))}
+                    {selectedTemplate.saved && onDeleteTemplate && (
+                      <Button
+                        ref={deleteTemplateButton}
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setConfirmDeleteId(selectedTemplate.id)}
+                        data-testid="delete-template-btn"
+                      >
+                        {t('dataops.deleteTemplate')}
+                      </Button>
+                    )}
                   </div>
+                  {/* A question of its own, on a line below Apply: a bare
+                      red Confirm took the Delete's place on the row of
+                      Preview and Apply, and read as confirming Apply. */}
+                  {selectedTemplate.saved &&
+                    onDeleteTemplate &&
+                    confirmDeleteId === selectedTemplate.id && (
+                      <DeleteQuestion
+                        id={deleteQuestionId}
+                        testId="delete-template"
+                        question={t('dataops.deleteTemplateConfirm', {
+                          name: selectedTemplate.name,
+                        })}
+                        confirmLabel={t('dataops.deleteTemplate')}
+                        onConfirm={() => {
+                          setConfirmDeleteId(null);
+                          onDeleteTemplate(selectedTemplate.id);
+                        }}
+                        onCancel={() => {
+                          setConfirmDeleteId(null);
+                          deleteTemplateButton.current?.focus();
+                        }}
+                      />
+                    )}
                 </div>
                 {snapshotRefused && !isApplying && (
                   <p
@@ -568,75 +580,92 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           </Card>
           {/* Apply masks records in the org for good; it used to fire straight
               off the click, with nothing between the pointer and the write. */}
-          <DangerConfirm
-            open={confirming !== null}
-            onClose={() => setConfirming(null)}
-            onConfirm={() => {
-              const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
-              setConfirming(null);
-              if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
-              else onApply?.(selectedTemplate.id, { snapshot: keepValues });
-            }}
-            title={
-              confirming === 'resume'
-                ? t('dataops.resumeAnonymization')
-                : t('dataops.applyAnonymization')
-            }
-            description={t('dataops.anonymizeDesc')}
-            confirmText={t('dataops.anonymize')}
-          >
-            {/* The confirmation said only 'Anonymize sensitive data', whatever
+          {orgName && (
+            <DangerConfirm
+              open={confirming !== null}
+              onClose={() => setConfirming(null)}
+              onConfirm={() => {
+                const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
+                setConfirming(null);
+                if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
+                else onApply?.(selectedTemplate.id, { snapshot: keepValues });
+              }}
+              // It was titled Apply over "Anonymize sensitive data", naming
+              // neither the org nor the template, and asked to type the word
+              // Anonymize — 匿名化 in Japanese, typed only through an input
+              // method. The org's name, as Rewind and Deploy ask, is the same
+              // in every language.
+              title={t(
+                confirming === 'resume'
+                  ? 'dataops.anonymizeConfirm.resumeTitle'
+                  : 'dataops.anonymizeConfirm.title',
+                { org: orgName, name: selectedTemplate.name },
+              )}
+              description={t(
+                confirming === 'resume'
+                  ? 'dataops.anonymizeConfirm.resumeDescription'
+                  : 'dataops.anonymizeConfirm.description',
+                {
+                  fields: selectedTemplate.rules
+                    .map((rule) => `${rule.fieldPattern} (${ruleTypeLabel(t, rule.ruleType)})`)
+                    .join(', '),
+                },
+              )}
+              confirmText={orgName}
+            >
+              {/* The confirmation said only 'Anonymize sensitive data', whatever
                 the backup held: 1 220 contacts on a Developer Edition, 500
                 backed up, and nothing said the other 720 could never come
                 back. */}
-            {/* A resume takes no snapshot: the run it resumes took one. */}
-            {confirming === 'apply' && (
-              <div className="flex flex-col gap-1" data-testid="confirm-keep-values">
-                <label className="flex items-start gap-2 text-xs text-text-primary">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={keepValues}
-                    onChange={(e) => setKeepValues(e.target.checked)}
-                    aria-describedby={keepHintId}
-                    data-testid="confirm-keep-values-toggle"
-                  />
-                  <span>{t('dataops.snapshot.keep')}</span>
-                </label>
-                <p id={keepHintId} className="text-xs text-text-secondary">
-                  {t('dataops.snapshot.keepHint')}
-                </p>
-              </div>
-            )}
-            {/* What the preview found Apply cannot mask, said again where
+              {/* A resume takes no snapshot: the run it resumes took one. */}
+              {confirming === 'apply' && (
+                <div className="flex flex-col gap-1" data-testid="confirm-keep-values">
+                  <label className="flex items-start gap-2 text-xs text-text-primary">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={keepValues}
+                      onChange={(e) => setKeepValues(e.target.checked)}
+                      aria-describedby={keepHintId}
+                      data-testid="confirm-keep-values-toggle"
+                    />
+                    <span>{t('dataops.snapshot.keep')}</span>
+                  </label>
+                  <p id={keepHintId} className="text-xs text-text-secondary">
+                    {t('dataops.snapshot.keepHint')}
+                  </p>
+                </div>
+              )}
+              {/* What the preview found Apply cannot mask, said again where
                 the user confirms it. */}
-            {selectedPreview && selectedPreview.fieldsNotFound.length > 0 && (
-              <FieldsNotMasked
-                fields={selectedPreview.fieldsNotFound}
-                testId="confirm-fields-not-found"
-              />
-            )}
-            {/* What a restore cannot bring back, unless the run keeps the
+              {selectedPreview && selectedPreview.fieldsNotFound.length > 0 && (
+                <FieldsNotMasked
+                  fields={selectedPreview.fieldsNotFound}
+                  testId="confirm-fields-not-found"
+                />
+              )}
+              {/* What a restore cannot bring back, unless the run keeps the
                 values first: then it writes nothing unless it keeps them all. */}
-            {lost.length > 0 && !(confirming === 'apply' && keepValues) && (
-              <div className="text-xs text-text-primary" data-testid="confirm-unrestorable">
-                <p>{t('dataops.coverage.confirmShortfall')}</p>
-                <ul className="list-disc pl-4">
-                  {lost.map((o) => (
-                    <li key={o.objectApiName}>
-                      {o.objectApiName}:{' '}
-                      {o.rows === null
-                        ? t('dataops.coverage.notCounted')
-                        : t('common.recordCountFormatted', {
-                            count: o.rows,
-                            formatted: formatNumber(o.rows),
-                          })}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </DangerConfirm>
+              {lost.length > 0 && !(confirming === 'apply' && keepValues) && (
+                <div className="text-xs text-text-primary" data-testid="confirm-unrestorable">
+                  <p>{t('dataops.coverage.confirmShortfall')}</p>
+                  <ul className="list-disc pl-4">
+                    {lost.map((o) => (
+                      <li key={o.objectApiName}>
+                        {o.objectApiName}:{' '}
+                        {o.rows === null
+                          ? t('dataops.coverage.notCounted')
+                          : t('common.recordCountFormatted', {
+                              count: o.rows,
+                              formatted: formatNumber(o.rows),
+                            })}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </DangerConfirm>
+          )}
         </div>
       )}
 

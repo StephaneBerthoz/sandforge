@@ -20,6 +20,8 @@ import { SubjectRequestSection } from './SubjectRequestSection';
 export interface CompliancePanelProps {
   /** The org the inventory reads and a request searches. */
   orgId: string;
+  /** Its name as the page shows it, typed to confirm an erasure. */
+  orgName: string;
 }
 
 /** What the detector's patterns name, in a reader's words: the key of each. */
@@ -59,7 +61,7 @@ export function searchableObjects(objects: readonly PiiInventoryObjectResult[]):
  * and the data subject requests handled on the org — found, exported, erased —
  * with the local log of each.
  */
-export const CompliancePanel: React.FC<CompliancePanelProps> = ({ orgId }) => {
+export const CompliancePanel: React.FC<CompliancePanelProps> = ({ orgId, orgName }) => {
   const { t } = useTranslation();
   const headingId = useId();
   const [selected, setSelected] = useState<string[]>([]);
@@ -121,6 +123,7 @@ export const CompliancePanel: React.FC<CompliancePanelProps> = ({ orgId }) => {
 
       <SubjectRequestSection
         orgId={orgId}
+        orgName={orgName}
         objects={result ? searchableObjects(result.objects) : []}
         onLogged={() => setLogVersion((v) => v + 1)}
       />

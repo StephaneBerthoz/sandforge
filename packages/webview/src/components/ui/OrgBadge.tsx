@@ -43,6 +43,32 @@ function typeFillOf(org: SalesforceOrg): string {
 }
 
 /**
+ * The org's type, filled as the badge fills it: Production in red, a
+ * sandbox marked Staging in amber. On its own beside an org picker, which
+ * names the org but not what kind it is.
+ */
+export const OrgTypeBadge: React.FC<{ org: SalesforceOrg; testId?: string }> = ({
+  org,
+  testId = 'org-badge-type',
+}) => {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center px-1.5 py-0.5 whitespace-nowrap',
+        'text-[10px] font-bold leading-none',
+        'rounded-(--sf-radius-sm)',
+        'text-(--sf-bg-primary)',
+        typeFillOf(org),
+      )}
+      data-testid={testId}
+    >
+      {orgTypeLabel(org, t)}
+    </span>
+  );
+};
+
+/**
  * Displays a Salesforce org connection badge with status indicator,
  * alias, org type label, and optional instance URL.
  */
@@ -91,18 +117,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({ org, className }) => {
       </span>
 
       {/* Org type badge: the label the side panel and the pickers give it. */}
-      <span
-        className={cn(
-          'inline-flex items-center px-1.5 py-0.5 whitespace-nowrap',
-          'text-[10px] font-bold leading-none',
-          'rounded-(--sf-radius-sm)',
-          'text-(--sf-bg-primary)',
-          typeFillOf(org),
-        )}
-        data-testid="org-badge-type"
-      >
-        {orgTypeLabel(org, t)}
-      </span>
+      <OrgTypeBadge org={org} />
 
       {/* Instance URL */}
       {truncatedUrl && (

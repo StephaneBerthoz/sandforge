@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { BackupObjectHeld, BackupSummary, BackupStatus } from '@sandforge/shared';
@@ -26,6 +26,11 @@ export interface BackupPanelProps {
   onStop?: () => void;
   /** Whether that stop was sent and not refused. */
   stopRequested?: boolean;
+  /**
+   * Open Checkpoints on a take of the org: offered where a checkpoint can be
+   * taken, a connected sandbox, scratch org or Developer Edition.
+   */
+  onTakeCheckpoint?: () => void;
 }
 
 const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -34,6 +39,48 @@ const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | '
   completed: 'success',
   failed: 'error',
   expired: 'warning',
+};
+
+/**
+ * The word for each status, in the interface language. The badge printed the
+ * stored code, "completed" in lower-case English whatever the language.
+ */
+const STATUS_KEY: Record<BackupStatus, string> = {
+  pending: 'dataops.backupStatus.pending',
+  running: 'dataops.backupStatus.running',
+  completed: 'dataops.backupStatus.completed',
+  failed: 'dataops.backupStatus.failed',
+  expired: 'dataops.backupStatus.expired',
+};
+
+/**
+ * Whether a backup holds only part of what it read, as the Restore tab marks
+ * it: one stopped at the cap, or whose read failed after it kept some rows.
+ * It wore a green "completed" on the Backup tab above its own note saying a
+ * cap stopped it, while the Restore tab called the same backup Partial.
+ */
+export function isPartialBackup(backup: BackupSummary): boolean {
+  return backup.partial === true || (backup.status === 'failed' && backup.totalRecords > 0);
+}
+
+/**
+ * How many objects a backup holds, and which. The card said "2 objects" and
+ * never named them, so nothing told which backup held the object to restore.
+ */
+export const BackupObjects: React.FC<{ backup: BackupSummary }> = ({ backup }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex gap-4 text-xs text-text-secondary">
+      <span data-testid={`backup-objects-${backup.operationId}`}>
+        {backup.objectResults.length === 0
+          ? t('common.objectCount', { count: 0 })
+          : t('dataops.backupObjectNames', {
+              count: backup.objectResults.length,
+              objects: backup.objectResults.map((o) => o.objectApiName).join(', '),
+            })}
+      </span>
+    </div>
+  );
 };
 
 /**
@@ -114,8 +161,10 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
   onExport,
   onStop,
   stopRequested = false,
+  onTakeCheckpoint,
 }) => {
   const { t } = useTranslation();
+  const checkpointWhyId = useId();
 
   return (
     <div className="flex flex-col gap-3" data-testid="backup-panel">
@@ -145,6 +194,31 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
         </p>
       )}
 
+      {/* A backup reads only the objects the templates mask: it is no way
+          back from a Seed, a Sync or a Forge run on the others, and the tab
+          told a newcomer to take one before any risky operation. A
+          checkpoint is that way back. */}
+      {onTakeCheckpoint && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs"
+          data-testid="backup-checkpoint"
+        >
+          <Icon name="history" className="text-sm text-hue-indigo" />
+          <p id={checkpointWhyId} className="min-w-0 flex-1 text-text-primary">
+            {t('dataops.checkpointBeforeRisk')}
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onTakeCheckpoint}
+            aria-describedby={checkpointWhyId}
+            data-testid="backup-checkpoint-take"
+          >
+            {t('dataops.takeCheckpoint')}
+          </Button>
+        </div>
+      )}
+
       {backups.length === 0 && (
         <EmptyState
           icon={<Icon name="save" />}
@@ -168,7 +242,18 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               subtitle={t('common.recordCount', { count: backup.totalRecords })}
               action={
                 <div className="flex items-center gap-2">
-                  <Badge variant={STATUS_VARIANT[backup.status]}>{backup.status}</Badge>
+                  {isPartialBackup(backup) ? (
+                    <Badge variant="warning" data-testid={`backup-status-${backup.operationId}`}>
+                      {t('dataops.restorePartialBadge')}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant={STATUS_VARIANT[backup.status]}
+                      data-testid={`backup-status-${backup.operationId}`}
+                    >
+                      {t(STATUS_KEY[backup.status])}
+                    </Badge>
+                  )}
                   {onExport && (
                     <Button
                       variant="ghost"
@@ -193,9 +278,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               }
             />
             <CardBody>
-              <div className="flex gap-4 text-xs text-text-secondary">
-                <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
-              </div>
+              <BackupObjects backup={backup} />
               {backup.partial && (
                 <BackupPartialNote
                   backup={backup}

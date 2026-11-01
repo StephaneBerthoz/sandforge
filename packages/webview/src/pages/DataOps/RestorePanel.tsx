@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { RunStopControl } from './RunStopControl';
 import type { BackupSummary } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
@@ -8,8 +9,10 @@ import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
-import { BackupPartialNote } from './BackupPanel';
+import { BackupObjects, BackupPartialNote, isPartialBackup } from './BackupPanel';
+import { DeleteQuestion } from './DeleteQuestion';
 
 /** What the last restore did, as its answer counts it. */
 export interface RestoreCounts {
@@ -32,6 +35,13 @@ export interface RestoreCounts {
 
 /** RestorePanel component props. */
 export interface RestorePanelProps {
+  /**
+   * The org a restore writes to, by the name the page shows it under: named
+   * in the empty list and in the question a Restore asks.
+   */
+  orgName?: string;
+  /** Open the Backup tab, where a backup is taken: what an empty list offers. */
+  onCreateBackup?: () => void;
   backups?: BackupSummary[];
   selectedBackupId?: string;
   onSelectBackup?: (operationId: string) => void;
@@ -64,8 +74,30 @@ export interface RestorePanelProps {
   stopRequested?: boolean;
 }
 
+/** The moment a backup was taken, as its cards name it. */
+function takenAt(backup: BackupSummary, t: TFunction): string {
+  return (
+    formatStoredDate(backup.timestamp, (date) => date.toLocaleString(uiLocale())) ??
+    t('common.dateUnknown')
+  );
+}
+
+/**
+ * What a restore of `backup` writes over: the rows changed since it get its
+ * values back whoever changed them, or, of a Sync run's, the records changed
+ * since the run are left as they are unless asked.
+ */
+function restoreSentence(backup: BackupSummary, includeChanged: boolean, t: TFunction): string {
+  const date = takenAt(backup, t);
+  return backup.origin === 'sync' && !includeChanged
+    ? t('dataops.restoreConfirm.syncKept', { date })
+    : t('dataops.restoreConfirm.changed', { date });
+}
+
 /** Panel for restoring data from backups. */
 export const RestorePanel: React.FC<RestorePanelProps> = ({
+  orgName,
+  onCreateBackup,
   backups = [],
   selectedBackupId,
   onSelectBackup,
@@ -89,6 +121,13 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
    * org. A backup deleted cannot be restored, so the first click only asks.
    */
   const [confirming, setConfirming] = useState<{ one: string } | 'all' | null>(null);
+  /**
+   * The backup a Restore asks about. A restore writes into the org, over
+   * every row changed since the backup whoever changed it, and it went out on
+   * the click, under a button that named no org, while Delete beside it
+   * asked first.
+   */
+  const [asking, setAsking] = useState<string | null>(null);
   const questionId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   /** Each backup's entry, where its card is found to take the focus. */
@@ -115,6 +154,10 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   const restorableBackups = backups.filter(
     (b) => b.status === 'completed' || (b.status === 'failed' && b.totalRecords > 0),
   );
+  // A backup deleted or gone from the list while its Restore asks takes the
+  // question with it.
+  const askedBackup =
+    asking === null ? undefined : restorableBackups.find((b) => b.operationId === asking);
 
   // Its question gone with the answer, the focus fell to <body>: Confirm and
   // Cancel hand it back to the Delete that asked, and once the backups a
@@ -209,13 +252,27 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         </p>
       )}
 
+      {/* It asked to select a backup where there was none to select, and
+          offered no way to take one. */}
       {restorableBackups.length === 0 && !isRestoring && (
         <EmptyState
           icon={<Icon name="package" />}
-          title={t('dataops.selectBackup')}
-          description={t('dataops.restoreDesc')}
+          title={orgName ? t('dataops.restoreEmpty', { org: orgName }) : t('dataops.noBackups')}
+          description={t('dataops.restoreEmptyDesc')}
+          {...(onCreateBackup
+            ? { actionLabel: t('dataops.restoreCreateBackup'), onAction: onCreateBackup }
+            : {})}
         />
       )}
+
+      {/* Restore and Delete show once a backup is picked: with none picked,
+          as after a delete, nothing said to click a card. */}
+      {restorableBackups.length > 0 &&
+        !restorableBackups.some((b) => b.operationId === selectedBackupId) && (
+          <p className="text-xs text-text-secondary" data-testid="restore-pick">
+            {t('dataops.restorePick')}
+          </p>
+        )}
 
       {restorableBackups.map((backup, place) => {
         const isSelected = backup.operationId === selectedBackupId;
@@ -255,9 +312,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 }
               />
               <CardBody>
-                <div className="flex gap-4 text-xs text-text-secondary">
-                  <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
-                </div>
+                <BackupObjects backup={backup} />
                 {/* What a Sync run wrote over, kept for its removal, which
                     gives it back: listed here among the org's backups, it
                     said nothing of whose it was. */}
@@ -329,11 +384,12 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                       {t('dataops.backupDelete')}
                     </Button>
                   )}
-                  {onRestore && (
+                  {/* Offered with the org it writes to named, never without. */}
+                  {onRestore && orgName && (
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={() => onRestore(backup.operationId)}
+                      onClick={() => setAsking(backup.operationId)}
                       disabled={isRestoring || isDeleting}
                       data-testid={`restore-btn-${backup.operationId}`}
                     >
@@ -347,6 +403,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                   confirming.one === backup.operationId && (
                     <DeleteQuestion
                       id={questionId}
+                      confirmLabel={t('dataops.backupDelete')}
                       // A Sync run's: its removal gives these values back, and
                       // once the backup is deleted it no longer can.
                       question={
@@ -393,6 +450,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
           {confirming === 'all' && (
             <DeleteQuestion
               id={questionId}
+              confirmLabel={t('dataops.backupDeleteAll')}
               question={t('dataops.backupDeleteAllConfirm', { count: backups.length })}
               onConfirm={() => {
                 afterDelete.current = {
@@ -408,40 +466,49 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
           )}
         </div>
       )}
-    </div>
-  );
-};
 
-/** Props for {@link DeleteQuestion}. */
-interface DeleteQuestionProps {
-  id: string;
-  question: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-/** The question a Delete asks before anything is deleted, with its two answers. */
-const DeleteQuestion: React.FC<DeleteQuestionProps> = ({ id, question, onConfirm, onCancel }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-2" data-testid="delete-backup-question">
-      <p id={id} className="text-xs text-text-primary">
-        {question}
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="danger"
-          size="sm"
-          aria-describedby={id}
-          onClick={onConfirm}
-          data-testid="delete-backup-confirm"
+      {/* Nothing is sent before the yes: the org, what each object of the
+          backup holds, and what the restore writes over, whoever wrote it.
+          Production Guard still asks on a production org. */}
+      {onRestore && orgName && (
+        <DangerConfirm
+          open={askedBackup !== undefined}
+          variant="warning"
+          onClose={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            if (askedBackup) onRestore(askedBackup.operationId);
+          }}
+          title={
+            askedBackup
+              ? t('dataops.restoreConfirm.title', { org: orgName, date: takenAt(askedBackup, t) })
+              : ''
+          }
+          description={askedBackup ? restoreSentence(askedBackup, includeChanged, t) : ''}
+          confirmLabel={t('dataops.restoreConfirm.confirm', { org: orgName })}
         >
-          {t('common.confirm')}
-        </Button>
-        <Button variant="secondary" size="sm" onClick={onCancel} data-testid="delete-backup-cancel">
-          {t('common.cancel')}
-        </Button>
-      </div>
+          {askedBackup && (
+            <div className="flex flex-col gap-1" data-testid="restore-confirm-objects">
+              {rewriteAll && <p>{t('dataops.restoreConfirm.rewriteAll')}</p>}
+              <p>{t('dataops.restoreConfirm.objects')}</p>
+              <ul className="list-disc pl-4">
+                {askedBackup.objectResults.map((o) => (
+                  <li key={o.objectApiName}>
+                    {o.objectApiName}:{' '}
+                    {t('common.recordCountFormatted', {
+                      count: o.recordCount,
+                      formatted: formatNumber(o.recordCount),
+                    })}
+                  </li>
+                ))}
+              </ul>
+              {/* A restore of a partial backup leaves the rest of each object
+                  as it is: said where the restore is asked. */}
+              {isPartialBackup(askedBackup) && <p>{t('dataops.backupPartialLead')}</p>}
+            </div>
+          )}
+        </DangerConfirm>
+      )}
     </div>
   );
 };

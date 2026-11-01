@@ -34,6 +34,8 @@ const WAIT_ON_A_PERSON_MS = 600_000;
 /** Props for {@link SubjectRequestSection}. */
 export interface SubjectRequestSectionProps {
   orgId: string;
+  /** Its name as the page shows it: the word typed to confirm an erasure. */
+  orgName: string;
   /** The objects a search looks in: those the inventory read that hold something to look for. */
   objects: string[];
   /** Told when the request log has something new. */
@@ -92,6 +94,7 @@ export function selectedRecords(
  */
 export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   orgId,
+  orgName,
   objects,
   onLogged,
 }) => {
@@ -477,7 +480,9 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
             description={t(
               mode === 'delete' ? 'dataops.dsr.confirmDelete' : 'dataops.dsr.confirmAnonymize',
             )}
-            confirmText={t('dataops.dsr.confirmWord')}
+            // The org's name, as Rewind and Deploy ask: the word erase was
+            // 消去 in Japanese, typed only through an input method.
+            confirmText={orgName}
           />
         </div>
       )}

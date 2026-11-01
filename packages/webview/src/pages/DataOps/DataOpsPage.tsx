@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
+import { isDevelopmentOrg } from '@sandforge/shared';
 import type {
   BackupDeleteResult,
   BackupExportResult,
@@ -13,6 +14,7 @@ import type {
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useLatestRef } from '../../hooks/useLatestRef';
@@ -23,7 +25,8 @@ import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
-import { OrgBadge } from '../../components/ui/OrgBadge';
+import { OrgTypeBadge } from '../../components/ui/OrgBadge';
+import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
@@ -33,7 +36,7 @@ import { RestorePanel, type RestoreCounts } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { CleanupPanel, CompliancePanel, QualityPanel } from './dataOpsParts';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
-import { formatNumber, uiLocale } from '../../utils/formatters';
+import { formatNumber } from '../../utils/formatters';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
@@ -99,6 +102,19 @@ export const DataOpsPage: React.FC = () => {
   // The org the user actually picked — the same reactive selector MonitorPage
   // and the rest of the product read.
   const currentOrg = useOrgStore(selectSelectedOrg);
+  const orgName = currentOrg ? currentOrg.alias || currentOrg.username : undefined;
+  const selectOrgLocal = useOrgStore((s) => s.selectOrg);
+  // The org picked here is the org picked everywhere, as Checkpoints' own
+  // picker does: the status bar, the sidebar and the other panels follow it.
+  // The header showed the org as a badge, and the page with no org sent the
+  // user to the Organizations page to pick one.
+  const selectOrg = useCallback(
+    (id: string) => {
+      selectOrgLocal(id);
+      sendBridgeMessage('org:select', { orgId: id });
+    },
+    [selectOrgLocal],
+  );
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const [activeTab, setActiveTab] = useState('backup');
@@ -561,11 +577,23 @@ export const DataOpsPage: React.FC = () => {
     );
   }
 
-  const recordsProcessed = backups.reduce((sum, b) => sum + b.totalRecords, 0);
-  const failedObjects = backups.filter((b) => b.status === 'failed').length;
-  const totalObjects = backups.reduce((sum, b) => sum + b.objectResults.length, 0);
-  const errorRate = totalObjects > 0 ? ((failedObjects / totalObjects) * 100).toFixed(1) : '0.0';
+  // Three facts the page holds. The cards read "Records Processed", the
+  // records the backups hold; "Error Rate", failed backups over objects
+  // backed up, 0.0% beside a backup whose read had failed; and "Anonymized
+  // Templates", which anonymize nothing.
+  const backedUpRecords = backups.reduce((sum, b) => sum + b.totalRecords, 0);
+  const partialBackups = backups.filter((b) => b.partial === true || b.status === 'failed').length;
   const templateCount = templates.length;
+
+  // A checkpoint is the way back from a run on any object: offered where one
+  // can be taken.
+  const takeCheckpoint =
+    currentOrg && currentOrg.status === 'connected' && isDevelopmentOrg(currentOrg)
+      ? () => {
+          selectOrg(currentOrg.id);
+          navigate('checkpoint', { takeCheckpoint: true, targetOrgId: currentOrg.id });
+        }
+      : undefined;
 
   // A tab waits only on the query it actually reads. Gating the skeleton on
   // both queries at once let a slow templates response paint a skeleton on top
@@ -600,12 +628,23 @@ export const DataOpsPage: React.FC = () => {
           all while silently acting on the first one in the list. */}
       <PageHeader
         title={t('dataops.title')}
-        // "Select Org" is a prompt, not a description: showing it while an org
-        // IS selected — and named by the badge two elements to the right —
-        // reads as "no org chosen" on a page that is about to write to one.
-        subtitle={currentOrg ? undefined : t('dataops.selectOrg')}
         icon="wrench"
-        actions={currentOrg ? <OrgBadge org={currentOrg} /> : undefined}
+        // The org picker, as on Checkpoints, Forge and Frozen, with the org's
+        // type beside it: a production org, or a sandbox marked Staging,
+        // shows what it is before anything is clicked.
+        actions={
+          <div className="flex items-center gap-(--sf-space-2)">
+            <OrgDropdown
+              value={currentOrg?.id ?? ''}
+              onChange={selectOrg}
+              orgs={orgs}
+              ariaLabel={t('dataops.orgPicker')}
+              testId="dataops-org"
+              className="min-w-56"
+            />
+            {currentOrg && <OrgTypeBadge org={currentOrg} testId="dataops-org-type" />}
+          </div>
+        }
       />
       <ModuleHowTo module="dataops" />
 
@@ -622,40 +661,49 @@ export const DataOpsPage: React.FC = () => {
         />
       )}
 
-      {/* KPI summary row */}
-      <m.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        data-testid="dataops-kpi-row"
-      >
-        <BentoGrid columns={3} gap="md">
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="archive"
-              label={t('dataops.recordsProcessed')}
-              value={recordsProcessed.toLocaleString(uiLocale())}
-              variant="default"
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="warning"
-              label={t('dataops.errorRate')}
-              value={`${errorRate}%`}
-              variant={Number(errorRate) > 5 ? 'error' : 'success'}
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="eye-closed"
-              label={t('dataops.anonymizedFields')}
-              value={templateCount}
-              variant="default"
-            />
-          </m.div>
-        </BentoGrid>
-      </m.div>
+      {/* KPI summary row: the selected org's, so none without one. */}
+      {orgName && (
+        <m.div
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+          data-testid="dataops-kpi-row"
+        >
+          <BentoGrid columns={3} gap="md">
+            <m.div variants={slideUp}>
+              <KPICard
+                className="h-full"
+                icon="archive"
+                label={t('dataops.kpi.backups', { org: orgName })}
+                value={formatNumber(backups.length)}
+                subtitle={t('common.recordCountFormatted', {
+                  count: backedUpRecords,
+                  formatted: formatNumber(backedUpRecords),
+                })}
+                variant="default"
+              />
+            </m.div>
+            <m.div variants={slideUp}>
+              <KPICard
+                className="h-full"
+                icon="warning"
+                label={t('dataops.kpi.partial')}
+                value={formatNumber(partialBackups)}
+                variant={partialBackups > 0 ? 'warning' : 'success'}
+              />
+            </m.div>
+            <m.div variants={slideUp}>
+              <KPICard
+                className="h-full"
+                icon="eye-closed"
+                label={t('dataops.anonymizedFields')}
+                value={formatNumber(templateCount)}
+                variant="default"
+              />
+            </m.div>
+          </BentoGrid>
+        </m.div>
+      )}
 
       <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -681,11 +729,14 @@ export const DataOpsPage: React.FC = () => {
               isCreating={backupMutation.loading}
               onStop={backupStop.cancel}
               stopRequested={backupStop.requested}
+              onTakeCheckpoint={takeCheckpoint}
             />
           )}
 
           {activeTab === 'restore' && !tabLoading && (
             <RestorePanel
+              orgName={orgName}
+              onCreateBackup={() => setActiveTab('backup')}
               backups={backups}
               selectedBackupId={selectedBackupId}
               onSelectBackup={(operationId) => {
@@ -712,6 +763,7 @@ export const DataOpsPage: React.FC = () => {
 
           {activeTab === 'anonymize' && !tabLoading && (
             <AnonymizePanel
+              orgName={orgName}
               templates={templates}
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
@@ -741,12 +793,12 @@ export const DataOpsPage: React.FC = () => {
           {/* Keyed by org, the three panels below: results read on one org —
               a person's records above all — must not stay on screen under the
               name of the next. */}
-          {activeTab === 'gdpr' && currentOrg && (
-            <CompliancePanel key={currentOrg.id} orgId={currentOrg.id} />
+          {activeTab === 'gdpr' && currentOrg && orgName && (
+            <CompliancePanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
           )}
 
-          {activeTab === 'cleanup' && currentOrg && (
-            <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} />
+          {activeTab === 'cleanup' && currentOrg && orgName && (
+            <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
           )}
 
           {activeTab === 'quality' && currentOrg && (

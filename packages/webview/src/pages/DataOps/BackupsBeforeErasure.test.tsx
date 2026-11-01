@@ -57,6 +57,33 @@ describe('BackupsBeforeErasure', () => {
     });
   });
 
+  it('asks a question first, its button saying it deletes the backups, never a bare Confirm', () => {
+    // "Delete this backup" became a bare Confirm under a sentence about
+    // restoring.
+    listed.data = { backups: [{ operationId: 'bk-1' }, { operationId: 'bk-2' }] };
+    render(<BackupsBeforeErasure orgId="org-1" />);
+    fireEvent.click(screen.getByTestId('dsr-backups-delete'));
+
+    const question = screen.getByTestId('dsr-backups-delete-question');
+    expect(question.querySelector('p')?.textContent).toBe(
+      en.dataops.backupDeleteAllConfirm_other.replace('{{count}}', '2'),
+    );
+    const confirm = screen.getByTestId('dsr-backups-delete-confirm');
+    expect(confirm.textContent).toBe('Delete these 2 backups');
+    expect(screen.queryByText('Confirm')).toBeNull();
+  });
+
+  it('gives the keyboard back to the Delete that asked on Cancel, deleting nothing', () => {
+    listed.data = { backups: [{ operationId: 'bk-1' }] };
+    render(<BackupsBeforeErasure orgId="org-1" />);
+    fireEvent.click(screen.getByTestId('dsr-backups-delete'));
+    fireEvent.click(screen.getByTestId('dsr-backups-delete-cancel'));
+
+    expect(screen.queryByTestId('dsr-backups-delete-question')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('dsr-backups-delete'));
+    expect(deletion.mutate).not.toHaveBeenCalled();
+  });
+
   it('says nothing for an org with no backup on this machine', () => {
     listed.data = { backups: [] };
     const { container } = render(<BackupsBeforeErasure orgId="org-1" />);

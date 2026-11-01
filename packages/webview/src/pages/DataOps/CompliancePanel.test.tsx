@@ -109,7 +109,7 @@ beforeEach(() => {
 
 describe('CompliancePanel', () => {
   it('reads the objects picked for personal data', () => {
-    render(<CompliancePanel orgId="org-1" />);
+    render(<CompliancePanel orgId="org-1" orgName="dev1" />);
 
     fireEvent.click(screen.getByTestId('compliance-object-option-Contact'));
     fireEvent.click(screen.getByTestId('inventory-run-btn'));
@@ -120,7 +120,7 @@ describe('CompliancePanel', () => {
   it('lists each field that holds personal data: what, found how, and what the sample says', () => {
     inventory.data = answer([contact, product]);
 
-    render(<CompliancePanel orgId="org-1" />);
+    render(<CompliancePanel orgId="org-1" orgName="dev1" />);
 
     const email = screen.getByTestId('inventory-field-Email');
     expect(email.textContent).toContain('an email address');
@@ -142,13 +142,13 @@ describe('CompliancePanel', () => {
   it('points a subject request at the objects the inventory found something to search in', () => {
     inventory.data = answer([contact, product]);
 
-    render(<CompliancePanel orgId="org-1" />);
+    render(<CompliancePanel orgId="org-1" orgName="dev1" />);
 
     expect(screen.getByTestId('dsr-objects').textContent).toBe('Looks in: Contact');
   });
 
   it('asks for an inventory before a request can search', () => {
-    render(<CompliancePanel orgId="org-1" />);
+    render(<CompliancePanel orgId="org-1" orgName="dev1" />);
 
     expect(screen.getByTestId('dsr-needs-inventory')).toBeDefined();
   });
@@ -162,7 +162,7 @@ describe('CompliancePanel', () => {
       },
     ]);
 
-    render(<CompliancePanel orgId="org-1" />);
+    render(<CompliancePanel orgId="org-1" orgName="dev1" />);
 
     expect(screen.getByTestId('inventory-object-Nope__c').textContent).toBe(
       'Could not read Nope__c: INVALID_TYPE: sObject type is not supported.',

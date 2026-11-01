@@ -7,10 +7,10 @@ records, and clean up the records nobody needs, from a single tabbed page.
 
 ## How to
 
-1. Check the org named at the top of the page, then open the Anonymize tab.
+1. Pick the org in the list at the top of the page, then open the Anonymize tab.
 2. Pick a template in Select a template; its card lists each field it masks.
 3. Click Preview: the first records show Original beside Masked, and nothing is written.
-4. Click Apply, leave Keep the values first ticked, type Anonymize, then click Confirm.
+4. Click Apply, leave Keep the values first ticked, type the org's name, then click Confirm.
 
 **Tip:** Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back.
 
@@ -21,8 +21,11 @@ records, and clean up the records nobody needs, from a single tabbed page.
 
 ## Quick Start
 
-1. Navigate to **DataOps** from the sidebar
-2. The KPI row shows records processed, error rate, and anonymization template count
+1. Navigate to **DataOps** from the sidebar, and pick the org in the list at the top
+   of the page: the one the status bar and the other panels follow
+2. The KPI row shows the org's backups on this machine and the records they hold,
+   how many of them are partial or failed, and how many anonymization templates
+   are listed
 3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
 4. Before masking, leave **Keep the values first, so Restore can put them back** ticked in
    Apply's confirmation, or start with a backup: without either, the mask cannot be undone
@@ -31,7 +34,7 @@ records, and clean up the records nobody needs, from a single tabbed page.
 
 ### Backup
 
-Take a snapshot of the objects an Anonymize writes over:
+Take a copy of the objects an Anonymize writes over:
 
 - The objects follow the templates: a backup reads the objects the template
   picked on the Anonymize tab masks or, with none picked, every object a
@@ -43,7 +46,7 @@ Take a snapshot of the objects an Anonymize writes over:
   sandbox, 500 on production or a Developer Edition -- up to a cap of
   records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless
   you set it, from 100 to 1,000,000). There is no object picker and no
-  incremental mode -- each backup is a new snapshot
+  incremental mode -- each backup is a new copy
 - A classic encrypted field (`encryptedstring`) is not kept when the user
   SandForge connects as lacks View Encrypted Data, which the API answers
   masked: the Backup tab names it per object, and a restore leaves it as the
@@ -66,7 +69,7 @@ Take a snapshot of the objects an Anonymize writes over:
 - A backup is listed in Live Operations while it reads, and the Backup tab
   offers **Cancel run** meanwhile. It stops between two pages when either
   cancels it, the window closes or the extension deactivates, and what it
-  wrote is removed, so a stopped run leaves no half-saved snapshot -- run it
+  wrote is removed, so a stopped run leaves no half-saved backup -- run it
   again for a complete one
 - A backup whose read the org fails part-way keeps the records it read,
   listed as failed and partial with the object it stopped on and each object
@@ -82,7 +85,7 @@ Take a snapshot of the objects an Anonymize writes over:
   removing the run gives back: only their age takes those, and the run's card
   says until when. `sandforge-backup` and `sandforge-dataops` apply the same
   retention as they start, `--max-age-days` setting it (0 keeps them all), and
-  name on stderr each snapshot they remove, a Sync run's said as the run's. A
+  name on stderr each backup they remove, a Sync run's said as the run's. A
   backup taken before
   that setting existed is kept until you delete it: the retention counts from
   the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
@@ -98,10 +101,15 @@ Take a snapshot of the objects an Anonymize writes over:
 
 Restore data from a previously saved backup:
 
-- Browse available backups with timestamps and record counts, newest first
-- Select a specific backup and restore it to the current org
+- Browse available backups with timestamps, record counts and the objects
+  each holds, newest first
+- Select a specific backup and restore it to the current org. **Restore** asks
+  first, writing nothing until **Restore into _org_**: the question names the
+  org, each object of the backup with its records, and that the rows changed
+  since the backup get its values back, whoever changed them — of a Sync run's
+  backup, that the records changed since the run are left as they are
 - A restore puts the whole backup back: there is no choice of records, objects
-  or moment in time, only of which snapshot
+  or moment in time, only of which backup
 - The backup a Sync run kept of the records it wrote over is listed here too,
   marked as the run's and saying that removing the run in Sync puts the values
   back as well. Restored from here, a record the run's calls kept in more than
@@ -244,14 +252,14 @@ your own:
   rules mask person accounts only; a business account keeps its rules, a
   person account goes without a rule on `Name`, which the platform computes
   from its first and last names, and an org without person accounts is
-  masked as before. A snapshot keeps each account's kind, and a restore
+  masked as before. The backup a run keeps first holds each account's kind, and a restore
   writes each back with the fields its kind holds. A run that names no
   object -- Apply, or the command line without `--object` -- masks Account's
   person accounts too, in an org that has them, when the template masks
   contacts: planned from its rules alone, the CCPA template, whose rules name
   Contact and Lead, masked every contact and left every person account in
   clear. Its business accounts, which hold none of it, are neither counted,
-  read nor kept in the snapshot
+  read nor kept in that backup
 - **Preview before Apply.** **Preview** reads the first five records of each
   object the template masks, in `Id` order -- the ones a run masks first --
   and shows each masked field as the org holds it beside the value Apply
@@ -337,7 +345,8 @@ number, or several, and **Search**. It looks in the objects the inventory read:
     opportunities). Records stay in the recycle bin until it is emptied
 - Both start with a review that writes nothing: the fields each object would
   have overwritten and how, or how many related records the org would delete
-  along with them. Then a typed confirmation, then **Production Guard**:
+  along with them. Then a confirmation armed by typing the org's name, then
+  **Production Guard**:
   refused on production for a delete, a confirmation where the org's tier
   asks for one. An erasure is listed in Live Operations while it writes,
   where Cancel stops it before its next call to the org: what it did by then
@@ -383,7 +392,8 @@ Each recommendation can be:
 - **Deleted**: a review first says how many records go and how many records of
   other objects the org deletes along with them (counted per object people
   work with; the org's own history, sharing and feed rows are not), then a
-  typed confirmation, then **Production Guard**. Deleted records go to the
+  confirmation armed by typing the org's name, then **Production Guard**.
+  Deleted records go to the
   recycle bin. A delete is listed in Live Operations while it runs, where
   Cancel stops it before its next call of 200 records, the records deleted by
   then said. Every delete is recorded in the audit trail, one you cancelled as
@@ -451,4 +461,8 @@ How it counts, and where it stops:
   applied in place and, without either, cannot be undone
 - A backup can only be restored into the org it was taken from, so keep one
   backup per org rather than one per project
-- Check the KPI row for a quick overview of your DataOps activity and error rates
+- Check the KPI row for the backups this machine keeps of the org, and those a
+  cap or a failed read left partial
+- A backup reads only the objects the templates mask: before a Seed, Sync or
+  Forge run, take a checkpoint instead (the Backup tab's **Take a checkpoint**
+  opens Checkpoints on one), which **Rewind…** returns the org's data to

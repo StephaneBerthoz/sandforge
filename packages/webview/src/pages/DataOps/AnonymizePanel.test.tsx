@@ -28,22 +28,22 @@ const templates: ListedAnonymizationTemplate[] = [
 
 describe('AnonymizePanel', () => {
   it('should render the panel', () => {
-    render(<AnonymizePanel />);
+    render(<AnonymizePanel orgName="dev1" />);
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
   });
 
   it('should show empty state when no templates', () => {
-    render(<AnonymizePanel />);
+    render(<AnonymizePanel orgName="dev1" />);
     expect(screen.getByText('No templates available')).toBeDefined();
   });
 
   it('should show template selector', () => {
-    render(<AnonymizePanel templates={templates} />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} />);
     expect(screen.getByTestId('template-select')).toBeDefined();
   });
 
   it('marks a template the user saved in the picker', () => {
-    render(<AnonymizePanel templates={templates} />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} />);
     const labels = Array.from(
       (screen.getByTestId('template-select') as HTMLSelectElement).options,
     ).map((option) => option.textContent);
@@ -53,36 +53,38 @@ describe('AnonymizePanel', () => {
 
   it('should call onSelectTemplate when template selected', () => {
     const onSelect = vi.fn();
-    render(<AnonymizePanel templates={templates} onSelectTemplate={onSelect} />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} onSelectTemplate={onSelect} />);
     fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
     expect(onSelect).toHaveBeenCalledWith('tpl-1');
   });
 
   it('should show template detail when selected', () => {
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} selectedTemplateId="tpl-1" />);
     expect(screen.getByTestId('template-detail')).toBeDefined();
     expect(screen.getAllByText('GDPR Template').length).toBeGreaterThan(0);
   });
 
   it('should show compliance badge', () => {
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} selectedTemplateId="tpl-1" />);
     expect(screen.getByText('GDPR')).toBeDefined();
   });
 
   it('names each rule by the field it masks and its method, as the host sends them', () => {
     // The badges read `fieldApiName` and `method`, which no listed template
     // carries: against the host's templates, each one read ": ".
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
+    render(<AnonymizePanel orgName="dev1" templates={templates} selectedTemplateId="tpl-1" />);
     expect(screen.getByText('Contact.Email: Mask')).toBeDefined();
     expect(screen.getByText('Contact.Phone: Fake')).toBeDefined();
   });
 
   it('counts the rules in the reader’s language, one and many', () => {
     const { rerender } = render(
-      <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />,
+      <AnonymizePanel orgName="dev1" templates={templates} selectedTemplateId="tpl-1" />,
     );
     expect(screen.getByTestId('template-rule-count').textContent).toBe('2 rules');
-    rerender(<AnonymizePanel templates={templates} selectedTemplateId="tpl-saved-1" />);
+    rerender(
+      <AnonymizePanel orgName="dev1" templates={templates} selectedTemplateId="tpl-saved-1" />,
+    );
     expect(screen.getByTestId('template-rule-count').textContent).toBe('1 rule');
   });
 
@@ -114,6 +116,7 @@ describe('AnonymizePanel', () => {
       const onApply = vi.fn();
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onPreview={onPreview}
@@ -130,6 +133,7 @@ describe('AnonymizePanel', () => {
     it('shows each masked field of each record, the original beside the masked value', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onPreview={vi.fn()}
@@ -158,6 +162,7 @@ describe('AnonymizePanel', () => {
       // user's profile hid read as if no data were at risk.
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onPreview={vi.fn()}
@@ -180,6 +185,7 @@ describe('AnonymizePanel', () => {
     it('shows no preview taken for another template', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-saved-1"
           onPreview={vi.fn()}
@@ -192,6 +198,7 @@ describe('AnonymizePanel', () => {
     it('holds Preview while a run masks the org', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onPreview={vi.fn()}
@@ -204,7 +211,14 @@ describe('AnonymizePanel', () => {
 
   it('should not anonymize on the apply click alone', () => {
     const onApply = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    render(
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        onApply={onApply}
+      />,
+    );
     fireEvent.click(screen.getByTestId('apply-btn'));
     expect(onApply).not.toHaveBeenCalled();
     expect(screen.getByTestId('danger-title')).toBeDefined();
@@ -212,9 +226,16 @@ describe('AnonymizePanel', () => {
 
   it('should anonymize once the confirmation word is typed', () => {
     const onApply = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    render(
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        onApply={onApply}
+      />,
+    );
     fireEvent.click(screen.getByTestId('apply-btn'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
     // Keeping the values first unless unticked, as the command line does.
     expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
@@ -224,13 +245,20 @@ describe('AnonymizePanel', () => {
     // The panel took none: a run on an org with no backup had no way back,
     // where the command line's took one every time.
     const onApply = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    render(
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        onApply={onApply}
+      />,
+    );
     fireEvent.click(screen.getByTestId('apply-btn'));
 
     const keep = screen.getByTestId('confirm-keep-values-toggle') as HTMLInputElement;
     expect(keep.checked).toBe(true);
     fireEvent.click(keep);
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: false });
@@ -239,6 +267,7 @@ describe('AnonymizePanel', () => {
   it('offers no snapshot on a resume, which the run it resumes took', () => {
     render(
       <AnonymizePanel
+        orgName="dev1"
         templates={templates}
         selectedTemplateId="tpl-1"
         onResume={vi.fn()}
@@ -258,6 +287,7 @@ describe('AnonymizePanel', () => {
     const onStop = vi.fn();
     const { rerender } = render(
       <AnonymizePanel
+        orgName="dev1"
         templates={templates}
         selectedTemplateId="tpl-1"
         isApplying
@@ -267,10 +297,22 @@ describe('AnonymizePanel', () => {
     fireEvent.click(screen.getByTestId('anonymize-stop'));
     expect(onStop).toHaveBeenCalledTimes(1);
 
-    rerender(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" snapshotRefused />);
+    rerender(
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        snapshotRefused
+      />,
+    );
     expect(screen.queryByTestId('anonymize-stop')).toBeNull();
     expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toContain(
       'untick “Keep the values first”',
+    );
+    // A backup, as its hint and the Restore tab call it: "snapshot" named the
+    // same thing here, and Compare's live object lists elsewhere.
+    expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toMatch(
+      /^No backup could be kept, so nothing was masked\./,
     );
   });
 
@@ -278,6 +320,7 @@ describe('AnonymizePanel', () => {
     const onOpenRestore = vi.fn();
     render(
       <AnonymizePanel
+        orgName="dev1"
         templates={templates}
         selectedTemplateId="tpl-1"
         snapshotTaken={{ operationId: 'an-1-snapshot', totalRecords: 1220 }}
@@ -295,17 +338,81 @@ describe('AnonymizePanel', () => {
   it('applies a template the user saved the way it applies one that ships', () => {
     const onApply = vi.fn();
     render(
-      <AnonymizePanel templates={templates} selectedTemplateId="tpl-saved-1" onApply={onApply} />,
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-saved-1"
+        onApply={onApply}
+      />,
     );
     fireEvent.click(screen.getByTestId('apply-btn'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
     expect(onApply).toHaveBeenCalledWith('tpl-saved-1', { snapshot: true });
   });
 
+  describe('the confirmation of a run', () => {
+    it('names the org and the template, and each field the template masks', () => {
+      // It was titled "Apply" over "Anonymize sensitive data".
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onApply={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Anonymize dev1 with “GDPR Template”?',
+      );
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'Overwrites these fields wherever a record holds a value: Contact.Email (Mask), Contact.Phone (Fake).',
+      );
+    });
+
+    it('asks for the org’s name, not a word of the interface language', () => {
+      // The word was Anonymize, 匿名化 in Japanese, typed only through an
+      // input method; Rewind and Deploy ask for the org's name.
+      const onApply = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onApply={onApply}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
+    });
+
+    it('offers no Apply with no org to name', () => {
+      render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={vi.fn()} />);
+
+      const apply = screen.getByTestId('apply-btn') as HTMLButtonElement;
+      expect(apply.disabled).toBe(true);
+      fireEvent.click(apply);
+      expect(screen.queryByTestId('danger-title')).toBeNull();
+    });
+  });
+
   it('should not anonymize when the typed confirmation does not match', () => {
     const onApply = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    render(
+      <AnonymizePanel
+        orgName="dev1"
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        onApply={onApply}
+      />,
+    );
     fireEvent.click(screen.getByTestId('apply-btn'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'nope' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
@@ -327,7 +434,12 @@ describe('AnonymizePanel', () => {
 
     it('sets, before Apply, each object’s rows in the org against those the latest backup holds', () => {
       render(
-        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={coverage}
+        />,
       );
 
       const box = screen.getByTestId('restore-coverage');
@@ -355,6 +467,7 @@ describe('AnonymizePanel', () => {
     it('says which objects the backup stopped at its cap, or on a read that failed, and which setting raises the cap', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={{
@@ -401,7 +514,12 @@ describe('AnonymizePanel', () => {
 
     it('says nothing of a cap when no object stopped at it', () => {
       render(
-        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={coverage}
+        />,
       );
       expect(screen.queryByTestId('restore-coverage-cap')).toBeNull();
     });
@@ -409,6 +527,7 @@ describe('AnonymizePanel', () => {
     it('says the org has no backup to bring anything back from', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={{
@@ -427,6 +546,7 @@ describe('AnonymizePanel', () => {
     it('shows no answer given for another template than the one on screen', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-saved-1"
           coverage={coverage}
@@ -440,6 +560,7 @@ describe('AnonymizePanel', () => {
       // said only 'Anonymize sensitive data'.
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={{
@@ -472,7 +593,12 @@ describe('AnonymizePanel', () => {
 
     it('names an object the org did not count when no backup holds it', () => {
       render(
-        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" coverage={coverage} />,
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={coverage}
+        />,
       );
 
       fireEvent.click(screen.getByTestId('apply-btn'));
@@ -488,6 +614,7 @@ describe('AnonymizePanel', () => {
     it('says nothing more in the confirmation when the backup holds every record', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={{
@@ -517,6 +644,7 @@ describe('AnonymizePanel', () => {
       const onResume = vi.fn();
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={stopped}
@@ -530,8 +658,13 @@ describe('AnonymizePanel', () => {
 
       fireEvent.click(screen.getByTestId('resume-btn'));
       expect(onResume).not.toHaveBeenCalled();
-      expect(screen.getByTestId('danger-title').textContent).toBe('Resume where it stopped');
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Resume anonymizing dev1 with “GDPR Template”?',
+      );
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'Overwrites these fields in the records the stopped run left: Contact.Email (Mask), Contact.Phone (Fake).',
+      );
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(onResume).toHaveBeenCalledWith('tpl-1', 'run-1');
@@ -543,6 +676,7 @@ describe('AnonymizePanel', () => {
       const onResume = vi.fn();
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={stopped}
@@ -552,7 +686,7 @@ describe('AnonymizePanel', () => {
       );
 
       fireEvent.click(screen.getByTestId('apply-btn'));
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
@@ -562,6 +696,7 @@ describe('AnonymizePanel', () => {
     it('offers no resume without a run that stopped, nor for another template', () => {
       const { rerender } = render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={{ ...stopped, checkpoint: undefined }}
@@ -572,6 +707,7 @@ describe('AnonymizePanel', () => {
 
       rerender(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-saved-1"
           coverage={stopped}
@@ -585,6 +721,7 @@ describe('AnonymizePanel', () => {
     it('holds Resume while a run goes on', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           coverage={stopped}
@@ -598,7 +735,7 @@ describe('AnonymizePanel', () => {
 
   describe('creating a template', () => {
     it('no longer says Create Template is coming', () => {
-      render(<AnonymizePanel templates={templates} onSaveTemplate={vi.fn()} />);
+      render(<AnonymizePanel orgName="dev1" templates={templates} onSaveTemplate={vi.fn()} />);
       const button = screen.getByTestId('create-template-btn') as HTMLButtonElement;
       expect(button.disabled).toBe(false);
       expect(button.title).toBe('');
@@ -608,6 +745,7 @@ describe('AnonymizePanel', () => {
     it('opens the editor on the rules of the template on screen', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onSaveTemplate={vi.fn()}
@@ -629,7 +767,12 @@ describe('AnonymizePanel', () => {
     it('saves the rules on screen under the name given', () => {
       const onSave = vi.fn();
       render(
-        <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onSaveTemplate={onSave} />,
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onSaveTemplate={onSave}
+        />,
       );
       fireEvent.click(screen.getByTestId('create-template-btn'));
       fireEvent.change(screen.getByTestId('template-name-input'), {
@@ -648,25 +791,26 @@ describe('AnonymizePanel', () => {
 
     it('closes the editor once the host has saved the template', () => {
       const props = { templates, onSaveTemplate: vi.fn() };
-      const { rerender } = render(<AnonymizePanel {...props} />);
+      const { rerender } = render(<AnonymizePanel orgName="dev1" {...props} />);
       fireEvent.click(screen.getByTestId('create-template-btn'));
 
-      rerender(<AnonymizePanel {...props} savingTemplate />);
+      rerender(<AnonymizePanel orgName="dev1" {...props} savingTemplate />);
       expect(screen.getByTestId('template-editor')).toBeDefined();
-      rerender(<AnonymizePanel {...props} savingTemplate={false} />);
+      rerender(<AnonymizePanel orgName="dev1" {...props} savingTemplate={false} />);
 
       expect(screen.queryByTestId('template-editor')).toBeNull();
     });
 
     it('keeps the editor, and what was typed, when the host refuses the save', () => {
       const props = { templates, onSaveTemplate: vi.fn() };
-      const { rerender } = render(<AnonymizePanel {...props} />);
+      const { rerender } = render(<AnonymizePanel orgName="dev1" {...props} />);
       fireEvent.click(screen.getByTestId('create-template-btn'));
       fireEvent.change(screen.getByTestId('template-name-input'), { target: { value: 'Mine' } });
 
-      rerender(<AnonymizePanel {...props} savingTemplate />);
+      rerender(<AnonymizePanel orgName="dev1" {...props} savingTemplate />);
       rerender(
         <AnonymizePanel
+          orgName="dev1"
           {...props}
           savingTemplate={false}
           saveTemplateError='A template named "Mine" already exists. Pick another name.'
@@ -678,7 +822,7 @@ describe('AnonymizePanel', () => {
 
     it('goes back to the templates on Cancel, saving nothing', () => {
       const onSave = vi.fn();
-      render(<AnonymizePanel templates={templates} onSaveTemplate={onSave} />);
+      render(<AnonymizePanel orgName="dev1" templates={templates} onSaveTemplate={onSave} />);
       fireEvent.click(screen.getByTestId('create-template-btn'));
       fireEvent.click(within(screen.getByTestId('template-editor')).getByText('Cancel'));
 
@@ -692,6 +836,7 @@ describe('AnonymizePanel', () => {
     it('offers no delete for a template that ships', () => {
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-1"
           onDeleteTemplate={vi.fn()}
@@ -705,6 +850,7 @@ describe('AnonymizePanel', () => {
       const onDelete = vi.fn();
       render(
         <AnonymizePanel
+          orgName="dev1"
           templates={templates}
           selectedTemplateId="tpl-saved-1"
           onDeleteTemplate={onDelete}
@@ -714,9 +860,54 @@ describe('AnonymizePanel', () => {
 
       fireEvent.click(screen.getByTestId('delete-template-btn'));
       expect(onDelete).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByTestId('confirm-delete-template-btn'));
+      fireEvent.click(screen.getByTestId('delete-template-confirm'));
 
       expect(onDelete).toHaveBeenCalledWith('tpl-saved-1');
+    });
+
+    it('asks a question naming the template, its button saying it deletes the template, on a line of its own below Apply', () => {
+      // A bare red Confirm took the Delete's place on the row of Preview and
+      // Apply, and read as confirming Apply.
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-saved-1"
+          onApply={vi.fn()}
+          onDeleteTemplate={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('delete-template-btn'));
+
+      const question = screen.getByTestId('delete-template-question');
+      expect(question.querySelector('p')?.textContent).toBe(
+        'Delete the template “Support desk”? Its rules are gone from this machine.',
+      );
+      const confirm = screen.getByTestId('delete-template-confirm');
+      expect(confirm.textContent).toBe('Delete template');
+      expect(confirm.getAttribute('aria-describedby')).toBe(question.querySelector('p')?.id);
+      // Not on the row of Apply: the row holds Apply, the question does not.
+      const applyRow = screen.getByTestId('apply-btn').parentElement as HTMLElement;
+      expect(applyRow.contains(confirm)).toBe(false);
+      expect(within(applyRow).queryByText('Confirm')).toBeNull();
+    });
+
+    it('gives the keyboard back to Delete template on Cancel, deleting nothing', () => {
+      const onDelete = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-saved-1"
+          onDeleteTemplate={onDelete}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('delete-template-btn'));
+      fireEvent.click(screen.getByTestId('delete-template-cancel'));
+
+      expect(screen.queryByTestId('delete-template-question')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByTestId('delete-template-btn'));
+      expect(onDelete).not.toHaveBeenCalled();
     });
 
     it('does not carry a delete asked about one template over to the next one picked', () => {
@@ -728,23 +919,25 @@ describe('AnonymizePanel', () => {
       const all = [...templates, second];
       const { rerender } = render(
         <AnonymizePanel
+          orgName="dev1"
           templates={all}
           selectedTemplateId="tpl-saved-1"
           onDeleteTemplate={vi.fn()}
         />,
       );
       fireEvent.click(screen.getByTestId('delete-template-btn'));
-      expect(screen.getByTestId('confirm-delete-template-btn')).toBeDefined();
+      expect(screen.getByTestId('delete-template-confirm')).toBeDefined();
 
       rerender(
         <AnonymizePanel
+          orgName="dev1"
           templates={all}
           selectedTemplateId="tpl-saved-2"
           onDeleteTemplate={vi.fn()}
         />,
       );
 
-      expect(screen.queryByTestId('confirm-delete-template-btn')).toBeNull();
+      expect(screen.queryByTestId('delete-template-confirm')).toBeNull();
       expect(screen.getByTestId('delete-template-btn')).toBeDefined();
     });
   });

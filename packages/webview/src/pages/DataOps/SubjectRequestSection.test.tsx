@@ -88,7 +88,7 @@ beforeEach(() => {
 
 function section(objects = ['Contact', 'Account'], onLogged = vi.fn()) {
   const view = render(
-    <SubjectRequestSection orgId="org-1" objects={objects} onLogged={onLogged} />,
+    <SubjectRequestSection orgId="org-1" orgName="dev1" objects={objects} onLogged={onLogged} />,
   );
   return { ...view, onLogged };
 }
@@ -229,7 +229,7 @@ describe('SubjectRequestSection', () => {
     fireEvent.click(screen.getByTestId('dsr-erase-btn'));
     expect(states.erase.mutate).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'erase' } });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(states.erase.mutate).toHaveBeenCalledWith({
@@ -238,6 +238,51 @@ describe('SubjectRequestSection', () => {
       mode: 'anonymize',
       records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA', '003000000000002AAA'] }],
       dryRun: false,
+    });
+  });
+
+  describe('the confirmation of an erasure', () => {
+    beforeEach(() => {
+      states['dataops:dsr:search'].data = found;
+      states.review.data = {
+        requestId: REQUEST,
+        mode: 'anonymize',
+        dryRun: true,
+        plan: [
+          {
+            objectApiName: 'Contact',
+            label: 'Contact',
+            records: 2,
+            fields: [{ fieldApiName: 'Email', label: 'Email', method: 'fake' }],
+            kept: [],
+          },
+        ],
+      };
+    });
+
+    it('asks for the org’s name, not the word erase', () => {
+      // The word was erase, 消去 in Japanese, typed only through an input method.
+      section();
+      fireEvent.click(screen.getByTestId('dsr-erase-btn'));
+
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'erase' } });
+      expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+      expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('says to delete the backups that still hold the values, never to take one first', () => {
+      // It advised "Take a backup first if you may need them", and once the
+      // erasure was done the same panel warned that such a backup brings the
+      // person back, and offered to delete it.
+      section();
+      fireEvent.click(screen.getByTestId('dsr-erase-btn'));
+
+      const said = screen.getByRole('dialog').textContent ?? '';
+      expect(said).toContain(
+        'Any backup of this org on this machine still holds these values: delete it once the erasure is done.',
+      );
+      expect(said).not.toContain('Take a backup');
     });
   });
 

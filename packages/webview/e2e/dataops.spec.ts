@@ -184,7 +184,9 @@ test.describe('DataOps — with a connected org', () => {
     // the org it is about to write to and the "no org selected" banner stays
     // off screen.
     await expect(page.getByTestId('dataops-no-org')).toHaveCount(0);
-    await expect(page.getByTestId('org-badge')).toContainText('DevSandbox');
+    // In the org picker the other pages have, with the org's type beside it.
+    await expect(page.getByTestId('dataops-org')).toContainText('DevSandbox');
+    await expect(page.getByTestId('dataops-org-type')).toBeVisible();
 
     // The backup list is scoped to that org, not to `orgs[0]` by accident.
     const [request] = await outgoing(page, 'backup:list');
@@ -197,14 +199,69 @@ test.describe('DataOps — with a connected org', () => {
     const kpis = page.getByTestId('dataops-kpi-row');
     await expect(kpis).toBeVisible();
 
-    // The three cards are derived from the answered data: 1500 + 800 records
-    // backed up, one failed backup out of four backed-up objects, two
-    // anonymization templates.
+    // Three facts of the answered data, each what its label says: two backups
+    // of the org holding 1500 + 800 records, one of them failed, two
+    // anonymization templates. The cards read "Records Processed" and an
+    // "Error Rate" of failed backups over objects backed up.
     const values = kpis.getByTestId('kpi-value');
     await expect(values).toHaveCount(3);
-    await expect(values.nth(0)).toHaveText('2,300');
-    await expect(values.nth(1)).toHaveText('25.0%');
+    await expect(values.nth(0)).toHaveText('2');
+    await expect(kpis.getByTestId('kpi-card').nth(0)).toContainText('Backups of DevSandbox');
+    await expect(kpis.getByTestId('kpi-card').nth(0)).toContainText('2,300 records');
+    await expect(values.nth(1)).toHaveText('1');
+    await expect(kpis.getByTestId('kpi-card').nth(1)).toContainText('Partial or failed backups');
     await expect(values.nth(2)).toHaveText('2');
+    await expect(kpis.getByTestId('kpi-card').nth(2)).toContainText('Anonymization templates');
+  });
+
+  test('marks each backup in words of the interface, the failed one that kept rows as Partial', async ({
+    page,
+  }) => {
+    await answerMountQueries(page, bridge);
+
+    await expect(page.getByTestId('backup-status-op-backup-1')).toHaveText('Completed');
+    await expect(page.getByTestId('backup-status-op-backup-2')).toHaveText('Partial');
+    await expect(page.getByTestId('backup-objects-op-backup-1')).toHaveText(
+      '2 objects: Account, Contact',
+    );
+  });
+
+  test('a restore asks first, naming the org and what each object holds, and writes only on the yes', async ({
+    page,
+  }) => {
+    await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-restore').click();
+    await page.getByTestId('restore-backup-op-backup-1').getByRole('button').first().click();
+    await page.getByTestId('restore-btn-op-backup-1').click();
+
+    await expect(page.getByTestId('danger-title')).toContainText('into DevSandbox?');
+    await expect(page.getByTestId('restore-confirm-objects')).toContainText('Account: 500 records');
+    await expect(page.getByTestId('restore-confirm-objects')).toContainText(
+      'Contact: 1,000 records',
+    );
+    expect(await outgoing(page, 'dataops:rollback')).toHaveLength(0);
+
+    await page.getByTestId('danger-dismiss-btn').click();
+    expect(await outgoing(page, 'dataops:rollback')).toHaveLength(0);
+
+    await page.getByTestId('restore-btn-op-backup-1').click();
+    await page.getByRole('button', { name: 'Restore into DevSandbox' }).click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:rollback')).length).toBe(1);
+    const [rollback] = await outgoing(page, 'dataops:rollback');
+    expect(rollback.payload).toEqual({ orgId: 'org-src-1', operationId: 'op-backup-1' });
+  });
+
+  test('the Restore tab of an org with no backup opens the Backup tab, which offers a checkpoint', async ({
+    page,
+  }) => {
+    await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+    await respondToAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+    await page.getByTestId('page-tab-restore').click();
+
+    await expect(page.getByTestId('restore-panel')).toContainText('No backup of DevSandbox yet');
+    await page.getByTestId('empty-action-button').click();
+    await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('backup-checkpoint')).toContainText('take a checkpoint');
   });
 
   test('shows the loading skeleton until the backup list answers', async ({ page }) => {
@@ -691,7 +748,7 @@ test.describe('DataOps — Compliance', () => {
     // Nothing goes out until the confirmation is typed.
     await page.getByTestId('dsr-erase-btn').click();
     await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
-    await page.getByTestId('danger-input').fill('erase');
+    await page.getByTestId('danger-input').fill('DevSandbox');
     await page.getByTestId('danger-confirm-btn').click();
     await expect.poll(async () => (await outgoing(page, 'dataops:dsr:erase')).length).toBe(2);
     const [, erase] = await outgoing(page, 'dataops:dsr:erase');
@@ -835,7 +892,7 @@ test.describe('DataOps — Cleanup', () => {
     });
 
     await page.getByTestId('cleanup-delete-btn').click();
-    await page.getByTestId('danger-input').fill('delete');
+    await page.getByTestId('danger-input').fill('DevSandbox');
     await page.getByTestId('danger-confirm-btn').click();
     await expect.poll(async () => (await outgoing(page, 'dataops:cleanup:delete')).length).toBe(2);
     const [, remove] = await outgoing(page, 'dataops:cleanup:delete');

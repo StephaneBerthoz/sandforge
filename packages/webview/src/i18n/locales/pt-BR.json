@@ -1913,18 +1913,15 @@
     "backupExported": "Salvo em {{path}}. Registros por objeto: {{records}}.",
     "backupDesc": "Criar e gerenciar backups de dados",
     "restore": "Restaurar",
-    "restoreDesc": "Restaurar dados a partir de um backup",
     "anonymize": "Anonimizar",
     "anonymizeDesc": "Anonimizar dados sensíveis",
     "cleanup": "Limpeza",
     "quality": "Qualidade",
-    "selectOrg": "Selecionar Org",
-    "noOrgSelected": "Nenhuma org selecionada — escolha uma na página Organizações antes de executar backup ou anonimização.",
+    "noOrgSelected": "Nenhuma org selecionada: escolha uma na lista acima.",
     "noBackups": "Nenhum backup disponível",
     "createBackup": "Criar backup",
     "backupObjectsTemplate": "Faz backup de {{objects}}: os objetos que {{name}} mascara.",
     "backupObjectsAll": "Faz backup de {{objects}}: os objetos que os modelos de anonimização mascaram.",
-    "selectBackup": "Selecione um backup para restaurar",
     "restoreInProgress": "Restaurando dados...",
     "restoreRewriteAll": "Gravar de volta cada linha do backup, inclusive as que a org já contém como o backup as guardou. Desmarcado, uma restauração lê primeiro a org e grava apenas as linhas que mudaram desde o backup.",
     "restoreResult": "Última restauração — gravadas: {{written}} · já como no backup, deixadas como estão: {{unchanged}} · recusadas: {{failed}}",
@@ -1978,13 +1975,11 @@
       "constant": "Constante",
       "preserve_format": "Preservar formato"
     },
-    "recordsProcessed": "Registros processados",
-    "errorRate": "Taxa de erro",
-    "anonymizedFields": "Campos anonimizados",
+    "anonymizedFields": "Modelos de anonimização",
     "emptyState": {
       "title": "Proteja os dados da sua org",
       "description": "O DataOps faz backup, restaura e anonimiza os dados da sua org, atende às solicitações de titulares e limpa os registros de que ninguém precisa.",
-      "step2": "Crie um backup antes de qualquer operação arriscada",
+      "step2": "Faça backup dos campos que um modelo mascara antes de anonimizar",
       "step3": "Anonimize campos sensíveis com um template",
       "step4": "Restaure um backup na org de onde ele foi tirado"
     },
@@ -2150,9 +2145,8 @@
       "erase_other": "Apagar {{formatted}} registros",
       "confirmTitle_one": "Apagar {{formatted}} registro?",
       "confirmTitle_other": "Apagar {{formatted}} registros?",
-      "confirmAnonymize": "Os campos listados são sobrescritos na org, e isso não pode ser desfeito. Faça um backup antes, caso venha a precisar deles.",
+      "confirmAnonymize": "Os campos listados são sobrescritos na org, e isso não pode ser desfeito. Qualquer backup desta org nesta máquina ainda guarda esses valores: exclua-o depois de concluir o apagamento.",
       "confirmDelete": "Os registros, e o que a org exclui junto com eles, vão para a lixeira, onde ficam até que ela seja esvaziada.",
-      "confirmWord": "apagar",
       "backupsBefore_one": "Esta org tem um backup nesta máquina, feito antes desta exclusão: ele guarda em claro os registros da pessoa, e restaurá-lo os traz de volta.",
       "backupsBefore_other": "Esta org tem {{count}} backups nesta máquina, feitos antes desta exclusão: eles guardam em claro os registros da pessoa, e restaurar um deles os traz de volta.",
       "deleteBackupsBefore_one": "Excluir este backup",
@@ -2242,8 +2236,7 @@
       "deleteRecords_other": "Excluir {{formatted}} registros",
       "confirmTitle_one": "Excluir {{formatted}} registro?",
       "confirmTitle_other": "Excluir {{formatted}} registros?",
-      "confirmDescription": "Eles vão para a lixeira da org, com o que a org exclui junto com eles, e ficam lá até que ela seja esvaziada. Exporte-os antes, caso venha a precisar deles.",
-      "confirmWord": "excluir"
+      "confirmDescription": "Eles vão para a lixeira da org, com o que a org exclui junto com eles, e ficam lá até que ela seja esvaziada. Exporte-os antes, caso venha a precisar deles."
     },
     "preview": {
       "description": "Os primeiros registros de cada objeto, como Aplicar os mascararia nesta janela. Nada foi gravado. Um nome inventado pode ser diferente na execução se um registro anterior o sortear primeiro.",
@@ -2269,10 +2262,45 @@
       "taken_one": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registro: Restaurar os devolve.",
       "taken_other": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registros: Restaurar os devolve.",
       "openRestore": "Abrir em Restaurar",
-      "refused": "Nenhum snapshot pôde ser guardado, então nada foi mascarado. Para mascarar sem volta, desmarque “Guardar os valores antes” na confirmação."
+      "refused": "Nenhum backup pôde ser guardado, então nada foi mascarado. Para mascarar sem volta, desmarque “Guardar os valores antes” na confirmação."
     },
     "backupDeleteConfirmSync": "Excluir este backup? Ele guarda o que a execução do Sync de {{date}} sobrescreveu: remover essa execução no Sync não devolverá mais esses valores, e eles somem de vez desta máquina.",
-    "restoreSyncPartial": "A execução do Sync ainda está gravando, ou parou antes de terminar — a janela foi fechada ou a extensão parou: este backup guarda o que ela tinha guardado até então."
+    "restoreSyncPartial": "A execução do Sync ainda está gravando, ou parou antes de terminar — a janela foi fechada ou a extensão parou: este backup guarda o que ela tinha guardado até então.",
+    "orgPicker": "Org que as abas abaixo leem e gravam",
+    "kpi": {
+      "backups": "Backups de {{org}}",
+      "partial": "Backups parciais ou com falha"
+    },
+    "backupStatus": {
+      "pending": "Pendente",
+      "running": "Em andamento",
+      "completed": "Concluído",
+      "failed": "Falhou",
+      "expired": "Expirado"
+    },
+    "backupObjectNames_one": "{{count}} objeto: {{objects}}",
+    "backupObjectNames_other": "{{count}} objetos: {{objects}}",
+    "checkpointBeforeRisk": "Antes de uma execução arriscada em uma sandbox, crie um ponto de verificação (Pontos de verificação → Criar um ponto de verificação): Retroceder… devolve os dados da org a esse ponto.",
+    "takeCheckpoint": "Criar um ponto de verificação",
+    "restoreEmpty": "Ainda não há backup de {{org}}",
+    "restoreEmptyDesc": "Aqui aparecem os backups feitos na aba Backup e os que uma execução do Sync guarda do que sobrescreve.",
+    "restoreCreateBackup": "Criar um backup",
+    "restorePick": "Clique em um backup para restaurá-lo ou excluí-lo.",
+    "restoreConfirm": {
+      "title": "Restaurar o backup de {{date}} em {{org}}?",
+      "changed": "As linhas alteradas desde {{date}} recebem de volta os valores do backup, não importa quem as alterou.",
+      "syncKept": "Os registros que a execução do Sync de {{date}} sobrescreveu recebem de volta os valores que tinham antes dela; os alterados ou excluídos desde a execução ficam como estão.",
+      "rewriteAll": "Cada linha do backup é gravada, inclusive as que a org já tem iguais às do backup.",
+      "objects": "O que o backup contém:",
+      "confirm": "Restaurar em {{org}}"
+    },
+    "anonymizeConfirm": {
+      "title": "Anonimizar {{org}} com “{{name}}”?",
+      "resumeTitle": "Retomar a anonimização de {{org}} com “{{name}}”?",
+      "description": "Sobrescreve estes campos em todo registro que tenha um valor: {{fields}}.",
+      "resumeDescription": "Sobrescreve estes campos nos registros que a execução interrompida deixou: {{fields}}."
+    },
+    "deleteTemplateConfirm": "Excluir o modelo “{{name}}”? As regras dele somem desta máquina."
   },
   "automation": {
     "title": "Automação",
@@ -3247,10 +3275,10 @@
       "tip": "Comparar não grava nada. Implantar a partir do diff valida primeiro no destino, não exclui nada lá e recusa um destino de produção."
     },
     "dataops": {
-      "step1": "Confira a org indicada no topo da página e abra a aba Anonimizar.",
+      "step1": "Escolha a org na lista no topo da página e abra a aba Anonimizar.",
       "step2": "Escolha um modelo em Selecionar um modelo; o cartão do modelo lista cada campo que ele mascara.",
       "step3": "Clique em Pré-visualizar: os primeiros registros mostram Original ao lado de Mascarado, sem gravar nada.",
-      "step4": "Clique em Aplicar, deixe marcada a caixa Guardar os valores antes, digite Anonimizar e clique em Confirmar.",
+      "step4": "Clique em Aplicar, deixe marcada a caixa Guardar os valores antes, digite o nome da org e clique em Confirmar.",
       "tip": "A menos que você desmarque Guardar os valores antes, Aplicar faz backup dos valores que mascara: clique em Abrir em Restaurar e depois em Restaurar para devolvê-los."
     },
     "monitor": {

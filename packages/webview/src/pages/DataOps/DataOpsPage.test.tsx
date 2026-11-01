@@ -200,6 +200,13 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** What the page sent the extension outside a request: `org:select`. */
+const mockSendBridge = vi.fn();
+vi.mock('../../bridge/sendBridgeMessage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../bridge/sendBridgeMessage')>()),
+  sendBridgeMessage: (...args: unknown[]) => mockSendBridge(...args),
+}));
+
 const mockNavigate = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -311,8 +318,10 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
       'Connect an org (sign in with your browser)',
     );
+    // A backup reads only what the templates mask: it is no way back from a
+    // run on any other object, as "before any risky operation" said.
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
-      'Create a backup before any risky operation',
+      'Back up the fields a template masks before you anonymize',
     );
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
   });
@@ -782,14 +791,136 @@ describe('DataOpsPage', () => {
   });
 
   it('should render KPI summary row', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     expect(screen.getByTestId('dataops-kpi-row')).toBeDefined();
     expect(screen.getAllByTestId('kpi-card').length).toBe(3);
   });
 
+  describe('the KPI row', () => {
+    /** Three backups: one whole, one a cap stopped short, one whose read failed. */
+    const listed = {
+      backups: [
+        { status: 'completed', totalRecords: 1_500, objectResults: [] },
+        { status: 'completed', partial: true, totalRecords: 700, objectResults: [] },
+        { status: 'failed', partial: true, totalRecords: 300, objectResults: [] },
+      ].map((backup, i) => ({
+        ...backup,
+        operationId: `op-${i}`,
+        orgId: 'org-1',
+        timestamp: '2026-10-01T00:00:00Z',
+        totalSize: 0,
+      })),
+    };
+
+    it('counts what its labels say: the org’s backups and their records, those partial or failed, and the templates', () => {
+      // The cards read "Records Processed" for the records the backups held,
+      // "Error Rate" for failed backups over objects backed up — 0.0% beside
+      // a backup whose read had failed — and "Anonymized Templates".
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      mockBackupsQueryState = { ...mockBackupsQueryState, data: listed };
+      mockTemplatesQueryState = {
+        ...mockTemplatesQueryState,
+        data: { templates: [{ id: 'tpl-1', name: 'A', rules: [] }] },
+      };
+      render(<DataOpsPage />);
+
+      const cards = screen.getAllByTestId('kpi-card').map((card) => card.textContent);
+      expect(cards[0]).toContain('Backups of dev1');
+      expect(cards[0]).toContain('3');
+      expect(cards[0]).toContain('2,500 records');
+      expect(cards[1]).toContain('Partial or failed backups');
+      expect(cards[1]).toContain('2');
+      expect(cards[2]).toContain('Anonymization templates');
+      expect(cards[2]).toContain('1');
+      const row = screen.getByTestId('dataops-kpi-row').textContent ?? '';
+      expect(row).not.toContain('Error Rate');
+      expect(row).not.toContain('%');
+    });
+
+    it('shows none while no org is selected: what it counts is an org’s', () => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+      render(<DataOpsPage />);
+      expect(screen.queryByTestId('dataops-kpi-row')).toBeNull();
+    });
+  });
+
+  describe('the org picker in the header', () => {
+    const secondOrg: SalesforceOrg = {
+      ...mockOrgs[0],
+      id: 'org-2',
+      alias: 'uat-copy',
+      orgType: 'Production',
+      metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+    };
+
+    it('picks the org the page works on, as everywhere else, and shows its type beside it', () => {
+      // A read-only badge stood there, and with no org the page sent the user
+      // to the Organizations page to pick one.
+      mockSendBridge.mockClear();
+      useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+
+      expect(screen.getByTestId('dataops-org').textContent).toContain('dev1');
+      fireEvent.click(screen.getByTestId('dataops-org'));
+      fireEvent.click(screen.getByTestId('dataops-org-option-org-2'));
+
+      expect(useOrgStore.getState().selectedOrgId).toBe('org-2');
+      expect(mockSendBridge).toHaveBeenCalledWith('org:select', { orgId: 'org-2' });
+      expect(screen.getByTestId('dataops-org-type').textContent).toBe('PROD');
+    });
+
+    it('says, with no org selected, to pick one in that list', () => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+      render(<DataOpsPage />);
+      expect(screen.getByTestId('dataops-no-org').textContent).toContain(
+        'No org selected: pick one in the list above.',
+      );
+      expect(screen.queryByTestId('dataops-org-type')).toBeNull();
+    });
+  });
+
+  describe('a checkpoint offered on the Backup tab', () => {
+    it('opens Checkpoints on a take of the org selected', () => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+
+      fireEvent.click(screen.getByTestId('backup-checkpoint-take'));
+      expect(mockNavigate).toHaveBeenCalledWith('checkpoint', {
+        takeCheckpoint: true,
+        targetOrgId: 'org-1',
+      });
+    });
+
+    it('is not offered on a production org, where a checkpoint is refused', () => {
+      useOrgStore.setState({
+        orgs: [
+          {
+            ...mockOrgs[0],
+            orgType: 'Production',
+            metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+          },
+        ],
+        selectedOrgId: 'org-1',
+      });
+      render(<DataOpsPage />);
+      expect(screen.queryByTestId('backup-checkpoint')).toBeNull();
+    });
+  });
+
+  it('opens the Backup tab from the Restore tab of an org with no backup', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    mockBackupsQueryState = { ...mockBackupsQueryState, data: { backups: [] } };
+    render(<DataOpsPage />);
+    fireEvent.click(screen.getByText('Restore'));
+
+    expect(screen.getByText('No backup of dev1 yet')).toBeDefined();
+    fireEvent.click(screen.getByTestId('empty-action-button'));
+    expect(screen.getByTestId('backup-panel')).toBeDefined();
+  });
+
   it('should render BentoGrid and BentoTile wrappers', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     expect(screen.getByTestId('dataops-kpi-row')).toBeDefined();
     expect(screen.getAllByTestId('bento-tile').length).toBeGreaterThanOrEqual(1);
@@ -1028,7 +1159,7 @@ describe('DataOpsPage', () => {
       expect(mockPreviewReset).toHaveBeenCalledTimes(1);
 
       fireEvent.click(screen.getByTestId('apply-btn'));
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev2' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
       expect(mockPreviewReset).toHaveBeenCalledTimes(2);
     });
@@ -1039,7 +1170,7 @@ describe('DataOpsPage', () => {
       fireEvent.click(screen.getByTestId('apply-btn'));
       expect(mockAnonymizeMutate).not.toHaveBeenCalled();
 
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       // With a snapshot of what it masks unless unticked, as the command line sends it.
@@ -1119,7 +1250,7 @@ describe('DataOpsPage', () => {
       openTemplate();
 
       fireEvent.click(screen.getByTestId('resume-btn'));
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockAnonymizeMutate).toHaveBeenCalledWith({
@@ -1239,7 +1370,7 @@ describe('DataOpsPage', () => {
         target: { value: 'tpl-saved-1' },
       });
       fireEvent.click(screen.getByTestId('delete-template-btn'));
-      fireEvent.click(screen.getByTestId('confirm-delete-template-btn'));
+      fireEvent.click(screen.getByTestId('delete-template-confirm'));
       expect(mockDeleteTemplateMutationState.mutate).toHaveBeenCalledWith({
         templateId: 'tpl-saved-1',
       });
@@ -1314,12 +1445,26 @@ describe('DataOpsPage', () => {
       expect(mockRollbackMutate).not.toHaveBeenCalled();
     });
 
-    it('should send the rollback once when the button is enabled', () => {
+    it('sends no rollback on the click, only once the question naming the org is answered yes', () => {
+      // The click wrote into the org, which the button never named.
       selectBackup();
 
       fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+      expect(mockRollbackMutate).not.toHaveBeenCalled();
+      expect(screen.getByTestId('danger-title').textContent).toMatch(/into dev1\?$/);
 
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(mockRollbackMutate).toHaveBeenCalledTimes(1);
       expect(mockRollbackMutate).toHaveBeenCalledWith({ orgId: 'org-1', operationId: 'op-1' });
+    });
+
+    it('sends no rollback when the question is dismissed', () => {
+      selectBackup();
+
+      fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+      fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+
+      expect(mockRollbackMutate).not.toHaveBeenCalled();
     });
 
     it('asks the restore to write every row back once the box says so', () => {
@@ -1327,6 +1472,7 @@ describe('DataOpsPage', () => {
 
       fireEvent.click(screen.getByTestId('restore-rewrite-all'));
       fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockRollbackMutate).toHaveBeenCalledWith({
         orgId: 'org-1',
@@ -1350,6 +1496,7 @@ describe('DataOpsPage', () => {
 
         fireEvent.click(screen.getByTestId('restore-include-changed-op-1'));
         fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+        fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
         expect(mockRollbackMutate).toHaveBeenCalledWith({
           orgId: 'org-1',
@@ -1425,6 +1572,7 @@ describe('DataOpsPage', () => {
       const card = screen.getByTestId('restore-backup-op-failed');
       fireEvent.click(card.querySelector('[role="button"]')!);
       fireEvent.click(screen.getByTestId('restore-btn-op-failed'));
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockRollbackMutate).toHaveBeenCalledWith({
         orgId: 'org-1',

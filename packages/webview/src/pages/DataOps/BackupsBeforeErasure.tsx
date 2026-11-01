@@ -1,10 +1,11 @@
-import React, { useId, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BackupDeleteResult, BackupSummary } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { DeleteQuestion } from './DeleteQuestion';
 
 /** Props for {@link BackupsBeforeErasure}. */
 export interface BackupsBeforeErasureProps {
@@ -22,8 +23,10 @@ export interface BackupsBeforeErasureProps {
  */
 export const BackupsBeforeErasure: React.FC<BackupsBeforeErasureProps> = ({ orgId }) => {
   const { t } = useTranslation();
+  const boxId = useId();
   const questionId = useId();
   const [confirming, setConfirming] = useState(false);
+  const deleteButton = useRef<HTMLButtonElement>(null);
 
   const backups = useBridgeQuery<{ backups: BackupSummary[] }>(
     'backup:list',
@@ -51,7 +54,7 @@ export const BackupsBeforeErasure: React.FC<BackupsBeforeErasureProps> = ({ orgI
       className="flex flex-col gap-2 rounded-sm border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
       data-testid="dsr-backups-before"
     >
-      <p id={questionId}>{t('dataops.dsr.backupsBefore', { count: held.length })}</p>
+      <p id={boxId}>{t('dataops.dsr.backupsBefore', { count: held.length })}</p>
       {deletion.error && (
         <ErrorBanner
           message={deletion.error}
@@ -59,42 +62,40 @@ export const BackupsBeforeErasure: React.FC<BackupsBeforeErasureProps> = ({ orgI
           data-testid="dsr-backups-delete-error"
         />
       )}
-      <div className="flex gap-2">
-        {confirming ? (
-          <>
-            <Button
-              variant="danger"
-              size="sm"
-              aria-describedby={questionId}
-              loading={deletion.loading}
-              onClick={() => {
-                setConfirming(false);
-                deletion.mutate({ orgId, operationIds: held.map((b) => b.operationId) });
-              }}
-              data-testid="dsr-backups-delete-confirm"
-            >
-              {t('common.confirm')}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setConfirming(false)}
-              data-testid="dsr-backups-delete-cancel"
-            >
-              {t('common.cancel')}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setConfirming(true)}
-            data-testid="dsr-backups-delete"
-          >
-            {t('dataops.dsr.deleteBackupsBefore', { count: held.length })}
-          </Button>
-        )}
+      <div>
+        <Button
+          ref={deleteButton}
+          variant="secondary"
+          size="sm"
+          onClick={() => setConfirming(true)}
+          loading={deletion.loading}
+          // It keeps the keyboard while the deletion it asked for runs.
+          focusableWhenDisabled
+          aria-describedby={boxId}
+          data-testid="dsr-backups-delete"
+        >
+          {t('dataops.dsr.deleteBackupsBefore', { count: held.length })}
+        </Button>
       </div>
+      {/* The question the Restore tab's Delete asks, its button saying what
+          it deletes: it was a bare Confirm under a sentence about restoring. */}
+      {confirming && (
+        <DeleteQuestion
+          id={questionId}
+          testId="dsr-backups-delete"
+          question={t('dataops.backupDeleteAllConfirm', { count: held.length })}
+          confirmLabel={t('dataops.dsr.deleteBackupsBefore', { count: held.length })}
+          onConfirm={() => {
+            setConfirming(false);
+            deleteButton.current?.focus();
+            deletion.mutate({ orgId, operationIds: held.map((b) => b.operationId) });
+          }}
+          onCancel={() => {
+            setConfirming(false);
+            deleteButton.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 };

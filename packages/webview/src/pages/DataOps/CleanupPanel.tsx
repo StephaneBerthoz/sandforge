@@ -33,6 +33,8 @@ const WAIT_ON_A_PERSON_MS = 600_000;
 export interface CleanupPanelProps {
   /** The org the scan reads and a delete writes. */
   orgId: string;
+  /** Its name as the page shows it: the word typed to confirm a delete. */
+  orgName: string;
 }
 
 /** What `dataops:cleanup:delete` answers. */
@@ -94,7 +96,7 @@ function fieldLabelOf(result: CleanupResult, recommendation: CleanupRecommendati
  * typed confirmation and Production Guard. It reads at most
  * {@link CLEANUP_ACTION_LIMIT} records per run.
  */
-export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
+export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) => {
   const { t } = useTranslation();
   const staleId = useId();
   const reviewHeadingId = useId();
@@ -387,7 +389,9 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
               formatted: number(toDelete),
             })}
             description={t('dataops.cleanupScan.confirmDescription')}
-            confirmText={t('dataops.cleanupScan.confirmWord')}
+            // The org's name, as Rewind and Deploy ask: the same in every
+            // language, where the word delete was 削除 in Japanese.
+            confirmText={orgName}
           />
         </section>
       )}

@@ -257,6 +257,10 @@ for (const theme of THEMES) {
       await page.getByTestId('page-tab-restore').click();
       await page.getByTestId('restore-backup-op-backup-1').locator('[role="button"]').click();
       await page.getByTestId('restore-btn-op-backup-1').click();
+      // It asks first, naming the org, and passes axe asking.
+      await expect(page.getByTestId('danger-title')).toContainText('DevSandbox');
+      await passesAxe(page);
+      await page.getByTestId('danger-confirm-btn').click();
 
       await expect(page.getByTestId('restore-stop')).toBeVisible({ timeout: 10_000 });
       await passesAxe(page);
@@ -272,7 +276,7 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('confirm-keep-values-toggle')).toBeChecked();
       await passesAxe(page);
 
-      await page.getByTestId('danger-input').fill('Anonymize');
+      await page.getByTestId('danger-input').fill('DevSandbox');
       await page.getByTestId('danger-confirm-btn').click();
       const [run] = await outgoing(page, 'dataops:anonymize');
       expect(run.payload).toMatchObject({ templateId: 'tpl-gdpr', snapshot: true });
@@ -286,7 +290,7 @@ for (const theme of THEMES) {
       await openDataOps(page, theme);
       await pickTemplate(page);
       await page.getByTestId('apply-btn').click();
-      await page.getByTestId('danger-input').fill('Anonymize');
+      await page.getByTestId('danger-input').fill('DevSandbox');
       await page.getByTestId('danger-confirm-btn').click();
       const [refused] = await outgoing(page, 'dataops:anonymize');
       await sendExtensionMessage(page, {
@@ -302,7 +306,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
 
       await page.getByTestId('apply-btn').click();
-      await page.getByTestId('danger-input').fill('Anonymize');
+      await page.getByTestId('danger-input').fill('DevSandbox');
       await page.getByTestId('danger-confirm-btn').click();
       await expect.poll(async () => (await outgoing(page, 'dataops:anonymize')).length).toBe(2);
       const ran = (await outgoing(page, 'dataops:anonymize'))[1];

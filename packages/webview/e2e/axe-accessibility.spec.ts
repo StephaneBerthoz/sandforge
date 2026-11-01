@@ -10949,7 +10949,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('preview-btn')).toBeEnabled();
       await expect(page.getByTestId('anonymize-panel')).not.toContainText('Coming soon');
       await page.getByTestId('delete-template-btn').click();
-      await expect(page.getByTestId('confirm-delete-template-btn')).toBeVisible();
+      await expect(page.getByTestId('delete-template-question')).toBeVisible();
 
       await expectReadable(page, theme);
     });
@@ -11011,6 +11011,10 @@ for (const theme of STATE_THEMES) {
         },
       );
       await expect(page.getByTestId('backup-partial-bk-cap')).toContainText('stopped at the cap');
+      // Marked Partial in amber, as Restore marks it, not a green "completed";
+      // and a checkpoint offered as the way back from a run on any object.
+      await expect(page.getByTestId('backup-status-bk-cap')).toHaveText('Partial');
+      await expect(page.getByTestId('backup-checkpoint')).toBeVisible();
       await expectReadable(page, theme);
 
       await page.getByTestId('page-tab-restore').click();
@@ -11019,8 +11023,15 @@ for (const theme of STATE_THEMES) {
       // The choice to write every row back, and what the last restore wrote
       // and found unchanged.
       await expect(page.getByTestId('restore-rewrite-all')).toBeVisible();
+      await expect(page.getByTestId('restore-pick')).toBeVisible();
       await page.getByTestId('restore-backup-bk-cap').getByRole('button').first().click();
       await page.getByTestId('restore-btn-bk-cap').click();
+      // Asked first, naming the org and what each object holds.
+      await expect(page.getByTestId('restore-confirm-objects')).toContainText(
+        'Contact: 700 records',
+      );
+      await expectReadable(page, theme);
+      await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
       await answerAll(page, 'dataops:rollback', 'dataops:rollback:response', {
         operationId: 'bk-cap',
@@ -11173,6 +11184,26 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('delete-backup-cancel').click();
       await page.getByTestId('delete-all-backups-btn').click();
       await expect(page.getByTestId('delete-backup-question')).toContainText('2 backups');
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps Restore of an org with no backup, offering to take one', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await expect(page.getByTestId('restore-panel')).toContainText(
+        `No backup of ${MOCK_ORGS[0].alias} yet`,
+      );
+      await expect(page.getByTestId('empty-action-button')).toHaveText('Create a backup');
       await expectReadable(page, theme);
     });
 
@@ -11395,6 +11426,12 @@ for (const theme of STATE_THEMES) {
         page.getByLabel('Also restore the records changed or deleted since the run'),
       ).toBeVisible();
       await page.getByTestId('restore-btn-sync-before-run-1').click();
+      // Asked first: what changed since the run is left as it is.
+      await expect(page.getByRole('dialog')).toContainText(
+        'those changed or deleted since the run are left as they are',
+      );
+      await expectReadable(page, theme);
+      await page.getByTestId('danger-confirm-btn').click();
       const restore = await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
       expect(restore.payload).not.toHaveProperty('includeChanged');
       await answerAll(page, 'dataops:rollback', 'dataops:rollback:response', {
@@ -13456,7 +13493,7 @@ for (const theme of STATE_THEMES) {
         ],
       });
       await page.getByTestId('dsr-erase-btn').click();
-      await page.getByTestId('danger-input').fill('erase');
+      await page.getByTestId('danger-input').fill(DEV_SANDBOX.alias);
       const reviews = (await bridge.getMessages('dataops:dsr:erase')).length;
       await page.getByTestId('danger-confirm-btn').click();
       await expect
