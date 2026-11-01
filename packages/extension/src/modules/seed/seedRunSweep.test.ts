@@ -354,4 +354,70 @@ describe('a Sync run that created nothing and only wrote over records', () => {
     expect(input.user).toBeUndefined();
     expect(org.query).not.toHaveBeenCalled();
   });
+
+  it('takes the user its file kept first, and reads none from the records it wrote over', async () => {
+    // Put back by a removal: the records no longer say who wrote over them.
+    const { org, statements } = orgModified({
+      [fakeId('001', 1)]: { by: COLLEAGUE, at: '2026-10-01T08:00:00.000+0000' },
+    });
+    const writes = {
+      at: WRITTEN.first,
+      lastAt: WRITTEN.last,
+      serverTime: async () => '2026-10-01T08:00:00.000Z',
+      now: () => new Date('2026-10-01T08:00:00.000Z'),
+    };
+    const over = [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }];
+    const automation = {
+      objectsRead: [],
+      objects: [],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+
+    const read = await seedSweepInput(org, [], automation, undefined, writes, over);
+    expect(read.user).toBeUndefined();
+    expect(read.runUserId).toBeUndefined();
+    expect(statements).toHaveLength(1);
+
+    statements.length = 0;
+    const kept = await seedSweepInput(org, [], automation, undefined, writes, over, {
+      runUserId: USER,
+    });
+    expect(kept.runUserId).toBe(USER);
+    expect(kept.user).toBeUndefined();
+    expect(statements).toEqual([]);
+  });
+
+  it('ties what the automation made to the records it created and, as made over, to those it wrote over, when the ties are asked', async () => {
+    const { org } = orgModified({});
+    const dated = {
+      ...org,
+      queryDeleted: vi.fn(async () => ({
+        records: [{ Id: fakeId('003', 1), CreatedDate: '2026-09-20T10:01:00.000+0000' }],
+      })),
+    };
+    const automation = {
+      objectsRead: [],
+      objects: [],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+    const created = [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }];
+    const over = [
+      { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+      { objectApiName: 'Case', ids: [] },
+    ];
+
+    const asked = await seedSweepInput(dated, created, automation, undefined, undefined, over, {
+      runUserId: USER,
+      ties: { removalBegan: '2026-10-01T08:00:00.000Z' },
+    });
+    expect(asked.created).toEqual(created);
+    expect(asked.ties).toEqual({
+      removalBegan: '2026-10-01T08:00:00.000Z',
+      writtenOver: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+    });
+
+    // Unasked, the sweep takes what the run's user created in the window, as before.
+    const unasked = await seedSweepInput(dated, created, automation, undefined, undefined, over);
+    expect(unasked).not.toHaveProperty('ties');
+  });
 });

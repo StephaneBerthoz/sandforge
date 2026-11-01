@@ -1,21 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 
+import { compositeReader, type CompositeQueryConnection } from '../checkpoint/compositeQueries.js';
+import { writePathOrderDefects, type WritePathStep } from '../checkpoint/beforeRunCheckpoint.js';
 import type { RemovalOrg } from './ForgeRunRemoval.js';
 import {
   HAND_WORK_OBJECTS,
+  NEVER_SWEPT,
+  SWEEP_LOOK_BOUND,
   SWEEP_OBJECT_BOUND,
   SWEEP_SIDE_OBJECTS,
   listSweep,
   sweepAuditDetails,
   sweepAuditObjects,
   sweepAutomationOf,
+  sweepCountsOf,
   sweepFoundCount,
   sweepFoundObjects,
   sweepMarkOf,
+  sweepParts,
   sweepRunRecords,
   sweepWindowOf,
   type SweepInput,
+  type SweepOrg as CountingOrg,
+  type SweepTies,
 } from './ForgeRunSweep.js';
 
 /** A fake record id: the object's prefix, then a counter. */
@@ -741,5 +749,729 @@ describe('what a sweep leaves on the run and in the audit trail', () => {
     ];
     expect(sweepFoundCount({ found })).toBe(5);
     expect(sweepFoundObjects({ found })).toEqual(['Task', 'Asset']);
+  });
+});
+
+// ─── The sweep told the ties ─────────────────────────────────────────────────
+
+/** What the org says of an object beyond its records: its lookups, its children, its flags. */
+interface ObjectShape {
+  /** Its lookups, by field, to the objects they may point at. */
+  references?: Record<string, string[]>;
+  children?: Array<{
+    childSObject: string;
+    field: string;
+    cascadeDelete?: boolean;
+    restrictedDelete?: boolean;
+  }>;
+  listed?: { queryable?: boolean; deletable?: boolean; createable?: boolean; layoutable?: boolean };
+}
+
+/** A 15- or 18-character id, as the org compares two: by its first fifteen characters. */
+const ID_LIKE = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+const sameValue = (held: unknown, asked: string): boolean =>
+  typeof held === 'string' && ID_LIKE.test(held) && ID_LIKE.test(asked)
+    ? held.slice(0, 15) === asked.slice(0, 15)
+    : held === asked;
+
+/**
+ * Answer `soql` from `rows` as the org does, for the statements a sweep told
+ * the ties sends: `SELECT <fields> | COUNT() FROM <object>`, a WHERE of `=`,
+ * `IN (…)`, `>=`, `<=` and `>` terms under AND, `ORDER BY Id`, `LIMIT`. An
+ * id compares by its first fifteen characters, a polymorphic lookup's too.
+ */
+function answerSoql(soql: string, rows: Row[]): { totalSize: number; records: unknown[] } {
+  const parts = /^SELECT (.+?) FROM (\w+)(?: WHERE (.+?))?( ORDER BY Id)?(?: LIMIT (\d+))?$/.exec(
+    soql,
+  );
+  if (!parts) throw new Error(`MALFORMED_QUERY: ${soql}`);
+  const [, columns, , where, ordered, limit] = parts;
+  let kept = [...rows];
+  for (const term of where ? where.split(' AND ') : []) {
+    const inList = /^(\w+) IN \((.*)\)$/.exec(term);
+    if (inList) {
+      const values = inList[2].split(', ').map((quoted) => quoted.slice(1, -1));
+      kept = kept.filter((row) => values.some((value) => sameValue(row[inList[1]], value)));
+      continue;
+    }
+    const compared = /^(\w+) (=|>=|<=|>) (.+)$/.exec(term);
+    if (!compared) throw new Error(`MALFORMED_QUERY: ${term}`);
+    const [, field, op, raw] = compared;
+    const quoted = raw.startsWith("'") ? raw.slice(1, -1) : undefined;
+    kept = kept.filter((row) => {
+      const held = row[field];
+      if (op === '=') return sameValue(held, quoted ?? raw);
+      if (op === '>') return String(held) > (quoted ?? raw);
+      const time = Date.parse(String(held));
+      return op === '>=' ? time >= Date.parse(raw) : time <= Date.parse(raw);
+    });
+  }
+  if (ordered) kept.sort((a, b) => a.Id.localeCompare(b.Id));
+  if (limit) kept = kept.slice(0, Number(limit));
+  if (columns === 'COUNT()') return { totalSize: kept.length, records: [] };
+  const names = columns.split(', ');
+  return {
+    totalSize: kept.length,
+    records: kept.map((row) => Object.fromEntries(names.map((name) => [name, row[name] ?? null]))),
+  };
+}
+
+/**
+ * An org in memory a sweep told the ties works on: lookups and child
+ * relationships by describe, a delete the org refuses while a restricting
+ * lookup names the record (`Case.AssetId`, DELETE_FAILED), cascades, and a
+ * lookup the org clears as the record it names goes (`Task.AccountId`).
+ * Each call is counted where a run's write path is: a read, or a write.
+ */
+class TiedOrg implements CountingOrg {
+  readonly rows = new Map<string, Row[]>();
+  readonly bin = new Map<string, Row[]>();
+  readonly shapes = new Map<string, ObjectShape>();
+  readonly deletes: Array<{ object: string; ids: string[] }> = [];
+  readonly queries: string[] = [];
+  readonly events: WritePathStep[] = [];
+  counts?: CountingOrg['counts'];
+
+  add(object: string, ...rows: Row[]): void {
+    this.rows.set(object, [...(this.rows.get(object) ?? []), ...rows]);
+  }
+
+  shape(object: string, shape: ObjectShape): void {
+    this.shapes.set(object, { ...this.shapes.get(object), ...shape });
+    if (!this.rows.has(object)) this.rows.set(object, []);
+  }
+
+  ids(object: string): string[] {
+    return (this.rows.get(object) ?? []).map((row) => row.Id);
+  }
+
+  row(object: string, recordId: string): Row | undefined {
+    return (this.rows.get(object) ?? []).find((row) => row.Id === recordId);
+  }
+
+  async describeGlobal(): Promise<unknown> {
+    this.events.push('reads');
+    return {
+      sobjects: [...this.rows.keys()].map((name) => ({
+        name,
+        queryable: true,
+        deletable: true,
+        createable: true,
+        layoutable: true,
+        ...this.shapes.get(name)?.listed,
+      })),
+    };
+  }
+
+  async describe(objectApiName: string): Promise<unknown> {
+    this.events.push('reads');
+    if (!this.rows.has(objectApiName)) {
+      throw new Error(`INVALID_TYPE: sObject type '${objectApiName}' is not supported.`);
+    }
+    const shape = this.shapes.get(objectApiName) ?? {};
+    return {
+      name: objectApiName,
+      label: objectApiName,
+      queryable: true,
+      deletable: true,
+      fields: [
+        ...DEFAULT_FIELDS.map((name) => ({
+          name,
+          label: name,
+          type: name.endsWith('ById') ? 'reference' : 'string',
+          ...(name.endsWith('ById') ? { referenceTo: ['User'] } : {}),
+          ...(name === 'Name' ? { nameField: true } : {}),
+        })),
+        ...Object.entries(shape.references ?? {}).map(([name, referenceTo]) => ({
+          name,
+          label: name,
+          type: 'reference',
+          referenceTo,
+        })),
+      ],
+      childRelationships: shape.children ?? [],
+    };
+  }
+
+  /** What the org answers, without counting the call: a composite's subrequest. */
+  answer(soql: string): { totalSize: number; records: unknown[] } {
+    const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+    return answerSoql(soql, this.rows.get(object) ?? []);
+  }
+
+  async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
+    this.events.push('reads');
+    this.queries.push(soql);
+    return this.answer(soql);
+  }
+
+  async queryDeleted(soql: string): Promise<{ records: unknown[] }> {
+    this.events.push('reads');
+    this.queries.push(soql);
+    const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+    return answerSoql(soql, [...(this.rows.get(object) ?? []), ...(this.bin.get(object) ?? [])]);
+  }
+
+  /** The live records whose `field` of `child` names `recordId`. */
+  private naming(child: string, field: string, recordId: string): Row[] {
+    return (this.rows.get(child) ?? []).filter((row) => sameValue(row[field], recordId));
+  }
+
+  /** Take a record out, what cascades from it along, and clear what only names it. */
+  private remove(object: string, row: Row): void {
+    this.rows.set(
+      object,
+      (this.rows.get(object) ?? []).filter((r) => r.Id !== row.Id),
+    );
+    this.bin.set(object, [...(this.bin.get(object) ?? []), row]);
+    for (const relation of this.shapes.get(object)?.children ?? []) {
+      for (const child of this.naming(relation.childSObject, relation.field, row.Id)) {
+        if (relation.cascadeDelete) this.remove(relation.childSObject, child);
+        else if (!relation.restrictedDelete) child[relation.field] = null;
+      }
+    }
+  }
+
+  async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
+    this.events.push('write');
+    this.deletes.push({ object: objectApiName, ids: [...ids] });
+    return ids.map((recordId) => {
+      const row = this.row(objectApiName, recordId);
+      if (!row) {
+        return {
+          id: recordId,
+          success: false,
+          errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
+        };
+      }
+      const holders = (this.shapes.get(objectApiName)?.children ?? [])
+        .filter((relation) => relation.restrictedDelete)
+        .flatMap((relation) => this.naming(relation.childSObject, relation.field, recordId));
+      if (holders.length > 0) {
+        return {
+          id: recordId,
+          success: false,
+          errors: [
+            {
+              statusCode: 'DELETE_FAILED',
+              message: `Your attempt to delete ${String(row.Name)} could not be completed because it is associated with the following cases.: ${holders.length}`,
+            },
+          ],
+        };
+      }
+      this.remove(objectApiName, row);
+      return { id: recordId, success: true, errors: [] };
+    });
+  }
+
+  async update(): Promise<unknown> {
+    throw new Error('a sweep updates nothing');
+  }
+
+  async serverTime(): Promise<string> {
+    return new Date().toISOString();
+  }
+
+  async userId(): Promise<string> {
+    return RUN_USER;
+  }
+}
+
+/** When the run created its case: a minute into its writes. */
+const AT_CASE = '2026-10-15T09:01:00.000+0000';
+/** `seconds` after the run created its case, as the org writes a date. */
+const at = (seconds: number): string =>
+  new Date(Date.parse('2026-10-15T09:01:00.000Z') + seconds * 1000)
+    .toISOString()
+    .replace('Z', '+0000');
+
+/** The org's Automated Process user. */
+const AUTOMATED_PROCESS = id('005', 9);
+
+const ACCOUNT = id('001', 1);
+const CONTACT = id('003', 1);
+const CASE = id('500', 1);
+/** The account the run linked a record to, in its id map: never one of its records. */
+const LINKED_ACCOUNT = id('001', 9);
+
+/** A record with its lookups. */
+const recWith = (
+  recordId: string,
+  name: string,
+  by: string,
+  created: string,
+  lookups: Record<string, string | null>,
+): Row => ({ ...rec(recordId, name, by, created), ...lookups });
+
+/**
+ * The org after a clone of an account, its contact and a case into it, and
+ * what came of it: the case's flow cloned the insured risk into an asset and
+ * named it on the case (`Case.AssetId`, a lookup the org restricts the
+ * asset's delete by), opened a task on the case and posted on its feed, a
+ * comment followed; the account's flow opened a task naming the account
+ * alone (`Task.AccountId`, cleared as the account goes). Then what is not the
+ * run's to take unasked: a task tied to nothing, one on an account the run
+ * only matched — tied to nothing of the run either —, a task on the contact
+ * five minutes later, one the Automated Process user opened on the case, a
+ * colleague's; and the mute's permission set assignment.
+ */
+function tiedOrg(): TiedOrg {
+  const org = new TiedOrg();
+  org.shape('Account', {
+    children: [
+      { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Case', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+      { childSObject: 'Task', field: 'AccountId' },
+      { childSObject: 'Asset', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'AccountHistory', field: 'AccountId', cascadeDelete: true },
+    ],
+  });
+  org.shape('Contact', {
+    references: { AccountId: ['Account'] },
+    children: [
+      { childSObject: 'Task', field: 'WhoId', cascadeDelete: true },
+      { childSObject: 'Case', field: 'ContactId' },
+    ],
+  });
+  org.shape('Case', {
+    references: { AccountId: ['Account'], ContactId: ['Contact'], AssetId: ['Asset'] },
+    children: [
+      { childSObject: 'Task', field: 'WhatId', cascadeDelete: true },
+      { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+    ],
+  });
+  org.shape('Asset', {
+    references: { AccountId: ['Account'] },
+    children: [{ childSObject: 'Case', field: 'AssetId', restrictedDelete: true }],
+  });
+  org.shape('Task', {
+    references: {
+      WhatId: ['Account', 'Case', 'Opportunity', 'Asset'],
+      WhoId: ['Contact'],
+      AccountId: ['Account'],
+    },
+  });
+  org.shape('FeedItem', {
+    references: { ParentId: ['Account', 'Case', 'Asset'] },
+    children: [{ childSObject: 'FeedComment', field: 'FeedItemId', cascadeDelete: true }],
+  });
+  org.shape('FeedComment', { references: { FeedItemId: ['FeedItem'] } });
+  org.shape('Opportunity', { references: { AccountId: ['Account'] } });
+  // What the org keeps for itself behind an account: never looked at.
+  org.shape('AccountHistory', { listed: { createable: false, layoutable: false } });
+  org.shape('PermissionSetAssignment', { references: { PermissionSetId: ['PermissionSet'] } });
+  org.add('User', {
+    ...rec(AUTOMATED_PROCESS, 'Automated Process', COLLEAGUE, BEFORE),
+    UserType: 'AutomatedProcess',
+  });
+
+  org.add('Account', recWith(ACCOUNT, 'Cloned account', RUN_USER, AT_CASE, {}));
+  // A colleague's, made half a minute before: the run matched it, and a task
+  // under it is no more the run's for coming soon after.
+  org.add('Account', recWith(LINKED_ACCOUNT, 'Matched account', COLLEAGUE, at(-30), {}));
+  org.add('Contact', recWith(CONTACT, 'Cloned contact', RUN_USER, AT_CASE, { AccountId: ACCOUNT }));
+  org.add(
+    'Case',
+    recWith(CASE, 'Cloned case', RUN_USER, AT_CASE, {
+      AccountId: ACCOUNT,
+      ContactId: CONTACT,
+      AssetId: id('02i', 1),
+    }),
+  );
+  // Hung from nothing but the case that names it, as the client's assets were.
+  org.add('Asset', recWith(id('02i', 1), 'Insured risk', RUN_USER, at(1), {}));
+  org.add(
+    'Task',
+    recWith(id('00T', 1), 'Case follow-up', RUN_USER, at(1), { WhatId: CASE }),
+    recWith(id('00T', 2), 'Account review', RUN_USER, at(20), { AccountId: ACCOUNT }),
+    recWith(id('00T', 3), 'Loose task', RUN_USER, at(30), {}),
+    recWith(id('00T', 4), 'Contact call', RUN_USER, at(5 * 60), { WhoId: CONTACT }),
+    recWith(id('00T', 5), 'Queued check', AUTOMATED_PROCESS, at(10), { WhatId: CASE }),
+    recWith(id('00T', 6), 'A colleague’s', COLLEAGUE, at(5), { WhatId: CASE }),
+    recWith(id('00T', 7), 'On the matched account', RUN_USER, at(5), { WhatId: LINKED_ACCOUNT }),
+  );
+  org.add('FeedItem', recWith(id('0D5', 1), 'Case posted', RUN_USER, at(1), { ParentId: CASE }));
+  org.add(
+    'FeedComment',
+    recWith(id('0D7', 1), 'Comment', RUN_USER, at(8), { FeedItemId: id('0D5', 1) }),
+  );
+  org.add(
+    'PermissionSetAssignment',
+    recWith(id('0Pa', 1), 'Bypass', RUN_USER, at(-50), { PermissionSetId: id('0PS', 1) }),
+  );
+  return org;
+}
+
+/** What a sweep told the ties is told of that run. */
+function tiedInput(ties: SweepTies | null = {}, overrides: Partial<SweepInput> = {}): SweepInput {
+  const created = [
+    { objectApiName: 'Account', ids: [ACCOUNT] },
+    { objectApiName: 'Contact', ids: [CONTACT] },
+    { objectApiName: 'Case', ids: [CASE] },
+  ];
+  return {
+    writtenBetween: { first: FIRST_WRITE, last: LAST_WRITE },
+    created,
+    remap: new Set([ACCOUNT, CONTACT, CASE, LINKED_ACCOUNT].map((x) => x.slice(0, 15))),
+    automation: { creates: ['Asset', 'PermissionSetAssignment'] },
+    runUserId: RUN_USER,
+    ...(ties ? { ties } : {}),
+    ...overrides,
+  };
+}
+
+/** The ids deleted, over every call. */
+const deletedIds = (org: TiedOrg): string[] => org.deletes.flatMap((call) => call.ids);
+
+describe('a sweep told the ties: what it lists', () => {
+  it('lists each record in its class, hand work apart, and refuses only what is tied to nothing', async () => {
+    const org = tiedOrg();
+    org.add('Opportunity', rec(id('006', 1), 'Typed by hand', RUN_USER, at(40)));
+
+    const listing = await listSweep(org, tiedInput());
+
+    expect(listing.refusal).toBeUndefined();
+    expect(listing.found).toEqual([
+      {
+        objectApiName: 'Task',
+        count: 6,
+        // The tasks it takes first.
+        names: ['Case follow-up', 'Account review', 'Contact call'],
+        classes: { made: 2, sameSave: 1, madeOver: 0, late: 2, untied: 2 },
+      },
+      {
+        objectApiName: 'FeedItem',
+        count: 1,
+        names: ['Case posted'],
+        classes: { made: 1, sameSave: 1, madeOver: 0, late: 0, untied: 0 },
+      },
+      {
+        objectApiName: 'FeedComment',
+        count: 1,
+        names: ['Comment'],
+        classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+      },
+      {
+        objectApiName: 'Asset',
+        count: 1,
+        names: ['Insured risk'],
+        classes: { made: 1, sameSave: 1, madeOver: 0, late: 0, untied: 0 },
+      },
+    ]);
+    expect(listing.handWork).toEqual([{ objectApiName: 'Opportunity', count: 1 }]);
+    expect(listing.untied).toEqual({
+      objects: [{ objectApiName: 'Task', count: 2 }],
+      refusal: expect.stringMatching(/Opportunity: 1\): hand work, likely/),
+    });
+    expect(listing.untied?.refusal).toMatch(/runs of another machine, or of a CI/);
+    expect(listing.late).toEqual([{ objectApiName: 'Task', count: 2 }]);
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('looks at the children of the run’s objects people work with, and at none of what the org keeps for itself', async () => {
+    const org = tiedOrg();
+    const listing = await listSweep(org, tiedInput());
+    expect(listing.looked).toEqual(
+      expect.arrayContaining(['Account', 'Contact', 'Case', 'Task', 'Asset', 'Opportunity']),
+    );
+    expect(listing.looked).not.toContain('AccountHistory');
+    expect(listing.notLooked).toBeUndefined();
+  });
+
+  it('never lists the assignments a run’s mute made, even where the automation is said to create them', async () => {
+    const org = tiedOrg();
+    const listing = await listSweep(org, tiedInput({ leased: [id('0Pa', 1)] }));
+    expect(NEVER_SWEPT).toContain('PermissionSetAssignment');
+    expect(listing.looked).not.toContain('PermissionSetAssignment');
+    expect(listing.found.map((found) => found.objectApiName)).not.toContain(
+      'PermissionSetAssignment',
+    );
+    expect(org.queries.some((soql) => soql.includes('FROM PermissionSetAssignment'))).toBe(false);
+  });
+
+  it('ties a polymorphic lookup by the record’s first fifteen characters, whichever length the run kept', async () => {
+    const org = tiedOrg();
+    const fifteen = tiedInput(
+      {},
+      {
+        created: [
+          { objectApiName: 'Account', ids: [ACCOUNT.slice(0, 15)] },
+          { objectApiName: 'Contact', ids: [CONTACT.slice(0, 15)] },
+          { objectApiName: 'Case', ids: [CASE.slice(0, 15)] },
+        ],
+      },
+    );
+    const listing = await listSweep(org, fifteen);
+    expect(listing.found.find((found) => found.objectApiName === 'Task')?.classes).toMatchObject({
+      made: 2,
+    });
+  });
+
+  it('names the objects past the bound it did not look at, and counts five a composite', async () => {
+    const org = tiedOrg();
+    const children = Array.from({ length: 320 }, (_, n) => `Child${n}__c`);
+    for (const child of children) org.shape(child, {});
+    org.shape('Account', {
+      children: [
+        ...(org.shapes.get('Account')?.children ?? []),
+        ...children.map((childSObject) => ({ childSObject, field: 'Account__c' })),
+      ],
+    });
+    const calls: number[] = [];
+    const conn: CompositeQueryConnection = {
+      version: '66.0',
+      request: async (request) => {
+        const body = JSON.parse(request.body ?? '{}') as {
+          compositeRequest: Array<{ url: string; referenceId: string }>;
+        };
+        calls.push(body.compositeRequest.length);
+        return {
+          compositeResponse: body.compositeRequest.map((sub) => ({
+            referenceId: sub.referenceId,
+            httpStatusCode: 200,
+            body: {
+              totalSize: org.answer(decodeURIComponent(sub.url.replace(/^.*\?q=/, ''))).totalSize,
+              done: true,
+              records: [],
+            },
+          })),
+        };
+      },
+      query: async () => {
+        throw new Error('each count goes in a composite');
+      },
+      queryMore: async () => {
+        throw new Error('a count has one page');
+      },
+    };
+    org.counts = sweepCountsOf(compositeReader(conn));
+
+    const listing = await listSweep(org, tiedInput());
+
+    expect(SWEEP_LOOK_BOUND).toBe(300);
+    expect(listing.looked).toHaveLength(SWEEP_LOOK_BOUND);
+    const all = new Set([...listing.looked, ...(listing.notLooked ?? [])]);
+    expect(listing.notLooked).toHaveLength(all.size - SWEEP_LOOK_BOUND);
+    expect(listing.notLooked?.at(-1)).toBe('Child319__c');
+    // Three hundred counts in sixty composites of five, none of them alone.
+    expect(calls).toHaveLength(SWEEP_LOOK_BOUND / 5);
+    expect(calls.every((subrequests) => subrequests === 5)).toBe(true);
+    expect(org.queries.filter((soql) => soql.startsWith('SELECT COUNT()'))).toEqual([]);
+    // What was found is listed all the same.
+    expect(listing.found.map((found) => found.objectApiName)).toContain('Asset');
+  });
+});
+
+describe('a sweep told the ties: what it takes', () => {
+  it('keeps what is tied to nothing unasked, takes it when asked, and not while another run of this machine wrote in the window', async () => {
+    const loose = id('00T', 3);
+    let org = tiedOrg();
+    const plain = await sweepRunRecords(org, tiedInput(), NO_SPANS);
+    expect(plain.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({ found: 2 });
+    expect(deletedIds(org)).not.toContain(loose);
+    expect(org.ids('Task')).toContain(loose);
+
+    org = tiedOrg();
+    await sweepRunRecords(org, tiedInput(), { ...NO_SPANS, sweepUntied: true });
+    expect(deletedIds(org)).toContain(loose);
+
+    // Another run of this machine, whose own task is never listed.
+    org = tiedOrg();
+    org.add('Task', rec(id('00T', 8), 'The other run’s', RUN_USER, at(35)));
+    const others = { otherRuns: [{ ids: [id('00T', 8)] }] };
+    const listing = await listSweep(org, tiedInput(others));
+    expect(listing.untied?.refusal).toMatch(/^Another run of this machine wrote to the target/);
+    expect(listing.untied?.objects).toEqual([{ objectApiName: 'Task', count: 2 }]);
+    await sweepRunRecords(org, tiedInput(others), { ...NO_SPANS, sweepUntied: true });
+    expect(deletedIds(org)).not.toContain(loose);
+    expect(deletedIds(org)).not.toContain(id('00T', 8));
+  });
+
+  it('takes an asset the case’s flow linked though assets are hand work, and refuses only what is tied to nothing for one it did not', async () => {
+    const org = tiedOrg();
+    const listing = await listSweep(org, tiedInput());
+    expect(listing.handWork).toEqual([]);
+    expect(listing.untied?.refusal).toBeUndefined();
+    expect(HAND_WORK_OBJECTS).toContain('Asset');
+
+    // An asset hanging from nothing of the run, made in the run's window.
+    org.add('Asset', rec(id('02i', 2), 'Typed by hand', RUN_USER, at(45)));
+    const unlinked = await listSweep(org, tiedInput());
+    expect(unlinked.handWork).toEqual([{ objectApiName: 'Asset', count: 1 }]);
+    expect(unlinked.untied?.refusal).toMatch(/hand work/);
+    expect(unlinked.refusal).toBeUndefined();
+    expect(unlinked.found.find((found) => found.objectApiName === 'Asset')).toMatchObject({
+      count: 1,
+      classes: { made: 1 },
+    });
+    await sweepRunRecords(org, tiedInput(), { ...NO_SPANS, sweepUntied: true });
+    expect(org.ids('Asset')).toContain(id('02i', 2));
+    expect(org.ids('Task')).toContain(id('00T', 3));
+  });
+
+  it('takes what the Automated Process user made only when what came late is asked for', async () => {
+    let org = tiedOrg();
+    await sweepRunRecords(org, tiedInput(), NO_SPANS);
+    expect(org.ids('Task')).toEqual(expect.arrayContaining([id('00T', 4), id('00T', 5)]));
+
+    org = tiedOrg();
+    await sweepRunRecords(org, tiedInput(), { ...NO_SPANS, sweepLate: true });
+    expect(deletedIds(org)).toEqual(expect.arrayContaining([id('00T', 4), id('00T', 5)]));
+    // A colleague's task on the run's case, and one on an account the run
+    // only linked to, are never taken.
+    expect(org.ids('Task')).toEqual(expect.arrayContaining([id('00T', 6), id('00T', 7)]));
+  });
+
+  it('deletes an asset a case of the run names only once the case is gone, never before', async () => {
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    expect(await parts.first()).toBe(true);
+    // Before the run's records: only what neither goes with them nor waits.
+    expect(deletedIds(org)).toEqual([id('00T', 2)]);
+    expect([...parts.automationMade].sort()).toEqual(
+      [id('00T', 1), id('00T', 2), id('0D5', 1), id('0D7', 1), id('02i', 1)].sort(),
+    );
+    expect([...parts.made].sort()).toEqual([...parts.automationMade].sort());
+
+    // The removal deletes the run's records: the case takes its task, its
+    // feed item and the comment on it along.
+    await org.destroy('Case', [CASE]);
+    await org.destroy('Contact', [CONTACT]);
+    await org.destroy('Account', [ACCOUNT]);
+
+    expect(await parts.afterRemoval()).toBe(true);
+    const caseDeleted = org.deletes.findIndex((call) => call.object === 'Case');
+    const assetDeleted = org.deletes.findIndex((call) => call.object === 'Asset');
+    expect(assetDeleted).toBeGreaterThan(caseDeleted);
+    expect(org.ids('Asset')).toEqual([]);
+    const result = parts.result();
+    expect(result.status).toBe('success');
+    expect(result.objects.find((o) => o.objectApiName === 'Asset')).toMatchObject({
+      found: 1,
+      deleted: 1,
+      afterRemoval: 1,
+    });
+    expect(result.objects.find((o) => o.objectApiName === 'FeedComment')).toMatchObject({
+      deleted: 0,
+      alreadyGone: 1,
+    });
+    // What is not the run's to take unasked stays, or went with the run's
+    // records, never by the sweep's hand.
+    expect(org.ids('Task')).toEqual([id('00T', 3), id('00T', 7)]);
+    const swept = org.deletes.filter(
+      (call) => !['Case', 'Contact', 'Account'].includes(call.object),
+    );
+    for (const kept of [3, 4, 5, 6, 7]) {
+      expect(swept.flatMap((call) => call.ids)).not.toContain(id('00T', kept));
+    }
+  });
+
+  it('says the asset the org refused while the case that names it stays, in the org’s words', async () => {
+    const org = tiedOrg();
+    const result = await sweepRunRecords(org, tiedInput(), NO_SPANS);
+    expect(org.ids('Asset')).toEqual([id('02i', 1)]);
+    expect(result.status).toBe('partial');
+    expect(result.objects.find((o) => o.objectApiName === 'Asset')).toMatchObject({
+      deleted: 0,
+      refused: 1,
+      reasons: [expect.stringMatching(/^DELETE_FAILED: .*associated with the following cases/)],
+    });
+  });
+
+  it('keeps what someone changed since, out of what the removal is told goes along', async () => {
+    const org = tiedOrg();
+    const task = org.row('Task', id('00T', 1));
+    if (task) Object.assign(task, { LastModifiedDate: LONG_AFTER, LastModifiedById: COLLEAGUE });
+
+    const listing = await listSweep(org, tiedInput());
+    expect(listing.found[0]?.classes).toMatchObject({ made: 2, changed: 1 });
+
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+    await parts.first();
+    expect(parts.automationMade.has(id('00T', 1))).toBe(false);
+    expect(parts.result().objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      keptChanged: 1,
+    });
+  });
+
+  it('reads the ties before its first delete, and keeps for made what an earlier sweep found once a removal cleared the lookup that told it', async () => {
+    const org = tiedOrg();
+    // A removal with no sweep took the account: the org cleared the task's
+    // AccountId with it.
+    await org.destroy('Case', [CASE]);
+    await org.destroy('Contact', [CONTACT]);
+    await org.destroy('Account', [ACCOUNT]);
+    expect(org.row('Task', id('00T', 2))?.AccountId).toBeNull();
+
+    const after = await listSweep(org, tiedInput());
+    expect(after.untied?.objects).toEqual([{ objectApiName: 'Task', count: 3 }]);
+
+    const kept = await listSweep(org, tiedInput({ madeEarlier: [id('00T', 2)] }));
+    expect(kept.found.find((found) => found.objectApiName === 'Task')?.classes).toMatchObject({
+      made: 1,
+      untied: 2,
+    });
+  });
+
+  it('keeps one order: its reads, then its question, then its writes, the run’s own removal between its two parts', async () => {
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), {
+      ...NO_SPANS,
+      approve: async () => {
+        org.events.push('question');
+        return undefined;
+      },
+    });
+    await parts.first();
+    await org.destroy('Case', [CASE]);
+    await parts.afterRemoval();
+    org.events.push('result');
+
+    expect(writePathOrderDefects(org.events)).toEqual([]);
+    // No read once the sweep was asked: what it deletes is what was shown.
+    expect(org.events.lastIndexOf('reads')).toBeLessThan(org.events.indexOf('question'));
+    expect(org.events.filter((step) => step === 'question')).toHaveLength(1);
+    expect(org.events.filter((step) => step === 'write')).toHaveLength(org.deletes.length);
+    // It assigns nothing, takes no checkpoint and holds no lease.
+    expect(org.deletes.some((call) => call.object === 'PermissionSetAssignment')).toBe(false);
+    expect(org.events).not.toContain('leaseAcquire');
+    expect(org.events).not.toContain('checkpointTake');
+  });
+
+  it('takes what the update flows opened under the records a Sync run only wrote over, as made over', async () => {
+    const org = tiedOrg();
+    const updated = id('003', 5);
+    org.add('Contact', rec(updated, 'Updated contact', COLLEAGUE, BEFORE));
+    org.add(
+      'Task',
+      recWith(id('00T', 9), 'Updated: call back', RUN_USER, at(10), { WhoId: updated }),
+    );
+    const onlyOver = tiedInput(
+      { writtenOver: [{ objectApiName: 'Contact', ids: [updated] }] },
+      { created: [], remap: new Set([updated.slice(0, 15)]) },
+    );
+
+    const listing = await listSweep(org, onlyOver);
+    expect(listing.refusal).toBeUndefined();
+    expect(listing.found.find((found) => found.objectApiName === 'Task')?.classes).toMatchObject({
+      made: 0,
+      madeOver: 1,
+    });
+
+    await sweepRunRecords(org, onlyOver, NO_SPANS);
+    expect(deletedIds(org)).toEqual([id('00T', 9)]);
+    expect(org.ids('Contact')).toContain(updated);
+  });
+
+  it('takes everything the run’s user created in the window when told no ties, as before', async () => {
+    const org = tiedOrg();
+    const result = await sweepRunRecords(org, tiedInput(null), NO_SPANS);
+    expect(deletedIds(org)).toEqual(expect.arrayContaining([id('00T', 3), id('00T', 7)]));
+    // The asset goes before the case that names it, and the org refuses it.
+    expect(org.ids('Asset')).toEqual([id('02i', 1)]);
+    expect(result.status).toBe('partial');
   });
 });

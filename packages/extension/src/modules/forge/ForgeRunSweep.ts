@@ -18,19 +18,40 @@
  *   {@link SWEEP_TRAIL_MS} after the last — the org dates a record to the
  *   second, and what the target's automation does once the save is committed
  *   (an asynchronous path, a queued job) lands seconds after the write;
- * - the user: the one who created the run's records, read from them, in the
- *   org or its recycle bin — the run's own records may be gone by then;
+ * - the user: the one the run kept it wrote as, or else the one who created
+ *   the run's records, read from them, in the org or its recycle bin — the
+ *   run's own records may be gone by then;
  * - the objects the run wrote, the objects the platform and its automation
  *   commonly fill beside a record ({@link SWEEP_SIDE_OBJECTS}), and the
  *   objects the target's flows on the run's objects create
  *   (`ForgeTargetFlow.creates`), said when they could not all be read;
  * - minus every record the run's id map holds: what the run wrote, linked to
- *   or matched.
+ *   or matched; and never an object of {@link NEVER_SWEPT}.
+ *
+ * Told what ties a record to the run ({@link SweepInput.ties}), a sweep takes
+ * only what is tied to it ({@link sweepTiesOf}). The run's user is not proof
+ * enough: a quote line the platform copied from an opportunity line the run
+ * inserted carries the run's user as its creator, as the run's own lines do.
+ * Every child object of the run's objects is looked at too, counted first,
+ * five counts a composite where the org lets them go so
+ * ({@link SweepOrg.counts}), {@link SWEEP_LOOK_BOUND} objects at most; what is
+ * tied goes (`made`, `madeOver`), what came late or tied to nothing is listed
+ * and kept unless asked for (`sweepLate`, `sweepUntied`), and a record a
+ * record of the run points at by a lookup the org refuses its delete for —
+ * the asset a case of the run names — waits for that record to go
+ * ({@link sweepParts}). The ties are read before the sweep's first delete:
+ * once a record of the run is deleted, a lookup the org clears with it
+ * (`Task.AccountId`) no longer tells the tie.
+ *
+ * Without them, a sweep takes everything the run's user created in the
+ * window, as before.
  *
  * A window in which the run's user is likely to have worked by hand is not
- * swept: records the user created in it on objects the run never wrote and
- * the target's automation does not reach ({@link HAND_WORK_OBJECTS}) are said,
- * left, and the sweep refused. Nothing outside the window, or created by
+ * swept: records the user created in it on objects people make by hand
+ * ({@link HAND_WORK_OBJECTS}) that the run never wrote and the target's
+ * automation does not reach are said, left, and the sweep refused — and,
+ * told the ties, only such records tied to nothing of the run, which refuse
+ * only what is tied to nothing. Nothing outside the window, or created by
  * anyone else, is ever deleted: each row the org answers is checked again
  * against both before its delete is sent.
  */
@@ -40,6 +61,8 @@ import type {
   ForgeRemovalLeftCount,
   ForgeRemovalSpan,
   ForgeSweepAutomationGaps,
+  ForgeSweepClasses,
+  ForgeSweepFound,
   ForgeSweepListing,
   ForgeSweepObjectResult,
   ForgeSweepMark,
@@ -53,8 +76,10 @@ import type {
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
 import { emptyCounts } from '../audit/auditTrail.js';
-import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
+import type { CompositeReader } from '../checkpoint/compositeQueries.js';
+import { describedObjectSchema, type DescribedObject } from '../dataops/DataQualityScanner.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
   deleteBatch,
@@ -63,6 +88,18 @@ import {
   type RecordKeys,
   type RemovalOrg,
 } from './ForgeRunRemoval.js';
+import {
+  LATE_WITHIN_MS,
+  SAME_SAVE_MS,
+  sweepTiesOf,
+  type SweepAnchor,
+  type SweepCandidate,
+  type SweepClass,
+  type SweepPointer,
+  type SweepReference,
+  type SweepTie,
+  type SweepTurn,
+} from './sweepTies.js';
 
 /**
  * The objects the platform and the target's automation commonly fill beside
@@ -84,6 +121,9 @@ export const SWEEP_SIDE_OBJECTS: readonly string[] = [
  * Objects a person creates by hand. Records the run's user created in the
  * window on one of them that the run did not write and the target's
  * automation does not create are taken for hand work, and the sweep refused.
+ * Told the ties, such a record tied to nothing of the run is hand work on any
+ * of them, the run's own objects among them, and refuses only what is tied to
+ * nothing.
  */
 export const HAND_WORK_OBJECTS: readonly string[] = [
   'Account',
@@ -96,6 +136,25 @@ export const HAND_WORK_OBJECTS: readonly string[] = [
   'Order',
   'Asset',
   'Product2',
+];
+
+/**
+ * Objects no sweep ever looks at, whatever created their records in the
+ * window: users, groups and their members, permission sets and their
+ * assignments, record types, profiles and roles. The permission sets a run's
+ * mute assigned are created by the run's user in its window: swept as tied to
+ * nothing, they would take the bypass from another run under way.
+ */
+export const NEVER_SWEPT: readonly string[] = [
+  'User',
+  'Group',
+  'GroupMember',
+  'PermissionSet',
+  'PermissionSetAssignment',
+  'PermissionSetGroup',
+  'RecordType',
+  'Profile',
+  'UserRole',
 ];
 
 /** How far before the run's first write a sweep looks: the second the org dates a record to. */
@@ -114,6 +173,17 @@ export const SWEEP_TRAIL_MS = 60_000;
  * side effects are known to come to, and are said rather than deleted.
  */
 export const SWEEP_OBJECT_BOUND = 10_000;
+
+/**
+ * The most objects a sweep told the ties counts the records of: the run's
+ * objects, the side objects, what the automation creates and the hand-work
+ * objects first, then the children of the run's objects. An account has some
+ * 165 child objects on a scratch org; past the bound, the rest are named, not
+ * looked at. Kept from the design until P2-4 (a tour 0 probe deferred: how
+ * many objects are left of an account's, a contact's, a case's, an
+ * opportunity's and a quote's children once filtered) counts them.
+ */
+export const SWEEP_LOOK_BOUND = 300;
 
 /** Rows one read of an object's records takes: the most one page of a query answers. */
 const PAGE = 2_000;
@@ -137,6 +207,17 @@ const CREATING_PARTS: ReadonlySet<string> = new Set([
   'triggers',
   'conditions',
   'definitions',
+]);
+
+/**
+ * The lookups a tie is never read from: who owns, created and last modified a
+ * record, and its record type, point at no record a run creates.
+ */
+const NOT_A_TIE: ReadonlySet<string> = new Set([
+  'OwnerId',
+  'CreatedById',
+  'LastModifiedById',
+  'RecordTypeId',
 ]);
 
 /** A 15- or 18-character Salesforce id. */
@@ -237,6 +318,48 @@ export function sweepAutomationOf(
   };
 }
 
+/**
+ * What tells the records tied to a run from the rest of what its user
+ * created in its window ({@link sweepTiesOf}), beside the records it created
+ * ({@link SweepInput.created}), which tie the most.
+ */
+export interface SweepTies {
+  /**
+   * The records the run only wrote over — a Sync run's updates and matched
+   * upserts — per object: what is tied to them alone is `madeOver`. With the
+   * span of their writes on the org's clock when the run kept it; absent,
+   * the run's.
+   */
+  writtenOver?: ReadonlyArray<{
+    readonly objectApiName: string;
+    readonly ids: readonly string[];
+    readonly between?: ForgeWrittenBetween;
+  }>;
+  /**
+   * The records of the runs of this machine that wrote to the target within
+   * the run's window, each run's ids together: never swept, and while there
+   * is one, what is tied to nothing is not swept either — whose it is cannot
+   * be told.
+   */
+  otherRuns?: ReadonlyArray<{ readonly ids: readonly string[] }>;
+  /** The ids of the assignments the run's mute created: never swept. */
+  leased?: readonly string[];
+  /** What the run's mute kept quiet and what still ran, said with the listing. */
+  muted?: ForgeSweepListing['muted'];
+  /**
+   * When the run's first removal began, on the org's clock: a record created
+   * since is a removal's doing, never the run's. Absent, the removal under
+   * way's own start, as its spans say, or none.
+   */
+  removalBegan?: string;
+  /**
+   * The records an earlier sweep found made for the run, by id: `made` still,
+   * though a removal since deleted the record they were tied to and the org
+   * cleared the lookup that told it.
+   */
+  madeEarlier?: readonly string[];
+}
+
 /** What a sweep is told of the run it sweeps after. */
 export interface SweepInput {
   /** When the target dated the run's writes; a run it did not date is not swept. */
@@ -252,20 +375,77 @@ export interface SweepInput {
   /** What the target's automation creates, as {@link sweepAutomationOf} reads it. */
   automation: SweepAutomation;
   /**
+   * The user the run kept it wrote as (`runUserId`): taken before anything
+   * is read to tell it.
+   */
+  runUserId?: string;
+  /**
    * The user the run wrote as, told where none of its records can tell it: a
    * Sync run that created nothing and only wrote over records the target
    * held (`seedSweepInput`). Records the run created tell it first.
    */
   user?: string;
+  /**
+   * What tells the records tied to the run from the rest. Given, the sweep
+   * takes only what is tied to the run, and lists the rest; absent, it takes
+   * everything the run's user created in the window, as it did before it
+   * told them apart.
+   */
+  ties?: SweepTies;
   /** Stops the sweep before its next call to the org. */
   signal?: AbortSignal;
 }
 
-/** A record a sweep found: its id, when it was last modified, and by whom where the object says. */
+/**
+ * The org a sweep works on: a removal's, and, where the connection carries
+ * them, its counts sent several to a call.
+ */
+export type SweepOrg = RemovalOrg & {
+  /**
+   * The answers of `SELECT COUNT()` statements, in their order: each the
+   * count, or why the org refused it. Five go in one composite, which costs
+   * the org one request of its day as one query does
+   * ({@link sweepCountsOf}). Absent, each goes in a call of its own.
+   */
+  counts?(statements: readonly string[]): Promise<Array<number | { reason: string }>>;
+};
+
+/**
+ * The counts of a sweep sent through `reader`'s composites: five a call,
+ * three calls in flight, as the checkpoint's reads send theirs.
+ */
+export function sweepCountsOf(
+  reader: Pick<CompositeReader, 'lane'>,
+): NonNullable<SweepOrg['counts']> {
+  return (statements) =>
+    Promise.all(
+      statements.map(async (statement): Promise<number | { reason: string }> => {
+        const lane = reader.lane({ oneRow: true });
+        try {
+          const page = await lane.query(statement);
+          return page.totalSize ?? page.records.length;
+        } catch (err: unknown) {
+          return { reason: extractErrorMessage(err) };
+        } finally {
+          lane.close();
+        }
+      }),
+    );
+}
+
+/** A record a sweep found, as far as its delete and its class need it. */
 interface SweepRow {
   id: string;
   modified: number;
   modifiedBy?: string;
+  /** When it was created: what tells a record changed since from a record made late. */
+  created: number;
+  /** Its class, when the sweep told the ties; absent, it is taken as everything was before. */
+  class?: SweepClass;
+  sameSave?: boolean;
+  /** When it goes against the run's own records; `before` unless the ties say otherwise. */
+  turn: SweepTurn;
+  name?: string;
 }
 
 /** What a sweep found, before it deletes anything. */
@@ -276,6 +456,12 @@ interface SweepFindings {
   rows: Map<string, SweepRow[]>;
   /** Whether a stop came before the reads were through. */
   stopped: boolean;
+  /**
+   * The org the order of the deletes is read from: told the ties, the
+   * describes the sweep already read, so nothing more is read once the sweep
+   * was asked.
+   */
+  ordering?: RemovalOrg;
 }
 
 /** An object's describe, as far as a sweep reads it. */
@@ -287,6 +473,8 @@ interface SweptObject {
   modifiedBy?: string;
   /** The field that names a record, where the object has one. */
   nameField?: string;
+  /** Its lookups a tie may be read from, by field name. */
+  references: string[];
 }
 
 /**
@@ -342,30 +530,67 @@ async function runUserOf(
   };
 }
 
+/** One object of the org's list, with what it says of its records where it says it. */
+interface ListedObject {
+  name: string;
+  queryable?: boolean;
+  deletable?: boolean;
+  createable?: boolean;
+  layoutable?: boolean;
+}
+
 /** The objects the org lists, by lower-cased API name, or undefined when it would not list them. */
-async function objectsListed(org: RemovalOrg): Promise<Map<string, string> | undefined> {
+async function objectsListed(org: RemovalOrg): Promise<Map<string, ListedObject> | undefined> {
   try {
     const global = (await org.describeGlobal()) as { sobjects?: unknown } | null;
     const sobjects = Array.isArray(global?.sobjects) ? global.sobjects : [];
-    const names = new Map<string, string>();
+    const listed = new Map<string, ListedObject>();
     for (const sobject of sobjects) {
-      const name = (sobject as { name?: unknown } | null)?.name;
-      if (typeof name === 'string') names.set(name.toLowerCase(), name);
+      const entry = (sobject ?? {}) as Record<string, unknown>;
+      if (typeof entry.name !== 'string') continue;
+      const flag = (key: string): { [key: string]: boolean } =>
+        typeof entry[key] === 'boolean' ? { [key]: entry[key] } : {};
+      listed.set(entry.name.toLowerCase(), {
+        name: entry.name,
+        ...flag('queryable'),
+        ...flag('deletable'),
+        ...flag('createable'),
+        ...flag('layoutable'),
+      });
     }
-    return names;
+    return listed;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Whether an object a run's object has as a child is one a sweep looks at:
+ * one people work with, whose records may be queried, created and deleted —
+ * which leaves out what the org keeps for itself behind a record, its
+ * history, its sharing rows. A flag the org does not give is not held
+ * against it.
+ */
+function childLookedAt(listed: ListedObject): boolean {
+  return (
+    listed.queryable !== false &&
+    listed.deletable !== false &&
+    listed.createable !== false &&
+    listed.layoutable !== false &&
+    !NEVER_SWEPT.some((name) => name.toLowerCase() === listed.name.toLowerCase())
+  );
 }
 
 /** How a sweep reads an object, or why it cannot. */
 async function sweptObjectOf(
   org: RemovalOrg,
   objectApiName: string,
+  describeOf: (objectApiName: string) => Promise<DescribedObject> = async (name) =>
+    describedObjectSchema.parse(await org.describe(name)),
 ): Promise<SweptObject | { reason: string }> {
   let described;
   try {
-    described = describedObjectSchema.parse(await org.describe(objectApiName));
+    described = await describeOf(objectApiName);
   } catch (err: unknown) {
     return { reason: extractErrorMessage(err) };
   }
@@ -392,7 +617,29 @@ async function sweptObjectOf(
     modified,
     ...(fields.has('LastModifiedById') ? { modifiedBy: 'LastModifiedById' } : {}),
     ...(nameField && nameField !== 'Id' ? { nameField } : {}),
+    references: tieFieldsOf(described),
   };
+}
+
+/**
+ * The lookups of an object a tie may be read from: every reference field but
+ * who owns, created and last modified a record and its record type, and but
+ * those that point only at users, groups and the like, which no run creates.
+ * Polymorphic ones count: `WhatId`, `WhoId`, `ParentId`, `LinkedEntityId`,
+ * `RelatedToId`.
+ */
+function tieFieldsOf(described: DescribedObject): string[] {
+  return described.fields
+    .filter(
+      (field) =>
+        field.type === 'reference' &&
+        !NOT_A_TIE.has(field.name) &&
+        !(
+          (field.referenceTo ?? []).length > 0 &&
+          (field.referenceTo ?? []).every((to) => NEVER_SWEPT.includes(to))
+        ),
+    )
+    .map((field) => field.name);
 }
 
 /** The condition every read of a sweep carries: the user, and the window. */
@@ -403,12 +650,25 @@ function createdBy(user: string, window: Window): string {
   );
 }
 
+/** The same, for a sweep that reads what any of `creators` created. */
+function createdByAny(creators: readonly string[], window: Window): string {
+  if (creators.length === 1) return createdBy(creators[0], window);
+  return (
+    `CreatedById IN (${creators.map((creator) => `'${creator}'`).join(', ')}) ` +
+    `AND CreatedDate >= ${soqlDate(window.from)} AND CreatedDate <= ${soqlDate(window.to)}`
+  );
+}
+
 /**
  * Find what a sweep would take, reading only: the run's window and user, then
  * per object the records that user created in the window that the run's id
  * map does not hold, and the hand work that refuses the sweep.
  */
-async function findSweep(org: RemovalOrg, input: SweepInput): Promise<SweepFindings> {
+async function findSweep(
+  org: SweepOrg,
+  input: SweepInput,
+  removalSpans: readonly ForgeRemovalSpan[] = [],
+): Promise<SweepFindings> {
   const stopped = (): boolean => input.signal?.aborted === true;
   const listing: ForgeSweepListing = {
     looked: [],
@@ -429,33 +689,41 @@ async function findSweep(org: RemovalOrg, input: SweepInput): Promise<SweepFindi
   listing.window = { from: soqlDate(window.from), to: soqlDate(window.to) };
 
   // A user told goes into the sweep's queries: an id, or nothing.
+  const kept =
+    input.runUserId !== undefined && SF_ID_RE.test(input.runUserId) ? input.runUserId : undefined;
   const toldUser = input.user !== undefined && SF_ID_RE.test(input.user) ? input.user : undefined;
   const createdAny = input.created.some((object) => object.ids.length > 0);
-  const told = createdAny
-    ? await runUserOf(org, input.created, stopped)
-    : toldUser !== undefined
-      ? { user: toldUser }
-      : {
-          refusal:
-            'The run created nothing, and none of the records it wrote over still says, in its ' +
-            'window, who last modified it: the user it wrote as cannot be told, and nothing is ' +
-            'swept.',
-        };
+  const told = kept
+    ? { user: kept }
+    : createdAny
+      ? await runUserOf(org, input.created, stopped)
+      : toldUser !== undefined
+        ? { user: toldUser }
+        : {
+            refusal:
+              'The run created nothing, and none of the records it wrote over still says, in its ' +
+              'window, who last modified it: the user it wrote as cannot be told, and nothing is ' +
+              'swept.',
+          };
   if ('refusal' in told) {
     listing.refusal = told.refusal;
     findings.stopped = stopped();
     return findings;
+  }
+  if (input.ties) {
+    return findTied(org, input, input.ties, told.user, findings, window, removalSpans);
   }
   const user = told.user;
 
   const listed = await objectsListed(org);
   /** The org's spelling of an object, or undefined when the org does not list it. */
   const inOrg = (name: string): string | undefined =>
-    listed ? listed.get(name.toLowerCase()) : name;
+    listed ? listed.get(name.toLowerCase())?.name : name;
   const runObjects = input.created.map((object) => object.objectApiName);
   const looked: string[] = [];
   const look = (name: string, said: boolean): void => {
     if (looked.some((known) => known.toLowerCase() === name.toLowerCase())) return;
+    if (NEVER_SWEPT.some((never) => never.toLowerCase() === name.toLowerCase())) return;
     const spelled = inOrg(name);
     // An object the org does not have holds nothing to sweep; one the run
     // wrote or its automation creates is said, as it was expected there.
@@ -588,6 +856,8 @@ async function readCreated(
       rows.push({
         id: row.Id,
         modified: epochOf(row[object.modified]),
+        created,
+        turn: 'before',
         ...(typeof modifiedBy === 'string' ? { modifiedBy: recordKey(modifiedBy) } : {}),
       });
       const named = object.nameField ? row[object.nameField] : undefined;
@@ -602,12 +872,696 @@ async function readCreated(
   }
 }
 
+// ─── The sweep told the ties ─────────────────────────────────────────────────
+
+/** A record found by a sweep told the ties, with what it points at. */
+interface TiedRow extends SweepRow {
+  creator: string;
+  /** Its lookups read, field by field, to a record id's key. */
+  references: Array<{ field: string; key: string }>;
+}
+
+/** The answer of each `SELECT COUNT()` in its order, `undefined` for one a stop left unsent. */
+async function countsOf(
+  org: SweepOrg,
+  statements: readonly string[],
+  stopped: () => boolean,
+): Promise<Array<number | { reason: string } | undefined>> {
+  if (statements.length === 0) return [];
+  if (org.counts) {
+    try {
+      return await org.counts(statements);
+    } catch (err: unknown) {
+      const reason = extractErrorMessage(err);
+      return statements.map(() => ({ reason }));
+    }
+  }
+  const answers: Array<number | { reason: string } | undefined> = [];
+  for (const statement of statements) {
+    if (stopped()) {
+      answers.push(undefined);
+      continue;
+    }
+    try {
+      answers.push((await org.query(statement)).totalSize);
+    } catch (err: unknown) {
+      answers.push({ reason: extractErrorMessage(err) });
+    }
+  }
+  return answers;
+}
+
+/** The ids of the org's Automated Process users, which its asynchronous automation may run as. */
+async function automatedProcessUsers(org: RemovalOrg): Promise<string[]> {
+  try {
+    const answer = await org.query("SELECT Id FROM User WHERE UserType = 'AutomatedProcess'");
+    return answer.records
+      .map((row) => (row as { Id?: unknown } | null)?.Id)
+      .filter((value): value is string => typeof value === 'string' && SF_ID_RE.test(value));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read the records of one object any of `creators` created between `from`
+ * and `to`, with every lookup a tie may be read from — in groups of columns
+ * when the object is too wide to name them in one query — page after page by
+ * id, the records `excluded` holds left out. Each row is checked again
+ * against the creators and the span before it is kept.
+ */
+async function readTiedRows(
+  org: RemovalOrg,
+  object: SweptObject,
+  creators: ReadonlyMap<string, string>,
+  span: Window,
+  excluded: (key: string) => boolean,
+  stopped: () => boolean,
+): Promise<{ rows: TiedRow[]; overBound: boolean; stopped: boolean } | { reason: string }> {
+  const name = assertSoqlIdentifier(object.name);
+  const columns = [
+    ...new Set(
+      [
+        'Id',
+        'CreatedById',
+        'CreatedDate',
+        object.modified,
+        object.modifiedBy,
+        object.nameField,
+        ...object.references,
+      ]
+        .filter((column): column is string => column !== undefined)
+        .map(assertSoqlIdentifier),
+    ),
+  ];
+  const read = async (statement: string): Promise<Array<Record<string, unknown>>> =>
+    (await org.query(statement)).records.filter(
+      (record): record is Record<string, unknown> => typeof record === 'object' && record !== null,
+    );
+  const rows: TiedRow[] = [];
+  let after: string | undefined;
+  for (;;) {
+    if (stopped()) return { rows, overBound: false, stopped: true };
+    const soql =
+      `SELECT ${columns.join(', ')} FROM ${name} WHERE ${createdByAny([...creators.values()], span)}` +
+      `${after ? ` AND Id > '${after}'` : ''} ORDER BY Id LIMIT ${PAGE}`;
+    let page: Array<Record<string, unknown>>;
+    try {
+      const wide = wideStatement(soql);
+      page = wide ? await readOtherColumns(await read(wide.first), wide, read) : await read(soql);
+    } catch (err: unknown) {
+      return { reason: extractErrorMessage(err) };
+    }
+    for (const row of page) {
+      if (typeof row.Id !== 'string') continue;
+      after = row.Id;
+      const creator = typeof row.CreatedById === 'string' ? recordKey(row.CreatedById) : '';
+      const created = epochOf(row.CreatedDate);
+      if (!creators.has(creator) || !(created >= span.from && created <= span.to)) continue;
+      if (excluded(recordKey(row.Id))) continue;
+      const modifiedBy = object.modifiedBy ? row[object.modifiedBy] : undefined;
+      const named = object.nameField ? row[object.nameField] : undefined;
+      const references: TiedRow['references'] = [];
+      for (const field of object.references) {
+        const value = row[field];
+        if (typeof value === 'string' && SF_ID_RE.test(value)) {
+          references.push({ field, key: recordKey(value) });
+        }
+      }
+      rows.push({
+        id: row.Id,
+        modified: epochOf(row[object.modified]),
+        created,
+        creator,
+        turn: 'before',
+        references,
+        ...(typeof modifiedBy === 'string' ? { modifiedBy: recordKey(modifiedBy) } : {}),
+        ...(typeof named === 'string' && named.trim() !== ''
+          ? { name: named.trim().slice(0, 80) }
+          : {}),
+      });
+      if (rows.length > SWEEP_OBJECT_BOUND) {
+        return { rows: rows.slice(0, SWEEP_OBJECT_BOUND), overBound: true, stopped: false };
+      }
+    }
+    if (page.length < PAGE) return { rows, overBound: false, stopped: false };
+  }
+}
+
+/** A record of the run's a sweep ties records to, with its object and its id as the run kept it. */
+interface Anchor extends SweepAnchor {
+  objectApiName: string;
+  id: string;
+}
+
+/** The describes a sweep told the ties reads, each once. */
+interface Describes {
+  /** The describe, or the org's refusal. */
+  of(objectApiName: string): Promise<DescribedObject>;
+  /** The describe, or undefined when the org refused it. */
+  now(objectApiName: string): Promise<DescribedObject | undefined>;
+  /** What the org does to `child`'s `field` when the record of `parent` it names goes. */
+  relation(
+    parent: string,
+    child: string,
+    field: string,
+  ): Promise<{ cascade: boolean; restricted: boolean }>;
+}
+
+function describesOf(org: RemovalOrg): Describes {
+  const held = new Map<string, Promise<DescribedObject>>();
+  const of = (name: string): Promise<DescribedObject> => {
+    const key = name.toLowerCase();
+    let described = held.get(key);
+    if (!described) {
+      described = (async () => describedObjectSchema.parse(await org.describe(name)))();
+      // Asked again, it fails again: no unhandled refusal in between.
+      described.catch(() => undefined);
+      held.set(key, described);
+    }
+    return described;
+  };
+  const now = async (name: string): Promise<DescribedObject | undefined> => {
+    try {
+      return await of(name);
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    of,
+    now,
+    async relation(parent, child, field) {
+      const relation = (await now(parent))?.childRelationships?.find(
+        (r) => r.childSObject.toLowerCase() === child.toLowerCase() && r.field === field,
+      );
+      return {
+        cascade: relation?.cascadeDelete === true,
+        restricted: relation?.restrictedDelete === true,
+      };
+    },
+  };
+}
+
+/**
+ * The objects a sweep told the ties counts: those every sweep looks at, the
+ * hand-work ones, then the children of the run's objects people work with,
+ * up to {@link SWEEP_LOOK_BOUND}; past it, named as not looked at.
+ */
+async function objectsToCount(
+  org: RemovalOrg,
+  anchorObjects: readonly string[],
+  creates: readonly string[],
+  describes: Describes,
+  listing: ForgeSweepListing,
+  stopped: () => boolean,
+): Promise<{ looked: string[]; notLooked: string[] } | undefined> {
+  const listed = await objectsListed(org);
+  const inOrg = (name: string): ListedObject | undefined =>
+    listed ? listed.get(name.toLowerCase()) : { name };
+  const looked: string[] = [];
+  const notLooked: string[] = [];
+  const has = (name: string): boolean =>
+    looked.some((known) => known.toLowerCase() === name.toLowerCase());
+  const never = (name: string): boolean =>
+    NEVER_SWEPT.some((known) => known.toLowerCase() === name.toLowerCase());
+  const look = (name: string, said: boolean): void => {
+    if (has(name) || never(name)) return;
+    const spelled = inOrg(name)?.name;
+    if (!spelled) {
+      if (said) listing.unread.push({ objectApiName: name, reason: 'The org has no such object.' });
+      return;
+    }
+    if (looked.length >= SWEEP_LOOK_BOUND) {
+      if (!notLooked.includes(spelled)) notLooked.push(spelled);
+      return;
+    }
+    looked.push(spelled);
+  };
+  for (const name of anchorObjects) look(name, true);
+  for (const name of SWEEP_SIDE_OBJECTS) look(name, false);
+  for (const name of creates) look(name, true);
+  for (const name of HAND_WORK_OBJECTS) look(name, false);
+  for (const name of anchorObjects) {
+    if (stopped()) return undefined;
+    for (const relation of (await describes.now(name))?.childRelationships ?? []) {
+      const child = inOrg(relation.childSObject);
+      if (child && childLookedAt(child) && !has(child.name)) look(child.name, false);
+    }
+  }
+  return { looked, notLooked };
+}
+
+/**
+ * The run's records' lookups to the records found, read from the run's
+ * records still in the org by the ids found: per lookup of a run's object to
+ * an object found, one query per {@link RECORDS_PER_CALL} ids. A lookup that
+ * cannot be read is said; what only it ties is then tied to nothing.
+ */
+async function pointersOf(
+  org: RemovalOrg,
+  anchorObjects: readonly string[],
+  anchors: ReadonlyMap<string, Anchor>,
+  found: ReadonlyMap<string, TiedRow[]>,
+  describes: Describes,
+  listing: ForgeSweepListing,
+  stopped: () => boolean,
+): Promise<SweepPointer[] | undefined> {
+  const pointers: SweepPointer[] = [];
+  const foundByObject = new Map([...found.keys()].map((name) => [name.toLowerCase(), name]));
+  for (const anchorObject of anchorObjects) {
+    const fields = ((await describes.now(anchorObject))?.fields ?? []).filter(
+      (field) => field.type === 'reference' && !NOT_A_TIE.has(field.name),
+    );
+    for (const field of fields) {
+      for (const to of field.referenceTo ?? []) {
+        const target = foundByObject.get(to.toLowerCase());
+        if (!target) continue;
+        const ids = (found.get(target) ?? []).map((row) => row.id);
+        const { restricted } = await describes.relation(target, anchorObject, field.name);
+        const lookup = assertSoqlIdentifier(field.name);
+        for (const list of idLists(ids)) {
+          if (stopped()) return undefined;
+          let rows: unknown[];
+          try {
+            rows = (
+              await org.query(
+                `SELECT Id, ${lookup} FROM ${assertSoqlIdentifier(anchorObject)} ` +
+                  `WHERE ${lookup} IN (${list})`,
+              )
+            ).records;
+          } catch (err: unknown) {
+            listing.unread.push({
+              objectApiName: anchorObject,
+              reason:
+                `What its ${field.name} points at among the records found could not be read ` +
+                `(${extractErrorMessage(err)}): what only it ties is left as tied to nothing.`,
+            });
+            continue;
+          }
+          for (const row of rows) {
+            const { Id: from, [field.name]: value } = (row ?? {}) as Record<string, unknown>;
+            if (typeof from !== 'string' || typeof value !== 'string') continue;
+            if (!anchors.has(recordKey(from))) continue;
+            pointers.push({ from: recordKey(from), to: recordKey(value), restricted });
+          }
+        }
+      }
+    }
+  }
+  return pointers;
+}
+
+/**
+ * Date the records the run created that something found is tied to, by
+ * their `CreatedDate` in the org or its recycle bin: those alone are read.
+ * One that cannot be read keeps no date, and is taken as written in the
+ * run's span. False when a stop came first.
+ */
+async function dateAnchors(
+  org: RemovalOrg,
+  anchors: ReadonlyMap<string, Anchor>,
+  linked: ReadonlySet<string>,
+  stopped: () => boolean,
+): Promise<boolean> {
+  const toDate = new Map<string, string[]>();
+  for (const key of linked) {
+    const anchor = anchors.get(key);
+    if (anchor?.kind !== 'created') continue;
+    toDate.set(anchor.objectApiName, [...(toDate.get(anchor.objectApiName) ?? []), anchor.id]);
+  }
+  for (const [objectApiName, ids] of toDate) {
+    for (const list of idLists(ids)) {
+      if (stopped()) return false;
+      try {
+        const answer = await org.queryDeleted(
+          `SELECT Id, CreatedDate FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id IN (${list})`,
+        );
+        for (const row of answer.records) {
+          const { Id: id, CreatedDate: date } = (row ?? {}) as Record<string, unknown>;
+          const anchor = typeof id === 'string' ? anchors.get(recordKey(id)) : undefined;
+          const at = epochOf(date);
+          if (anchor && Number.isFinite(at)) {
+            anchor.from = at;
+            anchor.to = at;
+          }
+        }
+      } catch {
+        // Undated, a record of the run is taken as written in the run's span.
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Put each record found in its class, per object, into the listing and the
+ * rows to sweep: what is tied to nothing on an object people make by hand is
+ * hand work, never swept, and refuses what is tied to nothing, as another run
+ * of this machine in the window does.
+ */
+function classify(
+  found: ReadonlyMap<string, TiedRow[]>,
+  tied: ReadonlyMap<string, SweepTie>,
+  ties: SweepTies,
+  findings: SweepFindings,
+  window: Window,
+  removalSpans: readonly ForgeRemovalSpan[],
+): void {
+  const { listing } = findings;
+  const handWorkKeys = new Set(HAND_WORK_OBJECTS.map((name) => name.toLowerCase()));
+  const untied: ForgeRemovalLeftCount[] = [];
+  const late: ForgeRemovalLeftCount[] = [];
+  const order: readonly SweepClass[] = ['made', 'madeOver', 'late', 'untied'];
+  for (const [objectApiName, rows] of found) {
+    const kept: SweepRow[] = [];
+    let handWork = 0;
+    for (const row of rows) {
+      const tie = tied.get(recordKey(row.id));
+      if (!tie) continue;
+      if (tie.class === 'untied' && handWorkKeys.has(objectApiName.toLowerCase())) {
+        handWork++;
+        continue;
+      }
+      kept.push({
+        id: row.id,
+        modified: row.modified,
+        created: row.created,
+        class: tie.class,
+        sameSave: tie.sameSave,
+        turn: tie.turn,
+        ...(row.modifiedBy !== undefined ? { modifiedBy: row.modifiedBy } : {}),
+        ...(row.name !== undefined ? { name: row.name } : {}),
+      });
+    }
+    if (handWork > 0) listing.handWork.push({ objectApiName, count: handWork });
+    if (kept.length === 0) continue;
+    const classes: ForgeSweepClasses = { made: 0, madeOver: 0, late: 0, untied: 0 };
+    let sameSave = 0;
+    let changed = 0;
+    for (const row of kept) {
+      if (row.class) classes[row.class]++;
+      if (row.sameSave) sameSave++;
+      if (changedSince(row, window, removalSpans)) changed++;
+    }
+    listing.found.push({
+      objectApiName,
+      count: kept.length,
+      // The records it takes first.
+      names: order
+        .flatMap((name) => kept.filter((row) => row.class === name))
+        .flatMap((row) => (row.name ? [row.name] : []))
+        .slice(0, NAMES_SHOWN),
+      classes: {
+        ...classes,
+        ...(sameSave > 0 ? { sameSave } : {}),
+        ...(changed > 0 ? { changed } : {}),
+      },
+    });
+    if (classes.untied > 0) untied.push({ objectApiName, count: classes.untied });
+    if (classes.late > 0) late.push({ objectApiName, count: classes.late });
+    findings.rows.set(objectApiName, kept);
+  }
+
+  const refusals: string[] = [];
+  if (listing.handWork.length > 0) {
+    refusals.push(
+      `The run's user created records in the run's window tied to nothing of the run, on objects ` +
+        `people make by hand (${handWorkWords(listing.handWork)}): hand work, likely, in the same ` +
+        'span. They are left, and so is everything tied to nothing: what was made by hand could ' +
+        'not be told from what the automation made.',
+    );
+  }
+  const others = (ties.otherRuns ?? []).filter((run) => run.ids.length > 0).length;
+  if (others > 0) {
+    refusals.push(
+      `${others === 1 ? 'Another run' : `${others} other runs`} of this machine wrote to the ` +
+        'target in this run’s window: what is tied to nothing of this run may be theirs, and is ' +
+        'left.',
+    );
+  }
+  if (refusals.length > 0) {
+    refusals.push('The runs of another machine, or of a CI, in the same window are not seen.');
+  }
+  listing.untied = {
+    objects: untied,
+    ...(refusals.length > 0 ? { refusal: refusals.join(' ') } : {}),
+  };
+  listing.late = late;
+}
+
+/**
+ * Find what a sweep told the ties would take, reading only, every read before
+ * the first delete: the objects the run's records have as children beside
+ * those every sweep looks at, counted first; the records the run's user — and
+ * the org's Automated Process user — created in the window, and up to
+ * {@link LATE_WITHIN_MS} after the run's last write for what comes late; their
+ * lookups, the run's records' lookups to them, and when the records of the
+ * run they are tied to were created; then each one's class.
+ */
+async function findTied(
+  org: SweepOrg,
+  input: SweepInput,
+  ties: SweepTies,
+  user: string,
+  findings: SweepFindings,
+  window: Window,
+  removalSpans: readonly ForgeRemovalSpan[],
+): Promise<SweepFindings> {
+  const { listing } = findings;
+  const stopped = (): boolean => input.signal?.aborted === true;
+  const halt = (): SweepFindings => {
+    findings.stopped = true;
+    return findings;
+  };
+
+  // The run's span, and how far past it what comes late is read: never past
+  // the removal's start, whose own doing is never the run's.
+  const first = epochOf(input.writtenBetween?.first);
+  const last = Math.max(first, epochOf(input.writtenBetween?.last));
+  const removalBegan = Math.min(
+    Number.POSITIVE_INFINITY,
+    ...[ties.removalBegan, ...removalSpans.map((span) => span.first)]
+      .map(epochOf)
+      .filter(Number.isFinite),
+  );
+  const lateEnd = Math.ceil((last + LATE_WITHIN_MS) / 1000) * 1000;
+  const span: Window = {
+    from: window.from,
+    to: Math.max(window.to, Math.min(lateEnd, Math.floor(removalBegan / 1000) * 1000)),
+  };
+
+  // The records of the run, by key: what it created, then what it only
+  // wrote over. Never what it only linked to.
+  const anchors = new Map<string, Anchor>();
+  const runSpan = { from: first, to: last };
+  for (const { objectApiName, ids } of input.created) {
+    for (const id of ids) {
+      anchors.set(recordKey(id), {
+        kind: 'created',
+        objectApiName,
+        id,
+        from: Number.NaN,
+        to: Number.NaN,
+      });
+    }
+  }
+  for (const { objectApiName, ids, between } of ties.writtenOver ?? []) {
+    const from = epochOf(between?.first);
+    const to = epochOf(between?.last);
+    for (const id of ids) {
+      if (anchors.has(recordKey(id))) continue;
+      anchors.set(recordKey(id), { kind: 'overwritten', objectApiName, id, from, to });
+    }
+  }
+  const anchorObjects = [
+    ...new Set(
+      [...input.created, ...(ties.writtenOver ?? [])]
+        .filter((object) => object.ids.length > 0)
+        .map((object) => object.objectApiName),
+    ),
+  ];
+  const excludedKeys = new Set<string>([
+    ...(ties.otherRuns ?? []).flatMap((run) => run.ids.map(recordKey)),
+    ...(ties.leased ?? []).map(recordKey),
+  ]);
+  const excluded = (key: string): boolean =>
+    input.remap.has(key) || anchors.has(key) || excludedKeys.has(key);
+
+  const ap = await automatedProcessUsers(org);
+  const creators = new Map<string, string>([[recordKey(user), user]]);
+  for (const id of ap) if (!creators.has(recordKey(id))) creators.set(recordKey(id), id);
+  const automatedProcess = new Set(ap.map(recordKey).filter((key) => key !== recordKey(user)));
+
+  const describes = describesOf(org);
+  const toCount = await objectsToCount(
+    org,
+    anchorObjects,
+    input.automation.creates,
+    describes,
+    listing,
+    stopped,
+  );
+  if (!toCount) return halt();
+  const { looked, notLooked } = toCount;
+  listing.looked = looked;
+  if (notLooked.length > 0) listing.notLooked = notLooked;
+
+  // Counted first: only the objects that hold something are described and read.
+  const counted = await countsOf(
+    org,
+    looked.map(
+      (name) =>
+        `SELECT COUNT() FROM ${assertSoqlIdentifier(name)} WHERE ${createdByAny([...creators.values()], span)}`,
+    ),
+    stopped,
+  );
+  if (stopped()) return halt();
+  const found = new Map<string, TiedRow[]>();
+  const overBound: ForgeSweepFound[] = [];
+  for (const [at, objectApiName] of looked.entries()) {
+    const count = counted[at];
+    if (count === undefined) return halt();
+    if (count === 0) continue;
+    if (stopped()) return halt();
+    // An object the org would not count is said in the sweep's words when its
+    // describe tells why — no creator to tell what the run's user created —,
+    // in the org's otherwise.
+    const swept = await sweptObjectOf(org, objectApiName, describes.of);
+    if ('reason' in swept) {
+      listing.unread.push({ objectApiName, reason: swept.reason });
+      continue;
+    }
+    if (typeof count === 'object') {
+      listing.unread.push({ objectApiName, reason: count.reason });
+      continue;
+    }
+    const read = await readTiedRows(org, swept, creators, span, excluded, stopped);
+    if ('reason' in read) {
+      listing.unread.push({ objectApiName, reason: read.reason });
+      continue;
+    }
+    if (read.stopped) return halt();
+    if (read.overBound) {
+      overBound.push({
+        objectApiName,
+        count: read.rows.length,
+        names: read.rows.flatMap((row) => (row.name ? [row.name] : [])).slice(0, NAMES_SHOWN),
+        overBound: true,
+      });
+    } else if (read.rows.length > 0) {
+      found.set(objectApiName, read.rows);
+    }
+  }
+
+  // The lookups of the records found, to the run's records and to one another.
+  const objectOf = new Map<string, string>();
+  for (const [key, anchor] of anchors) objectOf.set(key, anchor.objectApiName);
+  for (const [objectApiName, rows] of found) {
+    for (const row of rows) objectOf.set(recordKey(row.id), objectApiName);
+  }
+  const candidates: SweepCandidate[] = [];
+  const linked = new Set<string>();
+  for (const [objectApiName, rows] of found) {
+    for (const row of rows) {
+      const references: SweepReference[] = [];
+      for (const reference of row.references) {
+        const parent = objectOf.get(reference.key);
+        if (!parent) continue;
+        if (anchors.has(reference.key)) linked.add(reference.key);
+        const { cascade } = await describes.relation(parent, objectApiName, reference.field);
+        references.push({ key: reference.key, cascade });
+      }
+      candidates.push({
+        key: recordKey(row.id),
+        created: row.created,
+        automatedProcess: automatedProcess.has(row.creator),
+        references,
+      });
+    }
+  }
+  const pointers = await pointersOf(
+    org,
+    anchorObjects,
+    anchors,
+    found,
+    describes,
+    listing,
+    stopped,
+  );
+  if (!pointers) return halt();
+  for (const pointer of pointers) linked.add(pointer.from);
+  if (!(await dateAnchors(org, anchors, linked, stopped))) return halt();
+
+  const tied = sweepTiesOf({
+    anchors,
+    candidates,
+    pointers,
+    runSpan,
+    window,
+    removalBegan,
+    madeEarlier: new Set((ties.madeEarlier ?? []).map(recordKey)),
+  });
+  classify(found, tied, ties, findings, window, removalSpans);
+  listing.found.push(...overBound);
+  if (ties.muted) listing.muted = ties.muted;
+  // The order of the deletes is read from the describes read already: once
+  // the sweep was asked, it reads nothing more before its first delete.
+  findings.ordering = {
+    query: (soql) => org.query(soql),
+    queryDeleted: (soql) => org.queryDeleted(soql),
+    describe: async (name) => (await describes.now(name)) ?? org.describe(name),
+    describeGlobal: () => org.describeGlobal(),
+    destroy: (objectApiName, ids) => org.destroy(objectApiName, ids),
+    update: (objectApiName, records) => org.update(objectApiName, records),
+    serverTime: () => org.serverTime(),
+    userId: () => org.userId(),
+  };
+  return findings;
+}
+
+/**
+ * Whether a record was changed since the run by someone other than a
+ * removal of it: last modified after the window, or, for one created late,
+ * after the save that created it — a date that cannot be read cannot show
+ * it was left alone.
+ */
+function changedSince(
+  row: SweepRow,
+  window: Window,
+  removalSpans: readonly ForgeRemovalSpan[],
+): boolean {
+  const since =
+    row.class === undefined ? window.to : Math.max(window.to, row.created + SAME_SAVE_MS);
+  return !(row.modified <= since) && !byRemoval(row, removalSpans);
+}
+
+/** Whether a removal of the run, as the user it ran as, last modified the record while it ran. */
+function byRemoval(row: SweepRow, removalSpans: readonly ForgeRemovalSpan[]): boolean {
+  return (
+    row.modifiedBy !== undefined &&
+    removalSpans.some(
+      (span) =>
+        row.modifiedBy === recordKey(span.userId) &&
+        row.modified >= epochOf(span.first) &&
+        row.modified <= epochOf(span.last),
+    )
+  );
+}
+
 /**
  * List what a sweep would take, reading only: what a removal's confirmation
  * shows, and what the command line prints before it deletes anything.
+ *
+ * @param removalSpans - When the earlier removals of the run ran, and as
+ *   whom: what they changed is no change since the run.
  */
-export async function listSweep(org: RemovalOrg, input: SweepInput): Promise<ForgeSweepListing> {
-  return (await findSweep(org, input)).listing;
+export async function listSweep(
+  org: SweepOrg,
+  input: SweepInput,
+  removalSpans: readonly ForgeRemovalSpan[] = [],
+): Promise<ForgeSweepListing> {
+  return (await findSweep(org, input, removalSpans)).listing;
 }
 
 /** How a sweep goes, beside what it is told of the run. */
@@ -621,9 +1575,20 @@ export interface SweepOptions {
    */
   removalSpans: readonly ForgeRemovalSpan[];
   /**
+   * Take too what the sweep finds tied to the run but made late (`late`):
+   * listed and kept otherwise. Of a sweep told no ties, nothing changes.
+   */
+  sweepLate?: boolean;
+  /**
+   * Take too what the sweep finds tied to nothing of the run (`untied`),
+   * unless that is refused (`ForgeSweepListing.untied.refusal`): listed and
+   * kept otherwise. Of a sweep told no ties, nothing changes.
+   */
+  sweepUntied?: boolean;
+  /**
    * Asked once the records are found, before the first delete, with what was
    * found: why the sweep stops there, when it does — Production Guard's
-   * refusal, a person declining. Nothing is asked when nothing was found.
+   * refusal, a person declining. Nothing is asked when nothing is to be taken.
    */
   approve?: (listing: ForgeSweepListing) => Promise<string | undefined>;
 }
@@ -633,69 +1598,69 @@ interface ObjectSweep {
   result: ForgeSweepObjectResult;
   /** The records the org refused, by id, with its reason. */
   refused: Map<string, string>;
+  /** The records that wait for the run's own: under them in cascade, or pointed at by them. */
+  later: string[];
 }
 
 /**
- * Sweep, before the run's own records go: find what the run's user created
- * in the window, keep what someone changed since the run unless the request
- * includes it, and delete the rest, children before their parents, {@link RECORDS_PER_CALL} at a
- * time, stopped between two calls when asked. Records the org refuses are
- * counted with its reasons, and sent once more when the rest has gone. A
- * refused sweep deletes nothing.
+ * A sweep in the parts a removal makes it in, around the run's own records:
+ * `first` as the removal's `sweep`, `automationMade` as its
+ * `automationMade`, `afterRemoval` as its `afterRemoval`.
  */
-export async function sweepRunRecords(
-  org: RemovalOrg,
-  input: SweepInput,
-  options: SweepOptions,
-): Promise<ForgeSweepResult> {
-  const stopped = (): boolean => input.signal?.aborted === true;
-  const findings = await findSweep(org, input);
-  const { listing } = findings;
-  const base = {
-    ...(listing.window ? { window: listing.window } : {}),
-    unread: [
-      ...listing.unread,
-      ...listing.found
-        .filter((found) => found.overBound)
-        .map((found): ForgeSweepUnread => ({
-          objectApiName: found.objectApiName,
-          reason:
-            `More than ${SWEEP_OBJECT_BOUND} records created by the run's user in the window: ` +
-            'none is swept, as that many are more than the run’s side effects come to.',
-        })),
-    ],
-    ...(listing.automationGaps ? { automationGaps: listing.automationGaps } : {}),
-    handWork: listing.handWork,
-  };
-  // A stop before the run's user was read leaves it untold: the refusal that
-  // says so is the stop's doing, and the sweep was cancelled.
-  if (findings.stopped) return { status: 'cancelled', objects: [], ...base };
-  if (listing.refusal !== undefined) {
-    return { status: 'refused', refusal: listing.refusal, objects: [], ...base };
-  }
-  if (options.approve && findings.rows.size > 0) {
-    const refusal = await options.approve(listing);
-    if (refusal !== undefined) return { status: 'refused', refusal, objects: [], ...base };
-  }
-  const window = findings.window!;
-  const spans = options.removalSpans.map((span) => ({
-    start: epochOf(span.first),
-    end: epochOf(span.last),
-    user: recordKey(span.userId),
-  }));
-  /** Whether a removal of the run, as the user it ran as, last modified the record while it ran. */
-  const byRemoval = (row: SweepRow): boolean =>
-    row.modifiedBy !== undefined &&
-    spans.some(
-      (span) =>
-        row.modifiedBy === span.user && row.modified >= span.start && row.modified <= span.end,
-    );
+export interface SweepParts {
+  /**
+   * Find what to take, ask, and delete what goes before the run's records —
+   * what neither goes along with one of them nor waits for one; it resolves
+   * to whether it deleted anything. A refused sweep deletes nothing, now or
+   * after.
+   */
+  first(): Promise<boolean>;
+  /**
+   * The ids of what the sweep takes, as the org wrote them, filled by
+   * `first` before the removal's first write: a record among them under a
+   * record of the run holds it back no more. What the sweep keeps, changed
+   * since, is not among them.
+   */
+  readonly automationMade: ReadonlySet<string>;
+  /**
+   * The ids of what the sweep found made for the run (`made`, `madeOver`),
+   * as the org wrote them: what the run keeps beside it for the next sweep
+   * (`SweepTies.madeEarlier`), once a lookup that told the tie may be gone.
+   */
+  readonly made: ReadonlySet<string>;
+  /**
+   * Once the run's records are deleted: delete what waited for them, what
+   * should have gone with them still in the org, then send once more what
+   * the org refused; it resolves to whether it deleted anything. Nothing,
+   * for a sweep whose first part did not end.
+   */
+  afterRemoval(): Promise<boolean>;
+  /** What the sweep did so far: what `first` did, with what `afterRemoval` did once it ran. */
+  result(): ForgeSweepResult;
+}
 
-  const order = await removalOrder(
-    org,
-    [...findings.rows.keys()].map((objectApiName) => ({ objectApiName })),
-  );
+/**
+ * A sweep made in parts, around the run's own records: before them, what
+ * neither goes along with them nor waits for them; with them, in cascade,
+ * what is under them; after them, what they point at by a lookup the org
+ * refuses the delete for. Records modified since the run are kept unless the
+ * request includes them; the rest is deleted children before their parents,
+ * {@link RECORDS_PER_CALL} at a time, stopped between two calls when asked.
+ * What the org refuses is counted with its reasons, and sent once more after
+ * the last part. A refused sweep deletes nothing.
+ */
+export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptions): SweepParts {
+  const stopped = (): boolean => input.signal?.aborted === true;
+  const automationMade = new Set<string>();
+  const made = new Set<string>();
   const sweeps: ObjectSweep[] = [];
+  let state: 'new' | 'cancelled' | 'refused' | 'first' | 'done' = 'new';
+  let refusal: string | undefined;
+  let base: Omit<ForgeSweepResult, 'status' | 'objects' | 'refusal'> = {
+    unread: [],
+    handWork: [],
+  };
+
   const settle = (
     sweep: ObjectSweep,
     batch: readonly string[],
@@ -712,69 +1677,199 @@ export async function sweepRunRecords(
       else sweep.result.alreadyGone++;
     });
   };
-  const ended = (cancelled: boolean): ForgeSweepResult => {
-    const objects = sweeps.map(({ result, refused }) => {
-      result.refused = refused.size;
-      result.reasons = [...new Set(refused.values())].slice(0, REASON_LIMIT);
-      return result;
-    });
-    return { status: sweepStatus(objects, cancelled), objects, ...base };
-  };
-
-  for (const { objectApiName } of order) {
-    const rows = findings.rows.get(objectApiName) ?? [];
-    const sweep: ObjectSweep = {
-      result: {
-        objectApiName,
-        found: rows.length,
-        deleted: 0,
-        alreadyGone: 0,
-        keptChanged: 0,
-        refused: 0,
-        reasons: [],
-      },
-      refused: new Map(),
-    };
-    sweeps.push(sweep);
-    const toDelete: string[] = [];
-    for (const row of rows) {
-      // A date that cannot be read cannot show the record was left alone.
-      const changed = !(row.modified <= window.to) && !byRemoval(row);
-      if (changed && !options.includeChanged) sweep.result.keptChanged++;
-      else toDelete.push(row.id);
-    }
-    for (let at = 0; at < toDelete.length; at += RECORDS_PER_CALL) {
-      if (stopped()) return ended(true);
-      const batch = toDelete.slice(at, at + RECORDS_PER_CALL);
-      settle(sweep, batch, await deleteBatch(org, objectApiName, batch));
-    }
-  }
-
-  // What the org refused goes once more, once the rest has gone: a record
-  // refused for one hanging from it may be free by then, as a removal finds.
-  if (sweeps.some((sweep) => sweep.result.deleted > 0)) {
-    for (const sweep of sweeps) {
-      const again = [...sweep.refused.keys()];
-      for (let at = 0; at < again.length; at += RECORDS_PER_CALL) {
-        if (stopped()) return ended(true);
-        const batch = again.slice(at, at + RECORDS_PER_CALL);
-        settle(sweep, batch, await deleteBatch(org, sweep.result.objectApiName, batch));
+  /** Delete `ids` of one object, a call at a time; false when a stop came first. */
+  const send = async (
+    sweep: ObjectSweep,
+    ids: readonly string[],
+    after = false,
+  ): Promise<boolean> => {
+    for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
+      if (stopped()) return false;
+      const batch = ids.slice(at, at + RECORDS_PER_CALL);
+      const before = sweep.result.deleted;
+      settle(sweep, batch, await deleteBatch(org, sweep.result.objectApiName, batch));
+      if (after && sweep.result.deleted > before) {
+        sweep.result.afterRemoval =
+          (sweep.result.afterRemoval ?? 0) + sweep.result.deleted - before;
       }
     }
-  }
-  return ended(false);
+    return true;
+  };
+  const deleted = (): number => sweeps.reduce((sum, sweep) => sum + sweep.result.deleted, 0);
+
+  return {
+    automationMade,
+    made,
+
+    async first() {
+      if (state !== 'new') return false;
+      const findings = await findSweep(org, input, options.removalSpans);
+      const { listing } = findings;
+      base = {
+        ...(listing.window ? { window: listing.window } : {}),
+        unread: [
+          ...listing.unread,
+          ...listing.found
+            .filter((found) => found.overBound)
+            .map((found): ForgeSweepUnread => ({
+              objectApiName: found.objectApiName,
+              reason:
+                `More than ${SWEEP_OBJECT_BOUND} records created by the run's user in the window: ` +
+                'none is swept, as that many are more than the run’s side effects come to.',
+            })),
+        ],
+        ...(listing.automationGaps ? { automationGaps: listing.automationGaps } : {}),
+        handWork: listing.handWork,
+      };
+      // A stop before the run's user was read leaves it untold: the refusal
+      // that says so is the stop's doing, and the sweep was cancelled.
+      if (findings.stopped) {
+        state = 'cancelled';
+        return false;
+      }
+      if (listing.refusal !== undefined) {
+        state = 'refused';
+        refusal = listing.refusal;
+        return false;
+      }
+      const untiedTaken = options.sweepUntied === true && listing.untied?.refusal === undefined;
+      const taken = (row: SweepRow): boolean =>
+        row.class === undefined ||
+        row.class === 'made' ||
+        row.class === 'madeOver' ||
+        (row.class === 'late' && options.sweepLate === true) ||
+        (row.class === 'untied' && untiedTaken);
+      const rows = new Map(
+        [...findings.rows]
+          .map(([objectApiName, all]) => [objectApiName, all.filter(taken)] as const)
+          .filter(([, all]) => all.length > 0),
+      );
+      if (options.approve && rows.size > 0) {
+        const answer = await options.approve(listing);
+        if (answer !== undefined) {
+          state = 'refused';
+          refusal = answer;
+          return false;
+        }
+      }
+      const window = findings.window!;
+      const order = await removalOrder(
+        findings.ordering ?? org,
+        [...rows.keys()].map((objectApiName) => ({ objectApiName })),
+      );
+      const now: Array<[ObjectSweep, string[]]> = [];
+      for (const { objectApiName } of order) {
+        const all = rows.get(objectApiName) ?? [];
+        const sweep: ObjectSweep = {
+          result: {
+            objectApiName,
+            found: all.length,
+            deleted: 0,
+            alreadyGone: 0,
+            keptChanged: 0,
+            refused: 0,
+            reasons: [],
+          },
+          refused: new Map(),
+          later: [],
+        };
+        sweeps.push(sweep);
+        const before: string[] = [];
+        for (const row of all) {
+          if (row.class === 'made' || row.class === 'madeOver') made.add(row.id);
+          if (changedSince(row, window, options.removalSpans) && !options.includeChanged) {
+            sweep.result.keptChanged++;
+            continue;
+          }
+          automationMade.add(row.id);
+          if (row.turn === 'before') before.push(row.id);
+          else sweep.later.push(row.id);
+        }
+        now.push([sweep, before]);
+      }
+      for (const [sweep, ids] of now) {
+        if (!(await send(sweep, ids))) {
+          state = 'cancelled';
+          return deleted() > 0;
+        }
+      }
+      state = 'first';
+      return deleted() > 0;
+    },
+
+    async afterRemoval() {
+      if (state !== 'first') return false;
+      const before = deleted();
+      for (const sweep of sweeps) {
+        const ids = sweep.later.splice(0);
+        if (!(await send(sweep, ids, true))) {
+          state = 'cancelled';
+          return deleted() > before;
+        }
+      }
+      // What the org refused goes once more, once the rest has gone: a record
+      // refused for one hanging from it may be free by then, as a removal finds.
+      if (deleted() > 0) {
+        for (const sweep of sweeps) {
+          if (!(await send(sweep, [...sweep.refused.keys()]))) {
+            state = 'cancelled';
+            return deleted() > before;
+          }
+        }
+      }
+      state = 'done';
+      return deleted() > before;
+    },
+
+    result() {
+      if (state === 'refused') {
+        return { status: 'refused', refusal: refusal ?? '', objects: [], ...base };
+      }
+      if (state === 'new') return { status: 'cancelled', objects: [], ...base };
+      const objects = sweeps.map(({ result, refused }) => {
+        result.refused = refused.size;
+        result.reasons = [...new Set(refused.values())].slice(0, REASON_LIMIT);
+        return result;
+      });
+      const waiting = sweeps.some((sweep) => sweep.later.length > 0);
+      return { status: sweepStatus(objects, state === 'cancelled', waiting), objects, ...base };
+    },
+  };
+}
+
+/**
+ * Sweep in one go, the run's own records gone already or left as they are:
+ * find what the run's user created in the window, keep what someone changed
+ * since the run unless the request includes it, and delete the rest,
+ * children before their parents — what waits for one of the run's records
+ * last, where it goes only once that record went — {@link RECORDS_PER_CALL}
+ * at a time, stopped between two calls when asked. Records the org refuses
+ * are counted with its reasons, and sent once more when the rest has gone. A
+ * refused sweep deletes nothing.
+ */
+export async function sweepRunRecords(
+  org: SweepOrg,
+  input: SweepInput,
+  options: SweepOptions,
+): Promise<ForgeSweepResult> {
+  const parts = sweepParts(org, input, options);
+  await parts.first();
+  await parts.afterRemoval();
+  return parts.result();
 }
 
 /**
  * How a sweep ended: nothing it found left in the org is a success; some
  * deleted and some left, partial; none deleted and some left, a failure.
+ * Records still waiting for the run's own are left.
  */
 function sweepStatus(
   objects: readonly ForgeSweepObjectResult[],
   cancelled: boolean,
+  waiting = false,
 ): ForgeUndoStatus {
   if (cancelled) return 'cancelled';
-  const left = objects.some((object) => object.keptChanged + object.refused > 0);
+  const left = waiting || objects.some((object) => object.keptChanged + object.refused > 0);
   if (!left) return 'success';
   return objects.some((object) => object.deleted > 0) ? 'partial' : 'failure';
 }
