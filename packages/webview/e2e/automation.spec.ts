@@ -332,7 +332,7 @@ test.describe('Automation page — header and KPIs', () => {
     await expect(page.getByTestId('run-pipeline-btn')).toHaveCount(0);
   });
 
-  test('creating a pipeline swaps create for save and run, and names it in the subtitle', async ({
+  test('creating a pipeline swaps create for new, open, save and run, and holds its name in a field', async ({
     page,
   }) => {
     await openAutomation(page);
@@ -342,8 +342,11 @@ test.describe('Automation page — header and KPIs', () => {
 
     await expect(page.getByTestId('save-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('run-pipeline-btn')).toBeVisible();
+    await expect(page.getByTestId('new-pipeline-btn')).toBeVisible();
+    await expect(page.getByTestId('open-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('create-pipeline-btn')).toHaveCount(0);
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText('New Pipeline v1 · 0 steps');
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('New pipeline');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 0 steps');
   });
 });
 
@@ -443,7 +446,8 @@ test.describe('Automation page — saved pipelines', () => {
     await expect(page.getByTestId('canvas-step-step-2')).toContainText('Mask PII');
     await expect(page.getByTestId('canvas-step-step-3')).toContainText('Load Target');
     await expect(kpiValues(page)).toHaveText(['3', '1', '0']);
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText('Nightly Sync v1 · 3 steps');
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Nightly Sync');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 3 steps');
   });
 
   test('a saved pipeline holding steps that cannot run is marked, and cannot be run', async ({
@@ -470,6 +474,232 @@ test.describe('Automation page — saved pipelines', () => {
     // Nothing reaches the host: the extension would only refuse it.
     await page.getByTestId('run-pipeline-btn').click({ force: true });
     expect(await outgoing(page, 'pipeline:execute')).toHaveLength(0);
+  });
+});
+
+test.describe('Automation page — a pipeline renamed, opened, started and deleted', () => {
+  /** Open the first saved pipeline, on a page that lists the two. */
+  async function openFirst(page: Page): Promise<void> {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
+    await page.getByTestId('saved-pipeline-pipe-1').click();
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Nightly Sync');
+  }
+
+  test('a rename is marked unsaved, goes out with the save, and the mark leaves with the answer', async ({
+    page,
+  }) => {
+    await openFirst(page);
+    await expect(page.getByTestId('pipeline-unsaved')).toHaveCount(0);
+
+    await page.getByLabel('Pipeline name').fill('Nightly Sync of UAT');
+    await expect(page.getByTestId('pipeline-unsaved')).toHaveText('Unsaved changes');
+
+    await page.getByTestId('save-pipeline-btn').click();
+    const [save] = await waitForOutgoing(page, 'pipeline:save');
+    const payload = save.payload as { id: string; config: Record<string, unknown> };
+    expect(payload.id).toBe('pipe-1');
+    expect(payload.config.name).toBe('Nightly Sync of UAT');
+
+    await respondToAll(page, 'pipeline:save', 'pipeline:save:response', {
+      success: true,
+      id: 'pipe-1',
+    });
+    // The list asked for again holds the pipeline as it was just saved, under
+    // the key and the date the extension stamps on it.
+    await expect
+      .poll(async () => (await outgoing(page, 'pipeline:list')).length)
+      .toBeGreaterThan(2);
+    await respondToAll(page, 'pipeline:list', 'pipeline:list:response', {
+      pipelines: [
+        {
+          ...payload.config,
+          key: 'pipeline:saved:pipe-1',
+          savedAt: '2026-11-01T09:00:00.000Z',
+        },
+        SAVED_PIPELINES[1],
+      ],
+      triggers: [],
+    });
+    await expect(page.getByTestId('pipeline-unsaved')).toHaveCount(0);
+  });
+
+  test('a blank name refuses Save and Run and says why', async ({ page }) => {
+    await openFirst(page);
+
+    await page.getByLabel('Pipeline name').fill('   ');
+
+    await expect(page.getByRole('alert')).toHaveText('Name the pipeline to save or run it.');
+    await expect(page.getByTestId('save-pipeline-btn')).toBeDisabled();
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+  });
+
+  test('Open… shows the saved list beside the pipeline, and opens another with the keyboard on its name', async ({
+    page,
+  }) => {
+    await openFirst(page);
+    const open = page.getByTestId('open-pipeline-btn');
+    await expect(open).toHaveAttribute('aria-expanded', 'false');
+
+    await open.click();
+
+    await expect(open).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('saved-pipeline-pipe-1')).toHaveAttribute('aria-current', 'true');
+    await page.getByTestId('saved-pipeline-pipe-2').click();
+
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Weekly Backup');
+    await expect(page.getByLabel('Pipeline name')).toBeFocused();
+    await expect(page.getByTestId('saved-pipelines')).toHaveCount(0);
+    await expect(canvasSteps(page)).toHaveCount(1);
+  });
+
+  test('asks before another pipeline takes the place of unsaved changes, and keeps them on Keep editing', async ({
+    page,
+  }) => {
+    await openFirst(page);
+    await page.getByLabel('Pipeline name').fill('Nightly Sync edited');
+    await page.getByTestId('open-pipeline-btn').click();
+    await page.getByTestId('saved-pipeline-pipe-2').click();
+
+    await expect(page.getByTestId('danger-title')).toHaveText(
+      'Discard the changes to “Nightly Sync edited”?',
+    );
+    await page.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(page.getByTestId('danger-title')).toHaveCount(0);
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Nightly Sync edited');
+
+    await page.getByTestId('saved-pipeline-pipe-2').click();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Weekly Backup');
+    await expect(page.getByTestId('pipeline-unsaved')).toHaveCount(0);
+  });
+
+  test('New asks over unsaved changes, and starts empty under a name no saved pipeline has', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, {
+      pipelines: [{ ...SAVED_PIPELINES[0], name: 'New pipeline' }, SAVED_PIPELINES[1]],
+    });
+    await page.getByTestId('saved-pipeline-pipe-2').click();
+    await page.getByTestId('palette-delay').click();
+    await expect(page.getByTestId('pipeline-unsaved')).toBeVisible();
+
+    await page.getByTestId('new-pipeline-btn').click();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
+
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('New pipeline 2');
+    await expect(canvasSteps(page)).toHaveCount(0);
+    await expect(page.getByTestId('pipeline-unsaved')).toHaveCount(0);
+  });
+
+  test('the pipeline being edited is still there after a shortcut takes the panel to another page', async ({
+    page,
+  }) => {
+    await openFirst(page);
+    await page.getByLabel('Pipeline name').fill('Nightly Sync edited');
+    await page.getByTestId('pipeline-canvas').click({ position: { x: 5, y: 5 } });
+
+    // G then O: the panel goes to the org manager, and the Automation page with it.
+    await page.keyboard.press('g');
+    await page.keyboard.press('o');
+    await expect(page.getByTestId('automation-page')).toHaveCount(0);
+
+    await page.keyboard.press('g');
+    await page.keyboard.press('a');
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Nightly Sync edited');
+    await expect(canvasSteps(page)).toHaveCount(3);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
+    await expect(page.getByTestId('pipeline-unsaved')).toBeVisible();
+  });
+
+  test('Delete names the pipeline, says what stays, and takes it from the list once the extension has', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
+
+    await page.getByTestId('saved-pipeline-delete-pipe-2').click();
+
+    await expect(page.getByTestId('danger-title')).toHaveText('Delete “Weekly Backup”?');
+    await expect(page.getByRole('dialog')).toContainText('Its runs stay in the history.');
+    expect(await outgoing(page, 'pipeline:delete')).toHaveLength(0);
+    await page.getByRole('button', { name: 'Delete pipeline' }).click();
+
+    const [sent] = await waitForOutgoing(page, 'pipeline:delete');
+    expect(sent.payload).toEqual({ id: 'pipe-2' });
+    await expect(page.getByTestId('floating-toasts')).not.toContainText('deleted');
+
+    const listsBefore = (await outgoing(page, 'pipeline:list')).length;
+    await respondToAll(page, 'pipeline:delete', 'pipeline:delete:response', {
+      id: 'pipe-2',
+      deleted: true,
+    });
+    await expect(page.getByTestId('floating-toasts')).toContainText('“Weekly Backup” deleted.');
+    await expect
+      .poll(async () => (await outgoing(page, 'pipeline:list')).length)
+      .toBeGreaterThan(listsBefore);
+    await respondToAll(page, 'pipeline:list', 'pipeline:list:response', {
+      pipelines: [SAVED_PIPELINES[0]],
+      triggers: [],
+    });
+    await expect(page.getByTestId('saved-pipeline-pipe-2')).toHaveCount(0);
+    await expect(page.getByTestId('saved-pipeline-pipe-1')).toBeVisible();
+  });
+
+  test('a long name leaves its Delete in reach in a narrow panel', async ({ page }) => {
+    await page.setViewportSize({ width: 480, height: 720 });
+    await openAutomation(page);
+    await answerMountQueries(page, {
+      pipelines: [{ ...SAVED_PIPELINES[0], name: 'Nightly refresh of the UAT sandbox '.repeat(4) }],
+    });
+
+    const remove = await page.getByTestId('saved-pipeline-delete-pipe-1').boundingBox();
+    expect(remove).not.toBeNull();
+    expect(remove!.x + remove!.width).toBeLessThanOrEqual(480);
+  });
+
+  test('deleting the pipeline on the canvas closes it', async ({ page }) => {
+    await openFirst(page);
+    await page.getByTestId('open-pipeline-btn').click();
+    await page.getByTestId('saved-pipeline-delete-pipe-1').click();
+    await page.getByRole('button', { name: 'Delete pipeline' }).click();
+
+    await waitForOutgoing(page, 'pipeline:delete');
+    await respondToAll(page, 'pipeline:delete', 'pipeline:delete:response', {
+      id: 'pipe-1',
+      deleted: true,
+    });
+
+    await expect(page.getByTestId('create-pipeline-btn')).toBeVisible();
+    await expect(page.getByTestId('pipeline-name-input')).toHaveCount(0);
+    await expect(canvasSteps(page)).toHaveCount(0);
+  });
+
+  test('a pipeline a run holds is not deleted, and the page says so in its own words', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
+    await page.getByTestId('saved-pipeline-delete-pipe-1').click();
+    await page.getByRole('button', { name: 'Delete pipeline' }).click();
+
+    const [sent] = await waitForOutgoing(page, 'pipeline:delete');
+    await sendExtensionMessage(page, {
+      type: 'pipeline:error',
+      id: 'resp-delete',
+      correlationId: sent.id as string,
+      payload: {
+        message: 'Pipeline "Nightly Sync" is running: the run started by its schedule…',
+        code: 'PIPELINE_RUNNING',
+        retryable: true,
+      },
+    });
+
+    await expect(page.getByTestId('automation-error')).toContainText(
+      '“Nightly Sync” is running: delete it once its run has ended.',
+    );
+    await expect(page.getByTestId('saved-pipeline-pipe-1')).toBeVisible();
   });
 });
 
@@ -513,7 +743,8 @@ test.describe('Automation page — canvas editing', () => {
     await expect(page.getByTestId('pipeline-canvas')).not.toContainText(/drag/i);
 
     await page.getByTestId('palette-approval').click();
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText('New Pipeline v1 · 1 step');
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('New pipeline');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 1 step');
     await expect(canvasSteps(page)).toHaveCount(1);
     await expect(canvasSteps(page).first()).toContainText('Approval');
 
@@ -1073,7 +1304,7 @@ test.describe('Automation page — bridge round trips', () => {
     const savePayload = saves[0].payload as Record<string, unknown>;
     expect(typeof savePayload.id).toBe('string');
     const savedConfig = savePayload.config as Record<string, unknown>;
-    expect(savedConfig.name).toBe('New Pipeline');
+    expect(savedConfig.name).toBe('New pipeline');
     expect((savedConfig.steps as unknown[]).length).toBe(1);
 
     // Nothing is claimed before the answer arrives.
@@ -1117,9 +1348,8 @@ test.describe('Automation page — bridge round trips', () => {
     await expect(canvasSteps(page)).toHaveCount(2);
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Pull Accounts');
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Scrub emails');
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText(
-      'Anonymised nightly refresh v1 · 2 steps',
-    );
+    await expect(page.getByLabel('Pipeline name')).toHaveValue('Anonymised nightly refresh');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 2 steps');
     // A draft of sync and anonymize steps is drawn, marked, and not runnable.
     await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(2);
     await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();

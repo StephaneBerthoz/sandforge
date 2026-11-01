@@ -2664,7 +2664,24 @@
     "noHistoryDesc": "Ausführungen erscheinen hier, sobald Pipeline ausführen oder ein Auslöser die gespeicherte Pipeline startet.",
     "rewindAcceptHeading": "Riskantere Änderungen erlauben (standardmäßig aus)",
     "rewindAcceptCount_one": "{{count}} angehakt",
-    "rewindAcceptCount_other": "{{count}} angehakt"
+    "rewindAcceptCount_other": "{{count}} angehakt",
+    "lifecycle": {
+      "pipelineName": "Name der Pipeline",
+      "nameRequired": "Geben Sie der Pipeline einen Namen, um sie zu speichern oder auszuführen.",
+      "new": "Neu",
+      "open": "Öffnen…",
+      "unsaved": "Nicht gespeicherte Änderungen",
+      "noneSaved": "Noch keine Pipeline gespeichert.",
+      "deleteTitle": "„{{name}}“ löschen?",
+      "deleteDescription": "Sie wird von diesem Rechner entfernt: Ihre Zeitpläne und Sandbox-Aktualisierungs-Auslöser starten sie nicht mehr, und die Bestätigungen ihrer Rewind-Schritte werden zurückgenommen. Ihre Läufe bleiben im Verlauf.",
+      "deleteConfirm": "Pipeline löschen",
+      "deleted": "„{{name}}“ gelöscht.",
+      "deleteRunning": "„{{name}}“ läuft gerade: Löschen Sie sie, sobald ihr Lauf beendet ist.",
+      "discardTitle": "Änderungen an „{{name}}“ verwerfen?",
+      "discardDescription": "Sie sind nicht gespeichert, und nichts holt sie zurück.",
+      "discard": "Änderungen verwerfen",
+      "keepEditing": "Weiter bearbeiten"
+    }
   },
   "ai": {
     "title": "KI-Assistent",

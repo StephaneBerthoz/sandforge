@@ -5,9 +5,15 @@ import { renderHook, act } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import type { NotificationInput } from '../../stores/useNotificationStore';
+import type { VSCodeApi } from '../../hooks/useVSCodeApi';
 import type { PipelineDefinition, PipelineTriggerStatus, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
-import { useAutomationPageData, nextTriggerRefreshDelay } from './useAutomationPageData';
+import {
+  hasUnsavedChanges,
+  newPipelineName,
+  useAutomationPageData,
+  nextTriggerRefreshDelay,
+} from './useAutomationPageData';
 
 /** Options captured from every useBridgeMutation call, keyed by request type. */
 const mutationOptions = new Map<string, Record<string, unknown> | undefined>();
@@ -105,7 +111,11 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 
 /** What the page posts to the extension, as the VS Code API receives it. */
 const posted = vi.fn();
-const vscodeApi = { postMessage: posted, getState: () => undefined, setState: () => undefined };
+const vscodeApi: VSCodeApi = {
+  postMessage: posted,
+  getState: () => undefined,
+  setState: () => undefined,
+};
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => vscodeApi,
   getVscodeApi: () => vscodeApi,
@@ -370,8 +380,13 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     ]);
     expect(result.current.error).toBeNull();
 
+    // The draft was never saved: New asks before it takes the draft's place.
     act(() => result.current.handleCreatePipeline());
+    expect(result.current.pendingSwitch).toEqual({ kind: 'new' });
+    expect(result.current.stepCount).toBe(1);
+    act(() => result.current.handleConfirmDiscard());
     expect(result.current.draftSuggestions).toEqual([]);
+    expect(result.current.stepCount).toBe(0);
   });
 
   it('answers a request that drew no step with the suggestions in the reader’s language', async () => {
@@ -536,7 +551,7 @@ describe('useAutomationPageData — the steps a click under Steps adds', () => {
     const { result } = renderHook(() => useAutomationPageData());
     expect(result.current.pipeline).toBeUndefined();
     act(() => result.current.handleAddStep('delay'));
-    expect(result.current.pipeline?.name).toBe('New Pipeline');
+    expect(result.current.pipeline?.name).toBe('New pipeline');
     expect(result.current.pipeline?.steps.map((step) => step.type)).toEqual(['delay']);
     act(() => result.current.handleAddStep('backup'));
     expect(result.current.stepCount).toBe(2);
@@ -571,7 +586,7 @@ describe('useAutomationPageData — a trigger added with no pipeline open', () =
     const { result } = renderHook(() => useAutomationPageData());
     expect(result.current.pipeline).toBeUndefined();
     act(() => result.current.handleAddTrigger('schedule'));
-    expect(result.current.pipeline?.name).toBe('New Pipeline');
+    expect(result.current.pipeline?.name).toBe('New pipeline');
     expect(result.current.pipeline?.triggers.map((trigger) => trigger.type)).toEqual(['schedule']);
     expect(result.current.triggerCount).toBe(1);
   });
@@ -1188,5 +1203,241 @@ describe('useAutomationPageData — the steps that write, and the confirmation o
       }),
     );
     expect(result.current.runBlockers).toEqual([]);
+  });
+});
+
+/** A pipeline as `pipeline:list` lists it: with the key and the date the extension stamps. */
+function listed(id: string, name: string, extra: Partial<PipelineDefinition> = {}) {
+  return {
+    key: `pipeline:saved:${id}`,
+    savedAt: '2026-11-01T09:00:00.000Z',
+    id,
+    name,
+    description: '',
+    version: 1,
+    steps: [
+      {
+        id: `${id}-step`,
+        name: 'Wait',
+        type: 'delay',
+        config: { seconds: 5 },
+        continueOnError: false,
+      },
+    ],
+    triggers: [],
+    variables: [],
+    tags: [],
+    createdAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-01T00:00:00.000Z',
+    ...extra,
+  } as PipelineDefinition;
+}
+
+describe('hasUnsavedChanges — compared by id with the saved pipelines', () => {
+  const saved = [listed('pipe-1', 'Nightly'), listed('pipe-2', 'Weekly')];
+
+  it('finds none with no pipeline open', () => {
+    expect(hasUnsavedChanges(undefined, saved)).toBe(false);
+  });
+
+  it('finds none in a pipeline as saved, whatever the page or the extension stamped on it', () => {
+    const open = {
+      ...saved[0],
+      updatedAt: '2026-11-01T10:00:00.000Z',
+      // The same step, its keys in another order, as an edit merged it back.
+      steps: [
+        {
+          config: { seconds: 5 },
+          continueOnError: false,
+          type: 'delay',
+          name: 'Wait',
+          id: 'pipe-1-step',
+        },
+      ],
+    } as PipelineDefinition;
+    delete (open as Partial<{ key: string }>).key;
+    expect(hasUnsavedChanges(open, saved)).toBe(false);
+  });
+
+  it.each([
+    ['renamed', { name: 'Nightly refresh' }],
+    ['with a step changed', { steps: [{ ...saved[0].steps[0], config: { seconds: 6 } }] }],
+    [
+      'with a trigger added',
+      { triggers: [{ id: 't', type: 'schedule', enabled: true, config: {} }] },
+    ],
+  ] as const)('finds some in a saved pipeline %s', (_change, edit) => {
+    expect(hasUnsavedChanges({ ...saved[0], ...edit } as PipelineDefinition, saved)).toBe(true);
+  });
+
+  it('finds none in a pipeline never saved that holds nothing but its name', () => {
+    const blank = { ...listed('pipe-new', 'Renamed'), steps: [] };
+    expect(hasUnsavedChanges(blank, saved)).toBe(false);
+  });
+
+  it('finds some in a pipeline never saved once it holds a step', () => {
+    expect(hasUnsavedChanges(listed('pipe-new', 'New pipeline'), saved)).toBe(true);
+  });
+});
+
+describe('newPipelineName', () => {
+  it('names a new pipeline "New pipeline", numbered past the names already saved', () => {
+    expect(newPipelineName(['Nightly'], i18n.t)).toBe('New pipeline');
+    expect(newPipelineName(['New pipeline'], i18n.t)).toBe('New pipeline 2');
+    expect(newPipelineName(['New pipeline', 'New pipeline 2', 'New pipeline 4'], i18n.t)).toBe(
+      'New pipeline 3',
+    );
+  });
+});
+
+describe('useAutomationPageData — renaming, opening, starting and deleting a pipeline', () => {
+  beforeEach(() => {
+    queryData.set('pipeline:list', {
+      pipelines: [listed('pipe-1', 'Nightly'), listed('pipe-2', 'Weekly')],
+    });
+  });
+
+  it('renames the pipeline on the canvas, which then holds unsaved changes', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    expect(result.current.unsavedChanges).toBe(false);
+
+    act(() => result.current.handleRenamePipeline('Nightly refresh'));
+
+    expect(result.current.pipeline?.name).toBe('Nightly refresh');
+    expect(result.current.unsavedChanges).toBe(true);
+  });
+
+  it('opens another saved pipeline at once when the one open is as saved', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+
+    expect(result.current.pendingSwitch).toBeNull();
+    expect(result.current.pipeline?.id).toBe('pipe-2');
+  });
+
+  it('asks before opening another over unsaved changes, and keeps them when told to', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    act(() => result.current.handleRenamePipeline('Nightly refresh'));
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    expect(result.current.pendingSwitch).toMatchObject({ kind: 'open' });
+    expect(result.current.pipeline?.name).toBe('Nightly refresh');
+
+    act(() => result.current.handleKeepEditing());
+    expect(result.current.pendingSwitch).toBeNull();
+    expect(result.current.pipeline?.name).toBe('Nightly refresh');
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    act(() => result.current.handleConfirmDiscard());
+    expect(result.current.pipeline?.id).toBe('pipe-2');
+    expect(result.current.unsavedChanges).toBe(false);
+  });
+
+  it('starts a new pipeline under a name no saved one has, asking first over unsaved changes', () => {
+    queryData.set('pipeline:list', {
+      pipelines: [listed('pipe-1', 'New pipeline'), listed('pipe-2', 'Weekly')],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    act(() => result.current.handleRenamePipeline('Weekly backup'));
+
+    act(() => result.current.handleCreatePipeline());
+    expect(result.current.pendingSwitch).toEqual({ kind: 'new' });
+    act(() => result.current.handleConfirmDiscard());
+
+    expect(result.current.pipeline?.name).toBe('New pipeline 2');
+    expect(result.current.pipeline?.steps).toEqual([]);
+    expect(result.current.unsavedChanges).toBe(false);
+  });
+
+  it('sends no install and opens no draft prompt over unsaved changes until told they may go', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    act(() => result.current.handleRenamePipeline('Nightly refresh'));
+
+    act(() =>
+      result.current.handleInstallTemplate({ id: 'tpl-1', name: 'Template', description: '' }),
+    );
+    expect(mutationFor('marketplace:install').mutate).not.toHaveBeenCalled();
+    act(() => result.current.handleConfirmDiscard());
+    expect(mutationFor('marketplace:install').mutate).toHaveBeenCalledWith({
+      templateId: 'tpl-1',
+    });
+
+    act(() => result.current.handleGeneratePipeline());
+    expect(result.current.showGenPrompt).toBe(false);
+    expect(result.current.pendingSwitch).toEqual({ kind: 'generate' });
+    act(() => result.current.handleConfirmDiscard());
+    expect(result.current.showGenPrompt).toBe(true);
+  });
+
+  it('deletes a saved pipeline by its id, and says so once the extension has', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+
+    act(() => result.current.handleDeletePipeline(listed('pipe-1', 'Nightly')));
+    expect(mutationFor('pipeline:delete').mutate).toHaveBeenCalledWith({ id: 'pipe-1' });
+    expect(messages('“Nightly” deleted.')).toHaveLength(0);
+
+    mutationFor('pipeline:delete').data = { id: 'pipe-1', deleted: true };
+    rerender();
+
+    expect(messages('“Nightly” deleted.')).toHaveLength(1);
+    expect(refetchFor('pipeline:list')).toHaveBeenCalled();
+    // Another pipeline was open: it stays.
+    expect(result.current.pipeline?.id).toBe('pipe-2');
+  });
+
+  it('takes the deleted pipeline off the canvas when it was the one there', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+
+    act(() => result.current.handleDeletePipeline(listed('pipe-1', 'Nightly')));
+    mutationFor('pipeline:delete').data = { id: 'pipe-1', deleted: true };
+    rerender();
+
+    expect(result.current.pipeline).toBeUndefined();
+  });
+
+  it('says in the reader’s words, naming it, that a pipeline a run holds is not deleted', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleDeletePipeline(listed('pipe-1', 'Nightly')));
+
+    Object.assign(mutationFor('pipeline:delete'), {
+      error: 'Pipeline "Nightly" is running: the run started by its schedule at … has not ended.',
+      errorCode: 'PIPELINE_RUNNING',
+    });
+    rerender();
+
+    expect(result.current.error).toBe('“Nightly” is running: delete it once its run has ended.');
+  });
+
+  it('finds the pipeline it had on the canvas, unsaved changes and all, after the panel went to another page', () => {
+    let kept: unknown;
+    const getState = vscodeApi.getState;
+    const setState = vscodeApi.setState;
+    vscodeApi.getState = () => kept;
+    vscodeApi.setState = (state) => {
+      kept = state;
+    };
+    try {
+      const first = renderHook(() => useAutomationPageData());
+      act(() => first.result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+      act(() => first.result.current.handleRenamePipeline('Nightly refresh'));
+      first.unmount();
+
+      const again = renderHook(() => useAutomationPageData());
+
+      expect(again.result.current.pipeline?.id).toBe('pipe-1');
+      expect(again.result.current.pipeline?.name).toBe('Nightly refresh');
+      expect(again.result.current.unsavedChanges).toBe(true);
+    } finally {
+      vscodeApi.getState = getState;
+      vscodeApi.setState = setState;
+    }
   });
 });

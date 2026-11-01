@@ -2330,7 +2330,7 @@
   "automation": {
     "title": "Automation",
     "createPipeline": "Create Pipeline",
-    "newPipeline": "New Pipeline",
+    "newPipeline": "New pipeline",
     "steps": "Steps",
     "stepsCount": "Pipeline Steps",
     "triggersCount": "Active triggers",
@@ -2664,7 +2664,24 @@
     "noHistoryDesc": "Runs appear here after Run Pipeline or a trigger starts the saved pipeline.",
     "rewindAcceptHeading": "Allow riskier changes (off by default)",
     "rewindAcceptCount_one": "{{count}} ticked",
-    "rewindAcceptCount_other": "{{count}} ticked"
+    "rewindAcceptCount_other": "{{count}} ticked",
+    "lifecycle": {
+      "pipelineName": "Pipeline name",
+      "nameRequired": "Name the pipeline to save or run it.",
+      "new": "New",
+      "open": "Open…",
+      "unsaved": "Unsaved changes",
+      "noneSaved": "No pipeline is saved yet.",
+      "deleteTitle": "Delete “{{name}}”?",
+      "deleteDescription": "It is removed from this machine: its schedules and sandbox refresh triggers no longer start it, and the confirmations of its Rewind steps are taken back. Its runs stay in the history.",
+      "deleteConfirm": "Delete pipeline",
+      "deleted": "“{{name}}” deleted.",
+      "deleteRunning": "“{{name}}” is running: delete it once its run has ended.",
+      "discardTitle": "Discard the changes to “{{name}}”?",
+      "discardDescription": "They are not saved, and nothing brings them back.",
+      "discard": "Discard changes",
+      "keepEditing": "Keep editing"
+    }
   },
   "ai": {
     "title": "AI Assistant",

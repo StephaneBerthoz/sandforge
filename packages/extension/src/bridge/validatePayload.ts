@@ -2010,6 +2010,8 @@ export const pipelineSavePayloadSchema = z.object({
   id: z.string().max(200),
   config: z.record(z.string(), z.unknown()),
 });
+/** `pipeline:delete` — the id a saved pipeline was saved under. */
+export const pipelineDeletePayloadSchema = z.object({ id: opaqueIdSchema });
 /** `pipeline:approval` — the page's answer to an Approval step of the run it started. */
 export const pipelineApprovalPayloadSchema = z.object({
   operationId: opaqueIdSchema,

@@ -1105,6 +1105,7 @@ export class ExtensionHandlers {
         'pipeline:list',
         'pipeline:history',
         'pipeline:save',
+        'pipeline:delete',
         'pipeline:approval',
         'pipeline:sync-configs',
         'pipeline:seed-templates',

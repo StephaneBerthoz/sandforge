@@ -2330,7 +2330,7 @@
   "automation": {
     "title": "Automatización",
     "createPipeline": "Crear pipeline",
-    "newPipeline": "Nuevo Pipeline",
+    "newPipeline": "Nuevo pipeline",
     "steps": "Pasos",
     "stepsCount": "Pasos de pipeline",
     "triggersCount": "Disparadores activos",
@@ -2664,7 +2664,24 @@
     "noHistoryDesc": "Las ejecuciones aparecen aquí cuando Ejecutar pipeline o un disparador inicia el pipeline guardado.",
     "rewindAcceptHeading": "Permitir cambios más arriesgados (desactivados por defecto)",
     "rewindAcceptCount_one": "{{count}} marcada",
-    "rewindAcceptCount_other": "{{count}} marcadas"
+    "rewindAcceptCount_other": "{{count}} marcadas",
+    "lifecycle": {
+      "pipelineName": "Nombre del pipeline",
+      "nameRequired": "Ponga nombre al pipeline para guardarlo o ejecutarlo.",
+      "new": "Nuevo",
+      "open": "Abrir…",
+      "unsaved": "Cambios sin guardar",
+      "noneSaved": "Aún no hay ningún pipeline guardado.",
+      "deleteTitle": "¿Eliminar «{{name}}»?",
+      "deleteDescription": "Se quita de esta máquina: sus programaciones y sus disparadores de actualización de sandbox ya no lo inician, y se retiran las confirmaciones de sus pasos Rewind. Sus ejecuciones quedan en el historial.",
+      "deleteConfirm": "Eliminar pipeline",
+      "deleted": "«{{name}}» eliminado.",
+      "deleteRunning": "«{{name}}» se está ejecutando: elimínelo cuando termine su ejecución.",
+      "discardTitle": "¿Descartar los cambios de «{{name}}»?",
+      "discardDescription": "No están guardados, y nada los recupera.",
+      "discard": "Descartar cambios",
+      "keepEditing": "Seguir editando"
+    }
   },
   "ai": {
     "title": "Asistente IA",

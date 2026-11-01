@@ -352,6 +352,9 @@ const AutomationMessages = [
   msg('pipeline:history:response'),
   msg('pipeline:save'),
   msg('pipeline:save:response'),
+  // A saved pipeline deleted, unless a run holds it.
+  msg('pipeline:delete'),
+  msg('pipeline:delete:response'),
   // The page's answer to an Approval step that waits (AutomationHandler).
   msg('pipeline:approval'),
   // The saved Sync configurations a Sync step can run, with Production Guard's verdict.

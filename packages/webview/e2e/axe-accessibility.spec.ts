@@ -5333,6 +5333,83 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Automation header of a pipeline: its name, the saved list with each Delete, a blank name, and both questions', async ({
+      page,
+    }) => {
+      const pipeline = {
+        id: 'p-kept',
+        name: 'Nightly refresh',
+        description: '',
+        version: 1,
+        steps: [
+          {
+            id: 's-1',
+            name: 'Wait',
+            type: 'delay',
+            config: { seconds: 5 },
+            continueOnError: false,
+          },
+        ],
+        triggers: [],
+        variables: [],
+        tags: [],
+        createdAt: '2026-11-01T00:00:00.000Z',
+        updatedAt: '2026-11-01T00:00:00.000Z',
+      };
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await answerAll(page, 'pipeline:list', 'pipeline:list:response', {
+        pipelines: [pipeline, { ...pipeline, id: 'p-other', name: 'Weekly backup' }],
+        triggers: [],
+      });
+
+      // The chooser, each pipeline with its name and its own Delete.
+      await expect(page.getByTestId('saved-pipeline-delete-p-other')).toBeVisible();
+      const chooser = await checkAccessibility(page);
+      expectNoViolations(chooser);
+      expect(
+        await contrastMeasuredIn(page, chooser, '[data-testid="saved-pipelines"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('saved-pipeline-delete-p-other').click();
+      await expect(page.getByTestId('danger-title')).toHaveText('Delete “Weekly backup”?');
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('danger-dismiss-btn').click();
+      await expect(page.getByTestId('danger-title')).toHaveCount(0);
+
+      // The header of a pipeline changed, Open… showing the list beside it.
+      await page.getByTestId('saved-pipeline-p-kept').click();
+      await page.getByLabel('Pipeline name').fill('Nightly refresh edited');
+      await expect(page.getByTestId('pipeline-unsaved')).toBeVisible();
+      await page.getByTestId('open-pipeline-btn').click();
+      await expect(page.getByTestId('saved-pipelines-close')).toBeVisible();
+      const header = await checkAccessibility(page);
+      expectNoViolations(header);
+      expect(
+        await contrastMeasuredIn(page, header, '[data-testid="pipeline-identity"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, header, '[data-testid="pipeline-unsaved"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('saved-pipeline-p-other').click();
+      await expect(page.getByTestId('danger-title')).toHaveText(
+        'Discard the changes to “Nightly refresh edited”?',
+      );
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('danger-dismiss-btn').click();
+      await expect(page.getByTestId('danger-title')).toHaveCount(0);
+
+      // A name left blank, and what it holds back.
+      await page.getByLabel('Pipeline name').fill('');
+      await expect(page.getByRole('alert')).toBeVisible();
+      await expect(page.getByTestId('save-pipeline-btn')).toBeDisabled();
+      const blank = await checkAccessibility(page);
+      expectNoViolations(blank);
+      expect(
+        await contrastMeasuredIn(page, blank, '[data-testid="pipeline-identity"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Automation Seed, Anonymize and Checkpoint step panels, each with what it asks for', async ({
       page,
     }) => {

@@ -2505,7 +2505,24 @@
     "noTriggersDesc": "パイプラインは「パイプラインを実行」からのみ実行されます。上でスケジュールまたは Sandbox リフレッシュのトリガーを追加してください。",
     "noHistoryDesc": "「パイプラインを実行」またはトリガーで保存済みパイプラインが開始されると、ここに実行が表示されます。",
     "rewindAcceptHeading": "より危険な変更を許可する（既定ではオフ）",
-    "rewindAcceptCount_other": "{{count}} 件オン"
+    "rewindAcceptCount_other": "{{count}} 件オン",
+    "lifecycle": {
+      "pipelineName": "パイプライン名",
+      "nameRequired": "保存または実行するには、パイプラインに名前を付けてください。",
+      "new": "新規",
+      "open": "開く…",
+      "unsaved": "未保存の変更",
+      "noneSaved": "保存済みのパイプラインはまだありません。",
+      "deleteTitle": "「{{name}}」を削除しますか？",
+      "deleteDescription": "このマシンから削除されます。スケジュールと Sandbox リフレッシュのトリガーで開始されなくなり、Rewind ステップの確認は取り消されます。実行履歴は残ります。",
+      "deleteConfirm": "パイプラインを削除",
+      "deleted": "「{{name}}」を削除しました。",
+      "deleteRunning": "「{{name}}」は実行中です。実行が終わってから削除してください。",
+      "discardTitle": "「{{name}}」の変更を破棄しますか？",
+      "discardDescription": "変更は保存されておらず、元に戻せません。",
+      "discard": "変更を破棄",
+      "keepEditing": "編集を続ける"
+    }
   },
   "ai": {
     "title": "AI アシスタント",

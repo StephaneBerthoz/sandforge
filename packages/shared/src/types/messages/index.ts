@@ -309,6 +309,8 @@ import type {
   PipelineHistoryResponse,
   PipelineSaveRequest,
   PipelineSaveResponse,
+  PipelineDeleteRequest,
+  PipelineDeleteResponse,
   PipelineApprovalAnswerRequest,
   PipelineSyncConfigsRequest,
   PipelineSyncConfigsResponse,
@@ -731,6 +733,7 @@ export type WebViewToExtensionMessage =
   | PipelineListRequest
   | PipelineHistoryRequest
   | PipelineSaveRequest
+  | PipelineDeleteRequest
   | PipelineTemplatesRequest
   | PipelineApprovalAnswerRequest
   | PipelineSyncConfigsRequest
@@ -1009,6 +1012,7 @@ export type ExtensionToWebViewMessage =
   | PipelineListResponse
   | PipelineHistoryResponse
   | PipelineSaveResponse
+  | PipelineDeleteResponse
   | PipelineRunResponse
   | PipelineStepUpdate
   | PipelineErrorResponse

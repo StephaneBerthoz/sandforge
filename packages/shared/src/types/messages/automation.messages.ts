@@ -253,6 +253,27 @@ export interface PipelineSaveResponse extends BaseMessage {
 }
 
 /**
+ * Delete a saved pipeline (AutomationHandler): its schedules and sandbox
+ * refresh triggers no longer start it, and the confirmations of its Rewind
+ * steps are taken back. Its runs stay in the history. A pipeline a run holds,
+ * from the page, a trigger or another window, is refused on `pipeline:error`
+ * with the code `PIPELINE_RUNNING`, and stays saved.
+ */
+export interface PipelineDeleteRequest extends BaseMessage {
+  type: 'pipeline:delete';
+  payload: { id: string };
+}
+
+/**
+ * Response after deleting a saved pipeline. `deleted` is false when nothing
+ * was saved under `id`: another window deleted it first.
+ */
+export interface PipelineDeleteResponse extends BaseMessage {
+  type: 'pipeline:delete:response';
+  payload: { id: string; deleted: boolean };
+}
+
+/**
  * Browse… on the Migration page: the window's open dialog, for an SFDMU
  * export.json. The page had only a field to type an absolute path in.
  */

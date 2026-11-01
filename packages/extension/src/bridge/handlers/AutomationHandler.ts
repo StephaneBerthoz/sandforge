@@ -44,6 +44,7 @@ import {
   pipelineApprovalPayloadSchema,
   pipelineRunPayloadSchema,
   pipelineSavePayloadSchema,
+  pipelineDeletePayloadSchema,
   pipelineRewindGrantPayloadSchema,
   pipelineRewindRevokePayloadSchema,
   pipelineRewindStepsPayloadSchema,
@@ -242,6 +243,7 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:list',
   'pipeline:history',
   'pipeline:save',
+  'pipeline:delete',
   'pipeline:approval',
   'pipeline:sync-configs',
   'pipeline:seed-templates',
@@ -575,6 +577,9 @@ export class AutomationHandler implements DomainHandler {
         return true;
       case 'pipeline:save':
         this.handlePipelineSave(msg);
+        return true;
+      case 'pipeline:delete':
+        this.handlePipelineDelete(msg);
         return true;
       case 'pipeline:approval':
         this.handlePipelineApproval(msg);
@@ -1455,6 +1460,68 @@ export class AutomationHandler implements DomainHandler {
       this.deps.log(`[TX] pipeline:save:response id=${pipelineId}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'pipeline:save', 'pipeline:error', msg, err);
+    }
+  }
+
+  /**
+   * Handle pipeline:delete -- remove a saved pipeline from ConfigStore.
+   *
+   * Refused while a run holds the pipeline, one from the page or one a
+   * trigger started, in this window or another: the run goes on with the
+   * definition it was given, and a Rewind step further on would then be
+   * refused part way through, its pipeline no longer saved. The pipeline is
+   * held while it is deleted, so no trigger starts it meanwhile.
+   *
+   * The confirmations of its Rewind steps are taken back now, not at the next
+   * list: the page still holds the pipeline, and a Save writes it back under
+   * the same id, unconfirmed. Its schedules are looked at again at once. Its
+   * runs stay in the history, where they are read as runs that happened.
+   */
+  private handlePipelineDelete(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const parsed = validatePayload(pipelineDeletePayloadSchema, msg, 'pipeline:error', this.deps);
+      if (!parsed) return;
+      const { id } = parsed;
+      const hold = this.claims.hold(id, {
+        startedAt: new Date().toISOString(),
+        triggeredBy: 'manual',
+      });
+      if ('busy' in hold) {
+        const saved = this.deps.configStore.get<{ name?: unknown }>(`pipeline:saved:${id}`);
+        const name = typeof saved?.name === 'string' ? saved.name : id;
+        sendHandlerError(
+          this.deps,
+          'pipeline:delete',
+          'pipeline:error',
+          msg,
+          new Error(
+            `Pipeline "${name}" is running: the run started ${STARTED_BY[hold.busy.triggeredBy]} ` +
+              `at ${hold.busy.startedAt} has not ended. Delete it once that run has ended.`,
+          ),
+          { code: 'PIPELINE_RUNNING', retryable: true },
+        );
+        return;
+      }
+      let deleted: boolean;
+      try {
+        deleted = this.deps.configStore.delete(`pipeline:saved:${id}`);
+        const revoked = this.rewindGrants().revokePipeline(id);
+        if (revoked.length > 0) {
+          this.deps.log(
+            `[INFO] pipeline:delete ${id}: the confirmations of Rewind steps ` +
+              `${revoked.join(', ')} were taken back`,
+          );
+        }
+      } finally {
+        hold.release();
+      }
+      void this.scheduler?.reload();
+      const response = buildResponse(this.deps, msg, 'pipeline:delete:response', { id, deleted });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] pipeline:delete:response id=${id} deleted=${deleted}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:delete', 'pipeline:error', msg, err);
     }
   }
 

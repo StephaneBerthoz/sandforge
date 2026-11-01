@@ -2330,7 +2330,7 @@
   "automation": {
     "title": "Automação",
     "createPipeline": "Criar pipeline",
-    "newPipeline": "Novo Pipeline",
+    "newPipeline": "Novo pipeline",
     "steps": "Etapas",
     "stepsCount": "Etapas do pipeline",
     "triggersCount": "Gatilhos ativos",
@@ -2664,7 +2664,24 @@
     "noHistoryDesc": "As execuções aparecem aqui depois que Executar pipeline ou um gatilho inicia o pipeline salvo.",
     "rewindAcceptHeading": "Permitir alterações mais arriscadas (desativadas por padrão)",
     "rewindAcceptCount_one": "{{count}} marcada",
-    "rewindAcceptCount_other": "{{count}} marcadas"
+    "rewindAcceptCount_other": "{{count}} marcadas",
+    "lifecycle": {
+      "pipelineName": "Nome do pipeline",
+      "nameRequired": "Dê um nome ao pipeline para salvá-lo ou executá-lo.",
+      "new": "Novo",
+      "open": "Abrir…",
+      "unsaved": "Alterações não salvas",
+      "noneSaved": "Nenhum pipeline foi salvo ainda.",
+      "deleteTitle": "Excluir “{{name}}”?",
+      "deleteDescription": "Ele é removido desta máquina: seus agendamentos e gatilhos de atualização de sandbox não o iniciam mais, e as confirmações de suas etapas Rewind são retiradas. Suas execuções ficam no histórico.",
+      "deleteConfirm": "Excluir pipeline",
+      "deleted": "“{{name}}” excluído.",
+      "deleteRunning": "“{{name}}” está em execução: exclua-o quando a execução terminar.",
+      "discardTitle": "Descartar as alterações de “{{name}}”?",
+      "discardDescription": "Elas não estão salvas, e nada as traz de volta.",
+      "discard": "Descartar alterações",
+      "keepEditing": "Continuar editando"
+    }
   },
   "ai": {
     "title": "Assistente de IA",

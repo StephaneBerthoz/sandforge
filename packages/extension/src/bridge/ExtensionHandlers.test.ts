@@ -1318,6 +1318,25 @@ describe('ExtensionHandlers', () => {
     });
   });
 
+  describe('pipeline:delete', () => {
+    it('routes a delete to the pipelines the page saved, and answers it', async () => {
+      configStore.set('pipeline:saved:p-del', { id: 'p-del', name: 'Old' }, 'pipelines');
+
+      broker['dispatch'](msg('pipeline:delete', { id: 'p-del' }, 'wv-delete-1'));
+
+      await vi.waitFor(() =>
+        expect(posted).toContainEqual(
+          expect.objectContaining({
+            type: 'pipeline:delete:response',
+            correlationId: 'wv-delete-1',
+            payload: { id: 'p-del', deleted: true },
+          }),
+        ),
+      );
+      expect(configStore.has('pipeline:saved:p-del')).toBe(false);
+    });
+  });
+
   describe('reports:audit and reports:lineage', () => {
     /** Record a run through the same call every write path makes. */
     function recordSync(operationId: string): void {

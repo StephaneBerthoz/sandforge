@@ -2664,7 +2664,24 @@
     "noHistoryDesc": "Les exécutions apparaissent ici dès qu'Exécuter le pipeline ou un déclencheur lance le pipeline enregistré.",
     "rewindAcceptHeading": "Autoriser des modifications plus risquées (désactivées par défaut)",
     "rewindAcceptCount_one": "{{count}} cochée",
-    "rewindAcceptCount_other": "{{count}} cochées"
+    "rewindAcceptCount_other": "{{count}} cochées",
+    "lifecycle": {
+      "pipelineName": "Nom du pipeline",
+      "nameRequired": "Nommez le pipeline pour l’enregistrer ou l’exécuter.",
+      "new": "Nouveau",
+      "open": "Ouvrir…",
+      "unsaved": "Modifications non enregistrées",
+      "noneSaved": "Aucun pipeline n’est encore enregistré.",
+      "deleteTitle": "Supprimer « {{name}} » ?",
+      "deleteDescription": "Il est retiré de cette machine : ses planifications et ses déclencheurs d’actualisation de sandbox ne le lancent plus, et les confirmations de ses étapes Rewind sont retirées. Ses exécutions restent dans l’historique.",
+      "deleteConfirm": "Supprimer le pipeline",
+      "deleted": "« {{name}} » supprimé.",
+      "deleteRunning": "« {{name}} » est en cours d’exécution : supprimez-le une fois son exécution terminée.",
+      "discardTitle": "Abandonner les modifications de « {{name}} » ?",
+      "discardDescription": "Elles ne sont pas enregistrées, et rien ne les ramène.",
+      "discard": "Abandonner les modifications",
+      "keepEditing": "Continuer la modification"
+    }
   },
   "ai": {
     "title": "Assistant IA",
