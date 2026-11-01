@@ -8,6 +8,7 @@ import {
   SCENARIO_COMPANION_SUFFIX,
   SYNC_RUNS_DIR,
   SyncRunCreations,
+  readRemovalState,
   createdCount,
   deletedCount,
   overwrittenCount,
@@ -998,5 +999,116 @@ describe('SyncRunCreations — the checkpoint a run took before its first write'
     const run = await store.get('run-1');
     expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
     expect(run).not.toHaveProperty('checkpoint');
+  });
+});
+
+describe('SyncRunCreations — the user a run writes as', () => {
+  const USER = fakeId('005', 1);
+
+  it('goes in the line naming the run when it was read before the first write', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.runUser?.(USER);
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'object',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.runUserId).toBe(USER);
+  });
+
+  it('goes on a line of its own when it came once the run had begun writing, and reads back the same', async () => {
+    // Nothing waits for the read: a slow target answers after the first write.
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.runUser?.(USER);
+    await recorder.end({ status: 'success' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines.map((line) => Object.keys(JSON.parse(line) as object)[0])).toEqual([
+      'run',
+      'object',
+      'runUser',
+      'end',
+    ]);
+    expect((await store.get('run-1'))?.runUserId).toBe(USER);
+    expect((await store.list())[0]?.runUserId).toBe(USER);
+  });
+
+  it('keeps out what does not read as an id', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.runUser?.('not an id');
+    recorder.note('Contact', [fakeId('003', 1)]);
+    recorder.runUser?.("005' OR 1=1");
+    await recorder.end({ status: 'success' });
+
+    expect(await store.get('run-1')).not.toHaveProperty('runUserId');
+  });
+
+  it('keeps one read after a short run ended: its file reads the same', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    recorder.runUser?.(USER);
+    await recorder.flush();
+
+    const run = await store.get('run-1');
+    expect(run?.runUserId).toBe(USER);
+    expect(run?.end?.status).toBe('success');
+  });
+
+  it('leaves no file for a run told its user that wrote nothing', async () => {
+    const { files, deps } = memoryDisk();
+    const recorder = new SyncRunCreations(deps).recorder(start('run-1'));
+
+    recorder.runUser?.(USER);
+    await recorder.end({ status: 'failure' });
+    recorder.runUser?.(USER);
+
+    expect(await recorder.flush()).toBeUndefined();
+    expect(files.size).toBe(0);
+  });
+});
+
+describe('readRemovalState — what the sweeps found made for the run', () => {
+  const MADE = fakeId('00T', 1);
+
+  it('keeps it beside what the removals did, read back with the run', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.note('Contact', [fakeId('003', 1)]);
+    await recorder.end({ status: 'success' });
+
+    await store.updateRemoval('run-1', (state) => ({ ...state, madeEarlier: [MADE] }));
+
+    expect((await store.get('run-1'))?.removal).toEqual({ madeEarlier: [MADE] });
+  });
+
+  it('leaves out a list that does not read, and keeps the rest of what the removals did', () => {
+    // The rest is what the next removal sets out from: read as nothing, it
+    // would set out to take records already gone.
+    const rest = { removalLeft: [fakeId('003', 1)] };
+    const read = (madeEarlier: unknown) => readRemovalState({ version: 1, ...rest, madeEarlier });
+
+    expect(read(['not an id'])).toEqual(rest);
+    expect(read('nothing')).toEqual(rest);
+    expect(read(Array.from({ length: 1_000_001 }, () => MADE))).toEqual(rest);
+    expect(read([MADE])).toEqual({ ...rest, madeEarlier: [MADE] });
   });
 });

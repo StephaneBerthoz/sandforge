@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { ForgeSweepResult } from '@sandforge/shared';
+import { describe, expect, it, vi } from 'vitest';
+import type { AuditAction, AuditOutcome, ForgeSweepResult } from '@sandforge/shared';
 
 import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
 import { LATE_WITHIN_MS } from '../../modules/forge/sweepTies.js';
@@ -7,7 +7,11 @@ import type { SweepInput } from '../../modules/forge/ForgeRunSweep.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { tiedTargetOrg, type TiedRow } from '../../test/tiedTargetOrg.js';
 import {
+  auditedRunsOf,
+  inSweepWindow,
   keptRunOf,
+  keptRunsOn,
+  keptRunTies,
   OTHER_RUN_LEEWAY_MS,
   otherRunsInSweep,
   removalBeganOf,
@@ -111,6 +115,58 @@ describe('removalSweepOf', () => {
     expect(request.recorded[0][1]).toBe('allowed');
     expect(request.kept).toHaveLength(1);
     expect([...request.kept[0]]).toEqual([TASK]);
+  });
+
+  it('reads and asks at `ask`, deleting nothing, and its first part deletes without asking again', async () => {
+    const org = orgAfterRun();
+    const confirmIfNeeded = vi.fn(async () => true);
+    const request = requestOf(org, {
+      guard: {
+        check: () => ({
+          allowed: true,
+          requiresConfirmation: true,
+          warnings: [],
+          impactSummary: '',
+        }),
+        confirmIfNeeded,
+      } as never,
+    });
+    const sweep = await removalSweepOf(request);
+
+    await sweep.ask();
+
+    expect(confirmIfNeeded).toHaveBeenCalledTimes(1);
+    expect(org.ids('Task')).toEqual([TASK]);
+
+    expect(await sweep.first()).toBe(true);
+    expect(confirmIfNeeded).toHaveBeenCalledTimes(1);
+    expect(org.ids('Task')).toEqual([]);
+  });
+
+  it('records a sweep that threw at `ask` as failed, and deletes nothing after', async () => {
+    const org = orgAfterRun();
+    const sweep = await removalSweepOf(
+      requestOf(org, {
+        guard: {
+          check: () => ({
+            allowed: true,
+            requiresConfirmation: true,
+            warnings: [],
+            impactSummary: '',
+          }),
+          confirmIfNeeded: () => Promise.reject(new Error('the window went away')),
+        } as never,
+      }),
+    );
+
+    await sweep.ask();
+
+    expect(await sweep.first()).toBe(false);
+    expect(org.ids('Task')).toEqual([TASK]);
+    expect(await sweep.settle()).toMatchObject({
+      status: 'failure',
+      refusal: 'the window went away',
+    });
   });
 
   it('deletes nothing, and says why, for a run whose input was refused', async () => {
@@ -347,5 +403,101 @@ describe('keptRunOf', () => {
       from: Date.parse(FIRST_WRITE),
       to: Date.parse(FIRST_WRITE),
     });
+  });
+});
+
+describe('the runs of this machine on an org', () => {
+  const WRITTEN = { first: FIRST_WRITE, last: LAST_WRITE };
+  const during = Date.parse(FIRST_WRITE) + 60_000;
+  const kept = (runId: string, overrides: Partial<SyncRunKept> = {}): SyncRunKept => ({
+    runId,
+    configId: 'c',
+    configName: 'c',
+    sourceOrgId: 'source',
+    targetOrgId: 'org-1',
+    startedAt: FIRST_WRITE,
+    created: [{ objectApiName: 'Contact', ids: [CONTACT] }],
+    ...overrides,
+  });
+
+  it('counts a run with no record named when it says none could be, by when it wrote', () => {
+    const unnamed = { ids: [], idsUntold: true as const, from: during, to: during };
+
+    expect(otherRunsInSweep(WRITTEN, [unnamed])).toEqual([{ ids: [], idsUntold: true }]);
+    expect(otherRunsInSweep(WRITTEN, [{ ids: [], from: during, to: during }])).toEqual([]);
+    const later = Date.parse(LAST_WRITE) + LATE_WITHIN_MS + OTHER_RUN_LEEWAY_MS + 1;
+    expect(otherRunsInSweep(WRITTEN, [{ ...unnamed, from: later, to: later }])).toEqual([]);
+  });
+
+  it('tells nothing of a window that was not dated', () => {
+    expect(inSweepWindow(undefined, { from: during, to: during })).toBe(false);
+    expect(inSweepWindow(WRITTEN, { from: Number.NaN, to: during })).toBe(false);
+    expect(inSweepWindow(WRITTEN, { from: during, to: during })).toBe(true);
+  });
+
+  it('reads from the audit trail the runs no file names, dated by their end, none stopped before it wrote', () => {
+    const entry = (action: AuditAction, outcome: AuditOutcome = 'success') => ({
+      action,
+      outcome,
+      timestamp: new Date(during).toISOString(),
+    });
+
+    const runs = auditedRunsOf([
+      entry('autopilot_execute'),
+      entry('frozen_load', 'partial'),
+      entry('checkpoint_rewind', 'stopped'),
+      // Kept in their own files, or reading nothing.
+      entry('sync_execute'),
+      entry('seed_execute'),
+      entry('forge_execute'),
+      entry('compare_execute'),
+    ]);
+
+    expect(runs).toEqual([
+      { ids: [], idsUntold: true, from: during, to: during },
+      { ids: [], idsUntold: true, from: during, to: during },
+    ]);
+    expect(auditedRunsOf([entry('frozen_load')], 'frozen_load')).toEqual([]);
+  });
+
+  it('names the kept runs of the org alone, the run swept after left out', () => {
+    const runs = [kept('run-1'), kept('run-2'), kept('run-3', { targetOrgId: 'org-2' })];
+
+    expect(keptRunsOn(runs, 'org-1', 'run-1')).toHaveLength(1);
+    expect(keptRunsOn(runs, 'org-1')).toHaveLength(2);
+  });
+
+  it('ties a kept run to the runs of its module and of the others, and to what its sweeps found made', async () => {
+    const asked: Array<[string, unknown]> = [];
+    const made = id('02i', 1);
+    const ties = await keptRunTies(
+      kept('run-1', {
+        removal: {
+          madeEarlier: [made],
+          removalSpans: [{ first: LAST_WRITE, last: LAST_WRITE, userId: USER }],
+        },
+      }),
+      WRITTEN,
+      [kept('run-1'), kept('run-2', { created: [{ objectApiName: 'Task', ids: [TASK] }] })],
+      async (orgId, written) => {
+        asked.push([orgId, written]);
+        return [{ ids: [], idsUntold: true, from: during, to: during }];
+      },
+    );
+
+    expect(asked).toEqual([['org-1', WRITTEN]]);
+    expect(ties).toEqual({
+      otherRuns: [{ ids: [TASK] }, { ids: [], idsUntold: true }],
+      removalBegan: LAST_WRITE,
+      madeEarlier: [made],
+    });
+  });
+
+  it('goes on with its own module’s runs when the others could not be read, and names no find of none', async () => {
+    const ties = await keptRunTies(kept('run-1'), WRITTEN, [kept('run-1')], async () => {
+      throw new Error('unread');
+    });
+
+    expect(ties).toEqual({ otherRuns: [] });
   });
 });

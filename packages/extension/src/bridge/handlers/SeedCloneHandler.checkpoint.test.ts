@@ -5,7 +5,10 @@
  * with the clone's, asked about, taken after the answer and before the first
  * record, kept once a record went; refused under its own code, nothing written.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   BaseMessage,
   ForgeTargetAutomation,
@@ -17,6 +20,10 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import {
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
 import {
   writePathOrderDefects,
   type BeforeRunCheckpoints,
@@ -173,7 +180,11 @@ const AS_STEP: Readonly<Record<string, WritePathStep>> = {
   result: 'result',
 };
 
+const TARGET_USER = '005000000000001AAA';
+
 describe('SeedCloneHandler — a clone that takes a checkpoint first', () => {
+  /** How often the source was asked who the session is: the run's user is the target's. */
+  let sourceAsked = 0;
   let deps: HandlerDeps;
   let handler: SeedCloneHandler;
   let guard: ProductionGuard;
@@ -201,10 +212,21 @@ describe('SeedCloneHandler — a clone that takes a checkpoint first', () => {
       .filter((m) => m.type === 'operation:failed');
 
   /** Both orgs, the target with `remaining` API requests left today. */
-  function orgs(remaining = 15_000) {
+  function orgs(
+    remaining = 15_000,
+    identity: () => Promise<{ user_id: string }> = async () => ({ user_id: TARGET_USER }),
+  ) {
+    sourceAsked = 0;
     vi.mocked(getJsforceConnection).mockImplementation(
       async (orgId: string) =>
         ({
+          identity:
+            orgId === 'tgt-org'
+              ? identity
+              : async () => {
+                  sourceAsked++;
+                  return { user_id: '005000000000009AAA' };
+                },
           describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
           describe: vi.fn().mockResolvedValue({
             fields: [{ name: 'Name', type: 'string', createable: true, updateable: true }],
@@ -294,6 +316,45 @@ describe('SeedCloneHandler — a clone that takes a checkpoint first', () => {
     new AuditTrailStore(deps.configStore)
       .list()
       .entries.find((e) => e.operationId === OPERATION_ID);
+
+  describe('kept in the run’s file', () => {
+    let dir: string;
+    let runs: SeedRunCreations;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-run-'));
+      runs = nodeSeedRunCreations(dir);
+      handler.setRunCreations(runs);
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('names the checkpoint and the user it wrote as on the target, once the target said', async () => {
+      orgs();
+
+      await clone({ checkpointFirst: {} });
+      const [kept] = await runs.list();
+      await vi.waitFor(async () =>
+        expect((await runs.get(kept?.runId ?? ''))?.runUserId).toBe(TARGET_USER),
+      );
+
+      expect((await runs.get(kept?.runId ?? ''))?.checkpoint).toEqual(TAKEN);
+      expect(sourceAsked).toBe(0);
+    });
+
+    it('goes on past a target that never says who it is, and keeps its run without it', async () => {
+      orgs(15_000, () => new Promise(() => undefined));
+
+      await clone();
+
+      expect(posted('seed:clone:execute:response')).toHaveLength(1);
+      const [kept] = await runs.list();
+      expect(kept?.created).toHaveLength(1);
+      expect(kept).not.toHaveProperty('runUserId');
+    });
+  });
 
   it('reads the automation once, takes it after the question and before the first record, and keeps it once a record went', async () => {
     orgs();

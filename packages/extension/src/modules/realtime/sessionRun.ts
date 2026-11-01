@@ -18,6 +18,7 @@ import type { RealTimeSyncMetrics, SyncOperation } from '@sandforge/shared';
 import { createdIds, syncWriterCalls, type WriterCalls } from '../sync/BulkDataWriter.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import { viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
+import { keepRunUser, type RunIdentity } from '../sync/runUser.js';
 import type { SyncRunCreations } from '../sync/SyncRunCreations.js';
 import {
   storeOverwriteBackup,
@@ -60,6 +61,11 @@ export interface SessionRunDeps {
   meta: BackupMetaStore;
   /** The target, as the session reads it: what a write is about to write over is read there. */
   target: OrgReader;
+  /**
+   * How the target says who the session writes as, kept in its file for the
+   * sweep of its removal. Absent, the sweep reads it from the session's records.
+   */
+  identity?: RunIdentity;
   log: (message: string) => void;
 }
 
@@ -113,6 +119,8 @@ export function openSessionRun(deps: SessionRunDeps): SessionRun {
     targetOrgId: deps.targetOrgId,
     realtime: true,
   });
+  // Asked as the session opens, and waited for by nothing.
+  if (deps.identity) keepRunUser(recorder, deps.identity, `realtime ${deps.sessionId}`);
   const backup = deps.backups
     ? storeOverwriteBackup({
         runId: deps.sessionId,

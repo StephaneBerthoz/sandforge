@@ -27,6 +27,10 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import {
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
+import {
   BEFORE_RUN_DELETED_WORDS,
   writePathOrderDefects,
   type BeforeRunCheckpoints,
@@ -353,6 +357,55 @@ describe('SeedOpsHandler — a seed that takes a checkpoint first', () => {
   /** The audit entry of the seed, once it was recorded. */
   const auditEntry = () =>
     new AuditTrailStore(deps.configStore).list().entries.find((e) => e.operationId === 'seed-ck');
+
+  describe('kept in the run’s file', () => {
+    let runs: SeedRunCreations;
+
+    beforeEach(() => {
+      runs = nodeSeedRunCreations(dir);
+      handler.setRunCreations(runs);
+    });
+
+    it('names the checkpoint and the user it wrote as, once the org said', async () => {
+      const org = permissionOrg();
+      developerEdition(org);
+
+      await execute(SMALL, { checkpointFirst: {} });
+      await vi.waitFor(() => expect(steps).toContain('result'));
+
+      const [run] = await runs.list();
+      await vi.waitFor(async () =>
+        expect((await runs.get(run?.runId ?? ''))?.runUserId).toBe(org.userId),
+      );
+      expect((await runs.get(run?.runId ?? ''))?.checkpoint).toEqual(TAKEN);
+    });
+
+    it('leaves no file of a seed that took one and sent nothing', async () => {
+      const org = permissionOrg();
+      developerEdition(org);
+      sendsRecords = false;
+
+      await execute(SMALL, { checkpointFirst: {} });
+      await vi.waitFor(() => expect(steps).toContain('result'));
+
+      expect(await runs.list()).toEqual([]);
+    });
+
+    it('goes on past a target that never says who it is, and keeps its run without it', async () => {
+      const org = permissionOrg();
+      developerEdition({
+        ...org,
+        connection: { ...org.connection, identity: () => new Promise(() => undefined) },
+      } as never);
+
+      await execute(SMALL);
+      await vi.waitFor(() => expect(steps).toContain('result'));
+
+      const [run] = await runs.list();
+      expect(run?.created).toHaveLength(1);
+      expect(run).not.toHaveProperty('runUserId');
+    });
+  });
 
   it('takes it after the question and before the lease, keeps it once a record went, and names it in the result and the audit trail', async () => {
     const org = permissionOrg();

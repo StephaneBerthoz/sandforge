@@ -11,13 +11,19 @@ import type {
 
 import { SyncRemovalHandler } from './SyncRemovalHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import {
+  writePathOrderDefects,
+  type WritePathStep,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { BackupRecordStore, nodeBackupFiles } from '../../modules/dataops/BackupRecordStore.js';
 import { nodeSyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { compositeOver } from '../../test/compositeOver.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
@@ -235,6 +241,66 @@ const AUTOMATION = {
   ],
   unread: [],
 } as unknown as ForgeTargetAutomation;
+
+/** What a deleted record fires, which `Data_Load` keeps quiet. */
+const ON_DELETE = {
+  objectsRead: ['Account', 'Contact', 'Case'],
+  objects: [
+    {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Contact_Gone',
+          label: 'Contact gone',
+          timing: 'afterSave',
+          startsOn: 'delete',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Load_Data',
+      permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+    },
+  ],
+  unread: [],
+} as unknown as ForgeTargetAutomation;
+
+/** The objects the permission org answers for: the mute's reads of the permission sets. */
+const PERMISSION_OBJECTS =
+  /\bFROM\s+(Organization|UserPermissionAccess|PermissionSetAssignment|SetupEntityAccess|ObjectPermissions|CustomPermission|PermissionSet)\b/i;
+
+/**
+ * The tied org with permission sets to assign: a lease's reads and writes go
+ * to `permissions`, the rest to `tied`, as one connection answers both, each
+ * of the lease's writes put down among the org's events.
+ */
+function leasedConnection(tied: TiedTargetOrg, user: string) {
+  const permissions = memoryPermissionOrg({
+    userId: user,
+    sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+    beforeWrite: (write) => {
+      (tied.events as string[]).push(write.kind === 'insert' ? 'leaseAcquire' : 'leaseRelease');
+    },
+  });
+  const conn = {
+    ...tied.conn,
+    identity: permissions.connection.identity,
+    query: (soql: string, options?: { scanAll?: boolean }) =>
+      PERMISSION_OBJECTS.test(soql)
+        ? permissions.connection.query(soql)
+        : tied.conn.query(soql, options),
+    sobject: (name: string) =>
+      name === 'PermissionSetAssignment'
+        ? permissions.connection.sobject(name)
+        : tied.conn.sobject(name),
+  };
+  return { conn, permissions };
+}
 
 function buildMsg(type: string, payload?: unknown): InboundRequest {
   return inboundRequest({
@@ -720,6 +786,188 @@ describe('a sweep asked with the removal of a Sync run', () => {
       expect(response.payload.listing.found.map((found) => found.objectApiName)).not.toContain(
         'QuoteLineItem',
       );
+    });
+
+    it('keeps what it found made, and takes it once the record that told the tie is gone', async () => {
+      // A colleague edits the case after the run: the removal keeps it, and
+      // the asset it names waits for it, refused.
+      Object.assign(tied.row('Case', CASE) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: COLLEAGUE,
+      });
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
+      expect(tied.ids('Asset')).toEqual([ASSET]);
+      expect(answer()?.sweep?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Asset', deleted: 0, refused: 1 }),
+      ]);
+      const kept = await nodeSyncRunCreations(storage).get('run-cases');
+      expect(kept?.removal?.madeEarlier).toEqual([ASSET]);
+
+      // Then the case goes by hand: nothing of the run names the asset now.
+      const caseRow = tied.row('Case', CASE);
+      tied.rows.set('Case', []);
+      if (caseRow) tied.bin.set('Case', [caseRow]);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-cases' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(
+        response.payload.listing.found.find((found) => found.objectApiName === 'Asset')?.classes,
+      ).toMatchObject({ made: 1, untied: 0 });
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
+      expect(tied.ids('Asset')).toEqual([]);
+      const again = await nodeSyncRunCreations(storage).get('run-cases');
+      expect(again?.removal?.madeEarlier).toEqual([ASSET]);
+    });
+
+    it('keeps what is tied to nothing while a run of another module wrote in the window', async () => {
+      const told: Array<[string, unknown]> = [];
+      const during = Date.parse(WRITTEN_AT) + 30_000;
+      handler.setOtherModuleRuns(async (orgId, written) => {
+        told.push([orgId, written]);
+        return [{ ids: [id('003', 7)], from: during, to: during }];
+      });
+      tied.add('Contact', rec(id('003', 7), 'Their person', USER, after(30)));
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-cases' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(told[0]?.[0]).toBe(TARGET_ORG);
+      expect(response.payload.listing.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(tied.ids('Contact')).toContain(id('003', 7));
+    });
+
+    it('names its runs on an org for the sweep of another module’s run', async () => {
+      const [run] = await handler.localRunsOn(TARGET_ORG);
+
+      expect(run?.ids).toEqual([ACCOUNT, CONTACT, CASE]);
+      expect(await handler.localRunsOn('another-org')).toEqual([]);
+    });
+
+    describe('asked to mute the target’s automation', () => {
+      let leases: string;
+      let permissions: ReturnType<typeof memoryPermissionOrg>;
+      const BACK = id('003', 8);
+      /** The org's events, with the questions, the lease and the undeletes among them. */
+      const steps = (): string[] => tied.events;
+
+      beforeEach(() => {
+        leases = mkdtempSync(join(tmpdir(), 'sandforge-sync-sweep-leases-'));
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        read.mockImplementation(async () => ON_DELETE);
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        const check = guard.check.bind(guard);
+        vi.spyOn(guard, 'check').mockImplementation((request) => {
+          steps().push('question');
+          return check(request);
+        });
+        const leased = leasedConnection(tied, USER);
+        permissions = leased.permissions;
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...leased.conn,
+          soap: {
+            ...tied.conn.soap,
+            undelete: async (recordIds: string[]) => {
+              steps().push('undelete');
+              return recordIds.map((recordId) => ({ id: recordId, success: true, errors: [] }));
+            },
+          },
+        } as never);
+      });
+
+      afterEach(() => {
+        rmSync(leases, { recursive: true, force: true });
+      });
+
+      it('asks the sweep’s question before the lease, and writes everything under it, its undeletes first', async () => {
+        // The run also deleted a contact the source had deleted: its removal
+        // brings it back before the sweep's first delete, as ever.
+        const runs = nodeSyncRunCreations(storage);
+        const recorder = runs.recorder({
+          runId: 'run-back',
+          configId: 'cfg-1',
+          configName: 'Cases',
+          sourceOrgId: 'org-source',
+          targetOrgId: TARGET_ORG,
+          startedAt: STARTED,
+        });
+        recorder.note('Account', [ACCOUNT], WRITTEN_AT);
+        recorder.note('Contact', [CONTACT], WRITTEN_AT);
+        recorder.note('Case', [CASE], WRITTEN_AT);
+        recorder.deleted?.('Contact', [BACK]);
+        await recorder.end({ status: 'success' });
+        handler.setRunCreations(runs);
+        await nodeSyncRunCreations(storage).forget('run-cases');
+        tied.bin.set('Contact', [rec(BACK, 'Deleted by the run', COLLEAGUE, WRITTEN)]);
+
+        await handler.handle(
+          buildMsg('sync:remove', { runId: 'run-back', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        const made = steps();
+        const undeleted = made.indexOf('undelete');
+        const leaseAt = made.indexOf('leaseAcquire');
+        // The two questions, the removal's and the sweep's, before the lease.
+        expect(made.filter((step) => step === 'question')).toHaveLength(2);
+        expect(leaseAt).toBeGreaterThan(made.lastIndexOf('question'));
+        // The undelete under the lease, before the sweep's and the removal's deletes.
+        expect(undeleted).toBeGreaterThan(leaseAt);
+        expect(undeleted).toBeLessThan(made.indexOf('write'));
+        const path = [...made.map((step) => (step === 'undelete' ? 'write' : step)), 'result'];
+        expect(writePathOrderDefects(path as WritePathStep[])).toEqual([]);
+        expect(permissions.assignments()).toEqual([]);
+      });
+
+      it('assigns nothing once a stop came while the sweep asked', async () => {
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        const confirmed = guard.confirmIfNeeded.bind(guard);
+        vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((asked, tier) => {
+          for (const op of registry.getRunning()) registry.abort(op.operationId);
+          return confirmed(asked, tier);
+        });
+
+        await handler.handle(
+          buildMsg('sync:remove', { runId: 'run-cases', sweep: true, muteAutomation: true }),
+        );
+
+        expect(answer()?.status).toBe('cancelled');
+        expect(steps()).not.toContain('leaseAcquire');
+        expect(tied.ids('Case')).toEqual([CASE]);
+      });
+
+      it('holds no lease while Production Guard waits on the sweep’s question', async () => {
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        let held: number | undefined;
+        const confirmed = guard.confirmIfNeeded.bind(guard);
+        vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((check, orgName) => {
+          held = permissions.assignments().length;
+          return confirmed(check, orgName);
+        });
+
+        await handler.handle(
+          buildMsg('sync:remove', { runId: 'run-cases', sweep: true, muteAutomation: true }),
+        );
+
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+        });
+        expect(held).toBe(0);
+        expect(tied.ids('Asset')).toEqual([]);
+      });
     });
 
     it('takes the user the run’s file keeps, reading none of its records to tell it, nor a colleague’s', async () => {

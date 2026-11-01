@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   LATE_WITHIN_MS,
+  MADE_KEPT_PER_OBJECT,
   MADE_WITHIN_MS,
   SAME_SAVE_MS,
   TIE_DEPTH,
   TIE_LEAD_MS,
+  madeKept,
   sweepTiesOf,
   type SweepAnchor,
   type SweepCandidate,
@@ -228,5 +230,33 @@ describe('sweepTiesOf: the run’s records and their creators', () => {
     );
     expect(ties.get(feedItem)?.turn).toBe('before');
     expect(ties.get(comment)?.turn).toBe('before');
+  });
+});
+
+describe('madeKept: what the sweeps of a run found made for it', () => {
+  const made = (prefix: string, n: number): string => `${key(prefix, n)}AAA`;
+
+  it('keeps those kept, then those found, each once whichever length its id is in', () => {
+    expect(madeKept([made('00T', 1)], [key('00T', 1), made('00T', 2)])).toEqual([
+      made('00T', 1),
+      made('00T', 2),
+    ]);
+    expect(madeKept(undefined, new Set([made('02i', 1)]))).toEqual([made('02i', 1)]);
+    expect(madeKept(undefined, [])).toEqual([]);
+  });
+
+  it('leaves out what does not read as an id: each ends up in a delete', () => {
+    expect(madeKept(['not an id'], ["00T' OR Id != '", made('00T', 1)])).toEqual([made('00T', 1)]);
+  });
+
+  it('holds each object to its bound, an object by the first three characters of its ids', () => {
+    const tasks = Array.from({ length: MADE_KEPT_PER_OBJECT + 5 }, (_, n) => made('00T', n));
+
+    const kept = madeKept(tasks, [made('00T', MADE_KEPT_PER_OBJECT + 9), made('02i', 1)]);
+
+    expect(kept.filter((one) => one.startsWith('00T'))).toHaveLength(MADE_KEPT_PER_OBJECT);
+    expect(kept).toContain(made('02i', 1));
+    // The earliest stay: they are what the org no longer tells.
+    expect(kept[0]).toBe(made('00T', 0));
   });
 });

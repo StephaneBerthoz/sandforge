@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { openCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore';
 import type { CheckpointHandler, WindowWriters } from './handlers/CheckpointHandler';
 import type { RealtimeHandler } from './handlers/RealtimeHandler';
+import type { OtherModuleRuns } from './handlers/removalSweep';
 
 /**
  * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
@@ -368,6 +369,88 @@ describe('ExtensionHandlers', () => {
     ])('hands the checkpoint before a run to %s', (name) => {
       const own = handlers as unknown as Record<string, { beforeRunCheckpoints?: unknown }>;
       expect(own[name].beforeRunCheckpoints).toBe(handlers.beforeRunCheckpoints);
+    });
+
+    describe('the runs of the other modules, for a sweep', () => {
+      const WRITTEN = { first: '2026-09-20T10:00:00.000Z', last: '2026-09-20T10:05:00.000Z' };
+      const during = Date.parse(WRITTEN.first) + 60_000;
+      const parts = (): Record<
+        string,
+        {
+          localRunsOn: ReturnType<typeof vi.fn>;
+          otherModuleRuns: OtherModuleRuns;
+          isWritingTo: ReturnType<typeof vi.fn>;
+        }
+      > => handlers as never;
+      const run = (id: string) => ({ ids: [id], from: during, to: during });
+
+      beforeEach(() => {
+        const all = parts();
+        vi.spyOn(all.forgeHandler, 'localRunsOn').mockResolvedValue([run('forge')] as never);
+        vi.spyOn(all.syncRemovalHandler, 'localRunsOn').mockResolvedValue([run('sync')] as never);
+        vi.spyOn(all.seedRemovalHandler, 'localRunsOn').mockResolvedValue([run('seed')] as never);
+      });
+
+      it.each([
+        ['forgeHandler', ['sync', 'seed']],
+        ['syncRemovalHandler', ['forge', 'seed']],
+        ['seedRemovalHandler', ['forge', 'sync']],
+      ])('tells %s of the others’ runs, never its own', async (name, others) => {
+        const runs = await parts()[name].otherModuleRuns('org-x', WRITTEN);
+
+        expect(runs.flatMap((one) => one.ids)).toEqual(others);
+        vi.restoreAllMocks();
+      });
+
+      it('counts by when it ended a run the audit trail alone names', async () => {
+        const all = parts();
+        const trail = { ...deps, configStore: deps.configStore };
+        recordWriteRun(
+          trail,
+          {
+            action: 'autopilot_execute',
+            module: 'autopilot',
+            operationId: 'op-1',
+            orgId: 'org-x',
+            outcome: 'success',
+          },
+          new Date(during),
+        );
+        recordWriteRun(
+          trail,
+          {
+            action: 'autopilot_execute',
+            module: 'autopilot',
+            operationId: 'op-2',
+            orgId: 'org-y',
+            outcome: 'success',
+          },
+          new Date(during),
+        );
+
+        const runs = await all.syncRemovalHandler.otherModuleRuns('org-x', WRITTEN);
+
+        expect(runs.filter((one) => one.idsUntold)).toEqual([
+          { ids: [], idsUntold: true, from: during, to: during },
+        ]);
+        vi.restoreAllMocks();
+      });
+
+      it('counts a run writing to the org now, of a handler other than the sweep’s own', async () => {
+        const all = parts();
+        vi.spyOn(all.forgeHandler, 'isWritingTo').mockImplementation(
+          ((id: string) => id === 'org-x') as never,
+        );
+
+        const seed = await all.seedRemovalHandler.otherModuleRuns('org-x', WRITTEN);
+        const forge = await all.forgeHandler.otherModuleRuns('org-x', WRITTEN);
+        const elsewhere = await all.seedRemovalHandler.otherModuleRuns('org-y', WRITTEN);
+
+        expect(seed.filter((one) => one.idsUntold)).toHaveLength(1);
+        expect(forge.filter((one) => one.idsUntold)).toEqual([]);
+        expect(elsewhere.filter((one) => one.idsUntold)).toEqual([]);
+        vi.restoreAllMocks();
+      });
     });
 
     it('gives the run handlers the checkpoint before a run through the Checkpoints’ own handler', async () => {

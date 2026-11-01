@@ -85,6 +85,40 @@ export const LATE_WITHIN_MS = 15 * 60_000;
  */
 export const TIE_DEPTH = 3;
 
+/**
+ * The most ids of what the sweeps of a run found made for it kept for the
+ * next one, per object: what a sweep reads at most of one (`SWEEP_OBJECT_BOUND`).
+ */
+export const MADE_KEPT_PER_OBJECT = 10_000;
+
+/**
+ * What the sweeps of a run found made for it, to keep beside the run for the
+ * next one (`SweepTies.madeEarlier`): those kept, then those this sweep
+ * found, each once by the first fifteen characters of its id,
+ * {@link MADE_KEPT_PER_OBJECT} per object at most — an object by the first
+ * three characters of its ids. What does not read as an id is left out: every
+ * id kept ends up in a delete.
+ */
+export function madeKept(
+  earlier: readonly string[] | undefined,
+  found: Iterable<string>,
+): string[] {
+  const seen = new Set<string>();
+  const perObject = new Map<string, number>();
+  const kept: string[] = [];
+  for (const id of [...(earlier ?? []), ...found]) {
+    const key = id.slice(0, 15);
+    if (!/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id) || seen.has(key)) continue;
+    const object = key.slice(0, 3);
+    const count = perObject.get(object) ?? 0;
+    if (count >= MADE_KEPT_PER_OBJECT) continue;
+    seen.add(key);
+    perObject.set(object, count + 1);
+    kept.push(id);
+  }
+  return kept;
+}
+
 /** The class a record a sweep found falls in (`ForgeSweepClasses`). */
 export type SweepClass = 'made' | 'madeOver' | 'late' | 'untied';
 

@@ -83,6 +83,8 @@ function partsAnswering(
   return (_org, input, options) => ({
     automationMade: new Set<string>(),
     made: new Set<string>(),
+    ask: vi.fn(async () => undefined),
+    listing: undefined,
     first: vi.fn(async () => {
       first(input, options);
       return result.objects.some((object) => object.deleted > 0);

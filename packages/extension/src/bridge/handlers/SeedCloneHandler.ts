@@ -40,6 +40,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { formatSaveError } from '../../core/common/existingRecordMatch.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CloneRecordFetcher } from '../../modules/seed/CloneRecordFetcher.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js';
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -1153,6 +1154,10 @@ export class SeedCloneHandler implements DomainHandler {
         startedAt: new Date(startedAt).toISOString(),
         origin: 'clone',
       });
+      // The checkpoint it took is named in its file, with its first line, and
+      // the user it writes as is asked of the target, waited for by nothing.
+      if (taken) kept?.checkpoint?.(taken);
+      keepRunUser(kept, () => targetConn.identity(), `seed:clone:execute ${operationId}`);
       if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
         ...(kept

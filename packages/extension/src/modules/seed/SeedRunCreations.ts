@@ -49,7 +49,7 @@
  * summary kept what it created in memory alone.
  */
 
-import type { ApiName } from '@sandforge/shared';
+import type { ApiName, RunCheckpointTaken } from '@sandforge/shared';
 import {
   IDS_PER_LINE,
   nodeSyncRunCreations,
@@ -177,6 +177,20 @@ export interface SeedRunRecorder {
    */
   wroteAgain(objectApiName: ApiName, ids: readonly string[]): void;
   /**
+   * The run took `taken`, a checkpoint of what it writes, before its first
+   * write: written with the file's first line, never alone, a run that writes
+   * nothing leaving no file and deleting its checkpoint
+   * (`SyncCreationRecorder.checkpoint`). What the list of earlier seeds offers
+   * a rewind to the moment before the run from, after a reload too.
+   */
+  checkpoint?(taken: RunCheckpointTaken): void;
+  /**
+   * The user the run writes as, once it was read, which nothing waits for
+   * (`SyncCreationRecorder.runUser`). A run that created nothing leaves no
+   * file, and one read after it ended goes nowhere.
+   */
+  runUser?(userId: string): void;
+  /**
    * The run ended as its result says: an id the result holds that no insert
    * noted is kept too, then how it ended. A run that created nothing leaves
    * no file. Then the runs past the most kept go, the oldest removed with
@@ -258,6 +272,8 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       inLines(fresh(ids), (line) => recorder.note(objectApiName, line, at));
     /** The Bulk API job of each object's call under way, until the call answers. */
     const unanswered = new Map<string, string>();
+    /** Whether the run left no file: a line after would begin one with no run in it. */
+    let forgotten = false;
     return {
       runId: start.runId,
       note: (objectApiName, ids) => note(objectApiName, ids),
@@ -278,6 +294,10 @@ export class SeedRunCreations implements SyncRemovalStateStore {
           ids.filter((id) => noted.has(id.slice(0, 15))),
           (line) => recorder.note(objectApiName, line),
         ),
+      checkpoint: (taken) => recorder.checkpoint?.(taken),
+      runUser: (userId) => {
+        if (!forgotten) recorder.runUser?.(userId);
+      },
       end: async (run) => {
         // Dated when the run ended, as its result says: what a removal reads
         // the org's dates against, a record modified after it being changed since.
@@ -289,6 +309,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
           // Its calls were kept as they went, and it created nothing: no file.
           // A job the org opened that never answered stays: it ran on, and
           // its records are read back from it.
+          forgotten = true;
           await recorder.flush();
           await this.runs.forget(start.runId);
           return;

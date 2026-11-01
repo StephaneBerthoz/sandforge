@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as z from 'zod';
 import type { ForgeRemovalPlan } from '@sandforge/shared';
+import { MADE_KEPT_PER_OBJECT, madeKept } from './sweepTies.js';
 
 /**
  * The most the removal plans take on disk, in bytes of JSON: about 200 000
@@ -35,7 +36,7 @@ export const SWEEP_MADE_RUNS_KEPT = 50;
  * Ids kept per object of one run's finds at most: past what a sweep takes of
  * an object (`SWEEP_OBJECT_BOUND`), nothing of it was swept.
  */
-export const SWEEP_MADE_PER_OBJECT = 10_000;
+export const SWEEP_MADE_PER_OBJECT = MADE_KEPT_PER_OBJECT;
 
 /** File-system operations the store needs, injected so it stays testable. */
 export interface ForgeRemovalPlanStoreDeps {
@@ -225,19 +226,7 @@ export class ForgeRemovalPlanStore {
     return this.enqueue(async () => {
       const runs = await this.readMade();
       const before = runs.find((run) => run.forgeId === forgeId)?.ids ?? [];
-      const perObject = new Map<string, number>();
-      const seen = new Set<string>();
-      const kept: string[] = [];
-      for (const id of [...before, ...ids]) {
-        const key = id.slice(0, 15);
-        if (!idSchema.safeParse(id).success || seen.has(key)) continue;
-        const object = key.slice(0, 3);
-        const count = perObject.get(object) ?? 0;
-        if (count >= SWEEP_MADE_PER_OBJECT) continue;
-        seen.add(key);
-        perObject.set(object, count + 1);
-        kept.push(id);
-      }
+      const kept = madeKept(before, ids);
       if (kept.length === before.length) return;
       const next = [{ forgeId, ids: kept }, ...runs.filter((run) => run.forgeId !== forgeId)].slice(
         0,

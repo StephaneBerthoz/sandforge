@@ -588,6 +588,33 @@ describe('a Sync run that takes a checkpoint first, from the page', () => {
     expect(steps.slice(assign, write)).toContain('target describe');
   });
 
+  it('keeps the user it writes as in its file, once the target said', async () => {
+    const org = permissionOrg();
+    mockOrgs(3, org);
+
+    await send(handler, 'sync:execute', 'run-user', { config: config() });
+    await vi.waitFor(() => expect(steps).toContain('result'));
+
+    await vi.waitFor(async () =>
+      expect((await creations.get('run-user'))?.runUserId).toBe(org.userId),
+    );
+  });
+
+  it('goes on past a target that never says who it is, and keeps its run without it', async () => {
+    const org = permissionOrg();
+    mockOrgs(3, {
+      ...org,
+      connection: { ...org.connection, identity: () => new Promise(() => undefined) },
+    } as never);
+
+    await send(handler, 'sync:execute', 'run-silent', { config: config() });
+    await vi.waitFor(() => expect(steps).toContain('result'));
+
+    const run = await creations.get('run-silent');
+    expect(run?.created).toHaveLength(1);
+    expect(run).not.toHaveProperty('runUserId');
+  });
+
   it('takes it after the question and writes, for a run that does not mute', async () => {
     const org = permissionOrg();
     const { create } = mockOrgs(3, org);

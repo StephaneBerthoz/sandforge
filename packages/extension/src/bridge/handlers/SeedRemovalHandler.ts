@@ -68,17 +68,17 @@ import {
   sweepAuditDetails,
   sweepAuditObjects,
   type SweepInput,
-  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import { madeKept } from '../../modules/forge/sweepTies.js';
 import {
-  keptRunOf,
-  otherRunsInSweep,
-  removalBeganOf,
+  keptRunsOn,
+  keptRunTies,
   removalSweepOf,
   sweepOrgOf,
   sweepRefusalCode,
   withoutPlatformCopies,
   type LocalRun,
+  type OtherModuleRuns,
   type RemovalSweep,
 } from './removalSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
@@ -139,6 +139,8 @@ const SEED_WRITING_ELSEWHERE =
  */
 export class SeedRemovalHandler implements DomainHandler {
   private creations?: SeedRunCreations;
+  /** The runs of the other modules on an org, for a sweep to be told of them; none until set. */
+  private otherModuleRuns: OtherModuleRuns = () => Promise.resolve([]);
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
   /**
@@ -268,6 +270,8 @@ export class SeedRemovalHandler implements DomainHandler {
       ],
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
+      // What the list offers a rewind to the moment before the run from.
+      ...(run.checkpoint ? { checkpoint: run.checkpoint } : {}),
     };
     // Once a removal marked it: what one taking every record again would
     // take, should an undo of a rewind have brought back what it found gone.
@@ -550,32 +554,30 @@ export class SeedRemovalHandler implements DomainHandler {
       ties: {},
     });
     return withoutPlatformCopies(
-      { ...input, ties: { ...input.ties, ...(await this.tiesOf(run, input)) } },
+      {
+        ...input,
+        ties: {
+          ...input.ties,
+          ...(await keptRunTies(
+            run,
+            input.writtenBetween,
+            (await this.creations?.list().catch(() => [])) ?? [],
+            this.otherModuleRuns,
+          )),
+        },
+      },
       org,
     );
   }
 
-  /**
-   * What ties a record to the run beside its records (`SweepTies`): the
-   * records of the other seeds of this machine kept here that wrote to its
-   * target in its window, and when its first removal began. What the run's
-   * mute kept quiet, and what earlier sweeps found made for it, its file does
-   * not keep.
-   */
-  private async tiesOf(
-    run: SyncRunKept,
-    input: Pick<SweepInput, 'writtenBetween'>,
-  ): Promise<Omit<SweepTies, 'writtenOver'>> {
-    const others: LocalRun[] = [];
-    for (const other of (await this.creations?.list().catch(() => [])) ?? []) {
-      if (other.runId === run.runId || other.targetOrgId !== run.targetOrgId) continue;
-      others.push(keptRunOf(other));
-    }
-    const began = removalBeganOf(run.removal?.removalSpans);
-    return {
-      otherRuns: otherRunsInSweep(input.writtenBetween, others),
-      ...(began ? { removalBegan: began } : {}),
-    };
+  /** The runs kept here that wrote to an org, for the sweep of another module's run. */
+  async localRunsOn(targetOrgId: string): Promise<LocalRun[]> {
+    return keptRunsOn((await this.creations?.list().catch(() => [])) ?? [], targetOrgId);
+  }
+
+  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
+  setOtherModuleRuns(runs: OtherModuleRuns): void {
+    this.otherModuleRuns = runs;
   }
 
   /**
@@ -698,6 +700,19 @@ export class SeedRemovalHandler implements DomainHandler {
           objects: sweepAuditObjects(result),
           details: { ...details, runId: run.runId },
         });
+      },
+      keepMade: async (made) => {
+        await this.creations
+          ?.updateRemoval(run.runId, (state) => ({
+            ...state,
+            madeEarlier: madeKept(state.madeEarlier, made),
+          }))
+          .catch((err: unknown) => {
+            this.deps.log(
+              `[WARN] seed:remove ${context.operationId}: what the sweep found made for the run ` +
+                `could not be kept: ${extractErrorMessage(err)}`,
+            );
+          });
       },
     });
   }
@@ -945,9 +960,14 @@ export class SeedRemovalHandler implements DomainHandler {
           writes: removalStepsWrites(steps),
         });
       }
-      const held = removalMute?.prepared
-        ? await removalMute.prepared.acquire(operationId)
-        : undefined;
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease: a person answering holds no permission set assigned. It
+      // deletes at its turn, once the removal has read the run's records.
+      await sweepParts?.ask();
+      const held =
+        removalMute?.prepared && !abortController.signal.aborted
+          ? await removalMute.prepared.acquire(operationId)
+          : undefined;
       let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
       const { result: removed, notes } = await removeSyncRun({
         run,

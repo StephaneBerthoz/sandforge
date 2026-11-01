@@ -6,7 +6,10 @@
  * row as it can be, kept once a row went; refused under its own code, nothing
  * written.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   BaseMessage,
   ForgeTargetAutomation,
@@ -18,6 +21,10 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import {
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
 import {
   writePathOrderDefects,
   type BeforeRunCheckpoints,
@@ -35,10 +42,16 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
 const steps: string[] = [];
 
 /** The writer the import builds, its writes put down as steps. */
-const writer = vi.hoisted(() => ({ insert: vi.fn(), upsert: vi.fn() }));
+const writer = vi.hoisted(() => ({
+  insert: vi.fn(),
+  upsert: vi.fn(),
+  /** What the import told the writer to tell it of each call: what its run's file keeps. */
+  calls: undefined as undefined | { answered: (...args: unknown[]) => void },
+}));
 vi.mock('../../modules/sync/BulkDataWriter.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../modules/sync/BulkDataWriter.js')>()),
-  BulkDataWriter: vi.fn().mockImplementation(function () {
+  BulkDataWriter: vi.fn().mockImplementation(function (built: { calls?: typeof writer.calls }) {
+    writer.calls = built.calls;
     return writer;
   }),
 }));
@@ -144,6 +157,7 @@ const AS_STEP: Readonly<Record<string, WritePathStep>> = {
 };
 
 const OPERATION_ID = 'csv-ck';
+const RUN_USER = '005000000000001AAA';
 
 function buildMsg(payload: Record<string, unknown>): InboundRequest {
   return inboundRequest({
@@ -177,8 +191,12 @@ describe('SeedCsvHandler — an import that takes a checkpoint first', () => {
       .filter((m) => m.type === type);
 
   /** A Developer Edition with `remaining` API requests left today. */
-  function target(remaining = 15_000) {
+  function target(
+    remaining = 15_000,
+    identity: () => Promise<{ user_id: string }> = async () => ({ user_id: RUN_USER }),
+  ) {
     vi.mocked(getJsforceConnection).mockResolvedValue({
+      identity,
       request: vi.fn(async () => {
         steps.push('limits read');
         return {
@@ -198,13 +216,15 @@ describe('SeedCsvHandler — an import that takes a checkpoint first', () => {
       steps.push('automation read');
       return accountAutomation(objects);
     });
-    writer.insert.mockImplementation(async (_object: string, rows: unknown[]) => {
+    writer.insert.mockImplementation(async (object: string, rows: unknown[]) => {
       steps.push('write');
-      return rows.map((_, n) => ({
+      const outcomes = rows.map((_, n) => ({
         success: true,
         id: `001${String(n).padStart(12, '0')}AAA`,
         errors: [],
       }));
+      writer.calls?.answered(object, 'insert', outcomes);
+      return outcomes;
     });
     guard = new ProductionGuard();
     vi.spyOn(guard, 'confirmRun').mockImplementation(async () => {
@@ -247,6 +267,43 @@ describe('SeedCsvHandler — an import that takes a checkpoint first', () => {
     new AuditTrailStore(deps.configStore)
       .list()
       .entries.find((e) => e.operationId === OPERATION_ID);
+
+  describe('kept in the run’s file', () => {
+    let dir: string;
+    let runs: SeedRunCreations;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'sandforge-csv-run-'));
+      runs = nodeSeedRunCreations(dir);
+      handler.setRunCreations(runs);
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('names the checkpoint and the user it wrote as, once the org said, and the list reads both', async () => {
+      target();
+
+      await handler.handle(buildMsg({ checkpointFirst: { keepDays: 3 } }));
+      await vi.waitFor(async () =>
+        expect((await runs.get(OPERATION_ID))?.runUserId).toBe(RUN_USER),
+      );
+
+      expect((await runs.get(OPERATION_ID))?.checkpoint).toEqual(TAKEN);
+    });
+
+    it('goes on past a target that never says who it is, and keeps its run without it', async () => {
+      target(15_000, () => new Promise(() => undefined));
+
+      await handler.handle(buildMsg({}));
+
+      expect(posted('seed:csv:execute:response')[0]?.payload).toMatchObject({ insertedCount: 2 });
+      const kept = await runs.get(OPERATION_ID);
+      expect(kept?.created).toHaveLength(1);
+      expect(kept).not.toHaveProperty('runUserId');
+    });
+  });
 
   it('takes it after the question and before the first row, keeps it once a row went, and names it', async () => {
     target();

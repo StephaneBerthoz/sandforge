@@ -200,7 +200,9 @@ import {
   type SweepInput,
   type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import { readRunUser } from '../../modules/sync/runUser.js';
 import {
+  inSweepWindow,
   otherRunsInSweep,
   removalBeganOf,
   removalSweepOf,
@@ -208,6 +210,7 @@ import {
   sweepRefusalCode,
   withoutPlatformCopies,
   type LocalRun,
+  type OtherModuleRuns,
   type RemovalSweep,
 } from './removalSweep.js';
 import {
@@ -777,9 +780,6 @@ const AUTOMATION_TIMEOUT_MS = 60_000;
 /** Timeout for listing what a sweep would take, in milliseconds: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
-/** Timeout for reading the user a run writes as, in milliseconds: never what holds the run up. */
-const RUN_USER_TIMEOUT_MS = 15_000;
-
 /** What a removal that took none of the run's records hands on: a sweep alone. */
 const NOTHING_REMOVED: RunRemovalOutcome = {
   objects: [],
@@ -1285,6 +1285,8 @@ export class ForgeHandler implements DomainHandler {
   /** The removal plans of past runs, kept past the history's twenty (see {@link ForgeServices}). */
   private removalPlans?: ForgeRemovalPlanStore;
   private runJournal?: ForgeRunJournal;
+  /** The runs of the other modules on an org, for a sweep to be told of them; none until set. */
+  private otherModuleRuns: OtherModuleRuns = () => Promise.resolve([]);
   /** The journals of the runs under way, which a listing of the runs leaves where they are. */
   private readonly journalsRunning = new Set<string>();
 
@@ -3108,23 +3110,15 @@ export class ForgeHandler implements DomainHandler {
    * removal reads the user back from the creator of its records, as for a run
    * recorded before runs kept it.
    */
-  private async runUserOf(targetOrgId: string): Promise<string | undefined> {
-    try {
-      const userId = await new TimeoutManager(RUN_USER_TIMEOUT_MS).withTimeout(
-        'forge:execute run user',
-        async () => {
-          const conn = await getJsforceConnection(
-            targetOrgId,
-            this.deps.orgRegistry,
-            this.deps.orgManager,
-          );
-          return (await conn.identity()).user_id;
-        },
+  private runUserOf(targetOrgId: string): Promise<string | undefined> {
+    return readRunUser(async () => {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
       );
-      return typeof userId === 'string' && SF_ID_RE.test(userId) ? userId : undefined;
-    } catch {
-      return undefined;
-    }
+      return conn.identity();
+    }, 'forge:execute');
   }
 
   /**
@@ -5596,11 +5590,16 @@ export class ForgeHandler implements DomainHandler {
       // The run's other parts, removed apart from this one: what this
       // removal's deletes restamp of their records is kept on each.
       if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease: a person answering holds no permission set assigned. It
+      // deletes at its turn, once the removal has read the run's records.
+      await sweepParts?.ask();
       // The lease is taken before the first delete, and given back once the
       // removal ends, whatever it ended on.
-      const held = removalMute?.prepared
-        ? await removalMute.prepared.acquire(operationId)
-        : undefined;
+      const held =
+        removalMute?.prepared && !stop.signal.aborted
+          ? await removalMute.prepared.acquire(operationId)
+          : undefined;
       let mutedAutomation = held?.outcome ?? removalMute?.muted;
       const outcome: RunRemovalOutcome =
         total === 0
@@ -6184,36 +6183,89 @@ export class ForgeHandler implements DomainHandler {
   /**
    * What ties a record to the run, beside the records it created, as the
    * sweep of its removal is told it (`SweepTies`): the records of the other
-   * runs of this machine that wrote to its target in its window — from the
-   * history and the plans kept of the runs it dropped —, what its mute kept
-   * quiet and what still ran, when its first removal began, and what the
-   * sweeps of its earlier removals found made for it.
+   * runs of this machine that wrote to its target in its window, this
+   * module's (`localRunsOn`) and the others', what its mute kept quiet and
+   * what still ran, when its first removal began, and what the sweeps of its
+   * earlier removals found made for it.
    */
   private async tiesOf(entry: ForgeExecutionResult): Promise<SweepTies> {
-    const plans = await this.removalPlans?.list().catch(() => []);
-    const listed = new Set<string>();
-    const runs: LocalRun[] = [];
-    for (const other of this.loadHistory()) {
-      listed.add(other.forgeId);
-      if (other.forgeId === entry.forgeId || other.targetOrgId !== entry.targetOrgId) continue;
-      runs.push({ ids: forgeRunCreatedRecords(other).flatMap(({ ids }) => ids), ...spanOf(other) });
-    }
-    for (const plan of plans ?? []) {
-      if (listed.has(plan.forgeId) || plan.forgeId === entry.forgeId) continue;
-      if (plan.targetOrgId !== entry.targetOrgId) continue;
-      runs.push({ ids: plan.objects.flatMap(({ ids }) => ids), ...spanOf(plan) });
+    const written = entry.writtenBetween;
+    const runs = await this.localRunsOn(entry.targetOrgId, written, entry.forgeId);
+    if (entry.targetOrgId !== undefined) {
+      runs.push(...(await this.otherModuleRuns(entry.targetOrgId, written).catch(() => [])));
     }
     const muted = entry.mutedAutomation;
     const began = removalBeganOf(entry.removalSpans);
     const madeEarlier = await this.removalPlans?.madeOf(entry.forgeId).catch(() => []);
     return {
-      otherRuns: otherRunsInSweep(entry.writtenBetween, runs),
+      otherRuns: otherRunsInSweep(written, runs),
       ...(muted?.state === 'muted'
         ? { muted: { silenced: muted.silenced, stillRan: muted.stillRan } }
         : {}),
       ...(began ? { removalBegan: began } : {}),
       ...(madeEarlier && madeEarlier.length > 0 ? { madeEarlier } : {}),
     };
+  }
+
+  /**
+   * The runs kept here that wrote to an org, from the history and the plans
+   * kept of the runs it dropped, for the sweep of another run: each with what
+   * it created, read from its journal for a run past the bound that wrote in
+   * the window `written` says. A journal gone leaves such a run to count by
+   * when it wrote, its records unnamed: while the entry held no ids it counted
+   * for nothing, and what it wrote read as tied to nothing.
+   */
+  async localRunsOn(
+    targetOrgId: string | undefined,
+    written: ForgeWrittenBetween | undefined,
+    except?: string,
+  ): Promise<LocalRun[]> {
+    const plans = await this.removalPlans?.list().catch(() => []);
+    const listed = new Set<string>();
+    const runs: LocalRun[] = [];
+    const inJournal = async (
+      span: Pick<LocalRun, 'from' | 'to'>,
+      read: () => Promise<ForgeRunObjectRecords[] | undefined>,
+    ): Promise<LocalRun> => {
+      if (!inSweepWindow(written, span)) return { ids: [], ...span };
+      const records = await read();
+      return records
+        ? { ids: records.flatMap(({ ids }) => ids), ...span }
+        : { ids: [], idsUntold: true, ...span };
+    };
+    for (const other of this.loadHistory()) {
+      listed.add(other.forgeId);
+      if (other.forgeId === except || other.targetOrgId !== targetOrgId) continue;
+      const span = spanOf(other);
+      runs.push(
+        other.remapInJournal
+          ? await inJournal(span, async () => {
+              const read = await this.withIdsOf(other);
+              return 'gone' in read ? undefined : forgeRunCreatedRecords(read.entry);
+            })
+          : { ids: forgeRunCreatedRecords(other).flatMap(({ ids }) => ids), ...span },
+      );
+    }
+    for (const plan of plans ?? []) {
+      if (listed.has(plan.forgeId) || plan.forgeId === except) continue;
+      if (plan.targetOrgId !== targetOrgId) continue;
+      const span = spanOf(plan);
+      const kept = plan.inJournal;
+      runs.push(
+        kept
+          ? await inJournal(span, async () => {
+              const read = await this.planRecordsOf({ ...plan, inJournal: kept }, true);
+              return 'gone' in read ? undefined : read.records;
+            })
+          : { ids: plan.objects.flatMap(({ ids }) => ids), ...span },
+      );
+    }
+    return runs;
+  }
+
+  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
+  setOtherModuleRuns(runs: OtherModuleRuns): void {
+    this.otherModuleRuns = runs;
   }
 
   /**

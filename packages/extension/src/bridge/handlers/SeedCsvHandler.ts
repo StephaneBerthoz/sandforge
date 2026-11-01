@@ -67,6 +67,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import { seedWriterCalls } from '../../modules/seed/seedRunCalls.js';
 
 /** Message types handled by SeedCsvHandler. */
@@ -687,6 +688,10 @@ export class SeedCsvHandler implements DomainHandler {
         startedAt: new Date().toISOString(),
         origin: 'csv',
       });
+      // The checkpoint it took is named in its file, with its first line, and
+      // the user it writes as is asked of the org, waited for by nothing.
+      if (taken) kept?.checkpoint?.(taken);
+      keepRunUser(kept, () => conn.identity(), `seed:csv:execute ${operationId}`);
       if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
         connection: conn,

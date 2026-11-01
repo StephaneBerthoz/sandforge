@@ -403,4 +403,76 @@ describe('SeedRunCreations', () => {
     await runs.updateRemoval('never-ran', (state) => state);
     expect(await runs.get('never-ran')).toBeUndefined();
   });
+
+  describe('as a run writes', () => {
+    const TAKEN = {
+      state: 'taken' as const,
+      checkpointId: 'ck-20261101-101500-a1b2',
+      name: 'Before Seed run 2026-11-01 10:15 UTC',
+      takenAt: '2026-11-01T10:15:04.000Z',
+      expiresAt: '2026-11-08T10:15:04.000Z',
+      objects: ['Account', 'Task'],
+      records: 12,
+      bytes: 400_000,
+      requests: 68,
+      added: [],
+      notHeld: [],
+    };
+    const ENDED = { status: 'success' as const, objectResults: [] };
+
+    it('keeps the checkpoint it took first, read back after a reload', async () => {
+      const runs = nodeSeedRunCreations(dir);
+      const recorder = runs.recorder({ runId: 'op-1', targetOrgId: 'org-target' });
+
+      recorder.checkpoint?.(TAKEN);
+      recorder.note('Account', [fakeId('001', 1)]);
+      await recorder.end(ENDED);
+
+      expect((await nodeSeedRunCreations(dir).get('op-1'))?.checkpoint).toEqual(TAKEN);
+    });
+
+    it('leaves no file for a run that took one and wrote nothing', async () => {
+      const recorder = nodeSeedRunCreations(dir).recorder({
+        runId: 'op-1',
+        targetOrgId: 'org-target',
+      });
+
+      recorder.checkpoint?.(TAKEN);
+      await recorder.end(ENDED);
+
+      expect(await nodeSeedRunCreations(dir).list()).toEqual([]);
+    });
+
+    it('keeps the user it writes as, whenever the org said it', async () => {
+      const runs = nodeSeedRunCreations(dir);
+      const early = runs.recorder({ runId: 'op-1', targetOrgId: 'org-target' });
+      early.runUser?.(fakeId('005', 1));
+      early.note('Account', [fakeId('001', 1)]);
+      await early.end(ENDED);
+      const late = runs.recorder({ runId: 'op-2', targetOrgId: 'org-target' });
+      late.note('Account', [fakeId('001', 2)]);
+      late.runUser?.(fakeId('005', 1));
+      await late.end(ENDED);
+
+      expect((await runs.get('op-1'))?.runUserId).toBe(fakeId('005', 1));
+      expect((await runs.get('op-2'))?.runUserId).toBe(fakeId('005', 1));
+    });
+
+    it('writes no file back for a user read once a run that created nothing has ended', async () => {
+      // A call went and created nothing: the run's file was begun, then
+      // forgotten. A line after it would begin a file with no run in it.
+      const recorder = nodeSeedRunCreations(dir).recorder({
+        runId: 'op-1',
+        targetOrgId: 'org-target',
+      });
+      recorder.sending('Account', 2);
+      recorder.answered('Account', []);
+      await recorder.end(ENDED);
+
+      recorder.runUser?.(fakeId('005', 1));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(readdirSync(join(dir, SEED_RUNS_DIR))).toEqual([]);
+    });
+  });
 });

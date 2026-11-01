@@ -61,6 +61,7 @@ import {
   guardRefusalCode,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { toSaveOutcomes } from '../../core/common/existingRecordMatch.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -2519,6 +2520,9 @@ export class SyncOpsHandler implements DomainHandler {
     try {
       const readers = await this.readersFor(config, abortController.signal);
       const { sourceConn, targetConn } = readers;
+      // The user it writes as, kept in its file for the sweep of its removal:
+      // asked as the run begins, and waited for by nothing.
+      keepRunUser(creations, () => targetConn.identity(), `sync ${operationId}`);
       const targetRows = readers.queryTargetRows;
       const keeper =
         creations && overwrites

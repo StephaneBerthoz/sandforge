@@ -339,9 +339,11 @@ export interface SweepTies {
    * The records of the runs of this machine that wrote to the target within
    * the run's window, each run's ids together: never swept, and while there
    * is one, what is tied to nothing is not swept either — whose it is cannot
-   * be told.
+   * be told. A run whose records could not be named (`idsUntold`) wrote in
+   * the window all the same: nothing keeps its records from being tied, and
+   * what is tied to nothing is not swept.
    */
-  otherRuns?: ReadonlyArray<{ readonly ids: readonly string[] }>;
+  otherRuns?: ReadonlyArray<{ readonly ids: readonly string[]; readonly idsUntold?: true }>;
   /** The ids of the assignments the run's mute created: never swept. */
   leased?: readonly string[];
   /** What the run's mute kept quiet and what still ran, said with the listing. */
@@ -1292,7 +1294,9 @@ function classify(
         'not be told from what the automation made.',
     );
   }
-  const others = (ties.otherRuns ?? []).filter((run) => run.ids.length > 0).length;
+  const others = (ties.otherRuns ?? []).filter(
+    (run) => run.ids.length > 0 || run.idsUntold === true,
+  ).length;
   if (others > 0) {
     refusals.push(
       `${others === 1 ? 'Another run' : `${others} other runs`} of this machine wrote to the ` +
@@ -1604,15 +1608,30 @@ interface ObjectSweep {
 
 /**
  * A sweep in the parts a removal makes it in, around the run's own records:
- * `first` as the removal's `sweep`, `automationMade` as its
- * `automationMade`, `afterRemoval` as its `afterRemoval`.
+ * `ask` before a mute's lease, `first` as the removal's `sweep`,
+ * `automationMade` as its `automationMade`, `afterRemoval` as its
+ * `afterRemoval`.
  */
 export interface SweepParts {
   /**
-   * Find what to take, ask, and delete what goes before the run's records —
-   * what neither goes along with one of them nor waits for one; it resolves
-   * to whether it deleted anything. A refused sweep deletes nothing, now or
-   * after.
+   * Find what to take and ask, deleting nothing: the sweep's reads and its
+   * question, for a removal to make before it takes a mute's lease. A person
+   * taking their time over the question then holds no permission set
+   * assigned. Asked once, however often it is called; `first` makes it when
+   * nobody has. A refused sweep deletes nothing, now or after.
+   */
+  ask(): Promise<void>;
+  /**
+   * What the sweep found, once `ask` has read it, what it keeps among it
+   * included: what a sweep that took nothing says it left. Undefined before,
+   * and for a sweep stopped before it had read the run's user.
+   */
+  readonly listing: ForgeSweepListing | undefined;
+  /**
+   * Delete what goes before the run's records — what neither goes along with
+   * one of them nor waits for one — once `ask` found it and nothing refused
+   * it; it resolves to whether it deleted anything. A refused sweep deletes
+   * nothing, now or after.
    */
   first(): Promise<boolean>;
   /**
@@ -1654,8 +1673,12 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   const automationMade = new Set<string>();
   const made = new Set<string>();
   const sweeps: ObjectSweep[] = [];
-  let state: 'new' | 'cancelled' | 'refused' | 'first' | 'done' = 'new';
+  let state: 'new' | 'asked' | 'cancelled' | 'refused' | 'first' | 'done' = 'new';
   let refusal: string | undefined;
+  /** `ask`'s one call, however often it is asked, and what it found and takes. */
+  let asking: Promise<void> | undefined;
+  let found: SweepFindings | undefined;
+  let taking = new Map<string, SweepRow[]>();
   let base: Omit<ForgeSweepResult, 'status' | 'objects' | 'refusal'> = {
     unread: [],
     handWork: [],
@@ -1697,13 +1720,10 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   };
   const deleted = (): number => sweeps.reduce((sum, sweep) => sum + sweep.result.deleted, 0);
 
-  return {
-    automationMade,
-    made,
-
-    async first() {
-      if (state !== 'new') return false;
+  const ask = (): Promise<void> => {
+    asking ??= (async () => {
       const findings = await findSweep(org, input, options.removalSpans);
+      found = findings;
       const { listing } = findings;
       base = {
         ...(listing.window ? { window: listing.window } : {}),
@@ -1725,12 +1745,12 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       // that says so is the stop's doing, and the sweep was cancelled.
       if (findings.stopped) {
         state = 'cancelled';
-        return false;
+        return;
       }
       if (listing.refusal !== undefined) {
         state = 'refused';
         refusal = listing.refusal;
-        return false;
+        return;
       }
       const untiedTaken = options.sweepUntied === true && listing.untied?.refusal === undefined;
       const taken = (row: SweepRow): boolean =>
@@ -1739,19 +1759,39 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         row.class === 'madeOver' ||
         (row.class === 'late' && options.sweepLate === true) ||
         (row.class === 'untied' && untiedTaken);
-      const rows = new Map(
+      taking = new Map(
         [...findings.rows]
           .map(([objectApiName, all]) => [objectApiName, all.filter(taken)] as const)
           .filter(([, all]) => all.length > 0),
       );
-      if (options.approve && rows.size > 0) {
+      if (options.approve && taking.size > 0) {
         const answer = await options.approve(listing);
         if (answer !== undefined) {
           state = 'refused';
           refusal = answer;
-          return false;
+          return;
         }
       }
+      state = 'asked';
+    })();
+    return asking;
+  };
+
+  return {
+    automationMade,
+    made,
+
+    get listing() {
+      return found && !found.stopped ? found.listing : undefined;
+    },
+
+    ask,
+
+    async first() {
+      await ask();
+      if (state !== 'asked' || !found) return false;
+      const findings = found;
+      const rows = taking;
       const window = findings.window!;
       const order = await removalOrder(
         findings.ordering ?? org,
@@ -1825,7 +1865,9 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       if (state === 'refused') {
         return { status: 'refused', refusal: refusal ?? '', objects: [], ...base };
       }
-      if (state === 'new') return { status: 'cancelled', objects: [], ...base };
+      if (state === 'new' || state === 'asked') {
+        return { status: 'cancelled', objects: [], ...base };
+      }
       const objects = sweeps.map(({ result, refused }) => {
         result.refused = refused.size;
         result.reasons = [...new Set(refused.values())].slice(0, REASON_LIMIT);

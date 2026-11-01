@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 
 import { compositeReader, type CompositeQueryConnection } from '../checkpoint/compositeQueries.js';
@@ -1439,6 +1439,86 @@ describe('a sweep told the ties: what it takes', () => {
     expect(org.deletes.some((call) => call.object === 'PermissionSetAssignment')).toBe(false);
     expect(org.events).not.toContain('leaseAcquire');
     expect(org.events).not.toContain('checkpointTake');
+  });
+
+  it('reads and asks at `ask`, once, deleting nothing, and deletes at its first part without asking again', async () => {
+    const org = tiedOrg();
+    const approve = vi.fn(async () => undefined);
+    const parts = sweepParts(org, tiedInput(), { ...NO_SPANS, approve });
+
+    await parts.ask();
+    await parts.ask();
+
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(org.deletes).toEqual([]);
+    expect(parts.automationMade.size).toBe(0);
+    const readsWhenAsked = org.queries.length;
+
+    expect(await parts.first()).toBe(true);
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(deletedIds(org)).toEqual([id('00T', 2)]);
+    // What it deletes is what was shown: nothing more is read of the org.
+    expect(org.queries.length).toBe(readsWhenAsked);
+  });
+
+  it('makes `ask` itself when its first part is called alone, and deletes nothing a refusal stopped', async () => {
+    const org = tiedOrg();
+    const approve = vi.fn(async () => 'Operation cancelled by user (confirmation declined).');
+    const parts = sweepParts(org, tiedInput(), { ...NO_SPANS, approve });
+
+    expect(await parts.first()).toBe(false);
+    expect(await parts.afterRemoval()).toBe(false);
+
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(org.deletes).toEqual([]);
+    expect(parts.result()).toMatchObject({
+      status: 'refused',
+      refusal: 'Operation cancelled by user (confirmation declined).',
+    });
+  });
+
+  it('reads as cancelled when it was asked and the removal never reached its first part', async () => {
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.ask();
+
+    expect(parts.result()).toMatchObject({ status: 'cancelled', objects: [] });
+  });
+
+  it('shows what it found once asked, what it keeps included, for a sweep that takes nothing to say so', async () => {
+    const org = new TiedOrg();
+    org.shape('Account', { children: [] });
+    org.add('Account', rec(ACCOUNT, 'Run account', RUN_USER, at(1)));
+    org.shape('Task', {});
+    org.add('Task', rec(id('00T', 3), 'Loose', RUN_USER, at(30)));
+    const parts = sweepParts(
+      org,
+      tiedInput({}, { created: [{ objectApiName: 'Account', ids: [ACCOUNT] }] }),
+      NO_SPANS,
+    );
+
+    expect(parts.listing).toBeUndefined();
+    expect(await parts.first()).toBe(false);
+
+    expect(org.deletes).toEqual([]);
+    expect(parts.result().objects).toEqual([]);
+    expect(parts.listing?.untied).toEqual({ objects: [{ objectApiName: 'Task', count: 1 }] });
+  });
+
+  it('counts a run whose records could not be named for what is tied to nothing', async () => {
+    const loose = id('00T', 3);
+    const org = tiedOrg();
+    const unnamed = { otherRuns: [{ ids: [], idsUntold: true as const }] };
+
+    const listing = await listSweep(org, tiedInput(unnamed));
+    expect(listing.untied?.refusal).toMatch(/^Another run of this machine wrote to the target/);
+
+    await sweepRunRecords(org, tiedInput(unnamed), { ...NO_SPANS, sweepUntied: true });
+    expect(deletedIds(org)).not.toContain(loose);
+    // Told no name, a run with no record is none of them.
+    const none = await listSweep(tiedOrg(), tiedInput({ otherRuns: [{ ids: [] }] }));
+    expect(none.untied?.refusal).toBeUndefined();
   });
 
   it('takes what the update flows opened under the records a Sync run only wrote over, as made over', async () => {

@@ -26,7 +26,7 @@ import type {
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
 import type { UUID } from '@sandforge/shared';
-import { DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
+import { AUDIT_TRAIL_LIMIT, DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
@@ -87,6 +87,8 @@ import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOpera
 import { SyncConfigStore } from '../modules/sync/SyncConfigStore.js';
 import { runPipelineSync, syncGuardVerdict } from './handlers/pipelineSync.js';
 import type { RewindCheckpoint } from './handlers/pipelineSteps.js';
+import { AuditTrailStore } from '../modules/audit/auditTrail.js';
+import { auditedRunsOf, type LocalRun, type OtherModuleRuns } from './handlers/removalSweep.js';
 import { SeedTemplateStore } from '../modules/seed/SeedTemplateStore.js';
 import { AnonymizationTemplateStore } from '../modules/dataops/AnonymizationTemplateStore.js';
 import { ANONYMIZATION_TEMPLATES } from './templates/anonymizationTemplates.js';
@@ -330,6 +332,12 @@ export class ExtensionHandlers {
     this.seedHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
     this.seedCsvHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
     this.seedCloneHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    // The sweep of a run's removal is told of the runs of every module on the
+    // org, not of its own module's alone: what is tied to nothing of the run
+    // may be theirs.
+    this.forgeHandler.setOtherModuleRuns(this.otherModuleRuns('forge', orgWriters));
+    this.syncRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('sync', orgWriters));
+    this.seedRemovalHandler.setOtherModuleRuns(this.otherModuleRuns('seed', orgWriters));
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -502,6 +510,42 @@ export class ExtensionHandlers {
     this.syncHandler.setBackupRecordStore(store);
     this.syncRemovalHandler.setBackupRecordStore(store);
     this.realtimeHandler.setBackupRecordStore(store);
+  }
+
+  /**
+   * The runs of this machine on an org, for the sweep of a run of `module`,
+   * beside those it keeps itself: what Forge, Sync and Seed keep of theirs,
+   * the writes the audit trail alone names, a Frozen load among them, each
+   * dated by its end (`auditedRunsOf`), and a run of a handler that writes to
+   * the org now, which no history holds yet.
+   */
+  private otherModuleRuns(
+    module: 'forge' | 'sync' | 'seed' | 'frozen',
+    writers: () => OrgWriter[],
+  ): OtherModuleRuns {
+    return async (orgId, written) => {
+      const own =
+        module === 'forge'
+          ? this.forgeHandler
+          : module === 'frozen'
+            ? this.frozenHandler
+            : undefined;
+      const entries = new AuditTrailStore(this.handlerDeps.configStore).list({
+        orgId,
+        limit: AUDIT_TRAIL_LIMIT,
+      }).entries;
+      const runs: LocalRun[] = [
+        ...(module === 'forge' ? [] : await this.forgeHandler.localRunsOn(orgId, written)),
+        ...(module === 'sync' ? [] : await this.syncRemovalHandler.localRunsOn(orgId)),
+        ...(module === 'seed' ? [] : await this.seedRemovalHandler.localRunsOn(orgId)),
+        ...auditedRunsOf(entries, module === 'frozen' ? 'frozen_load' : undefined),
+      ];
+      if (writers().some((writer) => writer !== own && writer.isWritingTo(orgId))) {
+        const now = Date.now();
+        runs.push({ ids: [], idsUntold: true, from: now, to: now });
+      }
+      return runs;
+    };
   }
 
   /**

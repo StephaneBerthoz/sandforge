@@ -99,6 +99,7 @@ import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOp
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { InsertResult, SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import { keepRunUser } from '../../modules/sync/runUser.js';
 import {
   personRecordTypes,
   seedRecordTypeOptions,
@@ -2211,6 +2212,9 @@ export class SeedOpsHandler implements DomainHandler {
         startedAt,
         ...(pipeline ? { pipeline: pipeline.pipeline } : {}),
       });
+      // The user it writes as, kept in its file for the sweep of its removal:
+      // asked as the run begins, and waited for by nothing.
+      keepRunUser(kept, () => conn.identity(), `seed:execute ${operationId}`);
       // Records written before the insert now running, and the run's total,
       // from the orchestrator's report before each object and each partition.
       // The bulk paths count within one insert call; offsetting them keeps the
@@ -2403,6 +2407,9 @@ export class SeedOpsHandler implements DomainHandler {
             abortController.signal,
             this.checkpointProgress(operationId),
           );
+          // Named in the run's file, with its first line: what the list of
+          // earlier seeds offers a rewind from, once the page is reloaded.
+          kept?.checkpoint?.(taken);
         }
         // The lease is taken before the first write and given back as the
         // seed ends, written, failed, stopped or thrown alike.

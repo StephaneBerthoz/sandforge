@@ -481,6 +481,131 @@ describe('a sweep asked with a removal', () => {
     expect(deleted()).not.toContain(id('00T', 7));
   });
 
+  it('keeps what is tied to nothing while a run of another module wrote in its window', async () => {
+    const told: Array<[string, unknown]> = [];
+    const during = Date.parse(FIRST_WRITE) + 60_000;
+    handler.setOtherModuleRuns(async (orgId, written) => {
+      told.push([orgId, written]);
+      return [{ ids: [id('00T', 7)], from: during, to: during }];
+    });
+    org.add('Task', rec(id('00T', 7), 'The other run’s', USER, at(70)));
+
+    await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+    expect(told).toEqual([[TARGET_ORG, { first: FIRST_WRITE, last: LAST_WRITE }]]);
+    expect(listed()?.untied?.refusal).toMatch(/^Another run of this machine wrote to the target/);
+
+    await handler.handle(
+      buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, sweepUntied: true }),
+    );
+    expect(deleted()).not.toContain(LOOSE);
+    expect(deleted()).not.toContain(id('00T', 7));
+  });
+
+  describe('beside a run of this machine past the bound, whose ids are in its journal', () => {
+    const THEIRS = id('00T', 7);
+    const pastTheBound = (overrides: Partial<ForgeExecutionResult> = {}): ForgeExecutionResult =>
+      runEntry({
+        forgeId: 'forge-2',
+        idRemapTable: undefined,
+        idRemapExisting: undefined,
+        idRemapCreated: undefined,
+        remapInJournal: true,
+        journalId: 'journal-2',
+        journalPart: 1,
+        writtenBetween: { first: '2026-09-20T10:01:00.000Z', last: '2026-09-20T10:01:30.000Z' },
+        ...overrides,
+      });
+    const withJournal = (idsOf: () => Promise<unknown>): void => {
+      handler.setForgeOrchestrator({ on: vi.fn() } as unknown as ForgeOrchestrator, {
+        targetAutomation: reader as never,
+        removalPlans: plans,
+        runJournal: {
+          idsOf,
+          leftOf: async () => undefined,
+          stampsOf: async () => ({}),
+        } as never,
+      });
+    };
+
+    beforeEach(() => {
+      store.set('forge:history', [runEntry(), pastTheBound()], 'forge');
+      org.add('Task', rec(THEIRS, 'The other run’s', USER, at(70)));
+    });
+
+    it('reads its records from its journal: they are never swept, and what is tied to nothing is left', async () => {
+      const idsOf = vi.fn(async () => ({
+        table: { [src('00T', 7)]: THEIRS },
+        existing: [],
+        createdByObject: [{ objectApiName: 'Task', sourceIds: [src('00T', 7)] }],
+      }));
+      withJournal(idsOf);
+
+      await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+
+      expect(idsOf).toHaveBeenCalledWith('journal-2', 1);
+      expect(listed()?.untied?.refusal).toMatch(/^Another run of this machine/);
+      expect(
+        listed()?.found.find((found) => found.objectApiName === 'Task')?.classes,
+      ).toMatchObject({ untied: 1 });
+    });
+
+    it('counts by when it wrote once its journal is gone, its records unnamed', async () => {
+      withJournal(async () => undefined);
+
+      await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+      expect(listed()?.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, sweepUntied: true }),
+      );
+      expect(deleted()).not.toContain(LOOSE);
+      expect(deleted()).not.toContain(THEIRS);
+    });
+
+    it('reads no journal of a run that wrote outside the window', async () => {
+      const idsOf = vi.fn(async () => undefined);
+      withJournal(idsOf);
+      store.set(
+        'forge:history',
+        [
+          runEntry(),
+          pastTheBound({
+            writtenBetween: {
+              first: '2026-09-21T10:00:00.000Z',
+              last: '2026-09-21T10:30:00.000Z',
+            },
+          }),
+        ],
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+
+      expect(idsOf).not.toHaveBeenCalled();
+      expect(listed()?.untied?.refusal).toBeUndefined();
+    });
+
+    it('counts a run the history dropped too, by its plan', async () => {
+      withJournal(async () => undefined);
+      store.set('forge:history', [runEntry()], 'forge');
+      await plans.put({
+        forgeId: 'forge-3',
+        targetOrgId: TARGET_ORG,
+        timestamp: LAST_WRITE,
+        duration: 1_000,
+        status: 'success',
+        writtenBetween: { first: '2026-09-20T10:01:00.000Z', last: '2026-09-20T10:01:30.000Z' },
+        objects: [],
+        linked: 0,
+        inJournal: { journalId: 'journal-3', part: 1, left: [] },
+      });
+
+      await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+
+      expect(listed()?.untied?.refusal).toMatch(/^Another run of this machine/);
+    });
+  });
+
   it('takes the user the run kept, reading none of its records to tell it', async () => {
     store.set('forge:history', [runEntry({ runUserId: USER })], 'forge');
 
@@ -795,6 +920,51 @@ describe('a sweep asked with a removal', () => {
       // The asset went under the lease, the last of the sweep's parts.
       expect(org.ids('Asset')).toEqual([]);
       expect(permissions.assignments()).toEqual([]);
+    });
+
+    it('asks the sweep’s question before the lease, and holds none while it waits', async () => {
+      const guard = deps.infraServices?.productionGuard as ProductionGuard;
+      const check = guard.check.bind(guard);
+      vi.spyOn(guard, 'check').mockImplementation((request) => {
+        org.events.push('question' as never);
+        return check(request);
+      });
+      let held: number | undefined;
+      const confirmed = guard.confirmIfNeeded.bind(guard);
+      vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((asked, tier) => {
+        held = permissions.assignments().length;
+        return confirmed(asked, tier);
+      });
+
+      await handler.handle(
+        buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+      );
+
+      expect(errors()).toEqual([]);
+      expect(answer()?.mutedAutomation).toMatchObject({ state: 'muted', assigned: ['Data_Load'] });
+      expect(held).toBe(0);
+      const events = [...org.events, 'result'] as Parameters<typeof writePathOrderDefects>[0];
+      expect(events.filter((step) => step === 'question')).toHaveLength(2);
+      expect(events.indexOf('leaseAcquire')).toBeGreaterThan(events.lastIndexOf('question'));
+      expect(writePathOrderDefects(events)).toEqual([]);
+    });
+
+    it('assigns nothing once a stop came while the sweep asked', async () => {
+      const guard = deps.infraServices?.productionGuard as ProductionGuard;
+      const registry = deps.infraServices?.backgroundRegistry;
+      const confirmed = guard.confirmIfNeeded.bind(guard);
+      vi.spyOn(guard, 'confirmIfNeeded').mockImplementation((asked, tier) => {
+        for (const op of registry?.getRunning() ?? []) registry?.abort(op.operationId);
+        return confirmed(asked, tier);
+      });
+
+      await handler.handle(
+        buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+      );
+
+      expect(answer()?.status).toBe('cancelled');
+      expect(steps()).not.toContain('leaseAcquire');
+      expect(org.ids('Case')).toEqual([CASE]);
     });
 
     it('gives the lease back on a stop during the sweep, none of the run’s records gone', async () => {

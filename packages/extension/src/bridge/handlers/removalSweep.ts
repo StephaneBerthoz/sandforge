@@ -15,7 +15,13 @@
  * holding none of them back — and the sweep takes what waited for them.
  */
 
-import type { ForgeSweepResult, ForgeWrittenBetween, GuardDecision } from '@sandforge/shared';
+import type {
+  AuditAction,
+  AuditLogEntry,
+  ForgeSweepResult,
+  ForgeWrittenBetween,
+  GuardDecision,
+} from '@sandforge/shared';
 
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
@@ -37,6 +43,7 @@ import {
   type SweepOptions,
   type SweepOrg,
   type SweepParts,
+  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
 import { quoteSyncCopiesOf } from '../../modules/forge/quoteSyncCopies.js';
 import { LATE_WITHIN_MS, TIE_LEAD_MS } from '../../modules/forge/sweepTies.js';
@@ -106,7 +113,13 @@ export async function withoutPlatformCopies(
  * around the run's records (`SweepParts`), and what it did once it is through.
  */
 export interface RemovalSweep {
-  /** Find, ask, and delete what goes before the run's records; whether it deleted anything. */
+  /**
+   * Find what to take, and ask, deleting nothing: made before a mute's lease
+   * is taken, so that a person answering Production Guard holds no permission
+   * set assigned. `first` makes it when nobody has.
+   */
+  ask(): Promise<void>;
+  /** Delete what goes before the run's records; whether it deleted anything. */
   first(): Promise<boolean>;
   /** Once the run's records are deleted, what waited for them; whether it deleted anything. */
   afterRemoval(): Promise<boolean>;
@@ -195,6 +208,12 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
   let settled: Promise<ForgeSweepResult> | undefined;
   return {
     automationMade: parts?.automationMade ?? new Set<string>(),
+    ask: async () => {
+      await part(async (sweep) => {
+        await sweep.ask();
+        return false;
+      });
+    },
     first: () => part((sweep) => sweep.first()),
     afterRemoval: () => part((sweep) => sweep.afterRemoval()),
     settle: () => {
@@ -230,7 +249,27 @@ export interface LocalRun {
   ids: readonly string[];
   from: number;
   to: number;
+  /**
+   * Set for a run that wrote records nothing here names any more, or never
+   * did: a Forge run past the bound whose journal is gone, a module that
+   * keeps no run file (`auditedRunsOf`). What it wrote cannot be left out of
+   * the sweep, but it counts as a run of the window all the same.
+   */
+  idsUntold?: true;
 }
+
+/**
+ * The runs of the other modules of this machine on an org, as the sweep of a
+ * module's run is told of them: put together where the handlers are
+ * (`ExtensionHandlers`), each module keeping its runs its own way. Those of a
+ * module alone left two runs of one user, a Sync run and a clone, to sweep
+ * each other's records. When the run a sweep follows wrote is handed over for
+ * what is costly to read outside of it.
+ */
+export type OtherModuleRuns = (
+  targetOrgId: string,
+  written: ForgeWrittenBetween | undefined,
+) => Promise<LocalRun[]>;
 
 /**
  * How far apart in time two runs may stand and still be taken to have
@@ -250,22 +289,70 @@ export const OTHER_RUN_LEEWAY_MS = 60_000;
 export function otherRunsInSweep(
   written: ForgeWrittenBetween | undefined,
   runs: readonly LocalRun[],
-): Array<{ ids: string[] }> {
+): Array<{ ids: string[]; idsUntold?: true }> {
+  return runs
+    .filter((run) => (run.ids.length > 0 || run.idsUntold === true) && inSweepWindow(written, run))
+    .map((run) => ({ ids: [...run.ids], ...(run.idsUntold ? { idsUntold: true as const } : {}) }));
+}
+
+/**
+ * Whether a run of this machine wrote while the run a sweep follows did, or
+ * in the span after it the sweep reads for what came late (`otherRunsInSweep`).
+ */
+export function inSweepWindow(
+  written: ForgeWrittenBetween | undefined,
+  run: Pick<LocalRun, 'from' | 'to'>,
+): boolean {
   const first = Date.parse(written?.first ?? '');
   const last = Math.max(first, Date.parse(written?.last ?? ''));
-  if (!Number.isFinite(first) || !Number.isFinite(last)) return [];
-  const from = first - TIE_LEAD_MS - OTHER_RUN_LEEWAY_MS;
-  const to = last + LATE_WITHIN_MS + OTHER_RUN_LEEWAY_MS;
-  return runs
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return false;
+  return (
+    Number.isFinite(run.from) &&
+    Number.isFinite(run.to) &&
+    run.from <= last + LATE_WITHIN_MS + OTHER_RUN_LEEWAY_MS &&
+    Math.max(run.from, run.to) >= first - TIE_LEAD_MS - OTHER_RUN_LEEWAY_MS
+  );
+}
+
+/**
+ * The writes the audit trail alone keeps of: what no run file names, for a
+ * sweep of another module's run. Only their end is dated: a run that wrote in
+ * the window and ended past it, more than a quarter of an hour on, is not seen.
+ */
+const WRITES_WITH_NO_RUN_FILE: ReadonlySet<AuditAction> = new Set<AuditAction>([
+  'autopilot_execute',
+  'anonymize_execute',
+  'subject_erase',
+  'backup_restore',
+  'checkpoint_rewind',
+  'checkpoint_undo',
+  // A load keeps its mapping in its sas folder, which another module's sweep does not know.
+  'frozen_load',
+]);
+
+/**
+ * The runs the audit trail names of an org that no run file does, as the sweep
+ * of a run of another module is told of them, dated by when each ended: what
+ * they wrote is not named, and they count all the same. Nothing of a run that
+ * was stopped before it wrote.
+ *
+ * @param own - The action of the module the sweep is for, which tells its own runs apart.
+ */
+export function auditedRunsOf(
+  entries: ReadonlyArray<Pick<AuditLogEntry, 'action' | 'outcome' | 'timestamp'>>,
+  own?: AuditAction,
+): LocalRun[] {
+  return entries
     .filter(
-      (run) =>
-        run.ids.length > 0 &&
-        Number.isFinite(run.from) &&
-        Number.isFinite(run.to) &&
-        run.from <= to &&
-        Math.max(run.from, run.to) >= from,
+      (entry) =>
+        WRITES_WITH_NO_RUN_FILE.has(entry.action) &&
+        entry.action !== own &&
+        entry.outcome !== 'stopped',
     )
-    .map((run) => ({ ids: [...run.ids] }));
+    .map((entry) => {
+      const at = Date.parse(entry.timestamp);
+      return { ids: [], idsUntold: true, from: at, to: at };
+    });
 }
 
 /**
@@ -280,6 +367,43 @@ export function keptRunOf(run: SyncRunKept): LocalRun {
     ids: [...run.created, ...(run.overwritten ?? [])].flatMap(({ ids }) => ids),
     from,
     to: Number.isFinite(to) ? to : from,
+  };
+}
+
+/** The runs among `runs` that wrote to an org, as a sweep is told of them, `except` left out. */
+export function keptRunsOn(
+  runs: readonly SyncRunKept[],
+  targetOrgId: string,
+  except?: string,
+): LocalRun[] {
+  return runs
+    .filter((run) => run.targetOrgId === targetOrgId && run.runId !== except)
+    .map(keptRunOf);
+}
+
+/**
+ * What ties a record to a Sync or a Seed run beside its records (`SweepTies`):
+ * the records of the other runs of this machine that wrote to its target in
+ * its window — its module's, `kept`, and the other modules' —, when its first
+ * removal began, and what the sweeps of its earlier removals found made for
+ * it. What its mute kept quiet and what still ran, its file does not keep.
+ */
+export async function keptRunTies(
+  run: SyncRunKept,
+  written: ForgeWrittenBetween | undefined,
+  kept: readonly SyncRunKept[],
+  otherModules: OtherModuleRuns,
+): Promise<Omit<SweepTies, 'writtenOver'>> {
+  const elsewhere = await otherModules(run.targetOrgId, written).catch(() => []);
+  const began = removalBeganOf(run.removal?.removalSpans);
+  const made = run.removal?.madeEarlier;
+  return {
+    otherRuns: otherRunsInSweep(written, [
+      ...keptRunsOn(kept, run.targetOrgId, run.runId),
+      ...elsewhere,
+    ]),
+    ...(began ? { removalBegan: began } : {}),
+    ...(made && made.length > 0 ? { madeEarlier: made } : {}),
   };
 }
 
