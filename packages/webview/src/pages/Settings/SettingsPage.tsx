@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
 import { Tabs } from '../../components/ui/Tabs';
@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { ConfigProfilePanel } from './ConfigProfilePanel';
@@ -48,40 +49,57 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ value: SupportedLanguage; label: string 
   { value: 'pt-BR', label: 'Português (Brasil)' },
 ];
 
+/**
+ * What each AI feature sends, one line each, named where it lives in the
+ * panel, as the Help's AI section names them. One paragraph of six lines
+ * named one of them NL2SOQL, a name Forge never shows.
+ */
+const AI_SENDS = [
+  'settings.aiSendsChat',
+  'settings.aiSendsForge',
+  'settings.aiSendsPipeline',
+  'settings.aiSendsSeed',
+  'settings.aiSendsScenario',
+  'settings.aiSendsFailures',
+] as const;
+
+/**
+ * The SandForge settings VS Code's Settings editor opens on: Production
+ * Guard's. The host opens only a `sandforge.*` id, which the editor takes as
+ * its search; the others are one search for "sandforge" away.
+ */
+const VSCODE_SETTINGS_GROUP = 'sandforge.safety';
+
 /** SettingsPage component props. */
 export interface SettingsPageProps {
   settings?: SettingsValues;
   onSave?: (settings: SettingsValues) => void;
-  onReset?: () => void;
-  onClearCache?: () => void;
 }
 
 /** Settings page with tabbed configuration panels. */
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   settings: initialSettings,
   onSave,
-  onReset,
-  onClearCache,
 }) => {
   const { t, i18n } = useTranslation();
   const navigationIntent = useAppStore((s) => s.navigationIntent);
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
-  // The tour's "Open AI settings" opened General, a click away from the key.
+  // The tour's "Open AI settings", and every "Go to Settings" shown because
+  // no key is set (the AI page, Forge's AI tab, Seed's scenario draft),
+  // opened General, a click away from the key.
   const [askedTab] = useState(() =>
     navigationIntent?.route === 'settings' ? navigationIntent.settingsTab : undefined,
   );
   const [activeTab, setActiveTab] = useState<string>(askedTab ?? 'general');
+  /** The key field, which takes the focus when the page is opened for it. */
+  const apiKeyInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (askedTab) clearNavigationIntent();
+    if (!askedTab) return;
+    clearNavigationIntent();
+    apiKeyInput.current?.focus();
   }, [askedTab, clearNavigationIntent]);
   /** Why the last language change did not apply, until the next change. */
   const [languageError, setLanguageError] = useState<string | null>(null);
-  /**
-   * "Reset to Defaults" wipes the whole page state (today: the UI language)
-   * in one click, so it asks first — the confirmation is dropped whenever
-   * the user leaves the tab.
-   */
-  const [confirmingReset, setConfirmingReset] = useState(false);
   /**
    * Whether a failed run may send its error message, asked with the first key:
    * off until the box is ticked.
@@ -91,11 +109,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [confirmingKeyRemoval, setConfirmingKeyRemoval] = useState(false);
   const keyRemovalId = useId();
 
+  /**
+   * The removal's Cancel takes the focus from the button the question
+   * replaces, and gives it back to that button once the question is cancelled.
+   */
+  const cancelKeyRemovalRef = useRef<HTMLButtonElement>(null);
+  const removeKeyRef = useRef<HTMLButtonElement>(null);
+  const keyRemovalCancelled = useRef(false);
+  useEffect(() => {
+    if (confirmingKeyRemoval) {
+      cancelKeyRemovalRef.current?.focus();
+    } else if (keyRemovalCancelled.current) {
+      keyRemovalCancelled.current = false;
+      removeKeyRef.current?.focus();
+    }
+  }, [confirmingKeyRemoval]);
+
   const {
     settings,
     updateSetting,
     handleSave,
-    handleReset,
     aiStatus,
     aiApiKey,
     setAiApiKey,
@@ -117,7 +150,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     toggleTelemetry,
     telemetryToggling,
     telemetryToggleError,
-  } = useSettingsPageData(initialSettings, onSave, onReset);
+  } = useSettingsPageData(initialSettings, onSave);
 
   const telemetryEnabled = telemetryStatus?.enabled ?? false;
   /**
@@ -127,14 +160,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const hasKey = aiStatus?.hasKey ?? aiStatus?.enabled === true;
 
   /**
-   * Apply a language for real. When its bundle cannot be loaded the UI keeps
-   * its current language, so the select is put back to that language and the
-   * failure is shown: left alone, the select named a language the page was
-   * not rendering, and nothing said why.
+   * Apply a language for real, and keep it. When its bundle cannot be loaded
+   * the UI keeps its current language, so the select is put back to that
+   * language and the failure is shown: left alone, the select named a language
+   * the page was not rendering, and nothing said why.
+   *
+   * Kept as it applies: a Save button beside a language already applied kept
+   * it only once pressed, and nothing said a change was waiting for it.
    */
   const applyLanguage = async (language: SupportedLanguage): Promise<void> => {
     setLanguageError(null);
     if (await changeLanguageLazy(language)) {
+      handleSave();
       return;
     }
     updateSetting('language', i18n.language as SupportedLanguage);
@@ -142,10 +179,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setLanguageError(t('settings.languageLoadFailed', { language: label }));
   };
 
+  // No Advanced tab: its one button, "Reset to Defaults", put the interface
+  // back in English — language is the page's only setting — under a Confirm
+  // that never said so.
   const tabs = [
     { id: 'general', label: t('settings.general') },
     { id: 'ai', label: t('settings.ai') },
-    { id: 'advanced', label: t('settings.advanced') },
     { id: 'profiles', label: t('settings.profiles') },
     { id: 'telemetry', label: t('settings.telemetry') },
   ];
@@ -156,14 +195,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {t('settings.title')}
       </h1>
 
-      <Tabs
-        tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={(id) => {
-          setConfirmingReset(false);
-          setActiveTab(id);
-        }}
-      />
+      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
       <div className="mt-2">
         {activeTab === 'general' && (
@@ -200,6 +232,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       onDismiss={() => setLanguageError(null)}
                     />
                   )}
+                  {/* The walkthrough's "Tune your settings" names batch sizes,
+                      Production Guard and Forge's graph view, then opened this
+                      page, where none of them is and nothing led to them. */}
+                  <div
+                    className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
+                    data-testid="vscode-settings"
+                  >
+                    <p className="text-xs text-text-secondary">
+                      {t('settings.vscodeSettingsDesc')}
+                    </p>
+                    <Button
+                      data-testid="open-vscode-settings"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        sendBridgeMessage<{ setting: string }>('workbench:open-setting', {
+                          setting: VSCODE_SETTINGS_GROUP,
+                        })
+                      }
+                    >
+                      {t('settings.vscodeSettingsOpen')}
+                    </Button>
+                  </div>
                 </div>
               </CardBody>
             </Card>
@@ -236,8 +291,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   {/* What each feature sends, and to whom, said where the key is
                       stored: the card said only where the key is kept. */}
                   <div className="flex flex-col gap-1" data-testid="ai-what-is-sent">
-                    <p className="text-xs text-text-secondary">{t('settings.aiSends')}</p>
-                    <p className="text-xs text-text-secondary">{t('settings.aiSendsFailures')}</p>
+                    <p className="text-xs text-text-secondary">{t('settings.aiSendsIntro')}</p>
+                    <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-text-secondary">
+                      {AI_SENDS.map((key) => (
+                        <li key={key}>{t(key)}</li>
+                      ))}
+                    </ul>
                   </div>
 
                   {/* The failures are sent with nobody pressing anything: a switch
@@ -262,6 +321,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <div className="flex gap-2 items-end">
                       <div className="flex-1">
                         <Input
+                          ref={apiKeyInput}
                           data-testid="ai-api-key-input"
                           label={t('settings.aiApiKey')}
                           type="password"
@@ -309,10 +369,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
 
                   {/* Turning AI off, and taking the key back, were only in the
-                      settings editor, and nothing removed the key at all. */}
+                      settings editor, and nothing removed the key at all. The
+                      removal's question came under its buttons, its red Confirm
+                      right beside Turn AI off: the two are apart now, the
+                      question above the answer to it. */}
                   {hasKey && (
-                    <div className="flex flex-col gap-2" data-testid="ai-key-actions">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-col gap-3" data-testid="ai-key-actions">
+                      <div>
                         <Button
                           data-testid="ai-toggle-btn"
                           variant="secondary"
@@ -323,32 +386,51 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         >
                           {aiStatus?.enabled ? t('settings.aiTurnOff') : t('settings.aiTurnOn')}
                         </Button>
+                      </div>
+                      <div
+                        className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
+                        data-testid="ai-key-removal"
+                      >
                         {confirmingKeyRemoval ? (
                           <>
-                            <Button
-                              data-testid="ai-remove-key-confirm-btn"
-                              variant="danger"
-                              size="sm"
-                              loading={aiKeyRemoving}
-                              aria-describedby={keyRemovalId}
-                              onClick={() => {
-                                setConfirmingKeyRemoval(false);
-                                removeAiKey();
-                              }}
+                            <p
+                              id={keyRemovalId}
+                              className="text-xs text-text-primary"
+                              data-testid="ai-remove-key-question"
                             >
-                              {t('common.confirm')}
-                            </Button>
-                            <Button
-                              data-testid="ai-remove-key-cancel-btn"
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => setConfirmingKeyRemoval(false)}
-                            >
-                              {t('common.cancel')}
-                            </Button>
+                              {t('settings.aiRemoveKeyConfirm')}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                data-testid="ai-remove-key-confirm-btn"
+                                variant="danger"
+                                size="sm"
+                                loading={aiKeyRemoving}
+                                aria-describedby={keyRemovalId}
+                                onClick={() => {
+                                  setConfirmingKeyRemoval(false);
+                                  removeAiKey();
+                                }}
+                              >
+                                {t('settings.aiRemoveKey')}
+                              </Button>
+                              <Button
+                                ref={cancelKeyRemovalRef}
+                                data-testid="ai-remove-key-cancel-btn"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                  keyRemovalCancelled.current = true;
+                                  setConfirmingKeyRemoval(false);
+                                }}
+                              >
+                                {t('common.cancel')}
+                              </Button>
+                            </div>
                           </>
                         ) : (
                           <Button
+                            ref={removeKeyRef}
                             data-testid="ai-remove-key-btn"
                             variant="secondary"
                             size="sm"
@@ -359,15 +441,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                           </Button>
                         )}
                       </div>
-                      {confirmingKeyRemoval && (
-                        <p
-                          id={keyRemovalId}
-                          className="text-xs text-text-primary"
-                          data-testid="ai-remove-key-question"
-                        >
-                          {t('settings.aiRemoveKeyConfirm')}
-                        </p>
-                      )}
                     </div>
                   )}
                   {aiKeyRemoved !== null && !hasKey && (
@@ -386,77 +459,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   )}
 
                   <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
-        )}
-
-        {activeTab === 'advanced' && (
-          <div
-            data-testid="advanced-settings"
-            id="tabpanel-advanced"
-            role="tabpanel"
-            aria-labelledby="tab-advanced"
-            className="flex flex-col gap-3"
-          >
-            <Card>
-              <CardHeader title={t('settings.advanced')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {/* Action buttons */}
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    {onClearCache && (
-                      <Button
-                        data-testid="clear-cache-btn"
-                        variant="secondary"
-                        size="sm"
-                        onClick={onClearCache}
-                      >
-                        {t('settings.clearCache')}
-                      </Button>
-                    )}
-                    {confirmingReset ? (
-                      <>
-                        <Button
-                          data-testid="reset-confirm-btn"
-                          variant="danger"
-                          size="sm"
-                          onClick={() => {
-                            setConfirmingReset(false);
-                            handleReset();
-                            /*
-                             * handleReset only rewinds the local snapshot, so
-                             * the language select would jump to the default
-                             * while the UI kept rendering in the old language.
-                             * Apply the default for real — the select and the
-                             * rendered UI must agree.
-                             */
-                            void applyLanguage(defaultSettings.language);
-                          }}
-                        >
-                          {t('common.confirm')}
-                        </Button>
-                        <Button
-                          data-testid="reset-cancel-btn"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setConfirmingReset(false)}
-                        >
-                          {t('common.cancel')}
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        data-testid="reset-btn"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setConfirmingReset(true)}
-                      >
-                        {t('settings.resetSettings')}
-                      </Button>
-                    )}
-                  </div>
                 </div>
               </CardBody>
             </Card>
@@ -487,6 +489,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardHeader title={t('settings.telemetry')} />
               <CardBody>
                 <div className="flex flex-col gap-3">
+                  {/* What is recorded and where it goes, said before the switch:
+                      "Telemetry" read as data leaving the machine, and nothing
+                      said it only writes extension errors to a local log. */}
+                  <p className="text-xs text-text-secondary" data-testid="telemetry-description">
+                    {t('settings.telemetryDesc')}
+                  </p>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-text-primary">
                       {t('settings.telemetryStatus')}
@@ -541,21 +549,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
       </div>
-
-      {/*
-        Save button — General only. It persists the settings blob of this page,
-        and General holds the only field in it. On the other tabs it saved
-        nothing while sitting next to controls that persist on their own: worst
-        of all on AI, where a typed API key is committed by the Save button
-        INSIDE the field row, so pressing this one dropped the key silently.
-      */}
-      {activeTab === 'general' && (
-        <div className="flex justify-end mt-2">
-          <Button data-testid="save-settings-btn" variant="primary" size="sm" onClick={handleSave}>
-            {t('common.save')}
-          </Button>
-        </div>
-      )}
     </div>
   );
 };

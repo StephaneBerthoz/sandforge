@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { BaseMessage, SalesforceOrg } from '@sandforge/shared';
 import { RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import '../../../i18n';
@@ -16,6 +16,7 @@ vi.mock('../../../hooks/useVSCodeApi', () => ({
 }));
 
 import { ScenarioDraft } from './ScenarioDraft';
+import { useAppStore } from '../../../stores/useAppStore';
 
 function sent(type: string): Array<BaseMessage & { payload: Record<string, unknown> }> {
   return mockPostMessage.mock.calls
@@ -70,6 +71,25 @@ describe('ScenarioDraft', () => {
     expect(screen.getByTestId('scenario-draft-masked').textContent).toContain(
       'Write to jane@gmail.example',
     );
+  });
+
+  it('opens Settings on its AI tab when no key is set', () => {
+    // Its "Open Settings" landed on General, a click away from the key.
+    const navigate = vi.fn();
+    useAppStore.setState({ navigate });
+    render(<ScenarioDraft orgs={[DEV]} onDrafted={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('scenario-draft-text'), { target: { value: 'A shop' } });
+    fireEvent.click(screen.getByTestId('btn-scenario-draft-start'));
+    answer('ai:scenario-draft', 'ai:scenario-draft:response', {
+      success: false,
+      code: 'AI_NOT_CONFIGURED',
+    });
+
+    fireEvent.click(
+      within(screen.getByTestId('scenario-draft-not-configured')).getByRole('button'),
+    );
+
+    expect(navigate).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
   });
 
   it('tells the draft the Case picklists and the agent of the org picked', () => {

@@ -400,7 +400,7 @@ export const ForgeInput: React.FC = () => {
                         ai={form.ai}
                         aiAvailable={aiAvailable}
                         sourceOrgId={form.sourceOrgId}
-                        onOpenSettings={() => navigate('settings')}
+                        onOpenSettings={() => navigate('settings', { settingsTab: 'ai' })}
                       />
                     </Suspense>
                   </PartBoundary>

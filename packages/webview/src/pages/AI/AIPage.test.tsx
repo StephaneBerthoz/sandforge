@@ -130,13 +130,14 @@ describe('AIPage', () => {
       expect(button.textContent).toMatch(/Go to Settings/i);
     });
 
-    it('should navigate to settings when button is clicked', () => {
+    it('opens Settings on its AI tab, where the key is set', () => {
+      // It opened General, which holds the language alone.
       const navigateSpy = vi.fn();
       useAppStore.setState({ aiAvailable: false, navigate: navigateSpy });
       render(<AIPage />);
       const button = screen.getByTestId('empty-action-button');
       fireEvent.click(button);
-      expect(navigateSpy).toHaveBeenCalledWith('settings');
+      expect(navigateSpy).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
     });
 
     it('should not show the chat panel', () => {
@@ -173,6 +174,77 @@ describe('AIPage', () => {
     it('should not show the not-configured guidance', () => {
       render(<AIPage />);
       expect(screen.queryByTestId('ai-not-configured')).toBeNull();
+    });
+  });
+
+  // Every conversation kept the title it was created with: fifty of them
+  // read "New Chat" and could not be told apart.
+  describe('the title the first answer gives a conversation', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    it('renames it in the list as the answer comes, with the time it was written to', () => {
+      render(<AIPage />);
+      fireEvent.click(screen.getByTestId('new-conversation-btn'));
+      emit(
+        'ai:conversation:created',
+        {
+          conversation: {
+            id: 'conv-9',
+            title: 'New conversation',
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+        },
+        lastSentId(),
+      );
+      expect(screen.getByTestId('conversation-item-conv-9').textContent).toContain(
+        'New conversation',
+      );
+      const chat = ask('Which object holds cases?');
+
+      emit(
+        'ai:chat:response',
+        { ...(answer('conv-9', 'Case') as object), title: 'Which object holds cases?' },
+        chat,
+      );
+
+      const item = screen.getByTestId('conversation-item-conv-9');
+      expect(item.textContent).toContain('Which object holds cases?');
+      expect(item.textContent).not.toContain('New conversation');
+      expect(screen.getByTestId('conversation-when-conv-9').textContent).not.toBe('');
+    });
+
+    it('names it so where the answer went while another was open', () => {
+      render(<AIPage />);
+      listConversations();
+      open('conv-1');
+      const chat = ask('which object holds cases');
+      open('conv-2', LEADS);
+
+      emit(
+        'ai:chat:response',
+        { ...(answer('conv-1', 'Case') as object), title: 'which object holds cases' },
+        chat,
+      );
+
+      expect(screen.getByTestId('ai-answered-elsewhere').textContent).toContain(
+        'which object holds cases',
+      );
+      expect(screen.getByTestId('conversation-item-conv-1').textContent).toContain(
+        'which object holds cases',
+      );
+    });
+
+    it('keeps the title it has when an older host sends none', () => {
+      render(<AIPage />);
+      listConversations();
+      open('conv-1');
+      const chat = ask('which object holds cases');
+
+      emit('ai:chat:response', answer('conv-1', 'Case'), chat);
+
+      expect(screen.getByTestId('conversation-item-conv-1').textContent).toContain('Cases');
     });
   });
 
@@ -279,12 +351,12 @@ describe('AIPage', () => {
 
     /**
      * `ai:error` answers every AI channel and the host sends it to every open
-     * panel: a schema advice that failed in Compare must not surface here.
+     * panel: a pipeline draft that failed in Automation must not surface here.
      */
     it('ignores an error that answers a request another page sent', () => {
       render(<AIPage />);
 
-      emit('ai:error', { message: 'Schema advice failed' }, 'wv-from-another-panel');
+      emit('ai:error', { message: 'Pipeline draft failed' }, 'wv-from-another-panel');
 
       expect(screen.queryByTestId('ai-error-banner')).toBeNull();
     });
@@ -428,6 +500,7 @@ describe('AIPage', () => {
       emit('ai:chat:response', answer('conv-1', 'Case'), chat);
 
       fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+      fireEvent.click(screen.getByTestId('delete-conversation-confirm-conv-1'));
 
       expect(screen.queryByTestId('ai-answered-elsewhere')).toBeNull();
     });
@@ -475,6 +548,7 @@ describe('AIPage', () => {
     it('names no conversation the user deleted while it was awaited', () => {
       const chat = askInCasesThenOpenLeads();
       fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+      fireEvent.click(screen.getByTestId('delete-conversation-confirm-conv-1'));
 
       emit('ai:chat:response', answer('conv-1', 'Case'), chat);
 

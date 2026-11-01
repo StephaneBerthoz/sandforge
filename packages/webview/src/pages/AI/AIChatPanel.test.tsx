@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 const mockPostMessage = vi.hoisted(() => vi.fn());
 vi.mock('../../hooks/useVSCodeApi', () => ({
@@ -11,6 +11,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { AIChatPanel } from './AIChatPanel';
 import type { ChatMessageDisplay, ConversationSummary } from './AIChatPanel';
 
@@ -63,18 +64,72 @@ describe('AIChatPanel', () => {
     expect(onSelect).toHaveBeenCalledWith('conv-1');
   });
 
-  it('should call onDeleteConversation when clicking delete', () => {
+  it('deletes a conversation only once asked, naming it, the focus on Cancel', () => {
+    // A bare "x" beside each title deleted at the first click, while "Delete
+    // all" asked first.
     const onDelete = vi.fn();
     render(<AIChatPanel conversations={conversations} onDeleteConversation={onDelete} />);
+
     fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('delete-conversation-question-conv-1').textContent).toContain(
+      'Delete the conversation “Seed Help”? It cannot be brought back.',
+    );
+    expect(document.activeElement).toBe(screen.getByTestId('delete-conversation-cancel-conv-1'));
+    fireEvent.click(screen.getByTestId('delete-conversation-cancel-conv-1'));
+    expect(screen.queryByTestId('delete-conversation-question-conv-1')).toBeNull();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByTestId('delete-conversation-conv-1'));
+
+    fireEvent.click(screen.getByTestId('delete-conversation-conv-1'));
+    fireEvent.click(screen.getByTestId('delete-conversation-confirm-conv-1'));
     expect(onDelete).toHaveBeenCalledWith('conv-1');
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it('should call onNewConversation when clicking new button', () => {
+  it('draws each delete as an icon named after its conversation', () => {
+    render(<AIChatPanel conversations={conversations} />);
+    const remove = screen.getByRole('button', { name: 'Delete “Sync Config”' });
+    expect(remove).toBe(screen.getByTestId('delete-conversation-conv-2'));
+    expect(remove.textContent).toBe('');
+    expect(remove.querySelector('svg')).not.toBeNull();
+  });
+
+  it('shows under each title when the conversation was last written to', () => {
+    vi.useFakeTimers({ now: new Date('2025-01-03T12:00:00Z'), toFake: ['Date'] });
+    render(
+      <AIChatPanel
+        conversations={[
+          { ...conversations[0], updatedAt: '2025-01-03T10:00:00Z' },
+          // Kept before the time it was written to was recorded: its creation.
+          conversations[1],
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('conversation-when-conv-1').textContent).toBe('2 hours ago');
+    expect(screen.getByTestId('conversation-when-conv-2').textContent).toBe('yesterday');
+    expect(screen.getByTestId('conversation-item-conv-1').textContent).toBe('Seed Help2 hours ago');
+    vi.useRealTimers();
+  });
+
+  it('names the conversation it makes as its button does', () => {
+    // The button said "New Conversation", each conversation it made "New Chat".
     const onNew = vi.fn();
     render(<AIChatPanel onNewConversation={onNew} />);
-    fireEvent.click(screen.getByTestId('new-conversation-btn'));
-    expect(onNew).toHaveBeenCalled();
+    const button = screen.getByTestId('new-conversation-btn');
+    fireEvent.click(button);
+    expect(button.textContent).toBe('New conversation');
+    expect(onNew).toHaveBeenCalledWith('New conversation');
+  });
+
+  it('says in its subtitle that it sees none of the orgs, and what to paste', () => {
+    render(<AIChatPanel />);
+    expect(screen.getByText(en.ai.subtitle)).toBeDefined();
+    expect(en.ai.subtitle).toContain('It does not see your orgs');
+    expect(screen.getByTestId('empty-state').textContent).toContain(
+      'Paste the error, query or field names your question is about.',
+    );
   });
 
   it('should show empty state when no active conversation', () => {
@@ -100,6 +155,77 @@ describe('AIChatPanel', () => {
     const assistantBubbles = screen.getAllByTestId('message-bubble-assistant');
     expect(assistantBubbles).toHaveLength(1);
     expect(assistantBubbles[0].textContent).toBe('You can use the Seed wizard.');
+  });
+
+  describe('an answer holding a ``` block', () => {
+    const answer: ChatMessageDisplay = {
+      id: 'msg-3',
+      role: 'assistant',
+      content:
+        "Here's the SOQL:\n```sql\nSELECT Id, Name FROM Account\n```\nIt returns every **account**.",
+      timestamp: '2025-01-01T00:00:02Z',
+    };
+    const writeText = vi.fn<(text: string) => Promise<void>>();
+
+    afterEach(() => {
+      vi.useRealTimers();
+      writeText.mockReset();
+    });
+
+    it('shows the block as code, without its fences, between the text as written', () => {
+      // The bubble printed the Markdown as it came: the query between two
+      // literal "```sql" lines.
+      render(<AIChatPanel activeConversationId="conv-1" messages={[answer]} />);
+      const bubble = screen.getByTestId('message-bubble-assistant');
+
+      const code = bubble.querySelector('pre > code');
+      expect(code?.textContent).toBe('SELECT Id, Name FROM Account');
+      expect(bubble.textContent).not.toContain('```');
+      expect(bubble.textContent).toContain("Here's the SOQL:");
+      // Text stays text: nothing is parsed into HTML, its markup included.
+      expect(bubble.textContent).toContain('It returns every **account**.');
+      expect(bubble.querySelector('strong, b')).toBeNull();
+    });
+
+    it('copies the code alone, and says it was copied', async () => {
+      writeText.mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+      render(<AIChatPanel activeConversationId="conv-1" messages={[answer]} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+      });
+
+      expect(writeText).toHaveBeenCalledWith('SELECT Id, Name FROM Account');
+      expect(screen.getByTestId('answer-code-copy').textContent).toBe('Code copied');
+      expect(screen.getByRole('status').textContent).toBe('Code copied');
+    });
+
+    it('claims no copy the host refused', async () => {
+      writeText.mockRejectedValue(new Error('denied'));
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+      render(<AIChatPanel activeConversationId="conv-1" messages={[answer]} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('answer-code-copy'));
+      });
+
+      expect(screen.getByTestId('answer-code-copy').textContent).toBe('Copy code');
+    });
+
+    it('leaves a question the user typed with fences as typed', () => {
+      const question: ChatMessageDisplay = { ...answer, id: 'msg-4', role: 'user' };
+      render(<AIChatPanel activeConversationId="conv-1" messages={[question]} />);
+      const bubble = screen.getByTestId('message-bubble-user');
+      expect(bubble.textContent).toBe(question.content);
+      expect(bubble.querySelector('pre')).toBeNull();
+    });
   });
 
   it('keeps the messages in a log that says each one added, the speaker named in words', () => {

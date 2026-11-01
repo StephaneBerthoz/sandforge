@@ -126,7 +126,7 @@ export const AIPage: React.FC = () => {
   useMessageListener<
     BaseMessage & {
       payload:
-        | { conversationId: string; message: ChatMessageDisplay }
+        | { conversationId: string; message: ChatMessageDisplay; title?: string }
         | { conversationId: string; code: 'CANCELLED' };
     }
   >('ai:chat:response', (msg) => {
@@ -140,6 +140,14 @@ export const AIPage: React.FC = () => {
       return;
     }
     const answer = msg.payload.message;
+    // The first answer names the conversation after its question, and the
+    // list shows it at once, with the time it was written to.
+    const title = msg.payload.title || question.title;
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === question.conversationId ? { ...c, title, updatedAt: answer.timestamp } : c,
+      ),
+    );
     if (question.conversationId === activeConversationId) {
       // The host keeps a question out of its conversation until the answer
       // comes, so a thread opened again in the meantime was loaded without it.
@@ -152,7 +160,7 @@ export const AIPage: React.FC = () => {
     // The answer is kept with its conversation, which the host has stored:
     // the thread open says where it went, unless the user deleted that one.
     if (conversations.some((c) => c.id === question.conversationId)) {
-      setAnsweredElsewhere({ conversationId: question.conversationId, title: question.title });
+      setAnsweredElsewhere({ conversationId: question.conversationId, title });
     }
   });
 
@@ -175,9 +183,10 @@ export const AIPage: React.FC = () => {
   // An AI failure used to only switch the spinner off, so a refused request
   // looked exactly like one that answered nothing — show what the host said.
   //
-  // `ai:error` answers every AI channel — schema advice, anomaly scan, NL2SOQL,
-  // pipeline drafts — and the host sends it to every open panel. Only an error
-  // that names a request this page sent is this page's to show.
+  // `ai:error` answers every AI channel — Forge's query drafts, the anomaly
+  // scan, pipeline and scenario drafts — and the host sends it to every open
+  // panel. Only an error that names a request this page sent is this page's
+  // to show.
   useMessageListener<BaseMessage & { payload?: { message?: string } }>('ai:error', (msg) => {
     if (!msg.correlationId || !ownRequests.current.delete(msg.correlationId)) return;
     const reason = msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.');
@@ -338,7 +347,7 @@ export const AIPage: React.FC = () => {
       <div className="flex flex-col h-full p-(--sf-space-4)" data-testid="ai-not-configured">
         <PageHeader
           title={t('ai.title', 'AI Assistant')}
-          subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
+          subtitle={t('ai.subtitle')}
           icon="comment-discussion"
         />
         <ModuleHowTo module="ai" />
@@ -361,13 +370,15 @@ export const AIPage: React.FC = () => {
                 />
               </svg>
             }
-            title={t('ai.notConfigured.title', 'AI Assistant Not Configured')}
+            title={t('ai.notConfigured.title')}
             description={t(
               'ai.notConfigured.description',
               'To use AI features, configure your API key in Settings.',
             )}
             actionLabel={t('ai.notConfigured.configureButton', 'Go to Settings')}
-            onAction={() => navigate('settings')}
+            // On the AI tab, its key field focused: General, which it opened,
+            // holds the language alone.
+            onAction={() => navigate('settings', { settingsTab: 'ai' })}
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import i18n from '../../i18n';
-import { SettingsPage, defaultSettings } from './SettingsPage';
+import { SettingsPage } from './SettingsPage';
 import { useAppStore } from '../../stores/useAppStore';
 import en from '../../i18n/locales/en.json';
 import { dispatchLocaleResponse, stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
@@ -105,8 +105,18 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** The payloads of every message of `type` the page posted. */
+function sent(type: string): unknown[] {
+  return mockPostMessage.mock.calls
+    .map(([envelope]) => (envelope as { payload?: { type?: string; payload?: unknown } }).payload)
+    .filter((message) => message?.type === type)
+    .map((message) => message?.payload);
+}
+
 describe('SettingsPage', () => {
   beforeEach(() => {
+    mockPostMessage.mockClear();
+    mockSettingsUpdateMutate.mockClear();
     mockTelemetryStatus.data = null;
     mockTelemetryStatus.error = null;
     mockTelemetryMutate.mockClear();
@@ -116,6 +126,12 @@ describe('SettingsPage', () => {
     for (const mutate of Object.values(mockAiMutate)) mutate.mockClear();
     // Auto-answer lazy locale requests with the real bundles.
     stubLocaleBridge(mockPostMessage);
+  });
+
+  // A test that changed the language and failed before it put English back
+  // would leave every test after it reading French.
+  afterEach(async () => {
+    if (i18n.language !== 'en') await i18n.changeLanguage('en');
   });
 
   it('should render the page', () => {
@@ -128,10 +144,10 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Settings')).toBeDefined();
   });
 
-  it('should show tabs', () => {
+  it('should show tabs, and no Advanced tab', () => {
     render(<SettingsPage />);
     expect(screen.getAllByText('General').length).toBeGreaterThan(0);
-    expect(screen.getByText('Advanced')).toBeDefined();
+    expect(screen.queryByText('Advanced')).toBeNull();
   });
 
   it('should show general settings by default', () => {
@@ -144,119 +160,68 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('language-select')).toBeDefined();
   });
 
-  it("opens on the AI tab when the tour's Open AI settings asks for it, once", () => {
-    // The tour's button landed on General, a click away from the key.
+  it('opens on the AI tab, its key field focused, when a caller asks for it, once', () => {
+    // The tour's button, and every "Go to Settings" shown for want of a key,
+    // landed on General, a click away from the key.
     useAppStore.getState().navigate('settings', { settingsTab: 'ai' });
     const { unmount } = render(<SettingsPage />);
     expect(screen.getByTestId('ai-settings')).toBeDefined();
     expect(screen.queryByTestId('general-settings')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('ai-api-key-input'));
     expect(useAppStore.getState().navigationIntent).toBeNull();
     unmount();
 
-    // Read once: a later visit opens on General.
+    // Read once: a later visit opens on General, and moves no focus.
     render(<SettingsPage />);
     expect(screen.getByTestId('general-settings')).toBeDefined();
+    expect(document.activeElement).toBe(document.body);
   });
 
-  it('should switch to advanced tab', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Advanced'));
-    expect(screen.getByTestId('advanced-settings')).toBeDefined();
-  });
-
-  it('should call onSave and trigger mutation when save clicked', () => {
+  it('keeps a language as soon as it applies, with no Save button to press', async () => {
+    // The language applied on change, and was kept only once Save, a button
+    // below it, was pressed; Advanced held a Reset to Defaults that put the
+    // interface back in English under a Confirm that never said so.
     const onSave = vi.fn();
     render(<SettingsPage onSave={onSave} />);
-    fireEvent.click(screen.getByTestId('save-settings-btn'));
-    expect(onSave).toHaveBeenCalledWith(defaultSettings);
-    expect(mockSettingsUpdateMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ key: 'settings' }),
-    );
-  });
-
-  it('should call onReset once the reset is confirmed', () => {
-    const onReset = vi.fn();
-    render(<SettingsPage onReset={onReset} />);
-    fireEvent.click(screen.getByText('Advanced'));
-    fireEvent.click(screen.getByTestId('reset-btn'));
-    fireEvent.click(screen.getByTestId('reset-confirm-btn'));
-    expect(onReset).toHaveBeenCalled();
-  });
-
-  it('should ask before resetting, and do nothing when cancelled', () => {
-    const onReset = vi.fn();
-    render(<SettingsPage onReset={onReset} />);
-    fireEvent.click(screen.getByText('Advanced'));
-
-    fireEvent.click(screen.getByTestId('reset-btn'));
-    expect(onReset).not.toHaveBeenCalled();
-    expect(screen.getByTestId('reset-confirm-btn')).toBeDefined();
-
-    fireEvent.click(screen.getByTestId('reset-cancel-btn'));
-    expect(onReset).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('reset-confirm-btn')).toBeNull();
-    expect(screen.getByTestId('reset-btn')).toBeDefined();
-  });
-
-  it('should drop a pending reset confirmation when the tab changes', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Advanced'));
-    fireEvent.click(screen.getByTestId('reset-btn'));
-    expect(screen.getByTestId('reset-confirm-btn')).toBeDefined();
-
-    fireEvent.click(screen.getByText('Telemetry'));
-    fireEvent.click(screen.getByText('Advanced'));
-
-    expect(screen.queryByTestId('reset-confirm-btn')).toBeNull();
-    expect(screen.getByTestId('reset-btn')).toBeDefined();
-  });
-
-  it('should apply the default language on reset, not just show it', async () => {
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
-    await waitFor(() => expect(i18n.language).toBe('fr'));
-
-    fireEvent.click(screen.getByText('Avancé'));
-    fireEvent.click(screen.getByTestId('reset-btn'));
-    fireEvent.click(screen.getByTestId('reset-confirm-btn'));
-
-    // Without applying it, the select would read "English" while the UI kept
-    // rendering in French — the dropdown lying about the live language.
-    await waitFor(() => expect(i18n.language).toBe(defaultSettings.language));
-    fireEvent.click(screen.getByText('General'));
-    expect((screen.getByTestId('language-select') as HTMLSelectElement).value).toBe(
-      defaultSettings.language,
-    );
-  });
-
-  it('should keep the page-level save on the only tab it saves', () => {
-    render(<SettingsPage />);
-    expect(screen.getByTestId('save-settings-btn')).toBeDefined();
-
-    // AI: the key is committed by the button inside the field row. A second
-    // button also labelled "Save" dropped the typed key without a word.
-    fireEvent.click(screen.getByText('AI'));
     expect(screen.queryByTestId('save-settings-btn')).toBeNull();
-    // With no key stored yet, it says it turns AI on as well.
+    expect(screen.queryByTestId('reset-btn')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ language: 'fr' }));
+    expect(mockSettingsUpdateMutate).toHaveBeenLastCalledWith({
+      key: 'settings',
+      value: { language: 'fr' },
+    });
+    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'en' } });
+    await waitFor(() => expect(i18n.language).toBe('en'));
+  });
+
+  it('has no Save button on any tab, beside controls that keep what they change', () => {
+    render(<SettingsPage />);
+    for (const tab of ['General', 'AI', 'Export / Import', 'Diagnostics']) {
+      fireEvent.click(screen.getAllByText(tab)[0]);
+      expect(screen.queryByTestId('save-settings-btn')).toBeNull();
+    }
+    // AI: the key is committed by the button inside the field row, and says
+    // it turns AI on as well while no key is stored.
+    fireEvent.click(screen.getByText('AI'));
     expect(screen.getAllByRole('button', { name: /^Save/ })).toEqual([
       screen.getByTestId('ai-save-key-btn'),
     ]);
-
-    for (const tab of ['Advanced', 'Profiles', 'Telemetry']) {
-      fireEvent.click(screen.getByText(tab));
-      expect(screen.queryByTestId('save-settings-btn')).toBeNull();
-    }
-
-    fireEvent.click(screen.getAllByText('General')[0]);
-    expect(screen.getByTestId('save-settings-btn')).toBeDefined();
   });
 
-  it('should call onClearCache when clear cache clicked', () => {
-    const onClearCache = vi.fn();
-    render(<SettingsPage onClearCache={onClearCache} />);
-    fireEvent.click(screen.getByText('Advanced'));
-    fireEvent.click(screen.getByTestId('clear-cache-btn'));
-    expect(onClearCache).toHaveBeenCalled();
+  it("opens VS Code's Settings on Production Guard, saying the other settings are there", () => {
+    // The walkthrough named batch sizes, Production Guard and Forge's graph
+    // view, then opened this page, where none of them is and nothing led there.
+    render(<SettingsPage />);
+    expect(screen.getByTestId('vscode-settings').textContent).toContain(
+      en.settings.vscodeSettingsDesc,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: en.settings.vscodeSettingsOpen }));
+
+    expect(sent('workbench:open-setting')).toEqual([{ setting: 'sandforge.safety' }]);
   });
 
   it('puts the select back and says so when a language fails to load', async () => {
@@ -278,21 +243,8 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(screen.getByTestId('language-error')).toBeDefined());
     expect(i18n.language).toBe('en');
     expect(select.value).toBe('en');
-  });
-
-  it('should update language', async () => {
-    const onSave = vi.fn();
-    render(<SettingsPage onSave={onSave} />);
-    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
-    // The lazy locale load crosses the (stubbed) bridge — wait for the live
-    // i18n language; handleSave persists that value, not the local snapshot.
-    await waitFor(() => expect(i18n.language).toBe('fr'));
-    fireEvent.click(screen.getByTestId('save-settings-btn'));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
-    // Restore English so later tests in this file keep English labels —
-    // the language select applies i18n.changeLanguage immediately.
-    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'en' } });
-    await waitFor(() => expect(i18n.language).toBe('en'));
+    // A language that did not apply is not kept either.
+    expect(mockSettingsUpdateMutate).not.toHaveBeenCalled();
   });
 
   it('should not ship a plugins tab — the plugin manager never existed', () => {
@@ -304,9 +256,7 @@ describe('SettingsPage', () => {
   it('should offer the implemented tabs and no plugins tab', () => {
     render(<SettingsPage />);
     const tabLabels = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabLabels).toEqual(
-      expect.arrayContaining(['General', 'AI', 'Advanced', 'Profiles', 'Telemetry']),
-    );
+    expect(tabLabels).toEqual(['General', 'AI', 'Export / Import', 'Diagnostics']);
     expect(tabLabels).not.toContain('Plugins');
   });
 
@@ -314,7 +264,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     expect(screen.queryByTestId('config-profile-panel')).toBeNull();
 
-    fireEvent.click(screen.getByText('Profiles'));
+    fireEvent.click(screen.getByText('Export / Import'));
 
     const panel = screen.getByTestId('profiles-settings');
     expect(panel.getAttribute('role')).toBe('tabpanel');
@@ -328,14 +278,14 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     expect(bridgeQueryTypes).not.toContain('config:categories');
 
-    fireEvent.click(screen.getByText('Profiles'));
+    fireEvent.click(screen.getByText('Export / Import'));
 
     expect(bridgeQueryTypes).toContain('config:categories');
   });
 
   it('should show telemetry tab with disabled status', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Diagnostics'));
     expect(screen.getByTestId('telemetry-settings')).toBeDefined();
     expect(screen.getByText('Disabled')).toBeDefined();
     expect(screen.getByTestId('telemetry-toggle-btn')).toBeDefined();
@@ -344,25 +294,47 @@ describe('SettingsPage', () => {
   it('describes the telemetry counter as local logging, with no buffer row', () => {
     mockTelemetryStatus.data = { enabled: true, eventCount: 3 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
-    const panel = screen.getByTestId('telemetry-settings').textContent ?? '';
+    fireEvent.click(screen.getByText('Diagnostics'));
+    const panel = screen.getByTestId('telemetry-settings');
     // The adapter writes to a local log and has no transport: nothing is
     // sent, and no buffer exists for the extension to measure (it sent 0).
-    expect(panel).not.toMatch(/sent|buffer/i);
-    expect(panel).toMatch(/recorded/i);
+    const counter = screen.getByText(en.settings.telemetryEventCount);
+    expect(counter.textContent).not.toMatch(/sent/i);
+    expect(counter.textContent).toMatch(/recorded/i);
+    expect(panel.textContent).not.toMatch(/buffer/i);
+  });
+
+  it('says what Diagnostics records and that nothing leaves the machine, before its switch', () => {
+    // "Telemetry", a status and an Enable button, and nothing said what was
+    // recorded or where it went: read as data leaving the machine.
+    render(<SettingsPage />);
+    expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeDefined();
+    fireEvent.click(screen.getByText('Diagnostics'));
+
+    const description = screen.getByTestId('telemetry-description');
+    expect(description.textContent).toBe(en.settings.telemetryDesc);
+    expect(description.textContent).toMatch(/local log/);
+    expect(description.textContent).toMatch(/Nothing is sent over the network/);
+    expect(
+      description.compareDocumentPosition(screen.getByTestId('telemetry-toggle-btn')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('telemetry-toggle-btn').textContent).toBe(
+      en.settings.telemetryEnable,
+    );
   });
 
   it('should display the mocked telemetry status and real event count', () => {
     mockTelemetryStatus.data = { enabled: true, eventCount: 42 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Diagnostics'));
     expect(screen.getByText('Enabled')).toBeDefined();
     expect(screen.getByTestId('telemetry-events').textContent).toBe('42');
   });
 
   it('should dispatch the telemetry:toggle mutation when toggle clicked', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Diagnostics'));
     fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
     expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: true });
   });
@@ -370,7 +342,7 @@ describe('SettingsPage', () => {
   it('should dispatch enabled:false when telemetry is currently on', () => {
     mockTelemetryStatus.data = { enabled: true, eventCount: 7 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Diagnostics'));
     fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
     expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: false });
   });
@@ -378,7 +350,7 @@ describe('SettingsPage', () => {
   it('should show an honest unavailable state when the extension does not answer', () => {
     mockTelemetryStatus.error = "Bridge query 'telemetry:status' timed out after 5000ms";
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Diagnostics'));
     expect(screen.getByTestId('telemetry-unavailable')).toBeDefined();
     expect(screen.queryByText('Disabled')).toBeNull();
     const toggleBtn = screen.getByTestId('telemetry-toggle-btn') as HTMLButtonElement;
@@ -394,10 +366,36 @@ describe('SettingsPage', () => {
     it('says what each feature sends, and to whom, before any key is stored', () => {
       openAiTab();
 
-      const sent = screen.getByTestId('ai-what-is-sent');
-      expect(sent.textContent).toContain(en.settings.aiSends);
-      expect(sent.textContent).toContain(en.settings.aiSendsFailures);
-      expect(sent.textContent).toContain('Anthropic');
+      const what = screen.getByTestId('ai-what-is-sent');
+      expect(what.textContent).toContain(en.settings.aiSendsIntro);
+      expect(what.textContent).toContain('Anthropic');
+    });
+
+    it('lists each feature on a line of its own, named where it lives, NL2SOQL nowhere', () => {
+      // One paragraph of six lines named Forge's AI tab "NL2SOQL", a name
+      // Forge never shows; the Help's AI section names the features this way.
+      openAiTab();
+
+      const lines = within(screen.getByTestId('ai-what-is-sent'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+      expect(lines).toEqual([
+        en.settings.aiSendsChat,
+        en.settings.aiSendsForge,
+        en.settings.aiSendsPipeline,
+        en.settings.aiSendsSeed,
+        en.settings.aiSendsScenario,
+        en.settings.aiSendsFailures,
+      ]);
+      expect(lines.map((line) => line?.split(':')[0])).toEqual([
+        'AI Assistant',
+        'Forge, AI tab',
+        'Automation, pipeline drafts',
+        'Seed, custom personas and AI field rules',
+        'Seed, Draft from your own text',
+        'Fix suggestions for failed runs',
+      ]);
+      expect(screen.getByTestId('ai-settings').textContent).not.toContain('NL2SOQL');
     });
 
     it('asks with the first key whether failed runs may be sent, and sends none unless told yes', () => {
@@ -465,12 +463,38 @@ describe('SettingsPage', () => {
       expect(screen.getByTestId('ai-remove-key-question').textContent).toBe(
         en.settings.aiRemoveKeyConfirm,
       );
+      // The answer to it names what it does, and the focus is on Cancel.
+      expect(screen.getByTestId('ai-remove-key-confirm-btn').textContent).toBe(
+        en.settings.aiRemoveKey,
+      );
+      expect(document.activeElement).toBe(screen.getByTestId('ai-remove-key-cancel-btn'));
       fireEvent.click(screen.getByTestId('ai-remove-key-cancel-btn'));
       expect(screen.queryByTestId('ai-remove-key-question')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByTestId('ai-remove-key-btn'));
 
       fireEvent.click(screen.getByTestId('ai-remove-key-btn'));
       fireEvent.click(screen.getByTestId('ai-remove-key-confirm-btn'));
       expect(mockAiMutate['ai:remove-key']).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks the removal above its buttons, apart from Turn AI off', () => {
+      // The question printed under its Confirm and Cancel, and the red
+      // Confirm sat right beside Turn AI off.
+      mockAiStatus.data = { enabled: true, provider: 'anthropic', model: 'claude', hasKey: true };
+      openAiTab();
+      fireEvent.click(screen.getByTestId('ai-remove-key-btn'));
+
+      const question = screen.getByTestId('ai-remove-key-question');
+      for (const id of ['ai-remove-key-confirm-btn', 'ai-remove-key-cancel-btn']) {
+        expect(
+          question.compareDocumentPosition(screen.getByTestId(id)) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+      const removal = screen.getByTestId('ai-key-removal');
+      expect(removal.contains(screen.getByTestId('ai-remove-key-confirm-btn'))).toBe(true);
+      expect(removal.contains(screen.getByTestId('ai-toggle-btn'))).toBe(false);
+      expect(removal.className).toContain('border-t');
     });
   });
 });

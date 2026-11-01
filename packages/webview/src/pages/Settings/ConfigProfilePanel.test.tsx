@@ -1,12 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { ConfigProfilePanel } from './ConfigProfilePanel';
-
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, defaultValue: string) => defaultValue,
-  }),
-}));
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => ({
@@ -78,6 +74,32 @@ describe('ConfigProfilePanel', () => {
     fireEvent.click(btn);
     // After clicking, the category should be deselected (it starts selected)
     expect(btn.className).not.toContain('border-hue-blue/50');
+  });
+
+  it('says whether each category is in the export, in words and by a tick', () => {
+    // Border and colour alone told it, and the four chips looked alike.
+    render(<ConfigProfilePanel />);
+    const chip = screen.getByRole('button', { name: /^Sync mappings/ });
+    expect(chip.getAttribute('aria-pressed')).toBe('true');
+    expect(chip.getAttribute('type')).toBe('button');
+    expect(chip.querySelector('svg')).not.toBeNull();
+
+    fireEvent.click(chip);
+
+    expect(chip.getAttribute('aria-pressed')).toBe('false');
+    expect(chip.querySelector('svg')).toBeNull();
+  });
+
+  it('names what it shares as the Forge page names it, under a heading that is no "profile"', () => {
+    // "Profiles" reads as Salesforce Profiles to a consultant, and "Forge
+    // Plans" named what the Forge page calls templates.
+    render(<ConfigProfilePanel />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(en.config.profiles.title);
+    expect(screen.getByTestId('cat-toggle-forgePlans').textContent).toBe(
+      en.config.categories.forgePlans,
+    );
+    expect(en.config.categories.forgePlans).toBe('Forge templates');
+    expect(screen.getByTestId('config-profile-panel').textContent).not.toMatch(/profile/i);
   });
 
   it('renders export button', () => {

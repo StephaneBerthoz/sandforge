@@ -6,6 +6,7 @@ import {
   type AICallResult,
   type ChatMessage,
   type ChatRole,
+  titleFromQuestion,
 } from './AIAssistant';
 
 const mockConfig: AIModelConfig = {
@@ -181,6 +182,87 @@ describe('AIAssistant', () => {
     expect(messages[0].content).toContain('SandForge AI Assistant');
     expect(messages[1].role).toBe('user');
     expect(messages[1].content).toBe('Tell me about Account');
+  });
+
+  it('asks for plain text with code in ``` blocks, and says it sees none of the orgs', async () => {
+    // The page printed bold, headings and tables as markup, and the prompt
+    // asked for "code and configurations formatted clearly"; a question about
+    // a run got a confident guess, the model never told it sees no run.
+    const conv = assistant.createConversation('Prompt Test');
+    await assistant.chat(conv.id, 'Why did my last Sync fail?');
+
+    const prompt = mockCallFn.mock.calls[0][0][0].content;
+    expect(prompt).toContain('Write plain text; put code and SOQL only in ``` blocks');
+    expect(prompt).toContain('no bold, headings or tables');
+    expect(prompt).toContain("You do not see the user's orgs, records or SandForge runs");
+    expect(prompt).not.toContain('Format code and configurations clearly');
+  });
+
+  describe('the title of a conversation', () => {
+    it('comes from its first question once that question is answered', async () => {
+      const conv = assistant.createConversation('New conversation');
+      await assistant.chat(conv.id, '  How do I seed\nAccounts   with contacts?  ');
+
+      expect(assistant.getConversation(conv.id)?.title).toBe(
+        'How do I seed Accounts with contacts?',
+      );
+    });
+
+    it('stays as the first question named it after the next ones', async () => {
+      const conv = assistant.createConversation('New conversation');
+      await assistant.chat(conv.id, 'Which object holds cases?');
+      await assistant.chat(conv.id, 'And leads?');
+
+      expect(assistant.getConversation(conv.id)?.title).toBe('Which object holds cases?');
+    });
+
+    it('stays as created when the first question gets no answer', async () => {
+      mockCallFn.mockRejectedValueOnce(new Error('The model declined to answer this request.'));
+      const conv = assistant.createConversation('New conversation');
+      await expect(assistant.chat(conv.id, 'declined')).rejects.toThrow('declined');
+
+      expect(assistant.getConversation(conv.id)?.title).toBe('New conversation');
+      await assistant.chat(conv.id, 'Which object holds cases?');
+      expect(assistant.getConversation(conv.id)?.title).toBe('Which object holds cases?');
+    });
+
+    it('is not taken from a later question of a conversation kept before titles were', async () => {
+      const kept = assistant.restoreConversation({
+        id: 'conv-kept',
+        title: 'New Chat',
+        messages: [
+          { id: 'm1', role: 'user', content: 'first', timestamp: '2026-10-01T00:00:00.000Z' },
+          { id: 'm2', role: 'assistant', content: 'one', timestamp: '2026-10-01T00:00:01.000Z' },
+        ],
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:01.000Z',
+        totalTokens: 0,
+      });
+      await assistant.chat(kept.id, 'second');
+
+      expect(assistant.getConversation(kept.id)?.title).toBe('New Chat');
+    });
+  });
+
+  describe('titleFromQuestion', () => {
+    it('keeps a question of 40 characters or fewer whole, on one line', () => {
+      expect(titleFromQuestion('Which\tobject\n holds cases?')).toBe('Which object holds cases?');
+      expect(titleFromQuestion('x'.repeat(40))).toBe('x'.repeat(40));
+    });
+
+    it('cuts a longer one at the last word that ends within 40 characters', () => {
+      expect(
+        titleFromQuestion(
+          'Why does my Sync of Opportunities to the UAT sandbox fail on the owner?',
+        ),
+      ).toBe('Why does my Sync of Opportunities to the…');
+    });
+
+    it('cuts a long word at 40 characters', () => {
+      expect(titleFromQuestion(`SELECT ${'Field__c,'.repeat(10)}`)).toBe(
+        `SELECT ${'Field__c,'.repeat(10)}`.slice(0, 40) + '…',
+      );
+    });
   });
 
   it('should inject context into system prompt', async () => {

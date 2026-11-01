@@ -2642,12 +2642,11 @@
   },
   "ai": {
     "title": "Assistente de IA",
-    "subtitle": "Obtenha insights impulsionados por IA para suas operações Salesforce",
+    "subtitle": "Pergunte ao Claude sobre o trabalho com dados do Salesforce. Ele não vê suas orgs: cole o erro, a consulta ou os nomes de campo.",
     "newConversation": "Nova conversa",
-    "newChat": "Novo chat",
     "noConversations": "Sem conversas",
     "selectOrCreate": "Selecione ou crie uma conversa",
-    "startDescription": "Inicie uma nova conversa para obter ajuda com IA",
+    "startDescription": "Cole o erro, a consulta ou os nomes de campo de que trata a sua pergunta.",
     "noMessages": "Envie uma mensagem para iniciar a conversa",
     "placeholder": "Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)",
     "send": "Enviar",
@@ -2677,7 +2676,11 @@
     "deleteAllConfirm_other": "Excluir as {{count}} conversas guardadas nesta máquina? Elas não poderão ser recuperadas.",
     "conversationLog": "Conversa",
     "speakerYou": "Você:",
-    "speakerAssistant": "Assistente:"
+    "speakerAssistant": "Assistente:",
+    "copyCode": "Copiar o código",
+    "codeCopied": "Código copiado",
+    "deleteConversation": "Excluir “{{title}}”",
+    "deleteConfirm": "Excluir a conversa “{{title}}”? Ela não poderá ser recuperada."
   },
   "notifications": {
     "title": "Notificações"
@@ -2871,19 +2874,16 @@
   "settings": {
     "title": "Configurações",
     "general": "Geral",
-    "advanced": "Avançado",
-    "profiles": "Perfis",
+    "profiles": "Exportar / Importar",
     "language": "Idioma",
     "languageLoadFailed": "Não foi possível carregar {{language}}; a interface continua no idioma atual.",
-    "clearCache": "Limpar cache",
-    "resetSettings": "Restaurar padrões",
-    "telemetry": "Telemetria",
+    "telemetry": "Diagnóstico",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Habilitada",
     "telemetryDisabled": "Desabilitada",
     "telemetryEventCount": "Eventos de diagnóstico registrados",
-    "telemetryEnable": "Habilitar telemetria",
-    "telemetryDisable": "Desabilitar telemetria",
+    "telemetryEnable": "Ativar o diagnóstico",
+    "telemetryDisable": "Desativar o diagnóstico",
     "telemetryUnavailable": "Indisponível",
     "ai": "IA",
     "aiStatus": "Status",
@@ -2894,8 +2894,7 @@
     "aiKeyConfigured": "Chave configurada",
     "aiKeySaved": "Chave salva",
     "aiHint": "A chave é armazenada no cofre de segredos do VSCode e nunca é gravada em configurações ou logs.",
-    "aiSends": "Enquanto a IA está ativada, isto vai para a Anthropic com a sua chave: o chat envia o que você digita com a conversa até ali; o NL2SOQL envia sua pergunta com os nomes dos objetos e campos da org; um rascunho de pipeline, uma persona personalizada e uma regra de campo IA enviam sua descrição, ou o nome do campo e sua instrução. Um rascunho de cenário para os dados de teste de um agente do Agentforce envia o texto do cenário com seus endereços de e-mail e números de telefone mascarados, seu idioma, os valores das listas de opções de caso da org e os nomes dos tópicos e ações do agente escolhido, nunca um registro.",
-    "aiSendsFailures": "As sugestões de correção enviam a mensagem de erro de uma execução que falhou, sem seus Ids do Salesforce, sem que ninguém clique em nada. Uma mensagem de erro pode citar valores de registros.",
+    "aiSendsFailures": "Sugestões de correção para execuções que falharam: a mensagem de erro de uma execução que falhou, sem seus Ids do Salesforce, enviada sem que ninguém clique em nada. Uma mensagem de erro pode citar valores de registros.",
     "aiErrorResolution": "Sugerir correções para execuções que falharam, enviando suas mensagens de erro",
     "aiSaveAndTurnOn": "Salvar a chave e ativar a IA",
     "aiTurnOn": "Ativar a IA",
@@ -2903,7 +2902,16 @@
     "aiRemoveKey": "Remover a chave",
     "aiRemoveKeyConfirm": "Remover a chave? A IA é desativada, e as conversas guardadas nesta máquina são excluídas.",
     "aiKeyRemoved_one": "Chave removida: a IA está desativada, e {{count}} conversa foi excluída.",
-    "aiKeyRemoved_other": "Chave removida: a IA está desativada, e {{count}} conversas foram excluídas."
+    "aiKeyRemoved_other": "Chave removida: a IA está desativada, e {{count}} conversas foram excluídas.",
+    "telemetryDesc": "Registra os erros da extensão em um log local, para diagnóstico. Nada é enviado pela rede.",
+    "aiSendsIntro": "Enquanto a IA está ativada, isto vai para a Anthropic com a sua chave:",
+    "aiSendsChat": "Assistente de IA: o que você digita, com a conversa até ali",
+    "aiSendsForge": "Forge, aba IA: sua pergunta, os nomes dos objetos da org e os campos dos objetos que ela cita",
+    "aiSendsPipeline": "Automação, rascunhos de pipeline: sua descrição",
+    "aiSendsSeed": "Seed, personas personalizadas e regras de campo de IA: sua descrição, ou o nome do campo e sua instrução",
+    "aiSendsScenario": "Seed, Redigir a partir do seu próprio texto: seu texto com os endereços de e-mail e números de telefone mascarados, seu idioma, os valores das listas de opções de caso da org e os nomes dos tópicos e ações do agente escolhido, nunca um registro",
+    "vscodeSettingsDesc": "Os tamanhos de lote, o Production Guard com o registro das suas decisões e a visualização em grafo do Forge são configurações do VS Code. O botão as abre no Production Guard: pesquise “sandforge” ali para ver as demais.",
+    "vscodeSettingsOpen": "Mais configurações no VS Code"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3362,7 +3370,7 @@
       "tip": "Reduza sandforge.grappe.autoActivateThreshold para acompanhar execuções menores; o Grappe não executa nada por si só nem acelera nenhuma execução."
     },
     "ai": {
-      "step1": "Se a página disser Assistente de IA não configurado, clique em Ir para Configurações e depois na aba IA.",
+      "step1": "Se a página disser Assistente de IA não configurado, clique em Ir para Configurações.",
       "step2": "Cole sua chave da Anthropic em Chave de API e clique em Salvar a chave e ativar a IA.",
       "step3": "De volta ao Assistente de IA, clique em Nova conversa.",
       "step4": "Digite sua pergunta na caixa de mensagem e pressione Enter, ou clique em Enviar.",
@@ -5292,25 +5300,25 @@
   "config": {
     "categories": {
       "syncMappings": "Mapeamentos de Sync",
-      "forgePlans": "Planos do Forge",
+      "forgePlans": "Modelos do Forge",
       "pipelines": "Pipelines",
       "anonymizationTemplates": "Modelos de anonimização"
     },
     "profiles": {
-      "title": "Perfis de configuração",
-      "description": "Exporte e importe sua configuração do SandForge para compartilhar com a equipe ou fazer backup do seu setup.",
+      "title": "Compartilhar sua configuração do SandForge",
+      "description": "Exporte em JSON o que você salvou no SandForge, para compartilhar com a equipe ou guardar uma cópia, e importe aqui uma exportação.",
       "export": "Exportar",
       "import": "Importar",
-      "exportBtn": "Exportar perfil",
-      "importBtn": "Importar perfil",
-      "importPlaceholder": "Cole o JSON do perfil de configuração aqui...",
+      "exportBtn": "Exportar a seleção",
+      "importBtn": "Importar",
+      "importPlaceholder": "Cole aqui o JSON de uma exportação…",
       "overwrite": "Sobrescrever entradas existentes",
       "validate": "Validar",
       "download": "Baixar JSON",
       "exportSuccess": "{{entries}} entradas exportadas de {{categories}} categorias",
       "importSuccess": "{{entries}} entradas importadas de {{categories}} categorias",
-      "validProfile": "Perfil válido",
-      "invalidProfile": "Perfil inválido"
+      "validProfile": "Exportação válida",
+      "invalidProfile": "Exportação inválida"
     }
   },
   "governance": {

@@ -1,4 +1,4 @@
-import React, { useId, useState, useRef, useEffect } from 'react';
+import React, { useCallback, useId, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AIProviderStatusMessage,
@@ -18,6 +18,8 @@ import { buildMessage } from '../../bridge/messageHelpers';
 import { AIProviderStatusBanner, type AIProviderState } from './components/AIProviderStatusBanner';
 import { TokenBudgetIndicator, type TokenBudgetState } from './components/TokenBudgetIndicator';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { formatRelativeTime, formatStoredDate } from '../../utils/formatters';
+import { answerParts } from './answerParts';
 
 /** Chat message for display. */
 export interface ChatMessageDisplay {
@@ -66,6 +68,80 @@ export interface AIChatPanelProps {
   onDraftChange?: (text: string) => void;
 }
 
+/**
+ * The code of a ``` block of an answer, with a Copy that copies the code and
+ * nothing else. Wrapped rather than scrolled: a block that scrolls sideways
+ * is a region the keyboard cannot reach.
+ */
+const AnswerCode: React.FC<{ code: string }> = ({ code }) => {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+  const copy = useCallback(() => {
+    const clipboard: Clipboard | undefined = navigator.clipboard;
+    if (!clipboard) return;
+    void clipboard.writeText(code).then(
+      () => {
+        setCopied(true);
+        if (resetTimer.current) clearTimeout(resetTimer.current);
+        resetTimer.current = setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Refused by the host: no copy is claimed that never happened.
+      },
+    );
+  }, [code]);
+  return (
+    <div className="flex flex-col gap-1" data-testid="answer-code">
+      <div className="flex justify-end">
+        <Button variant="secondary" size="sm" onClick={copy} data-testid="answer-code-copy">
+          {copied ? t('ai.codeCopied') : t('ai.copyCode')}
+        </Button>
+      </div>
+      <pre className="m-0 whitespace-pre-wrap break-words rounded-sm bg-(--sf-bg-input) p-2 font-mono text-xs text-(--sf-text-input)">
+        {/* The colours of the field it sits on, not VS Code's own for a
+            `code`: its preformat colour on its preformat background read
+            4.3:1 under Dark+. */}
+        <code className="bg-transparent text-inherit">{code}</code>
+      </pre>
+      <span role="status" className="sr-only">
+        {copied ? t('ai.codeCopied') : ''}
+      </span>
+    </div>
+  );
+};
+
+/**
+ * An answer as plain text, its ``` blocks set apart as code. The bubble
+ * printed the model's Markdown as it came, fences and all; no part of it is
+ * ever turned into HTML.
+ */
+const AnswerContent: React.FC<{ content: string }> = ({ content }) => {
+  const parts = answerParts(content);
+  if (!parts.some((part) => part.kind === 'code')) {
+    return <span className="whitespace-pre-wrap">{content}</span>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {parts.map((part, index) =>
+        part.kind === 'code' ? (
+          <AnswerCode key={index} code={part.code} />
+        ) : (
+          <p key={index} className="m-0 whitespace-pre-wrap break-words">
+            {part.text}
+          </p>
+        ),
+      )}
+    </div>
+  );
+};
+
 /** AI Chat panel with conversation management and message display. */
 export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   conversations = [],
@@ -90,6 +166,19 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   /** Deleting every conversation cannot be taken back, so it asks first. */
   const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
   const deleteAllQuestionId = useId();
+  /**
+   * The conversation whose deletion is asked: a bare "x" beside each title
+   * deleted it at the first click, while "Delete all" asked first.
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const deleteQuestionId = useId();
+  /** The asked deletion's Cancel, which takes the focus as the question opens. */
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingDelete !== null) cancelDeleteRef.current?.focus();
+  }, [confirmingDelete]);
+  /** Each conversation's delete button, which a cancelled question gives the focus back to. */
+  const deleteButtons = useRef(new Map<string, HTMLButtonElement>());
   const [ownDraft, setOwnDraft] = useState('');
   const inputValue = draft ?? ownDraft;
   const setInputValue = onDraftChange ?? setOwnDraft;
@@ -137,9 +226,11 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
   };
 
+  // The button and the conversation it makes bear one name, until the first
+  // answer names the conversation after its question.
   const handleNewChat = () => {
     if (!onNewConversation) return;
-    onNewConversation(t('ai.newChat', 'New Chat'));
+    onNewConversation(t('ai.newConversation'));
   };
 
   return (
@@ -147,9 +238,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       className="flex flex-col h-full gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="ai-chat-panel"
     >
+      {/* Said where it is always in view: the chat sees none of the orgs, and
+          "AI-powered insights for your Salesforce operations" read as if it
+          did. */}
       <PageHeader
         title={t('ai.title', 'AI Assistant')}
-        subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
+        subtitle={t('ai.subtitle')}
         icon="comment-discussion"
       />
       <ModuleHowTo module="ai" />
@@ -224,7 +318,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             onClick={handleNewChat}
             data-testid="new-conversation-btn"
           >
-            {t('ai.newConversation', 'New Conversation')}
+            {t('ai.newConversation')}
           </Button>
 
           <div
@@ -240,41 +334,101 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 {t('ai.noConversations', 'No conversations yet')}
               </p>
             )}
-            {conversations.map((conv) => (
-              // Two buttons side by side rather than one div pretending to
-              // be a button with a second div inside it pretending to be
-              // another. A native button brings its own focus, its own
-              // Enter and Space, and its own role — all of which were being
-              // rebuilt here by hand, and none of which a screen reader was
-              // being told about.
-              <div
-                key={conv.id}
-                className={`flex items-center justify-between w-full rounded transition-colors ${
-                  conv.id === activeConversationId
-                    ? 'bg-(--sf-bg-active) text-(--sf-text-active)'
-                    : 'text-text-primary hover:bg-(--sf-bg-hover)'
-                }`}
-              >
-                <button
-                  type="button"
-                  className="truncate flex-1 min-w-0 px-2 py-1.5 text-xs text-left"
-                  onClick={() => onSelectConversation?.(conv.id)}
-                  aria-current={conv.id === activeConversationId ? 'true' : undefined}
-                  data-testid={`conversation-item-${conv.id}`}
-                >
-                  {conv.title}
-                </button>
-                <button
-                  type="button"
-                  className="shrink-0 mr-1 px-1 py-1.5 text-xs"
-                  onClick={() => onDeleteConversation?.(conv.id)}
-                  data-testid={`delete-conversation-${conv.id}`}
-                  aria-label={t('common.delete', 'Delete')}
-                >
-                  x
-                </button>
-              </div>
-            ))}
+            {conversations.map((conv) => {
+              const active = conv.id === activeConversationId;
+              // When it was last written to, under its title: fifty
+              // conversations kept, and nothing but a title to tell them by.
+              const when = formatStoredDate(conv.updatedAt ?? conv.createdAt, (date) =>
+                formatRelativeTime(date),
+              );
+              return (
+                <React.Fragment key={conv.id}>
+                  {/* Two buttons side by side rather than one div pretending to
+                      be a button with a second div inside it pretending to be
+                      another. A native button brings its own focus, its own
+                      Enter and Space, and its own role — all of which were
+                      being rebuilt here by hand, and none of which a screen
+                      reader was being told about. */}
+                  <div
+                    className={`flex items-center justify-between w-full rounded transition-colors ${
+                      active
+                        ? 'bg-(--sf-bg-active) text-(--sf-text-active)'
+                        : 'text-text-primary hover:bg-(--sf-bg-hover)'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="flex-1 min-w-0 px-2 py-1.5 text-xs text-left"
+                      onClick={() => onSelectConversation?.(conv.id)}
+                      aria-current={active ? 'true' : undefined}
+                      data-testid={`conversation-item-${conv.id}`}
+                    >
+                      <span className="block truncate">{conv.title}</span>
+                      {when && (
+                        // In the row's own colour: the secondary one read under
+                        // 4.5:1 on the hover background of three themes.
+                        <span
+                          className="block truncate"
+                          data-testid={`conversation-when-${conv.id}`}
+                        >
+                          {when}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      ref={(button) => {
+                        if (button) deleteButtons.current.set(conv.id, button);
+                        else deleteButtons.current.delete(conv.id);
+                      }}
+                      type="button"
+                      className="shrink-0 mr-1 px-1 py-1.5 text-xs"
+                      onClick={() => setConfirmingDelete(conv.id)}
+                      data-testid={`delete-conversation-${conv.id}`}
+                      aria-label={t('ai.deleteConversation', { title: conv.title })}
+                      title={t('ai.deleteConversation', { title: conv.title })}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  </div>
+                  {confirmingDelete === conv.id && (
+                    <div
+                      className="flex flex-col gap-1 px-2 py-1"
+                      data-testid={`delete-conversation-question-${conv.id}`}
+                    >
+                      <p id={deleteQuestionId} className="text-xs text-text-primary">
+                        {t('ai.deleteConfirm', { title: conv.title })}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-describedby={deleteQuestionId}
+                          onClick={() => {
+                            setConfirmingDelete(null);
+                            onDeleteConversation?.(conv.id);
+                          }}
+                          data-testid={`delete-conversation-confirm-${conv.id}`}
+                        >
+                          {t('common.delete')}
+                        </Button>
+                        <Button
+                          ref={cancelDeleteRef}
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setConfirmingDelete(null);
+                            deleteButtons.current.get(conv.id)?.focus();
+                          }}
+                          data-testid={`delete-conversation-cancel-${conv.id}`}
+                        >
+                          {t('common.cancel')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
 
           {onDeleteAllConversations && conversations.length > 0 && (
@@ -327,10 +481,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             <EmptyState
               icon={<Icon name="comment-discussion" />}
               title={t('ai.selectOrCreate', 'Select or create a conversation')}
-              description={t(
-                'ai.startDescription',
-                'Start a new conversation to get AI-powered help',
-              )}
+              description={t('ai.startDescription')}
               data-testid="chat-empty-state"
             />
           ) : (
@@ -370,14 +521,18 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                           {msg.role === 'user' ? t('ai.speakerYou') : t('ai.speakerAssistant')}
                         </span>
                         <div
-                          className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap ${
+                          className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
                             msg.role === 'user'
-                              ? 'bg-(--sf-button-bg) text-(--sf-button-fg)'
-                              : 'bg-(--sf-bg-inactive-selection) text-text-primary'
+                              ? 'whitespace-pre-wrap bg-(--sf-button-bg) text-(--sf-button-fg)'
+                              : 'min-w-0 bg-(--sf-bg-inactive-selection) text-text-primary'
                           }`}
                           data-testid={`message-bubble-${msg.role}`}
                         >
-                          {msg.content}
+                          {msg.role === 'user' ? (
+                            msg.content
+                          ) : (
+                            <AnswerContent content={msg.content} />
+                          )}
                         </div>
                       </div>
                     ))}

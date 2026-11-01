@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
-import { Download, Upload, FileCheck, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Check, Download, Upload, FileCheck, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -13,21 +13,14 @@ import { cn } from '../../theme';
  *
  * There is no Settings category: SandForge's settings are VS Code settings,
  * which VS Code itself shares, and the category this panel offered exported
- * none of them.
+ * none of them. `forgePlans` holds Forge's templates (`forge:templates`),
+ * and says so: "Forge Plans" named nothing the Forge page shows.
  */
 const CONFIG_CATEGORIES = [
-  {
-    key: 'syncMappings',
-    labelKey: 'config.categories.syncMappings',
-    defaultLabel: 'Sync Mappings',
-  },
-  { key: 'forgePlans', labelKey: 'config.categories.forgePlans', defaultLabel: 'Forge Plans' },
-  { key: 'pipelines', labelKey: 'config.categories.pipelines', defaultLabel: 'Pipelines' },
-  {
-    key: 'anonymizationTemplates',
-    labelKey: 'config.categories.anonymizationTemplates',
-    defaultLabel: 'Anonymization Templates',
-  },
+  { key: 'syncMappings', labelKey: 'config.categories.syncMappings' },
+  { key: 'forgePlans', labelKey: 'config.categories.forgePlans' },
+  { key: 'pipelines', labelKey: 'config.categories.pipelines' },
+  { key: 'anonymizationTemplates', labelKey: 'config.categories.anonymizationTemplates' },
 ] as const;
 
 type CategoryKey = (typeof CONFIG_CATEGORIES)[number]['key'];
@@ -141,15 +134,8 @@ export const ConfigProfilePanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4" data-testid="config-profile-panel">
-      <h2 className="text-sm font-semibold text-text-primary">
-        {t('config.profiles.title', 'Configuration Profiles')}
-      </h2>
-      <p className="text-xs text-text-secondary">
-        {t(
-          'config.profiles.description',
-          'Export and import your SandForge configuration to share with team members or backup your setup.',
-        )}
-      </p>
+      <h2 className="text-sm font-semibold text-text-primary">{t('config.profiles.title')}</h2>
+      <p className="text-xs text-text-secondary">{t('config.profiles.description')}</p>
 
       {/* ── Export Section ── */}
       <div
@@ -167,9 +153,13 @@ export const ConfigProfilePanel: React.FC = () => {
           {CONFIG_CATEGORIES.map((cat) => {
             const count = getEntryCount(cat.key);
             const selected = selectedCategories.has(cat.key);
+            // Pressed or not, said in words and by a tick: border and colour
+            // alone told it, and the four chips looked alike.
             return (
               <button
                 key={cat.key}
+                type="button"
+                aria-pressed={selected}
                 className={cn(
                   'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-all',
                   selected
@@ -179,7 +169,8 @@ export const ConfigProfilePanel: React.FC = () => {
                 onClick={() => toggleCategory(cat.key)}
                 data-testid={`cat-toggle-${cat.key}`}
               >
-                <span>{t(cat.labelKey, cat.defaultLabel)}</span>
+                {selected && <Check className="w-3.5 h-3.5" aria-hidden="true" />}
+                <span>{t(cat.labelKey)}</span>
                 {count > 0 && <Badge variant="default">{count}</Badge>}
               </button>
             );
@@ -195,7 +186,7 @@ export const ConfigProfilePanel: React.FC = () => {
           data-testid="export-btn"
         >
           <Download className="w-3.5 h-3.5 mr-1" />
-          {t('config.profiles.exportBtn', 'Export Profile')}
+          {t('config.profiles.exportBtn')}
         </Button>
 
         {exportMutation.data?.success && (
@@ -254,10 +245,7 @@ export const ConfigProfilePanel: React.FC = () => {
             'text-xs font-mono text-text-primary placeholder:text-text-secondary',
             'focus:outline-hidden focus:border-active resize-none',
           )}
-          placeholder={t(
-            'config.profiles.importPlaceholder',
-            'Paste configuration profile JSON here...',
-          )}
+          placeholder={t('config.profiles.importPlaceholder')}
           value={importJson}
           onChange={(e) => {
             setImportJson(e.target.value);
@@ -300,7 +288,7 @@ export const ConfigProfilePanel: React.FC = () => {
             data-testid="import-btn"
           >
             <Upload className="w-3.5 h-3.5 mr-1" />
-            {t('config.profiles.importBtn', 'Import Profile')}
+            {t('config.profiles.importBtn')}
           </Button>
         </div>
 
@@ -320,9 +308,8 @@ export const ConfigProfilePanel: React.FC = () => {
             )}
             <span>
               {validationResult.valid
-                ? t('config.profiles.validProfile', 'Valid profile')
-                : (validationResult.error ??
-                  t('config.profiles.invalidProfile', 'Invalid profile'))}
+                ? t('config.profiles.validProfile')
+                : (validationResult.error ?? t('config.profiles.invalidProfile'))}
             </span>
           </div>
         )}

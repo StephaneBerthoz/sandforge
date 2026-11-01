@@ -90,8 +90,6 @@ export interface SettingsPageData {
   updateSetting: <K extends keyof SettingsValues>(key: K, value: SettingsValues[K]) => void;
   /** Save current settings to the extension. */
   handleSave: () => void;
-  /** Reset settings to defaults. */
-  handleReset: () => void;
   /** Whether settings mutation is in flight. */
   saving: boolean;
   /** AI status data (enabled, provider, model). */
@@ -150,7 +148,6 @@ export interface SettingsPageData {
 export function useSettingsPageData(
   initialSettings?: SettingsValues,
   onSave?: (settings: SettingsValues) => void,
-  onReset?: () => void,
 ): SettingsPageData {
   const [settings, setSettings] = useState<SettingsValues>(() => {
     if (initialSettings) return initialSettings;
@@ -286,11 +283,6 @@ export function useSettingsPageData(
     onSave?.(toSave);
   };
 
-  const handleReset = (): void => {
-    setSettings(defaultSettings);
-    onReset?.();
-  };
-
   const saveAiKey = (apiKey: string, errorResolution?: boolean): void => {
     aiSaveKeyMutation.mutate({
       apiKey,
@@ -318,7 +310,6 @@ export function useSettingsPageData(
     settings,
     updateSetting,
     handleSave,
-    handleReset,
     saving: settingsUpdateMutation.loading,
     aiStatus: aiStatusQuery.data ?? undefined,
     aiStatusLoading: aiStatusQuery.loading,

@@ -2483,12 +2483,11 @@
   },
   "ai": {
     "title": "AI アシスタント",
-    "subtitle": "Salesforce 操作のための AI 分析を取得しましょう",
+    "subtitle": "Salesforce のデータ作業について Claude に質問できます。Claude は組織を参照しません。エラー、クエリ、項目名を貼り付けてください。",
     "newConversation": "新規会話",
-    "newChat": "新規チャット",
     "noConversations": "会話がありません",
     "selectOrCreate": "会話を選択または作成してください",
-    "startDescription": "新しい会話を開始して AI のサポートを受けましょう",
+    "startDescription": "質問に関係するエラー、クエリ、項目名を貼り付けてください。",
     "noMessages": "メッセージを送信して会話を開始してください",
     "placeholder": "メッセージを入力...（Enter で送信、Shift+Enter で改行）",
     "send": "送信",
@@ -2517,7 +2516,11 @@
     "deleteAllConfirm_other": "このマシンに保存されている{{count}}件の会話を削除しますか？元に戻すことはできません。",
     "conversationLog": "会話",
     "speakerYou": "あなた:",
-    "speakerAssistant": "アシスタント:"
+    "speakerAssistant": "アシスタント:",
+    "copyCode": "コードをコピー",
+    "codeCopied": "コードをコピーしました",
+    "deleteConversation": "「{{title}}」を削除",
+    "deleteConfirm": "会話「{{title}}」を削除しますか？元に戻すことはできません。"
   },
   "notifications": {
     "title": "通知"
@@ -2694,19 +2697,16 @@
   "settings": {
     "title": "設定",
     "general": "一般",
-    "advanced": "詳細設定",
-    "profiles": "プロファイル",
+    "profiles": "エクスポート / インポート",
     "language": "言語",
     "languageLoadFailed": "{{language}} を読み込めなかったため、画面は現在の言語のままです。",
-    "clearCache": "キャッシュをクリア",
-    "resetSettings": "デフォルトにリセット",
-    "telemetry": "テレメトリ",
+    "telemetry": "診断",
     "telemetryStatus": "ステータス",
     "telemetryEnabled": "有効",
     "telemetryDisabled": "無効",
     "telemetryEventCount": "記録された診断イベント",
-    "telemetryEnable": "テレメトリを有効にする",
-    "telemetryDisable": "テレメトリを無効にする",
+    "telemetryEnable": "診断をオンにする",
+    "telemetryDisable": "診断をオフにする",
     "telemetryUnavailable": "利用不可",
     "ai": "AI",
     "aiStatus": "ステータス",
@@ -2717,15 +2717,23 @@
     "aiKeyConfigured": "キー設定済み",
     "aiKeySaved": "キーを保存しました",
     "aiHint": "キーは VSCode のシークレットボールトに保存され、設定やログには書き込まれません。",
-    "aiSends": "AI がオンの間、次の内容がお客様のキーで Anthropic に送信されます。チャットは入力内容をそれまでの会話とともに送信し、NL2SOQL は質問を組織のオブジェクト名と項目名とともに送信します。パイプラインの下書き、カスタムペルソナ、AI 項目ルールは、その説明、または項目名と指示を送信します。Agentforce エージェントのテストデータ用のシナリオ下書きは、シナリオのテキスト (メールアドレスと電話番号はマスク済み)、その言語、組織のケースの選択リスト値、選択したエージェントのトピック名とアクション名を送信し、レコードは決して送信しません。",
-    "aiSendsFailures": "失敗した実行の修正案は、その実行のエラーメッセージを Salesforce ID を除いて、誰も操作しなくても送信します。エラーメッセージにはレコードの値が含まれることがあります。",
+    "aiSendsFailures": "失敗した実行の修正案: その実行のエラーメッセージを Salesforce ID を除いて、誰も操作しなくても送信します。エラーメッセージにはレコードの値が含まれることがあります。",
     "aiErrorResolution": "失敗した実行の修正を提案する（エラーメッセージを送信します）",
     "aiSaveAndTurnOn": "キーを保存して AI をオンにする",
     "aiTurnOn": "AI をオンにする",
     "aiTurnOff": "AI をオフにする",
     "aiRemoveKey": "キーを削除",
     "aiRemoveKeyConfirm": "キーを削除しますか？AI はオフになり、このマシンに保存されている会話は削除されます。",
-    "aiKeyRemoved_other": "キーを削除しました。AI はオフになり、{{count}}件の会話が削除されました。"
+    "aiKeyRemoved_other": "キーを削除しました。AI はオフになり、{{count}}件の会話が削除されました。",
+    "telemetryDesc": "診断のため拡張機能のエラーをローカルのログに記録します。ネットワーク経由では何も送信されません。",
+    "aiSendsIntro": "AI がオンの間、次の内容がお客様のキーで Anthropic に送信されます。",
+    "aiSendsChat": "AI アシスタント: 入力内容とそれまでの会話",
+    "aiSendsForge": "Forge の AI タブ: 質問、組織のオブジェクト名、質問で挙げたオブジェクトの項目",
+    "aiSendsPipeline": "自動化のパイプライン下書き: その説明",
+    "aiSendsSeed": "Seed のカスタムペルソナと AI 項目ルール: その説明、または項目名と指示",
+    "aiSendsScenario": "Seed の「自分のテキストから下書き」: テキスト (メールアドレスと電話番号はマスク済み)、その言語、組織のケースの選択リスト値、選択したエージェントのトピック名とアクション名。レコードは決して送信しません",
+    "vscodeSettingsDesc": "バッチサイズ、Production Guard とその判断の記録、Forge のグラフ表示は VS Code の設定です。ボタンを押すと Production Guard の設定が開きます。その他の設定はそこで「sandforge」を検索してください。",
+    "vscodeSettingsOpen": "VS Code のその他の設定"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3184,7 +3192,7 @@
       "tip": "sandforge.grappe.autoActivateThreshold を下げると小さな実行も表示されますが、Grappe 自体は何も実行せず、実行を速くもしません。"
     },
     "ai": {
-      "step1": "ページに AI アシスタントが未設定です と表示されたら、設定を開く をクリックし、AI タブを開きます。",
+      "step1": "ページに AI アシスタントが未設定です と表示されたら、設定を開く をクリックします。",
       "step2": "Anthropic のキーを API キー に貼り付け、キーを保存して AI をオンにする をクリックします。",
       "step3": "AI アシスタント に戻り、新規会話 をクリックします。",
       "step4": "メッセージ欄に質問を入力して Enter キーを押すか、送信 をクリックします。",
@@ -4982,25 +4990,25 @@
   "config": {
     "categories": {
       "syncMappings": "Sync マッピング",
-      "forgePlans": "Forge プラン",
+      "forgePlans": "Forge テンプレート",
       "pipelines": "パイプライン",
       "anonymizationTemplates": "匿名化テンプレート"
     },
     "profiles": {
-      "title": "構成プロファイル",
-      "description": "SandForge の構成をエクスポート・インポートして、チームメンバーと共有したりセットアップをバックアップしたりできます。",
+      "title": "SandForge の構成を共有",
+      "description": "SandForge に保存した内容を JSON でエクスポートして、チームと共有したりコピーを保管したりできます。エクスポートしたものはここでインポートできます。",
       "export": "エクスポート",
       "import": "インポート",
-      "exportBtn": "プロファイルをエクスポート",
-      "importBtn": "プロファイルをインポート",
-      "importPlaceholder": "構成プロファイルの JSON をここに貼り付けてください...",
+      "exportBtn": "選択したものをエクスポート",
+      "importBtn": "インポート",
+      "importPlaceholder": "エクスポートした JSON をここに貼り付けてください…",
       "overwrite": "既存のエントリを上書き",
       "validate": "検証",
       "download": "JSON をダウンロード",
       "exportSuccess": "{{categories}}カテゴリから{{entries}}エントリをエクスポートしました",
       "importSuccess": "{{categories}}カテゴリから{{entries}}エントリをインポートしました",
-      "validProfile": "有効なプロファイル",
-      "invalidProfile": "無効なプロファイル"
+      "validProfile": "有効なエクスポートです",
+      "invalidProfile": "有効なエクスポートではありません"
     }
   },
   "governance": {

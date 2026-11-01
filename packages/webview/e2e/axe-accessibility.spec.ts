@@ -7229,13 +7229,37 @@ for (const theme of SCANNED_THEMES) {
             'Here is a test response with a code block:\n```sql\nSELECT Id FROM Account\n```',
           timestamp: new Date().toISOString(),
         },
+        title: 'Test query',
       });
       await page
         .getByTestId('message-bubble-assistant')
         .waitFor({ state: 'visible', timeout: 5000 });
+      // The block is code, its Copy beside it, and the conversation is named
+      // after its first question.
+      await expect(page.getByTestId('answer-code').locator('pre code')).toHaveText(
+        'SELECT Id FROM Account',
+      );
+      await expect(page.getByTestId('conversation-item-axe-conv-2')).toContainText('Test query');
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="answer-code"]'),
+        'axe measured neither the code nor its Copy',
+      ).toBeGreaterThan(1);
+
+      // A conversation's deletion asked, beside the list.
+      await page.getByTestId('delete-conversation-axe-conv-2').click();
+      await expect(page.getByTestId('delete-conversation-question-axe-conv-2')).toBeVisible();
+      const asked = await checkAccessibility(page);
+      expectNoViolations(asked);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          asked,
+          '[data-testid="delete-conversation-question-axe-conv-2"]',
+        ),
+      ).toBeGreaterThan(1);
     });
 
     test('Welcome overlay open over a page', async ({ page }) => {
@@ -8039,10 +8063,10 @@ for (const theme of SCANNED_THEMES) {
     });
 
     test('Settings, each tab open', async ({ page }) => {
-      // The page scan only ever saw the General tab: the four others were
-      // never rendered while axe looked.
+      // The page scan only ever saw the General tab: the others were never
+      // rendered while axe looked.
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
-      for (const tab of ['general', 'ai', 'advanced', 'profiles', 'telemetry']) {
+      for (const tab of ['general', 'ai', 'profiles', 'telemetry']) {
         await page.locator(`#tab-${tab}`).click();
         const panel = page.locator(`#tabpanel-${tab}`);
         await panel.waitFor({ state: 'visible', timeout: 5000 });
@@ -8055,6 +8079,24 @@ for (const theme of SCANNED_THEMES) {
           `axe measured no text of the ${tab} tab`,
         ).toBeGreaterThan(0);
       }
+      // What lives in VS Code's Settings, on General, and what Diagnostics
+      // records, on its tab, were both measured.
+      await page.locator('#tab-general').click();
+      expect(
+        await contrastMeasuredIn(
+          page,
+          await checkAccessibility(page),
+          '[data-testid="vscode-settings"]',
+        ),
+      ).toBeGreaterThan(1);
+      await page.locator('#tab-telemetry').click();
+      expect(
+        await contrastMeasuredIn(
+          page,
+          await checkAccessibility(page),
+          '[data-testid="telemetry-description"]',
+        ),
+      ).toBeGreaterThan(0);
     });
 
     test('Settings AI tab with a key stored and AI on: what is sent, its switches, and the removal of the key asked', async ({
@@ -12870,6 +12912,40 @@ for (const theme of STATE_THEMES) {
         },
       });
       await page.getByTestId('ai-answered-elsewhere').waitFor({ state: 'visible', timeout: 5000 });
+      await expectReadable(page, theme, '[data-testid="ai-chat-panel"]');
+    });
+
+    test('AI answer holding a code block, its conversation named by its question, and its deletion asked', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'ai', theme);
+      await bridge.respondToNext('ai:status', 'ai:status:response', { enabled: true });
+      await page.getByTestId('ai-chat-panel').waitFor({ timeout: 10_000 });
+      await createConversation(bridge, page, 'axe-code', 'New conversation');
+      await page.getByTestId('chat-input').fill('Accounts without contacts?');
+      await page.getByTestId('send-btn').click();
+      await bridge.respond('ai:chat:response', {
+        conversationId: 'axe-code',
+        message: {
+          id: 'msg-axe-code',
+          role: 'assistant',
+          content:
+            "Run this in Forge's SOQL tab:\n```sql\nSELECT Id, Name FROM Account\nWHERE Id NOT IN (SELECT AccountId FROM Contact)\n```\nIt lists the accounts that have no contact.",
+          timestamp: new Date().toISOString(),
+        },
+        title: 'Accounts without contacts?',
+      });
+      // The code sits on the input background inside the answer's bubble.
+      await page.getByTestId('answer-code').waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByTestId('conversation-item-axe-code')).toContainText(
+        'Accounts without contacts?',
+      );
+      await expectReadable(page, theme, '[data-testid="ai-chat-panel"]');
+
+      await page.getByTestId('delete-conversation-axe-code').click();
+      await page
+        .getByTestId('delete-conversation-question-axe-code')
+        .waitFor({ state: 'visible', timeout: 5000 });
       await expectReadable(page, theme, '[data-testid="ai-chat-panel"]');
     });
 

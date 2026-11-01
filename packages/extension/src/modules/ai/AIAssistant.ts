@@ -131,7 +131,15 @@ function alternating(messages: ChatMessage[]): ChatMessage[] {
   return turns;
 }
 
-/** Default system prompt for SandForge assistant. */
+/**
+ * Default system prompt for SandForge assistant.
+ *
+ * The AI page shows an answer as plain text, its ``` blocks set apart as code
+ * with a Copy button: it asked for "code and configurations formatted
+ * clearly", and the answers came in bold, headings and tables printed as
+ * markup. Nothing of the user's orgs or runs reaches the model either, so it
+ * says so rather than guess why a run failed.
+ */
 const SYSTEM_PROMPT = `You are SandForge AI Assistant, an expert in Salesforce data management.
 You help users with:
 - Seed data generation strategies and field configuration
@@ -142,7 +150,26 @@ You help users with:
 
 Always provide concise, actionable answers. When suggesting configurations,
 use the exact field API names and Salesforce conventions.
-Format code and configurations clearly.`;
+You do not see the user's orgs, records or SandForge runs: when an answer
+depends on them, ask for the error message, the query or the field names.
+Write plain text; put code and SOQL only in \`\`\` blocks; no bold, headings or tables.`;
+
+/** The most characters of the first question a conversation's title keeps. */
+const TITLE_LENGTH = 40;
+
+/**
+ * A conversation's title, from its first question: its first characters on
+ * one line, cut at a word where one ends close enough. Every conversation was
+ * called "New Chat" for good, and fifty of them could not be told apart.
+ */
+export function titleFromQuestion(question: string): string {
+  const line = question.replace(/\s+/g, ' ').trim();
+  if (line.length <= TITLE_LENGTH) return line;
+  // One character more, so a word that ends on the last one kept is whole.
+  const lastSpace = line.slice(0, TITLE_LENGTH + 1).lastIndexOf(' ');
+  const end = lastSpace >= TITLE_LENGTH / 2 ? lastSpace : TITLE_LENGTH;
+  return `${line.slice(0, end).trimEnd()}…`;
+}
 
 /**
  * AI Assistant service that manages conversations,
@@ -286,6 +313,10 @@ export class AIAssistant {
       tokenCount: result.tokenCount,
     };
 
+    // The first exchange kept names the conversation, from its question; a
+    // question that got no answer leaves it as it was created.
+    const titled = conversation.messages.length === 0 ? titleFromQuestion(userMessage) : '';
+    if (titled) conversation.title = titled;
     conversation.messages.push(userMsg, assistantMsg);
     conversation.totalTokens += result.tokenCount;
     conversation.updatedAt = new Date().toISOString();

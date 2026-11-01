@@ -6,9 +6,9 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## How to
 
-1. If the page says AI Assistant Not Configured, click Go to Settings, then the AI tab.
+1. If the page says AI Assistant not configured, click Go to Settings.
 2. Paste your Anthropic key into API key and click Save key and turn on AI.
-3. Back in AI Assistant, click New Conversation.
+3. Back in AI Assistant, click New conversation.
 4. Type your question in the message box and press Enter, or click Send.
 
 **Tip:** The chat reads none of your orgs: paste into your question the error, query or field names it should look at.

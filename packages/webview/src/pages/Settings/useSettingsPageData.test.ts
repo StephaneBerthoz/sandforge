@@ -73,22 +73,11 @@ describe('useSettingsPageData', () => {
     expect(onSave).toHaveBeenCalledWith(defaultSettings);
   });
 
-  it('should reset to defaults on handleReset', () => {
-    const onReset = vi.fn();
-    const { result } = renderHook(() => useSettingsPageData(undefined, undefined, onReset));
-
-    act(() => {
-      result.current.updateSetting('language', 'fr');
-    });
-
-    expect(result.current.settings.language).toBe('fr');
-
-    act(() => {
-      result.current.handleReset();
-    });
-
-    expect(result.current.settings.language).toBe('en');
-    expect(onReset).toHaveBeenCalled();
+  it('offers no reset: the one setting it held, the language, is kept as it applies', () => {
+    // "Reset to Defaults" put the interface back in English under a Confirm
+    // that never said so, and was the page's only use for it.
+    const { result } = renderHook(() => useSettingsPageData());
+    expect('handleReset' in result.current).toBe(false);
   });
 
   it('should manage AI API key state', () => {

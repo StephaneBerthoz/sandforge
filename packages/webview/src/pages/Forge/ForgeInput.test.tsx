@@ -269,8 +269,9 @@ describe('ForgeInput', () => {
         i18n.t('forge.ai.notConfiguredTitle'),
       );
       expect(screen.queryByTestId('forge-input-ai')).toBeNull();
+      // On the AI tab of Settings, where the key is set: it opened General.
       fireEvent.click(screen.getByTestId('forge-ai-open-settings'));
-      expect(navigate).toHaveBeenCalledWith('settings');
+      expect(navigate).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
     });
 
     it('sends the prompt to be drafted against the source org, and runs nothing', () => {

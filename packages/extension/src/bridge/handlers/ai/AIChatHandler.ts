@@ -393,6 +393,9 @@ export class AIChatHandler implements DomainHandler {
         this.persistConversationFromMemory(conversation);
       }
 
+      // With its title, which the first answer kept sets from the question:
+      // the list showed the title the conversation was created with until the
+      // panel read the index again.
       const chatResponse = buildResponse(this.deps, msg, 'ai:chat:response', {
         conversationId: payload.conversationId,
         message: {
@@ -402,6 +405,7 @@ export class AIChatHandler implements DomainHandler {
           timestamp: aiResponse.timestamp,
           tokenCount: aiResponse.tokenCount,
         },
+        ...(conversation ? { title: conversation.title } : {}),
       });
       this.deps.broker.postToWebview(chatResponse);
       this.deps.log(`[TX] ai:chat:response`);

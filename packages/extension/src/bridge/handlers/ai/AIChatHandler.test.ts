@@ -631,6 +631,39 @@ describe('AIChatHandler', () => {
     });
   });
 
+  describe('the title the first answer sets', () => {
+    // Every conversation kept the title it was created with, "New Chat", and
+    // the list of fifty could not be told apart.
+    it('is sent with the answer and kept in the index the list reads', async () => {
+      const callFn = vi
+        .fn<AICallFn>()
+        .mockResolvedValue({ content: 'Case', tokenCount: 3, model: 'm', durationMs: 1 });
+      const assistant = new AIAssistant(callFn, {
+        provider: 'anthropic',
+        model: 'test-model',
+        maxTokens: 1024,
+      });
+      handler.setAIAssistant(assistant);
+      await handler.handle(createMsg('ai:conversation:create', { title: 'New conversation' }));
+      const [{ id }] = assistant.listConversations();
+
+      await handler.handle(
+        createMsg('ai:chat', { conversationId: id, message: 'Which object holds cases?' }),
+      );
+      await handler.handle(createMsg('ai:conversation:list'));
+
+      const posted = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> });
+      const answer = posted.find((m) => m.type === 'ai:chat:response');
+      expect(answer?.payload.title).toBe('Which object holds cases?');
+      const list = posted.find((m) => m.type === 'ai:conversation:list:response');
+      expect(list?.payload.conversations).toEqual([
+        expect.objectContaining({ id, title: 'Which object holds cases?', messageCount: 2 }),
+      ]);
+    });
+  });
+
   describe('a question the model did not answer', () => {
     // The AI page drops a failed question from the thread on the strength of
     // this: reloaded, the conversation is what the next turn sends.

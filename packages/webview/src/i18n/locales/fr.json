@@ -2642,12 +2642,11 @@
   },
   "ai": {
     "title": "Assistant IA",
-    "subtitle": "Obtenez des insights IA pour vos opérations Salesforce",
+    "subtitle": "Posez à Claude vos questions sur les données Salesforce. Il ne voit pas vos orgs : collez l'erreur, la requête ou les noms de champs.",
     "newConversation": "Nouvelle conversation",
-    "newChat": "Nouveau chat",
     "noConversations": "Aucune conversation",
     "selectOrCreate": "Sélectionnez ou créez une conversation",
-    "startDescription": "Commencez une nouvelle conversation pour obtenir de l'aide IA",
+    "startDescription": "Collez l'erreur, la requête ou les noms de champs dont parle votre question.",
     "noMessages": "Envoyez un message pour démarrer la conversation",
     "placeholder": "Tapez un message... (Entrée pour envoyer, Shift+Entrée pour nouvelle ligne)",
     "send": "Envoyer",
@@ -2657,18 +2656,18 @@
     "openConversation": "Ouvrir la conversation",
     "failedIn": "Votre question dans « {{title}} » n'a pas reçu de réponse : {{reason}}",
     "notConfigured": {
-      "title": "Assistant IA non configure",
+      "title": "Assistant IA non configuré",
       "description": "Pour utiliser les fonctionnalités IA, configurez votre clé API dans les Paramètres.",
       "configureButton": "Aller aux Paramètres"
     },
     "error": {
-      "overloaded": "Fournisseur AI temporairement surcharge. Reprise dans {{countdown}}.",
-      "rateLimit": "Limite d'appels AI atteinte. Reprise dans {{countdown}}.",
-      "auth": "Clé AI invalide ou absente. Ajoutez-la dans Paramètres SandForge > IA > Clé API.",
-      "invalidRequest": "Le fournisseur AI a refusé la requête comme invalide. Aucune nouvelle tentative.",
-      "cancelled": "Requête AI annulée.",
-      "transient": "Erreur AI temporaire. Réessayez.",
-      "unknown": "Erreur AI inattendue."
+      "overloaded": "Fournisseur IA temporairement surchargé. Reprise dans {{countdown}}.",
+      "rateLimit": "Limite d'appels IA atteinte. Reprise dans {{countdown}}.",
+      "auth": "Clé IA invalide ou absente. Ajoutez-la dans Paramètres SandForge > IA > Clé API.",
+      "invalidRequest": "Le fournisseur IA a refusé la requête comme invalide. Aucune nouvelle tentative.",
+      "cancelled": "Requête IA annulée.",
+      "transient": "Erreur IA temporaire. Réessayez.",
+      "unknown": "Erreur IA inattendue."
     },
     "conversations": "Conversations",
     "privacyNote": "Ce que vous tapez part chez Anthropic avec la conversation jusque-là. Les conversations restent sur cette machine, les 50 plus récentes.",
@@ -2677,7 +2676,11 @@
     "deleteAllConfirm_other": "Supprimer les {{count}} conversations conservées sur cette machine ? Elles ne pourront pas être récupérées.",
     "conversationLog": "Conversation",
     "speakerYou": "Vous :",
-    "speakerAssistant": "Assistant :"
+    "speakerAssistant": "Assistant :",
+    "copyCode": "Copier le code",
+    "codeCopied": "Code copié",
+    "deleteConversation": "Supprimer « {{title}} »",
+    "deleteConfirm": "Supprimer la conversation « {{title}} » ? Elle ne pourra pas être récupérée."
   },
   "notifications": {
     "title": "Notifications"
@@ -2870,20 +2873,17 @@
   },
   "settings": {
     "title": "Paramètres",
-    "general": "General",
-    "advanced": "Avancé",
-    "profiles": "Profils",
+    "general": "Général",
+    "profiles": "Exporter / Importer",
     "language": "Langue",
     "languageLoadFailed": "Impossible de charger {{language}} : l'interface reste dans sa langue actuelle.",
-    "clearCache": "Vider le cache",
-    "resetSettings": "Réinitialiser par défaut",
-    "telemetry": "Télémétrie",
+    "telemetry": "Diagnostic",
     "telemetryStatus": "Statut",
     "telemetryEnabled": "Activée",
     "telemetryDisabled": "Désactivée",
     "telemetryEventCount": "Événements de diagnostic enregistrés",
-    "telemetryEnable": "Activer la télémétrie",
-    "telemetryDisable": "Désactiver la télémétrie",
+    "telemetryEnable": "Activer le diagnostic",
+    "telemetryDisable": "Désactiver le diagnostic",
     "telemetryUnavailable": "Indisponible",
     "ai": "IA",
     "aiStatus": "Statut",
@@ -2894,8 +2894,7 @@
     "aiKeyConfigured": "Clé configurée",
     "aiKeySaved": "Clé enregistrée",
     "aiHint": "La clé est stockée dans le coffre de secrets VSCode et n’est jamais écrite dans les paramètres ni dans les journaux.",
-    "aiSends": "Tant que l'IA est activée, ceci part chez Anthropic, avec votre clé : le chat envoie ce que vous tapez avec la conversation jusque-là ; NL2SOQL envoie votre question avec les noms des objets et des champs de l'org ; un brouillon de pipeline, un persona personnalisé et une règle de champ IA envoient leur description, ou le nom du champ et sa consigne. Un brouillon de scénario pour les données de test d'un agent Agentforce envoie le texte du scénario, adresses e-mail et numéros de téléphone masqués, sa langue, les valeurs des listes de sélection Case de l'org et les noms des sujets et actions de l'agent choisi, jamais un enregistrement.",
-    "aiSendsFailures": "Les suggestions de correction envoient le message d'erreur d'une exécution en échec, ses Id Salesforce retirés, sans que personne n'appuie sur rien. Un message d'erreur peut citer des valeurs d'enregistrements.",
+    "aiSendsFailures": "Suggestions de correction pour les exécutions en échec : le message d'erreur d'une exécution en échec, ses Id Salesforce retirés, envoyé sans que personne n'appuie sur rien. Un message d'erreur peut citer des valeurs d'enregistrements.",
     "aiErrorResolution": "Suggérer des corrections pour les exécutions en échec, en envoyant leurs messages d'erreur",
     "aiSaveAndTurnOn": "Enregistrer la clé et activer l'IA",
     "aiTurnOn": "Activer l'IA",
@@ -2903,7 +2902,16 @@
     "aiRemoveKey": "Supprimer la clé",
     "aiRemoveKeyConfirm": "Supprimer la clé ? L'IA est désactivée, et les conversations conservées sur cette machine sont supprimées.",
     "aiKeyRemoved_one": "Clé supprimée : l'IA est désactivée, et {{count}} conversation a été supprimée.",
-    "aiKeyRemoved_other": "Clé supprimée : l'IA est désactivée, et {{count}} conversations ont été supprimées."
+    "aiKeyRemoved_other": "Clé supprimée : l'IA est désactivée, et {{count}} conversations ont été supprimées.",
+    "telemetryDesc": "Enregistre les erreurs de l'extension dans un journal local, pour le diagnostic. Rien n'est envoyé sur le réseau.",
+    "aiSendsIntro": "Tant que l'IA est activée, ceci part chez Anthropic, avec votre clé :",
+    "aiSendsChat": "Assistant IA : ce que vous tapez, avec la conversation jusque-là",
+    "aiSendsForge": "Forge, onglet IA : votre question, les noms des objets de l'org et les champs des objets qu'elle nomme",
+    "aiSendsPipeline": "Automatisation, brouillons de pipeline : votre description",
+    "aiSendsSeed": "Seed, personas personnalisés et règles de champ IA : leur description, ou le nom du champ et sa consigne",
+    "aiSendsScenario": "Seed, Rédiger depuis votre propre texte : votre texte, adresses e-mail et numéros de téléphone masqués, sa langue, les valeurs des listes de sélection Case de l'org et les noms des sujets et actions de l'agent choisi, jamais un enregistrement",
+    "vscodeSettingsDesc": "Les tailles de lot, Production Guard et le relevé de ses décisions, et la vue en graphe de Forge sont des paramètres de VS Code. Le bouton les ouvre sur Production Guard : cherchez « sandforge » pour voir les autres.",
+    "vscodeSettingsOpen": "Plus de paramètres dans VS Code"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3362,7 +3370,7 @@
       "tip": "Baissez sandforge.grappe.autoActivateThreshold pour suivre des exécutions plus petites ; Grappe n'exécute rien lui-même et n'accélère aucune exécution."
     },
     "ai": {
-      "step1": "Si la page indique que l'Assistant IA n'est pas configuré, cliquez sur Aller aux Paramètres, puis sur l'onglet IA.",
+      "step1": "Si la page indique Assistant IA non configuré, cliquez sur Aller aux Paramètres.",
       "step2": "Collez votre clé Anthropic dans Clé API et cliquez sur Enregistrer la clé et activer l'IA.",
       "step3": "De retour dans Assistant IA, cliquez sur Nouvelle conversation.",
       "step4": "Tapez votre question dans la zone de message et appuyez sur Entrée, ou cliquez sur Envoyer.",
@@ -5292,25 +5300,25 @@
   "config": {
     "categories": {
       "syncMappings": "Mappings Sync",
-      "forgePlans": "Plans Forge",
+      "forgePlans": "Modèles Forge",
       "pipelines": "Pipelines",
       "anonymizationTemplates": "Modèles d'anonymisation"
     },
     "profiles": {
-      "title": "Profils de configuration",
-      "description": "Exportez et importez votre configuration SandForge pour la partager avec votre équipe ou sauvegarder votre configuration.",
+      "title": "Partager votre configuration SandForge",
+      "description": "Exportez en JSON ce que vous avez enregistré dans SandForge, pour le partager avec votre équipe ou en garder une copie, et importez ici un export.",
       "export": "Exporter",
       "import": "Importer",
-      "exportBtn": "Exporter le profil",
-      "importBtn": "Importer le profil",
-      "importPlaceholder": "Collez le JSON du profil de configuration ici...",
+      "exportBtn": "Exporter la sélection",
+      "importBtn": "Importer",
+      "importPlaceholder": "Collez ici le JSON d'un export…",
       "overwrite": "Écraser les entrées existantes",
       "validate": "Valider",
       "download": "Télécharger le JSON",
       "exportSuccess": "{{entries}} entrées exportées depuis {{categories}} catégories",
       "importSuccess": "{{entries}} entrées importées depuis {{categories}} catégories",
-      "validProfile": "Profil valide",
-      "invalidProfile": "Profil invalide"
+      "validProfile": "Export valide",
+      "invalidProfile": "Export non valide"
     }
   },
   "governance": {

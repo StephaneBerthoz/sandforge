@@ -156,6 +156,11 @@ export interface AIChatResponse extends BaseMessage {
     | {
         conversationId: string;
         message: AIConversationEntry;
+        /**
+         * The conversation's title once the answer is kept: its first
+         * question names it. Absent from an older host.
+         */
+        title?: string;
       }
     | { conversationId: string; code: 'CANCELLED' };
 }
@@ -188,7 +193,14 @@ export interface AIConversationDeletedResponse extends BaseMessage {
 export interface AIConversationListResponse extends BaseMessage {
   type: 'ai:conversation:list:response';
   payload: {
-    conversations: Array<{ id: string; title: string; createdAt: string; messageCount: number }>;
+    conversations: Array<{
+      id: string;
+      title: string;
+      createdAt: string;
+      messageCount: number;
+      /** When it was last written to; absent from entries kept before it was recorded. */
+      updatedAt?: string;
+    }>;
   };
 }
 

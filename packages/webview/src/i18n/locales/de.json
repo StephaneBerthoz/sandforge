@@ -2642,12 +2642,11 @@
   },
   "ai": {
     "title": "KI-Assistent",
-    "subtitle": "Erhalten Sie KI-gestützte Einblicke für Ihre Salesforce-Operationen",
+    "subtitle": "Fragen Sie Claude zur Datenarbeit in Salesforce. Er sieht Ihre Orgs nicht: Fügen Sie den Fehler, die Abfrage oder die Feldnamen ein.",
     "newConversation": "Neue Unterhaltung",
-    "newChat": "Neuer Chat",
     "noConversations": "Noch keine Unterhaltungen",
     "selectOrCreate": "Wählen oder erstellen Sie eine Unterhaltung",
-    "startDescription": "Starten Sie eine neue Unterhaltung für KI-gestützte Hilfe",
+    "startDescription": "Fügen Sie den Fehler, die Abfrage oder die Feldnamen ein, um die es in Ihrer Frage geht.",
     "noMessages": "Senden Sie eine Nachricht, um die Unterhaltung zu starten",
     "placeholder": "Nachricht eingeben... (Enter zum Senden, Shift+Enter für neue Zeile)",
     "send": "Senden",
@@ -2677,7 +2676,11 @@
     "deleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Unterhaltungen löschen? Sie lassen sich nicht wiederherstellen.",
     "conversationLog": "Unterhaltung",
     "speakerYou": "Sie:",
-    "speakerAssistant": "Assistent:"
+    "speakerAssistant": "Assistent:",
+    "copyCode": "Code kopieren",
+    "codeCopied": "Code kopiert",
+    "deleteConversation": "„{{title}}“ löschen",
+    "deleteConfirm": "Die Unterhaltung „{{title}}“ löschen? Sie lässt sich nicht wiederherstellen."
   },
   "notifications": {
     "title": "Benachrichtigungen"
@@ -2871,19 +2874,16 @@
   "settings": {
     "title": "Einstellungen",
     "general": "Allgemein",
-    "advanced": "Erweitert",
-    "profiles": "Profile",
+    "profiles": "Exportieren / Importieren",
     "language": "Sprache",
     "languageLoadFailed": "{{language}} konnte nicht geladen werden; die Oberfläche bleibt in der aktuellen Sprache.",
-    "clearCache": "Cache leeren",
-    "resetSettings": "Auf Standard zurücksetzen",
-    "telemetry": "Telemetrie",
+    "telemetry": "Diagnose",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Aktiviert",
     "telemetryDisabled": "Deaktiviert",
     "telemetryEventCount": "Aufgezeichnete Diagnoseereignisse",
-    "telemetryEnable": "Telemetrie aktivieren",
-    "telemetryDisable": "Telemetrie deaktivieren",
+    "telemetryEnable": "Diagnose aktivieren",
+    "telemetryDisable": "Diagnose deaktivieren",
     "telemetryUnavailable": "Nicht verfügbar",
     "ai": "KI",
     "aiStatus": "Status",
@@ -2894,8 +2894,7 @@
     "aiKeyConfigured": "Schlüssel konfiguriert",
     "aiKeySaved": "Schlüssel gespeichert",
     "aiHint": "Der Schlüssel wird im VSCode-Secret-Vault gespeichert und nie in Einstellungen oder Logs geschrieben.",
-    "aiSends": "Solange KI aktiviert ist, geht Folgendes mit Ihrem Schlüssel an Anthropic: Der Chat sendet, was Sie eingeben, mit dem bisherigen Gesprächsverlauf; NL2SOQL sendet Ihre Frage mit den Namen der Objekte und Felder der Org; ein Pipeline-Entwurf, eine eigene Persona und eine KI-Feldregel senden ihre Beschreibung bzw. den Namen des Felds und seine Anweisung. Der Entwurf eines Szenarios für Testdaten eines Agentforce-Agenten sendet Ihren Szenariotext mit maskierten E-Mail-Adressen und Telefonnummern, seine Sprache, die Auswahllistenwerte von Kundenvorgängen der Org und die Themen- und Aktionsnamen des gewählten Agenten, nie einen Datensatz.",
-    "aiSendsFailures": "Korrekturvorschläge für fehlgeschlagene Läufe senden die Fehlermeldung eines fehlgeschlagenen Laufs, ohne Salesforce-IDs, ohne dass jemand etwas anklickt. Eine Fehlermeldung kann Werte von Datensätzen zitieren.",
+    "aiSendsFailures": "Korrekturvorschläge für fehlgeschlagene Läufe: die Fehlermeldung eines fehlgeschlagenen Laufs, ohne Salesforce-IDs, gesendet, ohne dass jemand etwas anklickt. Eine Fehlermeldung kann Werte von Datensätzen zitieren.",
     "aiErrorResolution": "Korrekturen für fehlgeschlagene Läufe vorschlagen und dafür ihre Fehlermeldungen senden",
     "aiSaveAndTurnOn": "Schlüssel speichern und KI aktivieren",
     "aiTurnOn": "KI aktivieren",
@@ -2903,7 +2902,16 @@
     "aiRemoveKey": "Schlüssel entfernen",
     "aiRemoveKeyConfirm": "Den Schlüssel entfernen? KI wird deaktiviert, und die auf diesem Rechner gespeicherten Unterhaltungen werden gelöscht.",
     "aiKeyRemoved_one": "Schlüssel entfernt: KI ist deaktiviert, und {{count}} Unterhaltung wurde gelöscht.",
-    "aiKeyRemoved_other": "Schlüssel entfernt: KI ist deaktiviert, und {{count}} Unterhaltungen wurden gelöscht."
+    "aiKeyRemoved_other": "Schlüssel entfernt: KI ist deaktiviert, und {{count}} Unterhaltungen wurden gelöscht.",
+    "telemetryDesc": "Schreibt Fehler der Erweiterung zur Diagnose in ein lokales Protokoll. Es wird nichts über das Netzwerk gesendet.",
+    "aiSendsIntro": "Solange KI aktiviert ist, geht Folgendes mit Ihrem Schlüssel an Anthropic:",
+    "aiSendsChat": "KI-Assistent: was Sie eingeben, mit dem bisherigen Gesprächsverlauf",
+    "aiSendsForge": "Forge, Tab KI: Ihre Frage, die Namen der Objekte der Org und die Felder der Objekte, die sie nennt",
+    "aiSendsPipeline": "Automatisierung, Pipeline-Entwürfe: Ihre Beschreibung",
+    "aiSendsSeed": "Seed, eigene Personas und KI-Feldregeln: ihre Beschreibung bzw. der Name des Felds und seine Anweisung",
+    "aiSendsScenario": "Seed, Aus eigenem Text entwerfen: Ihr Text mit maskierten E-Mail-Adressen und Telefonnummern, seine Sprache, die Auswahllistenwerte von Kundenvorgängen der Org und die Themen- und Aktionsnamen des gewählten Agenten, nie ein Datensatz",
+    "vscodeSettingsDesc": "Batchgrößen, Production Guard mit dem Protokoll seiner Entscheidungen und die Graphansicht von Forge sind VS Code-Einstellungen. Die Schaltfläche öffnet sie bei Production Guard: Suchen Sie dort nach „sandforge“, um die anderen zu sehen.",
+    "vscodeSettingsOpen": "Weitere Einstellungen in VS Code"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3362,7 +3370,7 @@
       "tip": "Senken Sie sandforge.grappe.autoActivateThreshold, um kleinere Läufe zu verfolgen; Grappe führt selbst nichts aus und macht keinen Lauf schneller."
     },
     "ai": {
-      "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf Zu den Einstellungen und dann auf die Registerkarte KI.",
+      "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf Zu den Einstellungen.",
       "step2": "Fügen Sie Ihren Anthropic-Schlüssel unter API-Schlüssel ein und klicken Sie auf Schlüssel speichern und KI aktivieren.",
       "step3": "Öffnen Sie wieder die Seite KI-Assistent und klicken Sie auf Neue Unterhaltung.",
       "step4": "Geben Sie Ihre Frage in das Nachrichtenfeld ein und drücken Sie Enter oder klicken Sie auf Senden.",
@@ -5292,25 +5300,25 @@
   "config": {
     "categories": {
       "syncMappings": "Sync-Zuordnungen",
-      "forgePlans": "Forge-Pläne",
+      "forgePlans": "Forge-Vorlagen",
       "pipelines": "Pipelines",
       "anonymizationTemplates": "Anonymisierungsvorlagen"
     },
     "profiles": {
-      "title": "Konfigurationsprofile",
-      "description": "Exportieren und importieren Sie Ihre SandForge-Konfiguration, um sie mit Teammitgliedern zu teilen oder Ihr Setup zu sichern.",
+      "title": "Ihr SandForge-Setup teilen",
+      "description": "Exportieren Sie, was Sie in SandForge gespeichert haben, als JSON, um es mit Ihrem Team zu teilen oder eine Kopie zu behalten, und importieren Sie hier einen Export.",
       "export": "Exportieren",
       "import": "Importieren",
-      "exportBtn": "Profil exportieren",
-      "importBtn": "Profil importieren",
-      "importPlaceholder": "Konfigurationsprofil-JSON hier einfügen...",
+      "exportBtn": "Auswahl exportieren",
+      "importBtn": "Importieren",
+      "importPlaceholder": "JSON eines Exports hier einfügen…",
       "overwrite": "Vorhandene Einträge überschreiben",
       "validate": "Validieren",
       "download": "JSON herunterladen",
       "exportSuccess": "{{entries}} Einträge aus {{categories}} Kategorien exportiert",
       "importSuccess": "{{entries}} Einträge aus {{categories}} Kategorien importiert",
-      "validProfile": "Gültiges Profil",
-      "invalidProfile": "Ungültiges Profil"
+      "validProfile": "Gültiger Export",
+      "invalidProfile": "Kein gültiger Export"
     }
   },
   "governance": {

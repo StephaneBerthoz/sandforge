@@ -136,10 +136,22 @@ test.describe('AI Module — availability gate', () => {
     await openAIPanelDisabled(page);
 
     await expect(page.getByTestId('ai-not-configured')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'AI Assistant Not Configured' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI Assistant not configured' })).toBeVisible();
     // The guidance is only useful if it points somewhere.
     await expect(page.getByRole('button', { name: 'Go to Settings' })).toBeVisible();
     await expect(page.getByTestId('ai-chat-panel')).toHaveCount(0);
+  });
+
+  test('sends Go to Settings to the AI tab, its key field focused', async ({ page }) => {
+    // It opened General, which holds the language alone, and the how-to made
+    // up for it with "then the AI tab".
+    await openAIPanelDisabled(page);
+
+    await page.getByRole('button', { name: 'Go to Settings' }).click();
+
+    await expect(page.getByTestId('ai-settings')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#tab-ai')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('ai-api-key-input')).toBeFocused();
   });
 
   test('mounts the chat panel once the host reports AI enabled', async ({ page }) => {
@@ -187,7 +199,8 @@ test.describe('AI Module — Chat', () => {
     await expect(page.locator('[data-testid^="conversation-item-local-conv-"]')).toHaveCount(1);
     const created = await outgoingPayloads(page, 'ai:conversation:create');
     expect(created).toHaveLength(1);
-    expect(created[0].title).toBe('New Chat');
+    // The button and the conversation it makes bear one name.
+    expect(created[0].title).toBe('New conversation');
 
     await sendExtensionMessage(page, {
       type: 'ai:conversation:created',
@@ -196,7 +209,7 @@ test.describe('AI Module — Chat', () => {
       payload: {
         conversation: {
           id: 'conv-1',
-          title: 'New Chat',
+          title: 'New conversation',
           createdAt: new Date().toISOString(),
         },
       },
@@ -228,7 +241,9 @@ test.describe('AI Module — Chat', () => {
     await expect(page.getByTestId('chat-input')).toBeDisabled();
   });
 
-  test('renders the assistant answer verbatim and releases the composer', async ({ page }) => {
+  test('shows the answer as text with its code set apart, names the conversation, and releases the composer', async ({
+    page,
+  }) => {
     await createConversation(page, 'conv-3', 'Test');
 
     await page.getByTestId('chat-input').fill('Show all accounts');
@@ -249,15 +264,28 @@ test.describe('AI Module — Chat', () => {
           content: answer,
           timestamp: new Date().toISOString(),
         },
+        title: 'Show all accounts',
       },
     });
 
     const bubble = page.getByTestId('message-bubble-assistant');
     await expect(bubble).toBeVisible({ timeout: 5000 });
-    // The bubble is `whitespace-pre-wrap` and renders the text as sent — line
-    // breaks and fences included. `textContent` keeps them; `toHaveText`
-    // normalises whitespace, so compare the raw node text.
-    expect(await bubble.evaluate((el) => el.textContent)).toBe(answer);
+    // The bubble printed the Markdown as it came, fences and all: the query
+    // is code now, its fences and language left out, between the text.
+    await expect(bubble.locator('pre code')).toHaveText('SELECT Id, Name FROM Account');
+    const text = await bubble.evaluate((el) => el.textContent ?? '');
+    expect(text).not.toContain('```');
+    expect(text).toContain("Here's the SOQL:");
+    expect(text).toContain('This query returns all Account records with their IDs and Names.');
+    // Its Copy copies the code alone.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await bubble.getByRole('button', { name: 'Copy code' }).click();
+    await expect(bubble.getByRole('button', { name: 'Code copied' })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      'SELECT Id, Name FROM Account',
+    );
+    // The first answer names the conversation after its question.
+    await expect(page.getByTestId('conversation-item-conv-3')).toContainText('Show all accounts');
 
     await expect(page.getByTestId('loading-indicator')).toHaveCount(0);
     await expect(page.getByTestId('chat-input')).toBeEnabled();
@@ -412,10 +440,20 @@ test.describe('AI Module — Conversation management', () => {
     await expect(page.getByTestId('no-messages')).toHaveCount(0);
   });
 
-  test('deletes a conversation', async ({ page }) => {
+  test('deletes a conversation once asked', async ({ page }) => {
     await createConversation(page, 'conv-del-1', 'To Delete');
 
+    // The delete asks first, naming the conversation, and Cancel keeps it.
+    await page.getByRole('button', { name: 'Delete “To Delete”' }).click();
+    await expect(page.getByTestId('delete-conversation-question-conv-del-1')).toContainText(
+      'Delete the conversation “To Delete”? It cannot be brought back.',
+    );
+    await expect(page.getByTestId('delete-conversation-cancel-conv-del-1')).toBeFocused();
+    await page.getByTestId('delete-conversation-cancel-conv-del-1').click();
+    expect(await outgoingPayloads(page, 'ai:conversation:delete')).toEqual([]);
+
     await page.getByTestId('delete-conversation-conv-del-1').click();
+    await page.getByTestId('delete-conversation-confirm-conv-del-1').click();
 
     const deletes = await outgoingPayloads(page, 'ai:conversation:delete');
     expect(deletes.map((p) => p.conversationId)).toContain('conv-del-1');

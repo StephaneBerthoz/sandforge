@@ -2642,12 +2642,11 @@
   },
   "ai": {
     "title": "AI Assistant",
-    "subtitle": "Get AI-powered insights for your Salesforce operations",
-    "newConversation": "New Conversation",
-    "newChat": "New Chat",
+    "subtitle": "Ask Claude about Salesforce data work. It does not see your orgs: paste the error, query or field names.",
+    "newConversation": "New conversation",
     "noConversations": "No conversations yet",
     "selectOrCreate": "Select or create a conversation",
-    "startDescription": "Start a new conversation to get AI-powered help",
+    "startDescription": "Paste the error, query or field names your question is about.",
     "noMessages": "Send a message to start the conversation",
     "placeholder": "Type a message... (Enter to send, Shift+Enter for new line)",
     "send": "Send",
@@ -2657,7 +2656,7 @@
     "openConversation": "Open conversation",
     "failedIn": "Your question in “{{title}}” got no answer: {{reason}}",
     "notConfigured": {
-      "title": "AI Assistant Not Configured",
+      "title": "AI Assistant not configured",
       "description": "To use AI features, configure your API key in Settings.",
       "configureButton": "Go to Settings"
     },
@@ -2677,7 +2676,11 @@
     "deleteAllConfirm_other": "Delete the {{count}} conversations kept on this machine? They cannot be brought back.",
     "conversationLog": "Conversation",
     "speakerYou": "You:",
-    "speakerAssistant": "Assistant:"
+    "speakerAssistant": "Assistant:",
+    "copyCode": "Copy code",
+    "codeCopied": "Code copied",
+    "deleteConversation": "Delete “{{title}}”",
+    "deleteConfirm": "Delete the conversation “{{title}}”? It cannot be brought back."
   },
   "notifications": {
     "title": "Notifications"
@@ -2871,19 +2874,16 @@
   "settings": {
     "title": "Settings",
     "general": "General",
-    "advanced": "Advanced",
-    "profiles": "Profiles",
+    "profiles": "Export / Import",
     "language": "Language",
     "languageLoadFailed": "{{language}} could not be loaded, so the interface stays in its current language.",
-    "clearCache": "Clear Cache",
-    "resetSettings": "Reset to Defaults",
-    "telemetry": "Telemetry",
+    "telemetry": "Diagnostics",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Enabled",
     "telemetryDisabled": "Disabled",
     "telemetryEventCount": "Diagnostic events recorded",
-    "telemetryEnable": "Enable Telemetry",
-    "telemetryDisable": "Disable Telemetry",
+    "telemetryEnable": "Turn diagnostics on",
+    "telemetryDisable": "Turn diagnostics off",
     "telemetryUnavailable": "Unavailable",
     "ai": "AI",
     "aiStatus": "Status",
@@ -2894,8 +2894,7 @@
     "aiKeyConfigured": "Key configured",
     "aiKeySaved": "Key saved",
     "aiHint": "The key is stored in the VSCode secret vault and never written to settings or logs.",
-    "aiSends": "While AI is on, these go to Anthropic under your key: the chat sends what you type with the conversation so far; NL2SOQL sends your question with the names of the org's objects and fields; a pipeline draft, a custom persona and an AI field rule send their description, or the field's name and its instruction. A scenario draft for an Agentforce agent's test data sends your scenario text with its email addresses and phone numbers masked, its language, the org's Case picklist values and the chosen agent's topic and action names, never a record.",
-    "aiSendsFailures": "Fix suggestions for failed runs send a failed run's error message, its Salesforce Ids removed, with nobody pressing anything. An error message can quote record values.",
+    "aiSendsFailures": "Fix suggestions for failed runs: a failed run's error message, its Salesforce Ids removed, sent with nobody pressing anything. An error message can quote record values.",
     "aiErrorResolution": "Suggest fixes for failed runs, sending their error messages",
     "aiSaveAndTurnOn": "Save key and turn on AI",
     "aiTurnOn": "Turn AI on",
@@ -2903,7 +2902,16 @@
     "aiRemoveKey": "Remove key",
     "aiRemoveKeyConfirm": "Remove the key? AI is turned off, and the conversations kept on this machine are deleted.",
     "aiKeyRemoved_one": "Key removed: AI is off, and {{count}} conversation was deleted.",
-    "aiKeyRemoved_other": "Key removed: AI is off, and {{count}} conversations were deleted."
+    "aiKeyRemoved_other": "Key removed: AI is off, and {{count}} conversations were deleted.",
+    "telemetryDesc": "Records extension errors in a local log, for diagnosis. Nothing is sent over the network.",
+    "aiSendsIntro": "While AI is on, these go to Anthropic under your key:",
+    "aiSendsChat": "AI Assistant: what you type, with the conversation so far",
+    "aiSendsForge": "Forge, AI tab: your question, the names of the org's objects, and the fields of the objects it names",
+    "aiSendsPipeline": "Automation, pipeline drafts: your description",
+    "aiSendsSeed": "Seed, custom personas and AI field rules: their description, or the field's name and its instruction",
+    "aiSendsScenario": "Seed, Draft from your own text: your text with its email addresses and phone numbers masked, its language, the org's Case picklist values and the chosen agent's topic and action names, never a record",
+    "vscodeSettingsDesc": "Batch sizes, Production Guard and the record of its decisions, and Forge's graph view are VS Code settings. The button opens them on Production Guard: search for “sandforge” there to see the others.",
+    "vscodeSettingsOpen": "More settings in VS Code"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3362,9 +3370,9 @@
       "tip": "Lower sandforge.grappe.autoActivateThreshold to watch smaller runs; Grappe runs nothing itself and makes no run faster."
     },
     "ai": {
-      "step1": "If the page says AI Assistant Not Configured, click Go to Settings, then the AI tab.",
+      "step1": "If the page says AI Assistant not configured, click Go to Settings.",
       "step2": "Paste your Anthropic key into API key and click Save key and turn on AI.",
-      "step3": "Back in AI Assistant, click New Conversation.",
+      "step3": "Back in AI Assistant, click New conversation.",
       "step4": "Type your question in the message box and press Enter, or click Send.",
       "tip": "The chat reads none of your orgs: paste into your question the error, query or field names it should look at."
     }
@@ -5291,26 +5299,26 @@
   },
   "config": {
     "categories": {
-      "syncMappings": "Sync Mappings",
-      "forgePlans": "Forge Plans",
+      "syncMappings": "Sync mappings",
+      "forgePlans": "Forge templates",
       "pipelines": "Pipelines",
-      "anonymizationTemplates": "Anonymization Templates"
+      "anonymizationTemplates": "Anonymization templates"
     },
     "profiles": {
-      "title": "Configuration Profiles",
-      "description": "Export and import your SandForge configuration to share with team members or backup your setup.",
+      "title": "Share your SandForge setup",
+      "description": "Export what you saved in SandForge as JSON, to share it with your team or keep a copy, and import an export here.",
       "export": "Export",
       "import": "Import",
-      "exportBtn": "Export Profile",
-      "importBtn": "Import Profile",
-      "importPlaceholder": "Paste configuration profile JSON here...",
+      "exportBtn": "Export selected",
+      "importBtn": "Import",
+      "importPlaceholder": "Paste the JSON of an export here…",
       "overwrite": "Overwrite existing entries",
       "validate": "Validate",
       "download": "Download JSON",
       "exportSuccess": "Exported {{entries}} entries from {{categories}} categories",
       "importSuccess": "Imported {{entries}} entries from {{categories}} categories",
-      "validProfile": "Valid profile",
-      "invalidProfile": "Invalid profile"
+      "validProfile": "Valid export",
+      "invalidProfile": "Not a valid export"
     }
   },
   "governance": {

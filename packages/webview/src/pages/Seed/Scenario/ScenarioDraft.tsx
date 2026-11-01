@@ -169,7 +169,11 @@ export const ScenarioDraft: React.FC<ScenarioDraftProps> = ({ orgs, onDrafted, o
             <div className="flex flex-col gap-2" data-testid="scenario-draft-not-configured">
               <p className="text-status-warning">{t('seed.scenario.draft.notConfigured')}</p>
               <div>
-                <Button variant="secondary" size="sm" onClick={() => navigate('settings')}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate('settings', { settingsTab: 'ai' })}
+                >
                   {t('seed.scenario.draft.openSettings')}
                 </Button>
               </div>
