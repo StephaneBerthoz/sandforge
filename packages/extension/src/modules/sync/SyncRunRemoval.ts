@@ -125,6 +125,22 @@ export interface SyncRunRemovalInput {
    */
   sweep?: () => Promise<boolean>;
   /**
+   * The last part of a granted sweep, made once the run's records are
+   * deleted: what one of them points at through a lookup the org restricts
+   * the delete by (`RunRemovalOptions.afterRemoval`).
+   */
+  afterRemoval?: RunRemovalOptions['afterRemoval'];
+  /**
+   * The ids of what a granted sweep found made for the run, which go with
+   * the run's records they hang from (`RunRemovalOptions.automationMade`).
+   */
+  automationMade?: RunRemovalOptions['automationMade'];
+  /**
+   * The user the run wrote as, by Salesforce id, as its run file keeps it
+   * (`RunRemovalOptions.runUserId`). Absent from a run kept before it was.
+   */
+  runUserId?: string;
+  /**
    * The DataOps backup store the run kept the values it wrote over in, by
    * the backup its file names: what the removal gives back reads it. Absent,
    * nothing is given back, and the records stay offered.
@@ -363,6 +379,9 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
     includeChanged,
     ...(beforeDeletes ? { sweep: beforeDeletes } : {}),
+    ...(input.afterRemoval ? { afterRemoval: input.afterRemoval } : {}),
+    ...(input.automationMade ? { automationMade: input.automationMade } : {}),
+    ...(input.runUserId ? { runUserId: input.runUserId } : {}),
     ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),
     signal: input.signal,
     onProgress: input.onProgress,
@@ -561,7 +580,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
  *   and how many records it sets out to take.
  */
 export async function previewSyncRun(
-  input: Pick<SyncRunRemovalInput, 'run' | 'org' | 'includeChanged' | 'signal'>,
+  input: Pick<SyncRunRemovalInput, 'run' | 'org' | 'includeChanged' | 'signal' | 'runUserId'>,
 ): Promise<{ outcome: RunRemovalOutcome; planned: number }> {
   const { run } = input;
   const plan = syncRemovalPlan(run);
@@ -570,6 +589,7 @@ export async function previewSyncRun(
     ...(run.removal?.removalStamps ? { removalStamps: run.removal.removalStamps } : {}),
     ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
     includeChanged: input.includeChanged,
+    ...(input.runUserId ? { runUserId: input.runUserId } : {}),
     previewOnly: true,
     ...(input.signal ? { signal: input.signal } : {}),
   });

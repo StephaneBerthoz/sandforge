@@ -88,6 +88,11 @@ export function removalAuditObjects(
  * run is offered for those, and no longer said to have nothing left. Stopped
  * before it took any, it leaves the run as it found it.
  *
+ * The lines the platform copied as the run wrote under a quote it synced
+ * (`ForgeUndoObjectResult.platformCopies`) are records the removal took like
+ * the run's own, and counted with them; `planned`, the run's records, does
+ * not hold them, and what a cancel kept it from reaching is told against both.
+ *
  * @param planned - How many records the removal set out to take.
  * @param earlier - The mark the removals before this one left on the run.
  * @param again - Whether it set out to take every record the run created.
@@ -114,11 +119,12 @@ export function removalMark(
     }
   }
   const before = again ? undefined : earlier;
+  const copies = sum((o) => o.platformCopies ?? 0);
   // A removal that ended settled every record it set out to take; one
   // cancelled left the rest where they were.
   const notReached =
     result.status === 'cancelled'
-      ? Math.max(0, planned - deleted - alreadyGone - kept - refused - notVisible)
+      ? Math.max(0, planned + copies - deleted - alreadyGone - kept - refused - notVisible)
       : 0;
   return {
     removedAt: result.finishedAt,

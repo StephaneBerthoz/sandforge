@@ -209,6 +209,32 @@ describe('removalMark', () => {
     });
   });
 
+  it('tells what a cancel did not reach against the platform copies too, which the run records do not count', () => {
+    // A clone of 6 records whose quote the platform copied 2 lines onto: the
+    // removal took the 4 quote lines, the platform's 2 among them, and was
+    // stopped before the 4 other records of the run.
+    const mark = removalMark(
+      {
+        status: 'cancelled',
+        finishedAt: '2026-09-30T09:00:00.000Z',
+        objects: [
+          object({ objectApiName: 'QuoteLineItem', planned: 4, platformCopies: 2, deleted: 4 }),
+          object({ objectApiName: 'Quote', planned: 4, notReached: 4 }),
+        ],
+      },
+      6,
+    );
+
+    expect(mark).toEqual({
+      removedAt: '2026-09-30T09:00:00.000Z',
+      deleted: 4,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+      notReached: 4,
+    });
+  });
+
   it('says what the removal could not see, which a cancel did not leave unreached', () => {
     expect(
       removalMark(

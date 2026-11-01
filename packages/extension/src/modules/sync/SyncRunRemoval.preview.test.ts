@@ -105,6 +105,58 @@ describe('previewSyncRun', () => {
     });
   });
 
+  it('names the quote lines the platform copied as the run wrote, held to the run user it is handed', async () => {
+    // The run wrote the source's creator on its line item, as a run that
+    // may set audit fields does: only the user it kept tells the copy.
+    const opportunity = fakeId('006', 1);
+    const quote = fakeId('0Q0', 1);
+    const lineItem = fakeId('00k', 1);
+    const quoteLine = fakeId('0QL', 1);
+    const copy = fakeId('0QL', 2);
+    const org = new MemoryRemovalOrg({
+      Quote: [{ childSObject: 'QuoteLineItem', field: 'QuoteId', cascadeDelete: true }],
+    });
+    const at = minutesAgo(10);
+    org.add('Opportunity', { Id: opportunity, SyncedQuoteId: quote }, at);
+    org.add('Quote', { Id: quote, OpportunityId: opportunity }, at);
+    org.add(
+      'OpportunityLineItem',
+      { Id: lineItem, OpportunityId: opportunity, CreatedById: fakeId('005', 9) },
+      at,
+    );
+    for (const line of [quoteLine, copy]) {
+      org.add(
+        'QuoteLineItem',
+        { Id: line, QuoteId: quote, OpportunityLineItemId: lineItem, CreatedById: MEMORY_ORG_USER },
+        at,
+      );
+    }
+    const quoteRun: SyncRunKept = {
+      ...run(),
+      created: [
+        { objectApiName: 'QuoteLineItem', ids: [quoteLine] },
+        { objectApiName: 'OpportunityLineItem', ids: [lineItem] },
+        { objectApiName: 'Quote', ids: [quote] },
+        { objectApiName: 'Opportunity', ids: [opportunity] },
+      ],
+    };
+
+    const handed = await previewSyncRun({
+      run: quoteRun,
+      org,
+      includeChanged: false,
+      runUserId: MEMORY_ORG_USER,
+    });
+    const notHanded = await previewSyncRun({ run: quoteRun, org, includeChanged: false });
+
+    const lines = (outcome: typeof handed.outcome) =>
+      outcome.preview?.objects.find((object) => object.objectApiName === 'QuoteLineItem');
+    expect(lines(handed.outcome)).toMatchObject({ planned: 2, platformCopies: 1, toDelete: 2 });
+    expect(lines(notHanded.outcome)).toMatchObject({ planned: 1, toDelete: 1 });
+    expect(lines(notHanded.outcome)?.platformCopies).toBeUndefined();
+    expect(org.deletes).toEqual([]);
+  });
+
   it('writes nothing to where the run’s removals are kept: it is handed no such place', async () => {
     const { org } = target();
     const destroy = vi.spyOn(org, 'destroy');
