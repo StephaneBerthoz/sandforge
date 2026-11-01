@@ -21,8 +21,13 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
+  removalConfirmLabel,
 } from '../Forge/ForgeRunRemovalView';
-import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import {
+  ForgeSweepListingView,
+  useRemovalSweep,
+  type SweepTicks,
+} from '../Forge/ForgeRemovalSweep';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 
 /**
@@ -63,12 +68,18 @@ interface SweepAnswer {
 /**
  * What a sweep asked with the removal would take, read as the confirmation's
  * sweep is ticked and listed before the user types the org's name: what the
- * target's automation created during the run, as its user, that the run did
- * not write — Forge's sweep, listed as Forge lists it, in its words: a seed is
- * a run. Read only; the sweep runs before the run's records go, and finds
- * again what is there.
+ * target's automation made for the run, as its user, that the run did not
+ * write, what it keeps and the ticks that take that too — Forge's sweep,
+ * listed as Forge lists it, in its words: a seed is a run. Read only; the
+ * sweep reads again as the removal begins, and takes what it can before the
+ * run's records go.
  */
-const SeedRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org }) => {
+const SeedRemovalSweep: React.FC<{
+  runId: string;
+  org: string;
+  ticks: SweepTicks;
+  onTicksChange: (ticks: SweepTicks) => void;
+}> = ({ runId, org, ticks, onTicksChange }) => {
   const { t } = useTranslation();
   const headingId = useId();
   const read = useBridgeMutation<SweepAnswer>('seed:remove:sweep', {
@@ -95,7 +106,13 @@ const SeedRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
       </p>
     );
   } else {
-    body = <ForgeSweepListingView listing={read.data.listing} />;
+    body = (
+      <ForgeSweepListingView
+        listing={read.data.listing}
+        ticks={ticks}
+        onTicksChange={onTicksChange}
+      />
+    );
   }
   return (
     <section
@@ -150,7 +167,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
-  const [sweep, setSweep] = useState(false);
+  const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   /** The confirmation's box: the removal mutes what it fires, through the org's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
   const info = useBridgeQuery<{ info: SeedRunRemovalInfo | null }>(
@@ -250,13 +267,21 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
     removal.mutate({
       runId,
       ...(includeChanged ? { includeChanged: true } : {}),
-      ...(sweep ? { sweep: true } : {}),
+      ...asked,
       ...(again ? { again: true } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
   };
+  /** The confirmation again, its sweep ticked by this gesture and its list read. */
+  const askSweep = (): void => {
+    setIncludeChanged(false);
+    setSweep(true);
+    setMuteAutomation(false);
+    setConfirming(true);
+  };
   const result = removal.data?.result;
+  const plan = again ? (kept.createdByObject ?? []) : kept.left;
 
   return (
     <section
@@ -309,7 +334,13 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           data-testid="seed-removal-error"
         />
       )}
-      {result && <ForgeRunRemovalResult result={result} org={org} />}
+      {result && (
+        <ForgeRunRemovalResult
+          result={result}
+          org={org}
+          {...(offered && !kept.refusal ? { onTakeBackMade: askSweep } : {})}
+        />
+      )}
       <DangerConfirm
         open={confirming}
         onClose={() => setConfirming(false)}
@@ -317,6 +348,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         title={t('runRemoval.sync.removeTitle', { org })}
         description={t('seed.removal.removeDescription', { org })}
         confirmText={org}
+        confirmLabel={removalConfirmLabel(t, plan, sweep)}
       >
         {undoneOn !== undefined && (
           <p data-testid="seed-removal-again-note">
@@ -324,7 +356,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           </p>
         )}
         <ForgeRunRemovalPlan
-          plan={again ? (kept.createdByObject ?? []) : kept.left}
+          plan={plan}
           linked={0}
           {...(removedOn !== undefined && !again ? { leftBy: removedOn } : {})}
         />
@@ -347,7 +379,9 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           />
           {t('runRemoval.removeSweep')}
         </label>
-        {sweep && confirming && <SeedRemovalSweep runId={runId} org={org} />}
+        {sweep && confirming && (
+          <SeedRemovalSweep runId={runId} org={org} ticks={ticks} onTicksChange={setTicks} />
+        )}
         {/* The confirmation reads nothing of what the deletes fire: what a
             mute silences is read as the removal starts, and its result says it. */}
         <AutomationMuteBox

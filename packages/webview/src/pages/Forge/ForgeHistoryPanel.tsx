@@ -37,7 +37,7 @@ import {
   ForgeRunRemovalRunning,
   forgeRunCountsCreatedOf,
 } from './ForgeRunRemovalView';
-import { ForgeRunSweepMark } from './ForgeRemovalSweep';
+import { ForgeRunSweepMark, useRemovalSweep } from './ForgeRemovalSweep';
 
 /** Map a run's outcome to its i18n key. */
 const STATUS_KEYS: Record<ForgeExecutionResult['status'], string> = {
@@ -163,7 +163,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     null,
   );
   const [includeChanged, setIncludeChanged] = useState(false);
-  const [sweep, setSweep] = useState(false);
+  const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
   /**
@@ -261,7 +261,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     removal.mutate({
       forgeId: confirming.forgeId,
       includeChanged,
-      ...(sweep ? { sweep: true } : {}),
+      ...asked,
       ...(againAfter !== null ? { again: true } : {}),
       ...(muteAutomation ? { muteAutomation: true } : {}),
     });
@@ -410,7 +410,24 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
             data-testid="forge-history-remove-error"
           />
         )}
-        {answer && <ForgeRunRemovalResult result={answer} org={org ?? ''} />}
+        {answer && (
+          <ForgeRunRemovalResult
+            result={answer}
+            org={org ?? ''}
+            // The kept plan of an older run holds no id map: it is offered no sweep.
+            {...(!keptPlan && removable.has(entry.forgeId) && org
+              ? {
+                  onTakeBackMade: () => {
+                    setIncludeChanged(false);
+                    setSweep(true);
+                    setMuteAutomation(false);
+                    setAgainAfter(null);
+                    setConfirming(entry);
+                  },
+                }
+              : {})}
+          />
+        )}
       </div>
     );
   };
@@ -580,6 +597,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         onIncludeChangedChange={setIncludeChanged}
         sweep={sweep}
         onSweepChange={setSweep}
+        sweepTicks={ticks}
+        onSweepTicksChange={setTicks}
         muteAutomation={muteAutomation}
         onMuteAutomationChange={setMuteAutomation}
         {...(againAfter !== null ? { againAfter } : {})}

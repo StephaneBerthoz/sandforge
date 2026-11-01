@@ -1,7 +1,9 @@
-import React, { useEffect, useId } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
+  ForgeRemovalLeftCount,
+  ForgeSweepClasses,
   ForgeSweepListing,
   ForgeSweepMark,
   ForgeSweepObjectResult,
@@ -10,9 +12,31 @@ import type {
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { MuteEntryList } from '../../components/ui/AutomationMuteBox';
 
 /** How long the read may take: the target's automation, then one read per object. */
 const READ_TIMEOUT_MS = 150_000;
+
+/**
+ * How many objects a line names. A sweep looks at the children of the run's
+ * objects too, up to 300 of them: named in full, the line filled the
+ * confirmation and pushed the org's name out of it.
+ */
+const OBJECTS_NAMED = 12;
+
+/** Why what a sweep leaves stays, each in a line: the product says it, as `--help` does. */
+const STAYS_KEYS = [
+  'runRemoval.sweep.staysOtherUser',
+  'runRemoval.sweep.staysUntied',
+  'runRemoval.sweep.staysTooLate',
+  'runRemoval.sweep.staysChanged',
+  'runRemoval.sweep.staysUnreadable',
+  'runRemoval.sweep.staysRefused',
+  'runRemoval.sweep.staysNotCreated',
+  'runRemoval.sweep.staysLeftTheOrg',
+  'runRemoval.sweep.staysOverBound',
+  'runRemoval.sweep.staysOtherMachines',
+] as const;
 
 /** What `forge:undo-sweep:request` answers. */
 interface SweepAnswer {
@@ -51,6 +75,93 @@ function counted(
 /** A window's date as the panel writes its dates, to the second. */
 function shownAt(t: TFunction, iso: string): string {
   return formatStoredDate(iso, 'yyyy-MM-dd HH:mm:ss') ?? t('common.dateUnknown');
+}
+
+/** Objects by name, the first few when there are many, and how many more. */
+function namedObjects(t: TFunction, names: readonly string[]): string {
+  if (names.length <= OBJECTS_NAMED) return names.join(', ');
+  return t('runRemoval.sweep.objectsMore', {
+    objects: names.slice(0, OBJECTS_NAMED).join(', '),
+    formatted: formatNumber(names.length - OBJECTS_NAMED),
+  });
+}
+
+/** Records in all, of per-object counts. */
+function totalOf(counts: readonly ForgeRemovalLeftCount[]): number {
+  return counts.reduce((sum, { count }) => sum + count, 0);
+}
+
+/** Per-object counts in a sentence. */
+function perObject(counts: readonly ForgeRemovalLeftCount[]): string {
+  return counts.map((c) => `${c.objectApiName} (${formatNumber(c.count)})`).join(', ');
+}
+
+/** How one object's records fall in the classes the extension put them in, those it found. */
+function classParts(t: TFunction, classes: ForgeSweepClasses): string[] {
+  const { made, sameSave = 0, madeOver, late, untied, changed = 0 } = classes;
+  return [
+    made > 0 ? counted(t, 'runRemoval.sweep.classMade', made) : '',
+    sameSave > 0 ? counted(t, 'runRemoval.sweep.classSameSave', sameSave) : '',
+    madeOver > 0 ? counted(t, 'runRemoval.sweep.classMadeOver', madeOver) : '',
+    late > 0 ? counted(t, 'runRemoval.sweep.classLate', late) : '',
+    untied > 0 ? counted(t, 'runRemoval.sweep.classUntied', untied) : '',
+    changed > 0 ? counted(t, 'runRemoval.sweep.classChanged', changed) : '',
+  ].filter(Boolean);
+}
+
+/** The records a sweep takes with no more asked: what it ties to the run, nothing past the bound. */
+function takenWithNoMoreAsked(found: ForgeSweepListing['found']): number {
+  return found.reduce(
+    (sum, { classes, overBound }) =>
+      sum + (classes && !overBound ? classes.made + classes.madeOver : 0),
+    0,
+  );
+}
+
+/**
+ * The two ticks under a sweep's list. A sweep takes what it ties to the run;
+ * what came late and what is tied to nothing it lists and keeps, unless each
+ * is ticked.
+ */
+export interface SweepTicks {
+  /** Take too what the listing says came late (`ForgeSweepListing.late`). */
+  sweepLate?: true;
+  /** Take too what it says is tied to nothing of the run (`ForgeSweepListing.untied`). */
+  sweepUntied?: true;
+}
+
+/** A confirmation's sweep: its tick, the two under its list, and what a removal's request says of them. */
+export interface RemovalSweepAsked {
+  sweep: boolean;
+  setSweep: (sweep: boolean) => void;
+  ticks: SweepTicks;
+  setTicks: (ticks: SweepTicks) => void;
+  /** What the request says of the sweep: nothing unless it is ticked. */
+  asked: { sweep?: true } & SweepTicks;
+}
+
+/**
+ * The state a confirmation's sweep is asked with. The tick of the sweep sets
+ * both of the others back: they answer a list read for this opening, and a
+ * record deleted on a tick left from the last one was never asked for.
+ */
+export function useRemovalSweep(): RemovalSweepAsked {
+  const [state, setState] = useState<{ sweep: boolean; ticks: SweepTicks }>({
+    sweep: false,
+    ticks: {},
+  });
+  const setSweep = useCallback((sweep: boolean) => setState({ sweep, ticks: {} }), []);
+  const setTicks = useCallback(
+    (ticks: SweepTicks) => setState((current) => ({ ...current, ticks })),
+    [],
+  );
+  return {
+    sweep: state.sweep,
+    setSweep,
+    ticks: state.ticks,
+    setTicks,
+    asked: state.sweep ? { sweep: true, ...state.ticks } : {},
+  };
 }
 
 /**
@@ -112,28 +223,126 @@ const SweepNotes: React.FC<{
   );
 };
 
+/** Props for {@link SweepKeptTicks}. */
+interface SweepKeptTicksProps {
+  listing: ForgeSweepListing;
+  ticks: SweepTicks;
+  onTicksChange: (ticks: SweepTicks) => void;
+}
+
+/**
+ * The ticks that take what a sweep lists and keeps: what came late, and what
+ * is tied to nothing of the run. The second is refused, in the extension's
+ * words, when hand work or another run of this machine is seen: its box stays
+ * on the page, unticked, so that what is kept keeps saying why.
+ */
+const SweepKeptTicks: React.FC<SweepKeptTicksProps> = ({ listing, ticks, onTicksChange }) => {
+  const { t } = useTranslation();
+  const refusalId = useId();
+  const late = listing.late ?? [];
+  const untied = listing.untied?.objects ?? [];
+  const refusal = listing.untied?.refusal;
+  const refused = refusal !== undefined;
+  const { sweepLate, sweepUntied } = ticks;
+  return (
+    <>
+      {late.length > 0 && (
+        <label className="flex items-start gap-2 mt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sweepLate === true}
+            onChange={(e) =>
+              onTicksChange({
+                ...(e.target.checked ? { sweepLate: true } : {}),
+                ...(sweepUntied ? { sweepUntied } : {}),
+              })
+            }
+            data-testid="forge-sweep-late-tick"
+          />
+          <span>
+            {counted(t, 'runRemoval.sweep.tickLate', totalOf(late), { objects: perObject(late) })}
+          </span>
+        </label>
+      )}
+      {untied.length > 0 && (
+        <label className={cn('flex items-start gap-2 mt-1', !refused && 'cursor-pointer')}>
+          <input
+            type="checkbox"
+            checked={sweepUntied === true && !refused}
+            disabled={refused}
+            {...(refused ? { 'aria-describedby': refusalId } : {})}
+            onChange={(e) =>
+              onTicksChange({
+                ...(sweepLate ? { sweepLate } : {}),
+                ...(e.target.checked ? { sweepUntied: true } : {}),
+              })
+            }
+            data-testid="forge-sweep-untied-tick"
+          />
+          <span>
+            {counted(t, 'runRemoval.sweep.tickUntied', totalOf(untied), {
+              objects: perObject(untied),
+            })}
+          </span>
+        </label>
+      )}
+      {untied.length > 0 && refused && (
+        <p
+          id={refusalId}
+          data-testid="forge-sweep-untied-refused"
+          className="ml-5 text-status-warning wrap-break-word"
+        >
+          {t('runRemoval.sweep.untiedRefused', { reason: refusal })}
+        </p>
+      )}
+    </>
+  );
+};
+
 /** Props for {@link ForgeSweepListingView}. */
 export interface ForgeSweepListingViewProps {
   listing: ForgeSweepListing;
+  /** The ticks under the list. Absent, what it keeps is listed, and nothing is offered. */
+  ticks?: SweepTicks;
+  onTicksChange?: (ticks: SweepTicks) => void;
 }
 
 /**
  * What a sweep would take, read before anything is deleted: the window and
- * the objects looked at, per object the records found — a few of their names
- * on demand, never an id — what could not be looked at, and why the sweep
- * would be refused.
+ * the objects looked at, what it takes with no more asked, per object the
+ * records found and how the extension classed them — a few of their names on
+ * demand, never an id —, the ticks that take what it keeps, what could not be
+ * looked at, why the sweep would be refused, and what stays whatever is
+ * ticked, and why.
+ *
+ * Every class is the extension's, read from the listing: this page adds
+ * counts up, and tells no record from another.
  */
-export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ listing }) => {
+export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
+  listing,
+  ticks,
+  onTicksChange,
+}) => {
   const { t } = useTranslation();
+  // A sweep told the run's ties always says what it keeps, if only that it is nothing.
+  const told = listing.untied !== undefined;
+  const taken = takenWithNoMoreAsked(listing.found);
   return (
     <>
       {listing.window && (
-        <p data-testid="forge-sweep-window" className="text-text-secondary">
+        <p data-testid="forge-sweep-window" className="text-text-secondary wrap-break-word">
           {t('runRemoval.sweep.window', {
             from: shownAt(t, listing.window.from),
             to: shownAt(t, listing.window.to),
-            objects: listing.looked.join(', '),
+            objects: namedObjects(t, listing.looked),
           })}
+        </p>
+      )}
+      {told && listing.refusal === undefined && listing.found.length > 0 && (
+        <p data-testid="forge-sweep-takes">
+          {taken > 0
+            ? counted(t, 'runRemoval.sweep.takes', taken)
+            : t('runRemoval.sweep.takesNothing')}
         </p>
       )}
       {listing.found.length > 0 ? (
@@ -149,6 +358,14 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ li
                       object: found.objectApiName,
                     })}
               </span>
+              {found.classes && (
+                <p
+                  data-testid={`forge-sweep-classes-${found.objectApiName}`}
+                  className="ml-3 text-text-secondary"
+                >
+                  {classParts(t, found.classes).join(' · ')}
+                </p>
+              )}
               {found.names.length > 0 && (
                 <details className="ml-3">
                   <summary className="cursor-pointer text-text-secondary">
@@ -168,7 +385,49 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ li
           <p data-testid="forge-sweep-none">{t('runRemoval.sweep.none')}</p>
         )
       )}
+      {taken > 0 && (
+        <p data-testid="forge-sweep-own-work" className="text-status-warning">
+          {t('runRemoval.sweep.ownWork')}
+        </p>
+      )}
+      {ticks && onTicksChange && listing.refusal === undefined && (
+        <SweepKeptTicks listing={listing} ticks={ticks} onTicksChange={onTicksChange} />
+      )}
+      {(listing.notLooked ?? []).length > 0 && (
+        <p data-testid="forge-sweep-not-looked" className="text-status-warning wrap-break-word">
+          {t('runRemoval.sweep.notLooked', {
+            objects: namedObjects(t, listing.notLooked ?? []),
+          })}
+        </p>
+      )}
+      {listing.muted && (
+        <div data-testid="forge-sweep-muted" className="flex flex-col gap-0.5">
+          <MuteEntryList
+            title={t('automationMute.result.silenced')}
+            entries={listing.muted.silenced}
+            testId="forge-sweep-muted-silenced"
+          />
+          <MuteEntryList
+            title={t('automationMute.result.stillRan')}
+            entries={listing.muted.stillRan}
+            testId="forge-sweep-muted-still-ran"
+          />
+          <p className="text-text-secondary">{t('runRemoval.sweep.noBypass')}</p>
+        </div>
+      )}
       <SweepNotes notes={listing} />
+      {told && (
+        <details data-testid="forge-sweep-stays">
+          <summary className="cursor-pointer text-text-secondary">
+            {t('runRemoval.sweep.staysTitle')}
+          </summary>
+          <ul className="ml-3 flex list-disc flex-col gap-0.5">
+            {STAYS_KEYS.map((key) => (
+              <li key={key}>{t(key)}</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </>
   );
 };
@@ -179,16 +438,27 @@ export interface ForgeRemovalSweepProps {
   forgeId: string | undefined;
   /** The org it wrote to, as the user knows it. */
   org: string;
+  /** The ticks under the list: what it keeps, taken too. */
+  ticks?: SweepTicks;
+  onTicksChange?: (ticks: SweepTicks) => void;
 }
 
 /**
  * What a sweep asked with a removal would take, read as the confirmation's
  * sweep is ticked and listed before the user types the org's name: what the
- * target's automation created during the run, as its user, that the run's id
- * map does not hold. Read only; the sweep itself runs once the run's records
- * are gone, and finds again what is left by then.
+ * target's automation made for the run, as its user, that the run's id map
+ * does not hold, and what it lists and keeps. Read only. The sweep itself
+ * reads again once the removal has read the run's records, before its first
+ * delete, while the links that tie a record to them are still there: it takes
+ * what it can before them, and what a record of theirs points at once they
+ * are gone.
  */
-export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, org }) => {
+export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
+  forgeId,
+  org,
+  ticks,
+  onTicksChange,
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
   const read = useBridgeMutation<SweepAnswer>('forge:undo-sweep:request', {
@@ -217,7 +487,13 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, o
       </p>
     );
   } else {
-    body = <ForgeSweepListingView listing={read.data.listing} />;
+    body = (
+      <ForgeSweepListingView
+        listing={read.data.listing}
+        {...(ticks ? { ticks } : {})}
+        {...(onTicksChange ? { onTicksChange } : {})}
+      />
+    );
   }
   return (
     <section
@@ -235,8 +511,11 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, o
 
 /** What became of one object's records in a sweep, the counts that are not zero. */
 function sweepParts(t: TFunction, object: ForgeSweepObjectResult): string[] {
+  const after = object.afterRemoval ?? 0;
   return [
     object.deleted > 0 ? counted(t, 'runRemoval.resultDeleted', object.deleted) : '',
+    // Why they went last: the org refuses them while a record of the run names them.
+    after > 0 ? counted(t, 'runRemoval.sweep.resultAfterRemoval', after) : '',
     object.alreadyGone > 0 ? counted(t, 'runRemoval.resultGone', object.alreadyGone) : '',
     object.keptChanged > 0 ? counted(t, 'runRemoval.resultChanged', object.keptChanged) : '',
     object.refused > 0 ? counted(t, 'runRemoval.resultRefused', object.refused) : '',
@@ -251,10 +530,10 @@ export interface ForgeRunSweepResultProps {
 }
 
 /**
- * What a sweep did once the run's records were gone: how it ended, per object
- * what became of the records it found — deleted, already gone, kept as
- * changed since the run, refused with the org's words — and what it could not
- * look at, or why it was refused.
+ * What a sweep did around the run's records: how it ended, per object what
+ * became of the records it found — deleted, those of them that waited for the
+ * run's own, already gone, kept as changed since the run, refused with the
+ * org's words — and what it could not look at, or why it was refused.
  */
 export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result, org }) => {
   const { t } = useTranslation();

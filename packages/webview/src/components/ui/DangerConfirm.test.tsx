@@ -136,6 +136,36 @@ describe('DangerConfirm', () => {
     expect(screen.queryByRole('textbox', { name: 'Confirm' })).toBeNull();
   });
 
+  // A typed name armed a button that said Confirm: nothing on it told what a
+  // click deletes, nor how much.
+  it('says on its button what a typed confirmation does, armed by the word all the same', () => {
+    const onConfirm = vi.fn();
+    render(<DangerConfirm {...baseProps} onConfirm={onConfirm} confirmLabel="Remove 4 records" />);
+
+    const button = screen.getByRole('button', { name: 'Remove 4 records' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DELETE' } });
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('says Confirm on a typed confirmation that names no act', () => {
+    render(<DangerConfirm {...baseProps} />);
+    expect(screen.getByTestId('danger-confirm-btn').textContent).toBe('Confirm');
+  });
+
+  // Centred in a fixed overlay, a dialog taller than the panel left its field
+  // and its buttons out of reach: nothing scrolled.
+  it('scrolls on its own rather than past the window', () => {
+    render(<DangerConfirm {...baseProps} />);
+    expect(screen.getByRole('dialog').className).toContain('overflow-y-auto');
+    expect(screen.getByRole('dialog').className).toContain('max-h-[calc(100vh-1rem)]');
+  });
+
   it('does not keep the typed text when its parent closes and reopens it', () => {
     // A parent that closes the dialog itself — a refresh removing what the
     // confirmation was about — never runs handleClose, so `typed` survived and

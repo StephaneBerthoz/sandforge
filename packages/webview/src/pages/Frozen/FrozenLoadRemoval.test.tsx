@@ -236,6 +236,117 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('forge-sweep-found-Task').textContent).toContain('Task: 3 records');
   });
 
+  /** What the sweep lists of the load: what it takes, what came late, what is tied to nothing. */
+  const TOLD_LISTING = {
+    looked: ['Contact', 'Task'],
+    found: [
+      {
+        objectApiName: 'Task',
+        count: 3,
+        names: ['Welcome call'],
+        classes: { made: 1, madeOver: 0, late: 1, untied: 1 },
+      },
+    ],
+    unread: [],
+    handWork: [],
+    late: [{ objectApiName: 'Task', count: 1 }],
+    untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+  };
+
+  it('shows the classes of what it found, and sends what is ticked under the list', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    expect(screen.getByTestId('danger-confirm-btn').textContent).toBe('Remove 3 records');
+    fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+      loadedAt: LOADED.loadedAt,
+      listing: TOLD_LISTING,
+    });
+
+    expect(screen.getByTestId('forge-sweep-takes').textContent).toContain('takes 1 record');
+    expect(screen.getByTestId('forge-sweep-stays')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('forge-sweep-untied-tick'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('frozen:remove')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: LOADED.loadedAt,
+      sweep: true,
+      sweepUntied: true,
+    });
+  });
+
+  it('keeps what is tied to nothing, with the extension’s words, when taking it is refused', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+      loadedAt: LOADED.loadedAt,
+      listing: {
+        ...TOLD_LISTING,
+        untied: { ...TOLD_LISTING.untied, refusal: 'Another run of this machine wrote.' },
+      },
+    });
+
+    expect((screen.getByTestId('forge-sweep-untied-tick') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-sweep-untied-refused').textContent).toContain(
+      'Another run of this machine wrote.',
+    );
+  });
+
+  describe('a removal that left records for what the automation made', () => {
+    const HELD: FrozenRemovalResult = {
+      ...PARTIAL,
+      objects: [
+        {
+          ...PARTIAL.objects[1]!,
+          heldBy: ['FeedItem'],
+          heldByAutomation: 1,
+          automationHolders: ['FeedItem'],
+        },
+      ],
+    };
+
+    it('names it in a load’s words, and proposes the sweep ticked by that gesture', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+      answerRemoval('frozen:remove:response', { result: HELD, operationId: 'req' });
+
+      expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain(
+        '1 record of this load was kept for records created under it during the load',
+      );
+      expect(sent('frozen:remove:sweep')).toBeUndefined();
+      fireEvent.click(screen.getByTestId('forge-removal-take-back-made'));
+
+      expect((screen.getByTestId('frozen-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+        true,
+      );
+      expect(sent('frozen:remove:sweep')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED.loadedAt,
+      });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(sent('frozen:remove')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED.loadedAt,
+        sweep: true,
+      });
+    });
+
+    it('proposes no sweep while a load runs from the page', () => {
+      const { rerender } = render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+      answerRemoval('frozen:remove:response', { result: HELD, operationId: 'req' });
+
+      rerender(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} busy />);
+
+      expect(screen.getByTestId('forge-removal-held-by-automation')).toBeTruthy();
+      expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+    });
+  });
+
   it('asks for the sweep with the removal when it is ticked', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 

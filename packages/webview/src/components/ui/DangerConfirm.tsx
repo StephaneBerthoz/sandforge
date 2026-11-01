@@ -50,9 +50,13 @@ interface DangerConfirmBaseProps {
 
 /** A confirmation armed by typing a word: for what deletes, or writes to production. */
 interface TypedConfirmProps {
-  /** The word to type, which arms the Confirm button. */
+  /** The word to type, which arms the confirm button. */
   confirmText: string;
-  confirmLabel?: undefined;
+  /**
+   * What the confirm button says once armed, when the dialog knows the act
+   * and its size: "Remove 4 records". Confirm, unsaid.
+   */
+  confirmLabel?: string;
   dismissLabel?: undefined;
 }
 
@@ -198,8 +202,12 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                   onCloseAutoFocus={giveFocusBack}
                 >
                   <m.div
+                    // Scrolls on its own past the window: a removal lists what it
+                    // takes, what the target runs and what a sweep finds, and,
+                    // centred and taller than the panel, its field and buttons
+                    // sat out of reach above and below the overlay.
                     className={cn(
-                      'rounded-lg p-4 max-w-md w-full',
+                      'rounded-lg p-4 max-w-md w-full max-h-[calc(100vh-1rem)] overflow-y-auto',
                       'bg-(--vscode-editor-background,#1e1e1e)',
                       styles.border,
                       'border shadow-xl',

@@ -21,9 +21,14 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
+  removalConfirmLabel,
 } from '../Forge/ForgeRunRemovalView';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
-import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import {
+  ForgeSweepListingView,
+  useRemovalSweep,
+  type SweepTicks,
+} from '../Forge/ForgeRemovalSweep';
 import { FrozenReloadRefused } from './FrozenReloadRefused';
 
 /**
@@ -55,16 +60,26 @@ interface FrozenRemovalSweepProps {
   loadedAt: string;
   /** The org as the user knows it. */
   org: string;
+  /** The ticks under the list: what it keeps, taken too. */
+  ticks: SweepTicks;
+  onTicksChange: (ticks: SweepTicks) => void;
 }
 
 /**
  * What a sweep asked with the removal would take, read as the confirmation's
  * sweep is ticked and listed before the user types the org's name: what the
- * target's automation created during the load, as its user, that the load's
- * mapping does not hold — Forge's sweep, listed as Forge lists it. Read only;
- * the sweep runs before the load's records go, and finds again what is there.
+ * target's automation made for the load, as its user, that the load's mapping
+ * does not hold, what it keeps and the ticks that take that too — Forge's
+ * sweep, listed as Forge lists it. Read only; the sweep reads again as the
+ * removal begins, and takes what it can before the load's records go.
  */
-const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({ orgId, loadedAt, org }) => {
+const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
+  orgId,
+  loadedAt,
+  org,
+  ticks,
+  onTicksChange,
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
   const read = useBridgeMutation<SweepAnswer>('frozen:remove:sweep', {
@@ -91,7 +106,13 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({ orgId, loadedAt
       </p>
     );
   } else {
-    body = <ForgeSweepListingView listing={read.data.listing} />;
+    body = (
+      <ForgeSweepListingView
+        listing={read.data.listing}
+        ticks={ticks}
+        onTicksChange={onTicksChange}
+      />
+    );
   }
   return (
     <section
@@ -188,7 +209,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const markOf = useRewoundMarks(report === undefined);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
-  const [sweep, setSweep] = useState(false);
+  const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   const removal = useBridgeMutation<RemoveAnswer>('frozen:remove', {
     responseType: 'frozen:remove:response',
     errorType: 'frozen:remove:error',
@@ -248,7 +269,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       targetOrgId: records.orgId,
       loadedAt: records.loadedAt,
       ...(includeChanged ? { includeChanged: true } : {}),
-      ...(sweep ? { sweep: true } : {}),
+      ...asked,
     });
     setConfirming(false);
     // The way out the refused reload offered is taken: the load is going.
@@ -259,6 +280,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const askRemoval = (changedToo: boolean): void => {
     setIncludeChanged(changedToo);
     setSweep(false);
+    setConfirming(true);
+  };
+
+  /** The confirmation again, its sweep ticked by this gesture and its list read. */
+  const askSweep = (): void => {
+    setIncludeChanged(false);
+    setSweep(true);
     setConfirming(true);
   };
 
@@ -386,6 +414,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               result={removal.data.result}
               org={org ?? records.orgId}
               subject="load"
+              {...(removable && !removal.loading && !busy ? { onTakeBackMade: askSweep } : {})}
             />
           )}
           {/* Under a removal that ended, which took back what the load created
@@ -409,6 +438,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         title={t('frozen.removal.removeTitle', { org: org ?? '' })}
         description={t('frozen.removal.removeDescription', { org: org ?? '' })}
         confirmText={org ?? ''}
+        confirmLabel={removalConfirmLabel(t, records.created, sweep)}
       >
         <ForgeRunRemovalPlan
           plan={records.created}
@@ -435,7 +465,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           {t('frozen.removal.sweep')}
         </label>
         {sweep && confirming && (
-          <FrozenRemovalSweep orgId={records.orgId} loadedAt={records.loadedAt} org={org ?? ''} />
+          <FrozenRemovalSweep
+            orgId={records.orgId}
+            loadedAt={records.loadedAt}
+            org={org ?? ''}
+            ticks={ticks}
+            onTicksChange={setTicks}
+          />
         )}
       </DangerConfirm>
     </Card>

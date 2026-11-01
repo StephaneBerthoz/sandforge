@@ -486,6 +486,143 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  /** Answer the last `requestType` the panel sent, correlated as the handler does. */
+  function answerLast(requestType: string, type: string, payload: unknown): void {
+    const request = sent(requestType);
+    if (!request) throw new Error(`no '${requestType}' was sent`);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: `resp-${type}`,
+            type,
+            timestamp: Date.now(),
+            correlationId: request.id,
+            payload,
+          },
+        }),
+      );
+    });
+  }
+
+  it('sends what is ticked under the sweep’s list, and says so on its button', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+    fireEvent.click(screen.getByTestId('forge-removal-sweep-toggle'));
+    answerLast('forge:undo-sweep:request', 'forge:undo-sweep:response', {
+      forgeId: 'forge-removable',
+      listing: {
+        looked: ['Account', 'Task'],
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 2,
+            names: [],
+            classes: { made: 1, madeOver: 0, late: 1, untied: 0 },
+          },
+        ],
+        unread: [],
+        handWork: [],
+        late: [{ objectApiName: 'Task', count: 1 }],
+        untied: { objects: [] },
+      },
+    });
+
+    fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+    expect(screen.getByTestId('danger-confirm-btn').textContent).toMatch(
+      /^Remove \d+ records? and what the sweep takes$/,
+    );
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: false,
+      sweep: true,
+      sweepLate: true,
+    });
+  });
+
+  it('proposes the sweep under a removal that left records for what the automation made', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    confirmRemoval();
+    answerRemoval('forge:undo:response', {
+      result: {
+        forgeId: 'forge-removable',
+        status: 'partial',
+        includeChanged: false,
+        finishedAt: '2026-09-02T08:00:00.000Z',
+        objects: [
+          {
+            objectApiName: 'Account',
+            planned: 1,
+            deleted: 0,
+            alreadyGone: 0,
+            keptChanged: 0,
+            keptDependents: 1,
+            refused: 0,
+            heldBy: ['Task'],
+            heldByAutomation: 1,
+            automationHolders: ['Task'],
+            unchecked: [],
+            reasons: [],
+          },
+        ],
+      },
+      operationId: 'req',
+    });
+
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain('Task');
+    fireEvent.click(screen.getByTestId('forge-removal-take-back-made'));
+
+    expect((screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(sent('forge:undo-sweep:request')?.payload).toEqual({ forgeId: 'forge-removable' });
+  });
+
+  it('names what held an older run back, but proposes no sweep: its id map is not kept', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[]}
+        olderRuns={[OLDER_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId(`forge-history-remove-${OLDER_RUN.forgeId}`));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    answerRemoval('forge:undo:response', {
+      result: {
+        forgeId: OLDER_RUN.forgeId,
+        status: 'partial',
+        includeChanged: false,
+        finishedAt: '2026-09-02T08:00:00.000Z',
+        objects: [
+          {
+            objectApiName: 'Account',
+            planned: 1,
+            deleted: 0,
+            alreadyGone: 0,
+            keptChanged: 0,
+            keptDependents: 1,
+            refused: 0,
+            heldBy: ['Task'],
+            heldByAutomation: 1,
+            automationHolders: ['Task'],
+            unchecked: [],
+            reasons: [],
+          },
+        ],
+      },
+      operationId: 'req',
+    });
+
+    expect(screen.getByTestId('forge-removal-held-by-automation')).toBeDefined();
+    expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+  });
+
   it('mutes the removal once the box beside what it fires is ticked, and not before', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
     fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));

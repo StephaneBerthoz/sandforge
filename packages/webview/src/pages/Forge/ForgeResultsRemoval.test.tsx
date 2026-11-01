@@ -558,6 +558,143 @@ describe('ForgeResultsRemoval', () => {
       ]);
     });
 
+    /** What the sweep lists of the run: what it takes, what came late, what is tied to nothing. */
+    const TOLD_LISTING = {
+      looked: ['Contact', 'Account', 'Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 4,
+          names: ['Welcome call'],
+          classes: { made: 2, madeOver: 0, late: 1, untied: 1 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+      late: [{ objectApiName: 'Task', count: 1 }],
+      untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+    };
+
+    it('sends what is ticked under the list, and neither tick unasked', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      fireEvent.click(screen.getByTestId('forge-removal-sweep-toggle'));
+      answer('forge:undo-sweep:request', 'forge:undo-sweep:response', {
+        forgeId: 'forge-on-screen',
+        listing: TOLD_LISTING,
+      });
+
+      fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+      fireEvent.click(screen.getByTestId('forge-sweep-untied-tick'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toBe(
+        'Remove 3 records and what the sweep takes',
+      );
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        {
+          forgeId: 'forge-on-screen',
+          includeChanged: false,
+          sweep: true,
+          sweepLate: true,
+          sweepUntied: true,
+        },
+      ]);
+    });
+
+    it('sends no tick for what is refused, and none once the sweep is unticked', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      fireEvent.click(screen.getByTestId('forge-removal-sweep-toggle'));
+      answer('forge:undo-sweep:request', 'forge:undo-sweep:response', {
+        forgeId: 'forge-on-screen',
+        listing: {
+          ...TOLD_LISTING,
+          untied: { ...TOLD_LISTING.untied, refusal: 'Another run of this machine wrote.' },
+        },
+      });
+      expect((screen.getByTestId('forge-sweep-untied-tick') as HTMLInputElement).disabled).toBe(
+        true,
+      );
+      fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+      fireEvent.click(screen.getByTestId('forge-removal-sweep-toggle'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toBe('Remove 3 records');
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        { forgeId: 'forge-on-screen', includeChanged: false },
+      ]);
+    });
+
+    /** The removal answered: it kept the account for tasks likely made by the automation. */
+    function keptForTheAutomation(): void {
+      confirmRemoval();
+      answer('forge:undo', 'forge:undo:response', {
+        result: {
+          ...PARTIAL_ANSWER,
+          objects: [
+            {
+              ...PARTIAL_ANSWER.objects[1],
+              heldBy: ['Task'],
+              heldByAutomation: 1,
+              automationHolders: ['Task'],
+            },
+          ],
+        },
+        operationId: 'forge-undo-4',
+      });
+    }
+
+    it('proposes the sweep once the history says what is left, ticked by that gesture and its list read', () => {
+      render(<ForgeResultsRemoval run={{ ...RUN, targetOrgId: DEV.id }} targetOrgId={DEV.id} />);
+      keptForTheAutomation();
+      expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toContain('Task');
+      // What is left is not known yet: nothing is offered meanwhile.
+      expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+
+      answer('forge:history:list', 'forge:history:list:response', { history: [RUN_AFTER] });
+      expect(sentAll('forge:undo-sweep:request')).toEqual([]);
+      fireEvent.click(screen.getByTestId('forge-removal-take-back-made'));
+
+      expect((screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+        true,
+      );
+      expect(sentAll('forge:undo-sweep:request').map((m) => m.payload)).toEqual([
+        { forgeId: 'forge-on-screen' },
+      ]);
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(sentAll('forge:undo').pop()?.payload).toEqual({
+        forgeId: 'forge-on-screen',
+        includeChanged: false,
+        sweep: true,
+      });
+    });
+
+    it('leaves the sweep unticked on the plain removal of what is left', () => {
+      render(<ForgeResultsRemoval run={{ ...RUN, targetOrgId: DEV.id }} targetOrgId={DEV.id} />);
+      keptForTheAutomation();
+      answer('forge:history:list', 'forge:history:list:response', { history: [RUN_AFTER] });
+
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+
+      expect((screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+        false,
+      );
+      expect(sentAll('forge:undo-sweep:request')).toEqual([]);
+    });
+
+    it('proposes no sweep once the history no longer holds the run: nothing can follow', () => {
+      render(<ForgeResultsRemoval run={{ ...RUN, targetOrgId: DEV.id }} targetOrgId={DEV.id} />);
+      keptForTheAutomation();
+      answer('forge:history:list', 'forge:history:list:response', { history: [] });
+
+      expect(screen.getByTestId('forge-removal-held-by-automation')).toBeDefined();
+      expect(screen.queryByTestId('forge-removal-take-back-made')).toBeNull();
+    });
+
     it('shows what the sweep did after what the removal did', () => {
       render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
       confirmRemoval();
@@ -596,6 +733,10 @@ describe('ForgeResultsRemoval', () => {
       fireEvent.click(screen.getByTestId('forge-results-sweep'));
       expect((screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
         true,
+      );
+      // No record of the run is left: "Remove 0 records" would be false.
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toBe(
+        'Delete what the sweep takes',
       );
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
