@@ -543,6 +543,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             }
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
           },
+          // The same, read again from the org, never from what this window
+          // holds: asked once the mute's lease assigned a permission set,
+          // which may have opened record types to the user the run writes as.
+          // A describe read just after the assignment says so; the one held
+          // from before it says the types as they were.
+          describeObjectAgain: async (orgId, objectName) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            const described = toForgeObjectDescribe(await conn.describe(objectName));
+            return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
+          },
           // What a record type allows of the object's picklists: one UI API
           // request per object and record type, which the run keeps.
           recordTypePicklists: async (orgId, objectName, recordTypeId) => {

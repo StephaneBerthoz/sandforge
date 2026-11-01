@@ -77,6 +77,23 @@ describe('ForgeRunGateNotice', () => {
     );
   });
 
+  it.each([
+    [
+      'CHECKPOINT_REFUSED' as const,
+      'The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.',
+    ],
+    [
+      'API_BUDGET_EXCEEDED' as const,
+      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, a checkpoint taken first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.',
+    ],
+  ])('alerts that the run was refused at its write gate (%s)', (code, text) => {
+    act(() => useForgeRunGateStore.getState().setStop({ code }));
+    render(<ForgeRunGateNotice />);
+
+    expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
+  });
+
   it('goes once dismissed', () => {
     act(() => useForgeRunGateStore.getState().setStop({ code: 'WRITE_DECLINED' }));
     render(<ForgeRunGateNotice />);

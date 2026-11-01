@@ -3857,7 +3857,9 @@
       "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past {{ceiling}} records. Nothing was read or written. Set Records per object to read fewer.",
       "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
-      "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
+      "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, a checkpoint taken first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records."
     },
     "executionTable": {
       "leftOut": "left out",

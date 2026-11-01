@@ -3857,7 +3857,9 @@
       "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de {{ceiling}} enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
       "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
-      "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée."
+      "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée.",
+      "checkpointRefused": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris. Rien n'a été écrit. Lancez-le sans point de contrôle préalable, ou corrigez ce qui le refuse.",
+      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, un point de contrôle pris d'abord compris, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements."
     },
     "executionTable": {
       "leftOut": "écarté",

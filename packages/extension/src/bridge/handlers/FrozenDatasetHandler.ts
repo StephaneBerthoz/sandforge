@@ -25,8 +25,12 @@ import type {
   ForgeTargetAutomation,
   GuardDecision,
   MutedAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
 } from '@sandforge/shared';
-import { auditMutedOf, guardTierOf } from '@sandforge/shared';
+import { auditMutedOf, guardTierOf, stillRunningOf } from '@sandforge/shared';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
@@ -56,7 +60,19 @@ import {
   muteForRun,
   muteOrgOf,
   type MuteLeaseOptions,
+  type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
+import {
+  CHECKPOINT_REFUSED,
+  checkpointScopeStop,
+  takeCheckpointFirst,
+} from '../../modules/forge/ForgeRunGate.js';
+import {
+  beforeRunFailedWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+  type BeforeRunOwn,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { seedWrittenBetween } from '../../modules/seed/seedRunSweep.js';
 import {
   removalAuditObjects,
@@ -705,16 +721,56 @@ function frozenOutcome(report: FrozenLoadReport): AuditOutcome {
 function cancelledFrozenOutcome(
   written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
 ): AuditOutcome {
+  const refused =
+    written.perObject.reduce((sum, o) => sum + o.failed.length, 0) + written.purge.failures.length;
+  return recordsWritten(written) === 0 && refused === 0 ? 'stopped' : 'cancelled';
+}
+
+/**
+ * The records a load wrote to its target: those it inserted, the placeholders
+ * it created for them, and those a reload purged or deactivated. A checkpoint
+ * taken before a load that wrote none is deleted again.
+ */
+function recordsWritten(
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+): number {
   const total = (counts: Record<string, number>): number =>
     Object.values(counts).reduce((sum, n) => sum + n, 0);
-  const wrote =
+  return (
     written.perObject.reduce((sum, o) => sum + o.inserted, 0) +
     written.placeholders.length +
     total(written.purge.deleted) +
-    total(written.purge.deactivated);
-  const refused =
-    written.perObject.reduce((sum, o) => sum + o.failed.length, 0) + written.purge.failures.length;
-  return wrote === 0 && refused === 0 ? 'stopped' : 'cancelled';
+    total(written.purge.deactivated)
+  );
+}
+
+/**
+ * The mark of a load of this handler as a checkpoint taken before it names
+ * its own: the id of its request, under Frozen Dataset's name, so that no
+ * request id of another page's run can ever pass for it.
+ */
+function frozenMarkOf(requestId: string): string {
+  return `frozen:${requestId}`;
+}
+
+/** The writes a load makes of the objects of its dataset: it inserts them, then updates what it inserted. */
+const LOAD_WRITES = (_objectApiName: string, write: string): boolean =>
+  write === 'insert' || write === 'update';
+
+/**
+ * A load stopped for the checkpoint it was asked to take first, before its
+ * lease and its first write: refused at its scope or at its take, the take
+ * failed (`CHECKPOINT_REFUSED`), or the load's Cancel came while it read
+ * (`LOAD_CANCELLED`). Nothing was written.
+ */
+class CheckpointFirstStop extends Error {
+  constructor(
+    readonly code: typeof CHECKPOINT_REFUSED | 'LOAD_CANCELLED',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CheckpointFirstStop';
+  }
 }
 
 /**
@@ -828,10 +884,25 @@ export class FrozenDatasetHandler implements DomainHandler {
   private readonly removing = new Set<string>();
 
   /**
-   * The orgs a load, a load's removal or its sweep writes to now, from its
-   * request until it ends: a checkpoint of one is refused meanwhile.
+   * The orgs a load's removal or its sweep writes to now, from its request
+   * until it ends: a checkpoint of one is refused meanwhile.
    */
   private readonly writing = new WritingOrgs();
+
+  /**
+   * The loads under way, by the id of their request, each with the org it
+   * writes to, from its request until it ends: a checkpoint of that org is
+   * refused meanwhile — but the one a load takes of what it writes before
+   * its first write, which names the load's own mark.
+   */
+  private readonly loading = new Map<string, string>();
+
+  /**
+   * What a load asked to take a checkpoint of what it writes before its first
+   * write takes it through (`Checkpoint first`). Without it, such a load is
+   * refused before its first write.
+   */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
 
   /**
    * Describe caches shared by every discovery this handler builds.
@@ -899,6 +970,11 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.liveTracker = tracker;
   }
 
+  /** Inject what a load takes a checkpoint of what it writes before its first write through. */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
   /**
    * Another reader of the target's automation than the handler's own: the
    * objects the target's flows create as a load's records are written, which
@@ -941,10 +1017,33 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * Whether a load of this window, a load's removal or its sweep writes to
    * the registered org now: a checkpoint of it would hold its records half
-   * written.
+   * written. `except` is the mark of a load a checkpoint is taken before: its
+   * own does not count, and only its own.
    */
-  isWritingTo(orgId: string): boolean {
-    return this.writing.has(orgId);
+  isWritingTo(orgId: string, except?: string): boolean {
+    if (this.writing.has(orgId)) return true;
+    for (const [requestId, writesTo] of this.loading) {
+      if (writesTo === orgId && (except === undefined || except !== frozenMarkOf(requestId))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Run a load with the org its request names held as written to, under the
+   * id of its request, until it settles, however it ends. A request that
+   * names no org holds none.
+   */
+  private async loadingDuring(msg: InboundRequest, run: () => Promise<void>): Promise<void> {
+    const orgId = payloadText(msg, 'targetOrgId');
+    if (orgId === undefined) return run();
+    this.loading.set(msg.id, orgId);
+    try {
+      await run();
+    } finally {
+      this.loading.delete(msg.id);
+    }
   }
 
   /**
@@ -975,7 +1074,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.handleManifestGet(msg);
         return true;
       case 'frozen:load':
-        await this.writing.during(payloadText(msg, 'targetOrgId'), () => this.handleLoad(msg));
+        await this.loadingDuring(msg, () => this.handleLoad(msg));
         return true;
       case 'frozen:load:preview':
         await this.handlePreview(msg);
@@ -2342,10 +2441,17 @@ export class FrozenDatasetHandler implements DomainHandler {
         carried,
         ...(code ? { code } : {}),
         ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+        ...(checkpoint?.state === 'taken' ? { checkpointId: checkpoint.checkpointId } : {}),
       });
     };
     /** What the load muted of the target's automation, when it was asked to. */
     let mutedAutomation: MutedAutomation | undefined;
+    /** The checkpoint the load took before its lease and its first write, when asked. */
+    let taken: RunCheckpointTaken | undefined;
+    /** What became of it once the load ended: kept when it wrote, deleted when it wrote none. */
+    let checkpoint: RunCheckpointInfo | undefined;
+    /** Whether the loader had the load: what it wrote is said only by what it reports. */
+    let loadStarted = false;
 
     try {
       const guard = new SasPathGuard();
@@ -2404,26 +2510,40 @@ export class FrozenDatasetHandler implements DomainHandler {
       // writes — it has no gate of its own that does — and plans the mute
       // from it: refused on a production org or for a user who cannot
       // assign, it writes nothing. The lease is taken before its first
-      // write, and given back as it ends, whatever it ended on.
+      // write, and given back as it ends, whatever it ended on. Asked to take
+      // a checkpoint first, it reads the same once, for what still runs.
+      const written = dataset.objects.map((object) => object.objectApiName);
+      const read =
+        parsed.muteAutomation === true || parsed.checkpointFirst !== undefined
+          ? await this.targetAutomation
+              .read(parsed.targetOrgId, written)
+              .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
+          : undefined;
       const mute =
-        parsed.muteAutomation === true
-          ? await muteForRun(
-              async () => muteOrgOf(conn),
-              await this.targetAutomation
-                .read(
-                  parsed.targetOrgId,
-                  dataset.objects.map((object) => object.objectApiName),
-                )
-                .catch((err: unknown) => ({ unread: extractErrorMessage(err) })),
-              {
-                ...this.muteLeases,
-                writes: (_objectApiName, write) => write === 'insert' || write === 'update',
-              },
-            )
+        parsed.muteAutomation === true && read
+          ? await muteForRun(async () => muteOrgOf(conn), read, {
+              ...this.muteLeases,
+              writes: LOAD_WRITES,
+            })
           : undefined;
       mutedAutomation = mute?.muted;
+      // The checkpoint of what the load writes, taken after the cost its
+      // preview said and before the lease and the first write: refused,
+      // failed or stopped, the load writes nothing and assigns nothing.
+      if (parsed.checkpointFirst !== undefined && read) {
+        taken = await this.takeLoadCheckpoint({
+          msg,
+          orgId: parsed.targetOrgId,
+          written,
+          read,
+          mute,
+          request: parsed.checkpointFirst,
+          signal: abortController.signal,
+        });
+      }
       const held = mute?.prepared ? await mute.prepared.acquire(operationId) : undefined;
       if (held) mutedAutomation = held.outcome;
+      loadStarted = true;
       const loaded = loader.load({
         orgId: parsed.targetOrgId,
         orgTier: this.targetTier(parsed.targetOrgId),
@@ -2447,6 +2567,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         if (held) mutedAutomation = await held.release();
       });
       throttledProgress.flush();
+      // Kept once the load wrote a record, whatever it came to; deleted when
+      // it wrote none.
+      if (taken) checkpoint = await this.settleCheckpoint(taken, recordsWritten(report) > 0);
       recordLoad(
         frozenOutcome(report),
         frozenAuditObjects(report),
@@ -2467,6 +2590,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         report: {
           ...toLoadReportInfo(report),
           ...(mutedAutomation ? { mutedAutomation } : {}),
+          ...(checkpoint ? { checkpoint } : {}),
         },
       });
       this.deps.broker.postToWebview(response);
@@ -2487,6 +2611,43 @@ export class FrozenDatasetHandler implements DomainHandler {
       settle();
     } catch (err: unknown) {
       throttledProgress.flush();
+      // The checkpoint taken first: kept once the load wrote a record before
+      // it stopped, deleted when it wrote none — its lease refused, a cancel
+      // before its first write. One whose load threw saying nothing of what
+      // it wrote, once the loader had it, is kept: it may be what takes that
+      // back.
+      if (taken && checkpoint === undefined) {
+        const said =
+          err instanceof FrozenLoadCancelledError || err instanceof FrozenLoadFailedError
+            ? err.written
+            : undefined;
+        checkpoint = await this.settleCheckpoint(
+          taken,
+          said ? recordsWritten(said) > 0 : loadStarted && !isMuteRefusedError(err),
+        );
+      }
+      const withCheckpoint = checkpoint ? { checkpoint } : {};
+      if (err instanceof CheckpointFirstStop) {
+        // Stopped for the checkpoint asked first, before the lease and the
+        // first write: refused or failed, recorded as a load a check of its
+        // own stopped before it started; cancelled while it read, ended the
+        // way a cancel before the first write ends.
+        recordLoad('stopped', undefined, undefined, err.code);
+        sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
+          code: err.code,
+        });
+        if (err.code === 'LOAD_CANCELLED') {
+          this.registry?.abort(operationId);
+          sendOperationCompleted(this.deps, operationId, { aborted: true });
+          this.liveTracker?.cancel(operationId);
+          settle();
+        } else {
+          sendOperationFailed(this.deps, operationId, err.message, true);
+          this.liveTracker?.fail(operationId, err.message);
+          settle(err);
+        }
+        return;
+      }
       if (err instanceof FrozenLoadCancelledError) {
         // Ended the way a cancelled Sync or Seed ends: recorded with what it
         // wrote, aborted in the registry — already, when the cancel came
@@ -2508,6 +2669,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.liveTracker?.cancel(operationId);
         sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
           code: 'LOAD_CANCELLED',
+          ...(checkpoint ? { extraPayload: withCheckpoint } : {}),
         });
         settle();
         return;
@@ -2529,10 +2691,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         undefined,
         muteRefused?.code,
       );
+      const detail = this.errorDetailOf(cause);
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
         code: muteRefused?.code ?? this.errorCodeFor(cause, 'LOAD_ERROR'),
         retryable: cause instanceof TimeoutError,
-        extraPayload: this.errorDetailOf(cause),
+        extraPayload: detail || checkpoint ? { ...detail, ...withCheckpoint } : undefined,
       });
       // The load's end, as every write run posts it: with the error alone,
       // the recent operations and the side panel showed a failed load running
@@ -2542,6 +2705,144 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.liveTracker?.fail(operationId, extractErrorMessage(err));
       }
       settle(err);
+    }
+  }
+
+  /**
+   * What the checkpoint of what a load writes is asked of: the objects of its
+   * dataset, which it inserts and a reload purges, and the objects what still
+   * runs creates as it writes them once the mute's plan holds
+   * (`stillRunningOf`). What could not be read creates nothing the scope can
+   * name: the checkpoint then holds the dataset's objects.
+   */
+  private loadCheckpointAsk(input: {
+    orgId: string;
+    operationId: string;
+    written: readonly string[];
+    read: ForgeTargetAutomation | { unread: string };
+    mute?: Pick<RunMute, 'plan'>;
+    request: RunCheckpointRequest;
+  }): BeforeRunAsk {
+    const { read } = input;
+    return {
+      module: 'frozen',
+      orgId: input.orgId,
+      operationId: input.operationId,
+      written: [...input.written],
+      running:
+        'objects' in read ? stillRunningOf(read, input.mute?.plan, LOAD_WRITES) : { firing: [] },
+      request: input.request,
+    };
+  }
+
+  /**
+   * What the checkpoint a load asked to take first would hold and cost, and
+   * the refusal the load would meet, for its preview: what still runs read
+   * for it, the mute planned when asked — nothing assigned — and a plan that
+   * cannot be made leaving what the read says runs. Left out, said in the
+   * log, when it cannot be scoped: the load says why when it is started.
+   */
+  private async previewCheckpoint(input: {
+    msg: InboundRequest;
+    orgId: string;
+    written: readonly string[];
+    request: RunCheckpointRequest;
+    muteAutomation: boolean;
+    conn: Parameters<typeof muteOrgOf>[0];
+  }): Promise<RunCheckpointEstimate | undefined> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) return undefined;
+    const read = await this.targetAutomation
+      .read(input.orgId, input.written)
+      .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+    const mute = input.muteAutomation
+      ? await muteForRun(async () => muteOrgOf(input.conn), read, {
+          ...this.muteLeases,
+          writes: LOAD_WRITES,
+        }).catch((err: unknown) => {
+          logger.warn(
+            `Frozen preview: the mute could not be planned (${extractErrorMessage(err)})`,
+          );
+          return undefined;
+        })
+      : undefined;
+    const ask = this.loadCheckpointAsk({
+      ...input,
+      operationId: input.msg.id,
+      read,
+      ...(mute ? { mute } : {}),
+    });
+    return checkpoints.scope(ask, {}).catch((err: unknown) => {
+      logger.warn(`Frozen preview: ${beforeRunFailedWords(err)}`);
+      return undefined;
+    });
+  }
+
+  /**
+   * Take the checkpoint of what a load writes before its lease and its first
+   * write: scoped first, reading no record — refused there, the load is
+   * refused — then taken, held to what the scope said it takes, stopped by
+   * the load's Cancel. The load's own mark alone does not refuse either.
+   *
+   * @throws {CheckpointFirstStop} When it is refused, fails or is stopped:
+   *   nothing was written, and nothing of the take is kept.
+   */
+  private async takeLoadCheckpoint(input: {
+    msg: InboundRequest;
+    orgId: string;
+    written: readonly string[];
+    read: ForgeTargetAutomation | { unread: string };
+    mute?: Pick<RunMute, 'plan'>;
+    request: RunCheckpointRequest;
+    signal: AbortSignal;
+  }): Promise<RunCheckpointTaken> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) {
+      throw new CheckpointFirstStop(
+        CHECKPOINT_REFUSED,
+        beforeRunFailedWords(new Error("SandForge's checkpoints are not set up in this window")),
+      );
+    }
+    const ask = this.loadCheckpointAsk({ ...input, operationId: input.msg.id });
+    const own: BeforeRunOwn = { operationId: frozenMarkOf(input.msg.id) };
+    let estimate: RunCheckpointEstimate;
+    try {
+      estimate = await checkpoints.scope(ask, own);
+    } catch (err: unknown) {
+      throw new CheckpointFirstStop(CHECKPOINT_REFUSED, beforeRunFailedWords(err));
+    }
+    const refused = checkpointScopeStop(estimate);
+    if (refused) throw new CheckpointFirstStop(refused.code, refused.message);
+    const took = await takeCheckpointFirst(() =>
+      checkpoints.take(ask, own, { planned: estimate, signal: input.signal }),
+    );
+    if ('stop' in took) {
+      throw new CheckpointFirstStop(
+        took.stop.code === CHECKPOINT_REFUSED ? CHECKPOINT_REFUSED : 'LOAD_CANCELLED',
+        took.stop.message,
+      );
+    }
+    return took.checkpoint;
+  }
+
+  /**
+   * What becomes of the checkpoint a load took before its first write once it
+   * has ended: kept when it wrote a record, deleted when it wrote none. One
+   * the checkpoints cannot settle is kept as it was taken, said in the log.
+   */
+  private async settleCheckpoint(
+    taken: RunCheckpointTaken,
+    wrote: boolean,
+  ): Promise<RunCheckpointInfo> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) return taken;
+    try {
+      return await checkpoints.settle(taken, wrote);
+    } catch (err: unknown) {
+      logger.warn(
+        `Frozen load: the checkpoint '${taken.name}' taken before it is kept, as it could not be settled (${extractErrorMessage(err)})`,
+      );
+      return taken;
     }
   }
 
@@ -2754,8 +3055,26 @@ export class FrozenDatasetHandler implements DomainHandler {
         pilot: parsed.pilot ? {} : undefined,
         ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
       });
+      // Asked for the checkpoint first, the preview says what it would hold
+      // and cost, and the refusal a load would meet: Frozen has no question
+      // of its own before it writes, and the checkpoint's cost is that of the
+      // target's tables, said here before the load is started. Nothing is
+      // taken, nothing assigned.
+      const checkpoint =
+        parsed.checkpointFirst !== undefined
+          ? await this.previewCheckpoint({
+              msg,
+              orgId: parsed.targetOrgId,
+              written: dataset.objects.map((object) => object.objectApiName),
+              request: parsed.checkpointFirst,
+              muteAutomation: parsed.muteAutomation === true,
+              conn,
+            })
+          : undefined;
       this.deps.broker.postToWebview(
-        buildResponse(this.deps, msg, 'frozen:load:preview:response', { plan }),
+        buildResponse(this.deps, msg, 'frozen:load:preview:response', {
+          plan: checkpoint ? { ...plan, checkpoint } : plan,
+        }),
       );
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'frozen:load:preview', 'frozen:load:preview:error', msg, err, {

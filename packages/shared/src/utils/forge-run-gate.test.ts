@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the six ways a run stops at its gate', () => {
+  it('names the eight ways a run stops at its gate', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -10,7 +10,20 @@ describe('forge run gate stops', () => {
       'WRITE_DECLINED',
       'STORAGE_EXCEEDED',
       'CONFIRMATION_UNAVAILABLE',
+      'CHECKPOINT_REFUSED',
+      'API_BUDGET_EXCEEDED',
     ]);
+  });
+
+  it('reads a stop for the checkpoint taken first and for the API requests left, as the page words them', () => {
+    expect(isForgeRunGateCode('CHECKPOINT_REFUSED')).toBe(true);
+    expect(isForgeRunGateCode('API_BUDGET_EXCEEDED')).toBe(true);
+    expect(forgeRunGateStopOf({ code: 'CHECKPOINT_REFUSED' })).toEqual({
+      code: 'CHECKPOINT_REFUSED',
+    });
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED' })).toEqual({
+      code: 'API_BUDGET_EXCEEDED',
+    });
   });
 
   it('tells a gate code from any other code an execute error carries', () => {

@@ -13,6 +13,8 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   WRITE_DECLINED: 'forgeRun.gate.writeDeclined',
   STORAGE_EXCEEDED: 'forgeRun.gate.storageExceeded',
   CONFIRMATION_UNAVAILABLE: 'forgeRun.gate.confirmationUnavailable',
+  CHECKPOINT_REFUSED: 'forgeRun.gate.checkpointRefused',
+  API_BUDGET_EXCEEDED: 'forgeRun.gate.apiBudgetExceeded',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */

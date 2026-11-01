@@ -21,6 +21,10 @@ import type {
   ComplianceFrameworkType,
   GuardDecision,
   MutedAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointTaken,
+  StillRunning,
 } from '@sandforge/shared';
 import {
   auditMutedOf,
@@ -46,6 +50,7 @@ import {
   leftOutByTheUser,
   removalRisksOf,
   guardTierOf,
+  stillRunningOf,
 } from '@sandforge/shared';
 import * as z from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -127,6 +132,7 @@ import type {
   WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import {
+  CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   ForgeRunGateError,
   automationUnreadOf,
@@ -145,17 +151,21 @@ import {
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
   overEmailOf,
+  forgeWriteBudgetOf,
   pricesForLinesOf,
   unreadEmailOf,
   READ_CEILING_PER_OBJECT,
   runBypassesOf,
   updateStepsOf,
   type UpdatedAfterInsert,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
   storageCheckOf,
   storageRefusal,
+  takeCheckpointFirst,
   writePlanOf,
+  type ApiBudget,
   type DataStorage,
   type EmailLimit,
   type SimulatedWrite,
@@ -211,7 +221,15 @@ import type {
   ExecutionSummary,
   ForgeProgressEvent,
   ForgeWriteBoundary,
+  ForgeWriteGateAnswer,
 } from '../../modules/forge/ForgeExecutor.js';
+import {
+  beforeRunFailedWords,
+  beforeRunProgressWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+  type BeforeRunOwn,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import {
   ForgeRunJournal,
   HISTORY_IDS_BOUND,
@@ -588,6 +606,53 @@ export interface ForgeServices {
   muteOrg?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept: the home directory's, unless told. */
   muteLeases?: MuteLeaseOptions;
+}
+
+/**
+ * The checkpoint a run took before its first write that the run `forgeId`
+ * of `history` is a part of — itself, the run it retries or resumes, and so
+ * on — or undefined when none of them took one that is kept. A retry and a
+ * resume are the same run: a checkpoint taken in their place would hold the
+ * records the run already wrote, and a rewind to it would keep them.
+ */
+function checkpointOfTheLine(
+  forgeId: string,
+  history: readonly ForgeExecutionResult[],
+): RunCheckpointTaken | undefined {
+  const seen = new Set<string>();
+  let run: ForgeExecutionResult | undefined = history.find((e) => e.forgeId === forgeId);
+  while (run && !seen.has(run.forgeId)) {
+    seen.add(run.forgeId);
+    if (run.checkpoint?.state === 'taken') return run.checkpoint;
+    const previous: string | undefined = run.retryOf;
+    run = previous === undefined ? undefined : history.find((e) => e.forgeId === previous);
+  }
+  return undefined;
+}
+
+/**
+ * Whether a run wrote a record to its target: one it created, or one an
+ * upsert wrote over. A checkpoint taken before a run that wrote none is
+ * deleted again: there is nothing for it to take back.
+ */
+function wroteSome(run: Pick<ExecutionSummary, 'successCount' | 'updatedCount'>): boolean {
+  return run.successCount + run.updatedCount > 0;
+}
+
+/** The checkpoint a run asked for at its write gate, and what the gate tells of it. */
+interface WriteGateCheckpoint {
+  /** What the checkpoint is asked of, but the objects the run writes, which the gate knows. */
+  ask: Omit<BeforeRunAsk, 'written'>;
+  /** The run's own mark, which alone does not refuse the take. */
+  own: BeforeRunOwn;
+  /** The run's Stop: it stops the take between two reads, keeping nothing. */
+  signal: AbortSignal;
+  /** Told, on a simulation, what it would hold and cost, and the refusal it would meet. */
+  onEstimate: (estimate: RunCheckpointEstimate) => void;
+  /** Told once it is taken, before the lease and the first write. */
+  onTaken: (taken: RunCheckpointTaken) => void;
+  /** The take's progress, as a share done: the run says it takes the checkpoint first. */
+  onProgress?: (percentage: number) => void;
 }
 
 /**
@@ -1177,6 +1242,12 @@ export class ForgeHandler implements DomainHandler {
   private muteOrgOf?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept, when not the home directory's. */
   private muteLeases?: MuteLeaseOptions;
+  /**
+   * What a run asked to take a checkpoint of what it writes before its first
+   * write takes it through (`Checkpoint first`). Without it, such a run is
+   * refused at its write gate, nothing written: the option promised a rewind.
+   */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
   private rehearser?: ForgeRehearser;
   /** The operation of the rehearsal under way, when one is: one at a time. */
   private rehearseOperationId: string | null = null;
@@ -1343,6 +1414,11 @@ export class ForgeHandler implements DomainHandler {
     this.liveTracker = tracker;
   }
 
+  /** Inject what a run takes a checkpoint of what it writes before its first write through. */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
   /**
    * Put a run on the background registry for as long as it lasts.
    *
@@ -1395,9 +1471,13 @@ export class ForgeHandler implements DomainHandler {
     return settle;
   }
 
-  /** Whether a run of this window writes to the org now: a simulation writes to none. */
-  isWritingTo(orgId: string): boolean {
-    return this.writingTo === orgId;
+  /**
+   * Whether a run of this window writes to the org now: a simulation writes to
+   * none. `except` is the operation of a run a checkpoint is taken before:
+   * its own mark does not count, and only its own.
+   */
+  isWritingTo(orgId: string, except?: string): boolean {
+    return this.writingTo === orgId && (except === undefined || except !== this.executeOperationId);
   }
 
   /**
@@ -1839,6 +1919,18 @@ export class ForgeHandler implements DomainHandler {
     // A run taken up where it stopped names the part it resumes, as a retry
     // names the run it retries: the history walks back through both.
     const retryOf = resume ? resume.forgeId : parsed.retryOf;
+    // A retry and a resume are the run they take up: they take no checkpoint
+    // of their own — taken now, it would hold what the run already wrote, and
+    // a rewind to it would keep that — and name the one the run took first.
+    const lineCheckpoint =
+      retryOf !== undefined ? checkpointOfTheLine(retryOf, this.loadHistory()) : undefined;
+    const checkpointFirst = retryOf === undefined ? parsed.checkpointFirst : undefined;
+    if (retryOf !== undefined && parsed.checkpointFirst !== undefined) {
+      logger.info(
+        'Forge run: no checkpoint taken for a retry or a resume, which takes up a run that wrote',
+        { checkpoint: lineCheckpoint?.checkpointId ?? 'none' },
+      );
+    }
     // A simulation reads what the run reads and writes nothing: no question of
     // the run's gate is put for it, nor of Production Guard, and it is neither
     // a write in the audit trail nor a run of the history. A production target
@@ -2228,6 +2320,16 @@ export class ForgeHandler implements DomainHandler {
     let mute: Awaited<ReturnType<typeof muteForRun>>['prepared'];
     /** What the run says of its mute: planned before it writes, as it ended after. */
     let mutedAutomation: MutedAutomation | undefined;
+    /**
+     * What still runs of the target's automation as the run writes, once the
+     * mute's plan holds (`stillRunningOf`): the objects its flows create join
+     * those the checkpoint taken first holds. Nothing, when it could not be read.
+     */
+    let running: Pick<StillRunning<unknown>, 'firing'> = { firing: [] };
+    /** The checkpoint the run took before its first write, once taken. */
+    let checkpointTaken: RunCheckpointTaken | undefined;
+    /** Of a simulation asked for one, what the checkpoint would hold and cost. */
+    let checkpointEstimate: RunCheckpointEstimate | undefined;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2295,33 +2397,40 @@ export class ForgeHandler implements DomainHandler {
       // The most rows of one object the run reads: asked about past it, and
       // read to it.
       const readCeiling = this.maxRecordsPerObject();
+      const updated = objectsUpdatedAfterInsert(graph, {
+        leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+        retry: retryOf !== undefined,
+      });
+      const updatedNames = new Set(updated.map((object) => object.objectApiName));
+      /** The writes the run makes of each object: every insert, and the updates of its second pass. */
+      const writes: Parameters<typeof stillRunningOf>[2] = (objectApiName, write) =>
+        write === 'insert' || (write === 'update' && updatedNames.has(objectApiName));
       if (!dryRun) {
-        const updated = objectsUpdatedAfterInsert(graph, {
-          leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
-          retry: retryOf !== undefined,
-        });
         const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
         // Asked to mute, the run plans it from what it read, and its gate asks
         // only for what still runs: the bypasses it is to hold count as held.
         // Refused on a production org or for a user who cannot assign, it
         // writes nothing; nothing to mute, it goes on as without the option.
         let automation = read;
+        let mutePlan: RunMute['plan'];
         if (muteAutomation === true) {
-          const updatedNames = new Set(updated.map((object) => object.objectApiName));
           const planned = await muteForRun(
             () => this.muteOrg(config.targetOrgId),
             'automation' in read ? read.automation : read,
-            {
-              ...this.muteLeases,
-              writes: (objectApiName, write) =>
-                write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
-            },
+            { ...this.muteLeases, writes },
           );
           mute = planned.prepared;
           mutedAutomation = planned.muted;
+          mutePlan = planned.plan;
           if ('automation' in read && planned.automation) {
             automation = { ...read, automation: planned.automation };
           }
+        }
+        // What still runs once the plan holds, from the read itself and the
+        // plan, by the one function every computation before the lease takes
+        // it from: the creations of what the mute keeps quiet are not held.
+        if (checkpointFirst !== undefined && 'automation' in read) {
+          running = stillRunningOf(read.automation, mutePlan, writes);
         }
         targetAutomation = automation;
         if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
@@ -2365,6 +2474,30 @@ export class ForgeHandler implements DomainHandler {
           );
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
+        }
+      } else if (checkpointFirst !== undefined) {
+        // A simulation asked for the checkpoint first says what it would hold
+        // and cost: what still runs is read for it, and the mute planned when
+        // it is asked too — nothing assigned. A plan that cannot be made
+        // leaves what the read says runs.
+        const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        if ('automation' in read) {
+          const mutePlan =
+            muteAutomation === true
+              ? await muteForRun(() => this.muteOrg(config.targetOrgId), read.automation, {
+                  ...this.muteLeases,
+                  writes,
+                }).then(
+                  (planned) => planned.plan,
+                  (err: unknown) => {
+                    logger.warn(
+                      `Forge simulation: the mute could not be planned (${extractErrorMessage(err)})`,
+                    );
+                    return undefined;
+                  },
+                )
+              : undefined;
+          running = stillRunningOf(read.automation, mutePlan, writes);
         }
       }
       if (runController.signal.aborted) {
@@ -2468,6 +2601,33 @@ export class ForgeHandler implements DomainHandler {
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
         mayBeInTarget,
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
+        updatedAfterInsert: [...updatedNames],
+        ...(checkpointFirst !== undefined
+          ? {
+              checkpoint: {
+                ask: {
+                  module: 'forge' as const,
+                  orgId: config.targetOrgId,
+                  operationId,
+                  running,
+                  request: checkpointFirst,
+                },
+                own: { operationId },
+                signal: runController.signal,
+                onEstimate: (estimate) => {
+                  checkpointEstimate = estimate;
+                },
+                onTaken: (taken) => {
+                  checkpointTaken = taken;
+                },
+                onProgress: (percentage) => {
+                  const words = beforeRunProgressWords(percentage);
+                  sendOperationProgress(this.deps, operationId, percentage, 0, 0, words);
+                  this.liveTracker?.updateProgress(operationId, percentage, 0, 0, words);
+                },
+              },
+            }
+          : {}),
         onSimulated: (plan) => {
           simulatedPlan = plan;
         },
@@ -2491,11 +2651,19 @@ export class ForgeHandler implements DomainHandler {
             ceiling: readCeiling,
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
-          beforeWrite: async (boundary) => {
+          // The lease the gate took is handed to the executor, which gives it
+          // back once its last write is through, before it reads back the
+          // record types the target gave: the bypass is held no longer than
+          // the writes. Given back again as the run ends, it answers the same.
+          beforeWrite: async (boundary): Promise<ForgeWriteGateAnswer | undefined> => {
             await writeGate(boundary);
-            if (!mute || boundary.dryRun || held) return;
-            held = await mute.acquire(operationId);
-            mutedAutomation = held.outcome;
+            if (!mute || boundary.dryRun || held) return undefined;
+            const lease = await mute.acquire(operationId);
+            held = lease;
+            mutedAutomation = lease.outcome;
+            return {
+              lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
+            };
           },
         })
         // Every line of the journal written before the run's end is said.
@@ -2512,16 +2680,31 @@ export class ForgeHandler implements DomainHandler {
           ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
           : {};
       const muted = mutedAutomation ? { mutedAutomation } : {};
+      // The checkpoint the run took first: kept once it wrote a record,
+      // deleted when it wrote none. A simulation's says what it would hold and
+      // cost; a retry's or a resume's is the one the run it takes up took.
+      const checkpointInfo: RunCheckpointInfo | RunCheckpointEstimate | undefined = dryRun
+        ? checkpointEstimate
+        : checkpointTaken
+          ? await this.settleCheckpoint(
+              checkpointTaken,
+              (counted.createdCount ?? counted.idRemapCount - (counted.linkedExistingCount ?? 0)) +
+                (counted.updatedCount ?? 0) >
+                0,
+            )
+          : lineCheckpoint;
+      const checkpoint = checkpointInfo ? { checkpoint: checkpointInfo } : {};
       const result =
         retryOf !== undefined
           ? {
               ...counted,
               ...inJournal,
               ...muted,
+              ...checkpoint,
               retryOf,
               ...(resume ? { resumed: true as const } : {}),
             }
-          : { ...counted, ...inJournal, ...muted };
+          : { ...counted, ...inJournal, ...muted, ...checkpoint };
       if ('journalId' in inJournal && !dryRun) {
         journalAfter = { keep: true, status: 'success', forgeId: result.forgeId };
       }
@@ -2558,6 +2741,9 @@ export class ForgeHandler implements DomainHandler {
           ...contactPointsAudit(result.contactPoints),
           context: audit.context(result.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+          ...(checkpointInfo?.state === 'taken'
+            ? { checkpointId: checkpointInfo.checkpointId }
+            : {}),
         });
         this.addToHistory(result, config);
       } else {
@@ -2638,6 +2824,16 @@ export class ForgeHandler implements DomainHandler {
             : outcome === 'stopped'
               ? RUN_CANCELLED
               : undefined;
+      // The checkpoint the run took first: kept when it wrote a record before
+      // it stopped, deleted when it wrote none — its lease refused, a stop
+      // before its first write. One whose run threw saying nothing of what it
+      // wrote is kept: it may be what takes that back.
+      const checkpointInfo: RunCheckpointInfo | undefined = checkpointTaken
+        ? await this.settleCheckpoint(
+            checkpointTaken,
+            partial ? wroteSome(partial) : !(stoppedBeforeStart || gate || muteRefused),
+          )
+        : lineCheckpoint;
       // A failure is logged by the error it posts; a cancel posts none.
       logger.info('Forge execute stopped', {
         outcome,
@@ -2664,6 +2860,7 @@ export class ForgeHandler implements DomainHandler {
               ...(store && journalId
                 ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
                 : {}),
+              ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -2696,6 +2893,9 @@ export class ForgeHandler implements DomainHandler {
           ...contactPointsAudit(partial?.contactPoints),
           context: audit.context(partial?.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+          ...(checkpointInfo?.state === 'taken'
+            ? { checkpointId: checkpointInfo.checkpointId }
+            : {}),
         });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so
@@ -2713,8 +2913,11 @@ export class ForgeHandler implements DomainHandler {
       // English message of a run that failed. A run a cancel stopped once it
       // had written, which the trail records as cancelled under no code, goes
       // under the cancel's code all the same: under EXECUTE_ERROR, the page
-      // said the abort's words as the error it stopped on.
+      // said the abort's words as the error it stopped on. A run kept in no
+      // entry says what became of the checkpoint it took first beside it:
+      // deleted, as it wrote nothing, or kept for what it may have written.
       await endJournal();
+      const taken = checkpointTaken && checkpointInfo ? { checkpoint: checkpointInfo } : {};
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
         retryable: true,
@@ -2727,8 +2930,10 @@ export class ForgeHandler implements DomainHandler {
               },
             }
           : gate?.stop
-            ? { extraPayload: { gate: gate.stop } }
-            : {}),
+            ? { extraPayload: { gate: gate.stop, ...taken } }
+            : checkpointTaken
+              ? { extraPayload: taken }
+              : {}),
       });
       if (cancelled) {
         // Aborted in the registry already when the cancel came through it,
@@ -2814,6 +3019,8 @@ export class ForgeHandler implements DomainHandler {
       journalId?: string;
       /** Which part of that journal it is. */
       journalPart?: number;
+      /** The checkpoint it took before its first write, or the one of the run it takes up. */
+      checkpoint?: RunCheckpointInfo;
     },
   ): ForgeExecutionResult | undefined {
     // Past the bound the summary holds no id, and counts what the run created.
@@ -2835,9 +3042,32 @@ export class ForgeHandler implements DomainHandler {
       ...(run.retryOf !== undefined && run.resumed ? { resumed: true as const } : {}),
       ...(run.journalId ? { journalId: run.journalId } : {}),
       ...(run.journalId && run.journalPart !== undefined ? { journalPart: run.journalPart } : {}),
+      ...(run.checkpoint ? { checkpoint: run.checkpoint } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
+  }
+
+  /**
+   * What becomes of the checkpoint a run took before its first write once the
+   * run has ended: kept when it wrote a record, deleted when it wrote none.
+   * One the checkpoints cannot settle is kept as it was taken, said in the
+   * log: a checkpoint is never lost for a run that may have written.
+   */
+  private async settleCheckpoint(
+    taken: RunCheckpointTaken,
+    wrote: boolean,
+  ): Promise<RunCheckpointInfo> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) return taken;
+    try {
+      return await checkpoints.settle(taken, wrote);
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge run: the checkpoint '${taken.name}' taken before it is kept, as it could not be settled (${extractErrorMessage(err)})`,
+      );
+      return taken;
+    }
   }
 
   /**
@@ -3326,10 +3556,34 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * The daily API requests the target has, read on their own when its storage
+   * could not be: a Standard User's `/limits` list the requests and not the
+   * storage. Why they could not be read, otherwise.
+   */
+  private async readTargetApiBudget(targetOrgId: string): Promise<ApiBudget | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
+        readApiBudget(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
+    }
+  }
+
+  /**
    * What the executor hands every row it is about to write, before the first
    * goes (`ExecuteOptions.beforeWrite`): the run's gate on what it writes.
    *
-   * Rows that take more data storage than the target has left are refused.
+   * Rows that take more data storage than the target has left are refused, and
+   * so are rows whose requests — the checkpoint taken first and the read-backs
+   * of the record types given among them — take more than the target has left
+   * today: Forge's gate held no budget, and a clone into an org whose
+   * integrations had spent the day's requests stopped part way through.
    * Past `sandforge.safety.confirmAboveRecords`, near what the target has
    * left, or when the target would not say what it has left, the user is
    * asked, with the records per object; the guard's large-volume warning goes
@@ -3338,8 +3592,18 @@ export class ForgeHandler implements DomainHandler {
    * has left of, or that were not counted: what sends could not be read. What
    * is refused or declined throws, and the run stops with nothing written.
    *
+   * A run asked to take a checkpoint of what it writes first (`checkpoint`)
+   * is refused before its question when the checkpoint's scope is refused,
+   * and is always asked: the checkpoint reads whole tables of the target, not
+   * the run's rows, and the question says its cost. Once the question is
+   * answered, the checkpoint is taken — before the mute's lease, which the
+   * run takes once this gate returns — and a take refused or failed refuses
+   * the run, a Stop during it stops it: nothing written either way.
+   *
    * @param run.lookup - The requests made for the run besides the executor's:
    *   the read of the target's limits is one of them.
+   * @param run.updatedAfterInsert - The objects whose rows the run writes a
+   *   second time, counted among its requests.
    * @param run.onConfirmed - Called once a person confirmed the run.
    */
   private writeGate(run: {
@@ -3365,19 +3629,39 @@ export class ForgeHandler implements DomainHandler {
     simulated?: SimulatedWrite;
     /** Told, on a simulation, what it would write, measured as the run's rows are. */
     onSimulated?: (plan: WritePlan) => void;
+    updatedAfterInsert?: readonly string[];
+    /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
+    checkpoint?: WriteGateCheckpoint;
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<void> {
+    const first = run.checkpoint;
+    /** The checkpoint's ask, given the objects the rows are of: every one the run writes. */
+    const askOf = (plan: WritePlan): BeforeRunAsk | undefined =>
+      first && {
+        ...first.ask,
+        written: plan.objects.filter(({ rows }) => rows > 0).map((o) => o.objectApiName),
+      };
     return async (boundary) => {
       // A simulation writes nothing to hold back: what it would write is kept
-      // for the run of its case that follows.
+      // for the run of its case that follows. Asked for the checkpoint first,
+      // it says what that would hold and cost, and the refusal a real run
+      // would meet; nothing is taken.
       if (boundary.dryRun) {
-        run.onSimulated?.(writePlanOf(boundary.objects));
+        const simulated = writePlanOf(boundary.objects);
+        run.onSimulated?.(simulated);
+        const ask = askOf(simulated);
+        if (first && ask && this.beforeRunCheckpoints && simulated.totalRows > 0) {
+          await this.beforeRunCheckpoints.scope(ask, first.own).then(first.onEstimate, (err) => {
+            logger.warn(`Forge simulation: ${beforeRunFailedWords(err)}`);
+          });
+        }
         return;
       }
       const plan = writePlanOf(boundary.objects);
       if (plan.totalRows === 0) return;
       run.lookup.requests++;
-      const storage = storageCheckOf(plan, await this.readTargetDataStorage(run.targetOrgId));
+      const limits = await this.readTargetDataStorage(run.targetOrgId);
+      const storage = storageCheckOf(plan, limits);
       const threshold = this.confirmAboveRecords();
       const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
       const line = largeVolumeThreshold(run.orgTier);
@@ -3410,6 +3694,76 @@ export class ForgeHandler implements DomainHandler {
       if (largeVolume !== undefined) {
         logger.warn(`Forge write gate: more than ${largeVolume} records, a large volume`);
       }
+      // The requests the rows take of what the target has left today, read
+      // with its storage, or on their own when the storage could not be. The
+      // checkpoint asked first is scoped here, from the rows the run is about
+      // to write and what still runs as it writes them, reading no record,
+      // and counted among them; refused, it refuses the run before its
+      // question, nothing taken.
+      let budget: ApiBudget | { unread: string } | undefined;
+      if ('unread' in limits) {
+        run.lookup.requests++;
+        budget = await this.readTargetApiBudget(run.targetOrgId);
+      } else {
+        budget = limits.dailyApiRequests;
+      }
+      const ask = askOf(plan);
+      let estimate: RunCheckpointEstimate | undefined;
+      if (first && ask) {
+        const checkpoints = this.beforeRunCheckpoints;
+        if (!checkpoints) {
+          throw new ForgeRunGateError(
+            CHECKPOINT_REFUSED,
+            beforeRunFailedWords(
+              new Error("SandForge's checkpoints are not set up in this window"),
+            ),
+          );
+        }
+        estimate = await checkpoints.scope(ask, first.own).catch((err: unknown) => {
+          throw new ForgeRunGateError(CHECKPOINT_REFUSED, beforeRunFailedWords(err));
+        });
+      }
+      const requests = forgeWriteBudgetOf({
+        plan,
+        ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
+        ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
+        ...(estimate ? { checkpoint: estimate } : {}),
+        budget,
+        target: run.org,
+      });
+      logger.info('Forge write gate: API requests', {
+        estimate: requests.api.estimate,
+        verdict: requests.api.verdict,
+        ...(requests.api.verdict === 'unread'
+          ? { unread: requests.api.unread }
+          : { remaining: requests.api.remaining, max: requests.api.max }),
+        ...(requests.api.parts ? { parts: requests.api.parts } : {}),
+      });
+      if (requests.stop) throw new ForgeRunGateError(requests.stop.code, requests.stop.message);
+      // The checkpoint asked first, taken once the rows may be written: after
+      // the question, as close to the first write as the answer lets it, and
+      // before the lease the run takes once this gate returns. A take refused
+      // or failed refuses the run; the run's Stop during it stops the run as
+      // the executor's abort does, nothing of the take kept.
+      const takeFirst = async (): Promise<void> => {
+        const checkpoints = this.beforeRunCheckpoints;
+        if (!first || !ask || !estimate || !checkpoints) return;
+        const planned = estimate;
+        const took = await takeCheckpointFirst(() =>
+          checkpoints.take(ask, first.own, {
+            planned,
+            signal: first.signal,
+            onProgress: ({ percentage }) => first.onProgress?.(percentage),
+          }),
+        );
+        if ('stop' in took) {
+          if (took.stop.code === CHECKPOINT_REFUSED) {
+            throw new ForgeRunGateError(CHECKPOINT_REFUSED, took.stop.message);
+          }
+          throw Object.assign(new Error(took.stop.message), { name: 'ForgeAbortedError' });
+        }
+        first.onTaken(took.checkpoint);
+      };
       // The emails the target's flows send as these records go in, against
       // what it has left today: read only when they send some. Past it, a
       // record whose flow fails in the save is refused; the user is asked. A
@@ -3479,8 +3833,10 @@ export class ForgeHandler implements DomainHandler {
         unreadEmails.length === 0 &&
         uncounted === undefined &&
         uncertain.length === 0 &&
-        simulated?.farAbove !== true
+        simulated?.farAbove !== true &&
+        !requests.asks
       ) {
+        await takeFirst();
         return;
       }
       const answer = await run.guard.confirmRun({
@@ -3503,9 +3859,11 @@ export class ForgeHandler implements DomainHandler {
           : {}),
         ...(boundary.capped ? { capped: boundary.capped } : {}),
         ...(simulated ? { simulated } : {}),
+        ...requests.confirmation,
       });
       if (answer === 'confirmed') {
         run.onConfirmed();
+        await takeFirst();
         return;
       }
       throw answer === 'declined'

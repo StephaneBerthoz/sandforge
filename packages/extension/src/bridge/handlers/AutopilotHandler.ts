@@ -53,8 +53,14 @@ import {
   autopilotWritePlan,
   gateAutopilotWrite,
   objectsThePlanWrites,
+  type AutopilotCheckpointFirst,
   type AutopilotEmails,
 } from '../../modules/autopilot/AutopilotRunGate.js';
+import {
+  beforeRunFailedWords,
+  type BeforeRunAsk,
+  type BeforeRunCheckpoints,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
@@ -64,7 +70,15 @@ import {
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
-import { auditMutedOf, type ForgeTargetAutomation, type MutedAutomation } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  stillRunningOf,
+  type ForgeTargetAutomation,
+  type MutedAutomation,
+  type RunCheckpointInfo,
+  type RunCheckpointRequest,
+  type RunCheckpointTaken,
+} from '@sandforge/shared';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -103,7 +117,24 @@ export const AUTOPILOT_GATE_CODES = {
   API_BUDGET_EXCEEDED: 'API_BUDGET_EXCEEDED',
   WRITE_DECLINED: 'AUTOPILOT_WRITE_DECLINED',
   CONFIRMATION_UNAVAILABLE: 'AUTOPILOT_CONFIRMATION_UNAVAILABLE',
+  // One code for every module's run refused for the checkpoint it takes first.
+  CHECKPOINT_REFUSED: 'CHECKPOINT_REFUSED',
+  // The run's Stop while it took the checkpoint first: a cancel, nothing written.
+  RUN_CANCELLED: 'RUN_CANCELLED',
 } as const;
+
+/**
+ * The mark of a run of this handler as a checkpoint taken before it names its
+ * own: the id of its request, under Autopilot's name, so that no request id
+ * of another page's run can ever pass for it.
+ */
+function ownMarkOf(requestId: string): string {
+  return `autopilot:${requestId}`;
+}
+
+/** The writes an Autopilot run makes of the objects of its plan: it inserts them, then updates what it inserted. */
+const AUTOPILOT_WRITES = (_objectApiName: string, write: string): boolean =>
+  write === 'insert' || write === 'update';
 
 /**
  * How a request is refused while the Autopilot module has not reached the
@@ -194,9 +225,16 @@ export class AutopilotHandler implements DomainHandler {
   private readonly runningRequests = new Set<string>();
   /**
    * The target orgs a run writes to now, from its request on — before the
-   * guard's question, which waits on a person — until it ends.
+   * guard's question, which waits on a person — until it ends, each with the
+   * id of the request of the run writing to it: one run at a time on a target.
    */
-  private readonly writingTargets = new Set<string>();
+  private readonly writingTargets = new Map<string, string>();
+  /**
+   * What a run asked to take a checkpoint of what it writes before its first
+   * write takes it through (`Checkpoint first`). Without it, such a run is
+   * refused before its question, nothing written.
+   */
+  private beforeRunCheckpoints?: BeforeRunCheckpoints;
   private orchestrator?: AutopilotOrchestrator;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
@@ -255,13 +293,20 @@ export class AutopilotHandler implements DomainHandler {
     this.liveTracker = tracker;
   }
 
+  /** Inject what a run takes a checkpoint of what it writes before its first write through. */
+  setBeforeRunCheckpoints(checkpoints: BeforeRunCheckpoints): void {
+    this.beforeRunCheckpoints = checkpoints;
+  }
+
   /**
    * Whether a run of this window writes to the registered org now, from its
    * request until it ends: a checkpoint of it would hold its records half
-   * written.
+   * written. `except` is the mark of a run a checkpoint is taken before: its
+   * own does not count, and only its own.
    */
-  isWritingTo(orgId: string): boolean {
-    return this.writingTargets.has(orgId);
+  isWritingTo(orgId: string, except?: string): boolean {
+    const requestId = this.writingTargets.get(orgId);
+    return requestId !== undefined && (except === undefined || except !== ownMarkOf(requestId));
   }
 
   /**
@@ -633,7 +678,7 @@ export class AutopilotHandler implements DomainHandler {
       );
       return;
     }
-    this.writingTargets.add(operation.targetOrgId);
+    this.writingTargets.set(operation.targetOrgId, msg.id);
     this.runningRequests.add(msg.id);
     try {
       await this.executeRun(msg, operation, { plan, graph, rules, scanResult }, payload, guard);
@@ -658,7 +703,12 @@ export class AutopilotHandler implements DomainHandler {
       rules: AutopilotAnonymizationRule[];
       scanResult: SchemaScanResult;
     },
-    payload: { grappeThreshold?: number; keepContactPoints?: boolean; muteAutomation?: boolean },
+    payload: {
+      grappeThreshold?: number;
+      keepContactPoints?: boolean;
+      muteAutomation?: boolean;
+      checkpointFirst?: RunCheckpointRequest;
+    },
     guard: ProductionGuard,
   ): Promise<void> {
     if (!this.orchestrator) return;
@@ -735,9 +785,11 @@ export class AutopilotHandler implements DomainHandler {
     // runs; refused on a production org or for a user who cannot assign, it
     // writes nothing. The lease is taken before its first write, below.
     let mute: RunMute | undefined;
+    /** What the target runs on the objects the plan writes, read once for the mute and the checkpoint. */
+    let read: ForgeTargetAutomation | { unread: string } | undefined;
     if (payload.muteAutomation === true) {
       try {
-        mute = await this.runMute(operation.targetOrgId, plan);
+        ({ mute, read } = await this.runMute(operation.targetOrgId, plan));
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
         recordWriteRun(this.deps, {
@@ -756,11 +808,46 @@ export class AutopilotHandler implements DomainHandler {
         return;
       }
     }
+    // Asked to take a checkpoint of what it writes first, the run scopes it
+    // from the objects of its plan and what still runs as it writes them —
+    // what the mute keeps quiet held quiet — reading no record. Not scoped,
+    // the run is refused before its question: the option promised a rewind,
+    // the one way an Autopilot run is taken back.
+    let checkpointFirst: AutopilotCheckpointFirst | undefined;
+    if (payload.checkpointFirst !== undefined && writePlan.totalRows > 0) {
+      read ??= await this.readTargetAutomation(operation.targetOrgId, plan);
+      const scoped = await this.checkpointFirstOf(
+        msg,
+        operation.targetOrgId,
+        plan,
+        payload.checkpointFirst,
+        { read, mute },
+        abortController.signal,
+      );
+      if ('refused' in scoped) {
+        recordWriteRun(this.deps, {
+          action: 'autopilot_execute',
+          module: 'autopilot',
+          operationId: msg.id,
+          orgId: operation.targetOrgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          code: AUTOPILOT_GATE_CODES.CHECKPOINT_REFUSED,
+        });
+        const stop = new Error(scoped.refused);
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
+          code: AUTOPILOT_GATE_CODES.CHECKPOINT_REFUSED,
+        });
+        settle(stop);
+        return;
+      }
+      checkpointFirst = scoped;
+    }
     const emails = await this.targetEmails(
       operation.targetOrgId,
       plan,
       writePlan,
-      mute?.automation,
+      mute ? mute.automation : read,
     );
     const gate = await gateAutopilotWrite({
       plan: writePlan,
@@ -772,6 +859,7 @@ export class AutopilotHandler implements DomainHandler {
       org: targetOrg?.alias ?? operation.targetOrgId,
       orgTier: guardRequest.orgTier,
       confirm: (question) => guard.confirmRun(question),
+      ...(checkpointFirst ? { checkpointFirst } : {}),
     });
     if (!gate.go) {
       recordWriteRun(this.deps, {
@@ -799,6 +887,12 @@ export class AutopilotHandler implements DomainHandler {
     let recorded = false;
     /** What the run muted of the target's automation, once it ended. */
     let mutedAutomation: MutedAutomation | undefined = mute?.muted;
+    /** The checkpoint the gate took before the lease and the first write, when asked. */
+    const taken: RunCheckpointTaken | undefined = gate.checkpoint;
+    /** What became of it once the run ended: kept when the run wrote, deleted when it wrote none. */
+    let checkpoint: RunCheckpointInfo | undefined;
+    /** Whether the plan was handed to the executor: what it wrote is said only by its nodes. */
+    let writing = false;
     const recordRun = (
       outcome: 'success' | 'partial' | 'failure' | 'stopped' | 'cancelled',
     ): void => {
@@ -817,6 +911,7 @@ export class AutopilotHandler implements DomainHandler {
         // Forge run is recorded with: read as a failure otherwise.
         ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
         ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+        ...(checkpoint?.state === 'taken' ? { checkpointId: checkpoint.checkpointId } : {}),
       });
     };
     try {
@@ -854,6 +949,7 @@ export class AutopilotHandler implements DomainHandler {
       // ends, written, failed, stopped or thrown alike.
       const held = mute?.prepared ? await mute.prepared.acquire(msg.id) : undefined;
       if (held) mutedAutomation = held.outcome;
+      writing = true;
       const ran = this.orchestrator.executePlan(
         plan,
         graph,
@@ -910,6 +1006,9 @@ export class AutopilotHandler implements DomainHandler {
       const result = await ran.finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
+      // Kept once the run wrote a record, whatever it came to; deleted when it
+      // wrote none — a stop before its first write, every record refused.
+      if (taken) checkpoint = await this.settleCheckpoint(taken, result.totalSuccess > 0);
 
       // Each node settled on the status the executor gave it: completed,
       // failed, skipped or stopped.
@@ -1054,6 +1153,7 @@ export class AutopilotHandler implements DomainHandler {
         totalElapsedMs: result.elapsedMs,
         totalApiCalls: 0,
         ...(mutedAutomation ? { mutedAutomation } : {}),
+        ...(checkpoint ? { checkpoint } : {}),
         ...(result.stopped
           ? {
               stopped: true,
@@ -1070,9 +1170,22 @@ export class AutopilotHandler implements DomainHandler {
     } catch (err: unknown) {
       this.liveTracker?.fail(msg.id, extractErrorMessage(err));
       settle(err);
+      // The checkpoint taken first is deleted when the run died before the
+      // executor had the plan — its lease refused — and kept once it had it:
+      // what it wrote before it died is what a rewind takes back.
+      if (taken && checkpoint === undefined) {
+        checkpoint = await this.settleCheckpoint(taken, writing);
+      }
       // The nodes that settled before the run died say what it wrote.
       recordRun('failure');
-      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err);
+      sendHandlerError(
+        this.deps,
+        'autopilot:execute',
+        'autopilot:error',
+        msg,
+        err,
+        checkpoint ? { extraPayload: { checkpoint } } : undefined,
+      );
       sendNotification(
         this.deps,
         'error',
@@ -1125,24 +1238,103 @@ export class AutopilotHandler implements DomainHandler {
    * The mute of a run that asked for one, planned from what the target runs
    * on the objects the plan writes. Throws `MuteRefusedError` when refused.
    */
-  private async runMute(targetOrgId: string, plan: Pick<ExecutionPlan, 'waves'>): Promise<RunMute> {
-    const reader = this.targetAutomation;
-    const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-      .withTimeout('autopilot:automation', () =>
-        reader.read(targetOrgId, objectsThePlanWrites(plan)),
-      )
-      .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-    return muteForRun(
+  private async runMute(
+    targetOrgId: string,
+    plan: Pick<ExecutionPlan, 'waves'>,
+  ): Promise<{ mute: RunMute; read: ForgeTargetAutomation | { unread: string } }> {
+    const read = await this.readTargetAutomation(targetOrgId, plan);
+    const mute = await muteForRun(
       async () =>
         muteOrgOf(
           await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager),
         ),
       read,
-      {
-        ...this.muteLeases,
-        writes: (_objectApiName, write) => write === 'insert' || write === 'update',
-      },
+      { ...this.muteLeases, writes: AUTOPILOT_WRITES },
     );
+    return { mute, read };
+  }
+
+  /** What the target runs on the objects the plan writes, or why it could not be read. */
+  private async readTargetAutomation(
+    targetOrgId: string,
+    plan: Pick<ExecutionPlan, 'waves'>,
+  ): Promise<ForgeTargetAutomation | { unread: string }> {
+    const reader = this.targetAutomation;
+    return new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+      .withTimeout('autopilot:automation', () =>
+        reader.read(targetOrgId, objectsThePlanWrites(plan)),
+      )
+      .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+  }
+
+  /**
+   * The checkpoint a run asked to take of what it writes first, as its gate
+   * holds it: its scope, read at the gate from the objects of the plan and
+   * what still runs as it inserts and updates them once the mute's plan holds
+   * (`stillRunningOf`), reading no record; and its take, which the gate makes
+   * once the question is answered, stopped by the run's Stop. The run's own
+   * mark alone does not refuse either. Why the run is refused, when it could
+   * not be scoped.
+   */
+  private async checkpointFirstOf(
+    msg: InboundRequest,
+    targetOrgId: string,
+    plan: Pick<ExecutionPlan, 'waves'>,
+    request: RunCheckpointRequest,
+    automation: { read: ForgeTargetAutomation | { unread: string }; mute?: RunMute },
+    signal: AbortSignal,
+  ): Promise<AutopilotCheckpointFirst | { refused: string }> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) {
+      return {
+        refused: beforeRunFailedWords(
+          new Error("SandForge's checkpoints are not set up in this window"),
+        ),
+      };
+    }
+    const { read, mute } = automation;
+    // What could not be read creates nothing the scope can name: the
+    // checkpoint holds the objects the plan writes, and the question says
+    // what no read tells.
+    const running =
+      'objects' in read ? stillRunningOf(read, mute?.plan, AUTOPILOT_WRITES) : { firing: [] };
+    const ask: BeforeRunAsk = {
+      module: 'autopilot',
+      orgId: targetOrgId,
+      operationId: msg.id,
+      written: objectsThePlanWrites(plan),
+      running,
+      request,
+    };
+    const own = { operationId: ownMarkOf(msg.id) };
+    try {
+      const estimate = await checkpoints.scope(ask, own);
+      return { estimate, take: (planned) => checkpoints.take(ask, own, { planned, signal }) };
+    } catch (err: unknown) {
+      return { refused: beforeRunFailedWords(err) };
+    }
+  }
+
+  /**
+   * What becomes of the checkpoint a run took before its first write once the
+   * run has ended: kept when it wrote a record, deleted when it wrote none.
+   * One the checkpoints cannot settle is kept as it was taken, said in the log.
+   */
+  private async settleCheckpoint(
+    taken: RunCheckpointTaken,
+    wrote: boolean,
+  ): Promise<RunCheckpointInfo> {
+    const checkpoints = this.beforeRunCheckpoints;
+    if (!checkpoints) return taken;
+    try {
+      return await checkpoints.settle(taken, wrote);
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] autopilot:execute: the checkpoint '${taken.name}' taken before the run is kept, ` +
+          `as it could not be settled (${extractErrorMessage(err)})`,
+      );
+      return taken;
+    }
   }
 
   /** The daily API requests the target has, read when its storage could not be. */
@@ -1167,16 +1359,19 @@ export class AutopilotHandler implements DomainHandler {
     targetOrgId: string,
     plan: Pick<ExecutionPlan, 'waves'>,
     writePlan: WritePlan,
-    muted?: ForgeTargetAutomation,
+    read?: ForgeTargetAutomation | { unread: string },
   ): Promise<AutopilotEmails> {
     const reader = this.targetAutomation;
     const emails = await autopilotEmails({
       plan: writePlan,
       objects: objectsThePlanWrites(plan),
-      // A run that mutes counts the emails of what still runs.
+      // A run that mutes counts the emails of what still runs; one that read
+      // what the target runs for its checkpoint reads it no second time.
       readAutomation: (objects) =>
-        muted
-          ? Promise.resolve(muted)
+        read
+          ? 'objects' in read
+            ? Promise.resolve(read)
+            : Promise.reject(new Error(read.unread))
           : new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('autopilot:automation', () =>
               reader.read(targetOrgId, objects),
             ),

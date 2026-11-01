@@ -203,6 +203,49 @@ describe('initForgeComposition', () => {
     }
   });
 
+  it('reads the record types of an object it writes again from the org once the lease assigned a set, past the describe it holds', async () => {
+    // A contact type besides Master, which a set the lease assigns may open:
+    // the describe the window holds from before the assignment says the
+    // types as they were.
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => {
+          const described = (await connection.describe(objectApiName)) as Record<string, unknown>;
+          if (objectApiName !== 'Contact') return described;
+          return {
+            ...described,
+            keyPrefix: '003',
+            recordTypeInfos: [
+              {
+                active: true,
+                available: true,
+                defaultRecordTypeMapping: true,
+                developerName: 'Partner',
+                master: false,
+                name: 'Partner',
+                recordTypeId: '012000000000009AAA',
+                urls: {},
+              },
+            ],
+          };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const before = describeCalls.get('tgt::Contact') ?? 0;
+
+    await orchestrator.execute(graph, SOQL_CONFIG, {
+      beforeWrite: async (boundary) =>
+        boundary.dryRun ? undefined : { lease: { assigned: 1, giveBack: async () => undefined } },
+    });
+
+    // Once for the run, as every describe, and once more from the org under the lease.
+    expect((describeCalls.get('tgt::Contact') ?? 0) - before).toBe(2);
+  });
+
   it('gives each node of the graph its object’s label, from the describe discovery read', async () => {
     // The results named the cloned record "Invoice__c": the label the describe
     // gave was dropped on the way to the graph.

@@ -320,6 +320,11 @@ export class ExtensionHandlers {
       take: (ask, own, options) => this.checkpointHandler.takeBeforeRun(ask, own, options),
       settle: (taken, wrote) => this.checkpointHandler.settleBeforeRun(taken, wrote),
     };
+    // The runs of Forge, Autopilot and Frozen Dataset take theirs through it,
+    // each naming its own mark, which its handler compares above.
+    this.forgeHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.autopilotHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
+    this.frozenHandler.setBeforeRunCheckpoints(this.beforeRunCheckpoints);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(

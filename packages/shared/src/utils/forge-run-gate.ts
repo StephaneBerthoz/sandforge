@@ -21,6 +21,11 @@ import * as z from 'zod';
  *   target has left.
  * - `CONFIRMATION_UNAVAILABLE`: a confirmation was needed, and there was no
  *   one to ask.
+ * - `CHECKPOINT_REFUSED`: the checkpoint the run was asked to take of what it
+ *   writes before its first write (Checkpoint first) was refused, at its
+ *   scope or at its take, or could not be taken. The mute assigned nothing.
+ * - `API_BUDGET_EXCEEDED`: the rows, and the checkpoint taken first, take
+ *   more API requests than the target has left today.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -44,6 +49,8 @@ export const FORGE_RUN_GATE_CODES = [
   'WRITE_DECLINED',
   'STORAGE_EXCEEDED',
   'CONFIRMATION_UNAVAILABLE',
+  'CHECKPOINT_REFUSED',
+  'API_BUDGET_EXCEEDED',
 ] as const;
 
 /** A way a Forge run stops at its gate. */

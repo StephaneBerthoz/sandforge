@@ -774,7 +774,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
-  it('says the daily email limits the records take the target past, before the closing line', () => {
+  it('says the daily email limits the records take the target past, first of what follows the records', () => {
     const lines = runQuestionDetail({
       ...write,
       emails: [
@@ -788,8 +788,10 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       ],
     }).split('\n');
 
-    expect(lines.slice(-2)).toEqual([
+    // What leaves the org comes before the storage and the API requests.
+    expect(lines.slice(-3)).toEqual([
       'These records make the flows of DEV send about 72 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been read, and nothing has been written yet.',
     ]);
   });
@@ -890,9 +892,10 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       ],
     }).split('\n');
 
-    expect(lines.slice(-3)).toEqual([
+    expect(lines.slice(-4)).toEqual([
       'These records make the flows of DEV send about 36 single emails, more than the -75 of 15 it has left today (emails per record: Contact 1). Past them, a record whose flow fails in the save is refused.',
       'DEV counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been read, and nothing has been written yet.',
     ]);
   });
@@ -972,12 +975,103 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'This seed is about to write 2401 records to DEV:',
       '• Contact: 2400',
       '• Account: 1',
-      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
       'These records make the flows of DEV send about 40 single emails. What it has left today could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
       'DEV gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
       'The run takes about 20 API requests, and DEV has 900 of its 15000 daily requests left: it would leave the org with less than a tenth of them.',
       'The records have been counted, and nothing has been read or written yet.',
     ]);
+  });
+
+  describe('the checkpoint the run takes first', () => {
+    /** What the checkpoint of a clone of contacts would hold and cost. */
+    const checkpoint: NonNullable<WriteConfirmation['checkpoint']> = {
+      state: 'planned',
+      estimate: {
+        records: 38,
+        apiRequests: 68,
+        apiRequestsLeft: 14_000,
+        seconds: 43.2,
+        bytes: 2.2 * 1024 * 1024,
+      },
+      objects: ['Contact', 'Account', 'Task'],
+      added: [
+        {
+          objectApiName: 'Task',
+          reason:
+            "The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+        },
+      ],
+      notHeld: [
+        {
+          objectApiName: 'FeedItem',
+          reason: 'Chatter posts are not held. A rewind leaves its records as they are.',
+        },
+      ],
+      keepDays: 7,
+    };
+    const asked: WriteConfirmation = {
+      ...write,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 72,
+          remaining: 15,
+          max: 15,
+          objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+        },
+      ],
+      apiRequests: {
+        estimate: 1_400,
+        remaining: 1_500,
+        max: 15_000,
+        parts: { run: 1_330, checkpoint: 68, readBack: 2 },
+      },
+      checkpoint,
+    };
+
+    it('says its cost, what it adds and leaves out, between what leaves the org and the limits', () => {
+      const lines = runQuestionDetail(asked).split('\n');
+
+      expect(lines.slice(3)).toEqual([
+        'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+        'These records make the flows of DEV send about 72 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+        'Checkpoint first: about 38 records of 3 objects, 68 API requests, 44 s, 2.2 MB on this machine, unencrypted, and no storage in the org, kept 7 days.',
+        "Added: Task — The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+        'Not in the checkpoint: FeedItem — Chatter posts are not held. A rewind leaves its records as they are.',
+        'What an Apex trigger, or automation that could not be read, creates as the run writes is not known: a rewind leaves those records as they are.',
+        'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+        'The run takes about 1400 API requests, and DEV has 1500 of its 15000 daily requests left: it would leave the org with less than a tenth of them.',
+        '68 of them are for the checkpoint taken first.',
+        '2 of them read back the record type the target gave the records created without one.',
+        'The records have been read, and nothing has been written yet.',
+      ]);
+    });
+
+    it('says a checkpoint kept until it is deleted, and nothing of it when none is asked', () => {
+      expect(runQuestionDetail({ ...asked, checkpoint: { ...checkpoint, keepDays: 0 } })).toContain(
+        'Checkpoint first: about 38 records of 3 objects, 68 API requests, 44 s, 2.2 MB on this machine, unencrypted, and no storage in the org, kept until you delete it.',
+      );
+      const without = runQuestionDetail({ ...write, apiRequests: asked.apiRequests });
+      expect(without).not.toContain('Checkpoint first');
+      expect(without).not.toContain('Not in the checkpoint');
+    });
+
+    it("says it in the question's language, the engine's reasons as they are", () => {
+      l10nBundle.current = JSON.parse(
+        readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+      ) as Record<string, string>;
+      const lines = runQuestionDetail(asked).split('\n');
+
+      expect(lines).toContain(
+        "Point de contrôle d'abord : environ 38 enregistrements de 3 objets, 68 requêtes d'API, 44 s, 2.2 Mo sur cette machine, non chiffrés, et aucun stockage dans l'org, conservé 7 jours.",
+      );
+      expect(lines).toContain(
+        "Ajouté : Task — The target's flow 'Contact welcome' creates Task records as Contact records go in.",
+      );
+      expect(lines).toContain('68 d’entre elles sont pour le point de contrôle pris d’abord.');
+      expect(lines.join('\n')).not.toContain('Checkpoint first');
+    });
   });
 
   it('lists no more than a dozen entries, and says how many more there are', () => {

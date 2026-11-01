@@ -3857,7 +3857,9 @@
       "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de {{ceiling}} registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
       "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino.",
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
-      "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir."
+      "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
+      "checkpointRefused": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar. No se escribió nada. Láncela sin punto de control previo, o corrija lo que lo rechaza.",
+      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando un punto de control tomado primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros."
     },
     "executionTable": {
       "leftOut": "excluido",
