@@ -668,6 +668,26 @@ describe('BridgeProvider', () => {
     });
   });
 
+  it("opens What's New with the version last opened, which it lists the releases after", () => {
+    useAppStore.setState({ showWhatsNew: false, whatsNewVersion: '', whatsNewSince: '' });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-whatsnew-1',
+      type: 'whats-new:show',
+      timestamp: Date.now(),
+      payload: { version: '1.70.0', since: '1.68.0' },
+    });
+
+    expect(useAppStore.getState().showWhatsNew).toBe(true);
+    expect(useAppStore.getState().whatsNewVersion).toBe('1.70.0');
+    expect(useAppStore.getState().whatsNewSince).toBe('1.68.0');
+  });
+
   it('ignores an intent for a page the panel cannot mount', () => {
     useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
     render(

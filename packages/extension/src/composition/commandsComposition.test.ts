@@ -56,6 +56,8 @@ function createDeps(options: {
   firstLaunch?: boolean;
   shouldShowWhatsNew?: boolean;
   whatsNewWanted?: boolean;
+  /** The version recorded as last seen, before this one. */
+  lastSeen?: string;
 }) {
   const panel = createFakePanel();
   const panelManager = {
@@ -67,6 +69,7 @@ function createDeps(options: {
   const onboardingService = {
     isFirstLaunch: vi.fn(() => options.firstLaunch ?? false),
     shouldShowWhatsNew: vi.fn(() => options.shouldShowWhatsNew ?? false),
+    lastSeenVersion: vi.fn(() => options.lastSeen),
     markVersionSeen: vi.fn().mockResolvedValue(undefined),
   };
   const context = {
@@ -243,6 +246,24 @@ describe("commandsComposition What's New delivery", () => {
     panel.fireIncomingMessage(PAGE_MOUNTED);
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
+  });
+
+  it("tells What's New the version last seen, so an upgrade that skipped releases lists them all", () => {
+    // The panel listed the new version's highlights alone: going from 1.68 to
+    // 1.70 never showed 1.69.
+    const { deps, panel } = createDeps({
+      panelAlreadyOpen: true,
+      shouldShowWhatsNew: true,
+      lastSeen: '1.68.0',
+    });
+    registerModuleCommands(deps);
+
+    invokeFirstModuleCommand();
+
+    const posted = panel.webview.postMessage.mock.calls[0][0] as {
+      payload: { version: string; since?: string };
+    };
+    expect(posted.payload).toEqual({ version: '2.0.0', since: '1.68.0' });
   });
 
   it("turned off in the settings: shows no What's New, and records the upgrade as seen", () => {

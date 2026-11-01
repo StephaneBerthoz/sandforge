@@ -2753,9 +2753,9 @@
     "welcomeSubtitle": "自信を持って Salesforce Sandbox を構築しましょう",
     "welcomeTagline": "オールインワンの Sandbox 管理ツールキット",
     "step1Title": "組織を接続",
-    "step1Desc": "Salesforce 組織をリンクして始めましょう",
+    "step1Desc": "組織を接続します：Salesforce CLI からインポートするか、ブラウザでログインします",
     "step2Title": "Sandbox を満たす3つの方法",
-    "step2Desc": "実際のレコードから始める、合成データを生成する、またはリフレッシュ後に凍結データセットを再生する",
+    "step2Desc": "合成データを生成する、実際のレコードから始める、またはリフレッシュ後に凍結データセットを再生する",
     "step3Title": "AI を設定（オプション）",
     "step3Desc": "AI 分析とデータ生成で SandForge を強化しましょう",
     "skipOnboarding": "スキップ",
@@ -2763,11 +2763,9 @@
     "aiOptional": "AI 機能はオプションです。設定で後から構成できます。",
     "chooseLanguage": "言語を選択してください",
     "step4Title": "最初のステップ",
-    "step4Desc": "組織タイプに基づいた推奨スタートポイントです",
     "suggestMonitor": "モニターからスタートして、本番組織の健全性を把握しましょう",
     "gotIt": "了解しました！",
     "whatsNewTitle": "SandForge の新機能",
-    "suggestSeedAndSync": "Sandbox の準備ができました。Seed でテストデータを投入するか、Sync で別の組織からコピーしましょう。",
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
     "whatsNew": {
@@ -3004,8 +3002,8 @@
       "checkpoints1660": "チェックポイント: 組織を元の状態に戻す",
       "checkpoints1660Desc": "Sandbox、スクラッチ組織、Developer Edition 組織を今の状態のまま保持し、その後の変更を確認して巻き戻せます。追加されたものは削除され、変更されたものは値が戻り、削除されたものは復元されます。誰が行った変更かは問いません。巻き戻しは 15 日間元に戻せます。本番組織は対象外です。"
     },
-    "heroTitle": "実際のレコードから Sandbox を作成",
-    "heroDesc": "SandForge を任意の組織のレコードに向けるだけ — 関連グラフ全体を Sandbox へクローンします。コピーするデータがない場合は、データセットを生成または再生できます。",
+    "heroTitle": "空の組織を、関連付けられたデモデータで満たす（Seed の CRM スターター：2 つ目の組織も AI キーも不要）",
+    "heroDesc": "実データを持つ組織がすでにありますか？ Forge でレコードをクローンできます。",
     "paths": {
       "forgeTitle": "レコードからクローン",
       "forgeDesc": "レコード ID を貼り付け、関連グラフを検出し、Sandbox へ Forge",
@@ -3013,7 +3011,12 @@
       "seedDesc": "テンプレート、AI、CSV — 本番に触れずにリアルなテストデータ",
       "frozenTitle": "凍結データセットを再生",
       "frozenDesc": "一度抽出すれば、Sandbox のリフレッシュ後も同一内容で再生"
-    }
+    },
+    "connectFirst": "まず組織を接続してください",
+    "suggestSeedFor": "Seed の CRM スターターで {{alias}} を満たすか、Forge で別の組織からレコードをクローンします。",
+    "done": "完了",
+    "openAiSettings": "AI の設定を開く",
+    "whatsNewSince": "前回開いたバージョン {{version}} 以降"
   },
   "help": {
     "title": "ヘルプとリソース",

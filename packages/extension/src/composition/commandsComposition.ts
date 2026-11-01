@@ -81,11 +81,13 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
               // on shows the next one, not this one late.
               onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
             } else {
+              // With the version last seen, so the panel lists every release
+              // since: an upgrade that skipped one showed the newest alone.
               whatsNew = {
                 type: 'whats-new:show',
                 id: `whatsnew-${Date.now()}`,
                 timestamp: Date.now(),
-                payload: { version: currentVersion },
+                payload: { version: currentVersion, since: onboardingService.lastSeenVersion() },
               };
             }
           }

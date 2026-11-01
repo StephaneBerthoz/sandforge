@@ -358,9 +358,34 @@ test('no surface promises that every ID is remapped, in six languages', () => {
   );
 });
 
+/**
+ * Whether a surface speaks of remapping Ids at all, in its language. The Forge
+ * walkthrough step spent its fourth step on the record type edge case and now
+ * follows the page's order, saying nothing of Ids: the exception travels with
+ * the claim, and a surface that makes none owes none.
+ */
+const SPEAKS_OF_REMAPPING = {
+  en: /remap/i,
+  fr: /remapp|réattribu/i,
+  de: /neu zugeordnet|neu zuordne|vergibt[^.]*neu/i,
+  es: /reasign/i,
+  ja: /再マッピング|マッピングし直|付け替え/,
+  'pt-br': /remape/i,
+};
+
 test('every surface that remaps IDs says what happens to a record type the target does not have', () => {
   const missing = [];
-  for (const [label, locale, text] of REMAP_SURFACES()) {
+  const speaking = REMAP_SURFACES().filter(([, locale, text]) =>
+    SPEAKS_OF_REMAPPING[locale].test(text),
+  );
+  // Positive control: the quick starts still remap, so the filter leaves them in.
+  for (const page of ['README.md', 'packages/extension/README.md', 'docs/getting-started.md']) {
+    assert.ok(
+      speaking.some(([label]) => label === page),
+      `${page} no longer speaks of remapping — re-read this gate`,
+    );
+  }
+  for (const [label, locale, text] of speaking) {
     const rules = REMAP_EXCEPTION[locale];
     assert.ok(rules, `${label}: no rule written for ${locale}`);
     for (const [part, rule] of Object.entries(rules)) {
@@ -640,6 +665,223 @@ test('the Forge step of the walkthrough copies from another org into the one you
   assert.deepEqual(offenders, [], offenders.join('\n'));
 });
 
+/** A walkthrough body, by step file and walkthrough locale. */
+const walkthroughBody = (step, locale) =>
+  read(...EXT, 'walkthrough', `${step}${locale === 'en' ? '' : `.nls.${locale}`}.md`);
+
+/** The panel's catalogue for a walkthrough locale, whose files spell Brazilian Portuguese pt-BR. */
+const panelCatalogue = (locale) =>
+  readJson(
+    'packages',
+    'webview',
+    'src',
+    'i18n',
+    'locales',
+    `${locale === 'pt-br' ? 'pt-BR' : locale}.json`,
+  );
+
+/** A label of the panel's catalogue, by its dotted key. */
+const panelLabel = (locale, key) => {
+  const value = key.split('.').reduce((node, part) => node?.[part], panelCatalogue(locale));
+  assert.equal(typeof value, 'string', `${locale}: ${key} is gone — re-point this gate`);
+  return value;
+};
+
+/** The walkthrough step's description in the six manifest bundles. */
+const stepDescriptions = (id) => {
+  const step = (manifest().contributes?.walkthroughs ?? [])
+    .flatMap((w) => w.steps ?? [])
+    .find((s) => s.id === id);
+  assert.ok(step, `${id} is gone — re-read this gate`);
+  return resolveNls(step.description);
+};
+
+/**
+ * The Forge step never said to pick the Target Org, which Discover Graph waits
+ * for, and set Depth, Records per object and Anonymize PII after discovery,
+ * though they sit above its button and decide what it reads; it ended on
+ * Review & Execute and never named Execute Forge, the button that writes.
+ */
+test('the Forge step follows the page: target, record and depth, discovery, then the Review buttons, in six languages', () => {
+  const offenders = [];
+  for (const locale of WALKTHROUGH_LOCALES) {
+    const body = walkthroughBody('forge-clone', locale);
+    const items = body.split('\n').filter((line) => /^\d+\.\s/.test(line));
+    const at = (key) => {
+      const label = `**${panelLabel(locale, key)}**`;
+      return items.findIndex((item) => item.includes(label));
+    };
+    const source = at('forge.sourceOrg');
+    const target = at('forge.targetOrg');
+    const record = at('forge.recordIdPlaceholder');
+    const depth = at('forge.depth');
+    const review = at('forgeRun.reviewAndExecute');
+    const writes = at('forgeRun.executeForge');
+    if ([source, target, record, depth, review, writes].includes(-1)) {
+      offenders.push(`${locale}: a label of the page is missing from the steps`);
+      continue;
+    }
+    if (!(target < record && record <= depth && depth < review && review < writes)) {
+      offenders.push(`${locale}: the steps are not in the page's order`);
+    }
+    for (const key of [
+      'forgeRun.simulation.action',
+      'forgeRun.rehearsal.action',
+      'forge.history.remove',
+    ]) {
+      if (!items[writes].includes(`**${panelLabel(locale, key)}**`)) {
+        offenders.push(`${locale}: ${key} is not named beside Execute Forge`);
+      }
+    }
+    if (!body.includes(`**${panelLabel(locale, 'forge.depthFull')}**`)) {
+      offenders.push(`${locale}: the deepest Depth is not named as the page names it`);
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/** "Real time", as each language sold Monitor. */
+const REAL_TIME = {
+  en: /real[- ]time/i,
+  fr: /temps réel/i,
+  de: /Echtzeit/i,
+  es: /tiempo real/i,
+  ja: /リアルタイム/,
+  'pt-br': /tempo real/i,
+};
+
+/**
+ * Monitor reads the org when its page opens, on Refresh, and every 30 s with
+ * Auto-refresh while the page is open; nothing watches it otherwise. The step
+ * sold "real-time visibility" and alerts before limits turn into failures.
+ */
+test('the Monitor step says when Monitor reads, never real time, in six languages', () => {
+  const offenders = [];
+  const descriptions = stepDescriptions('sandforge.monitorLimits');
+  for (const locale of WALKTHROUGH_LOCALES) {
+    for (const [where, text] of [
+      ['monitor-limits body', walkthroughBody('monitor-limits', locale)],
+      ['monitorLimits description', descriptions[locale]],
+    ]) {
+      if (REAL_TIME[locale].test(text)) offenders.push(`${locale} ${where}: says real time`);
+      if (!/\b30\b/.test(text)) offenders.push(`${locale} ${where}: does not say every 30 s`);
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/**
+ * The settings step promised batch sizes, Production Guard's audit record and
+ * Forge's graph view, then opened SandForge's own page, which holds none of
+ * them: they are VS Code settings. The step opens both, the second filtered to
+ * the extension the manifest names.
+ */
+test("the settings step opens VS Code's Settings filtered to SandForge, in six languages", () => {
+  const m = manifest();
+  const link = `command:workbench.action.openSettings?${encodeURIComponent(
+    JSON.stringify([`@ext:${m.publisher}.${m.name}`]),
+  )}`;
+  assert.equal(
+    link,
+    'command:workbench.action.openSettings?%5B%22%40ext%3AStephaneBerthoz.sandforge%22%5D',
+  );
+  const offenders = [];
+  const descriptions = stepDescriptions('sandforge.exploreSettings');
+  for (const locale of WALKTHROUGH_LOCALES) {
+    for (const [where, text] of [
+      ['settings body', walkthroughBody('settings', locale)],
+      ['exploreSettings description', descriptions[locale]],
+    ]) {
+      if (!text.includes(`](${link})`))
+        offenders.push(`${locale} ${where}: no link to VS Code's Settings`);
+      if (!text.includes('](command:sandforge.openSettings)')) {
+        offenders.push(`${locale} ${where}: no Open Settings button`);
+      }
+    }
+  }
+  assert.doesNotMatch(walkthroughBody('settings', 'en'), /on by default/);
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/** The production and Staging sentence every first-run surface shares, in English. */
+const PRODUCTION_SENTENCE =
+  "Forge, Frozen Dataset loads, Checkpoints and Compare's deploy refuse a production org; deletes " +
+  'are refused there too; every other write there asks first, and no setting turns that off. A ' +
+  'sandbox holding real data (full copy, UAT): open its Edit dialog on Organizations and tick ' +
+  'Staging, and Production Guard then asks before every delete, deployment and write over 10,000 ' +
+  'records.';
+
+/**
+ * The connect step said only Forge refuses a production org, the settings step
+ * called Production Guard "on by default", and neither said what Staging is
+ * for: a full copy or a UAT sandbox, which holds real data.
+ */
+test('the connect and settings steps tell production and Staging in one sentence, in six languages', () => {
+  const offenders = [];
+  for (const step of ['connect-org', 'settings']) {
+    const en = walkthroughBody(step, 'en').replace(/\*\*/g, '');
+    if (!en.includes(PRODUCTION_SENTENCE)) offenders.push(`${step}.md: not the shared sentence`);
+    for (const locale of WALKTHROUGH_LOCALES) {
+      const body = walkthroughBody(step, locale);
+      for (const name of [
+        'Forge',
+        'Frozen Dataset',
+        'Compare',
+        'Production Guard',
+        panelLabel(locale, 'nav.checkpoint').toLowerCase(),
+        `**${panelLabel(locale, 'common.edit')}**`,
+        `**${panelLabel(locale, 'org.staging')}**`,
+      ]) {
+        if (!body.toLowerCase().includes(name.toLowerCase())) {
+          offenders.push(`${step} ${locale}: ${name} is not named`);
+        }
+      }
+      if (!/10[,. ]000/.test(body)) offenders.push(`${step} ${locale}: no 10,000-record threshold`);
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/**
+ * The two ways to connect had five names: OAuth (Web) and Import from SF CLI on
+ * Organizations, sign in or log in with your browser elsewhere. The first-run
+ * surfaces say "Import from Salesforce CLI" and "Log in with your browser".
+ */
+test('the connect step names the two ways to connect as the panel does, never OAuth (Web) or SF CLI', () => {
+  const offenders = [];
+  const descriptions = stepDescriptions('sandforge.connectOrg');
+  for (const locale of WALKTHROUGH_LOCALES) {
+    for (const [where, text] of [
+      ['connect-org body', walkthroughBody('connect-org', locale)],
+      ['connectOrg description', descriptions[locale]],
+    ]) {
+      if (/OAuth|\bSF CLI\b/.test(text)) offenders.push(`${locale} ${where}: an old name`);
+    }
+  }
+  const en = walkthroughBody('connect-org', 'en');
+  for (const label of ['**Import from Salesforce CLI**', '**Log in with your browser**']) {
+    if (!en.includes(label)) offenders.push(`connect-org.md: ${label} is not named`);
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/**
+ * No walkthrough step mentioned a checkpoint, the one way back from any run.
+ * Rather than a step before the first value, the fill step says it in a line.
+ */
+test('the fill step names a checkpoint as the way back before a risky run, in six languages', () => {
+  const offenders = [];
+  for (const locale of WALKTHROUGH_LOCALES) {
+    const body = walkthroughBody('fill-org', locale);
+    for (const key of ['nav.checkpoint', 'checkpoint.take.open', 'checkpoint.list.rewind']) {
+      if (!body.includes(`**${panelLabel(locale, key)}**`)) {
+        offenders.push(`${locale}: ${key} is not named as the panel names it`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
 test('the connect step names only the badges an org card shows, in six languages', () => {
   const badges = Object.values(
     readJson('packages', 'webview', 'src', 'i18n', 'locales', 'en.json').common.orgType,
@@ -650,9 +892,10 @@ test('the connect step names only the badges an org card shows, in six languages
     const file = `connect-org${locale === 'en' ? '' : `.nls.${locale}`}.md`;
     const body = read(...EXT, 'walkthrough', file);
     // The badges are named in capitals, in the parenthesis after the badge's word.
+    // UAT is a sandbox's use, in the production sentence, not a badge.
     const named = [...body.matchAll(/\b[A-Z]{2,}(?: PRO)?\b/g)]
       .map((m) => m[0])
-      .filter((word) => !['PATH', 'CLI', 'OAuth', 'SF'].includes(word));
+      .filter((word) => !['PATH', 'CLI', 'OAuth', 'SF', 'UAT'].includes(word));
     const unknown = named.filter((word) => !badges.includes(word));
     if (unknown.length > 0) offenders.push(`${file}: ${[...new Set(unknown)].join(', ')}`);
     if (!named.includes('DEVELOPER'))

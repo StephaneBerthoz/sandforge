@@ -3,6 +3,12 @@ import { createRef } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { WelcomePage } from './WelcomePage';
 import type { WelcomePageHandle } from './WelcomePage';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+import ja from '../../i18n/locales/ja.json';
 
 const mockChangeLanguage = vi.fn();
 
@@ -17,7 +23,14 @@ vi.mock('react-i18next', () => ({
   // The real i18n module calls i18n.use(initReactI18next) at import time.
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, fallback?: unknown) => (typeof fallback === 'string' ? fallback : key),
+    // An alias passed to the sentence shows beside its key, so a test reads
+    // which org the sentence names.
+    t: (key: string, fallback?: unknown) =>
+      typeof fallback === 'string'
+        ? fallback
+        : typeof fallback === 'object' && fallback !== null && 'alias' in fallback
+          ? `${key}(${String(fallback.alias)})`
+          : key,
     i18n: { changeLanguage: mockChangeLanguage, language: 'en' },
   }),
 }));
@@ -43,12 +56,36 @@ vi.mock('../../stores/useAppStore', () => ({
 /* The orgs the tour reads: the selected one decides its last suggestion, and
    the org Seed opens on. */
 const mockOrgState = vi.hoisted(() => ({
-  orgs: [] as Array<{ id: string; status: string; orgType: string }>,
+  orgs: [] as Array<{
+    id: string;
+    status: string;
+    orgType: string;
+    alias?: string;
+    username?: string;
+  }>,
   selectedOrgId: null as string | null,
 }));
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (s: typeof mockOrgState) => unknown) => selector(mockOrgState),
 }));
+
+/** A connected Developer Edition: an org the tour suggests filling. */
+const CONNECTED_DEV = {
+  id: 'dev',
+  status: 'connected',
+  orgType: 'Developer',
+  alias: 'dev-org',
+  username: 'dev@example.com',
+};
+
+/** A connected production org: the tour points it at Monitor. */
+const CONNECTED_PROD = {
+  id: 'prod',
+  status: 'connected',
+  orgType: 'Production',
+  alias: 'prod-org',
+  username: 'prod@example.com',
+};
 
 /* In-memory mock of the webview state persistence layer. */
 const mockPersistedState = vi.hoisted(() => {
@@ -189,19 +226,110 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-4')).toBeDefined();
   });
 
-  it('should suggest Seed and Sync for sandbox org type', () => {
+  it('suggests filling the connected org, named, with Seed or with Forge', () => {
+    mockOrgState.orgs = [CONNECTED_DEV];
+    mockOrgState.selectedOrgId = CONNECTED_DEV.id;
     render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    expect(screen.getByText('onboarding.suggestSeedAndSync')).toBeDefined();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+
+    // It said "Your sandbox is ready… Seed or Sync" whatever was connected, and
+    // the tour's cards led with Forge but its end offered Sync, not Forge.
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe(
+      'onboarding.suggestSeedFor(dev-org)',
+    );
     expect(screen.getByText('home.openSeed')).toBeDefined();
-    expect(screen.getByText('home.openSync')).toBeDefined();
+    expect(screen.getByText('home.openForge')).toBeDefined();
+    expect(screen.queryByText('home.openSync')).toBeNull();
+  });
+
+  it('asks for an org first when none is connected, and says nothing of an org type', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+
+    // "Based on your org type… Your sandbox is ready" showed with no org at
+    // all: the type fell back to a sandbox.
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe('onboarding.connectFirst');
+    expect(screen.queryByText('onboarding.step4Desc')).toBeNull();
+    expect(screen.queryByTestId('welcome-open-seed-btn')).toBeNull();
+    expect(screen.queryByText('home.openMonitor')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('welcome-connect-org-btn'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
+  });
+
+  it('asks for an org first while the only org registered is not connected', () => {
+    mockOrgState.orgs = [{ ...CONNECTED_DEV, status: 'expired' }];
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe('onboarding.connectFirst');
+  });
+
+  it('leaves the tour for Forge from its last step', () => {
+    mockOrgState.orgs = [CONNECTED_DEV];
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByTestId('welcome-start-forge-btn'));
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('forge');
+  });
+
+  it('ends on Done, not Skip, and Done leaves the tour where it is', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('skip-button').textContent).toBe('onboarding.skipOnboarding');
+    fireEvent.click(screen.getByText('common.next'));
+
+    expect(screen.queryByTestId('skip-button')).toBeNull();
+    fireEvent.click(screen.getByTestId('done-button'));
+    expect(screen.getByTestId('done-button').textContent).toBe('onboarding.done');
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('opens Settings on its AI tab from the AI step', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('welcome-step-3')).toBeDefined();
+
+    // The step was text alone.
+    fireEvent.click(screen.getByTestId('welcome-open-ai-settings-btn'));
+    expect(screen.getByText('onboarding.openAiSettings')).toBeDefined();
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
+  });
+
+  it('lists Seed first among the three ways, then Forge, then Frozen', () => {
+    const { container } = render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+
+    const cards = [...container.querySelectorAll('[data-testid^="path-card-"]')].map((card) =>
+      card.getAttribute('data-testid'),
+    );
+    expect(cards).toEqual(['path-card-seed', 'path-card-forge', 'path-card-frozen']);
+  });
+
+  it('draws its icons as images, never as emoji, on every step', () => {
+    // Emoji drew as empty boxes where no colour-emoji font exists, and a
+    // flame, a robot and a rocket said other things than the side panel's.
+    mockOrgState.orgs = [CONNECTED_DEV];
+    const { container } = render(<WelcomePage onComplete={onComplete} />);
+    for (let step = 0; step < 5; step++) {
+      const shown = screen.getByTestId(
+        step === 0 ? 'welcome-step-bienvenue' : `welcome-step-${step}`,
+      );
+      expect(shown.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
+      expect(shown.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+      if (step < 4) fireEvent.click(screen.getByText('common.next'));
+    }
+    expect(container.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
   it('should suggest Monitor for production org type', () => {
+    mockOrgState.orgs = [CONNECTED_PROD];
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -259,6 +387,7 @@ describe('WelcomePage', () => {
   });
 
   it('should navigate to seed from step 4 for sandbox org type', () => {
+    mockOrgState.orgs = [CONNECTED_DEV];
     render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -269,7 +398,7 @@ describe('WelcomePage', () => {
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('seed', {
       seedMode: 'quick-seed',
-      targetOrgId: undefined,
+      targetOrgId: CONNECTED_DEV.id,
     });
   });
 
@@ -289,19 +418,8 @@ describe('WelcomePage', () => {
     });
   });
 
-  it('should navigate to sync from step 4 for sandbox org type', () => {
-    render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('home.openSync'));
-    expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('sync');
-  });
-
   it('should navigate to monitor from step 4 for production org type', () => {
+    mockOrgState.orgs = [CONNECTED_PROD];
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -314,6 +432,7 @@ describe('WelcomePage', () => {
   });
 
   it('should navigate to settings from step 4', () => {
+    mockOrgState.orgs = [CONNECTED_PROD];
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -433,5 +552,31 @@ describe('WelcomePage step progress bar', () => {
     render(<WelcomePage onComplete={vi.fn()} />);
     const bar = screen.getByRole('progressbar', { name: 'a11y.stepProgress' });
     expect((bar.firstChild as HTMLElement).className).toContain('bg-(--sf-accent)');
+  });
+});
+
+describe('the words of the tour', () => {
+  const ALL = { en, fr, de, es, 'pt-BR': ptBR, ja } as const;
+
+  it.each(Object.keys(ALL) as Array<keyof typeof ALL>)(
+    '%s leads with Seed and the template it opens on, then offers Forge to an org with real data',
+    (locale) => {
+      // The hero sold Forge first, which needs a second org holding real data,
+      // where every other surface starts a newcomer on Seed in one empty org.
+      const catalogue = ALL[locale];
+      const { heroTitle, heroDesc } = catalogue.onboarding;
+      expect(heroTitle).toContain('Seed');
+      expect(heroTitle).toContain(catalogue.seed.templates.crmStarter.name);
+      expect(heroTitle).not.toContain('Forge');
+      expect(heroDesc).toContain('Forge');
+    },
+  );
+
+  it('says replay as German says it of a dataset, never wiederholen', () => {
+    // "Wiederholen" reads "repeat"; the card's own description says wiedergeben.
+    expect(JSON.stringify(de.onboarding.paths)).not.toMatch(/wiederhol/i);
+    expect(de.onboarding.step2Desc).not.toMatch(/wiederhol/i);
+    expect(de.onboarding.heroDesc).not.toMatch(/wiederhol/i);
+    expect(de.onboarding.paths.frozenTitle).toBe('Eingefrorenes Dataset erneut laden');
   });
 });

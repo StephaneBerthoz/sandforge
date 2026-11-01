@@ -1,8 +1,8 @@
 ## Surveillez les limites de l'org
 
-De la visibilité en temps réel, avant de heurter un mur :
+Ce qu'il reste à une org, avant de heurter un mur :
 
 - Limites API, jobs en cours et stockage, avec un score de santé par org.
-- Les alertes de seuil vous préviennent avant qu'une limite ne devienne une panne.
+- Lus quand vous ouvrez le Moniteur ou cliquez sur **Actualiser** ; l'**Actualisation automatique** relit toutes les 30 s tant que la page est ouverte, et chaque lecture vérifie les seuils d'alerte. Rien n'est surveillé tant que le Moniteur est fermé.
 
 [Ouvrir le moniteur](command:sandforge.openMonitor)

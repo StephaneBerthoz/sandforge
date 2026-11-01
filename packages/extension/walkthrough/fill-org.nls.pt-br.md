@@ -9,3 +9,5 @@ Uma Developer Edition recém-criada, um playground do Trailhead ou uma sandbox n
 [Abrir Seed](command:sandforge.openSeed)
 
 > O Seed só grava depois que você clica em **Iniciar Seed**, e pergunta de novo antes de gravar em uma org de produção.
+
+> Antes de uma execução arriscada em uma sandbox, crie um ponto de verificação (**Pontos de verificação** → **Criar um ponto de verificação**): **Retroceder…** devolve os dados da org a esse ponto.

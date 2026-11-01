@@ -332,6 +332,63 @@ test('the FAQ says what SandForge keeps on the machine, where the code keeps it'
   assert.match(body, /DataOps backups, which hold the records' values/);
 });
 
+/**
+ * The privacy answer, the first thing a client's security review reads, was
+ * one line of 3,022 characters, and what SandForge keeps on the machine held a
+ * bullet of 2,000: each is a table now, a row per feature and per folder.
+ */
+test('the FAQ answers what is sent and what is kept in tables, a row each', () => {
+  const faq = read('docs', 'faq.md');
+  const sent = section(faq, '### Is my data sent to external services?');
+  assert.match(sent, /^\| Feature +\| Sent to Anthropic +\| When +\| How to stop it +\|$/m);
+  const kept = section(faq, '### What does SandForge keep on my machine?');
+  assert.match(kept, /^\| Where +\| What it holds +\| Kept for +\|$/m);
+  for (const [heading, body] of [
+    ['what is sent', sent],
+    ['what is kept', kept],
+  ]) {
+    // A row is as wide as the table, so it is the cell, not the line, that is bounded.
+    const longest = Math.max(
+      ...body
+        .split('\n')
+        .flatMap((line) => (line.startsWith('|') ? line.split('|') : [line]))
+        .map((part) => part.trim().length),
+    );
+    assert.ok(longest < 1000, `${heading}: a cell or a line of ${longest} characters`);
+  }
+});
+
+/**
+ * The FAQ said a CSV import cannot be removed, above its own table saying
+ * Earlier seeds removes it; that a Developer sandbox has fewer API calls than
+ * a Full one, and to upgrade for more, where every sandbox type gets the same
+ * daily API requests and the tiers differ in storage; and pointed to a
+ * "schema browser in Seed Step 1" no screen has.
+ */
+test('the FAQ says what a CSV import leaves to take back, and gives the API budget as Salesforce sets it', () => {
+  const faq = read('docs', 'faq.md');
+  const csv = section(faq, '### How do I import data from a CSV file?');
+  assert.doesNotMatch(csv, /cannot be removed|keeps no list/);
+  assert.ok(
+    csv.includes(`**${label('seed.removal.historyTitle')}**`),
+    'the CSV answer names no way back',
+  );
+
+  assert.doesNotMatch(faq, /lower API limits than|for higher API limits|Upgrade your sandbox tier/);
+  const sameBudget = faq.match(/API requests per 24 h are the same for every sandbox type/g) ?? [];
+  assert.equal(sameBudget.length, 2, 'the two troubleshooting answers on API limits');
+  assert.match(
+    faq,
+    /Developer 200 MB, Developer Pro 1 GB, Partial Copy 5 GB of data, Full as production/,
+  );
+
+  assert.doesNotMatch(faq, /schema browser/);
+  assert.ok(
+    faq.includes(`**${label('seed.modeSelect.generate')}**`),
+    "the object search's wizard, by name",
+  );
+});
+
 // ── Autopilot, as the copy it is ──────────────────────────────────────────
 
 test('both READMEs and the Autopilot guide sell Autopilot as the copy it is', () => {

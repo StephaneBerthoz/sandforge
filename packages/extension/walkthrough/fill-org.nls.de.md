@@ -9,3 +9,5 @@ Eine neue Developer Edition, ein Trailhead-Playground oder eine frische Sandbox 
 [Seed öffnen](command:sandforge.openSeed)
 
 > Seed schreibt erst, wenn Sie auf **Seed starten** klicken, und fragt erneut, bevor es in eine Produktions-Org schreibt.
+
+> Vor einem riskanten Lauf auf einer Sandbox erstellen Sie einen Prüfpunkt (**Prüfpunkte** → **Prüfpunkt erstellen**): **Zurücksetzen…** setzt die Daten der Org auf diesen Stand zurück.

@@ -46,6 +46,14 @@ describe('OnboardingService', () => {
     });
   });
 
+  describe('lastSeenVersion', () => {
+    it("names the version last recorded, the one What's New lists the releases after", async () => {
+      expect(service.lastSeenVersion()).toBeUndefined();
+      await service.markVersionSeen('1.68.0');
+      expect(service.lastSeenVersion()).toBe('1.68.0');
+    });
+  });
+
   describe('markVersionSeen', () => {
     it('should persist the version string', async () => {
       await service.markVersionSeen('2.1.0');

@@ -97,7 +97,14 @@ export interface OnboardingShowMessage extends BaseMessage {
 /** Instructs the WebView to display the "What's New" panel for a version */
 export interface WhatsNewShowMessage extends BaseMessage {
   type: 'whats-new:show';
-  payload: { version: string };
+  payload: {
+    version: string;
+    /**
+     * The version this machine last opened, before `version`: the panel lists
+     * every release after it. Absent when nothing was recorded.
+     */
+    since?: string;
+  };
 }
 
 /** Telemetry management */

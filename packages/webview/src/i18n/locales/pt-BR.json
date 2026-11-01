@@ -2930,22 +2930,20 @@
     "welcomeTitle": "Bem-vindo ao SandForge",
     "welcomeSubtitle": "Forje suas sandboxes Salesforce com confiança",
     "welcomeTagline": "Seu kit de ferramentas completo para gerenciamento de sandboxes",
-    "step1Title": "Conecte sua Org",
-    "step1Desc": "Vincule suas organizações Salesforce para começar",
+    "step1Title": "Conecte sua org",
+    "step1Desc": "Conecte uma org: importe-a da Salesforce CLI ou entre pelo navegador",
     "step2Title": "Três maneiras de preencher sua sandbox",
-    "step2Desc": "Comece de um registro real, gere dados sintéticos ou reproduza um dataset congelado após um refresh",
-    "step3Title": "Configurar IA (Opcional)",
+    "step2Desc": "Gere dados sintéticos, comece de um registro real ou reproduza um dataset congelado após um refresh",
+    "step3Title": "Configurar IA (opcional)",
     "step3Desc": "Aprimore o SandForge com insights e geração de dados impulsionados por IA",
     "skipOnboarding": "Pular",
-    "connectOrg": "Conectar uma Org",
+    "connectOrg": "Conectar uma org",
     "aiOptional": "Os recursos de IA são opcionais. Você pode configurá-los depois em Configurações.",
     "chooseLanguage": "Escolha seu idioma",
     "step4Title": "Primeiros passos",
-    "step4Desc": "Com base no tipo da sua org, aqui está um ponto de partida recomendado",
     "suggestMonitor": "Comece com Monitor para acompanhar a saúde da sua org de produção",
     "gotIt": "Entendi!",
     "whatsNewTitle": "Novidades no SandForge",
-    "suggestSeedAndSync": "Sua sandbox está pronta. Preencha-a com Seed para dados de teste, ou com Sync para copiar de outra org.",
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
@@ -3182,8 +3180,8 @@
       "checkpoints1660": "Pontos de verificação: devolver uma org ao estado anterior",
       "checkpoints1660Desc": "Guarde uma sandbox, uma scratch org ou uma org Developer Edition como está agora, veja o que mudou desde então e retroceda: o que foi adicionado é excluído, o que mudou recebe de volta os seus valores e o que foi excluído é recuperado, não importa quem o fez. O retrocesso pode ser desfeito por 15 dias. Nunca uma org de produção."
     },
-    "heroTitle": "Preencha sua sandbox a partir de um registro real",
-    "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
+    "heroTitle": "Preencha uma org vazia com dados de demonstração vinculados (o Kit inicial de CRM do Seed: sem segunda org, sem chave de IA)",
+    "heroDesc": "Já tem uma org com dados reais? Clone um registro com o Forge.",
     "paths": {
       "forgeTitle": "Clonar a partir de um registro",
       "forgeDesc": "Cole o ID de um registro, descubra seu grafo de relacionamentos, forge-o em sua sandbox",
@@ -3191,7 +3189,12 @@
       "seedDesc": "Templates, IA ou CSV — dados de teste realistas sem tocar na produção",
       "frozenTitle": "Reproduzir um dataset congelado",
       "frozenDesc": "Extraia uma vez, reproduza identicamente após cada refresh de sandbox"
-    }
+    },
+    "connectFirst": "Conecte uma org primeiro",
+    "suggestSeedFor": "Preencha {{alias}} com o Kit inicial de CRM do Seed, ou clone nela um registro de outra org com o Forge.",
+    "done": "Concluir",
+    "openAiSettings": "Abrir as configurações de IA",
+    "whatsNewSince": "Desde a {{version}}, a última versão que você abriu"
   },
   "help": {
     "title": "Ajuda e Recursos",

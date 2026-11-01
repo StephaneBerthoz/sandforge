@@ -1131,10 +1131,6 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="forge-hero-card"]');
     await page.waitForSelector('[data-testid="checkpoint-tile-latest"]');
     await page.getByTestId('recent-op-item').nth(1).waitFor();
-    // The banner calls a sandbox empty whatever it holds: it reads nothing of
-    // the org, only that a sandbox is connected. Someone with a sandbox in
-    // use has closed it, and it stays closed.
-    await page.getByTestId('sandbox-banner-dismiss').click();
     await blurFocus(page);
     await settle(page);
     await shoot(page, 'home');

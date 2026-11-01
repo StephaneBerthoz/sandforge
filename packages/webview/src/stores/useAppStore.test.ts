@@ -120,6 +120,13 @@ describe('useAppStore', () => {
     expect(getState().whatsNewVersion).toBe('');
   });
 
+  it("keeps the version last opened with What's New, and forgets it as the panel closes", () => {
+    getState().setShowWhatsNew(true, '1.70.0', '1.68.0');
+    expect(getState().whatsNewSince).toBe('1.68.0');
+    getState().setShowWhatsNew(false);
+    expect(getState().whatsNewSince).toBe('');
+  });
+
   it('should handle multiple state changes independently', () => {
     getState().navigate('monitor');
     getState().setLoading(true);

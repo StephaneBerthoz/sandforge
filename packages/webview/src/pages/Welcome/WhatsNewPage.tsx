@@ -1,5 +1,6 @@
 import React, { useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ExternalLink } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../stores/useAppStore';
 import type { ModuleRoute } from '../../stores/useAppStore';
@@ -914,6 +915,57 @@ export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
   ],
 };
 
+/**
+ * The Changelog tab of the extension's Marketplace page, opened in the
+ * browser as Help's Salesforce links are: the button that said "View full
+ * changelog" had no handler and did nothing.
+ */
+export const CHANGELOG_URL =
+  'https://marketplace.visualstudio.com/items/StephaneBerthoz.sandforge/changelog';
+
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** Negative when `a` is the earlier release, positive when the later, 0 when the same. */
+function compareVersions(a: string, b: string): number {
+  const pa = (SEMVER.exec(a) ?? []).slice(1).map(Number);
+  const pb = (SEMVER.exec(b) ?? []).slice(1).map(Number);
+  for (let i = 0; i < 3; i++) {
+    const delta = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+/** A release and the highlights the panel shows for it. */
+export interface ReleaseHighlights {
+  version: string;
+  features: readonly Feature[];
+}
+
+/**
+ * The releases to show, newest first: every listed one after `since` up to
+ * `version`, or `version` alone when the version last opened is unknown or
+ * not an earlier one. Only the current version's list was shown, so an
+ * upgrade from 1.68 to 1.70 never told what 1.69 brought.
+ */
+export function releasesToShow(version: string, since?: string): ReleaseHighlights[] {
+  if (
+    !since ||
+    !SEMVER.test(since) ||
+    !SEMVER.test(version) ||
+    compareVersions(since, version) >= 0
+  ) {
+    const features = WHATS_NEW[version];
+    return features ? [{ version, features }] : [];
+  }
+  return Object.entries(WHATS_NEW)
+    .filter(
+      ([listed]) => compareVersions(listed, since) > 0 && compareVersions(listed, version) <= 0,
+    )
+    .sort(([a], [b]) => compareVersions(b, a))
+    .map(([listed, features]) => ({ version: listed, features }));
+}
+
 /** Props for WhatsNewPage component. */
 export interface WhatsNewPageProps {
   /** Current extension version. */
@@ -924,23 +976,25 @@ export interface WhatsNewPageProps {
 
 /**
  * What's New page shown after an extension update.
- * Displays the highlights listed for `version` with category icons,
- * "Try it now" buttons, and a link to the full changelog.
+ * Displays the highlights of every release since the version last opened,
+ * with category icons, "Try it now" buttons, and a link to the full changelog.
  */
 export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }) => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
-  const features = WHATS_NEW[version];
+  const since = useAppStore((s) => s.whatsNewSince);
+  const releases = releasesToShow(version, since);
+  const empty = releases.length === 0;
 
-  // No highlights for this release: close before the first paint, so the
+  // No highlights for these releases: close before the first paint, so the
   // overlay's backdrop never flashes over the panel.
   useLayoutEffect(() => {
-    if (!features) {
+    if (empty) {
       onDismiss();
     }
-  }, [features, onDismiss]);
+  }, [empty, onDismiss]);
 
-  if (!features) {
+  if (empty) {
     return null;
   }
 
@@ -960,40 +1014,69 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
       </h1>
       <p className="text-sm mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
         SandForge v{version}
+        {releases.length > 1 && (
+          <>
+            {' · '}
+            <span data-testid="whats-new-since">
+              {t('onboarding.whatsNewSince', { version: since })}
+            </span>
+          </>
+        )}
       </p>
 
-      <div className="w-full max-w-md space-y-3">
-        {features.map((feature) => (
-          <div
-            key={feature.titleKey}
-            className="flex items-start gap-3 p-3 rounded-lg"
-            data-testid={`feature-${feature.titleKey}`}
-            style={{
-              background: 'var(--sf-bg-card)',
-              border: '1px solid var(--sf-border)',
-            }}
+      <div className="w-full max-w-md space-y-5">
+        {releases.map((release) => (
+          <section
+            key={release.version}
+            className="space-y-3"
+            data-testid={`release-${release.version}`}
+            aria-labelledby={releases.length > 1 ? `release-${release.version}-title` : undefined}
           >
-            <span className="shrink-0 mt-0.5">{CATEGORY_ICONS[feature.category]}</span>
-            <div className="flex-1">
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--sf-text-primary)' }}>
-                {t(feature.titleKey)}
-              </h3>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
-                {t(feature.descKey)}
-              </p>
-              {feature.navigateTo && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 text-xs"
-                  onClick={() => handleTryItNow(feature.navigateTo as ModuleRoute)}
-                  data-testid={`try-it-${feature.titleKey}`}
-                >
-                  {t('onboarding.tryItNow')}
-                </Button>
-              )}
-            </div>
-          </div>
+            {releases.length > 1 && (
+              <h2
+                id={`release-${release.version}-title`}
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: 'var(--sf-text-secondary, #868686)' }}
+              >
+                {release.version}
+              </h2>
+            )}
+            {release.features.map((feature) => (
+              <div
+                key={feature.titleKey}
+                className="flex items-start gap-3 p-3 rounded-lg"
+                data-testid={`feature-${feature.titleKey}`}
+                style={{
+                  background: 'var(--sf-bg-card)',
+                  border: '1px solid var(--sf-border)',
+                }}
+              >
+                <span className="shrink-0 mt-0.5">{CATEGORY_ICONS[feature.category]}</span>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold" style={{ color: 'var(--sf-text-primary)' }}>
+                    {t(feature.titleKey)}
+                  </h3>
+                  <p
+                    className="text-xs mt-0.5"
+                    style={{ color: 'var(--sf-text-secondary, #868686)' }}
+                  >
+                    {t(feature.descKey)}
+                  </p>
+                  {feature.navigateTo && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 text-xs"
+                      onClick={() => handleTryItNow(feature.navigateTo as ModuleRoute)}
+                      data-testid={`try-it-${feature.titleKey}`}
+                    >
+                      {t('onboarding.tryItNow')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </section>
         ))}
       </div>
 
@@ -1001,14 +1084,17 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
         <Button variant="primary" onClick={onDismiss} data-testid="whats-new-dismiss">
           {t('onboarding.gotIt')}
         </Button>
-        <button
-          className="text-xs underline bg-transparent border-none cursor-pointer"
+        <a
+          href={CHANGELOG_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-xs underline"
           data-testid="changelog-link"
           style={{ color: 'var(--sf-text-link)' }}
-          type="button"
         >
           {t('onboarding.viewChangelog')}
-        </button>
+          <ExternalLink size={10} aria-hidden="true" className="shrink-0" />
+        </a>
       </div>
     </div>
   );

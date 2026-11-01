@@ -6,6 +6,7 @@ import type {
   SalesforceOrg,
   AIStatusResponse,
   NavigationIntentMessage,
+  WhatsNewShowMessage,
 } from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../hooks/useMessageBus';
 import { useRecentOpsFeed } from '../hooks/useRecentOpsFeed';
@@ -272,9 +273,10 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     useAppStore.getState().navigate(route as ModuleRoute, orgAction ? { orgAction } : {});
   });
 
-  // Listen for whats-new:show → display what's new overlay
-  useMessageListener<BaseMessage & { payload: { version: string } }>('whats-new:show', (msg) => {
-    useAppStore.getState().setShowWhatsNew(true, msg.payload.version);
+  // Listen for whats-new:show → display what's new overlay, from the version
+  // last opened when the extension sends it.
+  useMessageListener<WhatsNewShowMessage>('whats-new:show', (msg) => {
+    useAppStore.getState().setShowWhatsNew(true, msg.payload.version, msg.payload.since);
   });
 
   // ─── Grappe (cluster) message listeners ───────────────────────────────────

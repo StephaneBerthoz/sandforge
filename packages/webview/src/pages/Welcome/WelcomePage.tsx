@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Bot, Flame, ListChecks, Plug, Snowflake, Sprout } from 'lucide-react';
 import { isDevelopmentOrg } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -7,6 +8,7 @@ import { orgToFill } from '../../utils/orgToFill';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
+import { BrandMark } from '../../components/ui/BrandMark';
 import { Card, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -15,30 +17,39 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 /** Module card definition for the explore step. */
 interface UseCasePath {
   id: 'forge' | 'seed' | 'frozen';
-  icon: string;
+  /** The module's icon as the side panel draws it, in its colour. */
+  icon: React.ReactNode;
   titleKey: string;
   descKey: string;
   ctaKey: string;
 }
 
+/**
+ * Seed first, as the side panel, the walkthrough and Help's Getting Started
+ * list them: it fills the one empty org a newcomer has, where Forge needs a
+ * second org holding real data. The tour led with Forge and ended on Seed.
+ *
+ * The icons are the side panel's: the tour drew emoji, a flame where Help
+ * drew Forge as a hammer, and empty boxes where no colour-emoji font exists.
+ */
 const USE_CASE_PATHS: UseCasePath[] = [
   {
-    id: 'forge',
-    icon: '\uD83D\uDD25',
-    titleKey: 'onboarding.paths.forgeTitle',
-    descKey: 'onboarding.paths.forgeDesc',
-    ctaKey: 'home.openForge',
-  },
-  {
     id: 'seed',
-    icon: '\uD83C\uDF31',
+    icon: <Sprout className="w-8 h-8 text-hue-green" aria-hidden="true" />,
     titleKey: 'onboarding.paths.seedTitle',
     descKey: 'onboarding.paths.seedDesc',
     ctaKey: 'home.openSeed',
   },
   {
+    id: 'forge',
+    icon: <Flame className="w-8 h-8 text-hue-orange" aria-hidden="true" />,
+    titleKey: 'onboarding.paths.forgeTitle',
+    descKey: 'onboarding.paths.forgeDesc',
+    ctaKey: 'home.openForge',
+  },
+  {
     id: 'frozen',
-    icon: '\u2744\uFE0F',
+    icon: <Snowflake className="w-8 h-8 text-hue-cyan" aria-hidden="true" />,
     titleKey: 'onboarding.paths.frozenTitle',
     descKey: 'onboarding.paths.frozenDesc',
     ctaKey: 'home.openFrozen',
@@ -68,9 +79,10 @@ export interface WelcomePageProps {
   /** Called when the wizard is finished or skipped. */
   onComplete: () => void;
   /**
-   * The kind of org the last step suggests a start for. By default the selected
-   * org's: a production org is pointed at Monitor, any other at Seed. Nothing
-   * passed it, so the production suggestion was never shown.
+   * The kind of org the last step suggests a start for, once one is
+   * connected. By default the selected org's: a production org is pointed at
+   * Monitor, any other at Seed. Nothing passed it, so the production
+   * suggestion was never shown.
    */
   orgType?: 'sandbox' | 'production';
 }
@@ -84,7 +96,7 @@ export interface WelcomePageHandle {
 /**
  * 5-step guided tour, opened from Help → Start Guided Tour.
  * Step 0: Bienvenue (logo + language + primary use case), Step 1: Connect Org,
- * Step 2: Pick a use-case path (Forge / Seed / Frozen), Step 3: Configure AI,
+ * Step 2: Pick a use-case path (Seed / Forge / Frozen), Step 3: Configure AI,
  * Step 4: First steps suggestion.
  *
  * It used to open by itself on the first panel of every session until it was
@@ -104,7 +116,20 @@ function WelcomePageView(
   const selectedOrg = orgs.find((org) => org.id === selectedOrgId);
   const orgType =
     orgTypeProp ?? (selectedOrg && !isDevelopmentOrg(selectedOrg) ? 'production' : 'sandbox');
+  const fillTarget = orgToFill(orgs, selectedOrgId);
+  /**
+   * What the last step suggests. It said "Based on your org type" and "Your
+   * sandbox is ready" with no org connected at all, the type falling back to
+   * a sandbox: with none it now asks for one first, and otherwise names the
+   * org it suggests filling.
+   */
+  const start: 'connect' | 'monitor' | 'fill' = !orgs.some((org) => org.status === 'connected')
+    ? 'connect'
+    : orgType === 'production' || !fillTarget
+      ? 'monitor'
+      : 'fill';
   const [step, setStep] = useState(0);
+  const lastStep = step === TOTAL_STEPS - 1;
   /** Why the language just picked is not the one on screen, or null. */
   const [languageError, setLanguageError] = useState<string | null>(null);
 
@@ -134,6 +159,18 @@ function WelcomePageView(
   const handleOpenSettings = useCallback((): void => {
     onComplete();
     navigate('settings');
+  }, [onComplete, navigate]);
+
+  /** Settings on its AI tab, where the key and the model are set. */
+  const handleOpenAiSettings = useCallback((): void => {
+    onComplete();
+    navigate('settings', { settingsTab: 'ai' });
+  }, [onComplete, navigate]);
+
+  /** Organizations, the tour left for it: it covered connecting. */
+  const handleConnectOrg = useCallback((): void => {
+    onComplete();
+    navigate('orgs');
   }, [onComplete, navigate]);
 
   /**
@@ -230,7 +267,7 @@ function WelcomePageView(
               subtitle, and step 0 used to repeat both word for word — the
               first screen a new user sees greeted them twice.
             */}
-            <div className="text-6xl mb-4">{'\uD83D\uDD25'}</div>
+            <BrandMark className="w-14 h-16 mx-auto mb-4" />
             <p className="mb-6 text-sm" style={{ color: 'var(--sf-text-secondary)' }}>
               {t('onboarding.welcomeTagline')}
             </p>
@@ -283,7 +320,7 @@ function WelcomePageView(
         {/* Step 1: Connect Org */}
         {step === 1 && (
           <div data-testid="welcome-step-1" className="text-center">
-            <div className="text-5xl mb-4">{'\u26A1'}</div>
+            <Plug className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
               {t('onboarding.step1Title')}
             </h2>
@@ -291,14 +328,7 @@ function WelcomePageView(
               {t('onboarding.step1Desc')}
             </p>
             <div className="flex gap-3 justify-center">
-              <Button
-                variant="primary"
-                onClick={() => {
-                  // The tour is left for the org manager, which it covered.
-                  onComplete();
-                  navigate('orgs');
-                }}
-              >
+              <Button variant="primary" onClick={handleConnectOrg}>
                 {t('onboarding.connectOrg')}
               </Button>
             </div>
@@ -324,7 +354,7 @@ function WelcomePageView(
               {USE_CASE_PATHS.map((path) => (
                 <Card key={path.id} data-testid={`path-card-${path.id}`}>
                   <CardBody className="text-center p-4 flex flex-col items-center gap-2">
-                    <div className="text-3xl">{path.icon}</div>
+                    {path.icon}
                     <h3
                       className="text-sm font-semibold"
                       style={{ color: 'var(--sf-text-primary)' }}
@@ -355,7 +385,7 @@ function WelcomePageView(
         {/* Step 3: Configure AI (Optional) */}
         {step === 3 && (
           <div data-testid="welcome-step-3" className="text-center">
-            <div className="text-5xl mb-4">{'\uD83E\uDD16'}</div>
+            <Bot className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
               {t('onboarding.step3Title')}
             </h2>
@@ -365,49 +395,74 @@ function WelcomePageView(
             <p className="text-xs mb-6" style={{ color: 'var(--sf-text-secondary)' }}>
               {t('onboarding.aiOptional')}
             </p>
+            {/* The step was text alone: the way to the key was to finish the
+                tour and find Settings. */}
+            <div className="flex gap-3 justify-center">
+              <Button
+                variant="secondary"
+                onClick={handleOpenAiSettings}
+                data-testid="welcome-open-ai-settings-btn"
+              >
+                {t('onboarding.openAiSettings')}
+              </Button>
+            </div>
           </div>
         )}
 
-        {/* Step 4: First Steps (suggestion based on org type) */}
+        {/* Step 4: First steps, for the orgs connected */}
         {step === 4 && (
           <div data-testid="welcome-step-4" className="text-center">
-            <div className="text-5xl mb-4">{'\uD83D\uDE80'}</div>
+            <ListChecks className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-link)' }}>
               {t('onboarding.step4Title')}
             </h2>
-            <p className="mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
-              {t('onboarding.step4Desc')}
+            <p
+              className="text-sm mb-6"
+              style={{ color: 'var(--sf-text-primary)' }}
+              data-testid="welcome-suggestion"
+            >
+              {start === 'connect'
+                ? t('onboarding.connectFirst')
+                : start === 'monitor'
+                  ? t('onboarding.suggestMonitor')
+                  : t('onboarding.suggestSeedFor', {
+                      alias: fillTarget?.alias || fillTarget?.username,
+                    })}
             </p>
-            <p className="text-sm mb-6" style={{ color: 'var(--sf-text-primary)' }}>
-              {orgType === 'production'
-                ? t('onboarding.suggestMonitor')
-                : t('onboarding.suggestSeedAndSync')}
-            </p>
-            <div className="flex gap-3 justify-center mb-4">
-              {orgType === 'production' ? (
+            <div className="flex flex-wrap gap-3 justify-center mb-4">
+              {start === 'connect' && (
+                <Button
+                  variant="primary"
+                  onClick={handleConnectOrg}
+                  data-testid="welcome-connect-org-btn"
+                >
+                  {t('onboarding.connectOrg')}
+                </Button>
+              )}
+              {start === 'monitor' && (
                 <Button variant="primary" onClick={handleFinish}>
                   {t('home.openMonitor')}
                 </Button>
-              ) : (
+              )}
+              {start === 'fill' && (
                 <>
                   <Button variant="primary" onClick={openSeed} data-testid="welcome-open-seed-btn">
                     {t('home.openSeed')}
                   </Button>
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      onComplete();
-                      navigate('sync');
-                    }}
-                    data-testid="welcome-open-sync-btn"
+                    onClick={() => handleOpenPath('forge')}
+                    data-testid="welcome-start-forge-btn"
                   >
-                    {t('home.openSync')}
+                    {t('home.openForge')}
                   </Button>
                 </>
               )}
-              <Button variant="secondary" onClick={handleOpenSettings}>
-                {t('home.openSettings')}
-              </Button>
+              {start !== 'connect' && (
+                <Button variant="secondary" onClick={handleOpenSettings}>
+                  {t('home.openSettings')}
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -420,14 +475,22 @@ function WelcomePageView(
             {t('common.back')}
           </Button>
         )}
-        {step < TOTAL_STEPS - 1 && (
+        {!lastStep && (
           <Button variant="primary" size="sm" onClick={handleNext}>
             {t('common.next')}
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={handleSkip} data-testid="skip-button">
-          {t('onboarding.skipOnboarding')}
-        </Button>
+        {/* The last step's way out read Skip, as if the tour had been left
+            unfinished. */}
+        {lastStep ? (
+          <Button variant="ghost" size="sm" onClick={handleSkip} data-testid="done-button">
+            {t('onboarding.done')}
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={handleSkip} data-testid="skip-button">
+            {t('onboarding.skipOnboarding')}
+          </Button>
+        )}
       </div>
 
       {/* Step indicators */}

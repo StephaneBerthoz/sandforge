@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import i18n from '../../i18n';
 import { SettingsPage, defaultSettings } from './SettingsPage';
+import { useAppStore } from '../../stores/useAppStore';
 import en from '../../i18n/locales/en.json';
 import { dispatchLocaleResponse, stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
 
@@ -141,6 +142,20 @@ describe('SettingsPage', () => {
   it('should show language select', () => {
     render(<SettingsPage />);
     expect(screen.getByTestId('language-select')).toBeDefined();
+  });
+
+  it("opens on the AI tab when the tour's Open AI settings asks for it, once", () => {
+    // The tour's button landed on General, a click away from the key.
+    useAppStore.getState().navigate('settings', { settingsTab: 'ai' });
+    const { unmount } = render(<SettingsPage />);
+    expect(screen.getByTestId('ai-settings')).toBeDefined();
+    expect(screen.queryByTestId('general-settings')).toBeNull();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+    unmount();
+
+    // Read once: a later visit opens on General.
+    render(<SettingsPage />);
+    expect(screen.getByTestId('general-settings')).toBeDefined();
   });
 
   it('should switch to advanced tab', () => {

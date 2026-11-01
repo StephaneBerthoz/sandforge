@@ -30,6 +30,14 @@ export class OnboardingService {
     return lastVersion !== undefined && lastVersion !== currentVersion;
   }
 
+  /**
+   * The version recorded as last seen, before this one is: What's New lists
+   * every release after it. Undefined on a first launch.
+   */
+  lastSeenVersion(): string | undefined {
+    return this.globalStateGet(OnboardingService.VERSION_KEY);
+  }
+
   /** Returns true if this is the very first activation (no version stored). */
   isFirstLaunch(): boolean {
     return this.globalStateGet(OnboardingService.VERSION_KEY) === undefined;

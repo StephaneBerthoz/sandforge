@@ -9,3 +9,5 @@ Una Developer Edition recién creada, un playground de Trailhead o un sandbox nu
 [Abrir Seed](command:sandforge.openSeed)
 
 > Seed solo escribe cuando hace clic en **Iniciar Seed**, y vuelve a preguntar antes de escribir en una org de producción.
+
+> Antes de una ejecución arriesgada en un sandbox, cree un punto de control (**Puntos de control** → **Crear un punto de control**): **Retroceder…** devuelve los datos de la org a ese punto.

@@ -93,6 +93,8 @@ export interface NavigationIntent {
    * Simulate, run, results and removal then apply to it.
    */
   syncConfig?: { id: string; name: string };
+  /** The Settings tab to open on: the tour's "Open AI settings" asks for the AI tab. */
+  settingsTab?: 'ai';
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */
@@ -106,6 +108,12 @@ export interface AppState {
   showWelcome: boolean;
   showWhatsNew: boolean;
   whatsNewVersion: string;
+  /**
+   * The version last opened before `whatsNewVersion`, when the extension
+   * knows it: What's New lists every release after it, not the current one
+   * alone, so an upgrade that skipped 1.69 still shows it.
+   */
+  whatsNewSince: string;
   aiAvailable: boolean;
   /** Whether VS Code shows this panel; a hidden one keeps running. */
   panelVisible: boolean;
@@ -122,7 +130,7 @@ export interface AppState {
   setLoading: (loading: boolean) => void;
   setExtensionReady: (ready: boolean) => void;
   setShowWelcome: (show: boolean) => void;
-  setShowWhatsNew: (show: boolean, version?: string) => void;
+  setShowWhatsNew: (show: boolean, version?: string, since?: string) => void;
   setAiAvailable: (available: boolean) => void;
   setPanelVisible: (visible: boolean) => void;
   setGrappeEnabled: (enabled: boolean) => void;
@@ -138,6 +146,7 @@ export const useAppStore = create<AppState>((set) => ({
   showWelcome: false,
   showWhatsNew: false,
   whatsNewVersion: '',
+  whatsNewSince: '',
   aiAvailable: false,
   panelVisible: true,
   grappeEnabled: false,
@@ -170,8 +179,8 @@ export const useAppStore = create<AppState>((set) => ({
     set({ showWelcome: show });
   },
 
-  setShowWhatsNew(show: boolean, version?: string): void {
-    set({ showWhatsNew: show, whatsNewVersion: version ?? '' });
+  setShowWhatsNew(show: boolean, version?: string, since?: string): void {
+    set({ showWhatsNew: show, whatsNewVersion: version ?? '', whatsNewSince: since ?? '' });
   },
 
   setAiAvailable(available: boolean): void {

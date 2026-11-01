@@ -7153,6 +7153,35 @@ for (const theme of SCANNED_THEMES) {
       }
       await dialog.getByTestId('welcome-step-4').waitFor({ state: 'visible', timeout: 5000 });
       await expect(dialog.getByTestId('dont-show-again')).toHaveCount(0);
+      // No org connected: the step asks for one, and its way out is Done.
+      await expect(dialog.getByTestId('welcome-connect-org-btn')).toBeVisible();
+      await expect(dialog.getByTestId('done-button')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Welcome overlay, its AI step and its last step for a connected org', async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme, orgs: true });
+      await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
+
+      const dialog = page.getByRole('dialog', { name: 'Welcome wizard' });
+      await dialog.getByTestId('welcome-page').waitFor({ state: 'visible', timeout: 5000 });
+      // Seed leads the three ways, its icons drawn as the side panel's.
+      await dialog.getByRole('button', { name: 'Next' }).click();
+      await dialog.getByRole('button', { name: 'Next' }).click();
+      await expect(dialog.locator('[data-testid^="path-card-"]').first()).toHaveAttribute(
+        'data-testid',
+        'path-card-seed',
+      );
+      expectNoViolations(await checkAccessibility(page));
+
+      await dialog.getByRole('button', { name: 'Next' }).click();
+      await expect(dialog.getByTestId('welcome-open-ai-settings-btn')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      await dialog.getByRole('button', { name: 'Next' }).click();
+      await expect(dialog.getByTestId('welcome-open-seed-btn')).toBeVisible();
+      await expect(dialog.getByTestId('welcome-start-forge-btn')).toBeVisible();
+      await expect(dialog.getByTestId('welcome-suggestion')).toContainText('CRM Starter');
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -7169,6 +7198,42 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test("What's New after an upgrade that skipped releases, with the changelog link", async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await bridge.stream([
+        { type: 'whats-new:show', payload: { version: '1.70.0', since: '1.67.0' } },
+      ]);
+
+      const dialog = page.getByRole('dialog', { name: "What's new" });
+      await dialog.getByTestId('whats-new-page').waitFor({ state: 'visible', timeout: 5000 });
+      // 1.68 and 1.69 were skipped: the panel showed 1.70 alone.
+      for (const version of ['1.70.0', '1.69.0', '1.68.0']) {
+        await expect(dialog.getByRole('heading', { name: version })).toBeVisible();
+      }
+      await expect(dialog.getByTestId('release-1.67.0')).toHaveCount(0);
+      await expect(dialog.getByTestId('changelog-link')).toHaveAttribute(
+        'href',
+        'https://marketplace.visualstudio.com/items/StephaneBerthoz.sandforge/changelog',
+      );
+
+      // Three releases run past the window: each end is read in view, where axe
+      // can measure what it draws on.
+      await dialog.getByTestId('whats-new-since').scrollIntoViewIfNeeded();
+      const top = await checkAccessibility(page);
+      expectNoViolations(top);
+      expect(
+        await contrastMeasuredIn(page, top, '[data-testid="whats-new-since"]'),
+      ).toBeGreaterThan(0);
+      await dialog.getByTestId('changelog-link').scrollIntoViewIfNeeded();
+      const bottom = await checkAccessibility(page);
+      expectNoViolations(bottom);
+      expect(
+        await contrastMeasuredIn(page, bottom, '[data-testid="changelog-link"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Automation generate dialog open', async ({ page }) => {

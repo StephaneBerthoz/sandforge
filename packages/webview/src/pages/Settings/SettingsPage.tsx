@@ -1,5 +1,6 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAppStore } from '../../stores/useAppStore';
 import { Tabs } from '../../components/ui/Tabs';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Select } from '../../components/ui/Select';
@@ -63,7 +64,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onClearCache,
 }) => {
   const { t, i18n } = useTranslation();
-  const [activeTab, setActiveTab] = useState('general');
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  // The tour's "Open AI settings" opened General, a click away from the key.
+  const [askedTab] = useState(() =>
+    navigationIntent?.route === 'settings' ? navigationIntent.settingsTab : undefined,
+  );
+  const [activeTab, setActiveTab] = useState<string>(askedTab ?? 'general');
+  useEffect(() => {
+    if (askedTab) clearNavigationIntent();
+  }, [askedTab, clearNavigationIntent]);
   /** Why the last language change did not apply, until the next change. */
   const [languageError, setLanguageError] = useState<string | null>(null);
   /**

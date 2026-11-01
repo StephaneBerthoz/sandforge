@@ -1,10 +1,12 @@
 ## Optimieren Sie Ihre Einstellungen
 
-Passen Sie SandForge an Ihren Arbeitsablauf an:
+SandForge hält seine Einstellungen an zwei Orten:
 
-- Standard-Batchgrößen für Seed- und Sync-Vorgänge.
-- Bestätigungspflicht für Produktions-Orgs, standardmäßig aktiv, und die Aufzeichnung ihrer Entscheidungen -- mit jedem Lauf im Audit-Protokoll (Berichte), sofern Sie sie nicht abschalten.
-- Optionaler KI-Assistent, betrieben von Anthropic (Claude).
-- Wie Forge einen großen Graphen zeigt: bis 25 Objekte gezeichnet und darüber in einer Tabelle gelistet, oder immer auf eine Art (`sandforge.forge.graphView`).
+- **Einstellungen öffnen** öffnet die Seite von SandForge: die Sprache seiner Panels und den optionalen KI-Assistenten, betrieben von Anthropic (Claude).
+- **SandForge-Einstellungen in VS Code öffnen** öffnet die Einstellungen des Editors, auf SandForge gefiltert: die Standard-Batchgrößen für Seed und Sync, die Aufzeichnung der Entscheidungen von Production Guard, mit jedem Lauf im Audit-Protokoll (Berichte, `sandforge.safety.auditLogging`), und wie Forge einen großen Graphen zeigt — bis 25 Objekte gezeichnet und darüber in einer Tabelle gelistet, oder immer auf eine Art (`sandforge.forge.graphView`).
 
 [Einstellungen öffnen](command:sandforge.openSettings)
+
+[SandForge-Einstellungen in VS Code öffnen](command:workbench.action.openSettings?%5B%22%40ext%3AStephaneBerthoz.sandforge%22%5D)
+
+> Forge, Ladevorgänge von Frozen Dataset, Prüfpunkte und das Deployment von Compare verweigern eine Produktions-Org; Löschungen werden dort ebenfalls verweigert; jedes andere Schreiben dort fragt zuerst, und keine Einstellung schaltet das ab. Eine Sandbox mit echten Daten (Vollkopie, Abnahmetest): Öffnen Sie auf der Seite Organisationen ihren Dialog **Bearbeiten** und setzen Sie den Haken bei **Staging**; Production Guard fragt dann vor jedem Löschen, jedem Deployment und jedem Schreiben von mehr als 10.000 Datensätzen.

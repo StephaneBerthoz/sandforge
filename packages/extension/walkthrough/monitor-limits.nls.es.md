@@ -1,8 +1,8 @@
 ## Supervise los límites de la org
 
-Visibilidad en tiempo real antes de chocar contra un muro:
+Lo que le queda a una org, antes de chocar contra un muro:
 
 - Límites de API, jobs activos y almacenamiento, con una puntuación de salud por org.
-- Las alertas de umbral le avisan antes de que un límite se convierta en un fallo.
+- Se leen al abrir Monitor o pulsar **Actualizar**; la **Actualización automática** vuelve a leer cada 30 s mientras la página está abierta, y cada lectura comprueba los umbrales de alerta. Con Monitor cerrado, no se vigila nada.
 
 [Abrir Monitor](command:sandforge.openMonitor)

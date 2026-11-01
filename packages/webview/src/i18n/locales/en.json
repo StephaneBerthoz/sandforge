@@ -2930,22 +2930,20 @@
     "welcomeTitle": "Welcome to SandForge",
     "welcomeSubtitle": "Forge your Salesforce sandboxes with confidence",
     "welcomeTagline": "Your all-in-one sandbox management toolkit",
-    "step1Title": "Connect Your Org",
-    "step1Desc": "Link your Salesforce organizations to get started",
+    "step1Title": "Connect your org",
+    "step1Desc": "Connect an org: import it from the Salesforce CLI or log in with your browser",
     "step2Title": "Three ways to populate your sandbox",
-    "step2Desc": "Start from a real record, generate synthetic data, or replay a frozen dataset after a refresh",
-    "step3Title": "Configure AI (Optional)",
+    "step2Desc": "Generate synthetic data, start from a real record, or replay a frozen dataset after a refresh",
+    "step3Title": "Configure AI (optional)",
     "step3Desc": "Enhance SandForge with AI-powered insights and data generation",
     "skipOnboarding": "Skip",
-    "connectOrg": "Connect an Org",
+    "connectOrg": "Connect an org",
     "aiOptional": "AI features are optional. You can configure them later in Settings.",
     "chooseLanguage": "Choose your language",
-    "step4Title": "First Steps",
-    "step4Desc": "Based on your org type, here is a recommended starting point",
+    "step4Title": "First steps",
     "suggestMonitor": "Start with Monitor to keep an eye on your production org health",
     "gotIt": "Got it!",
     "whatsNewTitle": "What's New in SandForge",
-    "suggestSeedAndSync": "Your sandbox is ready. Populate it with Seed for test data, or Sync to copy from another org.",
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
@@ -3182,8 +3180,8 @@
       "checkpoints1660": "Checkpoints: put an org back as it was",
       "checkpoints1660Desc": "Keep a sandbox, a scratch org or a Developer Edition org as it is now, see what changed since, and rewind it: what was added is deleted, what changed gets its values back and what was deleted comes back, whoever did it. Undo the rewind for 15 days. Never a production org."
     },
-    "heroTitle": "Populate your sandbox from a real record",
-    "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
+    "heroTitle": "Fill an empty org with linked demo data (Seed's CRM Starter: no second org, no AI key)",
+    "heroDesc": "Already have an org with real data? Clone a record with Forge.",
     "paths": {
       "forgeTitle": "Clone from a record",
       "forgeDesc": "Paste a record ID, discover its relationship graph, forge it into your sandbox",
@@ -3191,7 +3189,12 @@
       "seedDesc": "Templates, AI or CSV — realistic test data without touching production",
       "frozenTitle": "Replay a frozen dataset",
       "frozenDesc": "Extract once, replay identically after every sandbox refresh"
-    }
+    },
+    "connectFirst": "Connect an org first",
+    "suggestSeedFor": "Fill {{alias}} with Seed's CRM Starter, or clone a record into it from another org with Forge.",
+    "done": "Done",
+    "openAiSettings": "Open AI settings",
+    "whatsNewSince": "Since {{version}}, the version you last opened"
   },
   "help": {
     "title": "Help & Resources",

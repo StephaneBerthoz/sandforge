@@ -9,3 +9,5 @@ A new Developer Edition, a Trailhead playground or a fresh sandbox holds a few s
 [Open Seed](command:sandforge.openSeed)
 
 > Seed writes only once you click **Start seeding**, and asks again before writing to a production org.
+
+> Before a risky run on a sandbox, take a checkpoint (**Checkpoints** → **Take a checkpoint**): **Rewind…** returns the org's data to it.
