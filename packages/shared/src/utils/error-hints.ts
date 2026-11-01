@@ -422,6 +422,14 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     own: true,
     keys: ['errors.parentRefused.explanation', 'errors.parentRefused.action'],
   },
+  // A record Autopilot held back because a record it names is of an object
+  // the run was to write and did not. Why — skipped, or a write that failed —
+  // is in its message variants, which say what to do about each.
+  PARENT_NOT_WRITTEN: {
+    severity: 'warning',
+    own: true,
+    keys: ['errors.parentNotWritten.explanation', 'errors.parentNotWritten.action'],
+  },
   PERSON_ACCOUNT_NOT_WRITTEN: {
     severity: 'warning',
     own: true,
@@ -547,6 +555,32 @@ const VARIANTS: ReadonlyArray<{
         'errors.recordTypeUnavailable.forge.explanation',
         'errors.recordTypeUnavailable.forge.action',
       ],
+    },
+  },
+  // Autopilot's own: a record held back under a parent's object the user
+  // skipped, or whose write failed. Its message says which, in English; the
+  // hint says it in the panel's language, with what to do about that one.
+  {
+    code: 'PARENT_NOT_WRITTEN',
+    match: /was skipped in this run/,
+    says: 'PARENT_NOT_WRITTEN',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: [
+        'errors.parentNotWritten.skipped.explanation',
+        'errors.parentNotWritten.skipped.action',
+      ],
+    },
+  },
+  {
+    code: 'PARENT_NOT_WRITTEN',
+    match: /write of \S+ failed/,
+    says: 'PARENT_NOT_WRITTEN',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: ['errors.parentNotWritten.failed.explanation', 'errors.parentNotWritten.failed.action'],
     },
   },
   // An object that takes no insert answers "entity type cannot be inserted":

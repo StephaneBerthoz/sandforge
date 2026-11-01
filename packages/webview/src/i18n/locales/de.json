@@ -5629,6 +5629,18 @@
       "explanation": "Ein Datensatz, auf den dieser verweist, wurde im selben Lauf abgelehnt, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
       "action": "Beheben Sie, was diesen Datensatz abgelehnt hat — der Grund steht bei seinem Objekt —, und starten Sie dann erneut."
     },
+    "parentNotWritten": {
+      "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, das dieser Lauf schreiben sollte und nicht geschrieben hat, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
+      "action": "Schreiben Sie zuerst dieses Objekt — sein Knoten nennt den Grund, warum es nicht geschrieben wurde —, und starten Sie dann erneut.",
+      "skipped": {
+        "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, das in diesem Lauf übersprungen wurde, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
+        "action": "Starten Sie erneut, ohne dieses Objekt zu überspringen. Um es auszulassen, überspringen Sie auch die Objekte, die auf es verweisen."
+      },
+      "failed": {
+        "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, dessen Schreiben in diesem Lauf fehlgeschlagen ist, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
+        "action": "Beheben Sie, was das Schreiben dieses Objekts fehlschlagen ließ — sein Knoten nennt den Grund —, und starten Sie dann erneut."
+      }
+    },
     "personAccountNotWritten": {
       "explanation": "Das Personenkonto dieses Kontakts ist nicht in der Ziel-Org, und Salesforce schreibt den Kontakt eines Personenkontos mit seinem Konto.",
       "action": "Nehmen Sie die Personenkonten in den Lauf auf, oder beheben Sie, was sie abgelehnt hat, und starten Sie dann erneut."

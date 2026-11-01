@@ -5629,6 +5629,18 @@
       "explanation": "A record this one points to was refused in the same run, so this one was held back rather than written without it.",
       "action": "Fix what refused that record — its reason is listed with its object — then run again."
     },
+    "parentNotWritten": {
+      "explanation": "A record this one points to belongs to an object this run was to write and did not, so this one was held back rather than written without it.",
+      "action": "Write that object first — its node says why it was not written — then run again.",
+      "skipped": {
+        "explanation": "A record this one points to belongs to an object skipped in this run, so this one was held back rather than written without it.",
+        "action": "Run again without skipping that object. To leave it out, skip the objects that point to it as well."
+      },
+      "failed": {
+        "explanation": "A record this one points to belongs to an object whose write failed in this run, so this one was held back rather than written without it.",
+        "action": "Fix what made that object's write fail — its node says why — then run again."
+      }
+    },
     "personAccountNotWritten": {
       "explanation": "This contact's person account is not in the target org, and Salesforce writes a person account's contact with its account.",
       "action": "Include the person accounts in the run, or fix what refused them, then run again."

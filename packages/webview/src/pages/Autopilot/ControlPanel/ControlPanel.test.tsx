@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
-import '../../../i18n';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import i18n from '../../../i18n';
 import en from '../../../i18n/locales/en.json';
+import fr from '../../../i18n/locales/fr.json';
 import { ControlPanel } from './ControlPanel';
 
 /** Captured bridge messages sent by the control panel. */
@@ -498,6 +499,73 @@ describe('ControlPanel node detail — what the node came to', () => {
       "2 prices in GBP, replaced by the source org's own price in USD for the same product and " +
         'price book, and linked to its copy',
     );
+  });
+
+  describe('a record held back under a parent the run did not write', () => {
+    /** The node of the lines a run held back, as the handler settles it. */
+    const heldLines = () =>
+      settledOrder({
+        objectApiName: 'OpportunityLineItem',
+        refusals: [
+          {
+            statusCode: 'PARENT_NOT_WRITTEN',
+            fields: ['OpportunityId'],
+            count: 2,
+            message:
+              'the Opportunity record its OpportunityId names was not written: Opportunity was ' +
+              'skipped in this run, and written without it this record would stand without its ' +
+              'Opportunity.',
+          },
+          {
+            statusCode: 'PARENT_NOT_WRITTEN',
+            fields: ['Product2Id'],
+            count: 1,
+            message:
+              "the Product2 record its Product2Id names was not written: the run's write of " +
+              'Product2 failed, and written without it this record would stand without its Product2.',
+          },
+        ],
+        statusRefusals: undefined,
+      });
+
+    it('says on its line why the parent was not written, and what to do about each', () => {
+      mockStoreState.selectedNode = heldLines;
+      render(<ControlPanel />);
+      fireEvent.click(screen.getByTestId('control-tab-node'));
+
+      const lines = within(screen.getByTestId('node-refusals')).getAllByRole('listitem');
+      expect(lines.map((line) => line.textContent)).toEqual([
+        expect.stringContaining('Opportunity was skipped in this run'),
+        expect.stringContaining("the run's write of Product2 failed"),
+      ]);
+      const [skipped, failed] = lines.map((line) => within(line).getByTestId('error-hint'));
+      expect(skipped.textContent).toContain(en.errors.parentNotWritten.skipped.explanation);
+      expect(skipped.textContent).toContain(en.errors.parentNotWritten.skipped.action);
+      expect(failed.textContent).toContain(en.errors.parentNotWritten.failed.explanation);
+      expect(failed.textContent).toContain(en.errors.parentNotWritten.failed.action);
+      // Its own code: no search of Salesforce Help for it.
+      expect(within(skipped).queryByRole('link')).toBeNull();
+    });
+
+    it('says it in the panel’s language', async () => {
+      mockStoreState.selectedNode = heldLines;
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      try {
+        render(<ControlPanel />);
+        fireEvent.click(screen.getByTestId('control-tab-node'));
+
+        const hints = within(screen.getByTestId('node-refusals')).getAllByTestId('error-hint');
+        expect(hints[0].textContent).toContain(fr.errors.parentNotWritten.skipped.explanation);
+        expect(hints[1].textContent).toContain(fr.errors.parentNotWritten.failed.action);
+      } finally {
+        await act(async () => {
+          await i18n.changeLanguage('en');
+        });
+      }
+    });
   });
 
   it('shows none of it for a node that wrote everything', () => {

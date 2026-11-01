@@ -5629,6 +5629,18 @@
       "explanation": "Um registro para o qual este aponta foi recusado na mesma execução, então este foi retido em vez de ser gravado sem ele.",
       "action": "Corrija o que recusou esse registro — o motivo aparece junto com o objeto dele — e execute de novo."
     },
+    "parentNotWritten": {
+      "explanation": "Um registro para o qual este aponta pertence a um objeto que esta execução devia gravar e não gravou, então este foi retido em vez de ser gravado sem ele.",
+      "action": "Grave esse objeto primeiro — o nó dele diz por que não foi gravado — e execute de novo.",
+      "skipped": {
+        "explanation": "Um registro para o qual este aponta pertence a um objeto ignorado nesta execução, então este foi retido em vez de ser gravado sem ele.",
+        "action": "Execute de novo sem ignorar esse objeto. Para deixá-lo de fora, ignore também os objetos que apontam para ele."
+      },
+      "failed": {
+        "explanation": "Um registro para o qual este aponta pertence a um objeto cuja gravação falhou nesta execução, então este foi retido em vez de ser gravado sem ele.",
+        "action": "Corrija o que fez a gravação desse objeto falhar — o nó dele diz por quê — e execute de novo."
+      }
+    },
     "personAccountNotWritten": {
       "explanation": "A conta pessoal deste contato não está na org de destino, e o Salesforce grava o contato de uma conta pessoal junto com a conta.",
       "action": "Inclua as contas pessoais na execução, ou corrija o que as recusou, e execute de novo."

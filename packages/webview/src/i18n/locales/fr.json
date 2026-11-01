@@ -5629,6 +5629,18 @@
       "explanation": "Un enregistrement vers lequel celui-ci pointe a été refusé dans la même exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
       "action": "Corrigez ce qui a refusé cet enregistrement — sa raison figure avec son objet — puis relancez."
     },
+    "parentNotWritten": {
+      "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet que cette exécution devait écrire et n'a pas écrit : celui-ci a été retenu plutôt qu'écrit sans lui.",
+      "action": "Écrivez d'abord cet objet — son nœud dit pourquoi il ne l'a pas été — puis relancez.",
+      "skipped": {
+        "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet ignoré dans cette exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
+        "action": "Relancez sans ignorer cet objet. Pour le laisser de côté, ignorez aussi les objets qui pointent vers lui."
+      },
+      "failed": {
+        "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet dont l'écriture a échoué dans cette exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
+        "action": "Corrigez ce qui a fait échouer l'écriture de cet objet — son nœud dit pourquoi — puis relancez."
+      }
+    },
     "personAccountNotWritten": {
       "explanation": "Le compte personnel de ce contact n'est pas dans l'org cible, et Salesforce écrit le contact d'un compte personnel avec son compte.",
       "action": "Incluez les comptes personnels dans l'exécution, ou corrigez ce qui les a refusés, puis relancez."

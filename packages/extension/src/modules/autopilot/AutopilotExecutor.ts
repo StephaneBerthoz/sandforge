@@ -523,6 +523,22 @@ const NO_REASON_DETAIL: SaveErrorDetail = {
 export const PARENT_REFUSED = 'PARENT_REFUSED';
 
 /**
+ * The code of a record held back because a record it names is of an object
+ * the plan holds and the run did not write: the user skipped it, or its write
+ * failed.
+ */
+export const PARENT_NOT_WRITTEN = 'PARENT_NOT_WRITTEN';
+
+/** Why the run did not write an object of its plan: what a record naming one is held back for. */
+type NotWrittenReason = 'skipped' | 'failed';
+
+/** How the reason a parent's object was not written is said, its name given. */
+const NOT_WRITTEN_SAID: Readonly<Record<NotWrittenReason, (parent: string) => string>> = {
+  skipped: (parent) => `${parent} was skipped in this run`,
+  failed: (parent) => `the run's write of ${parent} failed`,
+};
+
+/**
  * The code of a person account's contact held back because its account is not
  * in the target: the platform writes the contact with the account.
  */
@@ -736,6 +752,14 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly refusedRecords = new Map<string, string>();
   /** The objects held back whole before their first page: none of their records is in the target. */
   private readonly heldWhole = new Set<string>();
+  /**
+   * The objects of the plan the run did not write, with why: skipped by the
+   * user, or whose write threw. Of these, only the records the run mapped are
+   * in the target, and a record naming any other one is held back.
+   */
+  private readonly notWritten = new Map<string, NotWrittenReason>();
+  /** The objects whose turn has come, written or not. */
+  private readonly reached = new Set<string>();
   /** The target's person account record types, read once a run when a person account is written. */
   private personTypes: Promise<ReadonlySet<string> | undefined> | undefined;
   /** The contacts of person accounts linked to the one the platform wrote with each account. */
@@ -990,8 +1014,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         const totalRecords = recordCounts.get(objectApiName) ?? 0;
         result.skippedObjects.push(objectApiName);
         result.totalSkipped += totalRecords;
+        this.notWritten.set(objectApiName, 'skipped');
         return;
       }
+      this.reached.add(objectApiName);
 
       const totalRecords = recordCounts.get(objectApiName) ?? 0;
       if (await this.checkPause()) {
@@ -1080,6 +1106,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
       } catch (err) {
         result.failedObjects.push(objectApiName);
+        // What it wrote before the throw is mapped; a record naming any other
+        // of its records is held back.
+        this.notWritten.set(objectApiName, 'failed');
         const errorMsg = extractErrorMessage(err);
         nodeErrors[objectApiName] = errorMsg;
         this.emit(
@@ -1636,8 +1665,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       rows = batch.filter((record) => record['Id'] !== standardBook.source);
       state.linked += batch.length - rows.length;
     }
-    // A record naming one the run could not write stays out with it.
-    rows = this.holdBehindRefusedParents(objectApiName, rows, edges, state);
+    // A record naming one the run could not write, or did not, stays out with it.
+    rows = await this.holdBehindRefusedParents(objectApiName, rows, edges, state);
     // An email on a case names its task, which the task node still to come
     // would leave without an id in the target: it waits for it. The others go
     // now, and the platform writes their tasks as it takes them.
@@ -2269,30 +2298,45 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
   /**
    * The records of a page that may go: a record whose lookup names one the
-   * run set out to write and could not — refused by the target, held back by
-   * the run, or of an object held back whole — is held back with it, counted
-   * among the refused under `PARENT_REFUSED`, and the records naming it in
-   * turn, as Forge, Sync and Frozen Dataset hold them.
+   * run set out to write and did not is held back with it, and the records
+   * naming it in turn, as Forge, Sync and Frozen Dataset hold them. Counted
+   * among the refused, under `PARENT_REFUSED` when the target refused that
+   * record, the run held it back, or its object was held back whole; under
+   * `PARENT_NOT_WRITTEN` when its object is one the plan holds and the run
+   * did not write — the user skipped it, or its write threw — and of which
+   * the run mapped no such record.
    *
    * Written, such a record stands without its parent. Run into an org with
    * person accounts, the twenty accounts of a run were refused and the
    * sixteen opportunities under them went in all the same, each without the
-   * account it belonged to. A lookup the platform fills itself — an email's
-   * task — is no parent of the copy's; a lookup of a record already in the
-   * target is settled, whatever else the run refused.
+   * account it belonged to. Under a parent the user skipped, or one whose
+   * write threw, the remapper emptied the lookup and the record went: the
+   * target took an opportunity with no account and said nothing, and refused
+   * a line with no opportunity, REQUIRED_FIELD_MISSING, which named the line
+   * and not the skip. A lookup the platform fills itself — an email's task —
+   * is no parent of the copy's; a lookup of a record already in the target is
+   * settled, whatever else the run refused or did not write. A lookup at an
+   * object the plan does not hold is no concern of this: the run never meant
+   * to write its record.
    */
-  private holdBehindRefusedParents(
+  private async holdBehindRefusedParents(
     objectApiName: string,
     rows: Record<string, unknown>[],
     edges: readonly AutopilotEdge[],
     state: ObjectState,
-  ): Record<string, unknown>[] {
-    if (this.refusedRecords.size === 0 && this.heldWhole.size === 0) return rows;
+  ): Promise<Record<string, unknown>[]> {
+    if (
+      this.refusedRecords.size === 0 &&
+      this.heldWhole.size === 0 &&
+      this.notWritten.size === 0 &&
+      this.skippedObjects.size === 0
+    ) {
+      return rows;
+    }
     const lookups = edges.filter((edge) => edge.to === objectApiName);
     if (lookups.length === 0) return rows;
-    // A polymorphic lookup has an edge per object it may point at, and its
-    // value is of one of them: an object held back whole stands for every
-    // record of a lookup that points at nothing else.
+    // A polymorphic lookup has an edge per object of the plan it may point
+    // at, and its value is of one of them.
     const parentsOf = new Map<string, number>();
     for (const edge of lookups) {
       parentsOf.set(edge.fieldApiName, (parentsOf.get(edge.fieldApiName) ?? 0) + 1);
@@ -2300,29 +2344,104 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     const kept: Record<string, unknown>[] = [];
     for (const row of rows) {
       const filled = lookupsThePlatformFills(objectApiName, row);
-      const refused = lookups.find((edge) => {
+      let held: { edge: AutopilotEdge; statusCode: string; message: string } | undefined;
+      for (const edge of lookups) {
         const value = row[edge.fieldApiName];
         if (typeof value !== 'string' || value === '' || filled.includes(edge.fieldApiName)) {
-          return false;
+          continue;
         }
-        if (this.deps.remapper.getTargetId(edge.from, value) !== undefined) return false;
-        if (this.refusedRecords.get(idKey(value)) === edge.from) return true;
-        return this.heldWhole.has(edge.from) && parentsOf.get(edge.fieldApiName) === 1;
-      });
-      if (!refused) {
+        if (this.deps.remapper.getTargetId(edge.from, value) !== undefined) continue;
+        const refusedRecord = this.refusedRecords.get(idKey(value)) === edge.from;
+        const notWritten = this.notWrittenOf(edge.from);
+        if (!refusedRecord && !this.heldWhole.has(edge.from) && notWritten === undefined) continue;
+        // Of an object whose records not written the run knows by no id, only
+        // a value that is one of its records holds the record back.
+        const field = parentsOf.get(edge.fieldApiName) ?? 0;
+        if (!refusedRecord && !(await this.namesARecordOf(objectApiName, edge, value, field))) {
+          continue;
+        }
+        const { from, fieldApiName } = edge;
+        // Refused by the target, held back by the run, or of an object held
+        // back whole: refused in this run. Otherwise not written, and why.
+        held =
+          refusedRecord || notWritten === undefined
+            ? {
+                edge,
+                statusCode: PARENT_REFUSED,
+                message:
+                  `the ${from} record its ${fieldApiName} names was refused in this run, ` +
+                  `and written without it this record would stand without its ${from}.`,
+              }
+            : {
+                edge,
+                statusCode: PARENT_NOT_WRITTEN,
+                message:
+                  `the ${from} record its ${fieldApiName} names was not written: ` +
+                  `${NOT_WRITTEN_SAID[notWritten](from)}, and written without it this ` +
+                  `record would stand without its ${from}.`,
+              };
+        break;
+      }
+      if (!held) {
         kept.push(row);
         continue;
       }
-      const message =
-        `the ${refused.from} record its ${refused.fieldApiName} names was refused in this run, ` +
-        `and written without it this record would stand without its ${refused.from}.`;
+      const { statusCode, message, edge } = held;
       state.failed++;
-      state.errors.push(`${PARENT_REFUSED}: ${message}`);
-      state.refusals.add([{ statusCode: PARENT_REFUSED, message, fields: [refused.fieldApiName] }]);
+      state.errors.push(`${statusCode}: ${message}`);
+      state.refusals.add([{ statusCode, message, fields: [edge.fieldApiName] }]);
       const id = row['Id'];
       if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), objectApiName);
     }
     return kept;
+  }
+
+  /**
+   * Why the run did not write an object of its plan — the user skipped it,
+   * or its write threw — or nothing when it wrote it, or has it still to
+   * write. An object the user skipped before its turn is said skipped from
+   * the start: in a cycle, a record written before it would go without it.
+   */
+  private notWrittenOf(objectApiName: string): NotWrittenReason | undefined {
+    if (!this.planned.has(objectApiName)) return undefined;
+    const known = this.notWritten.get(objectApiName);
+    if (known) return known;
+    return this.skippedObjects.has(objectApiName) && !this.reached.has(objectApiName)
+      ? 'skipped'
+      : undefined;
+  }
+
+  /**
+   * Whether the id a lookup holds is a record of the edge's parent, for a
+   * parent whose records the run did not write are known to it by no id — an
+   * object held back whole, skipped, or whose write threw.
+   *
+   * The plan has an edge for each object of its own a lookup may point at,
+   * and none for the others: a task's `WhatId` has one edge, at the accounts,
+   * when the plan holds no opportunity, and a task read with an opportunity
+   * there is no record of the accounts. A lookup the target's describe says
+   * points at the parent alone holds one of its records; one that may point at
+   * several holds one when the id starts with the parent's key prefix in the
+   * target, which a standard object shares with every org; and with nothing
+   * to say, a lookup with a single edge is taken for its parent's.
+   *
+   * @param edges - How many edges the plan has for the lookup.
+   */
+  private async namesARecordOf(
+    objectApiName: string,
+    edge: AutopilotEdge,
+    value: string,
+    edges: number,
+  ): Promise<boolean> {
+    const described = (await this.lookupsOf(objectApiName))?.find(
+      (lookup) => lookup.name === edge.fieldApiName,
+    );
+    if (described?.referenceTo.length === 1) return described.referenceTo[0] === edge.from;
+    if (described && described.referenceTo.length > 1) {
+      const prefix = await this.keyPrefixOf(edge.from);
+      return typeof prefix === 'string' && prefix !== '' && value.startsWith(prefix);
+    }
+    return edges === 1;
   }
 
   /**

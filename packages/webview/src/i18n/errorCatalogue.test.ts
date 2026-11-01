@@ -59,6 +59,8 @@ const MESSAGE_SAMPLES: readonly string[] = [
   'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
   'Object is not createable on target org',
   'Object is not updateable on target org: the user the run writes as may not edit Case records there.',
+  'PARENT_NOT_WRITTEN: the Account record its AccountId names was not written: Account was skipped in this run, and written without it this record would stand without its Account.',
+  "PARENT_NOT_WRITTEN: the Opportunity record its OpportunityId names was not written: the run's write of Opportunity failed, and written without it this record would stand without its Opportunity.",
 ];
 
 /** Forge's refusals of a run, by their code. */

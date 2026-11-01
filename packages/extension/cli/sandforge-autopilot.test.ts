@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
+import type { ApiName, AutopilotEdge, ExecutionPlan } from '@sandforge/shared';
+import { AutopilotExecutor } from '../src/modules/autopilot/AutopilotExecutor.js';
+import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
+import { SmartAnonymizer } from '../src/modules/autopilot/SmartAnonymizer.js';
 import {
   apiRequestsLine,
   contactPointLines,
@@ -311,6 +315,98 @@ describe('sandforge-autopilot — the run summary', () => {
       `  ${'Account'.padEnd(28)} written 1  linked 0  refused 0`,
       `  ${'Contact'.padEnd(28)} written 1  linked 0  refused 0  not sent 1`,
       `  ${'Lead'.padEnd(28)} written 0  linked 0  refused 0  not sent 2`,
+    ]);
+  });
+
+  it('says the records a run held back under a parent whose write failed, with the object and why', async () => {
+    // Run whole: the summary prints what the executor counted, the line of
+    // the opportunity never written held back rather than refused by the
+    // target for its empty lookup.
+    const rows: Record<string, Record<string, unknown>[]> = {
+      Opportunity: [
+        { Id: 'oppA', Name: 'Deal A' },
+        { Id: 'oppB', Name: 'Deal B' },
+      ],
+      OpportunityLineItem: [
+        { Id: 'lineA', OpportunityId: 'oppA' },
+        { Id: 'lineB', OpportunityId: 'oppB' },
+      ],
+    };
+    const executor = new AutopilotExecutor({
+      query: async (objectApiName, afterId) => {
+        if (objectApiName === 'Opportunity' && afterId !== undefined) {
+          throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+        }
+        const list = rows[objectApiName] ?? [];
+        const start = afterId === undefined ? 0 : list.findIndex((r) => r['Id'] === afterId) + 1;
+        return list.slice(start, start + 1).map((row) => ({ ...row }));
+      },
+      insert: async (objectApiName, records) =>
+        records.map((_, i) => ({
+          id: `${objectApiName.slice(0, 3)}T${i}`,
+          success: true,
+          errors: [],
+        })),
+      anonymizer: new SmartAnonymizer(),
+      remapper: new RecordIdRemapper(),
+      batchSize: 1,
+    });
+    const plan: ExecutionPlan = {
+      waves: [
+        { order: 0, objects: ['Opportunity' as ApiName], dependsOn: [] },
+        { order: 1, objects: ['OpportunityLineItem' as ApiName], dependsOn: [0] },
+      ],
+      totalRecords: 4,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 4,
+      complianceFramework: 'none',
+      anonymizationSummary: {
+        totalPiiFields: 0,
+        totalFieldsToAnonymize: 0,
+        methodBreakdown: {
+          fake: 0,
+          mask: 0,
+          hash: 0,
+          nullify: 0,
+          redact: 0,
+          shuffle: 0,
+          truncate: 0,
+          preserve_format: 0,
+          age_band: 0,
+          generalize: 0,
+          constant: 0,
+        },
+        objectsWithPii: [],
+      },
+      cycleResolutions: [],
+    };
+    const lineEdge: AutopilotEdge = {
+      from: 'Opportunity' as ApiName,
+      to: 'OpportunityLineItem' as ApiName,
+      fieldApiName: 'OpportunityId',
+      relationshipType: 'master_detail',
+      required: true,
+    };
+
+    const result = await executor.execute(
+      plan,
+      [lineEdge],
+      [],
+      new Map([
+        ['Opportunity', 2],
+        ['OpportunityLineItem', 2],
+      ]),
+      undefined,
+      new Map(),
+      { keepContactPoints: true },
+    );
+
+    expect(outcomeLines(result)).toEqual([
+      `  ${'OpportunityLineItem'.padEnd(28)} written 1  linked 0  refused 1`,
+      '      PARENT_NOT_WRITTEN [OpportunityId] x1: the Opportunity record its OpportunityId ' +
+        "names was not written: the run's write of Opportunity failed, and written without it " +
+        'this record would stand without its Opportunity.',
+      `  ${'Opportunity'.padEnd(28)} FAILED: QUERY_TIMEOUT: Your query request was running for too long.`,
     ]);
   });
 });

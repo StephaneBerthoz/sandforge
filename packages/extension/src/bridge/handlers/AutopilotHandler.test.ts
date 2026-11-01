@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import type { BaseMessage, ForgeTargetAutomation } from '@sandforge/shared';
+import type { ApiName, BaseMessage, ExecutionPlan, ForgeTargetAutomation } from '@sandforge/shared';
+import { AutopilotExecutor } from '../../modules/autopilot/AutopilotExecutor.js';
+import { RecordIdRemapper } from '../../modules/autopilot/RecordIdRemapper.js';
+import { SmartAnonymizer } from '../../modules/autopilot/SmartAnonymizer.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -926,6 +929,71 @@ describe('AutopilotHandler', () => {
         ],
       });
       expect(JSON.stringify(store.get('audit:trail'))).not.toContain('REQUIRED_FIELD_MISSING');
+    });
+
+    it('counts among the failed the records a run held back under a parent the user skipped', async () => {
+      // Run by the real executor: the contacts of the skipped accounts went in
+      // without them, and the audit counted them as created.
+      const store = recordingStore();
+      const rows: Record<string, Array<Record<string, unknown>>> = {
+        Account: [
+          { Id: 'acc1', Name: 'Acme' },
+          { Id: 'acc2', Name: 'Globex' },
+        ],
+        Contact: [
+          { Id: 'con1', LastName: 'Ada', AccountId: 'acc1' },
+          { Id: 'con2', LastName: 'Bea', AccountId: 'acc2' },
+          { Id: 'con3', LastName: 'Cy', AccountId: null },
+        ],
+      };
+      const executor = new AutopilotExecutor({
+        query: async (objectApiName, afterId) =>
+          afterId === undefined ? (rows[objectApiName] ?? []).map((row) => ({ ...row })) : [],
+        insert: async (objectApiName, records) =>
+          records.map((_, i) => ({ id: `${objectApiName}-${i}`, success: true, errors: [] })),
+        anonymizer: new SmartAnonymizer(),
+        remapper: new RecordIdRemapper(),
+      });
+      executor.skip('Account');
+
+      await run(
+        vi.fn(async (_p: unknown, _g: unknown, _r: unknown, _c: unknown, settle: Settle) => {
+          executor.on('node-completed', (event) => settle({ ...event }));
+          executor.on('node-failed', (event) => settle({ ...event }));
+          return executor.execute(
+            {
+              ...PLAN,
+              waves: [
+                { order: 0, objects: ['Account' as ApiName], dependsOn: [] },
+                { order: 1, objects: ['Contact' as ApiName], dependsOn: [0] },
+              ],
+            } as unknown as ExecutionPlan,
+            [
+              {
+                from: 'Account' as ApiName,
+                to: 'Contact' as ApiName,
+                fieldApiName: 'AccountId',
+                relationshipType: 'lookup',
+                required: false,
+              },
+            ],
+            [],
+            new Map([
+              ['Account', 2],
+              ['Contact', 3],
+            ]),
+            undefined,
+            new Map(),
+            { keepContactPoints: true },
+          );
+        }),
+      );
+
+      const [entry] = new AuditTrailStore(store).list().entries;
+      expect(entry).toMatchObject({ outcome: 'partial' });
+      expect(entry?.objects).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Contact', created: 1, failed: 2 }),
+      );
     });
 
     it('records a run that died with what the nodes settled before it wrote', async () => {

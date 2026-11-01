@@ -14,6 +14,7 @@ import {
   pageSoql,
   type AutopilotExecutionFailedEvent,
   type AutopilotExecutorDeps,
+  type ExecutionResult,
   type QueryFn,
   type InsertFn,
   type UpdateFn,
@@ -3619,6 +3620,423 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
 
     expect(sentOf(insert, 'Opportunity').map((r) => r['Name'])).toEqual(['Deal C']);
     expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 1, failed: 2 });
+  });
+});
+
+/**
+ * The target in miniature, answering an insert record by record as Salesforce
+ * answers one. A record goes in and is given an id of its own, unless a
+ * lookup it sends names an id the org does not hold — refused
+ * `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`, as an id read from another
+ * org is — or a lookup it may not go without is empty — refused
+ * `REQUIRED_FIELD_MISSING`, naming the field. A lookup it may go without, sent
+ * empty, goes in empty: nothing in the answer says the record stands without
+ * the record it pointed at in the source.
+ *
+ * Its lookups are the plan's edges: the field, and whether it is required.
+ */
+class MemoryTarget {
+  /** The records the org holds, by object, each under the id it gave it. */
+  readonly records = new Map<string, Record<string, unknown>[]>();
+  /** Every id the org gave out. */
+  private readonly ids = new Set<string>();
+  private next = 0;
+
+  constructor(private readonly edges: readonly AutopilotEdge[]) {}
+
+  /** The insert the run is given. */
+  readonly insert = vi.fn<InsertFn>(async (objectApiName, records) =>
+    records.map((record) => this.insertOne(objectApiName, record)),
+  );
+
+  /** The records of an object the org holds. */
+  of(objectApiName: string): Record<string, unknown>[] {
+    return this.records.get(objectApiName) ?? [];
+  }
+
+  /** The id the org gave the record of an object whose `field` holds `value`. */
+  idOf(objectApiName: string, field: string, value: unknown): unknown {
+    return this.of(objectApiName).find((record) => record[field] === value)?.['Id'];
+  }
+
+  private insertOne(objectApiName: string, record: Record<string, unknown>): SaveOutcome {
+    const lookups = new Map<string, boolean>();
+    for (const edge of this.edges.filter((e) => e.to === objectApiName)) {
+      lookups.set(edge.fieldApiName, (lookups.get(edge.fieldApiName) ?? false) || edge.required);
+    }
+    for (const [field, required] of lookups) {
+      const value = record[field];
+      const empty = value === null || value === undefined || value === '';
+      if (empty && required) {
+        return refused('REQUIRED_FIELD_MISSING', `Required fields are missing: [${field}]`, [
+          field,
+        ]);
+      }
+      if (!empty && !this.ids.has(String(value))) {
+        return refused(
+          'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+          'insufficient access rights on cross-reference id',
+        );
+      }
+    }
+    const id = `${objectApiName.slice(0, 3)}M${String(this.next++).padStart(4, '0')}`;
+    this.ids.add(id);
+    const kept: Record<string, unknown> = { Id: id };
+    for (const [field, value] of Object.entries(record)) {
+      if (field !== 'Id' && field !== 'attributes') kept[field] = value;
+    }
+    this.records.set(objectApiName, [...this.of(objectApiName), kept]);
+    return { id, success: true, errors: [] };
+  }
+}
+
+describe('AutopilotExecutor — a record whose parent the run was to write and did not', () => {
+  const accountEdge = makeEdge({
+    from: 'Account' as ApiName,
+    to: 'Opportunity' as ApiName,
+    fieldApiName: 'AccountId',
+  });
+  const lineEdge = makeEdge({
+    from: 'Opportunity' as ApiName,
+    to: 'OpportunityLineItem' as ApiName,
+    fieldApiName: 'OpportunityId',
+    relationshipType: 'master_detail',
+    required: true,
+  });
+  const edges = [accountEdge, lineEdge];
+  const rows = {
+    Account: [
+      { Id: 'accA', Name: 'Acme' },
+      { Id: 'accB', Name: 'Globex' },
+    ],
+    Opportunity: [
+      { Id: 'oppA', Name: 'Deal A', AccountId: 'accA' },
+      { Id: 'oppB', Name: 'Deal B', AccountId: 'accB' },
+      { Id: 'oppAlone', Name: 'Deal C', AccountId: null },
+    ],
+    OpportunityLineItem: [
+      { Id: 'lineA', Description: 'Line A', OpportunityId: 'oppA' },
+      { Id: 'lineAlone', Description: 'Line C', OpportunityId: 'oppAlone' },
+    ],
+  };
+  const plan = (): ExecutionPlan => wavesOf('Account', 'Opportunity', 'OpportunityLineItem');
+
+  /** What the run says of a record whose parent's object the user skipped. */
+  const skipped = (parent: string, field: string): string =>
+    `the ${parent} record its ${field} names was not written: ${parent} was skipped in this ` +
+    `run, and written without it this record would stand without its ${parent}.`;
+
+  /** What the run says of a record whose parent's object the run failed to write. */
+  const failed = (parent: string, field: string): string =>
+    `the ${parent} record its ${field} names was not written: the run's write of ${parent} ` +
+    `failed, and written without it this record would stand without its ${parent}.`;
+
+  /** Every reason anything of the run was refused or held back for. */
+  const codesOf = (result: ExecutionResult): string[] =>
+    Object.values(result.objectOutcomes ?? {}).flatMap((outcome) =>
+      outcome.refusals.map((refusal) => refusal.statusCode),
+    );
+
+  it('holds back the children of an object the user skipped, before their write, and says so', async () => {
+    // Sent, each went in with its account emptied by the remapper: the
+    // target took them, and nothing said they stood without their account.
+    const target = new MemoryTarget(edges);
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      }),
+    );
+    executor.skip('Account');
+
+    const result = await executor.execute(plan(), edges, [], countsOf(rows));
+
+    expect(target.of('Account')).toEqual([]);
+    expect(target.of('Opportunity').map((r) => r['Name'])).toEqual(['Deal C']);
+    expect(result.objectOutcomes?.['Opportunity']).toEqual({
+      written: 1,
+      linked: 0,
+      failed: 2,
+      refusals: [
+        {
+          statusCode: 'PARENT_NOT_WRITTEN',
+          fields: ['AccountId'],
+          count: 2,
+          message: skipped('Account', 'AccountId'),
+        },
+      ],
+    });
+    // Under a held-back deal, its line is held back in turn; the other goes.
+    expect(target.of('OpportunityLineItem').map((r) => r['Description'])).toEqual(['Line C']);
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toMatchObject({
+      written: 1,
+      failed: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED', count: 1 })],
+    });
+    expect(result.totalFailure).toBe(3);
+    expect(result.skippedObjects).toEqual(['Account']);
+  });
+
+  it('sends nothing of a record that may not go without the parent the user skipped', async () => {
+    // Sent with its required lookup emptied, every line was refused by the
+    // target: REQUIRED_FIELD_MISSING, a call spent for nothing, and a reason
+    // that sent the user looking at the line rather than the skip.
+    const target = new MemoryTarget(edges);
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      }),
+    );
+    executor.skip('Opportunity');
+    const failedNodes: AutopilotNodeFailedEvent[] = [];
+    executor.on('node-failed', (event) => failedNodes.push(event));
+
+    const result = await executor.execute(plan(), edges, [], countsOf(rows));
+
+    expect(target.insert.mock.calls.map(([object]) => object)).toEqual(['Account']);
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toEqual({
+      written: 0,
+      linked: 0,
+      failed: 2,
+      refusals: [
+        {
+          statusCode: 'PARENT_NOT_WRITTEN',
+          fields: ['OpportunityId'],
+          count: 2,
+          message: skipped('Opportunity', 'OpportunityId'),
+        },
+      ],
+    });
+    expect(result.failedObjects).toEqual(['OpportunityLineItem']);
+    expect(result.nodeErrors?.['OpportunityLineItem']).toBe(
+      `PARENT_NOT_WRITTEN: ${skipped('Opportunity', 'OpportunityId')}`,
+    );
+    expect(failedNodes.map((event) => [event.objectApiName, event.failureCount])).toEqual([
+      ['OpportunityLineItem', 2],
+    ]);
+    expect(codesOf(result)).not.toContain('REQUIRED_FIELD_MISSING');
+  });
+
+  it('holds back a record of a cycle written before the parent the user skipped', async () => {
+    // An account needs its contact at insert, so the contact goes first in
+    // their wave: the skip of the accounts is known by then.
+    const contactEdge = makeEdge({
+      from: 'Account' as ApiName,
+      to: 'Contact' as ApiName,
+      fieldApiName: 'AccountId',
+    });
+    const primaryEdge = makeEdge({
+      from: 'Contact' as ApiName,
+      to: 'Account' as ApiName,
+      fieldApiName: 'Primary_Contact__c',
+      required: true,
+    });
+    const cycle = {
+      Account: [{ Id: 'accA', Name: 'Acme', Primary_Contact__c: 'conA' }],
+      Contact: [
+        { Id: 'conA', LastName: 'Ada', AccountId: 'accA' },
+        { Id: 'conAlone', LastName: 'Bea', AccountId: null },
+      ],
+    };
+    const target = new MemoryTarget([contactEdge, primaryEdge]);
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(cycle),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      }),
+    );
+    executor.skip('Account');
+
+    const result = await executor.execute(
+      makePlan([{ order: 0, objects: ['Account', 'Contact'], dependsOn: [] }]),
+      [contactEdge, primaryEdge],
+      [],
+      countsOf(cycle),
+    );
+
+    expect(target.of('Contact').map((r) => r['LastName'])).toEqual(['Bea']);
+    expect(result.objectOutcomes?.['Contact']?.refusals).toEqual([
+      {
+        statusCode: 'PARENT_NOT_WRITTEN',
+        fields: ['AccountId'],
+        count: 1,
+        message: skipped('Account', 'AccountId'),
+      },
+    ]);
+  });
+
+  it('holds back the children of the records a failed write never wrote, and writes those it did', async () => {
+    // The first page of deals went in; the read of the second threw. Sent,
+    // the line of the deal never written was refused for its empty lookup.
+    const read = sourceOf(rows);
+    const query = vi.fn<QueryFn>(async (objectApiName, afterId, limit) => {
+      if (objectApiName === 'Opportunity' && afterId !== undefined) {
+        throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+      }
+      return read(objectApiName, afterId, limit);
+    });
+    const target = new MemoryTarget(edges);
+    const executor = new AutopilotExecutor(
+      makeDeps({ query, insert: target.insert, remapper: new RecordIdRemapper(), batchSize: 2 }),
+    );
+
+    const result = await executor.execute(plan(), edges, [], countsOf(rows));
+
+    expect(result.failedObjects).toContain('Opportunity');
+    expect(target.of('Opportunity').map((r) => r['Name'])).toEqual(['Deal A', 'Deal B']);
+    expect(target.of('OpportunityLineItem')).toEqual([
+      expect.objectContaining({
+        Description: 'Line A',
+        OpportunityId: target.idOf('Opportunity', 'Name', 'Deal A'),
+      }),
+    ]);
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toEqual({
+      written: 1,
+      linked: 0,
+      failed: 1,
+      refusals: [
+        {
+          statusCode: 'PARENT_NOT_WRITTEN',
+          fields: ['OpportunityId'],
+          count: 1,
+          message: failed('Opportunity', 'OpportunityId'),
+        },
+      ],
+    });
+    expect(codesOf(result)).not.toContain('REQUIRED_FIELD_MISSING');
+  });
+
+  it('sends nothing under a parent a stop cut short: its children are among what the stop never sent', async () => {
+    // The stop comes as the first page of deals is answered. Nothing is
+    // written after it, so no line goes without its deal: each is counted
+    // among the records the stop kept from the target, and nothing more.
+    const controller = new AbortController();
+    const target = new MemoryTarget(edges);
+    const insert = vi.fn<InsertFn>(async (objectApiName, records) => {
+      if (objectApiName === 'Opportunity') controller.abort();
+      return target.insert(objectApiName, records);
+    });
+    const executor = new AutopilotExecutor(
+      makeDeps({ query: sourceOf(rows), insert, remapper: new RecordIdRemapper(), batchSize: 2 }),
+    );
+
+    const result = await executor.execute(plan(), edges, [], countsOf(rows), controller.signal);
+
+    expect(target.of('OpportunityLineItem')).toEqual([]);
+    expect(result.stoppedObjects).toEqual(['Opportunity', 'OpportunityLineItem']);
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 2, notSent: 1 });
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toEqual({
+      written: 0,
+      linked: 0,
+      failed: 0,
+      refusals: [],
+      notSent: 2,
+    });
+    expect(codesOf(result)).toEqual([]);
+  });
+
+  it('writes the children of a parent it wrote, each pointing at its copy, beside an object the user skipped', async () => {
+    // The leads the user skipped are no parent of these: nothing else changes.
+    const withLeads = { ...rows, Lead: [{ Id: 'leadA', LastName: 'Lee' }] };
+    const target = new MemoryTarget(edges);
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(withLeads),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+      }),
+    );
+    executor.skip('Lead');
+
+    const result = await executor.execute(
+      wavesOf('Account', 'Lead', 'Opportunity', 'OpportunityLineItem'),
+      edges,
+      [],
+      countsOf(withLeads),
+    );
+
+    expect(target.of('Opportunity').map((r) => [r['Name'], r['AccountId']])).toEqual([
+      ['Deal A', target.idOf('Account', 'Name', 'Acme')],
+      ['Deal B', target.idOf('Account', 'Name', 'Globex')],
+      ['Deal C', null],
+    ]);
+    expect(target.of('OpportunityLineItem').map((r) => r['OpportunityId'])).toEqual([
+      target.idOf('Opportunity', 'Name', 'Deal A'),
+      target.idOf('Opportunity', 'Name', 'Deal C'),
+    ]);
+    expect(result.totalFailure).toBe(0);
+    expect(codesOf(result)).toEqual([]);
+  });
+
+  it('leaves as it was a lookup at an object the plan does not hold, beside a parent the user skipped', async () => {
+    // A task's WhatId may point at an account or an opportunity: the plan
+    // holds the accounts alone, so it has one edge for it. A task read with
+    // an opportunity there names no account, and goes as it went before, the
+    // remapper emptying what no copy stands for; one read with an account is
+    // held back with the accounts the user skipped. Its campaign, an object
+    // the plan does not hold at all, is left to the target's default.
+    const whatEdge = makeEdge({
+      from: 'Account' as ApiName,
+      to: 'Task' as ApiName,
+      fieldApiName: 'WhatId',
+    });
+    const tasks = {
+      Account: rows.Account,
+      Task: [
+        { Id: 'tskOpp', Subject: 'On a deal', WhatId: '006SRC000000001AAA' },
+        { Id: 'tskAcc', Subject: 'On an account', WhatId: '001SRC000000001AAA' },
+        { Id: 'tskCmp', Subject: 'On a campaign', WhatId: null, Campaign__c: '701SRC000000001AAA' },
+      ],
+    };
+    const target = new MemoryTarget([]);
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(tasks),
+        insert: target.insert,
+        remapper: new RecordIdRemapper(),
+        describeLookups: async (name) =>
+          name === 'Task'
+            ? [lookup('WhatId', ['Account', 'Opportunity']), lookup('Campaign__c', ['Campaign'])]
+            : [],
+        describeKeyPrefix: async (name) => (name === 'Account' ? '001' : '00T'),
+        batchSize: 200,
+      }),
+    );
+    executor.skip('Account');
+
+    const result = await executor.execute(
+      wavesOf('Account', 'Task'),
+      [whatEdge],
+      [],
+      countsOf(tasks),
+    );
+
+    expect(target.of('Task').map((r) => [r['Subject'], r['WhatId']])).toEqual([
+      ['On a deal', null],
+      ['On a campaign', null],
+    ]);
+    expect(result.objectOutcomes?.['Task']).toEqual({
+      written: 2,
+      linked: 0,
+      failed: 1,
+      refusals: [
+        {
+          statusCode: 'PARENT_NOT_WRITTEN',
+          fields: ['WhatId'],
+          count: 1,
+          message: skipped('Account', 'WhatId'),
+        },
+      ],
+      leftToDefault: [{ field: 'Campaign__c', count: 1 }],
+    });
   });
 });
 

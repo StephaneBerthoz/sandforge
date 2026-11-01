@@ -5629,6 +5629,18 @@
       "explanation": "Un registro al que apunta este se rechazó en la misma ejecución, así que este se retuvo en lugar de escribirse sin él.",
       "action": "Corrija lo que rechazó ese registro — su motivo aparece junto a su objeto — y vuelva a ejecutar."
     },
+    "parentNotWritten": {
+      "explanation": "Un registro al que apunta este pertenece a un objeto que esta ejecución debía escribir y no escribió, así que este se retuvo en lugar de escribirse sin él.",
+      "action": "Escriba primero ese objeto — su nodo indica por qué no se escribió — y vuelva a ejecutar.",
+      "skipped": {
+        "explanation": "Un registro al que apunta este pertenece a un objeto omitido en esta ejecución, así que este se retuvo en lugar de escribirse sin él.",
+        "action": "Vuelva a ejecutar sin omitir ese objeto. Para dejarlo fuera, omita también los objetos que apuntan a él."
+      },
+      "failed": {
+        "explanation": "Un registro al que apunta este pertenece a un objeto cuya escritura falló en esta ejecución, así que este se retuvo en lugar de escribirse sin él.",
+        "action": "Corrija lo que hizo fallar la escritura de ese objeto — su nodo indica por qué — y vuelva a ejecutar."
+      }
+    },
     "personAccountNotWritten": {
       "explanation": "La cuenta personal de este contacto no está en la org de destino, y Salesforce escribe el contacto de una cuenta personal con su cuenta.",
       "action": "Incluya las cuentas personales en la ejecución, o corrija lo que las rechazó, y vuelva a ejecutar."

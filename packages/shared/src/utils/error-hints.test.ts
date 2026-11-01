@@ -516,6 +516,7 @@ describe('translateError in every other module', () => {
   it('explains Autopilot’s own reasons for holding a record back', () => {
     for (const code of [
       'PARENT_REFUSED',
+      'PARENT_NOT_WRITTEN',
       'PERSON_ACCOUNT_NOT_WRITTEN',
       'PERSON_CONTACT_NOT_LOOKED_UP',
     ]) {
@@ -523,6 +524,32 @@ describe('translateError in every other module', () => {
       expect(hint?.explanationKey).toMatch(/^errors\.\w+\.explanation$/);
       expect(hint?.docUrl).toBeUndefined();
     }
+  });
+
+  it('says why the parent of a record held back was not written, as Autopilot said it', () => {
+    // The message names the parent's object and why in English; the hint
+    // says which of the two in the panel's language, and what to do.
+    const skipped = translateError(
+      'PARENT_NOT_WRITTEN: the Account record its AccountId names was not written: Account ' +
+        'was skipped in this run, and written without it this record would stand without its Account.',
+    );
+    const failed = translateError(
+      "PARENT_NOT_WRITTEN: the Opportunity record its OpportunityId names was not written: the run's " +
+        'write of Opportunity failed, and written without it this record would stand without its ' +
+        'Opportunity.',
+    );
+    expect(skipped).toMatchObject({
+      code: 'PARENT_NOT_WRITTEN',
+      explanationKey: 'errors.parentNotWritten.skipped.explanation',
+      actionKey: 'errors.parentNotWritten.skipped.action',
+      severity: 'warning',
+    });
+    expect(failed).toMatchObject({
+      code: 'PARENT_NOT_WRITTEN',
+      explanationKey: 'errors.parentNotWritten.failed.explanation',
+      actionKey: 'errors.parentNotWritten.failed.action',
+    });
+    expect([skipped?.docUrl, failed?.docUrl]).toEqual([undefined, undefined]);
   });
 });
 
