@@ -1417,6 +1417,7 @@ export async function removeRunRecords(
   const reached: RecordKeys = {
     has: (key) => records.has(key) && reachedObjects.has(objectOfPrefix.get(key.slice(0, 3)) ?? ''),
   };
+  const automationMade = new Set<string>();
   const dependents = new DependentsCheck(session, {
     runRecords: records,
     reached,
@@ -1433,9 +1434,7 @@ export async function removeRunRecords(
     includeChanged: options.includeChanged,
     ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
     ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
-    ...(options.automationMade
-      ? { automationMade: new Set([...options.automationMade].map(recordKey)) }
-      : {}),
+    automationMade,
   });
 
   if (stopped()) return untouched();
@@ -1446,6 +1445,8 @@ export async function removeRunRecords(
   // took the opportunity created under a cloned account during the run, and
   // the removal kept the account as changed since the run.
   if (options.sweep && (await options.sweep())) wrote = true;
+  // Read once the sweep has run: it fills the set as it finds what it takes.
+  for (const id of options.automationMade ?? []) automationMade.add(recordKey(id));
 
   const removals: ObjectRemoval[] = [];
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>

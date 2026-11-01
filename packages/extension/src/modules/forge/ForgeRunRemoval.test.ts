@@ -3626,6 +3626,26 @@ describe('removeRunRecords — what the target automation made under the run rec
     }
   });
 
+  it('reads what a granted sweep found made once the sweep has run, as `sweepParts` fills it', async () => {
+    const org = accountWithTask(madeJustAfter);
+    const automationMade = new Set<string>();
+
+    const outcome = await removeRunRecords(
+      org,
+      PLAN,
+      options({
+        automationMade,
+        sweep: async () => {
+          automationMade.add(TASK);
+          return false;
+        },
+      }),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(org.has('Task', TASK)).toBe(false);
+  });
+
   it('still keeps a record whose delete what a granted sweep found made restricts', async () => {
     const org = accountWithTask(madeJustAfter);
     org.relationships.set('Account', [
