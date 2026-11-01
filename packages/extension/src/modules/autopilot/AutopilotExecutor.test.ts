@@ -2119,7 +2119,8 @@ describe('AutopilotExecutor — the second pass', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('leaves a lookup empty when the record it points at never reached the target', async () => {
+  it('says a lookup left empty when the record it points at was refused after it went in', async () => {
+    // Dropped unsaid: the child stood without its parent, counted written.
     const update = updateAll();
     const deps = makeDeps({
       query: sourceOf(rows),
@@ -2137,6 +2138,79 @@ describe('AutopilotExecutor — the second pass', () => {
       [parentEdge],
       [],
       countsOf(rows),
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    expect(result.lookups).toEqual({
+      Account: {
+        filled: 0,
+        refusals: [
+          {
+            statusCode: 'PARENT_REFUSED',
+            fields: ['ParentId'],
+            count: 1,
+            message:
+              'the Account record its ParentId names was refused in this run, and this ' +
+              'record, written before it, keeps its ParentId empty.',
+          },
+        ],
+      },
+    });
+  });
+
+  it('says a lookup left empty when the write of its object threw after the record went in', async () => {
+    const insert = vi
+      .fn<InsertFn>()
+      .mockResolvedValueOnce(written('001T_child'))
+      .mockRejectedValueOnce(new Error('UNABLE_TO_LOCK_ROW'));
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert,
+      update: updateAll(),
+      remapper: new RecordIdRemapper(),
+      batchSize: 1,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']?.refusals).toEqual([
+      {
+        statusCode: 'PARENT_NOT_WRITTEN',
+        fields: ['ParentId'],
+        count: 1,
+        message:
+          "the Account record its ParentId names was not written: the run's write of " +
+          'Account failed, and this record, written before it, keeps its ParentId empty.',
+      },
+    ]);
+  });
+
+  it('says nothing of a lookup at a record the run never read', async () => {
+    const outside = {
+      Account: [
+        { Id: 'child', Name: 'Child', ParentId: 'elsewhere' },
+        { Id: 'parent', Name: 'Parent', ParentId: null },
+      ],
+    };
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(outside),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(outside),
     );
 
     expect(update).not.toHaveBeenCalled();

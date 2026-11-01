@@ -1259,8 +1259,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         await this.fillOwedLookups(lookups);
       }
 
-      // Whatever is still owed points at a record no wave wrote.
-      this.owedLookups.length = 0;
+      // Whatever is still owed points at a record no wave wrote: said where
+      // the run set out to write it.
+      await this.sayLookupsLeftOwed(edges, lookups);
 
       // Statuses set aside at insert, now that every record's children are in.
       const statuses = await this.applyDeferredStatuses();
@@ -1439,6 +1440,83 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       outcomes[objectApiName] = { filled, refusals: refusals.list() };
     }
+  }
+
+  /**
+   * The lookups still owed once every wave is written, each at a record no
+   * wave wrote. A record of a cycle went in before the record its lookup
+   * names, and that record never followed: the target refused it or the run
+   * held it back (`PARENT_REFUSED`), or its object was skipped or its write
+   * threw (`PARENT_NOT_WRITTEN`). The second pass dropped them unsaid, and
+   * the record stood in the target without its parent, counted written.
+   * Counted among the lookups not filled, with the parent's object and why. A
+   * lookup at a record the run never set out to write, outside what it read,
+   * stays empty unsaid, as it would have outside a cycle.
+   */
+  private async sayLookupsLeftOwed(
+    edges: readonly AutopilotEdge[],
+    outcomes: Record<string, LookupOutcome>,
+  ): Promise<void> {
+    const left = new Map<string, RefusalTally>();
+    for (const lookup of this.owedLookups.splice(0, this.owedLookups.length)) {
+      const said = await this.whyLeftOwed(lookup, edges);
+      if (!said) continue;
+      let tally = left.get(lookup.objectApiName);
+      if (!tally) {
+        tally = new RefusalTally();
+        for (const refusal of outcomes[lookup.objectApiName]?.refusals ?? []) {
+          tally.addCounted(refusal);
+        }
+        left.set(lookup.objectApiName, tally);
+      }
+      tally.add([{ ...said, fields: [lookup.fieldApiName] }]);
+    }
+    for (const [objectApiName, tally] of left) {
+      outcomes[objectApiName] = {
+        filled: outcomes[objectApiName]?.filled ?? 0,
+        refusals: tally.list(),
+      };
+    }
+  }
+
+  /** Why a lookup still owed at the end stays empty, or nothing when the run never meant to write its record. */
+  private async whyLeftOwed(
+    lookup: OwedLookup,
+    edges: readonly AutopilotEdge[],
+  ): Promise<{ statusCode: string; message: string } | undefined> {
+    const { fieldApiName, sourceId } = lookup;
+    const refusedIn = this.refusedRecords.get(idKey(sourceId));
+    const refusedParent = lookup.parents.find((parent) => parent === refusedIn);
+    if (refusedParent) {
+      return {
+        statusCode: PARENT_REFUSED,
+        message:
+          `the ${refusedParent} record its ${fieldApiName} names was refused in this run, ` +
+          `and this record, written before it, keeps its ${fieldApiName} empty.`,
+      };
+    }
+    for (const parent of lookup.parents) {
+      const notWritten = this.notWrittenOf(parent);
+      if (notWritten === undefined) continue;
+      const edge = edges.find(
+        (e) =>
+          e.from === parent && e.to === lookup.objectApiName && e.fieldApiName === fieldApiName,
+      );
+      if (
+        edge &&
+        !(await this.namesARecordOf(lookup.objectApiName, edge, sourceId, lookup.parents.length))
+      ) {
+        continue;
+      }
+      return {
+        statusCode: PARENT_NOT_WRITTEN,
+        message:
+          `the ${parent} record its ${fieldApiName} names was not written: ` +
+          `${NOT_WRITTEN_SAID[notWritten](parent)}, and this record, written before it, ` +
+          `keeps its ${fieldApiName} empty.`,
+      };
+    }
+    return undefined;
   }
 
   /**
