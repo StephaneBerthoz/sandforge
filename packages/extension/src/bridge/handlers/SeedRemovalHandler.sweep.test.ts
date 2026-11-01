@@ -16,6 +16,8 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { nodeSeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { compositeOver } from '../../test/compositeOver.js';
+import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -86,6 +88,11 @@ function targetOrg() {
     ['Account', [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }]],
     ['Contact', [{ childSObject: 'Task', field: 'WhoId', cascadeDelete: false }]],
   ]);
+  /** The lookups a tie is read from, per object, to the objects each names. */
+  const lookups = new Map<string, Record<string, string[]>>([
+    ['Contact', { AccountId: ['Account'] }],
+    ['Task', { WhoId: ['Contact'], WhatId: ['Account'] }],
+  ]);
   const bin = new Map<string, Row>();
   const pick = (row: Row, columns: string): Record<string, unknown> =>
     Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
@@ -98,60 +105,66 @@ function targetOrg() {
     );
     bin.set(recordId, { ...row, object });
   };
+  const query = vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+    const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+    if (deleted) {
+      const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
+      return answer(
+        wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
+      );
+    }
+    const created =
+      /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
+        soql,
+      );
+    if (created) {
+      const [, columns, object, user, from, to, after] = created;
+      const found = (rows.get(object) ?? []).filter((row) => {
+        const at = Date.parse(String(row.CreatedDate));
+        return (
+          row.CreatedById === user &&
+          at >= Date.parse(from) &&
+          at <= Date.parse(to) &&
+          (!after || row.Id > after)
+        );
+      });
+      if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
+      return answer(found.map((row) => pick(row, columns)));
+    }
+    const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
+    if (!match) throw new Error(`unexpected query: ${soql}`);
+    const [, columns, object, field, list] = match;
+    const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
+    const held = [
+      ...(rows.get(object) ?? []),
+      ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
+    ];
+    return answer(
+      held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
+    );
+  });
   const conn = {
     limitInfo: undefined,
-    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
-      const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
-      const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
-      if (deleted) {
-        const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
-        return answer(
-          wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
-        );
-      }
-      const created =
-        /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
-          soql,
-        );
-      if (created) {
-        const [, columns, object, user, from, to, after] = created;
-        const found = (rows.get(object) ?? []).filter((row) => {
-          const at = Date.parse(String(row.CreatedDate));
-          return (
-            row.CreatedById === user &&
-            at >= Date.parse(from) &&
-            at <= Date.parse(to) &&
-            (!after || row.Id > after)
-          );
-        });
-        if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
-        return answer(found.map((row) => pick(row, columns)));
-      }
-      const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
-      if (!match) throw new Error(`unexpected query: ${soql}`);
-      const [, columns, object, field, list] = match;
-      const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
-      const held = [
-        ...(rows.get(object) ?? []),
-        ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
-      ];
-      return answer(
-        held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
-      );
-    }),
+    // The sweep's counts go five to a composite, each answered as a query.
+    ...compositeOver(query),
+    query,
     describe: vi.fn(async (object: string) => ({
       name: object,
       label: object,
       queryable: true,
       deletable: true,
       fields: [
-        'Id',
-        'Name',
-        'CreatedById',
-        'CreatedDate',
-        'LastModifiedDate',
-        'LastModifiedById',
-      ].map((name) => ({ name, label: name, type: 'string', nameField: name === 'Name' })),
+        ...['Id', 'Name', 'CreatedById', 'CreatedDate', 'LastModifiedDate', 'LastModifiedById'].map(
+          (name) => ({ name, label: name, type: 'string', nameField: name === 'Name' }),
+        ),
+        ...Object.entries(lookups.get(object) ?? {}).map(([name, referenceTo]) => ({
+          name,
+          label: name,
+          type: 'reference',
+          referenceTo,
+        })),
+      ],
       childRelationships: children.get(object) ?? [],
     })),
     describeGlobal: vi.fn(async () => ({
@@ -364,19 +377,31 @@ describe('a sweep asked with the removal of a Seed run', () => {
         }),
         queryMore: vi.fn(async () => page([])),
       },
-      // The flow version, retrieved by id in a Tooling composite: it opens a task.
+      // The flow version, retrieved by id in a Tooling composite: it opens a
+      // task. The sweep's counts, five to a data composite, are answered as
+      // queries.
       request: vi.fn(async ({ body }: { body: string }) => {
         const { compositeRequest } = JSON.parse(body) as {
           compositeRequest: Array<{ url: string; referenceId: string }>;
         };
         return {
-          compositeResponse: compositeRequest.map((sub) => ({
-            referenceId: sub.referenceId,
-            httpStatusCode: 200,
-            body: sub.url.endsWith(`/Flow/${VERSION}`)
-              ? { Id: VERSION, Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] } }
-              : { totalSize: 0, done: true, records: [] },
-          })),
+          compositeResponse: await Promise.all(
+            compositeRequest.map(async (sub) => {
+              const counted = /\/query\?q=(.*)$/.exec(sub.url);
+              return {
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: counted
+                  ? await conn.query(decodeURIComponent(counted[1]))
+                  : sub.url.endsWith(`/Flow/${VERSION}`)
+                    ? {
+                        Id: VERSION,
+                        Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] },
+                      }
+                    : { totalSize: 0, done: true, records: [] },
+              };
+            }),
+          ),
         };
       }),
     };
@@ -395,6 +420,134 @@ describe('a sweep asked with the removal of a Seed run', () => {
     expect(response.payload.listing.found).toEqual([
       expect.objectContaining({ objectApiName: 'Task', count: 1, names: ['Welcome call'] }),
     ]);
+  });
+
+  describe('told what ties a record to the run', () => {
+    const LOOSE = id('00T', 6);
+    let tied: TiedTargetOrg;
+
+    /**
+     * The target after a seed of an account and a contact: the welcome call
+     * the contact's flow opened under it, and a task the seed's user typed in
+     * the seed's window, tied to nothing of it.
+     */
+    const tiedOrg = (): TiedTargetOrg => {
+      const org = tiedTargetOrg(USER);
+      org.shape('Account', {
+        children: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      });
+      org.shape('Contact', {
+        references: { AccountId: ['Account'] },
+        children: [{ childSObject: 'Task', field: 'WhoId' }],
+      });
+      org.shape('Task', { references: { WhoId: ['Contact'] } });
+      const made = (recordId: string, name: string, at: string, more = {}) => ({
+        ...rec(recordId, name, USER, at, more),
+        SystemModstamp: at,
+      });
+      org.add('Account', made(ACCOUNT, 'Seeded Co', SEEDED));
+      org.add('Contact', made(CONTACT, 'Seeded Person', SEEDED, { AccountId: ACCOUNT }));
+      org.add(
+        'Task',
+        made(FLOW_TASK, 'Welcome call', JUST_AFTER, { WhoId: CONTACT }),
+        made(LOOSE, 'Loose task', JUST_AFTER),
+      );
+      return org;
+    };
+
+    /** Keep a seed of this machine, as the panel's Seed keeps one. */
+    const keep = async (runId: string, created: Array<[string, string[]]>, runUserId?: string) => {
+      const runs = nodeSeedRunCreations(storage);
+      await runs.record({
+        runId,
+        targetOrgId: TARGET_ORG,
+        startedAt: STARTED,
+        finishedAt: FINISHED,
+        status: 'success',
+        objectResults: created.map(([objectApiName, createdIds]) => ({
+          objectApiName,
+          createdIds,
+        })),
+        ...(runUserId ? { runUserId } : {}),
+      });
+      handler.setRunCreations(runs);
+    };
+
+    beforeEach(() => {
+      tied = tiedOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(tied.conn as never);
+    });
+
+    it('takes the welcome call, and keeps what is tied to nothing unasked', async () => {
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(answer()?.sweep?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Task', found: 1, deleted: 1 }),
+      ]);
+    });
+
+    it('takes what is tied to nothing when asked', async () => {
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),
+      );
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([]);
+    });
+
+    it('keeps what is tied to nothing while another seed of this machine wrote in the window', async () => {
+      await keep('op-other', [['Contact', [id('003', 7)]]]);
+      tied.add('Contact', rec(id('003', 7), 'Their person', USER, SEEDED));
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(response.payload.listing.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(tied.ids('Contact')).toEqual([id('003', 7)]);
+    });
+
+    it('lists none of the lines the platform copied under a quote the seed synced: its removal names them', async () => {
+      const { created } = addSyncedQuote(tied, USER, SEEDED);
+      await keep(
+        'op-quote',
+        created.map(({ objectApiName, ids: recordIds }) => [objectApiName, recordIds]),
+      );
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-quote' }));
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(response.payload.listing.looked).toContain('QuoteLineItem');
+      expect(response.payload.listing.found.map((found) => found.objectApiName)).not.toContain(
+        'QuoteLineItem',
+      );
+    });
+
+    it('takes the user the seed’s file keeps, reading none of its records to tell it', async () => {
+      await keep(
+        'op-user',
+        [
+          ['Account', [ACCOUNT]],
+          ['Contact', [CONTACT]],
+        ],
+        USER,
+      );
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-user' }));
+
+      expect(errors('seed:remove:sweep:error')).toEqual([]);
+      expect(tied.queries.some((soql) => soql.startsWith('SELECT CreatedById FROM'))).toBe(false);
+      expect(tied.queries.some((soql) => soql.includes(`CreatedById = '${USER}'`))).toBe(true);
+    });
   });
 
   it('leaves the task the flow opened to a removal asked without the sweep', async () => {

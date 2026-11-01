@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
@@ -38,6 +38,7 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
+import { nodeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -439,6 +440,38 @@ describe('forge:execute, the checkpoint taken first', () => {
       checkpoint: TAKEN,
     });
     expect(runs()[0]).toMatchObject({ outcome: 'success', checkpointId: TAKEN.checkpointId });
+  });
+
+  it('names what it took beside the run’s journal, which a window closed under the run reads back', async () => {
+    checkpointsAnswering();
+    const journal = nodeRunJournal(dir);
+    let named: unknown;
+    const orchestrator = orchestratorHanding();
+    const handing = orchestrator.execute.getMockImplementation();
+    orchestrator.execute.mockImplementation(async (graph, config, options) => {
+      const result = await handing?.(graph, config, options);
+      const [file] = readdirSync(path.join(dir, 'forge-runs')).filter((name) =>
+        name.endsWith('.ndjson'),
+      );
+      const journalId = (file ?? '').replace(/\.ndjson$/, '');
+      await vi.waitFor(async () => {
+        named = (await journal.read(journalId))?.checkpoint;
+        expect(named).toBeDefined();
+      });
+      return result as ForgeExecutionResult;
+    });
+    handler.setForgeOrchestrator(orchestrator, {
+      targetAutomation: {
+        readForGraph: vi.fn(async () => FIRES),
+      } as unknown as TargetAutomationReader,
+      muteOrg: async () => muteOrgOf(mutableTarget().connection),
+      muteLeases: { dir, renewEveryMs: 0 },
+      runJournal: journal,
+    });
+
+    await execute({ checkpointFirst: {} });
+
+    expect(named).toEqual(TAKEN);
   });
 
   it('scopes it from what still runs: the creations of a flow the mute keeps quiet are not held', async () => {

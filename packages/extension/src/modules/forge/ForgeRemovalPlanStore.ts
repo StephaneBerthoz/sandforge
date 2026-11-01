@@ -22,6 +22,21 @@ export const REMOVAL_PLANS_HARD_MAX_BYTES = 64 * 1024 * 1024;
 /** The file the plans are kept in, under the extension's own storage. */
 export const REMOVAL_PLANS_FILE = 'forge-removal-plans.json';
 
+/**
+ * The file, beside the plans, that keeps what the sweeps of each run's
+ * removals found made for it (`SweepParts.made`), by run.
+ */
+export const SWEEP_MADE_FILE = 'forge-sweep-made.json';
+
+/** Runs whose sweeps' finds are kept at most: the newest, as a run's removals come soon after it. */
+export const SWEEP_MADE_RUNS_KEPT = 50;
+
+/**
+ * Ids kept per object of one run's finds at most: past what a sweep takes of
+ * an object (`SWEEP_OBJECT_BOUND`), nothing of it was swept.
+ */
+export const SWEEP_MADE_PER_OBJECT = 10_000;
+
 /** File-system operations the store needs, injected so it stays testable. */
 export interface ForgeRemovalPlanStoreDeps {
   /** Directory the extension owns for persistent data (globalStorageUri). */
@@ -101,6 +116,12 @@ const planSchema = z.object({
 
 const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown()) });
 
+/** The finds of the sweeps of each run, as their file holds them: external input, checked. */
+const madeFileSchema = z.object({
+  version: z.literal(1),
+  runs: z.array(z.object({ forgeId: z.string().min(1).max(300), ids: z.array(idSchema) })),
+});
+
 /**
  * The removal plans of past runs, kept in a file of the extension's own
  * storage, so a run stays removable once the run history — the last twenty
@@ -177,6 +198,70 @@ export class ForgeRemovalPlanStore {
         : [...plans.slice(0, at), ...plans.slice(at + 1)];
       await this.write(next);
     });
+  }
+
+  /**
+   * The records the sweeps of the run's removals found made for it, by id
+   * (`SweepTies.madeEarlier`): `made` still for the next sweep, once a
+   * removal deleted the record they were tied to and the org cleared the
+   * lookup that told it — a task's account, an email's record. None when no
+   * sweep of the run kept any, or the file is not one.
+   */
+  madeOf(forgeId: string): Promise<string[]> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      return runs.find((run) => run.forgeId === forgeId)?.ids ?? [];
+    });
+  }
+
+  /**
+   * Keep what a sweep of the run's removal found made for it, beside what
+   * earlier sweeps found: read before its first delete, it is the only word
+   * left on a record whose tie the removal cleared. Each object's at most
+   * {@link SWEEP_MADE_PER_OBJECT}, the newest {@link SWEEP_MADE_RUNS_KEPT}
+   * runs' at most.
+   */
+  keepMade(forgeId: string, ids: Iterable<string>): Promise<void> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      const before = runs.find((run) => run.forgeId === forgeId)?.ids ?? [];
+      const perObject = new Map<string, number>();
+      const seen = new Set<string>();
+      const kept: string[] = [];
+      for (const id of [...before, ...ids]) {
+        const key = id.slice(0, 15);
+        if (!idSchema.safeParse(id).success || seen.has(key)) continue;
+        const object = key.slice(0, 3);
+        const count = perObject.get(object) ?? 0;
+        if (count >= SWEEP_MADE_PER_OBJECT) continue;
+        seen.add(key);
+        perObject.set(object, count + 1);
+        kept.push(id);
+      }
+      if (kept.length === before.length) return;
+      const next = [{ forgeId, ids: kept }, ...runs.filter((run) => run.forgeId !== forgeId)].slice(
+        0,
+        SWEEP_MADE_RUNS_KEPT,
+      );
+      await this.deps.mkdir(this.deps.storagePath).catch(() => undefined);
+      const file = path.join(this.deps.storagePath, SWEEP_MADE_FILE);
+      const written = `${file}.${process.pid}.tmp`;
+      await this.deps.writeFile(written, JSON.stringify({ version: 1, runs: next }));
+      await this.deps.rename(written, file);
+    });
+  }
+
+  /** The finds the file holds, newest run first; none when there is no file, or it is not one. */
+  private async readMade(): Promise<Array<{ forgeId: string; ids: string[] }>> {
+    try {
+      const raw: unknown = JSON.parse(
+        await this.deps.readFile(path.join(this.deps.storagePath, SWEEP_MADE_FILE)),
+      );
+      const file = madeFileSchema.safeParse(raw);
+      return file.success ? file.data.runs : [];
+    } catch {
+      return [];
+    }
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {

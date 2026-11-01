@@ -221,6 +221,21 @@ describe('ForgeOrchestrator', () => {
       expect(result.createdCount).toBe(0);
     });
 
+    it('keeps on its result the user the run wrote as, when told one by id', async () => {
+      const told = await orchestrator.execute(createMockGraph(), createMockConfig(), {
+        runUserId: '005000000000001AAA',
+      });
+      expect(told.runUserId).toBe('005000000000001AAA');
+
+      const notAnId = await orchestrator.execute(createMockGraph(), createMockConfig(), {
+        runUserId: 'not an id',
+      });
+      expect(notAnId).not.toHaveProperty('runUserId');
+
+      const untold = await orchestrator.execute(createMockGraph(), createMockConfig());
+      expect(untold).not.toHaveProperty('runUserId');
+    });
+
     it('should hand the RecordType translation table to the executor in both input modes', async () => {
       const recordTypeMappings = [
         { sourceId: '012SRC000000001', targetId: '012TGT000000001', developerName: 'Business' },

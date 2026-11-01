@@ -39,6 +39,7 @@ import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkA
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { withArticleRemoval } from '../seed/articleRemoval.js';
 import { QUOTE_OBJECT, quoteSyncCopiesOf, type PlatformCopies } from './quoteSyncCopies.js';
+import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
@@ -103,16 +104,6 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
   ['SystemModstamp'],
   [],
 ];
-
-/**
- * How long before, and after, the record of the run it hangs from a record
- * the run's user created can be what the target's automation made for it:
- * the bounds of a sweep's `made` (`ForgeSweepClasses`). The org dates to the
- * second, and what a save's automation writes lands within a minute of it;
- * past that, a sweep lists the record as late and takes it only when asked.
- */
-const MADE_BEFORE_MS = 2_000;
-const MADE_AFTER_MS = 60_000;
 
 /**
  * Leeway on a date this machine's clock gave, once read on the org's: the
@@ -1417,7 +1408,6 @@ export async function removeRunRecords(
   const reached: RecordKeys = {
     has: (key) => records.has(key) && reachedObjects.has(objectOfPrefix.get(key.slice(0, 3)) ?? ''),
   };
-  const automationMade = new Set<string>();
   const dependents = new DependentsCheck(session, {
     runRecords: records,
     reached,
@@ -1434,7 +1424,7 @@ export async function removeRunRecords(
     includeChanged: options.includeChanged,
     ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
     ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
-    automationMade,
+    ...(options.automationMade ? { automationMade: keysAsAsked(options.automationMade) } : {}),
   });
 
   if (stopped()) return untouched();
@@ -1445,8 +1435,6 @@ export async function removeRunRecords(
   // took the opportunity created under a cloned account during the run, and
   // the removal kept the account as changed since the run.
   if (options.sweep && (await options.sweep())) wrote = true;
-  // Read once the sweep has run: it fills the set as it finds what it takes.
-  for (const id of options.automationMade ?? []) automationMade.add(recordKey(id));
 
   const removals: ObjectRemoval[] = [];
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
@@ -3022,7 +3010,28 @@ interface DependentsContext {
    */
   runUser?: string;
   /** Keys of what a granted sweep found made for the run: see {@link RunRemovalOptions.automationMade}. */
-  automationMade?: ReadonlySet<string>;
+  automationMade?: Pick<ReadonlySet<string>, 'has'>;
+}
+
+/**
+ * The keys of `ids` as they stand each time one is asked about: a granted
+ * sweep fills its set (`SweepParts.automationMade`) once the removal has read
+ * the run's records, after the dependents check was made. Copied when the
+ * check was made, the set was still empty, and a child the sweep took held
+ * its parent back all the same.
+ */
+function keysAsAsked(ids: ReadonlySet<string>): Pick<ReadonlySet<string>, 'has'> {
+  let keys = new Set<string>();
+  let read = -1;
+  return {
+    has: (key) => {
+      if (ids.size !== read) {
+        keys = new Set([...ids].map(recordKey));
+        read = ids.size;
+      }
+      return keys.has(key);
+    },
+  };
 }
 
 /** What {@link DependentsCheck.heldAmong} found for some records of one object. */
@@ -3241,10 +3250,11 @@ class DependentsCheck {
    * `otherwise` — and every one of whose holders the target's automation
    * likely made for the run: created as the run's user — the one it kept, or
    * else the one who created the record it holds — from
-   * {@link MADE_BEFORE_MS} before that record to {@link MADE_AFTER_MS} after
-   * it, a sweep's `made`. A sweep takes those first, and the record they hold
-   * goes then; one past that minute a sweep takes only when asked, and is not
-   * counted. The records held are read for when they were created and by
+   * {@link TIE_LEAD_MS} before that record to {@link MADE_WITHIN_MS} after
+   * it, a sweep's `made`: the sweep's own bounds, so that what is counted held
+   * by the automation is what a sweep takes. A sweep takes those first, and
+   * the record they hold goes then; one past that minute a sweep takes only
+   * when asked, and is not counted. The records held are read for when they were created and by
    * whom, only when some holder may be the automation's; a read that fails
    * counts none.
    *
@@ -3286,8 +3296,8 @@ class DependentsCheck {
       const made =
         user !== undefined &&
         holder.creator === user &&
-        gap >= -MADE_BEFORE_MS &&
-        gap <= MADE_AFTER_MS;
+        gap >= -TIE_LEAD_MS &&
+        gap <= MADE_WITHIN_MS;
       if (!made) {
         notOnly.add(key);
         continue;
@@ -3409,7 +3419,7 @@ class DependentsCheck {
     const creator = recordKey(row.CreatedById);
     if (runUser !== undefined && creator !== runUser) return undefined;
     const created = epochOf(row.CreatedDate);
-    if (!(created >= runStart - MADE_BEFORE_MS && created <= runEnd + MADE_AFTER_MS)) {
+    if (!(created >= runStart - TIE_LEAD_MS && created <= runEnd + MADE_WITHIN_MS)) {
       return undefined;
     }
     const modified = epochOf(row.LastModifiedDate);

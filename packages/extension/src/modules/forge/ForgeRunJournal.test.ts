@@ -597,6 +597,86 @@ describe("a run's journal", () => {
     });
   });
 
+  describe('what it names of the run beside its records', () => {
+    const USER = '005000000000001AAA';
+    const TAKEN = {
+      state: 'taken' as const,
+      checkpointId: 'cp-1',
+      name: 'Before Forge run 2026-10-13 10:00 UTC',
+      takenAt: '2026-10-13T09:59:00.000Z',
+      expiresAt: null,
+      objects: ['Account', 'Contact'],
+      records: 38,
+      bytes: 2_200_000,
+      requests: 68,
+      added: [{ objectApiName: 'Task', reason: 'A flow creates them as contacts go in.' }],
+      notHeld: [],
+    };
+
+    it('keeps the user the run writes as in its head, read back from the head and the journal', async () => {
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await journal.begin('run-1', 'tgt-org', STARTED, RESUME, USER);
+
+      expect((await journal.head('run-1'))?.runUserId).toBe(USER);
+      expect((await journal.read('run-1'))?.runUserId).toBe(USER);
+    });
+
+    it('names no user of a journal kept before heads named one, nor anything that is no id', async () => {
+      const { deps, files } = memoryDisk();
+      const journal = new ForgeRunJournal(deps);
+      await journal.begin('run-1', 'tgt-org', STARTED, RESUME);
+      await journal.begin('run-2', 'tgt-org', STARTED, RESUME, 'not an id');
+      const before = journal.pathOf('run-3');
+      files.set(
+        before,
+        `${JSON.stringify({
+          run: {
+            journalId: 'run-3',
+            targetOrgId: 'tgt-org',
+            startedAt: STARTED.toISOString(),
+            runUserId: "' OR Id != null",
+          },
+        })}\n`,
+      );
+
+      for (const id of ['run-1', 'run-2', 'run-3']) {
+        expect(await journal.head(id)).not.toHaveProperty('runUserId');
+        expect(await journal.read(id)).not.toHaveProperty('runUserId');
+      }
+    });
+
+    it('keeps the checkpoint taken first beside the journal, read back with it, gone with it', async () => {
+      const { deps, files } = memoryDisk();
+      const journal = new ForgeRunJournal(deps);
+      await runThatWrote(journal, 'run-1', RESUME);
+      const before = files.get(journal.pathOf('run-1'));
+
+      await journal.keepCheckpoint('run-1', TAKEN);
+
+      // Not a line of the journal: the store of a run under way dates what it
+      // reads back by the offsets it counted.
+      expect(files.get(journal.pathOf('run-1'))).toBe(before);
+      expect((await journal.read('run-1'))?.checkpoint).toEqual(TAKEN);
+      const [left] = await journal.leftOver();
+      expect(left?.checkpoint).toEqual(TAKEN);
+
+      await journal.end('run-1');
+      expect([...files.keys()]).toEqual([]);
+    });
+
+    it('reads a journal whose checkpoint does not read as one with no checkpoint', async () => {
+      const { deps, files } = memoryDisk();
+      const journal = new ForgeRunJournal(deps);
+      await runThatWrote(journal, 'run-1', RESUME);
+      files.set(journal.pathOf('run-1').replace('.ndjson', '.checkpoint.json'), 'not json\n');
+
+      const read = await journal.read('run-1');
+
+      expect(read?.created.length).toBeGreaterThan(0);
+      expect(read).not.toHaveProperty('checkpoint');
+    });
+  });
+
   it('keeps a journal whose window closed during its first insert call, with no record it names', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

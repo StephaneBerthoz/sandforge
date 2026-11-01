@@ -17,6 +17,8 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { BackupRecordStore, nodeBackupFiles } from '../../modules/dataops/BackupRecordStore.js';
 import { nodeSyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { compositeOver } from '../../test/compositeOver.js';
+import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -87,6 +89,11 @@ function targetOrg() {
     ['Account', [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }]],
     ['Contact', [{ childSObject: 'Task', field: 'WhoId', cascadeDelete: false }]],
   ]);
+  /** The lookups a tie is read from, per object, to the objects each names. */
+  const lookups = new Map<string, Record<string, string[]>>([
+    ['Contact', { AccountId: ['Account'] }],
+    ['Task', { WhoId: ['Contact'], WhatId: ['Account'] }],
+  ]);
   const bin = new Map<string, Row>();
   const pick = (row: Row, columns: string): Record<string, unknown> =>
     Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
@@ -99,60 +106,66 @@ function targetOrg() {
     );
     bin.set(recordId, { ...row, object });
   };
+  const query = vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+    const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+    if (deleted) {
+      const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
+      return answer(
+        wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
+      );
+    }
+    const created =
+      /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
+        soql,
+      );
+    if (created) {
+      const [, columns, object, user, from, to, after] = created;
+      const found = (rows.get(object) ?? []).filter((row) => {
+        const at = Date.parse(String(row.CreatedDate));
+        return (
+          row.CreatedById === user &&
+          at >= Date.parse(from) &&
+          at <= Date.parse(to) &&
+          (!after || row.Id > after)
+        );
+      });
+      if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
+      return answer(found.map((row) => pick(row, columns)));
+    }
+    const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
+    if (!match) throw new Error(`unexpected query: ${soql}`);
+    const [, columns, object, field, list] = match;
+    const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
+    const held = [
+      ...(rows.get(object) ?? []),
+      ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
+    ];
+    return answer(
+      held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
+    );
+  });
   const conn = {
     limitInfo: undefined,
-    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
-      const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
-      const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
-      if (deleted) {
-        const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
-        return answer(
-          wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
-        );
-      }
-      const created =
-        /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
-          soql,
-        );
-      if (created) {
-        const [, columns, object, user, from, to, after] = created;
-        const found = (rows.get(object) ?? []).filter((row) => {
-          const at = Date.parse(String(row.CreatedDate));
-          return (
-            row.CreatedById === user &&
-            at >= Date.parse(from) &&
-            at <= Date.parse(to) &&
-            (!after || row.Id > after)
-          );
-        });
-        if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
-        return answer(found.map((row) => pick(row, columns)));
-      }
-      const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
-      if (!match) throw new Error(`unexpected query: ${soql}`);
-      const [, columns, object, field, list] = match;
-      const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
-      const held = [
-        ...(rows.get(object) ?? []),
-        ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
-      ];
-      return answer(
-        held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
-      );
-    }),
+    // The sweep's counts go five to a composite, each answered as a query.
+    ...compositeOver(query),
+    query,
     describe: vi.fn(async (object: string) => ({
       name: object,
       label: object,
       queryable: true,
       deletable: true,
       fields: [
-        'Id',
-        'Name',
-        'CreatedById',
-        'CreatedDate',
-        'LastModifiedDate',
-        'LastModifiedById',
-      ].map((name) => ({ name, label: name, type: 'string', nameField: name === 'Name' })),
+        ...['Id', 'Name', 'CreatedById', 'CreatedDate', 'LastModifiedDate', 'LastModifiedById'].map(
+          (name) => ({ name, label: name, type: 'string', nameField: name === 'Name' }),
+        ),
+        ...Object.entries(lookups.get(object) ?? {}).map(([name, referenceTo]) => ({
+          name,
+          label: name,
+          type: 'reference',
+          referenceTo,
+        })),
+      ],
       childRelationships: children.get(object) ?? [],
     })),
     describeGlobal: vi.fn(async () => ({
@@ -560,6 +573,175 @@ describe('a sweep asked with the removal of a Sync run', () => {
         /^The run created nothing, and none of the records it wrote over still says/,
       );
       expect(response.payload.listing.found).toEqual([]);
+    });
+  });
+
+  describe('told what ties a record to the run', () => {
+    const CASE = id('500', 1);
+    const ASSET = id('02i', 1);
+    const LOOSE = id('00T', 6);
+    const COLLEAGUE = id('005', 2);
+    /** `seconds` after the run's inserts, as the org writes a date. */
+    const after = (seconds: number): string =>
+      new Date(Date.parse(WRITTEN_AT) + seconds * 1000).toISOString().replace('Z', '+0000');
+    let tied: TiedTargetOrg;
+
+    /**
+     * The target after a Sync of an account, its contact and a case: what the
+     * case's flow made — an asset the case names (`Case.AssetId`, which
+     * refuses the asset's delete while the case stands) — and a task the
+     * run's user typed in the run's window, tied to nothing of it.
+     */
+    const tiedOrg = (): TiedTargetOrg => {
+      const org = tiedTargetOrg(USER);
+      org.shape('Account', {
+        children: [
+          { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+          { childSObject: 'Case', field: 'AccountId', cascadeDelete: true },
+        ],
+      });
+      org.shape('Contact', { references: { AccountId: ['Account'] } });
+      org.shape('Case', { references: { AccountId: ['Account'], AssetId: ['Asset'] } });
+      org.shape('Asset', {
+        children: [{ childSObject: 'Case', field: 'AssetId', restrictedDelete: true }],
+      });
+      org.shape('Task', { references: { WhoId: ['Contact'], WhatId: ['Account', 'Case'] } });
+      const made = (recordId: string, name: string, by: string, at: string, more = {}) => ({
+        ...rec(recordId, name, by, at, more),
+        SystemModstamp: at,
+      });
+      org.add('Account', made(ACCOUNT, 'Synced Co', USER, WRITTEN));
+      org.add('Contact', made(CONTACT, 'Synced Person', USER, WRITTEN, { AccountId: ACCOUNT }));
+      org.add(
+        'Case',
+        made(CASE, 'Synced case', USER, WRITTEN, { AccountId: ACCOUNT, AssetId: ASSET }),
+      );
+      org.add('Asset', made(ASSET, 'Insured risk', USER, after(1)));
+      org.add('Task', made(LOOSE, 'Loose task', USER, after(20)));
+      return org;
+    };
+
+    /** Keep a run of this machine, as the panel's Sync keeps one. */
+    const keep = async (
+      runId: string,
+      created: Array<[string, string[]]>,
+      more: { runUserId?: string; at?: string } = {},
+    ): Promise<void> => {
+      const runs = nodeSyncRunCreations(storage);
+      const recorder = runs.recorder({
+        runId,
+        configId: 'cfg-1',
+        configName: 'Cases',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET_ORG,
+        startedAt: STARTED,
+        ...(more.runUserId ? { runUserId: more.runUserId } : {}),
+      });
+      for (const [object, recordIds] of created) {
+        recorder.note(object, recordIds, more.at ?? WRITTEN_AT);
+      }
+      await recorder.end({ status: 'success' });
+      handler.setRunCreations(runs);
+    };
+
+    beforeEach(async () => {
+      // A folder of runs of its own: the run of the other tests wrote the
+      // same account and contact in the same window, and would be another
+      // run of this machine for this one's sweep.
+      rmSync(storage, { recursive: true, force: true });
+      storage = mkdtempSync(join(tmpdir(), 'sandforge-sync-sweep-tied-'));
+      await keep('run-cases', [
+        ['Account', [ACCOUNT]],
+        ['Contact', [CONTACT]],
+        ['Case', [CASE]],
+      ]);
+      tied = tiedOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(tied.conn as never);
+    });
+
+    it('deletes the asset the case names once the case is gone, and keeps what is tied to nothing unasked', async () => {
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
+
+      expect(errors()).toEqual([]);
+      const objects = tied.deletes.map((call) => call.object);
+      expect(objects.indexOf('Asset')).toBeGreaterThan(objects.indexOf('Case'));
+      expect(tied.ids('Asset')).toEqual([]);
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      const result = answer();
+      expect(result?.status).toBe('success');
+      expect(result?.sweep?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Asset', deleted: 1, afterRemoval: 1 }),
+      ]);
+      // Counted five to a composite.
+      expect(tied.composites.length).toBeGreaterThan(0);
+    });
+
+    it('takes what is tied to nothing when asked, and not while another run of this machine wrote in the window', async () => {
+      await handler.handle(
+        buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([]);
+
+      // Another Sync of this machine into the same target, half a minute in.
+      tied = tiedOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(tied.conn as never);
+      tied.add('Contact', rec(id('003', 7), 'Their person', USER, after(30)));
+      await keep('run-other', [['Contact', [id('003', 7)]]], {
+        at: new Date(Date.parse(WRITTEN_AT) + 30_000).toISOString(),
+      });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-cases' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(response.payload.listing.untied?.refusal).toMatch(/^Another run of this machine/);
+
+      await handler.handle(
+        buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(tied.ids('Contact')).toContain(id('003', 7));
+    });
+
+    it('lists none of the lines the platform copied under a quote the run synced: its removal names them', async () => {
+      const { created } = addSyncedQuote(tied, USER, WRITTEN);
+      await keep(
+        'run-quote',
+        created.map(({ objectApiName, ids: recordIds }) => [objectApiName, recordIds]),
+      );
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-quote' }));
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(response.payload.listing.looked).toContain('QuoteLineItem');
+      expect(response.payload.listing.found.map((found) => found.objectApiName)).not.toContain(
+        'QuoteLineItem',
+      );
+    });
+
+    it('takes the user the run’s file keeps, reading none of its records to tell it, nor a colleague’s', async () => {
+      await keep(
+        'run-cases-user',
+        [
+          ['Account', [ACCOUNT]],
+          ['Contact', [CONTACT]],
+          ['Case', [CASE]],
+        ],
+        { runUserId: USER },
+      );
+      tied.add('Task', rec(id('00T', 8), 'A colleague’s', COLLEAGUE, after(5), { WhatId: CASE }));
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-cases-user' }));
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(response.payload.listing.refusal).toBeUndefined();
+      expect(tied.queries.some((soql) => soql.startsWith('SELECT CreatedById FROM'))).toBe(false);
+      expect(tied.queries.some((soql) => soql.includes(`CreatedById = '${USER}'`))).toBe(true);
     });
   });
 

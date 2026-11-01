@@ -209,6 +209,15 @@ const headSchema = z.object({
      * Absent from a file written before files named their process.
      */
     writer: z.object({ pid: z.number().int().positive(), hostStartedAt: dateSchema }).optional(),
+    /**
+     * The user the run writes as, by Salesforce id, when its recorder was
+     * told it: what the sweep of its removal holds the records the target's
+     * automation made to (`SweepInput.runUserId`). Read back from the run's
+     * records otherwise — which a removal may have taken, and a Sync run that
+     * only wrote over records no longer says once their values are back.
+     * Absent from a file written before files named it.
+     */
+    runUserId: idSchema.optional(),
   }),
 });
 

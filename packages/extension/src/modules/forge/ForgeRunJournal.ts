@@ -11,6 +11,7 @@ import {
   type ForgeRemovalPlan,
   type ForgeWrittenBetween,
   type IdMapRow,
+  type RunCheckpointTaken,
 } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
@@ -171,6 +172,39 @@ const headSchema = z.object({
     // Read apart: a setup that no longer parses leaves the run removable,
     // and not resumable.
     resume: z.unknown().optional(),
+    /**
+     * The user the run writes as, by Salesforce id, when the run could read
+     * it before its first write: what the sweep of its removal holds the
+     * records the target's automation made to (`SweepInput.runUserId`). Read
+     * apart too: a head that names no such id is the run's all the same.
+     */
+    runUserId: z.unknown().optional(),
+  }),
+});
+
+/**
+ * The checkpoint the run took before its first write, once taken: the head is
+ * written before the take. A run a closed window stopped is kept in the
+ * history from its journal alone, and named no checkpoint: the rewind its
+ * page offers, and the resume that takes the run up, had none to go back to.
+ */
+const checkpointNoteSchema = z.object({
+  objectApiName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
+  reason: z.string().max(2_000),
+});
+const checkpointSchema = z.object({
+  checkpoint: z.object({
+    state: z.literal('taken'),
+    checkpointId: z.string().min(1).max(200),
+    name: z.string().max(500),
+    takenAt: z.string().min(1).max(40),
+    expiresAt: z.string().min(1).max(40).nullable(),
+    objects: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/)),
+    records: z.number().nonnegative(),
+    bytes: z.number().nonnegative(),
+    requests: z.number().nonnegative(),
+    added: z.array(checkpointNoteSchema),
+    notHeld: z.array(checkpointNoteSchema),
   }),
 });
 
@@ -198,12 +232,27 @@ const pageSchema = z.object({
 /** The head of a journal: the run, its org, what it was started with. */
 export type ForgeRunJournalHead = Pick<
   ForgeRunJournalRead,
-  'journalId' | 'targetOrgId' | 'startedAt' | 'resume'
+  'journalId' | 'targetOrgId' | 'startedAt' | 'resume' | 'runUserId'
 >;
+
+/** The user a head names, when it names a Salesforce id: it goes into a sweep's queries. */
+function runUserOf(value: unknown): string | undefined {
+  return idSchema.safeParse(value).success ? (value as string) : undefined;
+}
 
 /** Beside a journal, how its last part ended: read at once, where the journal is read whole. */
 function endPathOf(filePath: string): string {
   return filePath.replace(/\.ndjson$/, '') + '.end.json';
+}
+
+/**
+ * Beside a journal, the checkpoint its run took before its first write. Beside
+ * it, not in it: the take comes while the run's store has the journal open,
+ * and the store dates what it reads back by the offsets it counted itself, a
+ * line it did not write shifting every one after it.
+ */
+function checkpointPathOf(filePath: string): string {
+  return filePath.replace(/\.ndjson$/, '') + '.checkpoint.json';
 }
 
 /** Beside a journal, the ids of what the removals of one of its parts left: one per line. */
@@ -249,6 +298,17 @@ export interface ForgeRunJournalRead {
   startedAt: string;
   /** What the run was started with; absent from a journal kept before runs could be resumed. */
   resume?: ForgeRunResumeHead;
+  /**
+   * The user the run writes as, by Salesforce id; absent from a journal kept
+   * before runs named it, or of a run that could not read it.
+   */
+  runUserId?: string;
+  /**
+   * The checkpoint the run took before its first write, as kept beside the
+   * journal; absent when it took none, and from a journal kept before runs
+   * named it.
+   */
+  checkpoint?: RunCheckpointTaken;
   /** Parts the run has had. */
   parts: number;
   /** How the last part ended, and when; absent while it has not, or since a window closed under it. */
@@ -326,17 +386,47 @@ export class ForgeRunJournal {
     targetOrgId: string,
     startedAt: Date,
     resume?: ForgeRunResumeHead,
+    runUserId?: string,
   ): Promise<void> {
     await this.deps.mkdir(this.dir);
+    const user = runUserOf(runUserId);
     const head = {
       run: {
         journalId,
         targetOrgId,
         startedAt: startedAt.toISOString(),
         ...(resume ? { resume } : {}),
+        ...(user ? { runUserId: user } : {}),
       },
     };
     await this.deps.appendFile(this.filePath(journalId), `${JSON.stringify(head)}\n`);
+  }
+
+  /**
+   * Keep, beside the journal of a run, the checkpoint it took before its first
+   * write, read back with the journal (`read`): a run kept from its journal
+   * alone names it as the run's history entry does.
+   */
+  async keepCheckpoint(journalId: string, checkpoint: RunCheckpointTaken): Promise<void> {
+    const line = checkpointSchema.safeParse({ checkpoint });
+    if (!line.success) return;
+    const filePath = checkpointPathOf(this.filePath(journalId));
+    await this.deps.rm(filePath);
+    await this.deps.appendFile(filePath, `${JSON.stringify(line.data)}\n`);
+  }
+
+  /** The checkpoint kept beside the journal at `filePath`, or undefined when none reads. */
+  private async checkpointAt(filePath: string): Promise<RunCheckpointTaken | undefined> {
+    for await (const line of this.deps.readLines(checkpointPathOf(filePath))) {
+      if (line.trim() === '') continue;
+      try {
+        const kept = checkpointSchema.safeParse(JSON.parse(line));
+        return kept.success ? kept.data.checkpoint : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
   }
 
   /** The store the run under way writes its journal through: see `ForgeRunStore`. */
@@ -649,6 +739,7 @@ export class ForgeRunJournal {
     const filePath = this.filePath(journalId);
     await this.deps.rm(filePath);
     await this.deps.rm(endPathOf(filePath));
+    await this.deps.rm(checkpointPathOf(filePath));
     // What the removals of its parts left, and stamped, goes with it.
     const prefix = `${path.basename(filePath).replace(/\.ndjson$/, '')}.part`;
     for (const name of await this.deps.listFiles(this.dir)) {
@@ -690,6 +781,7 @@ export class ForgeRunJournal {
     else {
       await this.deps.rm(filePath);
       await this.deps.rm(endPathOf(filePath));
+      await this.deps.rm(checkpointPathOf(filePath));
     }
   }
 
@@ -907,9 +999,10 @@ export class ForgeRunJournal {
       }
       const parsed = headSchema.safeParse(value);
       if (!parsed.success) return undefined;
-      const { resume, ...run } = parsed.data.run;
+      const { resume, runUserId, ...run } = parsed.data.run;
       const setup = resumeOf(resume);
-      return { ...run, ...(setup ? { resume: setup } : {}) };
+      const user = runUserOf(runUserId);
+      return { ...run, ...(setup ? { resume: setup } : {}), ...(user ? { runUserId: user } : {}) };
     }
     return undefined;
   }
@@ -1055,6 +1148,8 @@ export class ForgeRunJournal {
     }
     if (!head) return undefined;
     const resume = resumeOf(head.resume);
+    const runUserId = runUserOf(head.runUserId);
+    const checkpoint = await this.checkpointAt(filePath);
     const idRemapTable: Record<string, string> = {};
     const byObject = new Map<string, string[]>();
     const linked: string[] = [];
@@ -1078,6 +1173,8 @@ export class ForgeRunJournal {
       targetOrgId: head.targetOrgId,
       startedAt: head.startedAt,
       ...(resume ? { resume } : {}),
+      ...(runUserId ? { runUserId } : {}),
+      ...(checkpoint ? { checkpoint } : {}),
       parts,
       partStartedAt: partStartedAt ?? head.startedAt,
       ...(lastEnd ? { lastEnd } : {}),

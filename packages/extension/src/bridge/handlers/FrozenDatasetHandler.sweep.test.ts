@@ -17,7 +17,9 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { compositeOver } from '../../test/compositeOver.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -43,6 +45,10 @@ const ORGANIZATION = '00DXX00000AbCdE2A1';
 const FIRST_WRITE = '2026-09-20T10:00:00.000Z';
 const LAST_WRITE = '2026-09-20T10:05:00.000Z';
 const DURING_LOAD = '2026-09-20T10:02:00.000+0000';
+/** Ten seconds before the load's last write: when it wrote the records of these tests. */
+const NEAR_ITS_END = '2026-09-20T10:04:50.000+0000';
+/** A second after them: what a flow in the same save opens. */
+const WITH_THEM = '2026-09-20T10:04:51.000+0000';
 /** Half a minute after the load's last write: what an asynchronous path writes. */
 const JUST_AFTER = '2026-09-20T10:05:30.000+0000';
 const LONG_AFTER = '2026-09-20T12:00:00.000+0000';
@@ -72,14 +78,15 @@ const rec = (recordId: string, name: string, by: string, created: string, extra 
  * after the last write, as an asynchronous path does — a task a flow opened
  * on the work order, and one the load's user typed hours later. Answers the
  * removal's reads and the sweep's as jsforce shows them, and deletes a work
- * order's feed with it.
+ * order's feed with it. A feed item keeps no `LastModifiedById`, and the org
+ * refuses a read of it.
  */
 function targetOrg() {
   const rows = new Map<string, Row[]>([
-    ['WorkOrder', [rec(WORK_ORDER, 'Repair', USER, DURING_LOAD)]],
+    ['WorkOrder', [rec(WORK_ORDER, 'Repair', USER, NEAR_ITS_END)]],
     [
       'ServiceAppointment',
-      [rec(APPOINTMENT, 'Visit', USER, DURING_LOAD, { ParentRecordId: WORK_ORDER })],
+      [rec(APPOINTMENT, 'Visit', USER, NEAR_ITS_END, { ParentRecordId: WORK_ORDER })],
     ],
     [
       'FeedItem',
@@ -91,7 +98,7 @@ function targetOrg() {
     [
       'Task',
       [
-        rec(id('00T', 1), 'Call the customer', USER, DURING_LOAD),
+        rec(id('00T', 1), 'Call the customer', USER, WITH_THEM, { WhatId: WORK_ORDER }),
         rec(id('00T', 2), 'Typed later', USER, LONG_AFTER),
       ],
     ],
@@ -106,6 +113,23 @@ function targetOrg() {
     ],
     ['ServiceAppointment', [{ childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true }]],
   ]);
+  /** The lookups a tie is read from, per object, to the objects each names. */
+  const lookups = new Map<string, Record<string, string[]>>([
+    ['ServiceAppointment', { ParentRecordId: ['WorkOrder'] }],
+    ['FeedItem', { ParentId: ['WorkOrder', 'ServiceAppointment'] }],
+    ['Task', { WhatId: ['WorkOrder'] }],
+  ]);
+  /** The columns an object lacks: the org refuses a read of one. */
+  const lacks = new Map([['FeedItem', ['LastModifiedById']]]);
+  const refuseMissing = (object: string, columns: string): void => {
+    const missing = (lacks.get(object) ?? []).find((c) => columns.split(', ').includes(c));
+    if (missing) {
+      throw Object.assign(
+        new Error(`INVALID_FIELD: No such column '${missing}' on entity '${object}'.`),
+        { errorCode: 'INVALID_FIELD' },
+      );
+    }
+  };
   const deletes: Array<{ object: string; ids: string[] }> = [];
   const bin = new Map<string, Row>();
   const pick = (row: Row, columns: string): Record<string, unknown> =>
@@ -127,61 +151,69 @@ function targetOrg() {
       }
     }
   };
+  const query = vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+    const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    if (soql === 'SELECT Id FROM Organization') return answer([{ Id: ORGANIZATION }]);
+    const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
+    if (deleted) {
+      const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
+      return answer(
+        wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
+      );
+    }
+    const created =
+      /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
+        soql,
+      );
+    if (created) {
+      const [, columns, object, user, from, to, after] = created;
+      refuseMissing(object, columns);
+      const found = (rows.get(object) ?? []).filter((row) => {
+        const at = Date.parse(String(row.CreatedDate));
+        return (
+          row.CreatedById === user &&
+          at >= Date.parse(from) &&
+          at <= Date.parse(to) &&
+          (!after || row.Id > after)
+        );
+      });
+      if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
+      return answer(found.map((row) => pick(row, columns)));
+    }
+    const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
+    if (!match) throw new Error(`unexpected query: ${soql}`);
+    const [, columns, object, field, list] = match;
+    refuseMissing(object, columns);
+    const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
+    const held = [
+      ...(rows.get(object) ?? []),
+      ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
+    ];
+    return answer(
+      held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
+    );
+  });
   const conn = {
     limitInfo: undefined,
-    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
-      const answer = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
-      if (soql === 'SELECT Id FROM Organization') return answer([{ Id: ORGANIZATION }]);
-      const deleted = /^SELECT Id FROM \w+ WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(soql);
-      if (deleted) {
-        const wanted = deleted[1].split(', ').map((q) => q.slice(1, -1));
-        return answer(
-          wanted.filter((x) => options?.scanAll === true && bin.has(x)).map((Id) => ({ Id })),
-        );
-      }
-      const created =
-        /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT \d+)?$/.exec(
-          soql,
-        );
-      if (created) {
-        const [, columns, object, user, from, to, after] = created;
-        const found = (rows.get(object) ?? []).filter((row) => {
-          const at = Date.parse(String(row.CreatedDate));
-          return (
-            row.CreatedById === user &&
-            at >= Date.parse(from) &&
-            at <= Date.parse(to) &&
-            (!after || row.Id > after)
-          );
-        });
-        if (columns === 'COUNT()') return { totalSize: found.length, done: true, records: [] };
-        return answer(found.map((row) => pick(row, columns)));
-      }
-      const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
-      if (!match) throw new Error(`unexpected query: ${soql}`);
-      const [, columns, object, field, list] = match;
-      const wanted = new Set(list.split(', ').map((q) => q.slice(1, -1)));
-      const held = [
-        ...(rows.get(object) ?? []),
-        ...(options?.scanAll ? [...bin.values()].filter((row) => row.object === object) : []),
-      ];
-      return answer(
-        held.filter((row) => wanted.has(String(row[field]))).map((row) => pick(row, columns)),
-      );
-    }),
+    // The sweep's counts go five to a composite, each answered as a query.
+    ...compositeOver(query),
+    query,
     describe: vi.fn(async (object: string) => ({
       name: object,
       label: object,
       queryable: true,
       deletable: true,
       fields: [
-        'Id',
-        'Name',
-        'CreatedById',
-        'CreatedDate',
-        'LastModifiedDate',
-        'LastModifiedById',
-      ].map((name) => ({ name, label: name, type: 'string', nameField: name === 'Name' })),
+        ...['Id', 'Name', 'CreatedById', 'CreatedDate', 'LastModifiedDate', 'LastModifiedById']
+          .filter((name) => !(lacks.get(object) ?? []).includes(name))
+          .map((name) => ({ name, label: name, type: 'string', nameField: name === 'Name' })),
+        ...Object.entries(lookups.get(object) ?? {}).map(([name, referenceTo]) => ({
+          name,
+          label: name,
+          type: 'reference',
+          referenceTo,
+        })),
+      ],
       childRelationships: children.get(object) ?? [],
     })),
     describeGlobal: vi.fn(async () => ({
@@ -343,17 +375,20 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     expect(ids('ServiceAppointment')).toEqual([APPOINTMENT]);
   });
 
-  it('sweeps first what the automation created during the load, and the load’s records then go', async () => {
+  it('takes what the automation made for the load around its records, which then go', async () => {
     await remove({ sweep: true });
 
     expect(errors()).toEqual([]);
     const result = answer();
     expect(result?.status).toBe('success');
     expect(result?.sweep).toMatchObject({ status: 'success' });
-    expect(result?.sweep?.objects.map((o) => [o.objectApiName, o.deleted])).toEqual(
+    // The task first; the feed items hang from the load's records, and go
+    // with them, holding none of them back.
+    expect(org.deletes[0]).toEqual({ object: 'Task', ids: [id('00T', 1)] });
+    expect(result?.sweep?.objects.map((o) => [o.objectApiName, o.deleted, o.alreadyGone])).toEqual(
       expect.arrayContaining([
-        ['FeedItem', 2],
-        ['Task', 1],
+        ['FeedItem', 0, 2],
+        ['Task', 1, 0],
       ]),
     );
     expect(ids('WorkOrder')).toEqual([]);
@@ -361,14 +396,11 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     expect(ids('FeedItem')).toEqual([]);
     // What the load's user typed hours later is no side effect of the load.
     expect(ids('Task')).toEqual([id('00T', 2)]);
-    // The sweep's deletes all come before the load's records'.
-    const objects = org.deletes.map((d) => d.object);
-    expect(objects.indexOf('ServiceAppointment')).toBeGreaterThan(objects.lastIndexOf('FeedItem'));
     const sweep = new AuditTrailStore(store)
       .list()
       .entries.find((entry) => entry.details?.sweep === true);
     expect(sweep).toMatchObject({ module: 'frozen', action: 'cleanup_delete' });
-    expect(sweep?.details).toMatchObject({ deleted: 3, loadedAt: LAST_WRITE });
+    expect(sweep?.details).toMatchObject({ deleted: 1, loadedAt: LAST_WRITE });
     expect(sweep?.details).not.toHaveProperty('forgeId');
   });
 
@@ -376,8 +408,6 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     // The task deleted, the org recalculates the work order's roll-up and
     // dates the work order then, as modified by the session's user. Read
     // after the sweep, the work order was a change since the load.
-    const task = org.rows.get('Task')?.find((row) => row.Id === id('00T', 1));
-    if (task) task.WhatId = WORK_ORDER;
     org.hooks.onDrop = (object, row) => {
       if (object !== 'Task') return;
       const workOrder = org.rows.get('WorkOrder')?.find((w) => w.Id === row.WhatId);
@@ -458,19 +488,31 @@ describe('a sweep asked with the removal of a Frozen load', () => {
         }),
         queryMore: vi.fn(async () => page([])),
       },
-      // The flow version, retrieved by id in a Tooling composite: it opens a task.
+      // The flow version, retrieved by id in a Tooling composite: it opens a
+      // task. The sweep's counts, five to a data composite, are answered as
+      // queries.
       request: vi.fn(async ({ body }: { body: string }) => {
         const { compositeRequest } = JSON.parse(body) as {
           compositeRequest: Array<{ url: string; referenceId: string }>;
         };
         return {
-          compositeResponse: compositeRequest.map((sub) => ({
-            referenceId: sub.referenceId,
-            httpStatusCode: 200,
-            body: sub.url.endsWith(`/Flow/${VERSION}`)
-              ? { Id: VERSION, Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] } }
-              : { totalSize: 0, done: true, records: [] },
-          })),
+          compositeResponse: await Promise.all(
+            compositeRequest.map(async (sub) => {
+              const counted = /\/query\?q=(.*)$/.exec(sub.url);
+              return {
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: counted
+                  ? await conn.query(decodeURIComponent(counted[1]))
+                  : sub.url.endsWith(`/Flow/${VERSION}`)
+                    ? {
+                        Id: VERSION,
+                        Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] },
+                      }
+                    : { totalSize: 0, done: true, records: [] },
+              };
+            }),
+          ),
         };
       }),
     };
@@ -526,11 +568,21 @@ describe('a sweep asked with the removal of a Frozen load', () => {
         ),
         `${lines.map((line) => JSON.stringify(line)).join('\n')}\n{"at":"2026-09`,
       );
-      // What the automation hung under the two records, half a minute after
-      // they were created: within the window their dates make.
+      // The two records as the target dated them, and what the automation
+      // hung under them half a minute after: within the window their dates make.
+      for (const row of [
+        ...(org.rows.get('WorkOrder') ?? []),
+        ...(org.rows.get('ServiceAppointment') ?? []),
+      ]) {
+        Object.assign(row, { CreatedDate: DURING_LOAD, LastModifiedDate: DURING_LOAD });
+      }
       for (const row of org.rows.get('FeedItem') ?? []) {
         Object.assign(row, { CreatedDate: SOON_AFTER, LastModifiedDate: SOON_AFTER });
       }
+      Object.assign(org.rows.get('Task')?.[0] ?? {}, {
+        CreatedDate: DURING_LOAD,
+        LastModifiedDate: DURING_LOAD,
+      });
     });
 
     it('lists what the automation created while it wrote, dated by the records it created', async () => {
@@ -559,7 +611,9 @@ describe('a sweep asked with the removal of a Frozen load', () => {
 
       expect(errors()).toEqual([]);
       expect(answer()?.sweep).toMatchObject({ status: 'success' });
-      expect(answer()?.sweep?.objects.map((o) => [o.objectApiName, o.deleted])).toEqual(
+      expect(
+        answer()?.sweep?.objects.map((o) => [o.objectApiName, o.deleted + o.alreadyGone]),
+      ).toEqual(
         expect.arrayContaining([
           ['FeedItem', 2],
           ['Task', 1],
@@ -570,6 +624,130 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       expect(ids('ServiceAppointment')).toEqual([]);
       // What the load's user typed hours later is no side effect of the load.
       expect(ids('Task')).toEqual([id('00T', 2)]);
+    });
+  });
+
+  describe('told what ties a record to the load', () => {
+    const ASSET = id('02i', 1);
+    const LOOSE = id('00T', 6);
+    let tied: TiedTargetOrg;
+
+    /**
+     * The target after the load: its work order names the asset the flow made
+     * (`WorkOrder.AssetId`, which refuses the asset's delete while the work
+     * order stands); a task the load's user typed in its window, tied to
+     * nothing of it.
+     */
+    const tiedOrg = (): TiedTargetOrg => {
+      const org = tiedTargetOrg(USER);
+      org.shape('Organization', { fields: ['Id'] });
+      org.add('Organization', { Id: ORGANIZATION });
+      org.shape('WorkOrder', { references: { AssetId: ['Asset'] } });
+      org.shape('ServiceAppointment', {
+        references: { ParentRecordId: ['WorkOrder'] },
+      });
+      org.shape('Asset', {
+        children: [{ childSObject: 'WorkOrder', field: 'AssetId', restrictedDelete: true }],
+      });
+      org.shape('Task', { references: { WhatId: ['WorkOrder'] } });
+      const made = (recordId: string, name: string, at: string, more = {}) => ({
+        ...rec(recordId, name, USER, at, more),
+        SystemModstamp: at,
+      });
+      org.add('WorkOrder', made(WORK_ORDER, 'Repair', NEAR_ITS_END, { AssetId: ASSET }));
+      org.add(
+        'ServiceAppointment',
+        made(APPOINTMENT, 'Visit', NEAR_ITS_END, { ParentRecordId: WORK_ORDER }),
+      );
+      org.add('Asset', made(ASSET, 'Insured risk', WITH_THEM));
+      org.add('Task', made(LOOSE, 'Loose task', WITH_THEM));
+      return org;
+    };
+
+    beforeEach(() => {
+      tied = tiedOrg();
+      mockGetConn.mockResolvedValue(tied.conn as never);
+    });
+
+    it('deletes the asset the work order names once it is gone, and keeps what is tied to nothing unasked', async () => {
+      await remove({ sweep: true });
+
+      expect(errors()).toEqual([]);
+      const objects = tied.deletes.map((call) => call.object);
+      expect(objects.indexOf('Asset')).toBeGreaterThan(objects.indexOf('WorkOrder'));
+      expect(tied.ids('Asset')).toEqual([]);
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+      expect(answer()?.status).toBe('success');
+      expect(answer()?.sweep?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Asset', deleted: 1, afterRemoval: 1 }),
+      ]);
+      expect(tied.composites.length).toBeGreaterThan(0);
+    });
+
+    it('takes what is tied to nothing when asked', async () => {
+      await remove({ sweep: true, sweepUntied: true });
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([]);
+    });
+
+    it('lists none of the lines the platform copied under a quote the load synced: its removal names them', async () => {
+      const { created } = addSyncedQuote(tied, USER, NEAR_ITS_END);
+      const keyed = created.flatMap(({ objectApiName, ids: recordIds }) =>
+        recordIds.map((recordId) => ({ objectApiName, key: `${objectApiName}-1`, recordId })),
+      );
+      await new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+        now: () => new Date(LAST_WRITE),
+      }).persist(new Map(keyed.map(({ key, recordId }) => [key, recordId])), {
+        created: keyed.map(({ objectApiName, key }) => ({ objectApiName, referenceIds: [key] })),
+        startedAt: new Date(FIRST_WRITE),
+        writtenBetween: { first: FIRST_WRITE, last: LAST_WRITE },
+      });
+
+      await handler.handle(
+        buildMsg('frozen:remove:sweep', { targetOrgId: TARGET_ORG, loadedAt: LAST_WRITE }),
+      );
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'frozen:remove:sweep:response',
+      );
+      expect(response?.payload.listing.looked).toContain('QuoteLineItem');
+      expect(response?.payload.listing.found.map((found) => found.objectApiName)).not.toContain(
+        'QuoteLineItem',
+      );
+    });
+
+    it('keeps what is tied to nothing while another load of this sas wrote in the window', async () => {
+      tied.add('Task', rec(id('00T', 7), 'Their task', USER, '2026-09-20T10:03:30.000+0000'));
+      await new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+        now: () => new Date('2026-09-20T10:04:00.000Z'),
+      }).persist(new Map([['Their-000001', id('00T', 7)]]), {
+        created: [{ objectApiName: 'Task', referenceIds: ['Their-000001'] }],
+        startedAt: new Date('2026-09-20T10:03:00.000Z'),
+        earlier: { settled: [] },
+        writtenBetween: {
+          first: '2026-09-20T10:03:00.000Z',
+          last: '2026-09-20T10:04:00.000Z',
+        },
+      });
+      // The load to remove is the last one recorded, whichever a removal takes next.
+      await handler.handle(
+        buildMsg('frozen:remove:sweep', {
+          targetOrgId: TARGET_ORG,
+          loadedAt: '2026-09-20T10:04:00.000Z',
+        }),
+      );
+      expect(errors('frozen:remove:sweep:error')).toEqual([]);
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'frozen:remove:sweep:response',
+      );
+      expect(response?.payload.listing.untied?.refusal ?? '').toMatch(
+        /Another run of this machine wrote to the target/,
+      );
     });
   });
 

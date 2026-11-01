@@ -21,7 +21,6 @@ import type {
   FrozenSelectionSummary,
   FrozenStatusInfo,
   ForgeRunObjectRecords,
-  ForgeSweepResult,
   ForgeTargetAutomation,
   GuardDecision,
   MutedAutomation,
@@ -49,11 +48,19 @@ import {
   sweepAuditDetails,
   sweepAuditObjects,
   sweepAutomationOf,
-  sweepFoundCount,
-  sweepFoundObjects,
-  sweepRunRecords,
   type SweepInput,
+  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import {
+  otherRunsInSweep,
+  removalBeganOf,
+  removalSweepOf,
+  sweepOrgOf,
+  sweepRefusalCode,
+  withoutPlatformCopies,
+  type LocalRun,
+  type RemovalSweep,
+} from './removalSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import {
   isMuteRefusedError,
@@ -3369,6 +3376,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         plan,
         includeChanged: parsed.includeChanged === true,
         sweep: parsed.sweep === true,
+        sweepLate: parsed.sweep === true && parsed.sweepLate === true,
+        sweepUntied: parsed.sweep === true && parsed.sweepUntied === true,
         pending,
       });
     } finally {
@@ -3610,8 +3619,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       load: RecordedLoad;
       plan: ForgeRunObjectRecords[];
       includeChanged: boolean;
-      /** Sweep first what the target's automation created during the load: see `sweepBeforeRemoval`. */
+      /** Sweep what the target's automation made for the load, around its records: see `sweepOfRemoval`. */
       sweep: boolean;
+      /** With the sweep, take too what it lists as made late, or tied to nothing of the load. */
+      sweepLate?: boolean;
+      sweepUntied?: boolean;
       /** The hold a cancel of the removal before it started reaches. */
       pending?: PendingStart;
     },
@@ -3761,29 +3773,39 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.liveTracker?.register(operationId, 'frozen', description, total);
     /** What the removal failed on, so the registry lists it as failed. */
     let runError: unknown;
+    /** The sweep asked with the removal, in its parts around the load's records. */
+    let sweeping: RemovalSweep | undefined;
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      // Made by the removal once it has read the load's records: a child the
-      // sweep deletes under one of them restamps that record when a roll-up
-      // counts it, which read afterwards was a change since the load.
-      const sweepMade: { result?: ForgeSweepResult } = {};
-      const sweepFirst = sweep
-        ? async (): Promise<boolean> => {
-            sweepMade.result = await this.sweepBeforeRemoval({
-              conn,
-              load,
-              includeChanged,
-              signal: abortController.signal,
-              guard: productionGuard,
-              operationId,
-            });
-            return sweepMade.result.objects.some((object) => object.deleted > 0);
-          }
+      // Made by the removal in its parts: the first once it has read the
+      // load's records — a child the sweep deletes under one of them restamps
+      // that record when a roll-up counts it, which read afterwards was a
+      // change since the load —, what goes with them holding none of them
+      // back, and the last once they are gone.
+      sweeping = sweep
+        ? await this.sweepOfRemoval({
+            conn,
+            load,
+            store,
+            includeChanged,
+            sweepLate: args.sweepLate === true,
+            sweepUntied: args.sweepUntied === true,
+            signal: abortController.signal,
+            guard: productionGuard,
+            operationId,
+          })
         : undefined;
+      const sweepParts = sweeping;
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
         ...removalSpanOf(load),
-        ...(sweepFirst ? { sweep: sweepFirst } : {}),
+        ...(sweepParts
+          ? {
+              sweep: () => sweepParts.first(),
+              afterRemoval: () => sweepParts.afterRemoval(),
+              automationMade: sweepParts.automationMade,
+            }
+          : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
         includeChanged,
         signal: abortController.signal,
@@ -3796,7 +3818,8 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
       });
-      const sweepResult = sweepMade.result;
+      // What the sweep did, in all its parts, recorded beside the removal.
+      const sweepResult = await sweeping?.settle();
       // A removal after one that marked the load takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = load.removal?.removedAt;
@@ -3870,6 +3893,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
+      // What the sweep deleted before the removal threw is recorded all the same.
+      await sweeping?.settle().catch(() => undefined);
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'frozen',
@@ -3890,79 +3915,70 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * The sweep of a load's removal: what the target's automation created
-   * during the load, as its user, that the load's mapping does not hold —
-   * Forge's sweep (`sweepRunRecords`), judged by Production Guard as a delete
-   * before its first one, recorded in the audit trail beside the removal as a
-   * `cleanup_delete` with a `sweep` detail, whatever it ended on.
+   * The sweep of a load's removal, in its parts around the load's records
+   * (`removalSweepOf`): what the target's automation made for the load, as
+   * its user, tied to what the load created, that its mapping does not hold
+   * — what came late or is tied to nothing only when asked too — judged by
+   * Production Guard as a delete before its first one, recorded in the audit
+   * trail beside the removal as a `cleanup_delete` with a `sweep` detail,
+   * whatever it ended on.
    *
-   * It runs before the load's records go, where Forge sweeps after a run's: a
-   * record the automation hung under one of the load's would otherwise hold
-   * it back as a record that stays. Run for real, a removal kept eight
-   * appointments and seven work orders for the feed items the target's
-   * automation created under them during the load.
+   * Its first part runs before the load's records go, where Forge swept
+   * after a run's: a record the automation hung under one of the load's
+   * would otherwise hold it back as a record that stays. Run for real, a
+   * removal kept eight appointments and seven work orders for the feed items
+   * the target's automation created under them during the load.
    */
-  private async sweepBeforeRemoval(context: {
+  private sweepOfRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     load: RecordedLoad;
+    store: SasReferenceIdMappingStore;
     includeChanged: boolean;
+    sweepLate: boolean;
+    sweepUntied: boolean;
     signal: AbortSignal;
     guard: ProductionGuard;
     operationId: string;
-  }): Promise<ForgeSweepResult> {
-    const { conn, load, guard } = context;
-    let guardDecision: GuardDecision | undefined;
-    let result: ForgeSweepResult;
-    try {
-      const org = removalOrg(conn, 'frozen:remove sweep');
-      const input = await this.sweepInputOfLoad(org, load, context.signal);
-      result = await sweepRunRecords(org, input, {
+  }): Promise<RemovalSweep> {
+    const { conn, load } = context;
+    return removalSweepOf({
+      input: () =>
+        this.sweepInputOfLoad(
+          removalOrg(conn, 'frozen:remove sweep'),
+          load,
+          context.signal,
+          context.store,
+        ),
+      org: sweepOrgOf(conn, 'frozen:remove sweep', context.signal),
+      options: {
         includeChanged: context.includeChanged,
         removalSpans: load.removalSpans,
-        approve: async (listing) => {
-          const { check, decision } = await consultProductionGuard(guard, {
-            orgId: load.orgId,
-            orgTier: this.targetTier(load.orgId),
-            operation: 'delete',
-            objectName: sweepFoundObjects(listing).join(', '),
-            recordCount: sweepFoundCount(listing),
-            module: 'frozen',
-          });
-          guardDecision = decision;
-          if (decision === 'refused') {
-            return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-          }
-          if (decision === 'declined') {
-            return 'Operation cancelled by user (confirmation declined).';
-          }
-          return undefined;
-        },
-      });
-    } catch (err: unknown) {
-      result = {
-        status: 'failure',
-        refusal: extractErrorMessage(err),
-        objects: [],
-        unread: [],
-        handWork: [],
-      };
-    }
-    const details = sweepAuditDetails(result, '');
-    delete details.forgeId;
-    recordWriteRun(this.deps, {
-      action: 'cleanup_delete',
-      module: 'frozen',
-      operationId: `${context.operationId}-sweep`,
-      orgId: load.orgId,
-      outcome: result.status === 'refused' ? 'stopped' : result.status,
-      ...(guardDecision ? { guard: guardDecision } : {}),
-      ...(result.status === 'refused'
-        ? { code: guardDecision ? 'GUARD_BLOCKED' : 'SWEEP_REFUSED' }
-        : {}),
-      objects: sweepAuditObjects(result),
-      details: { ...details, loadedAt: load.endedAt },
+        sweepLate: context.sweepLate,
+        sweepUntied: context.sweepUntied,
+      },
+      guard: context.guard,
+      guardOf: {
+        orgId: load.orgId,
+        orgTier: this.targetTier(load.orgId),
+        operation: 'delete',
+        module: 'frozen',
+      },
+      onGuardDecision: (result, guard) => {
+        const details = sweepAuditDetails(result, '');
+        delete details.forgeId;
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'frozen',
+          operationId: `${context.operationId}-sweep`,
+          orgId: load.orgId,
+          outcome: result.status === 'refused' ? 'stopped' : result.status,
+          ...(guard ? { guard } : {}),
+          ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
+          objects: sweepAuditObjects(result),
+          details: { ...details, loadedAt: load.endedAt },
+        });
+      },
     });
-    return result;
   }
 
   /**
@@ -3980,9 +3996,10 @@ export class FrozenDatasetHandler implements DomainHandler {
    * contact of a load killed under it, which no removal then took.
    */
   private async sweepInputOfLoad(
-    org: Pick<RemovalOrg, 'queryDeleted'>,
+    org: Pick<RemovalOrg, 'query' | 'queryDeleted'>,
     load: RecordedLoad,
     signal?: AbortSignal,
+    store?: Pick<SasReferenceIdMappingStore, 'recordedLoads'>,
   ): Promise<SweepInput> {
     const created = loadCreatedRecords(load);
     const remap = new Set([...load.mapping.values()].map((recordId) => recordId.slice(0, 15)));
@@ -4000,12 +4017,48 @@ export class FrozenDatasetHandler implements DomainHandler {
     } catch (err: unknown) {
       automation = { error: extractErrorMessage(err) };
     }
+    const writtenBetween = load.writtenBetween ?? (await seedWrittenBetween(org, created, signal));
+    return withoutPlatformCopies(
+      {
+        writtenBetween,
+        created,
+        remap,
+        automation: sweepAutomationOf(automation),
+        // Told the ties, the sweep takes only what is tied to the load's records.
+        ties: await this.tiesOfLoad(load, writtenBetween, store),
+        ...(signal ? { signal } : {}),
+      },
+      org,
+    );
+  }
+
+  /**
+   * What ties a record to the load beside its records (`SweepTies`): the
+   * records of the other loads this sas recorded into the same org in its
+   * window, and when its first removal began. What the load's mute kept
+   * quiet, the user it wrote as and what earlier sweeps found made for it,
+   * its mapping does not keep.
+   */
+  private async tiesOfLoad(
+    load: RecordedLoad,
+    writtenBetween: SweepInput['writtenBetween'],
+    store: Pick<SasReferenceIdMappingStore, 'recordedLoads'> | undefined,
+  ): Promise<SweepTies> {
+    const others: LocalRun[] = [];
+    for (const other of (await store?.recordedLoads().catch(() => [])) ?? []) {
+      if (other.endedAt === load.endedAt || other.orgId !== load.orgId) continue;
+      const first = Date.parse(other.writtenBetween?.first ?? other.startedAt ?? other.endedAt);
+      const last = Date.parse(other.writtenBetween?.last ?? other.endedAt);
+      others.push({
+        ids: loadCreatedRecords(other).flatMap(({ ids }) => ids),
+        from: first,
+        to: Number.isFinite(last) ? last : first,
+      });
+    }
+    const began = removalBeganOf(load.removalSpans);
     return {
-      writtenBetween: load.writtenBetween ?? (await seedWrittenBetween(org, created, signal)),
-      created,
-      remap,
-      automation: sweepAutomationOf(automation),
-      ...(signal ? { signal } : {}),
+      otherRuns: otherRunsInSweep(writtenBetween, others),
+      ...(began ? { removalBegan: began } : {}),
     };
   }
 
@@ -4063,8 +4116,12 @@ export class FrozenDatasetHandler implements DomainHandler {
             this.deps.orgRegistry,
             this.deps.orgManager,
           );
-          const org = removalOrg(conn, 'frozen:remove:sweep');
-          return listSweep(org, await this.sweepInputOfLoad(org, load));
+          const org = sweepOrgOf(conn, 'frozen:remove:sweep');
+          return listSweep(
+            org,
+            await this.sweepInputOfLoad(org, load, undefined, store),
+            load.removalSpans,
+          );
         },
       );
       this.deps.broker.postToWebview(

@@ -891,9 +891,12 @@ export interface ForgeSweepAutomationGaps {
 export interface ForgeSweepListing {
   /**
    * Why the sweep will not run, when it will not: nothing is deleted. The
-   * run's write window or its user could not be told, or the user created
-   * records in the window that neither the run nor the target's automation
-   * reaches — hand work, likely, in the same span.
+   * run's write window or its user could not be told, or — of a sweep that
+   * does not tell the records tied to the run from the rest — the user
+   * created records in the window that neither the run nor the target's
+   * automation reaches: hand work, likely, in the same span. A sweep told
+   * the ties is not refused for hand work: only what is tied to nothing of
+   * the run is, as `untied.refusal` says, and what is tied goes.
    */
   refusal?: string;
   /** The span looked in; absent when the run's writes were not dated. */
@@ -907,9 +910,13 @@ export interface ForgeSweepListing {
   /** What of the target's automation could not be read; absent when all of it was. */
   automationGaps?: ForgeSweepAutomationGaps;
   /**
-   * Records the run's user created in the window on objects neither the run
-   * nor the target's automation reaches, per object: said, never swept, and
-   * the reason the sweep is refused.
+   * Records the run's user created in the window on objects people make by
+   * hand, per object: said, never swept. Of a sweep that does not tell the
+   * ties, those on objects neither the run nor the target's automation
+   * reaches, and the reason the whole sweep is refused; of a sweep told the
+   * ties, those tied to nothing of the run, on any such object, which refuse
+   * only what is tied to nothing (`untied.refusal`) — an asset a case of the
+   * run names is the run's, not hand work.
    */
   handWork: ForgeRemovalLeftCount[];
   /**

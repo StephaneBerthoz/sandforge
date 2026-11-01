@@ -7,6 +7,9 @@ import {
   REMOVAL_PLANS_FILE,
   REMOVAL_PLANS_HARD_MAX_BYTES,
   REMOVAL_PLANS_MAX_BYTES,
+  SWEEP_MADE_FILE,
+  SWEEP_MADE_PER_OBJECT,
+  SWEEP_MADE_RUNS_KEPT,
 } from './ForgeRemovalPlanStore.js';
 
 const STORAGE = '/storage';
@@ -275,5 +278,61 @@ describe('ForgeRemovalPlanStore', () => {
     expect((await store.list()).map((p) => p.forgeId)).toEqual(['forge-good']);
     expect(await store.get('forge-good')).toEqual(plan('forge-good'));
     expect(await store.get('forge-bad-id')).toBeUndefined();
+  });
+});
+
+describe('what the sweeps of a run found made for it', () => {
+  it('keeps the ids a sweep found, adding to what earlier sweeps found, each once', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+    expect(await store.madeOf('run-1')).toEqual([]);
+
+    await store.keepMade('run-1', new Set([id('00T', 1), id('02i', 1)]));
+    await store.keepMade('run-1', [id('00T', 1).slice(0, 15), id('00T', 2)]);
+
+    expect(await store.madeOf('run-1')).toEqual([id('00T', 1), id('02i', 1), id('00T', 2)]);
+    expect(await store.madeOf('run-2')).toEqual([]);
+  });
+
+  it('survives a reload, in a file of its own beside the plans', async () => {
+    const disk = memoryDisk();
+    await new ForgeRemovalPlanStore(disk.deps).keepMade('run-1', [id('00T', 1)]);
+
+    expect([...disk.files.keys()]).toEqual([path.join(STORAGE, SWEEP_MADE_FILE)]);
+    expect(await new ForgeRemovalPlanStore(disk.deps).madeOf('run-1')).toEqual([id('00T', 1)]);
+    // The plans are as they were.
+    expect(await new ForgeRemovalPlanStore(disk.deps).list()).toEqual([]);
+  });
+
+  it('keeps no more of an object than a sweep takes, and leaves out what is no id', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+    const many = Array.from({ length: SWEEP_MADE_PER_OBJECT + 5 }, (_, n) => id('00T', n + 1));
+
+    await store.keepMade('run-1', [...many, id('02i', 1), "' OR Id != null"]);
+
+    const kept = await store.madeOf('run-1');
+    expect(kept.filter((recordId) => recordId.startsWith('00T'))).toHaveLength(
+      SWEEP_MADE_PER_OBJECT,
+    );
+    expect(kept).toContain(id('02i', 1));
+    expect(kept).toHaveLength(SWEEP_MADE_PER_OBJECT + 1);
+  });
+
+  it('keeps the newest runs’ finds at most, the oldest going first', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+    for (let n = 0; n <= SWEEP_MADE_RUNS_KEPT; n++) {
+      await store.keepMade(`run-${n}`, [id('00T', n + 1)]);
+    }
+
+    expect(await store.madeOf('run-0')).toEqual([]);
+    expect(await store.madeOf(`run-${SWEEP_MADE_RUNS_KEPT}`)).toEqual([
+      id('00T', SWEEP_MADE_RUNS_KEPT + 1),
+    ]);
+  });
+
+  it('reads a file that is not one as holding nothing', async () => {
+    const disk = memoryDisk();
+    disk.files.set(path.join(STORAGE, SWEEP_MADE_FILE), 'not json');
+
+    expect(await new ForgeRemovalPlanStore(disk.deps).madeOf('run-1')).toEqual([]);
   });
 });

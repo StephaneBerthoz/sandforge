@@ -272,10 +272,13 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         scoped,
       );
 
-      const result = forgeRunResult(summary, graph, {
-        startedAt: startTime,
-        status: finishedRunStatus(summary),
-      });
+      const result = withRunUser(
+        forgeRunResult(summary, graph, {
+          startedAt: startTime,
+          status: finishedRunStatus(summary),
+        }),
+        runOptions?.runUserId,
+      );
 
       this.emit('forge:complete', result);
       return result;
@@ -304,7 +307,28 @@ export type ForgeRunOptions = Pick<
 > & {
   anonymizationRules?: ForgeAnonymizationMethods;
   files?: ForgeFileCopyOption;
+  /**
+   * The user the run writes as, by Salesforce id, read from the target before
+   * the run: kept on its result (`ForgeExecutionResult.runUserId`), what the
+   * sweep of its removal holds the records the target's automation made to.
+   */
+  runUserId?: string;
 };
+
+/** A 15- or 18-character Salesforce id: what a sweep's queries take a user by. */
+const SF_ID_RE = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * A run's result with the user it wrote as, when that is a Salesforce id.
+ * Absent, the removal's sweep reads it again from the run's records, as for a
+ * run recorded before results kept it.
+ */
+function withRunUser(
+  result: ForgeExecutionResult,
+  runUserId: string | undefined,
+): ForgeExecutionResult {
+  return runUserId !== undefined && SF_ID_RE.test(runUserId) ? { ...result, runUserId } : result;
+}
 
 /**
  * What the executor is asked to do by a run of `config` over `graph`, as

@@ -1,5 +1,4 @@
 import type {
-  ForgeSweepResult,
   ForgeTargetAutomation,
   GuardDecision,
   SeedRemovalResult,
@@ -68,11 +67,20 @@ import {
   listSweep,
   sweepAuditDetails,
   sweepAuditObjects,
-  sweepFoundCount,
-  sweepFoundObjects,
-  sweepRunRecords,
   type SweepInput,
+  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import {
+  keptRunOf,
+  otherRunsInSweep,
+  removalBeganOf,
+  removalSweepOf,
+  sweepOrgOf,
+  sweepRefusalCode,
+  withoutPlatformCopies,
+  type LocalRun,
+  type RemovalSweep,
+} from './removalSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
@@ -534,7 +542,40 @@ export class SeedRemovalHandler implements DomainHandler {
     } catch (err: unknown) {
       automation = { error: extractErrorMessage(err) };
     }
-    return seedSweepInput(removalOrg(conn, context), run.created, automation, signal);
+    // Told the ties, the sweep takes only what is tied to the run's records;
+    // the window the other runs are judged by is the one read back from them.
+    const org = removalOrg(conn, context);
+    const input = await seedSweepInput(org, run.created, automation, signal, undefined, [], {
+      ...(run.runUserId ? { runUserId: run.runUserId } : {}),
+      ties: {},
+    });
+    return withoutPlatformCopies(
+      { ...input, ties: { ...input.ties, ...(await this.tiesOf(run, input)) } },
+      org,
+    );
+  }
+
+  /**
+   * What ties a record to the run beside its records (`SweepTies`): the
+   * records of the other seeds of this machine kept here that wrote to its
+   * target in its window, and when its first removal began. What the run's
+   * mute kept quiet, and what earlier sweeps found made for it, its file does
+   * not keep.
+   */
+  private async tiesOf(
+    run: SyncRunKept,
+    input: Pick<SweepInput, 'writtenBetween'>,
+  ): Promise<Omit<SweepTies, 'writtenOver'>> {
+    const others: LocalRun[] = [];
+    for (const other of (await this.creations?.list().catch(() => [])) ?? []) {
+      if (other.runId === run.runId || other.targetOrgId !== run.targetOrgId) continue;
+      others.push(keptRunOf(other));
+    }
+    const began = removalBeganOf(run.removal?.removalSpans);
+    return {
+      otherRuns: otherRunsInSweep(input.writtenBetween, others),
+      ...(began ? { removalBegan: began } : {}),
+    };
   }
 
   /**
@@ -584,7 +625,11 @@ export class SeedRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const input = await this.sweepInputOf(conn, run, 'seed:remove:sweep');
-          return listSweep(removalOrg(conn, 'seed:remove:sweep'), input);
+          return listSweep(
+            sweepOrgOf(conn, 'seed:remove:sweep'),
+            input,
+            run.removal?.removalSpans ?? [],
+          );
         },
       );
       this.deps.broker.postToWebview(
@@ -602,74 +647,59 @@ export class SeedRemovalHandler implements DomainHandler {
   }
 
   /**
-   * The sweep of a run's removal: what the target's automation created
-   * during the run, as its user, that the run did not write — Forge's sweep
-   * (`sweepRunRecords`), judged by Production Guard as a delete before its
-   * first one, recorded in the audit trail beside the removal as a
-   * `cleanup_delete` with a `sweep` detail, whatever it ended on. It runs
-   * before the run's records go, as a Frozen load's does: a task the target's
-   * automation hung under one of them would otherwise keep that record.
+   * The sweep of a run's removal, in its parts around the run's records
+   * (`removalSweepOf`): what the target's automation made for the run, as
+   * its user, tied to what the run created — what came late or is tied to
+   * nothing only when asked too — judged by Production Guard as a delete
+   * before its first one, recorded in the audit trail beside the removal as
+   * a `cleanup_delete` with a `sweep` detail, whatever it ended on. Its first
+   * part runs before the run's records go, as a Frozen load's does: a task
+   * the target's automation hung under one of them would otherwise keep that
+   * record.
    */
-  private async sweepBeforeRemoval(context: {
+  private sweepOfRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     run: SyncRunKept;
     includeChanged: boolean;
+    sweepLate: boolean;
+    sweepUntied: boolean;
     signal: AbortSignal;
     guard: ProductionGuard;
     operationId: string;
-  }): Promise<ForgeSweepResult> {
-    const { conn, run, guard } = context;
-    let guardDecision: GuardDecision | undefined;
-    let result: ForgeSweepResult;
-    try {
-      const input = await this.sweepInputOf(conn, run, 'seed:remove sweep', context.signal);
-      result = await sweepRunRecords(removalOrg(conn, 'seed:remove sweep'), input, {
+  }): Promise<RemovalSweep> {
+    const { conn, run } = context;
+    return removalSweepOf({
+      input: () => this.sweepInputOf(conn, run, 'seed:remove sweep', context.signal),
+      org: sweepOrgOf(conn, 'seed:remove sweep', context.signal),
+      options: {
         includeChanged: context.includeChanged,
         removalSpans: run.removal?.removalSpans ?? [],
-        approve: async (listing) => {
-          const { check, decision } = await consultProductionGuard(guard, {
-            orgId: run.targetOrgId,
-            orgTier: this.tierOf(run.targetOrgId),
-            operation: 'delete',
-            objectName: sweepFoundObjects(listing).join(', '),
-            recordCount: sweepFoundCount(listing),
-            module: 'seed',
-          });
-          guardDecision = decision;
-          if (decision === 'refused') {
-            return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-          }
-          if (decision === 'declined') {
-            return 'Operation cancelled by user (confirmation declined).';
-          }
-          return undefined;
-        },
-      });
-    } catch (err: unknown) {
-      result = {
-        status: 'failure',
-        refusal: extractErrorMessage(err),
-        objects: [],
-        unread: [],
-        handWork: [],
-      };
-    }
-    const details = sweepAuditDetails(result, '');
-    delete details.forgeId;
-    recordWriteRun(this.deps, {
-      action: 'cleanup_delete',
-      module: 'seed',
-      operationId: `${context.operationId}-sweep`,
-      orgId: run.targetOrgId,
-      outcome: result.status === 'refused' ? 'stopped' : result.status,
-      ...(guardDecision ? { guard: guardDecision } : {}),
-      ...(result.status === 'refused'
-        ? { code: guardDecision ? 'GUARD_BLOCKED' : 'SWEEP_REFUSED' }
-        : {}),
-      objects: sweepAuditObjects(result),
-      details: { ...details, runId: run.runId },
+        sweepLate: context.sweepLate,
+        sweepUntied: context.sweepUntied,
+      },
+      guard: context.guard,
+      guardOf: {
+        orgId: run.targetOrgId,
+        orgTier: this.tierOf(run.targetOrgId),
+        operation: 'delete',
+        module: 'seed',
+      },
+      onGuardDecision: (result, guard) => {
+        const details = sweepAuditDetails(result, '');
+        delete details.forgeId;
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'seed',
+          operationId: `${context.operationId}-sweep`,
+          orgId: run.targetOrgId,
+          outcome: result.status === 'refused' ? 'stopped' : result.status,
+          ...(guard ? { guard } : {}),
+          ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
+          objects: sweepAuditObjects(result),
+          details: { ...details, runId: run.runId },
+        });
+      },
     });
-    return result;
   }
 
   /** Answer a `seed:remove` that removes nothing, on its error channel. */
@@ -774,6 +804,8 @@ export class SeedRemovalHandler implements DomainHandler {
         {
           includeChanged: parsed.includeChanged === true,
           sweep: parsed.sweep === true,
+          sweepLate: parsed.sweep === true && parsed.sweepLate === true,
+          sweepUntied: parsed.sweep === true && parsed.sweepUntied === true,
           again,
           muteAutomation: parsed.muteAutomation === true,
         },
@@ -793,7 +825,14 @@ export class SeedRemovalHandler implements DomainHandler {
     msg: InboundRequest,
     store: SeedRunCreations,
     run: SyncRunKept,
-    asked: { includeChanged: boolean; sweep: boolean; again: boolean; muteAutomation?: boolean },
+    asked: {
+      includeChanged: boolean;
+      sweep: boolean;
+      sweepLate?: boolean;
+      sweepUntied?: boolean;
+      again: boolean;
+      muteAutomation?: boolean;
+    },
     pending: PendingStart | undefined,
   ): Promise<void> {
     const { includeChanged, again } = asked;
@@ -867,26 +906,29 @@ export class SeedRemovalHandler implements DomainHandler {
     this.liveTracker?.register(operationId, 'seed', description, total);
     /** What the removal failed on, so the registry lists it as failed. */
     let runError: unknown;
+    /** The sweep asked with the removal, in its parts around the run's records. */
+    let sweeping: RemovalSweep | undefined;
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      // Made by the removal once it has read the run's records: a child the
-      // sweep deletes under one of them restamps that record when a roll-up
-      // counts it, which read afterwards was a change since the run.
-      const sweepMade: { result?: ForgeSweepResult } = {};
-      const sweepFirst = asked.sweep
-        ? async (): Promise<boolean> => {
-            sweepMade.result = await this.sweepBeforeRemoval({
-              conn,
-              run,
-              includeChanged,
-              signal: abortController.signal,
-              guard,
-              operationId,
-            });
-            return sweepMade.result.objects.some((object) => object.deleted > 0);
-          }
+      // Made by the removal in its parts: the first once it has read the
+      // run's records — a child the sweep deletes under one of them restamps
+      // that record when a roll-up counts it, which read afterwards was a
+      // change since the run —, what goes with them holding none of them
+      // back, and the last once they are gone.
+      sweeping = asked.sweep
+        ? await this.sweepOfRemoval({
+            conn,
+            run,
+            includeChanged,
+            sweepLate: asked.sweepLate === true,
+            sweepUntied: asked.sweepUntied === true,
+            signal: abortController.signal,
+            guard,
+            operationId,
+          })
         : undefined;
+      const sweepParts = sweeping;
       // Asked to mute, the removal reads what its deletes fire, plans the mute
       // from it, and takes the lease before its first delete; it is given
       // back as the removal ends, whatever it ended on. Refused, nothing goes.
@@ -913,7 +955,14 @@ export class SeedRemovalHandler implements DomainHandler {
         includeChanged,
         ...(again ? { again } : {}),
         store,
-        ...(sweepFirst ? { sweep: sweepFirst } : {}),
+        ...(sweepParts
+          ? {
+              sweep: () => sweepParts.first(),
+              afterRemoval: () => sweepParts.afterRemoval(),
+              automationMade: sweepParts.automationMade,
+            }
+          : {}),
+        ...(run.runUserId ? { runUserId: run.runUserId } : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'seed:remove'),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
@@ -925,6 +974,8 @@ export class SeedRemovalHandler implements DomainHandler {
       }).finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
+      // What the sweep did, in all its parts, recorded beside the removal.
+      const swept = await sweeping?.settle();
       for (const note of notes) this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
       const result: SeedRemovalResult = {
         runId: removed.runId,
@@ -933,7 +984,7 @@ export class SeedRemovalHandler implements DomainHandler {
         objects: removed.objects,
         finishedAt: removed.finishedAt,
         ...(removed.leftBy ? { leftBy: removed.leftBy } : {}),
-        ...(sweepMade.result ? { sweep: sweepMade.result } : {}),
+        ...(swept ? { sweep: swept } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
@@ -970,6 +1021,8 @@ export class SeedRemovalHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
+      // What the sweep deleted before the removal threw is recorded all the same.
+      await sweeping?.settle().catch(() => undefined);
       // A mute refused stopped the removal before its first delete.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;
       this.recordNotRemoved(msg, run, muteRefused ? 'stopped' : 'failure', {

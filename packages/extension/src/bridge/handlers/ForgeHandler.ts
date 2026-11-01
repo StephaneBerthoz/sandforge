@@ -10,7 +10,6 @@ import type {
   ForgeGraph,
   ForgeRemovalPlan,
   ForgeRemovalSpan,
-  ForgeSweepResult,
   ForgeTemplate,
   ForgeUndoResult,
   ForgeRunObjectRecords,
@@ -197,12 +196,20 @@ import {
   sweepAuditDetails,
   sweepAuditObjects,
   sweepAutomationOf,
-  sweepFoundCount,
-  sweepFoundObjects,
   sweepMarkOf,
-  sweepRunRecords,
   type SweepInput,
+  type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
+import {
+  otherRunsInSweep,
+  removalBeganOf,
+  removalSweepOf,
+  sweepOrgOf,
+  sweepRefusalCode,
+  withoutPlatformCopies,
+  type LocalRun,
+  type RemovalSweep,
+} from './removalSweep.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -720,6 +727,10 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     journalId: read.journalId,
     journalPart: Math.max(0, read.parts - 1),
     ...(read.endBefore ? { retryOf: read.endBefore.forgeId, resumed: true as const } : {}),
+    // What the journal names beside its records: the user the run wrote as,
+    // and the checkpoint it took first, which its resume and its rewind go by.
+    ...(read.runUserId ? { runUserId: read.runUserId } : {}),
+    ...(read.checkpoint ? { checkpoint: read.checkpoint } : {}),
   };
 }
 
@@ -766,6 +777,9 @@ const AUTOMATION_TIMEOUT_MS = 60_000;
 /** Timeout for listing what a sweep would take, in milliseconds: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
+/** Timeout for reading the user a run writes as, in milliseconds: never what holds the run up. */
+const RUN_USER_TIMEOUT_MS = 15_000;
+
 /** What a removal that took none of the run's records hands on: a sweep alone. */
 const NOTHING_REMOVED: RunRemovalOutcome = {
   objects: [],
@@ -775,13 +789,20 @@ const NOTHING_REMOVED: RunRemovalOutcome = {
   left: async function* () {},
 };
 
-/** A sweep that did not run, whose refusal or failure says why. */
-const SWEEP_NOT_RUN: ForgeSweepResult = {
-  status: 'cancelled',
-  objects: [],
-  unread: [],
-  handWork: [],
-};
+/**
+ * When a run wrote, in epoch milliseconds: the target's dates where the run
+ * kept them, from when it was recorded back by how long it took otherwise.
+ */
+function spanOf(run: Pick<ForgeRemovalPlan, 'writtenBetween' | 'timestamp' | 'duration'>): {
+  from: number;
+  to: number;
+} {
+  const first = Date.parse(run.writtenBetween?.first ?? '');
+  const last = Date.parse(run.writtenBetween?.last ?? '');
+  if (Number.isFinite(first) && Number.isFinite(last)) return { from: first, to: last };
+  const recorded = Date.parse(run.timestamp);
+  return { from: recorded - Math.max(0, run.duration), to: recorded };
+}
 
 /** Why a sweep is refused for a run the history dropped. */
 const SWEEP_NEEDS_HISTORY =
@@ -854,6 +875,8 @@ type RunToRemove = Pick<
     /** The run's journal, and its part, which date a run its entry does not (`datedByItsJournal`). */
     journalId?: string;
     journalPart?: number;
+    /** The user the run wrote as, where its entry kept it (`ForgeExecutionResult.runUserId`). */
+    runUserId?: string;
   };
 
 /** Another part of the run a removal takes one part of, as {@link ForgeHandler} reads it. */
@@ -2239,6 +2262,8 @@ export class ForgeHandler implements DomainHandler {
     let journalId: string | undefined;
     /** The store the run writes its journal through; see `ForgeRunStore`. */
     let store: ForgeRunStore | undefined;
+    /** The user the run writes as, read from the target before its journal begins; see `runUserOf`. */
+    let runUserId: string | undefined;
     /** Of a resume, the rows of the calls under way when its run stopped that the target may hold. */
     let mayBeInTarget: InFlightObjectRows[] | undefined;
     /**
@@ -2504,6 +2529,13 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
+      // The user the run writes as, kept in its journal's head and on its
+      // result: what the sweep of its removal holds the records the target's
+      // automation made to. A run kept nothing of it, and its sweep read it
+      // back from the creator of its records, which a removal may have taken.
+      // Read beside the record types, and bounded: a target that does not
+      // answer leaves the run to go on as they do, not to wait twice.
+      const runUserRead = dryRun ? undefined : this.runUserOf(config.targetOrgId);
       // RecordType Ids differ between orgs. Without this table every cloned
       // record kept the source org's RecordTypeId, which the target rejects.
       const recordTypeMappings = await this.loadRecordTypeMappings(
@@ -2518,6 +2550,7 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
+      runUserId = await runUserRead;
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
       // What a run writes is kept on disk as it goes, so a window closed under
@@ -2557,11 +2590,17 @@ export class ForgeHandler implements DomainHandler {
                 await this.withRowsFoundAfterStop(resumed, reconciled.found);
               }
             })
-          : journal.begin(id, config.targetOrgId, new Date(startedAt), {
-              ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
-              // Kept for the run to be muted again when it is taken up.
-              ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
-            });
+          : journal.begin(
+              id,
+              config.targetOrgId,
+              new Date(startedAt),
+              {
+                ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
+                // Kept for the run to be muted again when it is taken up.
+                ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
+              },
+              runUserId,
+            );
         store = await begun.then(
           () => journal.open(id),
           (err: unknown) => {
@@ -2619,6 +2658,15 @@ export class ForgeHandler implements DomainHandler {
                 },
                 onTaken: (taken) => {
                   checkpointTaken = taken;
+                  // Named in the journal too: a run a closed window stops is
+                  // kept from its journal alone, and named no checkpoint.
+                  if (journal && journalId && store) {
+                    void journal.keepCheckpoint(journalId, taken).catch((err: unknown) => {
+                      logger.warn(
+                        `Forge run journal: the checkpoint taken first not named (${extractErrorMessage(err)})`,
+                      );
+                    });
+                  }
                 },
                 onProgress: (percentage) => {
                   const words = beforeRunProgressWords(percentage);
@@ -2651,6 +2699,7 @@ export class ForgeHandler implements DomainHandler {
             ceiling: readCeiling,
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
+          ...(runUserId ? { runUserId } : {}),
           // The lease the gate took is handed to the executor, which gives it
           // back once its last write is through, before it reads back the
           // record types the target gave: the bypass is held no longer than
@@ -2861,6 +2910,7 @@ export class ForgeHandler implements DomainHandler {
                 ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
                 : {}),
               ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
+              ...(runUserId ? { runUserId } : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -3021,6 +3071,8 @@ export class ForgeHandler implements DomainHandler {
       journalPart?: number;
       /** The checkpoint it took before its first write, or the one of the run it takes up. */
       checkpoint?: RunCheckpointInfo;
+      /** The user it wrote as, as the run read it before its first write. */
+      runUserId?: string;
     },
   ): ForgeExecutionResult | undefined {
     // Past the bound the summary holds no id, and counts what the run created.
@@ -3043,9 +3095,36 @@ export class ForgeHandler implements DomainHandler {
       ...(run.journalId ? { journalId: run.journalId } : {}),
       ...(run.journalId && run.journalPart !== undefined ? { journalPart: run.journalPart } : {}),
       ...(run.checkpoint ? { checkpoint: run.checkpoint } : {}),
+      ...(run.runUserId ? { runUserId: run.runUserId } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
+  }
+
+  /**
+   * The user a run writes to `targetOrgId` as, by Salesforce id: the
+   * session's, as the org's identity service names it. Undefined when it
+   * cannot be read: the run goes on all the same, and the sweep of its
+   * removal reads the user back from the creator of its records, as for a run
+   * recorded before runs kept it.
+   */
+  private async runUserOf(targetOrgId: string): Promise<string | undefined> {
+    try {
+      const userId = await new TimeoutManager(RUN_USER_TIMEOUT_MS).withTimeout(
+        'forge:execute run user',
+        async () => {
+          const conn = await getJsforceConnection(
+            targetOrgId,
+            this.deps.orgRegistry,
+            this.deps.orgManager,
+          );
+          return (await conn.identity()).user_id;
+        },
+      );
+      return typeof userId === 'string' && SF_ID_RE.test(userId) ? userId : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -4089,10 +4168,12 @@ export class ForgeHandler implements DomainHandler {
    * and the entry is marked once records went, so the removal is not offered
    * again once none is left.
    *
-   * Asked with a sweep, the removal is preceded by one (`sweepBeforeRemoval`):
-   * what the target's automation created during the run, as its user. A sweep
-   * needs the run's id map, which only the history holds: one asked of a run
-   * the history dropped is refused. Asked of a run whose records were all
+   * Asked with a sweep, the removal makes one around the run's records
+   * (`sweepOfRemoval`): what the target's automation made for the run, as
+   * its user, tied to the run's records — what came late or is tied to
+   * nothing only when asked too (`sweepLate`, `sweepUntied`). A sweep needs
+   * the run's id map, which only the history holds: one asked of a run the
+   * history dropped is refused. Asked of a run whose records were all
    * removed already, the sweep runs alone.
    *
    * Asked `again`, the removal takes every record the run created rather
@@ -4110,6 +4191,9 @@ export class ForgeHandler implements DomainHandler {
     const sweep = parsed.sweep === true;
     const again = parsed.again === true;
     const muteAutomation = parsed.muteAutomation === true;
+    // Asked with the sweep: what it lists as made late, or tied to nothing of the run, goes too.
+    const sweepLate = sweep && parsed.sweepLate === true;
+    const sweepUntied = sweep && parsed.sweepUntied === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     let entry = this.loadHistory().find((e) => e.forgeId === forgeId);
@@ -4261,7 +4345,7 @@ export class ForgeHandler implements DomainHandler {
           msg,
           run,
           plan,
-          { includeChanged, again, muteAutomation },
+          { includeChanged, again, muteAutomation, sweepLate, sweepUntied },
           sweep ? entry : undefined,
           pending,
         );
@@ -5302,7 +5386,13 @@ export class ForgeHandler implements DomainHandler {
     msg: InboundRequest,
     entry: RunToRemove,
     plan: ForgeRunObjectRecords[] | RunRecords,
-    asked: { includeChanged: boolean; again: boolean; muteAutomation?: boolean },
+    asked: {
+      includeChanged: boolean;
+      again: boolean;
+      muteAutomation?: boolean;
+      sweepLate?: boolean;
+      sweepUntied?: boolean;
+    },
     sweepOf?: ForgeExecutionResult,
     pending?: PendingStart,
   ): Promise<void> {
@@ -5432,6 +5522,8 @@ export class ForgeHandler implements DomainHandler {
     let runError: unknown;
     /** The run's other parts, read as the removal begins; let go once it is through. */
     let parts: OtherParts | undefined;
+    /** The sweep asked with the removal, in its parts around the run's records; see `sweepOfRemoval`. */
+    let sweeping: RemovalSweep | undefined;
 
     try {
       const conn = await getJsforceConnection(
@@ -5469,32 +5561,38 @@ export class ForgeHandler implements DomainHandler {
               })
           : {}),
       };
-      // The sweep comes before the run's own records go, as a Frozen load's
-      // does: a record the target's automation hung under one of them after
-      // the run's last write — a task or a feed item its asynchronous path
-      // opened — is not of the run, and would hold its parent back as a
-      // record that stays. The removal makes it once it has read the run's
+      // The sweep comes in parts around the run's own records, as a Frozen
+      // load's does. Before them, what neither goes with one of them nor
+      // waits for one: a record the target's automation hung under one of
+      // them after the run's last write — a task or a feed item its
+      // asynchronous path opened — would hold its parent back as a record
+      // that stays. The removal makes that part once it has read the run's
       // records: a child it deletes under one of them restamps that record
       // when a roll-up counts it, which read afterwards was a change since
-      // the run. A cancel during the sweep stops the removal too.
-      const sweepMade: { result?: ForgeSweepResult } = {};
-      const sweep = sweepOf
-        ? async (): Promise<boolean> => {
-            sweepMade.result = await this.sweepBeforeRemoval({
-              conn,
-              entry: sweepOf,
-              includeChanged,
-              removalSpans: entry.removalSpans ?? [],
-              signal: stop.signal,
-              guard,
-              orgTier,
-              operationId,
-            });
-            return sweepMade.result.objects.some((object) => object.deleted > 0);
-          }
-        : undefined;
+      // the run. With them, what goes in cascade, which holds none of them
+      // back (`automationMade`). After them, what one of them points at by a
+      // lookup the org refuses the delete for — the asset a case of the run
+      // names (`afterRemoval`). A cancel during the sweep stops the removal too.
+      if (sweepOf) {
+        sweeping = await this.sweepOfRemoval({
+          conn,
+          entry: sweepOf,
+          includeChanged,
+          sweepLate: asked.sweepLate === true,
+          sweepUntied: asked.sweepUntied === true,
+          removalSpans: entry.removalSpans ?? [],
+          signal: stop.signal,
+          guard,
+          orgTier,
+          operationId,
+        });
+      }
       // Nothing of the run to remove: the sweep alone, and no record of the run goes.
-      if (total === 0) await sweep?.();
+      const sweepParts = sweeping;
+      if (total === 0 && sweepParts) {
+        await sweepParts.first();
+        await sweepParts.afterRemoval();
+      }
       // The run's other parts, removed apart from this one: what this
       // removal's deletes restamp of their records is kept on each.
       if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
@@ -5513,7 +5611,14 @@ export class ForgeHandler implements DomainHandler {
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
               ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
-              ...(sweep ? { sweep } : {}),
+              ...(sweepParts
+                ? {
+                    sweep: () => sweepParts.first(),
+                    afterRemoval: () => sweepParts.afterRemoval(),
+                    automationMade: sweepParts.automationMade,
+                  }
+                : {}),
+              ...(entry.runUserId ? { runUserId: entry.runUserId } : {}),
               ...(parts && parts.parts.length > 0
                 ? { otherParts: parts.parts.map((part) => part.alongside) }
                 : {}),
@@ -5534,7 +5639,9 @@ export class ForgeHandler implements DomainHandler {
               if (held) mutedAutomation = await held.release();
             });
       if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
-      const sweepResult = sweepMade.result;
+      // What the sweep did, in all its parts: recorded beside the removal,
+      // and what it found made for the run kept for the next one.
+      const sweepResult = await sweeping?.settle();
       // A removal after one that marked the run takes what that one left:
       // the result and the audit trail say so, with when it ended. One taking
       // every record again picks up after none.
@@ -5679,6 +5786,10 @@ export class ForgeHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
+      // What the sweep deleted before the removal threw is recorded all the same.
+      await sweeping?.settle().catch((err: unknown) => {
+        logger.warn(`Forge sweep not recorded: ${extractErrorMessage(err)}`);
+      });
       // A lease that could not be taken stopped the removal before its first delete.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;
       recordWriteRun(this.deps, {
@@ -5943,91 +6054,91 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
-   * The sweep of a removal, before the run's own records go: what the
-   * target's automation created during the run, as its user, that the run's
-   * id map does not hold, found (`sweepRunRecords`), judged by Production
+   * The sweep of a removal, in its parts around the run's own records: what
+   * the target's automation made for the run, as its user, that the run's id
+   * map does not hold, found (`sweepParts`) — only what is tied to the run's
+   * records, what came late or is tied to nothing listed and kept unless the
+   * request asks for it (`sweepLate`, `sweepUntied`) — judged by Production
    * Guard as a delete before the first one — refused on a production org, a
    * Developer Edition counting as development — then deleted, children
    * first, until the removal's Cancel. The audit trail records it beside the
-   * removal, as a `cleanup_delete` with a `sweep` detail, whatever it ended on.
+   * removal, as a `cleanup_delete` with a `sweep` detail, whatever it ended
+   * on, and what it found made for the run is kept for the next one.
    *
    * Swept after the removal, a run's side effects held its records back: a
    * record the automation created under one of them a few seconds after the
    * run's last write — on an asynchronous path, out of the run's span — was
    * a record that stays, and the removal kept its parent "for records that
    * stay". Swept first, it is gone when the removal reads what hangs from
-   * the run's records.
+   * the run's records. What a record of the run points at by a lookup the
+   * org refuses the delete for goes last, once that record is gone.
    */
-  private async sweepBeforeRemoval(context: {
+  private sweepOfRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     entry: ForgeExecutionResult;
     includeChanged: boolean;
+    sweepLate: boolean;
+    sweepUntied: boolean;
     removalSpans: ForgeRemovalSpan[];
     signal: AbortSignal;
     guard: ProductionGuard;
     orgTier: SafetyTier;
     operationId: string;
-  }): Promise<ForgeSweepResult> {
-    const { conn, entry, guard, orgTier } = context;
+  }): Promise<RemovalSweep> {
+    const { conn, entry } = context;
     const targetOrgId = entry.targetOrgId ?? '';
-    let guardDecision: GuardDecision | undefined;
-    let result: ForgeSweepResult;
-    try {
-      const input = await this.sweepInputOf(entry, context.signal);
-      if ('gone' in input) {
-        result = { ...SWEEP_NOT_RUN, status: 'refused', refusal: input.gone };
-      } else {
-        result = await sweepRunRecords(removalOrg(conn, 'forge:undo sweep'), input, {
-          includeChanged: context.includeChanged,
-          removalSpans: context.removalSpans,
-          approve: async (listing) => {
-            const { check, decision } = await consultProductionGuard(guard, {
-              orgId: targetOrgId,
-              orgTier,
-              operation: 'delete',
-              objectName: sweepFoundObjects(listing).join(', '),
-              recordCount: sweepFoundCount(listing),
-              module: 'forge',
-            });
-            guardDecision = decision;
-            if (decision === 'refused') {
-              return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-            }
-            if (decision === 'declined') {
-              return 'Operation cancelled by user (confirmation declined).';
-            }
-            return undefined;
-          },
+    return removalSweepOf({
+      input: async () => {
+        const input = await this.sweepInputOf(entry, conn, context.signal);
+        return 'gone' in input ? { refused: input.gone } : input;
+      },
+      org: sweepOrgOf(conn, 'forge:undo sweep', context.signal),
+      options: {
+        includeChanged: context.includeChanged,
+        removalSpans: context.removalSpans,
+        sweepLate: context.sweepLate,
+        sweepUntied: context.sweepUntied,
+      },
+      guard: context.guard,
+      guardOf: {
+        orgId: targetOrgId,
+        orgTier: context.orgTier,
+        operation: 'delete',
+        module: 'forge',
+      },
+      onGuardDecision: (result, guard) =>
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'forge',
+          operationId: `${context.operationId}-sweep`,
+          orgId: targetOrgId,
+          outcome: result.status === 'refused' ? 'stopped' : result.status,
+          ...(guard ? { guard } : {}),
+          ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
+          objects: sweepAuditObjects(result),
+          details: sweepAuditDetails(result, entry.forgeId),
+        }),
+      keepMade: async (made) => {
+        await this.removalPlans?.keepMade(entry.forgeId, made).catch((err: unknown) => {
+          logger.warn(`Forge sweep finds not kept: ${extractErrorMessage(err)}`);
         });
-      }
-    } catch (err: unknown) {
-      result = { ...SWEEP_NOT_RUN, status: 'failure', refusal: extractErrorMessage(err) };
-    }
-    recordWriteRun(this.deps, {
-      action: 'cleanup_delete',
-      module: 'forge',
-      operationId: `${context.operationId}-sweep`,
-      orgId: targetOrgId,
-      outcome: result.status === 'refused' ? 'stopped' : result.status,
-      ...(guardDecision ? { guard: guardDecision } : {}),
-      ...(result.status === 'refused'
-        ? { code: guardDecision ? 'GUARD_BLOCKED' : 'SWEEP_REFUSED' }
-        : {}),
-      objects: sweepAuditObjects(result),
-      details: sweepAuditDetails(result, entry.forgeId),
+      },
     });
-    return result;
   }
 
   /**
    * What a sweep of a run is told of it, from its history entry: when the
-   * target dated its writes, what it created, every record its id map holds
-   * — read from its journal for a run past the bound — and what the target's
-   * automation creates as the run's objects are written, read now. `gone`
-   * when the journal that holds its ids cannot be read.
+   * target dated its writes, the user it wrote as, what it created, every
+   * record its id map holds — read from its journal for a run past the bound
+   * — and the lines the platform copied under a quote it synced, which its
+   * removal takes and names (`platformCopies`); what the target's automation
+   * creates as the run's objects are written, read now; and what ties a
+   * record to the run (`SweepTies`). `gone` when the journal that holds its
+   * ids cannot be read.
    */
   private async sweepInputOf(
     entry: ForgeExecutionResult,
+    conn: Parameters<typeof removalOrg>[0],
     signal?: AbortSignal,
   ): Promise<SweepInput | { gone: string }> {
     const read = await this.withIdsOf(entry);
@@ -6056,12 +6167,52 @@ export class ForgeHandler implements DomainHandler {
         automation = { error: extractErrorMessage(err) };
       }
     }
+    return withoutPlatformCopies(
+      {
+        writtenBetween: entry.writtenBetween,
+        created,
+        remap,
+        automation: sweepAutomationOf(automation),
+        ...(entry.runUserId ? { runUserId: entry.runUserId } : {}),
+        ties: await this.tiesOf(entry),
+        ...(signal ? { signal } : {}),
+      },
+      removalOrg(conn, 'forge:undo-sweep copies'),
+    );
+  }
+
+  /**
+   * What ties a record to the run, beside the records it created, as the
+   * sweep of its removal is told it (`SweepTies`): the records of the other
+   * runs of this machine that wrote to its target in its window — from the
+   * history and the plans kept of the runs it dropped —, what its mute kept
+   * quiet and what still ran, when its first removal began, and what the
+   * sweeps of its earlier removals found made for it.
+   */
+  private async tiesOf(entry: ForgeExecutionResult): Promise<SweepTies> {
+    const plans = await this.removalPlans?.list().catch(() => []);
+    const listed = new Set<string>();
+    const runs: LocalRun[] = [];
+    for (const other of this.loadHistory()) {
+      listed.add(other.forgeId);
+      if (other.forgeId === entry.forgeId || other.targetOrgId !== entry.targetOrgId) continue;
+      runs.push({ ids: forgeRunCreatedRecords(other).flatMap(({ ids }) => ids), ...spanOf(other) });
+    }
+    for (const plan of plans ?? []) {
+      if (listed.has(plan.forgeId) || plan.forgeId === entry.forgeId) continue;
+      if (plan.targetOrgId !== entry.targetOrgId) continue;
+      runs.push({ ids: plan.objects.flatMap(({ ids }) => ids), ...spanOf(plan) });
+    }
+    const muted = entry.mutedAutomation;
+    const began = removalBeganOf(entry.removalSpans);
+    const madeEarlier = await this.removalPlans?.madeOf(entry.forgeId).catch(() => []);
     return {
-      writtenBetween: entry.writtenBetween,
-      created,
-      remap,
-      automation: sweepAutomationOf(automation),
-      ...(signal ? { signal } : {}),
+      otherRuns: otherRunsInSweep(entry.writtenBetween, runs),
+      ...(muted?.state === 'muted'
+        ? { muted: { silenced: muted.silenced, stillRan: muted.stillRan } }
+        : {}),
+      ...(began ? { removalBegan: began } : {}),
+      ...(madeEarlier && madeEarlier.length > 0 ? { madeEarlier } : {}),
     };
   }
 
@@ -6101,14 +6252,16 @@ export class ForgeHandler implements DomainHandler {
       const listing = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
         'forge:undo-sweep',
         async () => {
-          const input = await this.sweepInputOf(entry);
-          if ('gone' in input) return input;
           const conn = await getJsforceConnection(
             targetOrgId,
             this.deps.orgRegistry,
             this.deps.orgManager,
           );
-          return listSweep(removalOrg(conn, 'forge:undo-sweep'), input);
+          const input = await this.sweepInputOf(entry, conn);
+          if ('gone' in input) return input;
+          // What the run's earlier removals changed while they ran is no
+          // change since the run, as the sweep they ask reads it.
+          return listSweep(sweepOrgOf(conn, 'forge:undo-sweep'), input, entry.removalSpans ?? []);
         },
       );
       if ('gone' in listing) {

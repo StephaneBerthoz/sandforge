@@ -94,7 +94,17 @@ export interface SeedRunStart {
    * whatever org the alias names by then.
    */
   targetOrganizationId?: string;
+  /**
+   * The user the run writes as, by Salesforce id, when the run read it before
+   * its first write: kept in its file's first line, what the sweep of its
+   * removal holds the records the target's automation made to. Absent, the
+   * sweep reads it back from the creator of the run's records.
+   */
+  runUserId?: string;
 }
+
+/** A 15- or 18-character Salesforce id: what a sweep's queries take a user by. */
+const SF_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 
 /** A Seed run as its result says it ended: what `seedRunKept` reads. */
 export interface SeedRunEnded {
@@ -107,6 +117,8 @@ export interface SeedRunEnded {
   /** Whether a cancel stopped it. */
   cancelled?: boolean;
   objectResults: ReadonlyArray<{ objectApiName: ApiName; createdIds: readonly string[] }>;
+  /** The user it wrote as, by Salesforce id, as its result keeps it (`SeedExecutionResult.runUserId`). */
+  runUserId?: string;
 }
 
 /**
@@ -128,6 +140,9 @@ export function seedRunKept(run: SeedRunEnded, removal?: SyncRunRemovalState): S
     created: run.objectResults
       .filter((object) => object.createdIds.length > 0)
       .map((object) => ({ objectApiName: object.objectApiName, ids: [...object.createdIds] })),
+    ...(run.runUserId !== undefined && SF_ID.test(run.runUserId)
+      ? { runUserId: run.runUserId }
+      : {}),
     ...(removal ? { removal } : {}),
   };
 }
@@ -220,6 +235,10 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       ...(start.targetOrganizationId !== undefined
         ? { targetOrganizationId: start.targetOrganizationId }
         : {}),
+      // Kept only as an id: the file's first line would not read otherwise.
+      ...(start.runUserId !== undefined && SF_ID.test(start.runUserId)
+        ? { runUserId: start.runUserId }
+        : {}),
     });
     /** The ids noted so far, by their first fifteen characters, as the file reads them back. */
     const noted = new Set<string>();
@@ -300,6 +319,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       runId: run.runId,
       targetOrgId: run.targetOrgId,
       ...(startedAt !== undefined ? { startedAt } : {}),
+      ...(run.runUserId !== undefined ? { runUserId: run.runUserId } : {}),
     }).end(run);
   }
 

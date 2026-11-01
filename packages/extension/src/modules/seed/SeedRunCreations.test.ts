@@ -47,6 +47,14 @@ describe('seedRunKept', () => {
     // The children first, the last record written first.
     expect(syncRemovalPlan(kept).map((o) => o.objectApiName)).toEqual(['Contact', 'Account']);
   });
+
+  it('keeps the user the run wrote as when its result names one by id, and none otherwise', () => {
+    expect(seedRunKept(run('op-1', { runUserId: fakeId('005', 1) })).runUserId).toBe(
+      fakeId('005', 1),
+    );
+    expect(seedRunKept(run('op-1', { runUserId: 'not an id' }))).not.toHaveProperty('runUserId');
+    expect(seedRunKept(run('op-1'))).not.toHaveProperty('runUserId');
+  });
 });
 
 describe('SeedRunCreations', () => {
@@ -80,6 +88,26 @@ describe('SeedRunCreations', () => {
     // Beside a Sync run's, never among them.
     expect(readdirSync(join(dir, SEED_RUNS_DIR))).toEqual(['op-1.ndjson']);
     expect(await nodeSyncRunCreations(dir).list()).toEqual([]);
+  });
+
+  it('keeps the user the run writes as in the first line of its file, read back after a reload', async () => {
+    const recorder = nodeSeedRunCreations(dir).recorder({
+      runId: 'op-user',
+      targetOrgId: 'org-target',
+      runUserId: fakeId('005', 1),
+    });
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.end({ status: 'success', objectResults: [] });
+    await nodeSeedRunCreations(dir).record(run('op-result', { runUserId: fakeId('005', 2) }));
+
+    // A store made after a reload: the sweep of its removal reads none of the
+    // run's records to tell the user.
+    const store = nodeSeedRunCreations(dir);
+    expect((await store.get('op-user'))?.runUserId).toBe(fakeId('005', 1));
+    expect((await store.get('op-result'))?.runUserId).toBe(fakeId('005', 2));
+    // A file that names no user reads all the same.
+    await store.record(run('op-none'));
+    expect(await store.get('op-none')).not.toHaveProperty('runUserId');
   });
 
   it('writes each insert down as it is noted, so a run that never ended is read back with what it wrote', async () => {
