@@ -92,11 +92,14 @@ const DEPENDENTS_READ_LIMIT = 2_000;
  * object that has neither `CreatedDate` nor `LastModifiedDate` may still keep
  * a system stamp, and one that keeps none is read without dates. Who last
  * modified a record tells a change since the run from what a removal of it
- * made the org write (`DependentsCheck.stays`): the org keeps it wherever it
- * keeps who created the record.
+ * made the org write (`DependentsCheck.stays`). A feed item keeps who created
+ * it and not who last modified it: read with its system stamp alone, the
+ * tracked change a removal's delete of line items made the org write passed
+ * for one added since the run, and kept the opportunity and its account.
  */
 const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
   ['CreatedDate', 'LastModifiedDate', 'CreatedById', 'LastModifiedById'],
+  ['CreatedDate', 'LastModifiedDate', 'CreatedById'],
   ['SystemModstamp'],
   [],
 ];
@@ -894,6 +897,20 @@ function recordKey(id: string): string {
 function isMissingColumn(err: unknown): boolean {
   const code = (err as { errorCode?: unknown } | null)?.errorCode;
   return code === 'INVALID_FIELD' || /no such column/i.test(extractErrorMessage(err));
+}
+
+/**
+ * The first of {@link DEPENDENT_DATE_COLUMNS} after `tried` that does not ask
+ * for the column the org said the object lacks: a file's link keeps no
+ * `CreatedDate`, and is not asked it twice. The next one when the org named
+ * none.
+ */
+function datesWithout(err: unknown, tried: number): number {
+  const missing = /no such column '(\w+)'/i.exec(extractErrorMessage(err))?.[1];
+  const next = DEPENDENT_DATE_COLUMNS.findIndex(
+    (dates, at) => at > tried && (missing === undefined || !dates.includes(missing)),
+  );
+  return next === -1 ? DEPENDENT_DATE_COLUMNS.length : next;
 }
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
@@ -3326,8 +3343,8 @@ class DependentsCheck {
       ...(PLATFORM_ADDED[child]?.ends ?? []),
       ...(relationship.personContacts ? [PERSON_ACCOUNT_FLAG] : []),
     ]);
-    const first = this.datesKept.get(child) ?? 0;
-    for (let tried = first; tried < DEPENDENT_DATE_COLUMNS.length; tried++) {
+    let tried = this.datesKept.get(child) ?? 0;
+    while (tried < DEPENDENT_DATE_COLUMNS.length) {
       const dates = DEPENDENT_DATE_COLUMNS[tried];
       let answer: { records: unknown[] };
       try {
@@ -3337,7 +3354,12 @@ class DependentsCheck {
         );
       } catch (err: unknown) {
         // A column the object does not have, never one that failed by chance.
-        if (isMissingColumn(err)) this.datesKept.set(child, tried + 1);
+        if (isMissingColumn(err)) {
+          tried = datesWithout(err, tried);
+          this.datesKept.set(child, tried);
+        } else {
+          tried++;
+        }
         continue;
       }
       // A read that filled its limit may hold more than it read: every

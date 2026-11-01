@@ -882,7 +882,8 @@ describe('removeRunRecords', () => {
       keptDependents: 0,
       unchecked: ['Task'],
     });
-    expect(org.queries.filter((q) => q.includes('FROM Task WHERE'))).toHaveLength(3);
+    // Asked with each set of dates in turn, down to none.
+    expect(org.queries.filter((q) => q.includes('FROM Task WHERE'))).toHaveLength(4);
   });
 
   it('reads a relationship without the usual dates by its system stamp', async () => {
@@ -2577,11 +2578,20 @@ describe('removeRunRecords', () => {
      * book, written by the user the removal runs as. Deleting a line item
      * changes the opportunity's amount: the org dates the opportunity then,
      * as modified by the user who deleted the item, and feed tracking records
-     * the change on it, as created by that user — as a sandbox did. It
+     * the change on it, as created by that user — as a sandbox did. A feed
+     * item keeps no `LastModifiedById`, as the sandbox's describe says. It
      * refuses the price book while an opportunity is priced from it.
      */
     function opportunityWithLineItems(): FakeOrg {
       const org = new FakeOrg();
+      org.columns.set('FeedItem', [
+        'Id',
+        'ParentId',
+        'CreatedDate',
+        'LastModifiedDate',
+        'CreatedById',
+        'SystemModstamp',
+      ]);
       const written = (recordId: string, fields: Record<string, unknown> = {}): Row =>
         runRow(recordId, { ...fields, LastModifiedById: USER });
       org.add('Account', written(ACCOUNT));
