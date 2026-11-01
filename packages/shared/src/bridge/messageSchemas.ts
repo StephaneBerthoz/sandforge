@@ -533,8 +533,6 @@ const AIMessages = [
   msg('ai:generate-pipeline:response'),
   msg('ai:scenario-draft'),
   msg('ai:scenario-draft:response'),
-  msg('ai:schema-advice'),
-  msg('ai:schema-advice:response'),
   // Provider status banner (breaker open / half-open / closed).
   msg('ai:provider:status'),
   // Token budget gauge: one counter for the window, shared by every AI feature.

@@ -36,13 +36,10 @@ const COMPARE_PAGE = readFileSync(
 const HEADING_TO_TAB: Readonly<Record<string, string>> = {
   'Metadata Diff': 'diff',
   'Permission Presence': 'permissions',
-  Snapshots: 'snapshots',
+  Objects: 'objects',
   'Org Settings Drift': 'drift',
   'Deploy from Diff': 'deploy',
 };
-
-/** Headings that describe a control on the page rather than one of its tabs. */
-const NON_TAB_HEADINGS: readonly string[] = ['Schema Advice'];
 
 /** Spelled-out counts, so the doc's "five tabs" can be checked against the code. */
 const NUMBER_WORDS: readonly string[] = [
@@ -113,21 +110,32 @@ describe('docs/modules/compare.md', () => {
     const tabIds = tabIdsFromSource(COMPARE_PAGE);
 
     for (const heading of featureHeadings(DOC)) {
-      if (NON_TAB_HEADINGS.includes(heading)) continue;
       const tabId = HEADING_TO_TAB[heading];
       expect(tabId, `"### ${heading}" documents no known tab or control`).toBeDefined();
       expect(tabIds, `"### ${heading}" describes a tab absent from COMPARE_TABS`).toContain(tabId);
     }
   });
 
-  it('does not sell the rule-based schema advice as AI', () => {
-    // SchemaAdvisor is a local rule engine — `new SchemaAdvisor()` takes no
-    // provider and `analyzeSchema` is synchronous — so the doc must not put a
-    // model behind the button.
-    const section = /\n### Schema Advice([^\n]*)\n([\s\S]*?)(?=\n#{2,3} |$)/.exec(DOC);
-    expect(section, 'no "### Schema Advice" section in compare.md').not.toBeNull();
-    expect(section![1], 'the heading must not qualify Schema Advice').toBe('');
-    expect(section![2], 'the section must not put a model behind the button').not.toMatch(/\bAI\b/);
+  it('documents no Schema Advice, whose button is gone', () => {
+    // It described four fixed objects of the source org in English sentences
+    // and compared nothing: the button, its request and its rules went, and
+    // the page sells none of them.
+    expect(COMPARE_PAGE).not.toMatch(/schema-?advice/i);
+    expect(DOC).not.toMatch(/schema advice/i);
+  });
+
+  it('scores only what a deployment changes, and names what only the target holds apart', () => {
+    const enrich = readFileSync(
+      resolve(REPO_ROOT, 'packages/webview/src/pages/Compare/enrichDiffs.ts'),
+      'utf8',
+    );
+    // A component only the target holds weighs nothing: a deployment leaves it.
+    const mult = /const CHANGE_MULT[^=]*= \{([\s\S]*?)\};/.exec(enrich)?.[1] ?? '';
+    expect(mult).toMatch(/removed:/);
+    expect(mult).not.toMatch(/added:/);
+    const card = /- \*\*Risk Score Card\*\* -- ([^\n]+)/.exec(DOC)?.[1] ?? '';
+    expect(card).toMatch(/only in the target are on a line of their own, with no risk level/);
+    expect(card).toMatch(/nor while a change it deploys rates high or critical/);
   });
 
   it('describes the deployment the code runs: validated check-only first, nothing deleted', () => {

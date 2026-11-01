@@ -4,7 +4,12 @@ import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
 import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
-import { listEntry, plainPreview, readyCheckpoint } from './fixtures/checkpoints';
+import {
+  listEntry,
+  plainPreview,
+  previewOfEverything,
+  readyCheckpoint,
+} from './fixtures/checkpoints';
 
 /** A checkpoint of the first mock org a Rewind step can name: its id one a step's schema reads. */
 function rewindableCheckpoint() {
@@ -5187,6 +5192,10 @@ for (const theme of SCANNED_THEMES) {
       await page.waitForSelector('[data-testid="compare-page"]', { timeout: 5000 }).catch(() => {
         // May show EmptyState if < 2 orgs processed — still scan
       });
+      // Run Comparison off, with why under it: scanned with the rest.
+      await expect(page.getByTestId('compare-run-needs')).toHaveText(
+        'Pick a source and a different target org',
+      );
       const results = await checkAccessibility(page);
       expectNoViolations(results);
     });
@@ -6585,6 +6594,76 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, results, '[data-testid="checkpoint-preview-row-Account"]'),
         'axe measured no text of the row not rewound',
       ).toBeGreaterThan(0);
+      const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+      expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+    });
+
+    test('Checkpoint preview holding Rewind: the boxes it waits for said under it, each a link to its box', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint({
+        checkpointId: 'ck-axe-held',
+        scope: { mode: 'picked', leftOut: [] },
+      });
+      await openPanel(bridge, page, 'checkpoint', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [listEntry(checkpoint)],
+      });
+      await page.getByTestId('checkpoint-rewind-ck-axe-held').click();
+      await bridge.waitForMessage('checkpoint:preview', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewOfEverything('ck-axe-held'),
+      );
+      const needs = page.getByTestId('checkpoint-preview-rewind-needs');
+      await expect(page.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+      await expect(needs.getByRole('button')).toHaveCount(3);
+      await needs.scrollIntoViewIfNeeded();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="checkpoint-preview-rewind-needs"]'),
+        'axe measured no text of the line under Rewind',
+      ).toBeGreaterThan(1);
+      const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+      expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+    });
+
+    test('Checkpoints list with a row’s More open: Rename, Export… and Stop comparing fields…', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint({ checkpointId: 'ck-axe-more' });
+      await openPanel(bridge, page, 'checkpoint', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [listEntry(checkpoint)],
+      });
+      const more = page.getByTestId('checkpoint-more-ck-axe-more');
+      await more.click();
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      const actions = page.getByTestId('checkpoint-more-actions-ck-axe-more');
+      await expect(actions.getByRole('button')).toHaveText([
+        'Rename',
+        'Export…',
+        'Stop comparing fields…',
+      ]);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="checkpoint-more-actions-ck-axe-more"]',
+        ),
+        'axe measured no text under More',
+      ).toBeGreaterThan(2);
       const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
       expect(shortfalls, shortfalls.join('\n')).toEqual([]);
     });
@@ -8708,6 +8787,14 @@ for (const theme of STATE_THEMES) {
         'Only in the target',
       );
       await expect(page.getByTestId('diff-item-Invoicing')).toContainText('High risk');
+      // The field only the target holds is rated nowhere, and said apart on
+      // the card; the breaking change the card names under its gauge.
+      await expect(page.getByTestId('diff-item-Account.Legacy__c')).not.toContainText('risk');
+      await expect(page.getByTestId('risk-score-label')).toHaveText('High risk');
+      await expect(page.getByTestId('risk-target-only')).toHaveText(
+        '1 component only in the target: a deployment leaves it; removing it by hand may lose data.',
+      );
+      await expect(page.getByTestId('deployment-advice')).not.toContainText('Safe to deploy');
 
       await expectReadable(page, theme);
     });
@@ -8774,6 +8861,10 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('deploy-target-refused')).toContainText(
         'a sandbox, a scratch org or a Developer Edition org',
       );
+      // Said alone: no picker, no tests and no Validate in front of it.
+      await expect(page.getByTestId('deploy-pick-another-target')).toBeVisible();
+      await expect(page.getByTestId('deploy-candidates')).toHaveCount(0);
+      await expect(page.getByTestId('deploy-validate-btn')).toHaveCount(0);
 
       await expectReadable(page, theme);
     });

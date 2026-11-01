@@ -29,9 +29,9 @@ const mockGetConn = vi.mocked(getJsforceConnection);
 const mockQuery = vi.mocked(queryWithFieldsFallbackBounded);
 
 /**
- * Schema advice and the anomaly scan are pure rule engines: no provider, no
- * key, no network. They must answer with AI off and with no key stored, and
- * they must never reach a model.
+ * The anomaly scan is a pure rule engine: no provider, no key, no network. It
+ * must answer with AI off and with no key stored, and it must never reach a
+ * model.
  */
 describe('initAIComposition — rule-based analysis is not gated on AI', () => {
   const posted: Array<BaseMessage & { payload: Record<string, unknown> }> = [];
@@ -91,14 +91,7 @@ describe('initAIComposition — rule-based analysis is not gated on AI', () => {
     vi.clearAllMocks();
     posted.length = 0;
     analysisHandler = new AIAnalysisHandler(handlerDeps());
-    mockGetConn.mockResolvedValue({
-      describe: vi.fn().mockResolvedValue({
-        name: 'Account',
-        label: 'Account',
-        custom: false,
-        fields: [{ name: 'Legacy_Code', label: 'Legacy Code', type: 'string', custom: true }],
-      }),
-    } as never);
+    mockGetConn.mockResolvedValue({} as never);
     mockQuery.mockResolvedValue({
       records: [
         { Id: '001', Name: 'Acme', Email: 'a@b.c' },
@@ -106,17 +99,6 @@ describe('initAIComposition — rule-based analysis is not gated on AI', () => {
       ],
       limit: 500,
     });
-  });
-
-  it('answers ai:schema-advice when AI is disabled, without calling a provider', async () => {
-    await initAIComposition(makeDeps({ aiEnabled: false }));
-
-    await analysisHandler.handle(request('ai:schema-advice', { orgId: 'org-1' }));
-
-    const response = lastOf('ai:schema-advice:response');
-    expect(response?.payload.success).toBe(true);
-    expect(chat).not.toHaveBeenCalled();
-    expect(aiClientFactory).not.toHaveBeenCalled();
   });
 
   it('answers ai:anomaly-scan when AI is disabled, without calling a provider', async () => {
@@ -132,15 +114,13 @@ describe('initAIComposition — rule-based analysis is not gated on AI', () => {
     expect(aiClientFactory).not.toHaveBeenCalled();
   });
 
-  it('answers both when AI is enabled but no API key is stored', async () => {
+  it('answers when AI is enabled but no API key is stored', async () => {
     await initAIComposition(makeDeps({ aiEnabled: true, hasKey: false }));
 
-    await analysisHandler.handle(request('ai:schema-advice', { orgId: 'org-1' }));
     await analysisHandler.handle(
       request('ai:anomaly-scan', { orgId: 'org-1', objectName: 'Account' }),
     );
 
-    expect(lastOf('ai:schema-advice:response')?.payload.success).toBe(true);
     expect(lastOf('ai:anomaly-scan:response')?.payload.success).toBe(true);
     expect(chat).not.toHaveBeenCalled();
   });
@@ -148,13 +128,20 @@ describe('initAIComposition — rule-based analysis is not gated on AI', () => {
   it('reports real findings rather than an empty shell', async () => {
     await initAIComposition(makeDeps({ aiEnabled: false }));
 
-    await analysisHandler.handle(request('ai:schema-advice', { orgId: 'org-1' }));
+    await analysisHandler.handle(
+      request('ai:anomaly-scan', { orgId: 'org-1', objectName: 'Account' }),
+    );
 
-    const advice = lastOf('ai:schema-advice:response')?.payload.advice as {
-      issues: Array<{ message: string }>;
-    };
-    // `Legacy_Code` is custom and lacks the `__c` suffix.
-    expect(advice.issues.length).toBeGreaterThan(0);
-    expect(advice.issues[0].message).toContain('__c');
+    const anomalies = lastOf('ai:anomaly-scan:response')?.payload.anomalies as Array<{
+      type: string;
+      field: string;
+    }>;
+    // Both sample rows carry the same name and the same email.
+    expect(anomalies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'duplicate', field: 'Name' }),
+        expect.objectContaining({ type: 'duplicate', field: 'Email' }),
+      ]),
+    );
   });
 });

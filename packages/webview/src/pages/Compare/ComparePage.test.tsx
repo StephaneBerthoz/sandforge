@@ -228,6 +228,49 @@ describe('ComparePage', () => {
     fireEvent.click(screen.getByTestId('cat-ApexClass'));
   }
 
+  it('says under Run Comparison what it waits for: two different orgs, then a category', () => {
+    // Categories start at none, so the button stayed off once two orgs were
+    // picked, with nothing near it to say why.
+    render(<ComparePage />);
+    const run = screen.getByTestId('run-compare-btn');
+    const needs = (): string | null =>
+      screen.queryByTestId('compare-run-needs')?.textContent ?? null;
+
+    expect(needs()).toBe('Pick a source and a different target org');
+    expect(run.getAttribute('aria-describedby')).toBe(screen.getByTestId('compare-run-needs').id);
+
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-1' } });
+    expect(needs()).toBe('Pick a source and a different target org');
+
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    expect(needs()).toBe('Pick at least one category');
+    expect(run.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.click(screen.getByTestId('cat-ApexClass'));
+    expect(needs()).toBeNull();
+    expect(run.hasAttribute('disabled')).toBe(false);
+    expect(run.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('offers no Schema Advice, which compared nothing', () => {
+    // It described four fixed objects of the source org in English, beside
+    // Run Comparison.
+    render(<ComparePage />);
+    readyToRun();
+    expect(screen.queryByTestId('schema-advice-btn')).toBeNull();
+    expect(screen.queryByText(/schema advice/i)).toBeNull();
+    expect(screen.getByTestId('page-header-actions').querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('names the tab of both orgs’ live object lists Objects, not Snapshots', () => {
+    // Beside Checkpoints, a newcomer took "Snapshots" for saved states.
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    render(<ComparePage />);
+    expect(screen.getByTestId('page-tab-objects').textContent).toBe('Objects');
+    expect(screen.queryByText('Snapshots')).toBeNull();
+  });
+
   it('compares what a managed package installed unless the box is unticked', () => {
     render(<ComparePage />);
     const box = screen.getByLabelText('Include managed package components') as HTMLInputElement;
@@ -375,7 +418,7 @@ describe('ComparePage', () => {
     expect(screen.getByText('Deploy from Diff')).toBeDefined();
   });
 
-  it('offers the changes of the comparison for deployment, and refuses its production target', () => {
+  it('draws the deployment from the comparison, and refuses its production target before anything else', () => {
     mockCompareMutationState = {
       mutate: mockCompareMutate,
       data: {
@@ -419,17 +462,21 @@ describe('ComparePage', () => {
     // two orgs it compared, whatever the selectors say by then.
     expect(screen.getByTestId('compare-deploy')).toBeDefined();
     expect(screen.getByText('Deploy from Dev to Prod')).toBeDefined();
-    expect(screen.getByTestId('deploy-pick-ApexClass:TestClass')).toBeDefined();
-    // Prod is a production org: the page says so, and sends nothing.
+    // Prod is a production org: the page says so, and offers nothing to pick,
+    // test or validate.
     expect(screen.getByTestId('deploy-target-refused')).toBeDefined();
-    fireEvent.click(screen.getByTestId('deploy-pick-ApexClass:TestClass'));
-    expect((screen.getByTestId('deploy-validate-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('deploy-pick-ApexClass:TestClass')).toBeNull();
+    expect(screen.queryByTestId('deploy-validate-btn')).toBeNull();
     expect(screen.queryByTestId('compare-deploy-soon')).toBeNull();
   });
 
   it('keeps what the Deploy tab holds across a visit to another tab', () => {
     // A validation runs for minutes: a tab change must not drop its answer,
-    // nor what was picked for it.
+    // nor what was picked for it. The target is a sandbox here, which the tab
+    // deploys to.
+    useOrgStore.setState({
+      orgs: [twoOrgs[0], { ...twoOrgs[1], orgType: 'Sandbox', safetyTier: OrgSafetyTier.LOW }],
+    });
     mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
     render(<ComparePage />);
 
@@ -513,7 +560,7 @@ describe('ComparePage', () => {
     };
     render(<ComparePage />);
 
-    fireEvent.click(screen.getByTestId('page-tab-snapshots'));
+    fireEvent.click(screen.getByTestId('page-tab-objects'));
 
     expect(screen.getByTestId('snapshot-comparison')).toBeDefined();
     expect(screen.getByTestId('snapshot-source-total').textContent).toBe('812 objects');

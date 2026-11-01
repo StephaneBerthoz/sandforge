@@ -282,10 +282,10 @@ describe('RewindResult', () => {
         .map((heading) => heading.textContent),
     ).toEqual(['No longer in the recycle bin', 'Refused by DEV-SB']);
     expect(screen.getByTestId('checkpoint-result-residual-notInBin-Account').textContent).toBe(
-      'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids',
+      'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with “Recreate, with new Ids, records already emptied from the Recycle Bin” ticked to make them again, with new Ids',
     );
     expect(screen.getByTestId('checkpoint-result-residual-notInBin-Contact').textContent).toBe(
-      'Contact: 1 record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make it again, with a new Id',
+      'Contact: 1 record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with “Recreate, with new Ids, records already emptied from the Recycle Bin” ticked to make it again, with a new Id',
     );
   });
 

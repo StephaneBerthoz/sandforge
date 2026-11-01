@@ -237,6 +237,10 @@ describe('retired AI channels', () => {
     // The resolution of a failed operation is shown as a VS Code notification
     // where the failure is raised; it never crossed the bridge.
     'ai:resolve-error:response',
+    // Compare's Schema Advice described four fixed objects of the source org
+    // in English sentences, compared nothing, and is gone with its button.
+    'ai:schema-advice',
+    'ai:schema-advice:response',
   ];
 
   it.each(RETIRED)('refuses %s', (type) => {

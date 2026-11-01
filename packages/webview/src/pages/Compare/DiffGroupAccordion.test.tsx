@@ -82,9 +82,50 @@ describe('DiffGroupAccordion', () => {
     ];
     render(<DiffGroupAccordion diffs={diffs} />);
     expect(screen.getByText('4 changes')).toBeDefined();
-    expect(screen.getByText('2+')).toBeDefined();
-    expect(screen.getByText('1-')).toBeDefined();
-    expect(screen.getByText('1~')).toBeDefined();
+    expect(screen.getByText('+2')).toBeDefined();
+    expect(screen.getByText('-1')).toBeDefined();
+    expect(screen.getByText('~1')).toBeDefined();
+  });
+
+  it('writes the symbol before the count, as the summary bar does', () => {
+    // "1-" read as a stray minus after the count.
+    render(<DiffGroupAccordion diffs={[createDiff({ group: 'G', changeType: 'added' })]} />);
+    expect(screen.getByText('-1')).toBeDefined();
+    expect(screen.queryByText('1-')).toBeNull();
+  });
+
+  it('rates no change a deployment leaves, in its row or in its group', () => {
+    // A field only the target holds read "Critical risk" in its row and in its
+    // group's header, the heaviest warning on the page over the one change
+    // SandForge never makes.
+    render(
+      <DiffGroupAccordion
+        diffs={[
+          createDiff({
+            group: 'Data Model',
+            category: 'CustomField',
+            name: 'Account.Legacy__c',
+            changeType: 'added',
+            riskLevel: 'none',
+          }),
+          createDiff({ group: 'Apex Code', changeType: 'modified', riskLevel: 'high' }),
+        ]}
+      />,
+    );
+    const dataModel = screen.getByTestId('diff-group-toggle-Data Model');
+    expect(dataModel.textContent).not.toMatch(/risk/i);
+    expect(screen.getByTestId('diff-group-toggle-Apex Code').textContent).toContain('High risk');
+    fireEvent.click(dataModel);
+    expect(screen.getByTestId('diff-item-Account.Legacy__c').textContent).not.toMatch(/risk/i);
+  });
+
+  it('draws its chevron as an icon, where a codicon span painted nothing', () => {
+    render(<DiffGroupAccordion diffs={[createDiff({ group: 'G' })]} />);
+    const toggle = screen.getByTestId('diff-group-toggle-G');
+    expect(toggle.querySelector('[data-testid="icon-chevron-right"]')).not.toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.querySelector('[data-testid="icon-chevron-down"]')).not.toBeNull();
+    expect(toggle.querySelector('.codicon')).toBeNull();
   });
 
   it('says each count in words, where the header shows a symbol', () => {
@@ -120,9 +161,9 @@ describe('DiffGroupAccordion', () => {
       badge.className.match(/bg-status-(\w+)/)?.[1],
     ]);
     expect(counts.slice(0, 3)).toEqual([
-      ['2+', 'success'],
-      ['1-', 'error'],
-      ['1~', 'warning'],
+      ['+2', 'success'],
+      ['-1', 'error'],
+      ['~1', 'warning'],
     ]);
   });
 
@@ -239,7 +280,8 @@ describe('DiffGroupAccordion', () => {
         <DiffGroupAccordion
           diffs={[
             createDiff({ name: 'SourceOnly', changeType: 'removed', riskLevel: 'low' }),
-            createDiff({ name: 'TargetOnly', changeType: 'added', riskLevel: 'critical' }),
+            createDiff({ name: 'Both', changeType: 'modified', riskLevel: 'critical' }),
+            createDiff({ name: 'TargetOnly', changeType: 'added', riskLevel: 'none' }),
           ]}
         />,
       );
@@ -247,12 +289,13 @@ describe('DiffGroupAccordion', () => {
       expect(header.textContent).toContain('Risque critique');
       fireEvent.click(header);
       const sourceOnly = screen.getByTestId('diff-item-SourceOnly').textContent;
+      const both = screen.getByTestId('diff-item-Both').textContent;
       const targetOnly = screen.getByTestId('diff-item-TargetOnly').textContent;
       expect(sourceOnly).toContain('Seulement dans la source');
       expect(sourceOnly).toContain('Risque faible');
+      expect(both).toContain('Risque critique');
       expect(targetOnly).toContain('Seulement dans la cible');
-      expect(targetOnly).toContain('Risque critique');
-      expect(`${sourceOnly} ${targetOnly}`).not.toMatch(/removed|added|low|critical/);
+      expect(`${sourceOnly} ${both} ${targetOnly}`).not.toMatch(/removed|added|low|critical/);
     } finally {
       await i18n.changeLanguage('en');
     }

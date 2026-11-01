@@ -485,6 +485,15 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const undoCannotId = useId();
   const recreateId = useId();
   const unseenId = useId();
+  // Each box a Rewind waits for, by id: the line under a Rewind still off
+  // takes the keyboard to it.
+  const boxIds = {
+    noUndo: useId(),
+    recreate: useId(),
+    unseen: useId(),
+    automation: useId(),
+  } as const;
+  const rewindNeedsId = useId();
   const [ticked, setTicked] = useState<Ticked>({
     automation: false,
     noUndo: false,
@@ -606,6 +615,65 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     (remade.length === 0 || ticked.recreate) &&
     (unseen.length === 0 || ticked.unseen) &&
     (!automationFound || ticked.automation);
+
+  // The boxes still to tick, each with the words it is ticked by. The
+  // labels are the Automation Rewind step's, so both places say the same.
+  const boxLabels: Readonly<Record<keyof typeof boxIds, string>> = {
+    noUndo: t('checkpoint.preview.undoCannot.accept'),
+    recreate: t('checkpoint.preview.recreate.accept'),
+    unseen: t('checkpoint.preview.unseen.accept'),
+    automation: t('checkpoint.preview.automation.accept'),
+  };
+  const untickedBoxes = (
+    [
+      ['noUndo', counted.undoCannot.length > 0],
+      ['recreate', remade.length > 0],
+      ['unseen', unseen.length > 0],
+      ['automation', writes && shown !== undefined && automationFound],
+    ] as const
+  )
+    .filter(([box, asked]) => asked && !ticked[box])
+    .map(([box]) => box);
+  // Why Rewind is off, said under it: it was off with nothing near it to say
+  // which of up to four boxes, a refusal or a plan still read held it.
+  const rewindNeeds: React.ReactNode =
+    canRewind || !onRewind ? null : readingAgain ? (
+      t('checkpoint.preview.readingAgain', { org: orgName })
+    ) : selecting && picks.length === 0 ? (
+      t('checkpoint.preview.selection.none')
+    ) : selecting && plan === null ? (
+      planError ? (
+        t('checkpoint.preview.rewindNeeds.planFailed')
+      ) : (
+        t('checkpoint.preview.rewindNeeds.plan')
+      )
+    ) : !writes ? (
+      t('checkpoint.preview.nothingToWrite')
+    ) : refused && lifted === undefined ? (
+      (refusal?.message ?? null)
+    ) : untickedBoxes.length > 0 ? (
+      <>
+        <span>{t('checkpoint.preview.rewindNeeds.tick')}</span>
+        <ul className="ml-4 list-disc">
+          {untickedBoxes.map((box) => (
+            <li key={box}>
+              <button
+                type="button"
+                className="text-left text-(--sf-text-link) underline hover:no-underline"
+                onClick={() => document.getElementById(boxIds[box])?.focus()}
+                data-testid={`checkpoint-preview-needs-box-${box}`}
+              >
+                {boxLabels[box]}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </>
+    ) : (
+      // A refusal a box lifts, its box not offered for what is ticked: said
+      // as the org said it.
+      (refusal?.message ?? null)
+    );
 
   const rewind = (): void => {
     if (!canRewind || !onRewind) return;
@@ -744,9 +812,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             })}
           </ul>
           <Box
+            id={boxIds.noUndo}
             checked={ticked.noUndo}
             onChange={(value) => tick('noUndo', value)}
-            label={t('checkpoint.preview.undoCannot.accept')}
+            label={boxLabels.noUndo}
             testId="checkpoint-preview-accept-no-undo"
           />
         </section>
@@ -786,9 +855,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           )}
           <p>{t('checkpoint.preview.recreate.newIds')}</p>
           <Box
+            id={boxIds.recreate}
             checked={ticked.recreate}
             onChange={(value) => tick('recreate', value)}
-            label={t('checkpoint.preview.recreate.accept')}
+            label={boxLabels.recreate}
             testId="checkpoint-preview-accept-recreate"
           />
         </section>
@@ -821,9 +891,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           </ul>
           <p>{t('checkpoint.preview.unseen.why', { user: org.username })}</p>
           <Box
+            id={boxIds.unseen}
             checked={ticked.unseen}
             onChange={(value) => tick('unseen', value)}
-            label={t('checkpoint.preview.unseen.accept', { user: org.username })}
+            label={boxLabels.unseen}
             testId="checkpoint-preview-accept-unseen"
           />
         </section>
@@ -871,9 +942,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           )}
           {automationFound && (
             <Box
+              id={boxIds.automation}
               checked={ticked.automation}
               onChange={(value) => tick('automation', value)}
-              label={t('checkpoint.preview.automation.accept', { org: orgName })}
+              label={boxLabels.automation}
               testId="checkpoint-preview-accept-automation"
             />
           )}
@@ -898,15 +970,21 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       )}
 
       {writesAny && onRewind && (
-        <div>
+        <div className="flex flex-col items-start gap-1.5">
           <Button
             variant="danger"
             onClick={rewind}
             disabled={!canRewind}
+            aria-describedby={rewindNeeds !== null ? rewindNeedsId : undefined}
             data-testid="checkpoint-preview-rewind"
           >
             {t('checkpoint.preview.rewind', { org: orgName })}
           </Button>
+          {rewindNeeds !== null && (
+            <div id={rewindNeedsId} data-testid="checkpoint-preview-rewind-needs">
+              {rewindNeeds}
+            </div>
+          )}
         </div>
       )}
 
@@ -1036,13 +1114,16 @@ function confirmDescription(
 
 /** A box the user ticks to accept what the preview names. */
 const Box: React.FC<{
+  /** Its input's id, for a box the line under Rewind can take the keyboard to. */
+  id?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
   testId: string;
-}> = ({ checked, onChange, label, testId }) => (
+}> = ({ id, checked, onChange, label, testId }) => (
   <label className="flex items-start gap-2 text-xs font-medium">
     <input
+      id={id}
       type="checkbox"
       checked={checked}
       onChange={(event) => onChange(event.target.checked)}
@@ -1052,7 +1133,7 @@ const Box: React.FC<{
   </label>
 );
 
-/** The preview's three numbers: to delete, to give back, to bring back. */
+/** The preview's three numbers: to delete, to restore the values of, to undelete. */
 const Numbers: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
   const { t } = useTranslation();
   const totals = rewindTotals(diff);
@@ -1123,11 +1204,12 @@ const People: React.FC<{ diff: RewindDiff; checkpoint: OrgCheckpoint; org: Sales
   const active = diff.activeLastHour.map((userId) => diff.userNames[userId] ?? userId);
   const sharedUser = diff.activeLastHour.includes(checkpoint.takenBy.userId);
   if (changers.length === 0 && active.length === 0) return null;
-  // "Alice Martin 120": a name and a number, which no noun follows.
+  // "Alice Martin 120" was a name and a number, which no noun followed: the
+  // number read as part of the name.
   const people = changers
     .map(({ name, userId, count: changed }) => {
       const formatted = formatNumber(changed);
-      return t('checkpoint.preview.person', { name: name ?? userId, formatted });
+      return t('checkpoint.preview.person', { name: name ?? userId, count: changed, formatted });
     })
     .join(' · ');
   return (

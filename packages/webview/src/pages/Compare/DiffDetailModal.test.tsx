@@ -119,6 +119,33 @@ describe('DiffDetailModal', () => {
     expect(screen.queryByTestId('diff-dependencies')).toBeNull();
   });
 
+  it('draws its close button as an icon, where a codicon span left it blank', () => {
+    render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
+    const close = screen.getByTestId('close-diff-modal');
+    expect(close.querySelector('svg[data-testid="icon-close"]')).not.toBeNull();
+    expect(close.querySelector('.codicon')).toBeNull();
+    expect(close.getAttribute('aria-label')).toBe('Close');
+  });
+
+  it('rates no deployment of what only the target holds, and says what taking it out may cost', () => {
+    render(
+      <DiffDetailModal
+        diff={{
+          ...addedDiff,
+          category: 'CustomField',
+          name: 'Account.Legacy__c',
+          riskLevel: 'none',
+          riskReasons: ['targetOnlyDataModel'],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/risk$/i)).toBeNull();
+    expect(screen.getByTestId('diff-risk-reasons').textContent).toContain(
+      'taking it out to match the source may lose the data it holds',
+    );
+  });
+
   it('should call onClose when close button is clicked', () => {
     const onClose = vi.fn();
     render(<DiffDetailModal diff={sampleDiff} onClose={onClose} />);

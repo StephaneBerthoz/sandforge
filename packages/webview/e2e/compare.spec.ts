@@ -248,56 +248,39 @@ test.describe('Compare panel — controls', () => {
     );
   });
 
-  test('run compare button is disabled until orgs and categories are picked', async ({ page }) => {
+  test('run compare button is disabled until orgs and categories are picked, and says why under it', async ({
+    page,
+  }) => {
     const runBtn = page.getByTestId('run-compare-btn');
+    const needs = page.getByTestId('compare-run-needs');
     await expect(runBtn).toBeVisible();
     await expect(runBtn).toHaveText('Run Comparison');
     await expect(runBtn).toBeDisabled();
+    await expect(needs).toHaveText('Pick a source and a different target org');
+    await expect(runBtn).toHaveAccessibleDescription('Pick a source and a different target org');
 
     // Orgs alone are not enough — a comparison with no category is a no-op.
     await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
     await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
     await expect(runBtn).toBeDisabled();
+    await expect(needs).toHaveText('Pick at least one category');
 
     await page.getByTestId('cat-ApexClass').click();
     await expect(runBtn).toBeEnabled();
+    await expect(needs).toHaveCount(0);
 
     // And the same org on both sides disables it again.
     await page.getByLabel('Target Org').selectOption(DEV_SANDBOX.id);
     await expect(runBtn).toBeDisabled();
+    await expect(needs).toHaveText('Pick a source and a different target org');
   });
 
-  test('schema advice button is visible and gated on a source org', async ({ page }) => {
-    const adviceBtn = page.getByTestId('schema-advice-btn');
-    await expect(adviceBtn).toBeVisible();
-    await expect(adviceBtn).toBeDisabled();
-
-    await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
-    await expect(adviceBtn).toBeEnabled();
-
-    await adviceBtn.click();
-    await answerAll(page, 'ai:schema-advice', 'ai:schema-advice:response', {
-      success: true,
-      advice: {
-        issues: [
-          {
-            objectName: 'Account',
-            field: 'Rating__c',
-            severity: 'high',
-            message: 'Picklist has no restricted value set.',
-          },
-        ],
-        recommendations: [
-          { title: 'Restrict the picklist', description: 'Prevents free-text drift.' },
-        ],
-      },
-    });
-
-    const results = page.getByTestId('schema-advice-results');
-    await expect(results).toBeVisible({ timeout: 10_000 });
-    await expect(results).toContainText('Account');
-    await expect(results).toContainText('Picklist has no restricted value set.');
-    await expect(results).toContainText('Restrict the picklist');
+  test('offers no Schema Advice beside Run Comparison', async ({ page }) => {
+    // It described four fixed objects of the source org in English sentences,
+    // compared nothing, and is gone with its request.
+    await expect(page.getByTestId('run-compare-btn')).toBeVisible();
+    await expect(page.getByTestId('schema-advice-btn')).toHaveCount(0);
+    await expect(page.getByTestId('page-header-actions').getByRole('button')).toHaveCount(1);
   });
 
   test('shows the no-results message before any comparison has run', async ({ page }) => {
@@ -461,7 +444,7 @@ test.describe('Compare panel — results tabs', () => {
     await expect(page.getByTestId('page-tabs').getByRole('tab')).toHaveText([
       'Diff Viewer',
       'Permission Presence',
-      'Snapshots',
+      'Objects',
       'Org Settings Drift',
       'Deploy from Diff',
     ]);
@@ -546,10 +529,8 @@ test.describe('Compare panel — results tabs', () => {
    * that does not exist. The tab renders the comparison that does: object
    * totals per org and the objects only one side has.
    */
-  test('snapshots tab shows both orgs object totals and what only one side has', async ({
-    page,
-  }) => {
-    await page.getByTestId('page-tab-snapshots').click();
+  test('objects tab shows both orgs object totals and what only one side has', async ({ page }) => {
+    await page.getByTestId('page-tab-objects').click();
     await answerAll(page, 'compare:snapshots', 'compare:snapshots:response', {
       snapshot: {
         source: {

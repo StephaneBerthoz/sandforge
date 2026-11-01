@@ -452,7 +452,6 @@
     "running": "Comparando...",
     "diff": "Visor de diferencias",
     "permissions": "Presencia de permisos",
-    "snapshots": "Snapshots",
     "drift": "Desvío de ajustes de la org",
     "deploy": "Desplegar desde diff",
     "noResults": "Sin resultados de comparación",
@@ -487,11 +486,6 @@
       "step3": "Seleccione las categorías de metadatos a comparar",
       "step4": "Ejecute la comparación y revise las diferencias"
     },
-    "schemaAdvice": "Recomendaciones de esquema",
-    "schemaAdviceResults": "Recomendaciones de esquema",
-    "schemaAdviceIssues_one": "{{count}} problema encontrado",
-    "schemaAdviceIssues_other": "{{count}} problemas encontrados",
-    "recommendations": "Recomendaciones",
     "advice": {
       "critical_one": "{{count}} cambio de riesgo crítico. Se requiere revisión manual.",
       "critical_other": "{{count}} cambios de riesgo crítico. Se requiere revisión manual.",
@@ -597,7 +591,8 @@
         "testFailuresTitle_other": "{{count}} pruebas fallidas",
         "coverageTitle": "Cobertura que el destino consideró insuficiente",
         "retrieveProblemsTitle": "Lo que indicó el origen"
-      }
+      },
+      "pickAnotherTarget": "Elija un sandbox, una scratch org o una org Developer Edition como Org destino y vuelva a ejecutar la comparación."
     },
     "count": {
       "added_one": "{{count}} solo en el destino",
@@ -631,7 +626,14 @@
       "medium": "Riesgo medio",
       "high": "Riesgo alto",
       "critical": "Riesgo crítico"
-    }
+    },
+    "objects": "Objetos",
+    "runNeeds": {
+      "orgs": "Elija una org de origen y una org de destino distinta",
+      "categories": "Elija al menos una categoría"
+    },
+    "targetOnlyLine_one": "{{count}} componente solo en el destino: un despliegue lo deja allí; quitarlo a mano puede hacer perder datos.",
+    "targetOnlyLine_other": "{{count}} componentes solo en el destino: un despliegue los deja allí; quitarlos a mano puede hacer perder datos."
   },
   "compareParts": {
     "source": "Org origen",
@@ -5793,7 +5795,8 @@
       "stopComparing": "Dejar de comparar campos…",
       "access": {
         "perObject": "Creado con View All y Modify All objeto por objeto, sin View All Data y Modify All Data: solo guarda los objetos que su usuario veía enteros."
-      }
+      },
+      "more": "Más"
     },
     "rename": {
       "title": "Cambiar el nombre de «{{name}}»"
@@ -5890,7 +5893,7 @@
       "readingAgain": "Leyendo {{org}} de nuevo…",
       "toDelete_one": "{{formatted}} por eliminar",
       "toDelete_other": "{{formatted}} por eliminar",
-      "toDeleteHint": "creados desde entonces, con lo que vuelve con un padre y se va de nuevo",
+      "toDeleteHint": "creados desde el punto de control",
       "toGiveBack_one": "{{formatted}} con valores por devolver",
       "toGiveBack_other": "{{formatted}} con valores por devolver",
       "toGiveBackHint": "modificados desde entonces",
@@ -5898,7 +5901,8 @@
       "toBringBack_other": "{{formatted}} por recuperar",
       "toBringBackHint": "eliminados desde entonces",
       "lastChangedBy": "Modificado por última vez por: {{people}}",
-      "person": "{{name}} {{formatted}}",
+      "person_one": "{{name}} ({{formatted}} registro)",
+      "person_other": "{{name}} ({{formatted}} registros)",
       "activeLastHour": "Personas que trabajaron en {{org}} en la última hora: {{people}}.",
       "sharedUser": "Los evaluadores que inician sesión como {{user}} no se pueden distinguir del retroceso: pídales que paren antes.",
       "table": {
@@ -5937,7 +5941,7 @@
         "needs_one": "Para retrocederlo también, añada {{object}}: {{formatted}} registro lo necesita.",
         "needs_other": "Para retrocederlos también, añada {{object}}: {{formatted}} registros lo necesitan.",
         "add": "Añadir {{object}}",
-        "acceptOutside": "Eliminar también estos registros, con los registros de objetos sin marcar creados desde entonces que dependen de ellos",
+        "acceptOutside": "Permitir eliminaciones que se extienden a registros secundarios de los objetos sin marcar",
         "writesNothing": "Un retroceso de solo estos objetos no escribe nada: lo que deja se dice arriba."
       },
       "detail": {
@@ -6000,7 +6004,7 @@
         "line_other": "{{formatted}} registros de {{object}} que este retroceso elimina: Salesforce solo los restaura con su registro padre, que se queda.",
         "beforeParent_one": "{{formatted}} registro de {{object}} que este retroceso elimina antes de un registro al que apunta, que el retroceso elimina después: Salesforce ya no puede recuperarlo después de eso.",
         "beforeParent_other": "{{formatted}} registros de {{object}} que este retroceso elimina antes de un registro al que apuntan, que el retroceso elimina después: Salesforce ya no puede recuperarlos después de eso.",
-        "accept": "Retroceder aunque Deshacer no pudiera recuperarlos"
+        "accept": "Permitir eliminaciones que Deshacer este retroceso no podrá recuperar"
       },
       "outside": {
         "title": "También se eliminan con ellos, fuera del punto de control",
@@ -6009,7 +6013,7 @@
         "parents_one": "{{formatted}} registro de {{object}} que el retroceso elimina",
         "parents_other": "{{formatted}} registros de {{object}} que el retroceso elimina",
         "everything": "Se van con los registros de los que dependen.",
-        "accept": "Eliminarlos también",
+        "accept": "Permitir eliminaciones que se extienden a registros secundarios de objetos fuera del punto de control",
         "otherwise": "Sin esta casilla marcada, los registros de los que dependen se quedan y se nombran.",
         "files_one": "{{formatted}} archivo que el retroceso elimina también está adjunto fuera del punto de control — a una biblioteca, un grupo o un registro de otro objeto — por {{links}}: eliminarlo lo quita también de allí.",
         "files_other": "{{formatted}} archivos que el retroceso elimina también están adjuntos fuera del punto de control — a una biblioteca, un grupo o un registro de otro objeto — por {{links}}: eliminarlos los quita también de allí."
@@ -6023,7 +6027,7 @@
         "error": "No se pudo leer lo que {{org}} ejecuta cuando el retroceso escribe: {{reason}}",
         "broughtBack": "tras recuperarlo, cuando el retroceso lo recupera de la papelera",
         "givenBack": "cuando el retroceso le devuelve sus valores del punto de control",
-        "accept": "Retroceder aunque {{org}} ejecute automatizaciones"
+        "accept": "Ejecutar aunque se activen triggers, flujos o reglas de flujo de trabajo en los registros que escribe"
       },
       "emails": {
         "fits": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
@@ -6070,7 +6074,7 @@
         "newIds": "El retroceso los crea de nuevo a partir del punto de control, con Id nuevos, y los campos de búsqueda del punto de control que los nombraban nombran los Id nuevos. Lo que fuera de Salesforce nombra sus Id antiguos — una integración, un enlace, un filtro de informe — ya no los encuentra. Deshacer los elimina de nuevo.",
         "ifEmptiedTitle": "Si la papelera ya no los contiene",
         "ifEmptied": "Salesforce aún muestra como eliminado un registro vaciado de la papelera, durante minutos u horas, y solo dice que la papelera ya no lo contiene cuando el retroceso pide recuperarlo. Marcado, el retroceso lo crea entonces de nuevo a partir del punto de control, con un Id nuevo, junto con los registros que debían volver con él, y se ejecuta lo que la org ejecuta al crear un registro; sin marcar, los deja y los nombra.",
-        "accept": "Crearlos de nuevo, con Id nuevos"
+        "accept": "Volver a crear, con Id nuevos, los registros ya vaciados de la papelera"
       },
       "files": {
         "title": "Los archivos y sus vínculos",
@@ -6100,7 +6104,12 @@
         "line_one": "Eliminar {{formatted}} registro de {{object}} añadido desde entonces también elimina lo que {{user}} no puede ver bajo él en {{children}}: el retroceso no puede contarlo.",
         "line_other": "Eliminar {{formatted}} registros de {{object}} añadidos desde entonces también elimina lo que {{user}} no puede ver bajo ellos en {{children}}: el retroceso no puede contarlo.",
         "why": "Sin View All Data y Modify All Data, nada prueba que {{user}} vea cada registro de esos objetos — las tareas y eventos no tienen View All. Lo que de ellos depende de los registros que el retroceso elimina se va con ellos sin contarse, y Deshacer recupera lo que vuelve con ellos.",
-        "accept": "Eliminarlos de todos modos, con lo que {{user}} no puede ver bajo ellos"
+        "accept": "Permitir eliminaciones que se extienden a registros que el usuario conectado quizá no vea (sin View All Data ni Modify All Data)"
+      },
+      "rewindNeeds": {
+        "tick": "Para retroceder, marque:",
+        "plan": "Leyendo el plan de los objetos marcados…",
+        "planFailed": "No se pudo leer el plan de los objetos marcados: vuelva a intentarlo más arriba."
       }
     },
     "run": {
@@ -6179,8 +6188,8 @@
         },
         "notInBin": {
           "title": "Ya no en la papelera",
-          "line_one": "{{object}}: {{formatted}} registro que Salesforce aún muestra como eliminado pero no recupera — vaciado de la papelera, o retenido allí para siempre: retroceda de nuevo con «Crearlos de nuevo, con Id nuevos» marcado para crearlo de nuevo, con un Id nuevo",
-          "line_other": "{{object}}: {{formatted}} registros que Salesforce aún muestra como eliminados pero no recupera — vaciados de la papelera, o retenidos allí para siempre: retroceda de nuevo con «Crearlos de nuevo, con Id nuevos» marcado para crearlos de nuevo, con Id nuevos"
+          "line_one": "{{object}}: {{formatted}} registro que Salesforce aún muestra como eliminado pero no recupera — vaciado de la papelera, o retenido allí para siempre: retroceda de nuevo con «Volver a crear, con Id nuevos, los registros ya vaciados de la papelera» marcado para crearlo de nuevo, con un Id nuevo",
+          "line_other": "{{object}}: {{formatted}} registros que Salesforce aún muestra como eliminados pero no recupera — vaciados de la papelera, o retenidos allí para siempre: retroceda de nuevo con «Volver a crear, con Id nuevos, los registros ya vaciados de la papelera» marcado para crearlos de nuevo, con Id nuevos"
         },
         "goneForGood": {
           "title": "Perdidos para siempre",

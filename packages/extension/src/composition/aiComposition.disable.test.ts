@@ -325,10 +325,8 @@ describe('initAIComposition — turning AI off mid-session', () => {
     await initAIComposition(makeDeps());
 
     chat.mockClear();
-    await aiHandler.handle(request('ai:schema-advice', { orgId: 'org-1' }));
     await aiHandler.handle(request('ai:anomaly-scan', { orgId: 'org-1', objectName: 'Account' }));
 
-    expect(lastOf('ai:schema-advice:response')?.payload.success).toBe(true);
     expect(lastOf('ai:anomaly-scan:response')?.payload.success).toBe(true);
     expect(chat).not.toHaveBeenCalled();
   });

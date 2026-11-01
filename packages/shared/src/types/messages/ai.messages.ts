@@ -442,25 +442,6 @@ export interface AIScenarioDraftResponse extends BaseMessage {
   };
 }
 
-/** AI schema advice */
-export interface AISchemaAdviceRequest extends BaseMessage {
-  type: 'ai:schema-advice';
-  payload: { orgId: string; objectNames?: string[] };
-}
-
-/** Response containing AI schema analysis with issues and recommendations */
-export interface AISchemaAdviceResponse extends BaseMessage {
-  type: 'ai:schema-advice:response';
-  payload: {
-    success: boolean;
-    advice?: {
-      issues: Array<{ objectName: string; field?: string; severity: string; message: string }>;
-      recommendations: Array<{ title: string; description: string }>;
-    };
-    error?: string;
-  };
-}
-
 /**
  * Provider status banner.
  *

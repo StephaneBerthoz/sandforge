@@ -452,8 +452,6 @@ import type {
   AIGeneratePipelineResponse,
   AIScenarioDraftRequest,
   AIScenarioDraftResponse,
-  AISchemaAdviceRequest,
-  AISchemaAdviceResponse,
   AIProviderStatusMessage,
   AIBudgetStateMessage,
 } from './ai.messages.js';
@@ -796,7 +794,6 @@ export type WebViewToExtensionMessage =
   | AIAnomalyScanRequest
   | AIGeneratePipelineRequest
   | AIScenarioDraftRequest
-  | AISchemaAdviceRequest
   // Settings
   | SettingsGetRequest
   | SettingsUpdateRequest
@@ -1093,7 +1090,6 @@ export type ExtensionToWebViewMessage =
   | AIAnomalyScanResponse
   | AIGeneratePipelineResponse
   | AIScenarioDraftResponse
-  | AISchemaAdviceResponse
   | AIProviderStatusMessage
   | AIBudgetStateMessage
   // Settings

@@ -452,7 +452,6 @@
     "running": "Comparaison en cours...",
     "diff": "Visionneuse de diff",
     "permissions": "Présence des permissions",
-    "snapshots": "Instantanés",
     "drift": "Écarts de paramètres d'org",
     "deploy": "Déployer depuis le diff",
     "noResults": "Pas encore de résultats",
@@ -487,11 +486,6 @@
       "step3": "Sélectionnez les catégories de métadonnées à comparer",
       "step4": "Lancez la comparaison et passez les diffs en revue"
     },
-    "schemaAdvice": "Conseils de schéma",
-    "schemaAdviceResults": "Conseils de schéma",
-    "schemaAdviceIssues_one": "{{count}} problème détecté",
-    "schemaAdviceIssues_other": "{{count}} problèmes détectés",
-    "recommendations": "Recommandations",
     "advice": {
       "critical_one": "{{count}} changement à risque critique. Revue manuelle requise.",
       "critical_other": "{{count}} changements à risque critique. Revue manuelle requise.",
@@ -597,7 +591,8 @@
         "testFailuresTitle_other": "{{count}} tests en échec",
         "coverageTitle": "Couverture jugée insuffisante par la cible",
         "retrieveProblemsTitle": "Ce que la source a signalé"
-      }
+      },
+      "pickAnotherTarget": "Choisissez une sandbox, une scratch org ou une org Developer Edition comme Org Cible, puis relancez la comparaison."
     },
     "count": {
       "added_one": "{{count}} seulement dans la cible",
@@ -631,7 +626,14 @@
       "medium": "Risque moyen",
       "high": "Risque élevé",
       "critical": "Risque critique"
-    }
+    },
+    "objects": "Objets",
+    "runNeeds": {
+      "orgs": "Choisissez une org source et une org cible différente",
+      "categories": "Choisissez au moins une catégorie"
+    },
+    "targetOnlyLine_one": "{{count}} composant seulement dans la cible : un déploiement le laisse ; le retirer à la main peut faire perdre des données.",
+    "targetOnlyLine_other": "{{count}} composants seulement dans la cible : un déploiement les laisse ; les retirer à la main peut faire perdre des données."
   },
   "compareParts": {
     "source": "Org Source",
@@ -5793,7 +5795,8 @@
       "stopComparing": "Ne plus comparer des champs…",
       "access": {
         "perObject": "Pris avec View All et Modify All objet par objet, sans View All Data et Modify All Data : il ne garde que les objets que son utilisateur voyait en entier."
-      }
+      },
+      "more": "Plus"
     },
     "rename": {
       "title": "Renommer « {{name}} »"
@@ -5890,7 +5893,7 @@
       "readingAgain": "Nouvelle lecture de {{org}}…",
       "toDelete_one": "{{formatted}} à supprimer",
       "toDelete_other": "{{formatted}} à supprimer",
-      "toDeleteHint": "créés depuis, avec ce qui revient avec un parent puis repart",
+      "toDeleteHint": "créés depuis le point de contrôle",
       "toGiveBack_one": "{{formatted}} retrouvera ses valeurs",
       "toGiveBack_other": "{{formatted}} retrouveront leurs valeurs",
       "toGiveBackHint": "modifiés depuis",
@@ -5898,7 +5901,8 @@
       "toBringBack_other": "{{formatted}} à rétablir",
       "toBringBackHint": "supprimés depuis",
       "lastChangedBy": "Dernière modification par : {{people}}",
-      "person": "{{name}} {{formatted}}",
+      "person_one": "{{name}} ({{formatted}} enregistrement)",
+      "person_other": "{{name}} ({{formatted}} enregistrements)",
       "activeLastHour": "Ont travaillé dans {{org}} au cours de la dernière heure : {{people}}.",
       "sharedUser": "Les testeurs qui se connectent en tant que {{user}} ne peuvent pas être distingués du retour arrière : demandez-leur d'arrêter d'abord.",
       "table": {
@@ -5937,7 +5941,7 @@
         "needs_one": "Pour le faire revenir aussi, ajoutez {{object}} : {{formatted}} enregistrement en a besoin.",
         "needs_other": "Pour les faire revenir aussi, ajoutez {{object}} : {{formatted}} enregistrements en ont besoin.",
         "add": "Ajouter {{object}}",
-        "acceptOutside": "Supprimer aussi ces enregistrements, avec les enregistrements d'objets non cochés créés depuis qui en dépendent",
+        "acceptOutside": "Autoriser des suppressions qui s'étendent aux enregistrements enfants des objets non cochés",
         "writesNothing": "Un retour arrière de ces seuls objets n'écrit rien : ce qu'il laisse est dit ci-dessus."
       },
       "detail": {
@@ -6000,7 +6004,7 @@
         "line_other": "{{formatted}} enregistrements {{object}} que ce retour arrière supprime : Salesforce ne les restaure qu'avec leur enregistrement parent, qui reste.",
         "beforeParent_one": "{{formatted}} enregistrement {{object}} que ce retour arrière supprime avant un enregistrement vers lequel il pointe, que le retour arrière supprime ensuite : Salesforce ne peut plus le rétablir après cela.",
         "beforeParent_other": "{{formatted}} enregistrements {{object}} que ce retour arrière supprime avant un enregistrement vers lequel ils pointent, que le retour arrière supprime ensuite : Salesforce ne peut plus les rétablir après cela.",
-        "accept": "Revenir à ce point même si l'annulation ne pourrait pas les rétablir"
+        "accept": "Autoriser des suppressions que l'annulation de ce retour arrière ne pourra pas rétablir"
       },
       "outside": {
         "title": "Supprimés aussi avec eux, hors du point de contrôle",
@@ -6009,7 +6013,7 @@
         "parents_one": "{{formatted}} enregistrement {{object}} que le retour arrière supprime",
         "parents_other": "{{formatted}} enregistrements {{object}} que le retour arrière supprime",
         "everything": "Ils partent avec les enregistrements dont ils dépendent.",
-        "accept": "Les supprimer aussi",
+        "accept": "Autoriser des suppressions qui s'étendent aux enregistrements enfants d'objets hors du point de contrôle",
         "otherwise": "Sans cette case cochée, les enregistrements dont ils dépendent restent, et sont nommés.",
         "files_one": "{{formatted}} fichier que le retour arrière supprime est joint aussi hors du point de contrôle — à une bibliothèque, un groupe ou un enregistrement d'un autre objet — par {{links}} : le supprimer l'en retire aussi.",
         "files_other": "{{formatted}} fichiers que le retour arrière supprime sont joints aussi hors du point de contrôle — à une bibliothèque, un groupe ou un enregistrement d'un autre objet — par {{links}} : les supprimer les en retire aussi."
@@ -6023,7 +6027,7 @@
         "error": "Ce que {{org}} exécute quand le retour arrière écrit n'a pas pu être lu : {{reason}}",
         "broughtBack": "après restauration, quand le retour arrière le rétablit depuis la corbeille",
         "givenBack": "quand le retour arrière lui rend ses valeurs du point de contrôle",
-        "accept": "Revenir à ce point même si {{org}} exécute des automatisations"
+        "accept": "Lancer même si des triggers, des Flows ou des règles de workflow se déclenchent sur les enregistrements qu'il écrit"
       },
       "emails": {
         "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
@@ -6070,7 +6074,7 @@
         "newIds": "Le retour arrière les recrée à partir du point de contrôle, avec de nouveaux Id, et les champs de référence que le point de contrôle contient qui les désignaient désignent les nouveaux Id. Ce qui, hors de Salesforce, désigne leurs anciens Id — une intégration, un lien, un filtre de rapport — ne les trouve plus. L'annulation les supprime de nouveau.",
         "ifEmptiedTitle": "Si la corbeille ne les contient plus",
         "ifEmptied": "Salesforce indique encore comme supprimé un enregistrement vidé de la corbeille, pendant des minutes ou des heures, et ne dit que la corbeille ne le contient plus qu'au moment où le retour arrière le lui redemande. Coché, le retour arrière le recrée alors à partir du point de contrôle, avec un nouvel Id, ainsi que les enregistrements qui devaient revenir avec lui, en exécutant ce que l'org exécute à la création d'un enregistrement ; décoché, il les laisse et les nomme.",
-        "accept": "Les recréer, avec de nouveaux Id"
+        "accept": "Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille"
       },
       "files": {
         "title": "Les fichiers et leurs liens",
@@ -6100,7 +6104,12 @@
         "line_one": "Supprimer {{formatted}} enregistrement {{object}} ajouté depuis supprime aussi ce que {{user}} ne peut pas voir sous lui dans {{children}} : le retour arrière ne peut pas le compter.",
         "line_other": "Supprimer {{formatted}} enregistrements {{object}} ajoutés depuis supprime aussi ce que {{user}} ne peut pas voir sous eux dans {{children}} : le retour arrière ne peut pas le compter.",
         "why": "Sans View All Data et Modify All Data, rien ne prouve que {{user}} voit chaque enregistrement de ces objets — les tâches et événements n'ont pas de View All. Ce qui, dans ces objets, dépend des enregistrements que le retour arrière supprime part avec eux sans être compté, et l'annulation rétablit ce qui revient avec eux.",
-        "accept": "Les supprimer quand même, avec ce que {{user}} ne peut pas voir sous eux"
+        "accept": "Autoriser des suppressions qui s'étendent à des enregistrements que l'utilisateur connecté ne voit peut-être pas (sans View All Data ni Modify All Data)"
+      },
+      "rewindNeeds": {
+        "tick": "Pour revenir à ce point, cochez :",
+        "plan": "Lecture du plan des objets cochés…",
+        "planFailed": "Le plan des objets cochés n'a pas pu être lu : réessayez plus haut."
       }
     },
     "run": {
@@ -6179,8 +6188,8 @@
         },
         "notInBin": {
           "title": "Plus dans la corbeille",
-          "line_one": "{{object}} : {{formatted}} enregistrement que Salesforce indique toujours comme supprimé mais ne rétablit pas — vidé de la corbeille, ou gardé là pour de bon : refaites le retour arrière avec « Les recréer, avec de nouveaux Id » coché pour le recréer, avec un nouvel Id",
-          "line_other": "{{object}} : {{formatted}} enregistrements que Salesforce indique toujours comme supprimés mais ne rétablit pas — vidés de la corbeille, ou gardés là pour de bon : refaites le retour arrière avec « Les recréer, avec de nouveaux Id » coché pour les recréer, avec de nouveaux Id"
+          "line_one": "{{object}} : {{formatted}} enregistrement que Salesforce indique toujours comme supprimé mais ne rétablit pas — vidé de la corbeille, ou gardé là pour de bon : refaites le retour arrière avec « Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille » coché pour le recréer, avec un nouvel Id",
+          "line_other": "{{object}} : {{formatted}} enregistrements que Salesforce indique toujours comme supprimés mais ne rétablit pas — vidés de la corbeille, ou gardés là pour de bon : refaites le retour arrière avec « Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille » coché pour les recréer, avec de nouveaux Id"
         },
         "goneForGood": {
           "title": "Perdus définitivement",

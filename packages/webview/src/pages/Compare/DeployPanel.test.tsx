@@ -262,9 +262,18 @@ describe('DeployPanel', () => {
     const refused = screen.getByTestId('deploy-target-refused').textContent ?? '';
     expect(refused).toContain('a sandbox, a scratch org or a Developer Edition org');
     expect(refused).not.toContain('sandboxes only');
-    pick('ApexClass:Invoicing');
-    expect(validateButton().disabled).toBe(true);
-    fireEvent.click(validateButton());
+    // Said first and alone: the intro promised a validation in it, and the
+    // picker, the tests and a Validate that could never be pressed stayed live.
+    expect(screen.getByTestId('deploy-pick-another-target').textContent).toBe(
+      'Pick a sandbox, scratch org or Developer Edition org as Target Org, then run the comparison again.',
+    );
+    expect(screen.getByTestId('compare-deploy').textContent).not.toContain(
+      'validates it in Dev first',
+    );
+    expect(screen.queryByTestId('deploy-candidates')).toBeNull();
+    expect(screen.queryByTestId('deploy-tests')).toBeNull();
+    expect(screen.queryByTestId('deploy-validate-btn')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
     expect(validation.mutate).not.toHaveBeenCalled();
   });
 

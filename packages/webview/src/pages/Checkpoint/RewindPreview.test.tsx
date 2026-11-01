@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import '../../i18n';
+import i18n from '../../i18n';
+import de from '../../i18n/locales/de.json';
 import type {
   ForgeTargetAutomation,
   OrgCheckpoint,
@@ -153,18 +154,18 @@ describe('RewindPreview', () => {
     expect(heading).toHaveFocus();
   });
 
-  it('says the three numbers of the diff: to delete, to give back, to bring back', () => {
+  it('says the three numbers of the diff: to delete, to restore values, to undelete', () => {
     renderPreview();
     answerPreview();
     expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('8 to delete');
     expect(screen.getByTestId('checkpoint-preview-number-give-back').textContent).toBe(
-      '6 to give back',
+      '6 to restore values',
     );
     expect(screen.getByTestId('checkpoint-preview-number-bring-back').textContent).toBe(
-      '1 to bring back',
+      '1 to undelete',
     );
     expect(screen.getByTestId('checkpoint-preview-numbers').textContent).toContain(
-      'created since, with what comes back with a parent and goes again',
+      'created since the checkpoint',
     );
   });
 
@@ -172,7 +173,7 @@ describe('RewindPreview', () => {
     renderPreview();
     answerPreview();
     expect(screen.getByTestId('checkpoint-preview-last-changed').textContent).toBe(
-      `Last changed by: Alice Martin 8 · Integration User 4 · ${USERS.unnamed} 2`,
+      `Last changed by: Alice Martin (8 records) · Integration User (4 records) · ${USERS.unnamed} (2 records)`,
     );
     expect(screen.queryByTestId('checkpoint-preview-active')).toBeNull();
   });
@@ -207,7 +208,7 @@ describe('RewindPreview', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
-    ).toEqual(['Object', 'Delete', 'Give back', 'Bring back', 'Cannot undo', 'Rewind']);
+    ).toEqual(['Object', 'Delete', 'Restore values', 'Undelete', 'Cannot undo', 'Rewind']);
     expect(rowCells('Contact')).toEqual(['Contact', '5', '2', '0', '0']);
     expect(rowCells('Account')).toEqual(['Account', '3', '4', '1', '0']);
     expect(rowCells('Case')).toEqual(['Case', '0', '0', '0', '2']);
@@ -235,11 +236,11 @@ describe('RewindPreview', () => {
     ).toEqual([
       'Contact: 1 record deleted while the checkpoint was taken comes back with the values it had then.',
       'Contact: 4 records come back with their parent record.',
-      'Contact: 1 field value to give back.',
+      'Contact: 1 field value to restore.',
       'Contact: 3 records get back a lookup a deletion since cleared.',
       'Contact: 2 records brought back from the recycle bin since, which were in it at the checkpoint, go back to it.',
       'Contact: 1 record created since and deleted with a parent the rewind brings back comes back with it, then is deleted.',
-      'Contact: 6 records touched since hold their checkpoint values: nothing to give back.',
+      'Contact: 6 records touched since hold their checkpoint values: nothing to restore.',
       'Contact: 1 record the checkpoint does not hold, although dated before it, is left as it is (a load with back-dated creation dates?).',
     ]);
   });
@@ -257,7 +258,7 @@ describe('RewindPreview', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Contact: 2 records touched since hold their checkpoint values: nothing to give back.',
+      'Contact: 2 records touched since hold their checkpoint values: nothing to restore.',
       'Fields not checked for changes in 187 objects nothing changed in: a rewind writes nothing there.',
     ]);
   });
@@ -275,7 +276,7 @@ describe('RewindPreview', () => {
     answerPreview({ diff: carriedDiff() });
     expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('1 to delete');
     expect(screen.getByTestId('checkpoint-preview-number-bring-back').textContent).toBe(
-      '2 to bring back',
+      '2 to undelete',
     );
     expect(rowCells('Account')).toEqual(['Account', '0', '0', '0', '0']);
     expect(
@@ -284,7 +285,7 @@ describe('RewindPreview', () => {
         .map((item) => item.textContent),
     ).toEqual([
       'Contact: 2 records come back with their parent record.',
-      'Contact: 4 field values to give back.',
+      'Contact: 4 field values to restore.',
       'Contact: 1 record created since and deleted with a parent the rewind brings back comes back with it, then is deleted.',
       'Account: 1 record the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with it only, so it comes back for a moment, then goes back to the recycle bin with what came back with it.',
     ]);
@@ -491,7 +492,7 @@ describe('RewindPreview', () => {
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
     const box = screen.getByRole('checkbox', {
-      name: "Delete them all the same, with what admin@example.com can't see under them",
+      name: 'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
     });
     expect(box).not.toBeChecked();
     fireEvent.click(box);
@@ -641,7 +642,7 @@ describe('RewindPreview', () => {
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
     const box = screen.getByRole('checkbox', {
-      name: 'Rewind even though Undo could not bring these back',
+      name: 'Allow deletions that Undo of this rewind cannot bring back',
     });
     fireEvent.click(box);
     expect(rewind).toBeEnabled();
@@ -651,6 +652,118 @@ describe('RewindPreview', () => {
       expect.objectContaining({ acceptNoUndo: true }),
       expect.anything(),
     );
+  });
+
+  it('says under a Rewind still off which boxes it waits for, each taking the keyboard to its box', () => {
+    // The button stayed off until up to four boxes were ticked, with nothing
+    // near it to say which.
+    renderPreview();
+    answerPreview({
+      automation: AUTOMATION,
+      diff: previewDiff({
+        objects: [...previewDiff().objects, diffObject('Case', { toRecreate: 2 })],
+        undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }],
+      }),
+    });
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    const needs = screen.getByTestId('checkpoint-preview-rewind-needs');
+    expect(rewind).toBeDisabled();
+    expect(rewind).toHaveAttribute('aria-describedby', needs.id);
+    expect(needs.textContent).toMatch(/^To rewind, tick:/);
+    expect(
+      within(needs)
+        .getAllByRole('button')
+        .map((link) => link.textContent),
+    ).toEqual([
+      'Allow deletions that Undo of this rewind cannot bring back',
+      'Recreate, with new Ids, records already emptied from the Recycle Bin',
+      'Run even if triggers, flows or workflow rules fire on the records it writes',
+    ]);
+
+    fireEvent.click(screen.getByTestId('checkpoint-preview-needs-box-automation'));
+    const automationBox = screen.getByTestId('checkpoint-preview-accept-automation');
+    expect(automationBox).toHaveFocus();
+
+    fireEvent.click(automationBox);
+    fireEvent.click(screen.getByTestId('checkpoint-preview-accept-no-undo'));
+    expect(
+      within(needs)
+        .getAllByRole('button')
+        .map((link) => link.textContent),
+    ).toEqual(['Recreate, with new Ids, records already emptied from the Recycle Bin']);
+    fireEvent.click(screen.getByTestId('checkpoint-preview-accept-recreate'));
+    expect(rewind).toBeEnabled();
+    expect(screen.queryByTestId('checkpoint-preview-rewind-needs')).toBeNull();
+    expect(rewind).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('says under Rewind a refusal a box lifts when that box is not offered', () => {
+    // Refused for what goes out of sight, though nothing of what the preview
+    // writes is counted out of sight: no box to tick, and the org's words.
+    renderPreview();
+    answerPreview({
+      refusal: { code: 'UNSEEN', message: 'Deleting these takes along what the user cannot see.' },
+    });
+    expect(screen.queryByTestId('checkpoint-preview-accept-unseen')).toBeNull();
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+      'Deleting these takes along what the user cannot see.',
+    );
+  });
+
+  it('says under Rewind the refusal no box lifts, as long as it holds', () => {
+    renderPreview();
+    answerPreview({
+      refusal: { code: 'API_BUDGET', message: 'Too few API requests are left today.' },
+    });
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+      'Too few API requests are left today.',
+    );
+  });
+
+  it('names the boxes as the Automation Rewind step does, the German unseen saying visibility is unproven', async () => {
+    renderPreview(readyCheckpoint({ scope: { mode: 'picked', leftOut: [] } }));
+    answerPreview({
+      diff: previewDiff({
+        unseen: [{ objectApiName: 'Account', records: 2, children: ['Task'] }],
+        objects: previewDiff().objects.map((object) =>
+          object.objectApiName === 'Account'
+            ? { ...object, outside: [{ objectApiName: 'Case', count: 2, parents: 1 }] }
+            : object,
+        ),
+      }),
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-accept-unseen').closest('label'),
+    ).toHaveTextContent(
+      'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
+    );
+    expect(
+      screen.getByTestId('checkpoint-preview-accept-outside').closest('label'),
+    ).toHaveTextContent(
+      'Allow deletions that cascade to child records of objects outside the checkpoint',
+    );
+    cleanup();
+    i18n.addResourceBundle('de', 'translation', de, true, true);
+    await act(() => i18n.changeLanguage('de'));
+    try {
+      renderPreview();
+      answerPreview({
+        diff: previewDiff({
+          unseen: [{ objectApiName: 'Account', records: 2, children: ['Task'] }],
+        }),
+      });
+      // It said "nachweislich nicht sieht", records the user provably cannot
+      // see: the contrary of the English.
+      const label = screen.getByTestId('checkpoint-preview-accept-unseen').closest('label');
+      expect(label).toHaveTextContent(
+        'Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)',
+      );
+      expect(label?.textContent).not.toMatch(/nachweislich nicht/);
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
   });
 
   it('counts the records the recycle bin no longer gives back, says they are made again with new Ids and what that breaks, and holds Rewind until it is accepted', () => {
@@ -675,7 +788,11 @@ describe('RewindPreview', () => {
     );
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Make them again, with new Ids' }));
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Recreate, with new Ids, records already emptied from the Recycle Bin',
+      }),
+    );
     expect(rewind).toBeEnabled();
     fireEvent.click(rewind);
     expect(screen.getByRole('dialog').textContent).toContain(
@@ -720,7 +837,11 @@ describe('RewindPreview', () => {
     expect(within(section).queryByRole('listitem')).toBeNull();
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeEnabled();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Make them again, with new Ids' }));
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Recreate, with new Ids, records already emptied from the Recycle Bin',
+      }),
+    );
     fireEvent.click(rewind);
     confirmRewind();
     expect(onRewind).toHaveBeenCalledWith(
@@ -756,7 +877,9 @@ describe('RewindPreview', () => {
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
     fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Rewind even though Undo could not bring these back' }),
+      screen.getByRole('checkbox', {
+        name: 'Allow deletions that Undo of this rewind cannot bring back',
+      }),
     );
     fireEvent.click(rewind);
     confirmRewind();
@@ -785,7 +908,9 @@ describe('RewindPreview', () => {
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind).toBeDisabled();
     fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Rewind even though DEV-SB runs automation' }),
+      screen.getByRole('checkbox', {
+        name: 'Run even if triggers, flows or workflow rules fire on the records it writes',
+      }),
     );
     fireEvent.click(rewind);
     confirmRewind();
@@ -826,7 +951,9 @@ describe('RewindPreview', () => {
     ).toContain('FileAttachedToCase');
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
     fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Rewind even though DEV-SB runs automation' }),
+      screen.getByRole('checkbox', {
+        name: 'Run even if triggers, flows or workflow rules fire on the records it writes',
+      }),
     );
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeEnabled();
   });
@@ -869,7 +996,11 @@ describe('RewindPreview', () => {
       expect.objectContaining({ acceptOutside: false }),
       expect.anything(),
     );
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Delete these too' }));
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Allow deletions that cascade to child records of objects outside the checkpoint',
+      }),
+    );
     expect(screen.queryByTestId('checkpoint-preview-outside-otherwise')).toBeNull();
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
     confirmRewind();
@@ -897,7 +1028,11 @@ describe('RewindPreview', () => {
     ).toBe(
       '2 files the rewind deletes are attached outside the checkpoint too — to a library, a group or a record of another object — by 3 links: deleting them removes them from there as well.',
     );
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Delete these too' }));
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Allow deletions that cascade to child records of objects outside the checkpoint',
+      }),
+    );
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
     confirmRewind();
     expect(onRewind).toHaveBeenLastCalledWith(
@@ -1555,23 +1690,27 @@ describe('RewindPreview, limited to some objects', () => {
       'Planning the rewind of Contact from this preview: the org is not read.',
     );
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+      'Reading the plan of the objects ticked…',
+    );
 
     answerPlan(contactPlan());
+    expect(screen.queryByTestId('checkpoint-preview-rewind-needs')).toBeNull();
     expect(screen.queryByTestId('checkpoint-preview-selection-planning')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Limited to Contact' })).toBeInTheDocument();
     // The plan's numbers, not the diff's: the contact deleted with its account stays.
     expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('1 to delete');
     expect(screen.getByTestId('checkpoint-preview-number-give-back').textContent).toBe(
-      '0 to give back',
+      '0 to restore values',
     );
     expect(screen.getByTestId('checkpoint-preview-number-bring-back').textContent).toBe(
-      '0 to bring back',
+      '0 to undelete',
     );
     expect(rowCells('Contact')).toEqual(['Contact', '1', '0', '0', '0']);
     expect(rowCells('Account')).toEqual(['AccountNot rewound', '0', '0', '0', '0']);
     expect(rowCells('Case')).toEqual(['CaseNot rewound', '0', '0', '0', '0']);
     expect(screen.getByTestId('checkpoint-preview-last-changed').textContent).toBe(
-      'Last changed by: Alice Martin 1',
+      'Last changed by: Alice Martin (1 record)',
     );
     expect(
       screen.getByTestId('checkpoint-preview-selection-left-Contact-needsUnpickedParent')
@@ -1794,7 +1933,7 @@ describe('RewindPreview, limited to some objects', () => {
     );
     fireEvent.click(
       screen.getByRole('checkbox', {
-        name: 'Delete these records too, with the records of objects not ticked made since that hang from them',
+        name: 'Allow deletions that cascade to child records of the objects not ticked',
       }),
     );
     settle();

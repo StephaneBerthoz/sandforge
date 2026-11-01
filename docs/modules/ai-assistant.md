@@ -39,4 +39,4 @@ What each feature sends, a failed run included, is listed in the FAQ under [Is m
 
 ## With AI off
 
-Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key. Seed generates values with its Faker generators, templates and CSV import without any AI provider.
+Monitor's anomaly scan is rule-based: it runs with AI off and no key. Seed generates values with its Faker generators, templates and CSV import without any AI provider.

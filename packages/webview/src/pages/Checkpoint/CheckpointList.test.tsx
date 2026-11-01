@@ -140,8 +140,52 @@ describe('CheckpointList', () => {
       listEntry(null, { checkpointId: 'ck-20261019-090000-dead', valid: false, why: 'damaged' }),
       listEntry(),
     ]);
+    fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
     expect(screen.getAllByRole('button', { name: 'Export…' })).toHaveLength(1);
     expect(screen.getByTestId(`checkpoint-export-${ID}`)).toHaveAccessibleDescription('Before UAT');
+  });
+
+  it('shows Rewind…, Keep and Delete on the row, and Rename, Export… and Stop comparing fields… under More', () => {
+    // Each row put up to six controls on one wrapping line, the expert fix
+    // that matters only after a rewind met automation among them.
+    renderList();
+    const row = screen.getByTestId(`checkpoint-row-${ID}`);
+    const shown = (): string[] =>
+      within(row)
+        .getAllByRole('button')
+        .map((button) => button.textContent ?? '');
+    expect(shown()).toEqual(['Rewind…', 'More', 'Delete']);
+    expect(within(row).getByRole('checkbox', { name: 'Keep until I delete it' })).toBeVisible();
+
+    const more = screen.getByTestId(`checkpoint-more-${ID}`);
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveAccessibleDescription('Before UAT');
+    expect(document.getElementById(more.getAttribute('aria-controls') ?? '')).toHaveAttribute(
+      'hidden',
+    );
+
+    fireEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(shown()).toEqual([
+      'Rewind…',
+      'More',
+      'Delete',
+      'Rename',
+      'Export…',
+      'Stop comparing fields…',
+    ]);
+
+    fireEvent.click(more);
+    expect(shown()).toEqual(['Rewind…', 'More', 'Delete']);
+  });
+
+  it('keeps Export… in sight while its export runs, for the keyboard to come back to', () => {
+    renderList([listEntry()], undefined, ID);
+    const more = screen.getByTestId(`checkpoint-more-${ID}`);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Export…' })).toBeVisible();
+    fireEvent.click(more);
+    expect(screen.getByRole('button', { name: 'Export…' })).toBeVisible();
   });
 
   it('asks the page to export the checkpoint of the row', () => {
@@ -316,6 +360,7 @@ describe('CheckpointList', () => {
 
   it('opens the fields a checkpoint compares from its Stop comparing fields…', () => {
     const { onStopComparing } = renderList();
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
     fireEvent.click(screen.getByRole('button', { name: 'Stop comparing fields…' }));
     expect(onStopComparing).toHaveBeenCalledWith(readyCheckpoint());
   });

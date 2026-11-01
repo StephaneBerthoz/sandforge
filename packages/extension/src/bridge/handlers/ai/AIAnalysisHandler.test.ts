@@ -4,7 +4,6 @@ import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { RuleModules } from '../AIHandler.js';
 import { inboundRequest } from '../../../test/mockFactories.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
-import { SchemaAdvisor } from '../../../modules/ai/SchemaAdvisor.js';
 
 type OrgConnection = Awaited<ReturnType<typeof getJsforceConnection>>;
 
@@ -94,45 +93,6 @@ describe('AIAnalysisHandler', () => {
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:anomaly-scan:response');
-    expect(response.payload.success).toBe(true);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
-  it('handles ai:schema-advice without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:schema-advice', { orgId: 'org1' }));
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:schema-advice:response');
-    expect(response.payload.success).toBe(false);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
-  it('handles ai:schema-advice with modules', async () => {
-    const mockModules: Partial<RuleModules> = {
-      schemaAdvisor: {
-        analyzeSchema: vi.fn().mockReturnValue({
-          issues: [
-            {
-              objectName: 'Account',
-              severity: 'low',
-              description: 'Consider indexing',
-            },
-          ],
-          suggestions: [{ title: 'Add index', description: 'On Name field' }],
-        }),
-      } as unknown as RuleModules['schemaAdvisor'],
-    };
-    handler.setRuleModules(mockModules as RuleModules);
-
-    const result = await handler.handle(
-      createMsg('ai:schema-advice', {
-        orgId: 'org1',
-        objectNames: ['Account'],
-      }),
-    );
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:schema-advice:response');
     expect(response.payload.success).toBe(true);
     expect(response.correlationId).toBe('msg-1');
   });
@@ -235,36 +195,6 @@ describe('AIAnalysisHandler', () => {
     expect(conn.query.mock.calls.some(([soql]) => String(soql).includes('FIELDS('))).toBe(false);
   });
 
-  it('raises no unused-field advice on objects that carry custom fields', async () => {
-    const conn = {
-      describe: vi.fn().mockResolvedValue({
-        name: 'Invoice__c',
-        label: 'Invoice',
-        custom: true,
-        fields: [
-          { name: 'Id', label: 'Record ID', type: 'id', custom: false },
-          { name: 'Amount__c', label: 'Amount', type: 'currency', custom: true },
-          { name: 'Notes__c', label: 'Notes', type: 'textarea', custom: true },
-        ],
-      }),
-    };
-    vi.mocked(getJsforceConnection).mockResolvedValueOnce(conn as unknown as OrgConnection);
-    handler.setRuleModules({ schemaAdvisor: new SchemaAdvisor() } as unknown as RuleModules);
-
-    await handler.handle(
-      createMsg('ai:schema-advice', { orgId: 'org1', objectNames: ['Invoice__c'] }),
-    );
-
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.payload.success).toBe(true);
-    const { issues, recommendations } = response.payload.advice as {
-      issues: Array<{ message: string }>;
-      recommendations: Array<{ title: string }>;
-    };
-    expect(issues.filter((i) => /unused/i.test(i.message))).toEqual([]);
-    expect(recommendations.filter((r) => /unused/i.test(r.title))).toEqual([]);
-  });
-
   describe('payload validation', () => {
     it('rejects ai:anomaly-scan with a non-API-name objectName (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(
@@ -273,15 +203,6 @@ describe('AIAnalysisHandler', () => {
           objectName: 'Account WHERE Id != null',
         }),
       );
-      expect(result).toBe(true);
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.type).toBe('ai:error');
-      expect(response.payload.code).toBe('INVALID_PAYLOAD');
-    });
-
-    it('rejects ai:schema-advice without orgId (INVALID_PAYLOAD)', async () => {
-      const result = await handler.handle(createMsg('ai:schema-advice', {}));
       expect(result).toBe(true);
 
       const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];

@@ -4,11 +4,7 @@
  */
 
 import { useCallback, useMemo, useRef } from 'react';
-import type {
-  AISchemaAdviceResponse,
-  AIAnomalyScanResponse,
-  AIGeneratePipelineResponse,
-} from '@sandforge/shared';
+import type { AIAnomalyScanResponse, AIGeneratePipelineResponse } from '@sandforge/shared';
 
 import { useBridgeMutation } from './useBridgeMutation';
 import type { BridgeMutationState } from './useBridgeMutation';
@@ -55,11 +51,6 @@ export function useStoppableAITool<T>(mutation: BridgeMutationState<T>): Stoppab
     () => ({ mutate, data, loading, error, errorCode, reset, requestId, stop }),
     [mutate, data, loading, error, errorCode, reset, requestId, stop],
   );
-}
-
-/** Schema advice for an org — rule-based, no model call. */
-export function useSchemaAdvice() {
-  return useBridgeMutation<AISchemaAdviceResponse['payload']>('ai:schema-advice');
 }
 
 /** Anomaly scan over sampled records — rule-based, no model call. */

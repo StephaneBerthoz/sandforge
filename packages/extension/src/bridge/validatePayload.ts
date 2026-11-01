@@ -1515,10 +1515,6 @@ export const aiAnomalyScanPayloadSchema = z.object({
   objectName: sfApiNameSchema,
   sampleSize: z.number().int().positive().max(10_000).optional(),
 });
-export const aiSchemaAdvicePayloadSchema = z.object({
-  orgId: orgIdSchema,
-  objectNames: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
-});
 
 /**
  * Forge's AI tab: a description to draft from, or a query the user edited to

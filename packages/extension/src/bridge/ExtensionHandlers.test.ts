@@ -1867,35 +1867,40 @@ describe('ExtensionHandlers', () => {
   });
 
   describe('retired AI requests', () => {
-    // An approved diagnosis action used to run anonymous Apex in an org. These
-    // requests no longer route anywhere: registerAll wires no handler for them,
-    // and the envelope is refused before even a handler subscribed by hand runs.
-    it.each(['ai:diagnose', 'ai:approve-action', 'ai:suggestions', 'ai:personas'])(
-      '%s reaches no handler and is answered with bridge:error',
-      (type) => {
-        expect(broker['handlers'].has(type)).toBe(false);
-        const reached = vi.fn();
-        broker.on(type, reached);
-        posted.length = 0;
+    // An approved diagnosis action used to run anonymous Apex in an org, and
+    // Compare's Schema Advice described four fixed objects in English whatever
+    // the language. These requests no longer route anywhere: registerAll wires
+    // no handler for them, and the envelope is refused before even a handler
+    // subscribed by hand runs.
+    it.each([
+      'ai:diagnose',
+      'ai:approve-action',
+      'ai:suggestions',
+      'ai:personas',
+      'ai:schema-advice',
+    ])('%s reaches no handler and is answered with bridge:error', (type) => {
+      expect(broker['handlers'].has(type)).toBe(false);
+      const reached = vi.fn();
+      broker.on(type, reached);
+      posted.length = 0;
 
-        broker['dispatch'](
-          msg(type, {
-            runId: 'run-1',
-            orgId: 'org-1',
-            actionIndex: 0,
-            errorContext: { kind: 'generic', errorMessage: 'boom' },
-          }),
-        );
+      broker['dispatch'](
+        msg(type, {
+          runId: 'run-1',
+          orgId: 'org-1',
+          actionIndex: 0,
+          errorContext: { kind: 'generic', errorMessage: 'boom' },
+        }),
+      );
 
-        expect(reached).not.toHaveBeenCalled();
-        expect(posted.map((p) => p.type)).toEqual(['bridge:error']);
-        const [error] = posted as Array<
-          BaseMessage & { correlationId?: string; payload: { reason: string } }
-        >;
-        expect(error.payload.reason).toBe('invalid-payload');
-        expect(error.correlationId).toBe('test-1');
-      },
-    );
+      expect(reached).not.toHaveBeenCalled();
+      expect(posted.map((p) => p.type)).toEqual(['bridge:error']);
+      const [error] = posted as Array<
+        BaseMessage & { correlationId?: string; payload: { reason: string } }
+      >;
+      expect(error.payload.reason).toBe('invalid-payload');
+      expect(error.correlationId).toBe('test-1');
+    });
   });
 
   describe('sync:history routing', () => {

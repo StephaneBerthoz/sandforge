@@ -452,7 +452,6 @@
     "running": "Comparing...",
     "diff": "Diff Viewer",
     "permissions": "Permission Presence",
-    "snapshots": "Snapshots",
     "drift": "Org Settings Drift",
     "deploy": "Deploy from Diff",
     "noResults": "No comparison results yet",
@@ -487,11 +486,6 @@
       "step3": "Select the metadata categories to diff",
       "step4": "Run the comparison and review the diffs"
     },
-    "schemaAdvice": "Schema Advice",
-    "schemaAdviceResults": "Schema Advice",
-    "schemaAdviceIssues_one": "{{count}} issue found",
-    "schemaAdviceIssues_other": "{{count}} issues found",
-    "recommendations": "Recommendations",
     "advice": {
       "critical_one": "{{count}} critical-risk change. Manual review required.",
       "critical_other": "{{count}} critical-risk changes. Manual review required.",
@@ -597,7 +591,8 @@
         "testFailuresTitle_other": "{{count}} tests failed",
         "coverageTitle": "Coverage the target found short",
         "retrieveProblemsTitle": "What the source said"
-      }
+      },
+      "pickAnotherTarget": "Pick a sandbox, scratch org or Developer Edition org as Target Org, then run the comparison again."
     },
     "count": {
       "added_one": "{{count}} only in the target",
@@ -631,7 +626,14 @@
       "medium": "Medium risk",
       "high": "High risk",
       "critical": "Critical risk"
-    }
+    },
+    "objects": "Objects",
+    "runNeeds": {
+      "orgs": "Pick a source and a different target org",
+      "categories": "Pick at least one category"
+    },
+    "targetOnlyLine_one": "{{count}} component only in the target: a deployment leaves it; removing it by hand may lose data.",
+    "targetOnlyLine_other": "{{count}} components only in the target: a deployment leaves them; removing them by hand may lose data."
   },
   "compareParts": {
     "source": "Source Org",
@@ -5793,7 +5795,8 @@
       "stopComparing": "Stop comparing fields…",
       "access": {
         "perObject": "Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole."
-      }
+      },
+      "more": "More"
     },
     "rename": {
       "title": "Rename “{{name}}”"
@@ -5890,23 +5893,24 @@
       "readingAgain": "Reading {{org}} again…",
       "toDelete_one": "{{formatted}} to delete",
       "toDelete_other": "{{formatted}} to delete",
-      "toDeleteHint": "created since, with what comes back with a parent and goes again",
-      "toGiveBack_one": "{{formatted}} to give back",
-      "toGiveBack_other": "{{formatted}} to give back",
+      "toDeleteHint": "created since the checkpoint",
+      "toGiveBack_one": "{{formatted}} to restore values",
+      "toGiveBack_other": "{{formatted}} to restore values",
       "toGiveBackHint": "changed since",
-      "toBringBack_one": "{{formatted}} to bring back",
-      "toBringBack_other": "{{formatted}} to bring back",
+      "toBringBack_one": "{{formatted}} to undelete",
+      "toBringBack_other": "{{formatted}} to undelete",
       "toBringBackHint": "deleted since",
       "lastChangedBy": "Last changed by: {{people}}",
-      "person": "{{name}} {{formatted}}",
+      "person_one": "{{name}} ({{formatted}} record)",
+      "person_other": "{{name}} ({{formatted}} records)",
       "activeLastHour": "People working in {{org}} in the last hour: {{people}}.",
       "sharedUser": "Testers who sign in as {{user}} cannot be told apart from the rewind: ask them to stop first.",
       "table": {
         "caption": "What a rewind does, object by object",
         "object": "Object",
         "delete": "Delete",
-        "giveBack": "Give back",
-        "bringBack": "Bring back",
+        "giveBack": "Restore values",
+        "bringBack": "Undelete",
         "cannotUndo": "Cannot undo",
         "recreate": "Make again",
         "customSetting": "Custom setting (configuration)",
@@ -5937,7 +5941,7 @@
         "needs_one": "To rewind it too, add {{object}}: {{formatted}} record needs it.",
         "needs_other": "To rewind them too, add {{object}}: {{formatted}} records need it.",
         "add": "Add {{object}}",
-        "acceptOutside": "Delete these records too, with the records of objects not ticked made since that hang from them",
+        "acceptOutside": "Allow deletions that cascade to child records of the objects not ticked",
         "writesNothing": "A rewind of these objects alone writes nothing: what it leaves is said above."
       },
       "detail": {
@@ -5947,16 +5951,16 @@
         "withParent_other": "{{object}}: {{formatted}} records come back with their parent record.",
         "carriers_one": "{{object}}: {{formatted}} record the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with it only, so it comes back for a moment, then goes back to the recycle bin with what came back with it.",
         "carriers_other": "{{object}}: {{formatted}} records the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with them only, so they come back for a moment, then go back to the recycle bin with what came back with them.",
-        "fields_one": "{{object}}: {{formatted}} field value to give back.",
-        "fields_other": "{{object}}: {{formatted}} field values to give back.",
+        "fields_one": "{{object}}: {{formatted}} field value to restore.",
+        "fields_other": "{{object}}: {{formatted}} field values to restore.",
         "clearedLookups_one": "{{object}}: {{formatted}} record gets back a lookup a deletion since cleared.",
         "clearedLookups_other": "{{object}}: {{formatted}} records get back a lookup a deletion since cleared.",
         "broughtBackSince_one": "{{object}}: {{formatted}} record brought back from the recycle bin since, which was in it at the checkpoint, goes back to it.",
         "broughtBackSince_other": "{{object}}: {{formatted}} records brought back from the recycle bin since, which were in it at the checkpoint, go back to it.",
         "comesBackWithParent_one": "{{object}}: {{formatted}} record created since and deleted with a parent the rewind brings back comes back with it, then is deleted.",
         "comesBackWithParent_other": "{{object}}: {{formatted}} records created since and deleted with a parent the rewind brings back come back with it, then are deleted.",
-        "touched_one": "{{object}}: {{formatted}} record touched since holds its checkpoint values: nothing to give back.",
-        "touched_other": "{{object}}: {{formatted}} records touched since hold their checkpoint values: nothing to give back.",
+        "touched_one": "{{object}}: {{formatted}} record touched since holds its checkpoint values: nothing to restore.",
+        "touched_other": "{{object}}: {{formatted}} records touched since hold their checkpoint values: nothing to restore.",
         "unexplained_one": "{{object}}: {{formatted}} record the checkpoint does not hold, although dated before it, is left as it is (a load with back-dated creation dates?).",
         "unexplained_other": "{{object}}: {{formatted}} records the checkpoint does not hold, although dated before it, are left as they are (a load with back-dated creation dates?).",
         "fieldsNotChecked_one": "Fields not checked for changes in {{formatted}} object nothing changed in: a rewind writes nothing there.",
@@ -6000,7 +6004,7 @@
         "line_other": "{{formatted}} {{object}} records this rewind deletes: Salesforce undeletes them only with their parent record, which stays.",
         "beforeParent_one": "{{formatted}} {{object}} record this rewind deletes before a record it points at, which the rewind deletes next: Salesforce cannot bring it back after that.",
         "beforeParent_other": "{{formatted}} {{object}} records this rewind deletes before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that.",
-        "accept": "Rewind even though Undo could not bring these back"
+        "accept": "Allow deletions that Undo of this rewind cannot bring back"
       },
       "outside": {
         "title": "Also deleted with them, outside the checkpoint",
@@ -6009,7 +6013,7 @@
         "parents_one": "{{formatted}} {{object}} record the rewind deletes",
         "parents_other": "{{formatted}} {{object}} records the rewind deletes",
         "everything": "They go with the records they hang from.",
-        "accept": "Delete these too",
+        "accept": "Allow deletions that cascade to child records of objects outside the checkpoint",
         "otherwise": "Unless the box is ticked, the records they hang from stay, and are named.",
         "files_one": "{{formatted}} file the rewind deletes is attached outside the checkpoint too — to a library, a group or a record of another object — by {{links}}: deleting it removes it from there as well.",
         "files_other": "{{formatted}} files the rewind deletes are attached outside the checkpoint too — to a library, a group or a record of another object — by {{links}}: deleting them removes them from there as well."
@@ -6023,7 +6027,7 @@
         "error": "What {{org}} runs as the rewind writes could not be read: {{reason}}",
         "broughtBack": "after undelete, as the rewind brings it back from the recycle bin",
         "givenBack": "as the rewind gives it back its checkpoint values",
-        "accept": "Rewind even though {{org}} runs automation"
+        "accept": "Run even if triggers, flows or workflow rules fire on the records it writes"
       },
       "emails": {
         "fits": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
@@ -6070,7 +6074,7 @@
         "newIds": "The rewind makes them again from the checkpoint, with new Ids, and the lookups the checkpoint holds that named them name the new Ids. Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them. Undo deletes them again.",
         "ifEmptiedTitle": "If the recycle bin no longer holds them",
         "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.",
-        "accept": "Make them again, with new Ids"
+        "accept": "Recreate, with new Ids, records already emptied from the Recycle Bin"
       },
       "files": {
         "title": "Files and their links",
@@ -6100,7 +6104,12 @@
         "line_one": "Deleting {{formatted}} {{object}} record added since also deletes what {{user}} can't see under it in {{children}}: Rewind can't count those.",
         "line_other": "Deleting {{formatted}} {{object}} records added since also deletes what {{user}} can't see under them in {{children}}: Rewind can't count those.",
         "why": "Without View All Data and Modify All Data, nothing proves {{user}} sees every record of those objects — tasks and events have no View All. What of theirs hangs from the records the rewind deletes goes with them, uncounted, and Undo brings back what comes back with them.",
-        "accept": "Delete them all the same, with what {{user}} can't see under them"
+        "accept": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)"
+      },
+      "rewindNeeds": {
+        "tick": "To rewind, tick:",
+        "plan": "Reading the plan of the objects ticked…",
+        "planFailed": "The plan of the objects ticked could not be read: try again above."
       }
     },
     "run": {
@@ -6108,10 +6117,10 @@
       "undoTitle": "Undo of the last rewind of {{org}}",
       "phases": "What the rewind does, in order",
       "phase": {
-        "bringBack_one": "Bring back {{formatted}} record deleted since",
-        "bringBack_other": "Bring back {{formatted}} records deleted since",
-        "giveBack_one": "Give {{formatted}} record its values back",
-        "giveBack_other": "Give {{formatted}} records their values back",
+        "bringBack_one": "Undelete {{formatted}} record deleted since",
+        "bringBack_other": "Undelete {{formatted}} records deleted since",
+        "giveBack_one": "Restore the values of {{formatted}} record changed since",
+        "giveBack_other": "Restore the values of {{formatted}} records changed since",
         "delete_one": "Delete {{formatted}} record added since, children first",
         "delete_other": "Delete {{formatted}} records added since, children first",
         "check": "Check: read {{org}} again",
@@ -6179,8 +6188,8 @@
         },
         "notInBin": {
           "title": "No longer in the recycle bin",
-          "line_one": "{{object}}: {{formatted}} record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make it again, with a new Id",
-          "line_other": "{{object}}: {{formatted}} records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids"
+          "line_one": "{{object}}: {{formatted}} record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with “Recreate, with new Ids, records already emptied from the Recycle Bin” ticked to make it again, with a new Id",
+          "line_other": "{{object}}: {{formatted}} records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with “Recreate, with new Ids, records already emptied from the Recycle Bin” ticked to make them again, with new Ids"
         },
         "goneForGood": {
           "title": "Gone for good",

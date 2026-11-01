@@ -1098,7 +1098,6 @@ export class ExtensionHandlers {
         'ai:anomaly-scan',
         'ai:generate-pipeline',
         'ai:scenario-draft',
-        'ai:schema-advice',
       ],
       this.aiHandler,
     );

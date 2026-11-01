@@ -523,6 +523,18 @@ for (const theme of THEMES) {
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-list"]');
 
+      // Rename, Export… and Stop comparing fields… wait under More: a row put
+      // up to six controls on one wrapping line.
+      const row = page.getByTestId('checkpoint-row-ck-expiring');
+      await expect(row.getByRole('button')).toHaveText(['Rewind…', 'More', 'Delete', 'Keep']);
+      const more = page.getByTestId('checkpoint-more-ck-expiring');
+      await more.click();
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      await expect(
+        page.getByTestId('checkpoint-more-actions-ck-expiring').getByRole('button'),
+      ).toHaveText(['Rename', 'Export…', 'Stop comparing fields…']);
+      await expectReadable(page, theme, '[data-testid="checkpoint-row-ck-expiring"]');
+
       // Stop comparing fields…: the fields the checkpoint compares, none of its stamps.
       const stopComparing = page.getByTestId('checkpoint-stop-comparing-ck-expiring');
       await stopComparing.click();
@@ -582,6 +594,7 @@ for (const theme of THEMES) {
     }) => {
       const checkpoint = readyCheckpoint();
       const host = await openCheckpoints(page, theme, [listEntry(checkpoint)]);
+      await page.getByTestId(`checkpoint-more-${checkpoint.checkpointId}`).click();
       const exportButton = page.getByTestId(`checkpoint-export-${checkpoint.checkpointId}`);
       await exportButton.click();
       const asked = await host.answer('checkpoint:export', {
@@ -714,16 +727,16 @@ for (const theme of THEMES) {
       expect(asked.payload).toEqual({ checkpointId: 'ck-picked' });
       await expect(page.getByTestId('checkpoint-preview-number-delete')).toHaveText('14 to delete');
       await expect(page.getByTestId('checkpoint-preview-number-give-back')).toHaveText(
-        '18 to give back',
+        '18 to restore values',
       );
       await expect(page.getByTestId('checkpoint-preview-number-bring-back')).toHaveText(
-        '4 to bring back',
+        '4 to undelete',
       );
       await expect(page.getByTestId('checkpoint-preview-number-recreate')).toHaveText(
         '2 to make again',
       );
       await expect(page.getByTestId('checkpoint-preview-last-changed')).toHaveText(
-        `Last changed by: Integration User 16 · Alice Martin 11 · ${USERS.unnamed} 2`,
+        `Last changed by: Integration User (16 records) · Alice Martin (11 records) · ${USERS.unnamed} (2 records)`,
       );
       await expect(page.getByTestId('checkpoint-preview-active')).toContainText('Alice Martin');
       await expect(page.getByTestId('checkpoint-preview-shared-user')).toContainText(
@@ -786,6 +799,18 @@ for (const theme of THEMES) {
       await expect(rewind).toHaveText(`Rewind ${ORG}…`);
       await expect(rewind).toBeDisabled();
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-cannot"]');
+      // Under it, the boxes it waits for, each a link to its box: it was off
+      // with nothing near it to say which.
+      const needs = page.getByTestId('checkpoint-preview-rewind-needs');
+      await expect(rewind).toHaveAccessibleDescription(/^To rewind, tick:/);
+      await expect(needs.getByRole('button')).toHaveText([
+        'Allow deletions that Undo of this rewind cannot bring back',
+        'Recreate, with new Ids, records already emptied from the Recycle Bin',
+        'Run even if triggers, flows or workflow rules fire on the records it writes',
+      ]);
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-rewind-needs"]');
+      await page.getByTestId('checkpoint-preview-needs-box-noUndo').click();
+      await expect(page.getByTestId('checkpoint-preview-accept-no-undo')).toBeFocused();
 
       await page.getByTestId('checkpoint-preview-accept-no-undo').check();
       await page.getByTestId('checkpoint-preview-accept-outside').check();
@@ -794,6 +819,7 @@ for (const theme of THEMES) {
       await expect(rewind).toBeDisabled();
       await page.getByTestId('checkpoint-preview-accept-recreate').check();
       await expect(rewind).toBeEnabled();
+      await expect(needs).toHaveCount(0);
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-recreate"]');
       await expect(page.getByTestId('checkpoint-preview-outside-otherwise')).toHaveCount(0);
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-outside"]');
@@ -831,9 +857,9 @@ for (const theme of THEMES) {
         page.getByRole('heading', { name: `Rewind of ${ORG} to “Before UAT”` }),
       ).toBeFocused();
       await expect(page.getByTestId('checkpoint-run-phases').getByRole('listitem')).toHaveText([
-        'Bring back 4 records deleted since',
+        'Undelete 4 records deleted since',
         'Make again 2 records the recycle bin no longer holds, with new Ids',
-        'Give 18 records their values back',
+        'Restore the values of 18 records changed since',
         'Delete 14 records added since, children first',
         `Check: read ${ORG} again`,
       ]);
@@ -1080,7 +1106,7 @@ for (const theme of THEMES) {
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-unseen"]');
 
       const box = page.getByRole('checkbox', {
-        name: `Delete them all the same, with what ${CHECKPOINT_ORG.username} can't see under them`,
+        name: 'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
       });
       await box.focus();
       await page.keyboard.press('Space');
@@ -1119,7 +1145,7 @@ for (const theme of THEMES) {
       );
       await expect(page.getByTestId('checkpoint-preview-rewind')).toHaveCount(0);
       await expect(page.getByTestId('checkpoint-preview-details')).toContainText(
-        'Contact: 3 records touched since hold their checkpoint values: nothing to give back.',
+        'Contact: 3 records touched since hold their checkpoint values: nothing to restore.',
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-preview"]');
       await page.getByTestId('checkpoint-preview-back').click();
@@ -1175,7 +1201,7 @@ for (const theme of THEMES) {
         'Contact: 1 record the rewind kept' + 'A Case the checkpoint holds still looks up to it.',
       );
       await expect(page.getByTestId('checkpoint-result-residual-notInBin-Account')).toHaveText(
-        'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids',
+        'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with “Recreate, with new Ids, records already emptied from the Recycle Bin” ticked to make them again, with new Ids',
       );
       await expect(page.getByTestId('checkpoint-result-undeleted-Account')).toHaveText(
         'Account: 1 of 2 brought back, with their Ids · no longer in the recycle bin, gone for good: 1',

@@ -2,9 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { Icon } from '../../components/ui/Icon';
 import { VirtualList } from '../../components/ui/VirtualList';
 import type { EnrichedDiff, DiffRiskLevel } from '@sandforge/shared';
 import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
+import { isDeployedChange } from './enrichDiffs';
 
 /** Props for the DiffGroupAccordion component. */
 export interface DiffGroupAccordionProps {
@@ -52,7 +54,10 @@ const RISK_TINT: Partial<Record<DiffRiskLevel, string>> = {
 interface DiffGroup {
   name: string;
   diffs: EnrichedDiff[];
+  /** The heaviest risk among the changes a deployment makes. */
   maxRisk: DiffRiskLevel;
+  /** Whether a deployment makes any of its changes: none, and it has no risk to name. */
+  deploys: boolean;
   counts: { added: number; removed: number; modified: number };
 }
 
@@ -91,7 +96,8 @@ function buildGroups(diffs: EnrichedDiff[]): DiffGroup[] {
     .map(([name, groupDiffs]) => ({
       name,
       diffs: groupDiffs,
-      maxRisk: maxRiskLevel(groupDiffs),
+      maxRisk: maxRiskLevel(groupDiffs.filter((d) => isDeployedChange(d.changeType))),
+      deploys: groupDiffs.some((d) => isDeployedChange(d.changeType)),
       counts: {
         added: groupDiffs.filter((d) => d.changeType === 'added').length,
         removed: groupDiffs.filter((d) => d.changeType === 'removed').length,
@@ -183,10 +189,8 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                 fontSize: 'var(--sf-font-size-sm)',
               }}
             >
-              <span
-                className={`codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}`}
-                aria-hidden="true"
-              />
+              {/* It was a codicon span, which the webview never paints. */}
+              <Icon name={isExpanded ? 'chevron-down' : 'chevron-right'} />
               <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>{group.name}</span>
               <span
                 style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}
@@ -196,21 +200,27 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
               {CHANGE_ORDER.filter((kind) => group.counts[kind] > 0).map((kind) => {
                 // "2+" alone said nothing to a screen reader, nor to a reader
                 // who had not found the legend: the count carries its words.
+                // The symbol leads, as in the summary bar: "1-" read as a
+                // stray minus after the count.
                 const words = t(`compare.count.${kind}`, { count: group.counts[kind] });
                 return (
                   <Badge key={kind} variant={CHANGE_LOOK[kind].variant} title={words}>
                     <span aria-hidden="true">
-                      {group.counts[kind]}
                       {CHANGE_LOOK[kind].symbol}
+                      {group.counts[kind]}
                     </span>
                     <span className="sr-only">{words}</span>
                   </Badge>
                 );
               })}
-              {/* It wrote the level's own code, "critical", whatever the language. */}
-              <Badge variant={riskBadge[group.maxRisk]}>
-                {t(`compare.riskLevel.${group.maxRisk}`)}
-              </Badge>
+              {/* It wrote the level's own code, "critical", whatever the language.
+                  A group of what only the target holds names none: a
+                  deployment leaves all of it. */}
+              {group.deploys && (
+                <Badge variant={riskBadge[group.maxRisk]}>
+                  {t(`compare.riskLevel.${group.maxRisk}`)}
+                </Badge>
+              )}
             </button>
 
             {/* Expanded diff items — virtualized because a single group can be huge:
@@ -262,10 +272,14 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                       <span>{diff.category}</span>
                       <span style={{ flex: 1, fontFamily: 'monospace' }}>{diff.name}</span>
 
-                      {/* Risk badge */}
-                      <Badge variant={riskBadge[diff.riskLevel]}>
-                        {t(`compare.riskLevel.${diff.riskLevel}`)}
-                      </Badge>
+                      {/* The risk of deploying it: none to name for what only
+                          the target holds, which read "Critical risk" over a
+                          component a deployment leaves. */}
+                      {isDeployedChange(diff.changeType) && (
+                        <Badge variant={riskBadge[diff.riskLevel]}>
+                          {t(`compare.riskLevel.${diff.riskLevel}`)}
+                        </Badge>
+                      )}
 
                       {/* Dependencies count */}
                       {diff.dependencies.length > 0 && (

@@ -185,25 +185,42 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
       [reason, suggestion.notDeployable.filter((c) => c.notDeployable === reason)] as const,
   ).filter(([, candidates]) => candidates.length > 0);
 
+  const title = (
+    <h2 className="text-sm font-semibold text-text-primary">
+      {t('compare.deployment.title', { source: sourceLabel, target: targetLabel })}
+    </h2>
+  );
+
+  // A refused target is said first and alone: the tab promised a validation
+  // in it, then kept the picker and the tests live in front of a Validate
+  // that could never be pressed.
+  if (targetRefused) {
+    return (
+      <section className="flex flex-col gap-4" data-testid="compare-deploy">
+        {title}
+        <div className="flex flex-col gap-1">
+          <p
+            className="rounded-sm border border-status-error/50 px-3 py-2 text-xs text-status-error"
+            data-testid="deploy-target-refused"
+          >
+            {t('compare.deployment.targetRefused', { target: targetLabel })}
+          </p>
+          <p className="text-xs text-text-secondary" data-testid="deploy-pick-another-target">
+            {t('compare.deployment.pickAnotherTarget')}
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-4" data-testid="compare-deploy">
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold text-text-primary">
-          {t('compare.deployment.title', { source: sourceLabel, target: targetLabel })}
-        </h2>
+        {title}
         <p className="text-xs text-text-secondary">
           {t('compare.deployment.intro', { source: sourceLabel, target: targetLabel })}
         </p>
       </div>
-
-      {targetRefused && (
-        <p
-          className="rounded-sm border border-status-error/50 px-3 py-2 text-xs text-status-error"
-          data-testid="deploy-target-refused"
-        >
-          {t('compare.deployment.targetRefused', { target: targetLabel })}
-        </p>
-      )}
 
       <fieldset className="flex flex-col gap-2" data-testid="deploy-candidates">
         <legend className="mb-1 text-xs font-medium text-text-primary">

@@ -112,7 +112,7 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
 
   return (
     <Card className={className}>
-      <CardHeader title={t('compare.snapshots')} />
+      <CardHeader title={t('compare.objects')} />
       <CardBody className="max-h-80 overflow-y-auto">
         <div className="flex flex-col gap-3" data-testid="snapshot-comparison">
           <div className="flex gap-3 rounded-sm bg-(--sf-bg-card) p-2">

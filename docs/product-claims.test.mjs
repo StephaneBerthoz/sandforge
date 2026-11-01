@@ -100,9 +100,10 @@
  * the model with no screen, no button and no consent in between.
  *
  * Compare's schema advice and Monitor's anomaly scan went the other way. Both
- * are built with no provider at all and wired before the API-key gate, and both
- * were sold as "AI-powered" on the module pages and in the Marketplace listing —
- * then, once corrected, as rule-based but "still need AI enabled with a key".
+ * were built with no provider at all and wired before the API-key gate (the
+ * schema advice is gone since), and both were sold as "AI-powered" on the
+ * module pages and in the Marketplace listing — then, once corrected, as
+ * rule-based but "still need AI enabled with a key".
  *
  * So each assertion here is anchored to the code that decides the truth, and
  * fails in BOTH directions: build the feature — the partition, the CDC route,
@@ -4298,17 +4299,19 @@ test('no user-facing surface says the model hears nothing you did not ask for', 
 // ── Rule-based analysis sold as AI ────────────────────────────────────────
 
 /**
- * Compare's schema advice and Monitor's anomaly scan run on local heuristics.
+ * Monitor's anomaly scan runs on local heuristics. Compare's schema advice did
+ * too, until it was removed with its button; what was published of it is
+ * still refused below.
  *
  * Every other AI module in `aiComposition.ts` is handed `aiProvider`, the
  * function that closes over `services.aiClient().chat` — `new NL2SOQL(…)`,
- * `new ErrorResolver(…)`, `new PipelineGenerator(…)`. `AnomalyDetector` and
- * `SchemaAdvisor` are constructed with nothing at all, so there is no route
- * from either to a model, and `setRuleModules` is called outside the
- * `isAIEnabled()` / API-key gate, so neither needs the setting or the key.
+ * `new ErrorResolver(…)`, `new PipelineGenerator(…)`. `AnomalyDetector` is
+ * constructed with nothing at all, so there is no route from it to a model,
+ * and `setRuleModules` is called outside the `isAIEnabled()` / API-key gate,
+ * so it needs neither the setting nor the key.
  *
- * Fails in both directions: pass either one a provider and the arity check
- * trips, which is the moment the wordings below stop being false.
+ * Fails in both directions: pass it a provider and the arity check trips,
+ * which is the moment the wordings below stop being false.
  */
 function assertRuleModulesHaveNoProvider() {
   const calls = callsWithin(parseFile(AI_COMPOSITION_FILE));
@@ -4333,7 +4336,7 @@ function assertRuleModulesHaveNoProvider() {
       'rule-based module from a model-backed one any more',
   );
 
-  for (const name of ['AnomalyDetector', 'SchemaAdvisor']) {
+  for (const name of ['AnomalyDetector']) {
     const built = calls.filter((call) => call.name === name);
     assert.ok(
       built.length > 0,
@@ -4367,8 +4370,8 @@ function assertRuleModulesHaveNoProvider() {
   );
   assert.ok(
     wiringAt >= 0,
-    'initAIComposition no longer wires the rule-based modules at all — the anomaly scan and the ' +
-      'schema advice reach no screen, whatever the AI setting says',
+    'initAIComposition no longer wires the rule-based modules at all — the anomaly scan ' +
+      'reaches no screen, whatever the AI setting says',
   );
   // Positive control: the walk sees the gate it is measuring against. A body
   // with no early exit would make "before the first return" true for free.
@@ -4402,7 +4405,7 @@ function assertRuleModulesHaveNoProvider() {
   );
 }
 
-test('anchor: schema advice and the anomaly scan are still built without a model', () => {
+test('anchor: the anomaly scan is still built without a model', () => {
   assertRuleModulesHaveNoProvider();
 });
 
@@ -4453,8 +4456,8 @@ test('no user-facing surface sells the rule-based analysis as a model', () => {
   assert.deepEqual(
     offenders,
     [],
-    'schema advice and the anomaly scan are built with no provider and wired before the AI ' +
-      'gate; these surfaces sell them as something else:\n  ' +
+    'the anomaly scan is built with no provider and wired before the AI gate, and schema ' +
+      'advice no longer ships; these surfaces sell them as something else:\n  ' +
       offenders.join('\n  '),
   );
 });

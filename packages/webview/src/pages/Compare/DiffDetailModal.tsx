@@ -4,8 +4,10 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Icon } from '../../components/ui/Icon';
 import type { EnrichedDiff, DiffRiskLevel } from '@sandforge/shared';
 import { CHANGE_LOOK } from './changeLook';
+import { isDeployedChange } from './enrichDiffs';
 
 /** Props for the DiffDetailModal component. */
 export interface DiffDetailModalProps {
@@ -85,9 +87,13 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
           <Badge variant={CHANGE_LOOK[diff.changeType].variant}>
             {t(`compare.change.${diff.changeType}`)}
           </Badge>
-          <Badge variant={riskBadge[diff.riskLevel]}>
-            {t(`compare.riskLevel.${diff.riskLevel}`)}
-          </Badge>
+          {/* What only the target holds is not deployed: its reasons below
+              say what taking it out by hand may cost, and no level rates it. */}
+          {isDeployedChange(diff.changeType) && (
+            <Badge variant={riskBadge[diff.riskLevel]}>
+              {t(`compare.riskLevel.${diff.riskLevel}`)}
+            </Badge>
+          )}
           <span
             style={{
               flex: 1,
@@ -107,7 +113,9 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
             data-testid="close-diff-modal"
             aria-label={t('common.close', 'Close')}
           >
-            <span className="codicon codicon-close" aria-hidden="true" />
+            {/* A codicon span, which the webview never paints, left the
+                button blank. */}
+            <Icon name="close" />
           </Button>
         </div>
 

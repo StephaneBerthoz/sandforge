@@ -69,14 +69,17 @@ const DEPENDENCY_MAP: Partial<Record<MetadataComponentType, string[]>> = {
 };
 
 /**
- * Change type multipliers for risk scoring.
+ * Change type multipliers for risk scoring: what a deployment does to the
+ * target. `removed` is a component only the source holds, which a deployment
+ * creates; `modified`, one it replaces.
  *
- * `added` is a component only the target holds: taking it out to match the
- * source is the change that loses something. `removed` is one only the source
- * holds, which a deployment creates. The weights were the other way round.
+ * `added`, a component only the target holds, has none: a deployment leaves
+ * it, since SandForge deploys no deletion. It weighed heaviest of all, and was
+ * the only way a component reached Critical, so the card warned hardest about
+ * the one change SandForge never makes and said "Manual review required" over
+ * a deployment that did not touch it.
  */
 const CHANGE_MULT: Record<string, number> = {
-  added: 2.0,
   modified: 1.5,
   removed: 0.5,
 };
@@ -106,13 +109,26 @@ export function needsApexTests(types: Iterable<string>): boolean {
   return false;
 }
 
-/** Compute item risk level. */
+/**
+ * Whether a deployment from the source carries the change: a component only
+ * the source holds, or one both hold differently. One only the target holds
+ * stays where it is.
+ */
+export function isDeployedChange(changeType: EnrichedDiff['changeType']): boolean {
+  return changeType !== 'added';
+}
+
+/**
+ * Compute item risk level: the risk of deploying it. A component only the
+ * target holds is not deployed, and carries none; its reasons say what taking
+ * it out by hand may cost.
+ */
 function computeRisk(item: CompareItem): DiffRiskLevel {
+  if (item.status === 'added') return 'none';
   const weight = RISK_WEIGHTS[item.componentType] ?? 1;
   const mult = CHANGE_MULT[item.status] ?? 1;
   const score = weight * mult;
 
-  if (item.severity === 'breaking' && item.status === 'added') return 'critical';
   if (item.severity === 'breaking') return 'high';
   if (score >= 8) return 'critical';
   if (score >= 5) return 'high';
@@ -153,10 +169,12 @@ function isChange(item: CompareItem): item is CompareItem & { status: EnrichedDi
 /**
  * Convert raw CompareItem diffs to an enriched CompareReport.
  *
- * Only changes are scored. An unchanged component is none, and one whose
- * content was not compared is not known to be one: counting it would score
- * a risk nobody checked, and leaving it out of the advice means the report
- * cannot call a comparison safe while part of it was never read.
+ * Only the changes a deployment makes are scored: what only the source holds
+ * and what differs. An unchanged component is none, and one whose content was
+ * not compared is not known to be one: counting it would score a risk nobody
+ * checked, and leaving it out of the advice means the report cannot call a
+ * comparison safe while part of it was never read. What only the target holds
+ * is counted (`summary.added`) and listed, but neither scored nor advised on.
  */
 export function enrichDiffs(items: CompareItem[]): CompareReport {
   const changed = items.filter(isChange);
@@ -180,14 +198,18 @@ export function enrichDiffs(items: CompareItem[]): CompareReport {
   let modified = 0;
 
   for (const d of diffs) {
-    byRisk[d.riskLevel] = (byRisk[d.riskLevel] ?? 0) + 1;
     if (d.changeType === 'added') added++;
     else if (d.changeType === 'removed') removed++;
     else modified++;
   }
 
+  const deployed = diffs.filter((d) => isDeployedChange(d.changeType));
+  for (const d of deployed) {
+    byRisk[d.riskLevel] = (byRisk[d.riskLevel] ?? 0) + 1;
+  }
+
   let totalWeight = 0;
-  for (const d of diffs) {
+  for (const d of deployed) {
     const w = RISK_WEIGHTS[d.category as MetadataComponentType] ?? 1;
     const m = CHANGE_MULT[d.changeType] ?? 1;
     totalWeight += w * m;
@@ -195,14 +217,16 @@ export function enrichDiffs(items: CompareItem[]): CompareReport {
   const riskScore = Math.min(100, Math.round(totalWeight));
 
   const advice: DeploymentAdvice[] = [];
-  const cc = diffs.filter((d) => d.riskLevel === 'critical').length;
-  const hc = diffs.filter((d) => d.riskLevel === 'high').length;
+  const cc = deployed.filter((d) => d.riskLevel === 'critical').length;
+  const hc = deployed.filter((d) => d.riskLevel === 'high').length;
   if (cc > 0) advice.push({ kind: 'critical', count: cc });
   if (hc > 0) advice.push({ kind: 'high', count: hc });
-  if (needsApexTests(diffs.map((d) => d.category))) {
+  if (needsApexTests(deployed.map((d) => d.category))) {
     advice.push({ kind: 'apexTests' });
   }
-  if (riskScore < 25 && !notCompared) advice.push({ kind: 'lowRisk' });
+  // The sum alone said "Low risk. Safe to deploy." right after "1 high-risk
+  // change. Deploy to a sandbox first.": one high-risk change scores 7.5.
+  if (riskScore < 25 && cc === 0 && hc === 0 && !notCompared) advice.push({ kind: 'lowRisk' });
   const deploymentAdvice: DeploymentAdvice[] = advice.length > 0 ? advice : [{ kind: 'review' }];
 
   return {

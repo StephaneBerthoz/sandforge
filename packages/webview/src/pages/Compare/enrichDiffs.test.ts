@@ -57,14 +57,11 @@ describe('enrichDiffs', () => {
 
   it('should assign risk levels', () => {
     const items = [
-      createItem({
-        componentType: 'CustomObject',
-        status: 'added',
-        severity: 'breaking',
-      }),
+      createItem({ componentType: 'CustomObject', status: 'modified', severity: 'breaking' }),
+      createItem({ componentType: 'CustomObject', status: 'modified', severity: 'warning' }),
     ];
     const report = enrichDiffs(items);
-    expect(report.diffs[0].riskLevel).toBe('critical');
+    expect(report.diffs.map((d) => d.riskLevel)).toEqual(['high', 'high']);
   });
 
   it('should generate deployment advice', () => {
@@ -81,11 +78,11 @@ describe('enrichDiffs', () => {
 
   it('should count risks by level in summary', () => {
     const items = [
-      createItem({ componentType: 'CustomObject', status: 'added', severity: 'breaking' }),
+      createItem({ componentType: 'ApexTrigger', status: 'modified', severity: 'breaking' }),
       createItem({ componentType: 'CustomField', status: 'removed', severity: 'info' }),
     ];
     const report = enrichDiffs(items);
-    expect(report.summary.byRisk['critical']).toBe(1);
+    expect(report.summary.byRisk['high']).toBe(1);
     expect(report.summary.byRisk['low']).toBe(1);
   });
 
@@ -150,27 +147,64 @@ describe('enrichDiffs', () => {
       );
     });
 
-    it('warns about taking out what only the target holds', () => {
+    it('says what taking out what only the target holds may cost, and rates no deployment of it', () => {
       const report = enrichDiffs([
         createItem({ componentType: 'CustomField', status: 'added', severity: 'breaking' }),
         createItem({ componentType: 'ApexClass', status: 'added', severity: 'breaking' }),
       ]);
 
       expect(report.diffs.map((d) => [d.riskLevel, d.riskReasons])).toEqual([
-        ['critical', ['targetOnlyDataModel', 'breaking']],
-        ['critical', ['targetOnlyApex', 'breaking']],
+        ['none', ['targetOnlyDataModel', 'breaking']],
+        ['none', ['targetOnlyApex', 'breaking']],
       ]);
+    });
+  });
+
+  describe('what only the target holds, which a deployment leaves', () => {
+    // It weighed heaviest (x2) and was the only way a component reached
+    // Critical: the card said "Critical risk" and "Manual review required"
+    // over a field a deployment does not touch.
+    const targetOnlyField = createItem({
+      componentType: 'CustomField',
+      fullName: 'Account.Legacy__c',
+      status: 'added',
+      severity: 'breaking',
     });
 
-    it('scores a component only the target holds above one only the source holds', () => {
-      const sourceOnly = enrichDiffs([
-        createItem({ componentType: 'CustomObject', status: 'removed', severity: 'info' }),
-      ]);
-      const targetOnly = enrichDiffs([
-        createItem({ componentType: 'CustomObject', status: 'added', severity: 'breaking' }),
-      ]);
-      expect(targetOnly.riskScore).toBeGreaterThan(sourceOnly.riskScore);
+    it('leaves it out of the score, the levels and the advice, and counts it apart', () => {
+      const report = enrichDiffs([targetOnlyField]);
+
+      expect(report.riskScore).toBe(0);
+      expect(report.summary.added).toBe(1);
+      expect(Object.values(report.summary.byRisk).every((n) => n === 0)).toBe(true);
+      expect(report.deploymentAdvice).toEqual([{ kind: 'lowRisk' }]);
     });
+
+    it('asks no Apex tests for an Apex class only the target holds', () => {
+      const report = enrichDiffs([
+        createItem({ componentType: 'ApexClass', status: 'added', severity: 'breaking' }),
+      ]);
+      expect(report.deploymentAdvice).not.toContainEqual({ kind: 'apexTests' });
+    });
+
+    it('scores a comparison by what it deploys alone', () => {
+      const deployed = createItem({ componentType: 'CustomObject', status: 'removed' });
+      expect(enrichDiffs([deployed, targetOnlyField]).riskScore).toBe(
+        enrichDiffs([deployed]).riskScore,
+      );
+    });
+  });
+
+  it('never calls a comparison safe to deploy beside a high-risk change it deploys', () => {
+    // A breaking change to one field scores 3 of the 25 a medium needs: the
+    // sum alone said "Low risk. Safe to deploy." right after "1 high-risk
+    // change. Deploy to a sandbox first."
+    const report = enrichDiffs([
+      createItem({ componentType: 'CustomField', status: 'modified', severity: 'breaking' }),
+    ]);
+
+    expect(report.riskScore).toBeLessThan(25);
+    expect(report.deploymentAdvice).toEqual([{ kind: 'high', count: 1 }]);
   });
 
   it('should cap risk score at 100', () => {
@@ -178,7 +212,7 @@ describe('enrichDiffs', () => {
       createItem({
         componentType: 'CustomObject',
         fullName: `Obj${i}`,
-        status: 'added',
+        status: 'modified',
         severity: 'breaking',
       }),
     );

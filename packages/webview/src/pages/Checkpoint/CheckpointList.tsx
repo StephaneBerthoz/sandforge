@@ -9,6 +9,7 @@ import type {
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Dialog } from '../../components/ui/Dialog';
+import { Icon } from '../../components/ui/Icon';
 import { Input } from '../../components/ui/Input';
 import {
   formatDate,
@@ -195,11 +196,18 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const nameId = useId();
+  const moreId = useId();
   const rewindRef = useRef<HTMLButtonElement>(null);
   // Back from a preview, the keyboard is where it was before it opened.
   useEffect(() => {
     if (focusRewind) rewindRef.current?.focus();
   }, [focusRewind]);
+  // Rename, Export… and Stop comparing fields…, under More: each row put up
+  // to six controls on one wrapping line, the expert fix among them. Open
+  // while its export runs, so the keyboard comes back to Export… once its
+  // dialog closes.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreShown = moreOpen || exporting === true;
   const { checkpoint } = entry;
   const usable = entry.valid && checkpoint !== undefined;
   const records = checkpoint ? recordsHeld(checkpoint) : 0;
@@ -279,42 +287,16 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              onClick={onRename}
-              aria-describedby={nameId}
-              data-testid={`checkpoint-rename-${entry.checkpointId}`}
-            >
-              {t('checkpoint.list.rename')}
-            </Button>
-          )}
-          {usable && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onStopComparing(checkpoint)}
-              aria-describedby={nameId}
-              data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
-            >
-              {t('checkpoint.list.stopComparing')}
-            </Button>
-          )}
-          {/* Offered where Rewind… is: a checkpoint being taken, one whose take
-              failed, one whose file cannot be read, one of the org before a
-              refresh or of an expired scratch org is refused by the extension
-              before its save dialog asks anything. Kept focusable while its
-              export runs, so the dialog of its key gives the keyboard back
-              to it. */}
-          {usable && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onExport}
-              loading={exporting === true}
-              disabled={exporting !== null}
+              onClick={() => setMoreOpen((open) => !open)}
+              disabled={exporting === true}
               focusableWhenDisabled
+              aria-expanded={moreShown}
+              aria-controls={moreId}
               aria-describedby={nameId}
-              data-testid={`checkpoint-export-${entry.checkpointId}`}
+              data-testid={`checkpoint-more-${entry.checkpointId}`}
             >
-              {t('checkpoint.transfer.export')}
+              {t('checkpoint.list.more')}
+              <Icon name={moreShown ? 'chevron-up' : 'chevron-down'} className="ml-1" />
             </Button>
           )}
           <Button
@@ -328,6 +310,53 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           </Button>
         </div>
       </div>
+      {usable && (
+        <div
+          id={moreId}
+          hidden={!moreShown}
+          className="flex flex-wrap items-center justify-end gap-2"
+          data-testid={`checkpoint-more-actions-${entry.checkpointId}`}
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRename}
+            aria-describedby={nameId}
+            data-testid={`checkpoint-rename-${entry.checkpointId}`}
+          >
+            {t('checkpoint.list.rename')}
+          </Button>
+          {/* Offered where Rewind… is: a checkpoint being taken, one whose take
+              failed, one whose file cannot be read, one of the org before a
+              refresh or of an expired scratch org is refused by the extension
+              before its save dialog asks anything. Kept focusable while its
+              export runs, so the dialog of its key gives the keyboard back
+              to it. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onExport}
+            loading={exporting === true}
+            disabled={exporting !== null}
+            focusableWhenDisabled
+            aria-describedby={nameId}
+            data-testid={`checkpoint-export-${entry.checkpointId}`}
+          >
+            {t('checkpoint.transfer.export')}
+          </Button>
+          {/* Also offered by a rewind's result, where automation kept it
+              partial: the expert fix this is. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onStopComparing(checkpoint)}
+            aria-describedby={nameId}
+            data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
+          >
+            {t('checkpoint.list.stopComparing')}
+          </Button>
+        </div>
+      )}
       {why && (
         <p
           className="text-xs text-text-primary"

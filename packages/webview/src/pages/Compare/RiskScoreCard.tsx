@@ -5,6 +5,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import type { CompareReport, DiffRiskLevel } from '@sandforge/shared';
 import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
+import { isDeployedChange } from './enrichDiffs';
 
 /** Props for the RiskScoreCard component. */
 export interface RiskScoreCardProps {
@@ -12,24 +13,29 @@ export interface RiskScoreCardProps {
   className?: string;
 }
 
-/** Map risk score to the gauge stroke: the theme's raw severity, drawn, not read. */
-function riskColor(score: number): string {
-  if (score >= 75) return 'var(--sf-error, #EF4444)';
-  if (score >= 50) return 'var(--sf-warning, #F59E0B)';
-  if (score >= 25) return 'var(--sf-info, #3B82F6)';
-  return 'var(--sf-success, #10B981)';
-}
+/** The gauge stroke of a level: the theme's raw severity, drawn, not read. */
+const RISK_COLOR: Readonly<Record<DiffRiskLevel, string>> = {
+  critical: 'var(--sf-error, #EF4444)',
+  high: 'var(--sf-warning, #F59E0B)',
+  medium: 'var(--sf-info, #3B82F6)',
+  low: 'var(--sf-success, #10B981)',
+  none: 'var(--sf-success, #10B981)',
+};
 
 /**
- * Map risk score to the class its label is written in: the severity sized for
- * text, since the raw success colour reads 2:1 on a white editor.
+ * The class a level's label is written in: the severity sized for text,
+ * since the raw success colour reads 2:1 on a white editor.
  */
-function riskLabelClass(score: number): string {
-  if (score >= 75) return 'text-status-error';
-  if (score >= 50) return 'text-status-warning';
-  if (score >= 25) return 'text-status-info';
-  return 'text-status-success';
-}
+const RISK_LABEL_CLASS: Readonly<Record<DiffRiskLevel, string>> = {
+  critical: 'text-status-error',
+  high: 'text-status-warning',
+  medium: 'text-status-info',
+  low: 'text-status-success',
+  none: 'text-status-success',
+};
+
+/** Levels from the lightest up. */
+const RISK_ORDER: readonly DiffRiskLevel[] = ['none', 'low', 'medium', 'high', 'critical'];
 
 /**
  * Map risk score to the level it is named by. The card wrote the level in
@@ -40,6 +46,20 @@ function riskLevel(score: number): DiffRiskLevel {
   if (score >= 50) return 'high';
   if (score >= 25) return 'medium';
   return 'low';
+}
+
+/**
+ * The level the gauge names: the score's, or the heaviest change a deployment
+ * makes, whichever is higher. The score alone read "Low risk" over a
+ * high-risk change, one of which weighs 7.5 of the 25 a medium needs. What
+ * only the target holds is not deployed, and weighs nothing here.
+ */
+function gaugeLevel(report: CompareReport): DiffRiskLevel {
+  let at = RISK_ORDER.indexOf(riskLevel(report.riskScore));
+  for (const diff of report.diffs) {
+    if (isDeployedChange(diff.changeType)) at = Math.max(at, RISK_ORDER.indexOf(diff.riskLevel));
+  }
+  return RISK_ORDER[at] ?? 'low';
 }
 
 /** Badge variant for risk level. */
@@ -59,8 +79,9 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
   const { t } = useTranslation();
 
   const { riskScore, summary, deploymentAdvice } = report;
-  const color = riskColor(riskScore);
-  const label = t(`compare.riskLevel.${riskLevel(riskScore)}`);
+  const level = gaugeLevel(report);
+  const color = RISK_COLOR[level];
+  const label = t(`compare.riskLevel.${level}`);
 
   const gaugeSize = 100;
   const strokeWidth = 7;
@@ -127,7 +148,7 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
                 {riskScore}
               </span>
               <span
-                className={riskLabelClass(riskScore)}
+                className={RISK_LABEL_CLASS[level]}
                 style={{
                   fontSize: 'var(--sf-font-size-xs)',
                   fontWeight: 600,
@@ -152,7 +173,8 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               {t('compare.riskScore', 'Risk Score')}
             </h3>
 
-            {/* Change type counts */}
+            {/* The changes a deployment makes: what only the target holds is
+                said apart, below, since a deployment leaves it. */}
             <div
               style={{
                 display: 'flex',
@@ -162,7 +184,7 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               }}
               data-testid="risk-summary-counts"
             >
-              {CHANGE_ORDER.map((kind) => (
+              {CHANGE_ORDER.filter(isDeployedChange).map((kind) => (
                 <Badge key={kind} variant={CHANGE_LOOK[kind].variant}>
                   {t(`compare.count.${kind}`, { count: summary[kind] })}
                 </Badge>
@@ -211,6 +233,23 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
                 )
                 .join(' ')}
             </p>
+
+            {/* Out of the score, the levels and the advice, with no risk of
+                its own: a deployment leaves it, and only a removal made by
+                hand could cost anything. */}
+            {summary.added > 0 && (
+              <p
+                style={{
+                  fontSize: 'var(--sf-font-size-xs)',
+                  color: 'var(--sf-text-secondary)',
+                  margin: 'var(--sf-space-2) 0 0',
+                  lineHeight: 1.4,
+                }}
+                data-testid="risk-target-only"
+              >
+                {t('compare.targetOnlyLine', { count: summary.added })}
+              </p>
+            )}
           </div>
         </div>
       </CardBody>

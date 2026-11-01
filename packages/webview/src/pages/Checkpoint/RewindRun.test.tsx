@@ -81,8 +81,8 @@ describe('RewindRun', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Bring back 1 record deleted since',
-      'Give 6 records their values back',
+      'Undelete 1 record deleted since',
+      'Restore the values of 6 records changed since',
       'Delete 8 records added since, children first',
       'Check: read DEV-SB again',
     ]);
@@ -96,8 +96,8 @@ describe('RewindRun', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Bring back 1 record deleted since',
-      'Give 1 record its values back',
+      'Undelete 1 record deleted since',
+      'Restore the values of 1 record changed since',
       'Put 4 links between files and records back as they were',
       'Delete 2 records added since, children first',
       'Check: read DEV-SB again',
@@ -117,9 +117,9 @@ describe('RewindRun', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Bring back 1 record deleted since',
+      'Undelete 1 record deleted since',
       'Make again 2 records the recycle bin no longer holds, with new Ids',
-      'Give 6 records their values back',
+      'Restore the values of 6 records changed since',
       'Delete 8 records added since, children first',
       'Check: read DEV-SB again',
     ]);

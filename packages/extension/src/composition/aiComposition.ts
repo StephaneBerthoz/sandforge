@@ -96,9 +96,9 @@ function teardownAI(deps: AICompositionDeps, reason: string): void {
  * provider is Anthropic; otherwise it is torn back down, because this function
  * re-runs on every `sandforge.ai.*` change (see {@link registerAIConfigListener}).
  *
- * The rule-based analysis modules (anomaly scan, schema advice) are wired
- * before that gate: they run on local heuristics, so an org can be analysed
- * with AI off and no key stored.
+ * The rule-based analysis module (the anomaly scan) is wired before that
+ * gate: it runs on local heuristics, so an org can be analysed with AI off
+ * and no key stored.
  *
  * Runs via dynamic imports, so the injections land AFTER
  * `handlers.registerAll(router)` — see the late-injection contract in
@@ -113,15 +113,9 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   // so the AI gate below can never take it away, and a failure to load it is
   // logged rather than allowed to stop that gate from running.
   try {
-    const [{ AnomalyDetector }, { SchemaAdvisor }] = await Promise.all([
-      import('../modules/ai/AnomalyDetector.js'),
-      import('../modules/ai/SchemaAdvisor.js'),
-    ]);
-    handlers.setRuleModules({
-      anomalyDetector: new AnomalyDetector(),
-      schemaAdvisor: new SchemaAdvisor(),
-    });
-    log('Rule-based analysis modules initialized (anomaly scan, schema advice).');
+    const { AnomalyDetector } = await import('../modules/ai/AnomalyDetector.js');
+    handlers.setRuleModules({ anomalyDetector: new AnomalyDetector() });
+    log('Rule-based analysis modules initialized (anomaly scan).');
   } catch (err) {
     log(`Rule-based analysis modules failed to load: ${String(err)}`);
   }

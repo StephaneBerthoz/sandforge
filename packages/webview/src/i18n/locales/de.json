@@ -452,7 +452,6 @@
     "running": "Vergleich läuft...",
     "diff": "Diff-Ansicht",
     "permissions": "Vorhandene Berechtigungen",
-    "snapshots": "Snapshots",
     "drift": "Abweichung der Org-Einstellungen",
     "deploy": "Aus Diff bereitstellen",
     "noResults": "Noch keine Vergleichsergebnisse",
@@ -487,11 +486,6 @@
       "step3": "Zu vergleichende Metadatenkategorien auswählen",
       "step4": "Vergleich starten und Diffs prüfen"
     },
-    "schemaAdvice": "Schema-Empfehlungen",
-    "schemaAdviceResults": "Schema-Empfehlungen",
-    "schemaAdviceIssues_one": "{{count}} Problem gefunden",
-    "schemaAdviceIssues_other": "{{count}} Probleme gefunden",
-    "recommendations": "Empfehlungen",
     "advice": {
       "critical_one": "{{count}} Änderung mit kritischem Risiko. Manuelle Prüfung erforderlich.",
       "critical_other": "{{count}} Änderungen mit kritischem Risiko. Manuelle Prüfung erforderlich.",
@@ -597,7 +591,8 @@
         "testFailuresTitle_other": "{{count}} Tests fehlgeschlagen",
         "coverageTitle": "Abdeckung, die das Ziel als zu gering befand",
         "retrieveProblemsTitle": "Was die Quelle gemeldet hat"
-      }
+      },
+      "pickAnotherTarget": "Wählen Sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org als Ziel-Org und starten Sie den Vergleich erneut."
     },
     "count": {
       "added_one": "{{count}} nur im Ziel",
@@ -631,7 +626,14 @@
       "medium": "Mittleres Risiko",
       "high": "Hohes Risiko",
       "critical": "Kritisches Risiko"
-    }
+    },
+    "objects": "Objekte",
+    "runNeeds": {
+      "orgs": "Wählen Sie eine Quell-Org und eine andere Ziel-Org",
+      "categories": "Wählen Sie mindestens eine Kategorie"
+    },
+    "targetOnlyLine_one": "{{count}} Komponente nur im Ziel: Eine Bereitstellung lässt sie dort; sie von Hand zu entfernen, kann Daten kosten.",
+    "targetOnlyLine_other": "{{count}} Komponenten nur im Ziel: Eine Bereitstellung lässt sie dort; sie von Hand zu entfernen, kann Daten kosten."
   },
   "compareParts": {
     "source": "Quell-Org",
@@ -5793,7 +5795,8 @@
       "stopComparing": "Felder nicht mehr vergleichen…",
       "access": {
         "perObject": "Mit View All und Modify All Objekt für Objekt erstellt, ohne View All Data und Modify All Data: Er hält nur die Objekte, die sein Benutzer ganz sah."
-      }
+      },
+      "more": "Mehr"
     },
     "rename": {
       "title": "„{{name}}“ umbenennen"
@@ -5890,7 +5893,7 @@
       "readingAgain": "{{org}} wird erneut gelesen…",
       "toDelete_one": "{{formatted}} zu löschen",
       "toDelete_other": "{{formatted}} zu löschen",
-      "toDeleteHint": "seitdem erstellt, mit dem, was mit einem übergeordneten Datensatz zurückkommt und wieder geht",
+      "toDeleteHint": "seit dem Prüfpunkt erstellt",
       "toGiveBack_one": "{{formatted}} erhält seine Werte zurück",
       "toGiveBack_other": "{{formatted}} erhalten ihre Werte zurück",
       "toGiveBackHint": "seitdem geändert",
@@ -5898,7 +5901,8 @@
       "toBringBack_other": "{{formatted}} zurückzuholen",
       "toBringBackHint": "seitdem gelöscht",
       "lastChangedBy": "Zuletzt geändert von: {{people}}",
-      "person": "{{name}} {{formatted}}",
+      "person_one": "{{name}} ({{formatted}} Datensatz)",
+      "person_other": "{{name}} ({{formatted}} Datensätze)",
       "activeLastHour": "In der letzten Stunde in {{org}} tätig: {{people}}.",
       "sharedUser": "Tester, die sich als {{user}} anmelden, lassen sich nicht vom Zurücksetzen unterscheiden: Bitten Sie sie, vorher aufzuhören.",
       "table": {
@@ -5937,7 +5941,7 @@
         "needs_one": "Um ihn ebenfalls zurückzusetzen, fügen Sie {{object}} hinzu: {{formatted}} Datensatz braucht es.",
         "needs_other": "Um sie ebenfalls zurückzusetzen, fügen Sie {{object}} hinzu: {{formatted}} Datensätze brauchen es.",
         "add": "{{object}} hinzufügen",
-        "acceptOutside": "Diese Datensätze ebenfalls löschen, mit den seitdem erstellten Datensätzen nicht angehakter Objekte, die an ihnen hängen",
+        "acceptOutside": "Löschungen erlauben, die untergeordnete Datensätze der nicht angehakten Objekte mitlöschen",
         "writesNothing": "Ein Zurücksetzen nur dieser Objekte schreibt nichts: Was es belässt, steht oben."
       },
       "detail": {
@@ -6000,7 +6004,7 @@
         "line_other": "{{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen löscht: Salesforce stellt sie nur mit ihrem übergeordneten Datensatz wieder her, der bleibt.",
         "beforeParent_one": "{{formatted}} {{object}}-Datensatz, den dieses Zurücksetzen vor einem Datensatz löscht, auf den er verweist und den das Zurücksetzen danach löscht: Salesforce kann ihn danach nicht mehr zurückholen.",
         "beforeParent_other": "{{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen vor einem Datensatz löscht, auf den sie verweisen und den das Zurücksetzen danach löscht: Salesforce kann sie danach nicht mehr zurückholen.",
-        "accept": "Zurücksetzen, auch wenn das Rückgängigmachen diese nicht zurückholen könnte"
+        "accept": "Löschungen erlauben, die das Rückgängigmachen dieses Zurücksetzens nicht zurückholen kann"
       },
       "outside": {
         "title": "Mit ihnen ebenfalls gelöscht, außerhalb des Prüfpunkts",
@@ -6009,7 +6013,7 @@
         "parents_one": "{{formatted}} {{object}}-Datensatz, den das Zurücksetzen löscht",
         "parents_other": "{{formatted}} {{object}}-Datensätzen, die das Zurücksetzen löscht",
         "everything": "Sie gehen mit den Datensätzen, an denen sie hängen.",
-        "accept": "Diese ebenfalls löschen",
+        "accept": "Löschungen erlauben, die untergeordnete Datensätze von Objekten außerhalb des Prüfpunkts mitlöschen",
         "otherwise": "Ohne dieses Häkchen bleiben die Datensätze, an denen sie hängen, und werden genannt.",
         "files_one": "{{formatted}} Datei, die das Zurücksetzen löscht, ist auch außerhalb des Prüfpunkts angehängt — an eine Bibliothek, eine Gruppe oder einen Datensatz eines anderen Objekts — über {{links}}: Das Löschen entfernt sie auch dort.",
         "files_other": "{{formatted}} Dateien, die das Zurücksetzen löscht, sind auch außerhalb des Prüfpunkts angehängt — an eine Bibliothek, eine Gruppe oder einen Datensatz eines anderen Objekts — über {{links}}: Das Löschen entfernt sie auch dort."
@@ -6023,7 +6027,7 @@
         "error": "Was {{org}} ausführt, wenn das Zurücksetzen schreibt, konnte nicht gelesen werden: {{reason}}",
         "broughtBack": "nach dem Wiederherstellen, wenn das Zurücksetzen ihn aus dem Papierkorb zurückholt",
         "givenBack": "wenn das Zurücksetzen ihm seine Werte des Prüfpunkts zurückgibt",
-        "accept": "Zurücksetzen, auch wenn {{org}} Automatisierungen ausführt"
+        "accept": "Ausführen, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es schreibt"
       },
       "emails": {
         "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
@@ -6070,7 +6074,7 @@
         "newIds": "Das Zurücksetzen legt sie aus dem Prüfpunkt neu an, mit neuen Ids, und die Lookup-Felder des Prüfpunkts, die auf sie verwiesen, verweisen auf die neuen Ids. Was außerhalb von Salesforce ihre alten Ids nennt — eine Integration, ein Link, ein Berichtsfilter —, findet sie nicht mehr. Das Rückgängigmachen löscht sie wieder.",
         "ifEmptiedTitle": "Wenn der Papierkorb sie nicht mehr enthält",
         "ifEmptied": "Salesforce führt einen aus dem Papierkorb geleerten Datensatz noch Minuten bis Stunden als gelöscht und sagt erst, wenn das Zurücksetzen ihn zurückholen will, dass der Papierkorb ihn nicht mehr enthält. Angehakt legt das Zurücksetzen ihn dann aus dem Prüfpunkt neu an, mit neuer Id, ebenso die Datensätze, die mit ihm zurückkommen sollten, und es läuft, was die Org beim Anlegen eines Datensatzes ausführt; nicht angehakt lässt es sie und nennt sie.",
-        "accept": "Neu anlegen, mit neuen Ids"
+        "accept": "Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen"
       },
       "files": {
         "title": "Dateien und ihre Verknüpfungen",
@@ -6100,7 +6104,12 @@
         "line_one": "Das Löschen von {{formatted}} seitdem hinzugekommenen {{object}}-Datensatz löscht auch, was {{user}} darunter in {{children}} nicht sehen kann: Das Zurücksetzen kann das nicht zählen.",
         "line_other": "Das Löschen von {{formatted}} seitdem hinzugekommenen {{object}}-Datensätzen löscht auch, was {{user}} darunter in {{children}} nicht sehen kann: Das Zurücksetzen kann das nicht zählen.",
         "why": "Ohne View All Data und Modify All Data belegt nichts, dass {{user}} jeden Datensatz dieser Objekte sieht — Aufgaben und Ereignisse haben kein View All. Was davon an den Datensätzen hängt, die das Zurücksetzen löscht, geht ungezählt mit ihnen, und das Rückgängigmachen holt zurück, was mit ihnen zurückkommt.",
-        "accept": "Trotzdem löschen, mit dem, was {{user}} darunter nicht sehen kann"
+        "accept": "Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)"
+      },
+      "rewindNeeds": {
+        "tick": "Zum Zurücksetzen anhaken:",
+        "plan": "Der Plan der angehakten Objekte wird gelesen…",
+        "planFailed": "Der Plan der angehakten Objekte konnte nicht gelesen werden: Versuchen Sie es oben erneut."
       }
     },
     "run": {
@@ -6179,8 +6188,8 @@
         },
         "notInBin": {
           "title": "Nicht mehr im Papierkorb",
-          "line_one": "{{object}}: {{formatted}} Datensatz, den Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Neu anlegen, mit neuen Ids“ angehakt, legt ihn neu an, mit neuer Id",
-          "line_other": "{{object}}: {{formatted}} Datensätze, die Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Neu anlegen, mit neuen Ids“ angehakt, legt sie neu an, mit neuen Ids"
+          "line_one": "{{object}}: {{formatted}} Datensatz, den Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen“ angehakt, legt ihn neu an, mit neuer Id",
+          "line_other": "{{object}}: {{formatted}} Datensätze, die Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen“ angehakt, legt sie neu an, mit neuen Ids"
         },
         "goneForGood": {
           "title": "Endgültig weg",

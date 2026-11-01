@@ -130,8 +130,6 @@ function iconNamesInUse(): Map<string, string[]> {
  * that owns it, and leaves this list then; no other file joins it.
  */
 const STILL_ON_THE_CODICON_FONT = [
-  'pages/Compare/DiffDetailModal.tsx',
-  'pages/Compare/DiffGroupAccordion.tsx',
   'pages/Monitor/HealthScoreCard.tsx',
   'pages/Monitor/JobsTable.tsx',
 ];

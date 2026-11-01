@@ -36,7 +36,7 @@ vi.mock('./useBridgeMutation', () => ({
 }));
 
 import { useBridgeMutation } from './useBridgeMutation';
-import { useSchemaAdvice, useAnomalyScan, usePipelineGenerator } from './useAIFeatures';
+import { useAnomalyScan, usePipelineGenerator } from './useAIFeatures';
 
 /** The messages the hooks posted, as the panel's bridge sends them. */
 function sent(): Array<{ type: string; payload?: unknown }> {
@@ -52,11 +52,6 @@ describe('useAIFeatures', () => {
     mutationState.loading = false;
     mutationState.requestId = null;
     mutationState.reset.mockClear();
-  });
-
-  it('useSchemaAdvice calls useBridgeMutation with ai:schema-advice', () => {
-    renderHook(() => useSchemaAdvice());
-    expect(useBridgeMutation).toHaveBeenCalledWith('ai:schema-advice');
   });
 
   it('useAnomalyScan calls useBridgeMutation with ai:anomaly-scan', () => {

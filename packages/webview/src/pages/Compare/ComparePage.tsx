@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useId, useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CompareResult, MetadataComponentType, EnrichedDiff } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -6,14 +6,10 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
-import { useSchemaAdvice } from '../../hooks/useAIFeatures';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
 import { Button } from '../../components/ui/Button';
-import { Icon } from '../../components/ui/Icon';
-import { Badge } from '../../components/ui/Badge';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -40,11 +36,14 @@ const COMPARE_TIMEOUT_MS = 5 * 60_000;
 /** Main compare page -- wired to extension via bridge hooks. */
 export const ComparePage: React.FC = () => {
   const { t } = useTranslation();
+  const runNeedsId = useId();
 
   const COMPARE_TABS: PageTab[] = [
     { id: 'diff', label: t('compare.diff'), icon: 'diff' },
     { id: 'permissions', label: t('compare.permissions'), icon: 'shield' },
-    { id: 'snapshots', label: t('compare.snapshots'), icon: 'history' },
+    // "Snapshots" named the live object lists of both orgs, beside Checkpoints,
+    // whose snapshots are saved states.
+    { id: 'objects', label: t('compare.objects'), icon: 'database' },
     { id: 'drift', label: t('compare.drift'), icon: 'warning' },
     { id: 'deploy', label: t('compare.deploy'), icon: 'cloud-upload' },
   ];
@@ -75,8 +74,6 @@ export const ComparePage: React.FC = () => {
     timeoutMs: COMPARE_TIMEOUT_MS,
   });
 
-  const schemaAdvice = useSchemaAdvice();
-
   /**
    * Bridge queries for each tab -- lazy loaded via skip option.
    *
@@ -96,7 +93,7 @@ export const ComparePage: React.FC = () => {
   const snapshotsQuery = useBridgeQuery<{ snapshot?: OrgSnapshotComparison }>(
     'compare:snapshots',
     { sourceOrgId, targetOrgId },
-    { skip: activeTab !== 'snapshots' || !sourceOrgId || !targetOrgId },
+    { skip: activeTab !== 'objects' || !sourceOrgId || !targetOrgId },
   );
 
   const driftQuery = useBridgeQuery<{ drift?: SettingsDriftReport }>(
@@ -146,8 +143,15 @@ export const ComparePage: React.FC = () => {
     });
   };
 
-  const canRun =
-    sourceOrgId && targetOrgId && sourceOrgId !== targetOrgId && selectedTypes.length > 0;
+  // What Run Comparison waits for, said under it: two different orgs first,
+  // then a category.
+  const runNeeds: 'orgs' | 'categories' | null =
+    !sourceOrgId || !targetOrgId || sourceOrgId === targetOrgId
+      ? 'orgs'
+      : selectedTypes.length === 0
+        ? 'categories'
+        : null;
+  const canRun = runNeeds === null;
 
   /** Enriched compare report computed from raw diffs. */
   const compareReport = useMemo(() => (result ? enrichDiffs(result.diffs) : undefined), [result]);
@@ -181,27 +185,28 @@ export const ComparePage: React.FC = () => {
         subtitle={result ? undefined : t('compare.noResults')}
         icon="git-compare"
         actions={
-          <div className="flex items-center gap-(--sf-space-3)">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<Icon name="lightbulb" />}
-              onClick={() => schemaAdvice.mutate({ orgId: sourceOrgId })}
-              disabled={!sourceOrgId || schemaAdvice.loading}
-              loading={schemaAdvice.loading}
-              data-testid="schema-advice-btn"
-            >
-              {t('compare.schemaAdvice', 'Schema Advice')}
-            </Button>
+          <div className="flex flex-col items-end gap-(--sf-space-1)">
             <Button
               variant="primary"
               onClick={handleRunCompare}
               disabled={!canRun || isRunning}
               loading={isRunning}
+              aria-describedby={runNeeds ? runNeedsId : undefined}
               data-testid="run-compare-btn"
             >
               {isRunning ? t('compare.running') : t('compare.run')}
             </Button>
+            {/* Categories start at none, so the button stayed off after two
+                orgs were picked, with nothing near it to say why. */}
+            {runNeeds && (
+              <p
+                id={runNeedsId}
+                className="text-right text-xs text-(--sf-text-secondary)"
+                data-testid="compare-run-needs"
+              >
+                {t(`compare.runNeeds.${runNeeds}`)}
+              </p>
+            )}
           </div>
         }
       />
@@ -214,129 +219,6 @@ export const ComparePage: React.FC = () => {
           onDismiss={() => setError(null)}
           data-testid="compare-error"
         />
-      )}
-
-      {schemaAdvice.error && (
-        <ErrorBanner
-          message={schemaAdvice.error}
-          code={schemaAdvice.errorCode}
-          onDismiss={() => schemaAdvice.reset()}
-          data-testid="schema-advice-error"
-        />
-      )}
-
-      {schemaAdvice.data?.success && schemaAdvice.data.advice && (
-        <Card data-testid="schema-advice-results">
-          <CardHeader
-            title={t('compare.schemaAdviceResults', 'Schema Advice')}
-            subtitle={t('compare.schemaAdviceIssues', {
-              count: schemaAdvice.data.advice.issues.length,
-            })}
-          />
-          <CardBody>
-            {schemaAdvice.data.advice.issues.length > 0 && (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--sf-space-2)',
-                }}
-              >
-                {schemaAdvice.data.advice.issues.map((issue, idx) => (
-                  <li
-                    key={`${issue.objectName}-${issue.field ?? ''}-${idx}`}
-                    className="flex items-start"
-                    style={{
-                      gap: 'var(--sf-space-2)',
-                      padding: 'var(--sf-space-2)',
-                      borderRadius: 'var(--sf-radius-sm)',
-                      backgroundColor: 'var(--sf-bg-secondary)',
-                    }}
-                  >
-                    <Badge
-                      variant={
-                        issue.severity === 'high'
-                          ? 'error'
-                          : issue.severity === 'medium'
-                            ? 'warning'
-                            : 'info'
-                      }
-                    >
-                      {issue.severity}
-                    </Badge>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontWeight: 600, fontSize: 'var(--sf-font-size-sm)' }}>
-                        {issue.objectName}
-                        {issue.field && (
-                          <span style={{ color: 'var(--sf-text-secondary)' }}>.{issue.field}</span>
-                        )}
-                      </span>
-                      <p
-                        style={{
-                          fontSize: 'var(--sf-font-size-sm)',
-                          color: 'var(--sf-text-secondary)',
-                          margin: 0,
-                        }}
-                      >
-                        {issue.message}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {schemaAdvice.data.advice.recommendations.length > 0 && (
-              <div style={{ marginTop: 'var(--sf-space-4)' }}>
-                <h4
-                  style={{
-                    fontSize: 'var(--sf-font-size-sm)',
-                    fontWeight: 600,
-                    marginBottom: 'var(--sf-space-2)',
-                  }}
-                >
-                  {t('compare.recommendations', 'Recommendations')}
-                </h4>
-                <ul
-                  style={{
-                    listStyle: 'none',
-                    padding: 0,
-                    margin: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--sf-space-2)',
-                  }}
-                >
-                  {schemaAdvice.data.advice.recommendations.map((rec, idx) => (
-                    <li
-                      key={idx}
-                      style={{
-                        padding: 'var(--sf-space-2)',
-                        borderRadius: 'var(--sf-radius-sm)',
-                        backgroundColor: 'var(--sf-bg-secondary)',
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 'var(--sf-font-size-sm)' }}>
-                        {rec.title}
-                      </span>
-                      <p
-                        style={{
-                          fontSize: 'var(--sf-font-size-sm)',
-                          color: 'var(--sf-text-secondary)',
-                          margin: 0,
-                        }}
-                      >
-                        {rec.description}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </CardBody>
-        </Card>
       )}
 
       {/* Org selection */}
@@ -423,7 +305,7 @@ export const ComparePage: React.FC = () => {
               />
             ))}
 
-          {activeTab === 'snapshots' &&
+          {activeTab === 'objects' &&
             (snapshotsQuery.loading ? (
               <Skeleton variant="rect" height="200px" />
             ) : snapshot ? (

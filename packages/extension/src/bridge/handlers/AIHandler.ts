@@ -5,7 +5,6 @@ import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { PipelineGenerator } from '../../modules/ai/PipelineGenerator.js';
 import type { ScenarioDrafter } from '../../modules/ai/ScenarioDrafter.js';
 import type { AnomalyDetector } from '../../modules/ai/AnomalyDetector.js';
-import type { SchemaAdvisor } from '../../modules/ai/SchemaAdvisor.js';
 import { AIChatHandler } from './ai/AIChatHandler.js';
 import { AIAnalysisHandler } from './ai/AIAnalysisHandler.js';
 import { AIToolsHandler } from './ai/AIToolsHandler.js';
@@ -28,13 +27,12 @@ export interface AIModules {
 }
 
 /**
- * Rule-based analysis bundle. These two run on local heuristics — no provider,
- * no key, no network — so they are wired once at activation and never torn
- * down when AI is switched off.
+ * Rule-based analysis bundle. It runs on local heuristics — no provider, no
+ * key, no network — so it is wired once at activation and never torn down
+ * when AI is switched off.
  */
 export interface RuleModules {
   anomalyDetector: AnomalyDetector;
-  schemaAdvisor: SchemaAdvisor;
 }
 
 /** Message types handled by AIHandler. */
@@ -55,7 +53,6 @@ const AI_TYPES = new Set([
   'ai:anomaly-scan',
   'ai:generate-pipeline',
   'ai:scenario-draft',
-  'ai:schema-advice',
 ]);
 
 /**
@@ -63,7 +60,7 @@ const AI_TYPES = new Set([
  *
  * Delegates to focused sub-handlers:
  * - {@link AIChatHandler} — chat, conversations, status, key management
- * - {@link AIAnalysisHandler} — anomaly scan, schema advice (rule-based)
+ * - {@link AIAnalysisHandler} — anomaly scan (rule-based)
  * - {@link AIToolsHandler} — Forge root queries, pipeline generation, scenario pack drafts
  */
 export class AIHandler implements DomainHandler {

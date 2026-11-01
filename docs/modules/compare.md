@@ -22,7 +22,7 @@ Compare metadata, permission names, and five Organization settings between two S
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
 4. Click **Run Comparison** to execute the comparison
-5. Browse results across five tabs: Diff, Permissions, Snapshots, Drift, and Deploy
+5. Browse results across five tabs: Diff, Permissions, Objects, Drift, and Deploy
 
 ## Features
 
@@ -61,7 +61,7 @@ Diff tab says that nothing differs; the line above it says how many components
 were compared by content.
 
 - **Summary Bar** -- Counts of the components only in the source (+), only in the target (-), modified (~), unchanged (=) and not compared (?), a line saying what each of the first three means for a deployment, and how many of the components both orgs hold were compared by content
-- **Risk Score Card** -- An enriched risk assessment computed from the changes; components not compared are left out of it, and it does not call a comparison safe to deploy while some were
+- **Risk Score Card** -- An enriched risk assessment of what a deployment would change: the components only in the source and the modified ones. Components not compared are left out of it, and it does not call a comparison safe to deploy while some were, nor while a change it deploys rates high or critical. The components only in the target are on a line of their own, with no risk level: a deployment leaves them, and removing them by hand may lose data
 - **Diff Group Accordion** -- Changes grouped by type, expandable to see individual changes
 - **Diff Detail Modal** -- Click any change to see it; for a modified component, the lines where the two copies first differ
 
@@ -75,10 +75,11 @@ Which permission sets and profiles exist on each side, by name:
   object and field permissions are not read, so no record-level access is
   compared here
 
-### Snapshots
+### Objects
 
-A live capture of both orgs, taken with `describeGlobal` at the moment you open
-the tab. Nothing is stored between runs, so there is no history to browse and no
+A live capture of the objects of both orgs, taken with `describeGlobal` at the
+moment you open the tab: a list, not a saved state such as a checkpoint.
+Nothing is stored between runs, so there is no history to browse and no
 earlier capture to compare against -- the tab compares the two orgs as they are
 right now:
 
@@ -137,20 +138,9 @@ Setup › Deployment Status, validations included.
 A production target is refused, validation included, and so is an org whose
 type SandForge cannot tell: SandForge deploys metadata to a sandbox, a scratch
 org or a Developer Edition org -- a Trailhead playground is one -- and to no
-other. The Production Guard decides it, as it decides every write.
-
-### Schema Advice
-
-The Schema Advice button reads your source org's describe and runs it through a
-set of rules -- no model, no key, nothing leaves the machine:
-
-- Field-level issues with severity badges (high/medium/low)
-- Actionable recommendations for schema improvements
-- Object-specific analysis
-
-Rules cover naming conventions, labels duplicated across objects and missing
-standard relationships. Each run says how many issues it found and lists its
-recommendations; it shows no score.
+other. The Production Guard decides it, as it decides every write. With such a
+target, the tab says so and names the orgs to pick as Target Org instead, and
+offers nothing to pick, test or validate.
 
 ## Tips
 

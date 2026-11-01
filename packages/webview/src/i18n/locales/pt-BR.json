@@ -452,7 +452,6 @@
     "running": "Comparando...",
     "diff": "Visualizador de diferenças",
     "permissions": "Presença de permissões",
-    "snapshots": "Snapshots",
     "drift": "Desvio das configurações da org",
     "deploy": "Implantar a partir do diff",
     "noResults": "Sem resultados de comparação",
@@ -487,11 +486,6 @@
       "step3": "Selecione as categorias de metadados para comparar",
       "step4": "Execute a comparação e revise os diffs"
     },
-    "schemaAdvice": "Recomendações de esquema",
-    "schemaAdviceResults": "Recomendações de esquema",
-    "schemaAdviceIssues_one": "{{count}} problema encontrado",
-    "schemaAdviceIssues_other": "{{count}} problemas encontrados",
-    "recommendations": "Recomendações",
     "advice": {
       "critical_one": "{{count}} alteração de risco crítico. Revisão manual necessária.",
       "critical_other": "{{count}} alterações de risco crítico. Revisão manual necessária.",
@@ -597,7 +591,8 @@
         "testFailuresTitle_other": "{{count}} testes falharam",
         "coverageTitle": "Cobertura que o destino considerou insuficiente",
         "retrieveProblemsTitle": "O que a origem informou"
-      }
+      },
+      "pickAnotherTarget": "Escolha uma sandbox, uma scratch org ou uma org Developer Edition como Org de destino e execute a comparação de novo."
     },
     "count": {
       "added_one": "{{count}} só no destino",
@@ -631,7 +626,14 @@
       "medium": "Risco médio",
       "high": "Risco alto",
       "critical": "Risco crítico"
-    }
+    },
+    "objects": "Objetos",
+    "runNeeds": {
+      "orgs": "Escolha uma org de origem e uma org de destino diferente",
+      "categories": "Escolha pelo menos uma categoria"
+    },
+    "targetOnlyLine_one": "{{count}} componente só no destino: uma implantação o deixa lá; removê-lo à mão pode causar perda de dados.",
+    "targetOnlyLine_other": "{{count}} componentes só no destino: uma implantação os deixa lá; removê-los à mão pode causar perda de dados."
   },
   "compareParts": {
     "source": "Org de origem",
@@ -5793,7 +5795,8 @@
       "stopComparing": "Parar de comparar campos…",
       "access": {
         "perObject": "Criado com View All e Modify All objeto por objeto, sem View All Data e Modify All Data: só guarda os objetos que o seu usuário via inteiros."
-      }
+      },
+      "more": "Mais"
     },
     "rename": {
       "title": "Renomear “{{name}}”"
@@ -5890,7 +5893,7 @@
       "readingAgain": "Lendo {{org}} de novo…",
       "toDelete_one": "{{formatted}} a excluir",
       "toDelete_other": "{{formatted}} a excluir",
-      "toDeleteHint": "criados desde então, com o que volta com um pai e sai de novo",
+      "toDeleteHint": "criados desde o ponto de verificação",
       "toGiveBack_one": "{{formatted}} com valores a devolver",
       "toGiveBack_other": "{{formatted}} com valores a devolver",
       "toGiveBackHint": "alterados desde então",
@@ -5898,7 +5901,8 @@
       "toBringBack_other": "{{formatted}} a recuperar",
       "toBringBackHint": "excluídos desde então",
       "lastChangedBy": "Alterado por último por: {{people}}",
-      "person": "{{name}} {{formatted}}",
+      "person_one": "{{name}} ({{formatted}} registro)",
+      "person_other": "{{name}} ({{formatted}} registros)",
       "activeLastHour": "Pessoas que trabalharam em {{org}} na última hora: {{people}}.",
       "sharedUser": "Os testadores que entram como {{user}} não podem ser distinguidos do retrocesso: peça que parem antes.",
       "table": {
@@ -5937,7 +5941,7 @@
         "needs_one": "Para retrocedê-lo também, adicione {{object}}: {{formatted}} registro precisa dele.",
         "needs_other": "Para retrocedê-los também, adicione {{object}}: {{formatted}} registros precisam dele.",
         "add": "Adicionar {{object}}",
-        "acceptOutside": "Excluir também estes registros, com os registros de objetos não marcados criados desde então que dependem deles",
+        "acceptOutside": "Permitir exclusões que se estendem a registros filhos dos objetos não marcados",
         "writesNothing": "Um retrocesso só destes objetos não grava nada: o que ele deixa está dito acima."
       },
       "detail": {
@@ -6000,7 +6004,7 @@
         "line_other": "{{formatted}} registros de {{object}} que este retrocesso exclui: o Salesforce só os recupera com o registro pai, que fica.",
         "beforeParent_one": "{{formatted}} registro de {{object}} que este retrocesso exclui antes de um registro para o qual ele aponta, que o retrocesso exclui em seguida: o Salesforce não consegue mais recuperá-lo depois disso.",
         "beforeParent_other": "{{formatted}} registros de {{object}} que este retrocesso exclui antes de um registro para o qual eles apontam, que o retrocesso exclui em seguida: o Salesforce não consegue mais recuperá-los depois disso.",
-        "accept": "Retroceder mesmo que Desfazer não consiga recuperá-los"
+        "accept": "Permitir exclusões que Desfazer este retrocesso não conseguirá recuperar"
       },
       "outside": {
         "title": "Também excluídos com eles, fora do ponto de verificação",
@@ -6009,7 +6013,7 @@
         "parents_one": "{{formatted}} registro de {{object}} que o retrocesso exclui",
         "parents_other": "{{formatted}} registros de {{object}} que o retrocesso exclui",
         "everything": "Eles saem com os registros de que dependem.",
-        "accept": "Excluí-los também",
+        "accept": "Permitir exclusões que se estendem a registros filhos de objetos fora do ponto de verificação",
         "otherwise": "Sem esta caixa marcada, os registros de que dependem ficam e são nomeados.",
         "files_one": "{{formatted}} arquivo que o retrocesso exclui também está anexado fora do ponto de verificação — a uma biblioteca, um grupo ou um registro de outro objeto — por {{links}}: excluí-lo o remove de lá também.",
         "files_other": "{{formatted}} arquivos que o retrocesso exclui também estão anexados fora do ponto de verificação — a uma biblioteca, um grupo ou um registro de outro objeto — por {{links}}: excluí-los os remove de lá também."
@@ -6023,7 +6027,7 @@
         "error": "Não foi possível ler o que {{org}} executa quando o retrocesso grava: {{reason}}",
         "broughtBack": "depois da restauração, quando o retrocesso o recupera da lixeira",
         "givenBack": "quando o retrocesso lhe devolve seus valores do ponto de verificação",
-        "accept": "Retroceder mesmo que {{org}} execute automações"
+        "accept": "Executar mesmo que triggers, fluxos ou regras de fluxo de trabalho disparem nos registros que ele grava"
       },
       "emails": {
         "fits": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
@@ -6070,7 +6074,7 @@
         "newIds": "O retrocesso os recria a partir do ponto de verificação, com Ids novos, e os campos de pesquisa do ponto de verificação que os nomeavam nomeiam os Ids novos. O que fora do Salesforce nomeia os Ids antigos — uma integração, um link, um filtro de relatório — não os encontra mais. Desfazer os exclui de novo.",
         "ifEmptiedTitle": "Se a lixeira não os contém mais",
         "ifEmptied": "O Salesforce ainda mostra como excluído um registro esvaziado da lixeira, por minutos ou horas, e só diz que a lixeira não o contém mais quando o retrocesso pede para recuperá-lo. Marcado, o retrocesso então o recria a partir do ponto de verificação, com um Id novo, junto com os registros que deviam voltar com ele, executando o que a org executa ao criar um registro; desmarcado, ele os deixa e os nomeia.",
-        "accept": "Recriá-los, com Ids novos"
+        "accept": "Recriar, com Ids novos, os registros já esvaziados da lixeira"
       },
       "files": {
         "title": "Os arquivos e seus vínculos",
@@ -6100,7 +6104,12 @@
         "line_one": "Excluir {{formatted}} registro de {{object}} adicionado desde então também exclui o que {{user}} não consegue ver sob ele em {{children}}: o retrocesso não consegue contar isso.",
         "line_other": "Excluir {{formatted}} registros de {{object}} adicionados desde então também exclui o que {{user}} não consegue ver sob eles em {{children}}: o retrocesso não consegue contar isso.",
         "why": "Sem View All Data e Modify All Data, nada prova que {{user}} vê cada registro desses objetos — tarefas e eventos não têm View All. O que deles depende dos registros que o retrocesso exclui vai com eles sem ser contado, e Desfazer recupera o que volta com eles.",
-        "accept": "Excluí-los mesmo assim, com o que {{user}} não consegue ver sob eles"
+        "accept": "Permitir exclusões que se estendem a registros que o usuário conectado talvez não veja (sem View All Data nem Modify All Data)"
+      },
+      "rewindNeeds": {
+        "tick": "Para retroceder, marque:",
+        "plan": "Lendo o plano dos objetos marcados…",
+        "planFailed": "Não foi possível ler o plano dos objetos marcados: tente de novo acima."
       }
     },
     "run": {
@@ -6179,8 +6188,8 @@
         },
         "notInBin": {
           "title": "Não está mais na lixeira",
-          "line_one": "{{object}}: {{formatted}} registro que o Salesforce ainda mostra como excluído mas não recupera — esvaziado da lixeira, ou mantido lá de vez: retroceda de novo com “Recriá-los, com Ids novos” marcado para recriá-lo, com um Id novo",
-          "line_other": "{{object}}: {{formatted}} registros que o Salesforce ainda mostra como excluídos mas não recupera — esvaziados da lixeira, ou mantidos lá de vez: retroceda de novo com “Recriá-los, com Ids novos” marcado para recriá-los, com Ids novos"
+          "line_one": "{{object}}: {{formatted}} registro que o Salesforce ainda mostra como excluído mas não recupera — esvaziado da lixeira, ou mantido lá de vez: retroceda de novo com “Recriar, com Ids novos, os registros já esvaziados da lixeira” marcado para recriá-lo, com um Id novo",
+          "line_other": "{{object}}: {{formatted}} registros que o Salesforce ainda mostra como excluídos mas não recupera — esvaziados da lixeira, ou mantidos lá de vez: retroceda de novo com “Recriar, com Ids novos, os registros já esvaziados da lixeira” marcado para recriá-los, com Ids novos"
         },
         "goneForGood": {
           "title": "Perdidos de vez",
