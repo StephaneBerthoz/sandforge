@@ -46,6 +46,10 @@ import type {
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
   SeedRelation,
   SeedTemplate,
   StorageRoomNotCounted,
@@ -132,15 +136,18 @@ import {
 } from '../src/modules/seed/seedFit.js';
 import { STORAGE_RECOUNT_SECONDS } from '../src/modules/forge/fitBudget.js';
 import {
+  CHECKPOINT_REFUSED,
   bypassesToAssign,
   emailCheckLines,
   formatMB,
   readEmailLimits,
   removalStepsAutomationLines,
   removalStepsAutomationRefusal,
+  takeCheckpointFirst,
   type EmailLimit,
   type StorageCheck,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
   readSeedAutomation,
   seedAutomationLines,
@@ -182,6 +189,18 @@ import {
   targetAutomationReader,
   type SweepClassArgs,
 } from './sandforge-clone.js';
+import {
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointOrgOf,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  settleCommandCheckpoint,
+  type CommandCheckpointAsk,
+} from './beforeRunCheckpoint.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import type { ScenarioPack } from '@sandforge/shared';
 import { readAgentCatalog, type AgentCatalogRead } from '../src/modules/agentforce/agentCatalog.js';
@@ -286,6 +305,7 @@ Options:
                          share is taken of what the caps leave
   --fit-within <MB>      with --fit or --fit-cap: take no more than this many
                          MB, whatever the target has left
+${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
   --seed <n>             draw as the run that printed this seed did: the
                          same command with the same seed plans and writes
                          the same numbers. Every run prints its seed
@@ -543,6 +563,12 @@ interface CliArgs {
   recordTypes: Record<string, string[]>;
   /** The fit asked of the run (`--fit`, `--fit-cap`, `--fit-within`); absent when none was. */
   fit?: CliFit;
+  /**
+   * Take a checkpoint of what the run writes before its first write
+   * (`--checkpoint-first`): the days it is kept and the objects left out of
+   * it. undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
 }
 
 /** A fit to the target's storage, as the command line asks it. */
@@ -769,6 +795,7 @@ const RUN_FLAGS: CommandFlags = {
     '--existing',
     '--fail-on-partial',
     '--mute-automation',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
     '--target',
@@ -792,6 +819,7 @@ const RUN_FLAGS: CommandFlags = {
     '--fit',
     '--fit-cap',
     '--fit-within',
+    ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
@@ -1029,6 +1057,9 @@ export function parseArgs(argv: string[]): CliArgs {
     recordTypes[objectApiName] = [...new Set(names.split(','))];
   }
   const fit = fitOfArgs(args, refuse);
+  // A checkpoint of what the run writes, taken before its first write; with
+  // --dry-run, said and not taken.
+  const checkpointFirst = checkpointFirstArgs(args);
 
   return {
     target,
@@ -1048,6 +1079,7 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
     ...(fit ? { fit } : {}),
+    ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
   };
 }
 
@@ -1785,7 +1817,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   log(`sandforge-seed  -> ${args.target}`);
   log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
-  const conn = makeConn(await loadOrg(args.target));
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
   // Refused before anything is read on a production org, or one that will
   // not say what it is: the seed went from the session to its writes, and
   // its own --remove refuses such an org, so what it wrote there stayed. A
@@ -2005,13 +2038,65 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     muted: (mute?.plan?.assign.length ?? 0) > 0,
   };
 
+  const runId = args.runId ?? `sandforge-seed-${randomUUID()}`;
+  // The checkpoint the run takes of what it writes before its first write:
+  // scoped here from the objects the seed creates and what still runs as it
+  // creates them, the mute's plan holding, no record read, its requests
+  // counted with the seed's; taken once every gate let the seed through and
+  // before the mute's lease; kept or deleted as the run ends. A dry run says
+  // what it would hold and cost, and takes nothing. It reads the target
+  // through a connection of its own: the run's calls stay the run's.
+  const checkpoints = args.checkpointFirst
+    ? commandCheckpoints({
+        module: 'seed',
+        operationId: runId,
+        request: args.checkpointFirst,
+        session,
+        org: checkpointOrgOf(session, typedTarget ?? (await typeTarget(conn))),
+        connect: makeConn,
+        journalDir: journalDirOf(),
+        say: log,
+        own: { runId },
+      })
+    : undefined;
+  /** The checkpoint as it was asked, and what it would hold and cost. */
+  let checkpointPlanned: { ask: CommandCheckpointAsk; estimate: RunCheckpointEstimate } | undefined;
+  /** Why a real run would be refused for its checkpoint, of a dry run. */
+  const checkpointRefusals: string[] = [];
+  /** Refuse a real run for its checkpoint, nothing written; a dry run says it would be. */
+  const refuseForCheckpoint = (refusal: string): void => {
+    if (!args.dryRun) throw new Error(refusal);
+    checkpointRefusals.push(refusal);
+    log(`  a real run would be refused: ${refusal}`);
+  };
+  const writing = template.objects.filter((object) => object.recordCount > 0);
+  if (checkpoints && writing.length > 0) {
+    const ask: CommandCheckpointAsk = {
+      written: writing.map((object) => object.objectApiName),
+      running: room.running ?? { firing: [] },
+    };
+    try {
+      checkpointPlanned = { ask, estimate: await checkpoints.scope(ask) };
+    } catch (err: unknown) {
+      refuseForCheckpoint(beforeRunFailedWords(err));
+    }
+  }
+
   // The data storage the records take against what the target has left,
   // before the first write, as the panel holds a seed: a dry run says what a
   // real run would meet, and a real run past it writes nothing.
-  let storage = await seedStorageGate(conn, template, personObjects, args.target);
+  let storage = await seedStorageGate(
+    conn,
+    template,
+    personObjects,
+    args.target,
+    checkpointPlanned?.estimate,
+  );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
   let fit: { applied: boolean; fit: SeedFit } | undefined;
-  if (args.fit) {
+  // Refused for its checkpoint, there is nothing to fit: no smaller seed
+  // answers it.
+  if (args.fit && storage.refusedFor !== 'checkpoint' && checkpointRefusals.length === 0) {
     const budget = seedFitBudgetOf(storage, args.fit.withinMB);
     if ('unread' in budget) {
       const refusal =
@@ -2042,14 +2127,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // again: a fit is never a pass, and an org that lost room since
         // refuses the seed again. Caps that fit are counts fitted too.
         template = fittedTemplate(template, fitted.proposal);
-        storage = await seedStorageGate(conn, template, personObjects, args.target);
+        storage = await seedStorageGate(
+          conn,
+          template,
+          personObjects,
+          args.target,
+          checkpointPlanned?.estimate,
+        );
       }
     }
   }
   log(storageLine(storage.check, args.target));
-  if (storage.refusal) {
+  if (checkpointPlanned) {
+    for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) log(line);
+  }
+  if (storage.refusedFor === 'checkpoint') {
+    // The take's refusal in the command's words, its flags for the panel's box.
+    refuseForCheckpoint(
+      checkpointStopWords({
+        code: CHECKPOINT_REFUSED,
+        message: storage.refusal ?? '',
+        ...(storage.checkpointRefusal ? { refusal: storage.checkpointRefusal } : {}),
+      }),
+    );
+  } else if (storage.refusal) {
     // Unasked, what --fit share would seed: computed from what was read.
-    if (!args.fit && storage.refusedFor !== 'checkpoint') {
+    if (!args.fit) {
       const budget = seedFitBudgetOf(storage);
       if (!('unread' in budget)) {
         const proposed = fitSeedTemplate({ template, personObjects, budget, room: room.room });
@@ -2088,7 +2191,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // printed once the run returned, and a run killed by its CI job's timeout,
   // out of memory or ended by an error left its records in the org with
   // nothing --remove could read. Ids and dates only.
-  const runId = args.runId ?? `sandforge-seed-${randomUUID()}`;
   const runs = args.dryRun ? undefined : nodeSeedRunCreations(journalDirOf());
   const kept = runs?.recorder({
     runId,
@@ -2116,6 +2218,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // each a slice at a time (`SeedOrchestrator.slicesOf`).
   const robustness = DEFAULT_ROBUSTNESS_CONFIG;
   const progressSaid = new Map<string, number>();
+  /**
+   * Whether the seed sent a record to the org: the checkpoint it took first
+   * is kept once it did, whatever became of the run after, and deleted when
+   * it never did.
+   */
+  let wrote = false;
   const write = seedInsert({
     conn: conn as unknown as SeedInsertConnection,
     bulkThreshold: robustness.bulk.threshold,
@@ -2157,6 +2265,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const ids = records.map((_, i) => `dry-${i}`);
       return { successIds: ids, errors: [], rows: ids.map((id) => ({ id })) };
     }
+    if (records.length > 0) wrote = true;
     const answer = await write(orgId, objectApiName, records, batchSize);
     kept?.note(objectApiName, answer.successIds);
     log(
@@ -2236,7 +2345,46 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
   /** What the run muted of the target's automation, once it ended. */
   let mutedAutomation: MutedAutomation | undefined = mute?.muted;
+  /** The checkpoint the run took before its first write, once taken. */
+  let checkpointTaken: RunCheckpointTaken | undefined;
+  /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
+  let checkpointInfo: RunCheckpointInfo | undefined;
+  /** Keep it once the seed sent a record, whatever became of the run after; delete it otherwise. */
+  const settleCheckpoint = async (): Promise<void> => {
+    if (!checkpoints || !checkpointTaken || checkpointInfo) return;
+    checkpointInfo = await settleCommandCheckpoint(
+      checkpoints,
+      checkpointTaken,
+      wrote,
+      args.target,
+      log,
+    );
+  };
   try {
+    // The checkpoint asked first is taken once every gate let the seed
+    // through, the flag the answer a question would have had, and before the
+    // lease: the bypass is held for the writes alone. Ctrl-C stops it between
+    // two reads, keeping nothing.
+    if (!args.dryRun && checkpoints && checkpointPlanned) {
+      const planned = checkpointPlanned;
+      const took = await takeCheckpointFirst(() =>
+        checkpoints.take(planned.ask, planned.estimate, { signal: stop.signal }),
+      );
+      if ('stop' in took) {
+        if (took.stop.code === CHECKPOINT_REFUSED) throw new Error(checkpointStopWords(took.stop));
+        process.stderr.write(`${checkpointStopWords(took.stop)}\n`);
+        endWith(stopExitCode(stoppedBy ?? 'SIGINT'));
+        return;
+      }
+      checkpointTaken = took.checkpoint;
+      for (const line of checkpointTakenLines(
+        took.checkpoint,
+        args.target,
+        args.muteAutomation === true,
+      )) {
+        log(line);
+      }
+    }
     // The lease is taken before the first write and given back as the run
     // ends, written, failed, stopped or thrown alike.
     const held = !args.dryRun && mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
@@ -2248,11 +2396,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
     });
     if (mutedAutomation && !args.dryRun) result = { ...result, mutedAutomation };
+    await settleCheckpoint();
   } catch (err: unknown) {
     // What it inserted before it threw stays removable, the run ended failed.
     await kept
       ?.end({ status: 'failure', finishedAt: new Date().toISOString(), objectResults: [] })
       .catch(keepFailed);
+    // Its checkpoint kept once it sent a record, deleted when it sent none:
+    // its lease refused after the take among them.
+    await settleCheckpoint();
     if (runFilePath !== undefined && existsSync(runFilePath)) {
       process.stderr.write(
         `the seed stopped on an error; what it created is kept in ${runFilePath}, and ` +
@@ -2311,6 +2463,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const targetOrgId =
     !args.dryRun && created > 0 ? (typedTarget?.id ?? (await organizationIdOf(conn))) : undefined;
 
+  /** The checkpoint as the summary gives it: the dry run's estimate, the run's checkpoint. */
+  const checkpointSaid = args.dryRun ? checkpointPlanned?.estimate : checkpointInfo;
+
   if (args.json) {
     process.stdout.write(
       `${JSON.stringify(
@@ -2341,6 +2496,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // What a real run's mute would assign, silence, leave running and
           // lift beside, as the dry run's lines say it.
           ...(args.dryRun ? dryRunMuteOf(mute) : {}),
+          // The checkpoint it took of what it writes before its first write
+          // (--checkpoint-first): kept, or deleted once it wrote nothing; of
+          // a dry run, what a real run's would hold and cost, and its refusal.
+          ...(checkpointSaid ? { checkpoint: checkpointSaid } : {}),
+          ...(checkpointRefusals.length > 0 ? { wouldBeRefused: checkpointRefusals } : {}),
           result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),

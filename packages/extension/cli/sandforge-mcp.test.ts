@@ -1388,3 +1388,130 @@ describe('sandforge-mcp: a seed fitted to the storage', () => {
     await c.close();
   });
 });
+
+describe('sandforge-mcp: a checkpoint before a run', () => {
+  const CHECKPOINT = 'ck-20261101-110000-c3d4';
+
+  it('hands checkpointFirst, its days and what it leaves out to the line of a seed and of a clone, a dry run as a write', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      checkpointFirst: {},
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+      checkpointFirst: { keepDays: 0, excluded: ['Task', 'Event'] },
+    });
+    await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      checkpointFirst: { keepDays: 30 },
+    });
+
+    expect(ran.map(({ args }) => args.slice(args.indexOf('--checkpoint-first')))).toEqual([
+      ['--checkpoint-first', '--json'],
+      [
+        '--checkpoint-first',
+        '--checkpoint-keep-days',
+        '0',
+        '--checkpoint-exclude-object',
+        'Task',
+        '--checkpoint-exclude-object',
+        'Event',
+        '--json',
+      ],
+      ['--checkpoint-first', '--checkpoint-keep-days', '30', '--json'],
+    ]);
+    await c.close();
+  });
+
+  it('leaves the option off the line unless it is asked', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('seed_run', { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true });
+
+    expect(ran[0]?.args.join(' ')).not.toContain('--checkpoint');
+    await c.close();
+  });
+
+  it('refuses days past what a checkpoint is kept, a name that is no object, and any other key, before any script runs', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+    const seed = { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true };
+
+    const refusals = [
+      await c.call('seed_run', { ...seed, checkpointFirst: { keepDays: 3651 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { keepDays: 1.5 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { excluded: ['--dry-run'] } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { excluded: [] } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: { keep: 3 } }),
+      await c.call('seed_run', { ...seed, checkpointFirst: true }),
+    ];
+
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('says how to rewind to the checkpoint a run kept, from its answer, and of no other', async () => {
+    const answers: Array<Record<string, unknown>> = [
+      { checkpoint: { state: 'taken', checkpointId: CHECKPOINT } },
+      { checkpoint: { state: 'deleted', deleted: 'nothingWritten' } },
+      {},
+    ];
+    const { run } = scripts(() => ({ stdout: JSON.stringify(answers.shift()) }));
+    const c = client(run);
+    await c.initialized();
+    const clone = {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+    };
+
+    const kept = await c.call('clone_record', clone);
+    const deleted = await c.call('clone_record', clone);
+    const none = await c.call('clone_record', clone);
+
+    expect(textOf(kept)).toContain(`checkpoint_rewind with checkpoint "${CHECKPOINT}" returns`);
+    expect(textOf(deleted)).not.toContain('checkpoint_rewind with');
+    expect(textOf(none)).not.toContain('checkpoint_rewind with');
+    await c.close();
+  });
+
+  it('says nothing of a rewind after a seed’s dry run, which took no checkpoint', async () => {
+    const { run } = scripts(() => ({
+      stdout: JSON.stringify({ checkpoint: { state: 'planned' } }),
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const dry = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      checkpointFirst: {},
+    });
+
+    expect(textOf(dry)).not.toContain('checkpoint_rewind with');
+    await c.close();
+  });
+});

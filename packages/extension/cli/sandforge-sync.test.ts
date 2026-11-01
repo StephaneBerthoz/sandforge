@@ -11,14 +11,12 @@ import {
   objectErrorLines,
   objectPriceLines,
   objectWrittenLines,
-  keepingTheLease,
   readSavedConfig,
   recordTypeGivenOfObjectsLines,
   simulationLines,
   writeCheckLines,
 } from './sandforge-sync.js';
 import type { RecordTypeGiven } from '@sandforge/shared';
-import type { HeldMute, RunMute } from '../src/modules/forge/AutomationMuteLease.js';
 
 describe('what a run prints of an object', () => {
   it('prints the first refusals, and every line on what it held back', () => {
@@ -1085,35 +1083,5 @@ describe('what a run prints of the record types the target gave', () => {
     expect(lines[1]).toContain(
       'the record types they hold could not be read back: ' + 'INVALID_TYPE: not supported',
     );
-  });
-});
-
-describe('the mute’s lease, kept as the gate takes it', () => {
-  const held: HeldMute = {
-    outcome: {
-      status: 'muted',
-      assigned: ['SFX_Bypass'],
-    } as unknown as HeldMute['outcome'],
-    release: vi.fn(async () => held.outcome),
-  };
-
-  it('hands over the lease the gate takes, as it takes it', async () => {
-    const acquire = vi.fn(async () => held);
-    const mute = { prepared: { acquire } } as unknown as RunMute;
-    const kept: HeldMute[] = [];
-
-    const keeping = keepingTheLease(mute, (lease) => kept.push(lease));
-    expect(kept).toEqual([]);
-    const taken = await keeping.prepared?.acquire('run-1');
-
-    expect(acquire).toHaveBeenCalledWith('run-1');
-    expect(taken).toBe(held);
-    expect(kept).toEqual([held]);
-  });
-
-  it('leaves a mute with nothing to assign as it was', () => {
-    const mute = { muted: {} } as unknown as RunMute;
-
-    expect(keepingTheLease(mute, () => undefined)).toBe(mute);
   });
 });

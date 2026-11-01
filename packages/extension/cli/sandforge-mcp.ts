@@ -42,7 +42,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
-import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
+import { CHECKPOINT_BEFORE_RUN_KEEP_DAYS, PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
@@ -267,6 +267,50 @@ const confirmOf = (of: string) =>
 const checkpointRef = (of: string) =>
   z.string().min(1).max(200).regex(ON_A_LINE, 'one line, not starting with "-"').describe(of);
 const acceptance = (of: string) => z.boolean().optional().describe(of);
+/**
+ * The checkpoint a run takes of what it writes before its first write, as its
+ * script's `--checkpoint-first` takes it.
+ */
+const checkpointFirst = (run: string) =>
+  z
+    .strictObject({
+      keepDays: z
+        .number()
+        .int()
+        .min(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.min)
+        .max(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.max)
+        .optional()
+        .describe('The days it is kept on this machine; 0 until it is deleted (default 7).'),
+      excluded: z
+        .array(z.string().regex(API_NAME, 'an object API name'))
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(
+          'Objects to leave out of it, by API name, named in the answer: a rewind leaves their ' +
+            'records as they are.',
+        ),
+    })
+    .optional()
+    .describe(
+      `Before ${run}'s first write, take a checkpoint of each object it writes, and of each the ` +
+        "target's flows that still run create as it writes them, held whole: {} takes it with " +
+        'the defaults. Its cost is that of the tables, not of the records written, and its values ' +
+        'stay unencrypted on this machine: give it only once the person using you has seen, in a ' +
+        `dry run with it, what it would hold and cost. Refused, ${run} writes nothing; deleted ` +
+        'again when it writes nothing.',
+    );
+/** A run's `checkpointFirst`, as its script's line takes it. */
+function checkpointFirstLine(
+  asked: { keepDays?: number | undefined; excluded?: string[] | undefined } | undefined,
+): string[] {
+  if (asked === undefined) return [];
+  return [
+    '--checkpoint-first',
+    ...(asked.keepDays !== undefined ? ['--checkpoint-keep-days', String(asked.keepDays)] : []),
+    ...(asked.excluded ?? []).flatMap((name) => ['--checkpoint-exclude-object', name]),
+  ];
+}
 /** The objects of a checkpoint a rewind, or its preview, is limited to. */
 const rewindObjects = () =>
   z
@@ -318,6 +362,19 @@ function removalHint(module: 'seed' | 'forge', answer: unknown): string[] {
     : [];
 }
 
+/** The checkpoint a run took first and kept, which `checkpoint_rewind` returns the org to. */
+function rewindHint(answer: unknown): string[] {
+  if (typeof answer !== 'object' || answer === null) return [];
+  const { checkpoint } = answer as { checkpoint?: { state?: unknown; checkpointId?: unknown } };
+  return checkpoint?.state === 'taken' && typeof checkpoint.checkpointId === 'string'
+    ? [
+        `checkpoint_rewind with checkpoint "${checkpoint.checkpointId}" returns the org to how it ` +
+          'was before this run, and takes back what anyone did since on the objects it holds: ' +
+          'checkpoint_preview says what it would do first.',
+      ]
+    : [];
+}
+
 /** The scripts whose removal `run_remove` runs, by module. */
 const REMOVAL_SCRIPT: Readonly<Record<'seed' | 'forge' | 'sync', Script>> = {
   seed: 'sandforge-seed',
@@ -348,8 +405,11 @@ export const TOOLS: readonly ServedTool[] = [
       "storage it takes, the emails the org's automation would send, what runs as the records are " +
       'created. Past the storage the org has left, it says the counts that fit; fit: "share" ' +
       'seeds them, the largest share of every count that fits, and fitWithinMB holds the run to ' +
-      'fewer MB still. dryRun: false writes, a production org refused, and needs confirm. The ' +
-      'answer names the run file, which run_remove with module "seed" takes the run back from.',
+      'fewer MB still. checkpointFirst takes a checkpoint of what the run writes before its ' +
+      'first write, and a dry run says what it would hold and cost. dryRun: false writes, a ' +
+      'production org refused, and needs confirm. The answer names the run file, which ' +
+      'run_remove with module "seed" takes the run back from, and the checkpoint it took, which ' +
+      'checkpoint_rewind returns the org to.',
     readOnly: false,
     destructive: false,
     args: z
@@ -393,6 +453,7 @@ export const TOOLS: readonly ServedTool[] = [
           .max(1_000_000)
           .optional()
           .describe('With fit: take no more than this many MB, whatever the org has left.'),
+        checkpointFirst: checkpointFirst('the seed'),
         confirm: confirmOf('org').optional(),
       })
       .refine((args) => args.fitWithinMB === undefined || args.fit !== undefined, {
@@ -402,7 +463,8 @@ export const TOOLS: readonly ServedTool[] = [
     writesTo: (args) => (args.dryRun ? undefined : args.org),
     writes: 'creates the records of the seed in it',
     readFirst: 'a dry run of the same seed says what it would write and meet',
-    after: (args, answer) => (args.dryRun ? [] : removalHint('seed', answer)),
+    after: (args, answer) =>
+      args.dryRun ? [] : [...removalHint('seed', answer), ...rewindHint(answer)],
     run: (args) => ({
       script: 'sandforge-seed',
       args: [
@@ -413,6 +475,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.dryRun ? ['--dry-run'] : []),
         ...(args.fit !== undefined ? ['--fit', args.fit] : []),
         ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
+        ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],
     }),
@@ -427,8 +490,10 @@ export const TOOLS: readonly ServedTool[] = [
       "stop a real run — the target's automation, its data storage, the emails its flows send — " +
       'and writes nothing. dryRun: false writes into target, a sandbox or a Developer Edition ' +
       'only, and needs confirm, the alias of target. acceptAutomation lets it write although the ' +
-      'target runs automation as the records go in. The answer names the run journal, which ' +
-      'run_remove with module "forge" takes the run back from.',
+      'target runs automation as the records go in. checkpointFirst takes a checkpoint of what ' +
+      'the clone writes before its first write, and a dry run says what it would hold and cost. ' +
+      'The answer names the run journal, which run_remove with module "forge" takes the run back ' +
+      'from, and the checkpoint it took, which checkpoint_rewind returns the org to.',
     readOnly: false,
     destructive: false,
     args: z.strictObject({
@@ -461,12 +526,14 @@ export const TOOLS: readonly ServedTool[] = [
           'records go in, or would not say what it runs: only once the person using you has ' +
           'accepted what the dry run named.',
       ),
+      checkpointFirst: checkpointFirst('the clone'),
     }),
     writesTo: (args) => (args.dryRun ? undefined : args.target),
     writes: 'creates the records of the clone in it',
     readFirst: 'a dry run of the same clone says what it would write and meet',
     flags: { '--accept-automation': 'acceptAutomation' },
-    after: (args, answer) => (args.dryRun ? [] : removalHint('forge', answer)),
+    after: (args, answer) =>
+      args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)],
     run: (args) => ({
       script: 'sandforge-clone',
       args: [
@@ -484,6 +551,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.maxNodes !== undefined ? ['--max-nodes', String(args.maxNodes)] : []),
         ...(args.dryRun ? ['--dry-run'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],
     }),

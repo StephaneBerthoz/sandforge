@@ -42,6 +42,7 @@ import {
   checkpointTakenLines,
   commandCheckpoints,
   commandRunWriting,
+  settleCommandCheckpoint,
 } from './beforeRunCheckpoint.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
@@ -545,5 +546,57 @@ describe('what the command says of its checkpoint', () => {
     expect(
       checkpointOrgOf({}, { id: ORG, sandbox: false, edition: 'Enterprise Edition' }).orgType,
     ).toBe('Production');
+  });
+});
+
+describe('settleCommandCheckpoint', () => {
+  const lines = (): { said: string[]; say: (line: string) => void } => {
+    const said: string[] = [];
+    return { said, say: (line) => said.push(line) };
+  };
+
+  it('keeps the checkpoint of a run that wrote, without a word', async () => {
+    const settle = vi.fn(async () => TAKEN);
+    const { said, say } = lines();
+
+    await expect(settleCommandCheckpoint({ settle }, TAKEN, true, 'TGT', say)).resolves.toBe(TAKEN);
+
+    expect(settle).toHaveBeenCalledWith(TAKEN, true);
+    expect(said).toEqual([]);
+  });
+
+  it('deletes the checkpoint of a run that wrote nothing, and says so', async () => {
+    const deleted = { state: 'deleted' as const, deleted: 'nothingWritten' as const };
+    const { said, say } = lines();
+
+    await expect(
+      settleCommandCheckpoint({ settle: async () => deleted }, TAKEN, false, 'TGT', say),
+    ).resolves.toBe(deleted);
+
+    expect(said).toEqual([BEFORE_RUN_DELETED_WORDS]);
+  });
+
+  it('keeps a checkpoint the store would not delete, and says how to, never failing the run', async () => {
+    const { said, say } = lines();
+
+    await expect(
+      settleCommandCheckpoint(
+        {
+          settle: async () => {
+            throw new Error('the folder is locked');
+          },
+        },
+        TAKEN,
+        false,
+        'TGT',
+        say,
+      ),
+    ).resolves.toBe(TAKEN);
+
+    expect(said).toEqual([
+      `warning: the checkpoint '${TAKEN.name}' taken before the run, which wrote nothing, could ` +
+        'not be deleted (the folder is locked): delete it with sandforge-checkpoint delete --org ' +
+        `TGT --checkpoint ${TAKEN.checkpointId}`,
+    ]);
   });
 });

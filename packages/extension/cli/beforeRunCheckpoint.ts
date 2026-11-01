@@ -555,3 +555,33 @@ export function checkpointTakenLines(
 export function checkpointSettledLines(info: RunCheckpointInfo): string[] {
   return info.state === 'deleted' ? [BEFORE_RUN_DELETED_WORDS] : [];
 }
+
+/**
+ * What becomes of the checkpoint a run took first once it ended, whatever it
+ * ended on: kept when it wrote, deleted when it wrote nothing, and said. Only
+ * its deletion can fail: the checkpoint is then kept and said, with the
+ * command that deletes it, and is never the run's failure.
+ *
+ * @param target - The alias the run writes to.
+ * @param say - Where the command prints a line.
+ */
+export async function settleCommandCheckpoint(
+  checkpoints: Pick<CommandCheckpoints, 'settle'>,
+  taken: RunCheckpointTaken,
+  wrote: boolean,
+  target: string,
+  say: (line: string) => void,
+): Promise<RunCheckpointInfo> {
+  try {
+    const info = await checkpoints.settle(taken, wrote);
+    for (const line of checkpointSettledLines(info)) say(line);
+    return info;
+  } catch (err: unknown) {
+    say(
+      `warning: the checkpoint '${taken.name}' taken before the run, which wrote nothing, could ` +
+        `not be deleted (${err instanceof Error ? err.message : String(err)}): delete it with ` +
+        `sandforge-checkpoint delete --org ${target} --checkpoint ${taken.checkpointId}`,
+    );
+    return taken;
+  }
+}

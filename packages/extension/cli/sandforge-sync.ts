@@ -61,6 +61,10 @@ import type {
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   RecordTypeGiven,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
   SyncConfig,
   SyncDeltaOutcome,
   SyncLookupsLeftOut,
@@ -174,6 +178,7 @@ import {
 } from '../src/modules/forge/TargetGapReader.js';
 import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
 import {
+  CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   bypassesToAssign,
   formatMB,
@@ -183,11 +188,14 @@ import {
   removalStepsAutomationLines,
   removalStepsAutomationRefusal,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { RUN_CANCELLED } from '../src/modules/forge/forgeAudit.js';
 import {
   gateSyncWrite,
   measureSyncWrite,
   mutingSyncWriteGate,
   syncRunWrites,
+  takeSyncCheckpoint,
+  type SyncGateAnswer,
   type SyncWriteGate,
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
@@ -197,7 +205,6 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
-  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
@@ -222,6 +229,19 @@ import {
   targetAutomationReader,
   type SweepClassArgs,
 } from './sandforge-clone.js';
+import {
+  CHECKPOINT_FIRST_FLAGS,
+  checkpointEstimateLines,
+  checkpointFirstArgs,
+  checkpointFirstHelp,
+  checkpointOrgOf,
+  checkpointRefusedWords,
+  checkpointStopWords,
+  checkpointTakenLines,
+  commandCheckpoints,
+  settleCommandCheckpoint,
+  type CommandCheckpointAsk,
+} from './beforeRunCheckpoint.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
@@ -275,6 +295,7 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --dry-run, says what would be muted and
                          assigns nothing                   (default: off)
+${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
   --help                 this text
 
 Run a saved configuration:
@@ -459,6 +480,12 @@ interface CliArgs {
   failOnPartial: boolean;
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation: boolean;
+  /**
+   * Take a checkpoint of what the run writes before its first write
+   * (`--checkpoint-first`): the days it is kept and the objects left out of
+   * it. undefined = none.
+   */
+  checkpointFirst?: RunCheckpointRequest;
   /** A saved configuration to run instead of the objects of the line. */
   configFile?: string;
   /** Where that configuration is kept between runs. */
@@ -487,6 +514,7 @@ const RUN_FLAGS: CommandFlags = {
     '--json',
     '--fail-on-partial',
     '--mute-automation',
+    ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
     '--source',
@@ -497,6 +525,7 @@ const RUN_FLAGS: CommandFlags = {
     '--batch-size',
     '--config-file',
     '--store',
+    ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
 
@@ -521,6 +550,10 @@ export function parseArgs(argv: string[]): CliArgs {
     return out;
   };
   const has = (flag: string): boolean => args.includes(flag);
+  // A checkpoint of what the run writes, taken before its first write; with
+  // --dry-run, said and not taken.
+  const checkpointFirst = checkpointFirstArgs(args);
+  const asked = checkpointFirst !== undefined ? { checkpointFirst } : {};
 
   const source = get('--source');
   const target = get('--target');
@@ -556,6 +589,7 @@ export function parseArgs(argv: string[]): CliArgs {
       json: has('--json'),
       failOnPartial: has('--fail-on-partial'),
       muteAutomation: has('--mute-automation'),
+      ...asked,
       configFile,
       store,
     };
@@ -631,6 +665,7 @@ export function parseArgs(argv: string[]): CliArgs {
     json: has('--json'),
     failOnPartial: has('--fail-on-partial'),
     muteAutomation: has('--mute-automation'),
+    ...asked,
   };
 }
 
@@ -917,26 +952,18 @@ export function cliSourceIdsFn(conn: Connection) {
 }
 
 /**
- * The mute of a run, its lease kept as the gate takes it (`keep`): what the
- * run hands its orchestrator (`leaseOfTheGate`), which gives the lease back
- * once its last write is through and, when it assigned a permission set,
- * reads the record types of the objects it writes again before its first.
- * A mute with nothing to assign takes no lease, and goes as it was.
- * Exported so it can be tested.
+ * A gate's answer as the command says it: a run stopped for the checkpoint it
+ * takes first in the words of a command line, its flags where the panel names
+ * its box; every other answer as it is. Exported so it can be tested.
  */
-export function keepingTheLease(mute: RunMute, keep: (held: HeldMute) => void): RunMute {
-  const prepared = mute.prepared;
-  if (!prepared) return mute;
+export function inTheCommandsWords(answer: SyncGateAnswer): SyncGateAnswer {
+  if (answer.go || (answer.code !== CHECKPOINT_REFUSED && answer.code !== RUN_CANCELLED)) {
+    return answer;
+  }
+  const { code, message, refusal } = answer;
   return {
-    ...mute,
-    prepared: {
-      ...prepared,
-      acquire: async (runId) => {
-        const held = await prepared.acquire(runId);
-        keep(held);
-        return held;
-      },
-    },
+    ...answer,
+    message: checkpointStopWords({ code, message, ...(refusal ? { refusal } : {}) }),
   };
 }
 
@@ -1085,11 +1112,13 @@ export function recordTypeGivenOfObjectsLines(
  *
  * @param muteAssigns - Whether a real run's mute would assign permission sets
  *   (`recordTypeGivenOfObjectsLines`).
+ * @param checkpointRefused - Why a real run's checkpoint would be refused, in the command's words.
  */
 export function simulationLines(
   simulation: SyncSimulationResult,
   target = 'the target',
   muteAssigns = false,
+  checkpointRefused?: string,
 ): string[] {
   const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
   // The order the run writes the objects in, and what moved.
@@ -1107,15 +1136,22 @@ export function simulationLines(
   }
   if (simulation.writeCheck) {
     for (const line of writeCheckLines(simulation.writeCheck, target)) lines.push(`  ${line}`);
+    // What the checkpoint a real run takes first would hold and cost.
+    for (const line of simulation.checkpoint
+      ? checkpointEstimateLines(simulation.checkpoint)
+      : []) {
+      lines.push(`  ${line}`);
+    }
     if (simulation.writeCheck.verdict === 'refused') {
       const check = simulation.writeCheck;
       lines.push(
         `    a run would be refused before it writes: ${
-          check.storage.verdict === 'exceeds'
+          checkpointRefused ??
+          (check.storage.verdict === 'exceeds'
             ? 'the records do not fit'
             : check.apiRequests?.verdict === 'exceeds'
               ? 'it takes more API requests than the target has left today'
-              : 'the target takes none of the records of an object it writes'
+              : 'the target takes none of the records of an object it writes')
         }`,
       );
     } else if ((simulation.writeCheck.unwritable ?? []).length > 0) {
@@ -1523,6 +1559,11 @@ export function bothRecorders(
       summary.deleted?.(objectApiName, ids);
       file.deleted?.(objectApiName, ids);
     },
+    // The checkpoint taken first: named in the run's file, once it begins.
+    checkpoint: (taken) => {
+      summary.checkpoint?.(taken);
+      file.checkpoint?.(taken);
+    },
     overwrittenCount: () => summary.overwrittenCount?.() ?? file.overwrittenCount?.() ?? 0,
     flush: async () => (await summary.flush()) ?? (await file.flush()),
   };
@@ -1533,6 +1574,19 @@ export function bothRecorders(
  * file: no saved configuration was, and none is told of its removal.
  */
 export const LINE_RUN = 'sandforge-sync';
+
+/** What a run's mute leaves running on `objects`, of what it leaves on every object it read. */
+function automationOf(
+  view: ForgeTargetAutomation,
+  objects: readonly string[],
+): ForgeTargetAutomation {
+  const wanted = new Set(objects);
+  return {
+    ...view,
+    objectsRead: view.objectsRead.filter((name) => wanted.has(name)),
+    objects: view.objects.filter((object) => wanted.has(object.objectApiName)),
+  };
+}
 
 /** The org's own id, or undefined when it does not say. */
 async function organizationIdOf(conn: Connection): Promise<string | undefined> {
@@ -1602,7 +1656,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
 
   const sourceConn = makeConn(await loadOrg(args.source));
-  const targetConn = makeConn(await loadOrg(args.target));
+  const targetSession = await loadOrg(args.target);
+  const targetConn = makeConn(targetSession);
 
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
@@ -1635,6 +1690,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     ...(typed ? { targetOrganizationId: typed.id } : {}),
   });
   const recorder = bothRecorders(kept, runFile);
+  // The checkpoint the run takes of what it writes before its first write:
+  // scoped at the write gate once its records are counted, taken once the
+  // gate lets them through and before the mute's lease, kept or deleted as
+  // the run ends. A dry run says what it would hold and cost, and takes
+  // nothing. It reads the target through a connection of its own: the run's
+  // calls stay the run's.
+  const checkpoints = args.checkpointFirst
+    ? commandCheckpoints({
+        module: 'sync',
+        operationId: runId,
+        request: args.checkpointFirst,
+        session: targetSession,
+        org: checkpointOrgOf(targetSession, typed ?? (await typeTarget(targetConn))),
+        connect: makeConn,
+        journalDir: journalDirOf(),
+        say,
+        own: { runId },
+      })
+    : undefined;
   const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
     const cached = targetFieldsByObject.get(objectApiName);
     if (cached) return cached;
@@ -1704,6 +1778,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     calls: syncWriterCalls(recorder, keeper),
   });
 
+  /**
+   * Whether the run sent a write to the target: the checkpoint it took first
+   * is kept once it did, whatever became of the run after, and deleted when
+   * it never did.
+   */
+  let wrote = false;
+
   // A dry run is the panel's simulation: the same reads, mappings and
   // transforms, then the target asked which records it holds. It never
   // reaches the writer, which refuses to write if anything ever tried.
@@ -1718,6 +1799,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     externalIdField?: string,
   ): Promise<OperationOutcome[]> => {
     if (args.dryRun) throw new Error(`A dry run writes nothing: ${kind} ${objectName} refused.`);
+    if (records.length > 0) wrote = true;
     if (kind === 'delete') return writer.delete(objectName, records as string[], batchSize);
     if (kind === 'upsert') {
       return writer.upsert(
@@ -1735,6 +1817,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const startedAt = new Date().toISOString();
 
+  /** The checkpoint as the gate asked it, and what it would hold and cost. */
+  let checkpointAsk: CommandCheckpointAsk | undefined;
+  let checkpointPlanned: RunCheckpointEstimate | undefined;
+  /** The checkpoint the run took before its first write, once taken. */
+  let checkpointTaken: RunCheckpointTaken | undefined;
+  /** What became of it once the run ended: kept, or deleted for a run that wrote nothing. */
+  let checkpointInfo: RunCheckpointInfo | undefined;
+
   // Held, before its first write, to what the target has left of its data
   // storage and of its daily emails, as a clone is: refused past either, with
   // nothing written. Sync wrote until the target refused its records one by
@@ -1745,6 +1835,35 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
     readLimits: () => readEmailLimits(targetConn),
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
+    ...(checkpoints
+      ? {
+          checkpointFirst: {
+            scope: async (written, running) => {
+              checkpointAsk = { written, running };
+              checkpointPlanned = await checkpoints.scope(checkpointAsk);
+              return checkpointPlanned;
+            },
+            take: async (planned) => {
+              if (!checkpointAsk) throw new Error('its scope was not read');
+              const outcome = await checkpoints.take(checkpointAsk, planned, {
+                signal: controller.signal,
+              });
+              if (outcome.taken) {
+                checkpointTaken = outcome.checkpoint;
+                recorder.checkpoint?.(outcome.checkpoint);
+                for (const line of checkpointTakenLines(
+                  outcome.checkpoint,
+                  args.target,
+                  args.muteAutomation,
+                )) {
+                  say(line);
+                }
+              }
+              return outcome;
+            },
+          },
+        }
+      : {}),
   };
   const orgTier = typed
     ? guardTierOf({
@@ -1754,30 +1873,44 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     : ('production' as const);
   /** What the gate measured of the run, for its summary. */
   let gateCheck: SyncWriteCheck | undefined;
+  /** Why a simulation's gate could not read what a real run's checkpoint would hold. */
+  let checkpointFailed: string | undefined;
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
-    measure: async (counted) =>
-      (await measureSyncWrite(counted, { ...measures, readAutomation })).check,
+    measure: async (counted) => {
+      const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
+      checkpointFailed = measured.checkpointFailed;
+      return measured.check;
+    },
     hold: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       gateCheck = measured.check;
       log('');
       for (const line of writeCheckLines(measured.check, args.target)) log(line);
+      for (const line of measured.checkpoint ? checkpointEstimateLines(measured.checkpoint) : []) {
+        say(line);
+      }
+      const answer = await gateSyncWrite(measured, {
+        policy: 'refuse',
+        org: args.target,
+        orgTier,
+      });
+      // Taken once the gate let the run through, the flags the answer a
+      // question would have had, and before the mute's lease: refused, it
+      // refuses the run with nothing assigned and nothing written.
       return {
         check: measured.check,
-        answer: await gateSyncWrite(measured, {
-          policy: 'refuse',
-          org: args.target,
-          orgTier,
-        }),
+        answer: inTheCommandsWords(
+          await takeSyncCheckpoint(measured, answer, measures.checkpointFirst),
+        ),
       };
     },
   });
   // Asked to mute, the run's gate plans the mute from what the target runs on
   // the objects it writes, measures what still runs, and takes the lease
-  // once it lets the run write. The run gives it back once its last write is
-  // through, before it reads back the record types the target gave; it is
-  // given back again as the run ends, and answers the same.
-  let leaseHeld: HeldMute | undefined;
+  // once it lets the run write and took the checkpoint asked first. The run
+  // gives it back once its last write is through, before it reads back the
+  // record types the target gave; it is given back again as the run ends, and
+  // answers the same.
   const muting =
     args.muteAutomation && !args.dryRun
       ? mutingSyncWriteGate(
@@ -1788,14 +1921,44 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               writes: syncRunWrites,
             });
             for (const line of muteLines(planned.muted, args.target)) log(`  ${line}`);
-            return keepingTheLease(planned, (held) => {
-              leaseHeld = held;
-            });
+            return planned;
           },
           `sandforge-sync ${runId}`,
         )
       : undefined;
-  const writeGate: SyncWriteGate = muting?.gate ?? gateOver(measures.readAutomation);
+  // What a run with --mute-automation would assign, silence, leave running
+  // and lift beside, read as the run's gate reads it, once, nothing assigned:
+  // a dry run measures what still runs, as a real run's gate does, so that
+  // the checkpoint it says holds what a real run's would, and what the mute
+  // keeps quiet creates nothing there.
+  let dryRunMute: Promise<{ planned?: RunMute; refused?: string }> | undefined;
+  const planDryRunMute = (): Promise<{ planned?: RunMute; refused?: string }> =>
+    (dryRunMute ??= (async () => {
+      const objects = config.objects.map((object) => object.objectApiName);
+      const read = await measures
+        .readAutomation(objects)
+        .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+      try {
+        const planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
+          writes: syncRunWrites,
+        });
+        for (const line of muteLines(planned.muted, args.target)) log(line);
+        return { planned };
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        log(`a real run would be refused: ${err.message}`);
+        return { refused: err.message };
+      }
+    })());
+  const readingTheDryRunMute: SyncWriteMeasures['readAutomation'] = async (objects) => {
+    const view = (await planDryRunMute()).planned?.automation;
+    return view && objects.every((name) => view.objectsRead.includes(name))
+      ? automationOf(view, objects)
+      : measures.readAutomation(objects);
+  };
+  const writeGate: SyncWriteGate =
+    muting?.gate ??
+    gateOver(args.dryRun && args.muteAutomation ? readingTheDryRunMute : measures.readAutomation);
   /** What the run muted of the target's automation, once it ended. */
   let mutedAutomation: MutedAutomation | undefined;
 
@@ -1890,12 +2053,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     describeTargetFieldsAgain: async (objectApiName) =>
       targetWriteFieldsOf(await targetConn.sobject(objectApiName).describe()),
     // The lease the gate took, given back once the last write is through.
-    leaseOfTheGate: () => {
-      const held = leaseHeld;
-      return held
-        ? { assigned: held.outcome.assigned.length, giveBack: () => held.release() }
-        : undefined;
-    },
+    leaseOfTheGate: () => muting?.lease(),
     // What reads back the record types the target gave the records the run
     // created without one, once its writes are through.
     queryTargetRows: targetRows,
@@ -1962,37 +2120,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.dryRun) {
     log('\nsimulating… (DRY-RUN: nothing is written)');
-    const simulation = await orchestrator.simulate(config);
-    // What a run with --mute-automation would assign, silence, leave
-    // running and lift beside, read as the run's gate reads it: nothing
-    // assigned, and said in the summary as in the lines.
-    let planned: RunMute | undefined;
-    let muteRefused: string | undefined;
-    if (args.muteAutomation) {
-      const objects = config.objects.map((object) => object.objectApiName);
-      const read = await measures
-        .readAutomation(objects)
-        .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
-      try {
-        planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
-          writes: syncRunWrites,
-        });
-        for (const line of muteLines(planned.muted, args.target)) log(line);
-      } catch (err: unknown) {
-        if (!isMuteRefusedError(err)) throw err;
-        muteRefused = err.message;
-        log(`a real run would be refused: ${err.message}`);
-      }
-    }
+    const simulated = await orchestrator.simulate(config);
+    const simulation: SyncSimulationResult = {
+      ...simulated,
+      ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}),
+    };
+    // What a run with --mute-automation would assign, silence, leave running
+    // and lift beside, said in the summary as in the lines.
+    const { planned, refused: muteRefused } = args.muteAutomation ? await planDryRunMute() : {};
+    // Why a real run's checkpoint would be refused, in the command's words.
+    const checkpointRefused =
+      checkpointFailed ??
+      (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
+    const wouldBeRefused = [muteRefused, checkpointRefused].filter(
+      (reason): reason is string => reason !== undefined,
+    );
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(muteRefused ? { wouldBeRefused: [muteRefused] } : {}), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), ...(wouldBeRefused.length > 0 ? { wouldBeRefused } : {}), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }
     const muteAssigns = (planned?.plan?.assign.length ?? 0) > 0;
-    for (const line of simulationLines(simulation, args.target, muteAssigns)) log(line);
+    for (const line of simulationLines(simulation, args.target, muteAssigns, checkpointRefused)) {
+      log(line);
+    }
     log(`\ndone in ${elapsed}ms`);
     return;
   }
@@ -2018,6 +2171,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     controller.abort();
   };
   const releaseStop = onStopSignal(interrupt);
+  /**
+   * Keep the checkpoint the run took first once it sent a write, whatever
+   * became of it after; delete it when it sent none. Once, as the run ends.
+   */
+  const settleCheckpoint = async (): Promise<void> => {
+    if (!checkpoints || !checkpointTaken || checkpointInfo) return;
+    checkpointInfo = await settleCommandCheckpoint(
+      checkpoints,
+      checkpointTaken,
+      wrote,
+      args.target,
+      say,
+    );
+  };
   let result: Awaited<ReturnType<typeof orchestrator.execute>>;
   /** How the run ended, as its file's last line says it: a failure unless it returned. */
   let ending: { status: 'success' | 'partial' | 'failure'; cancelled?: boolean } = {
@@ -2029,9 +2196,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     });
     if (mutedAutomation) result = { ...result, mutedAutomation };
     ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
+    await settleCheckpoint();
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
     overwrites?.close();
+    // Its checkpoint kept once it wrote, deleted when it wrote nothing: its
+    // lease refused after the take among them.
+    await settleCheckpoint();
     if (!(err instanceof SyncRunRefused)) {
       await runFile?.end(ending);
       if (runFilePath !== undefined && existsSync(runFilePath)) {
@@ -2042,6 +2213,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
       throw err;
     }
+    // Stopped while it took the checkpoint first, it ends as a stopped run ends.
+    const stopped = err.code === RUN_CANCELLED;
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -2052,6 +2225,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             dryRun: false,
             refused: { code: err.code, message: err.message },
             ...(gateCheck ? { writeCheck: gateCheck } : {}),
+            ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -2059,9 +2233,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      log(`\nrefused (${err.code}): ${err.message}`);
+      log(stopped ? `\n${err.message}` : `\nrefused (${err.code}): ${err.message}`);
     }
-    process.exit(1);
+    process.exit(stopped ? stopExitCode(interrupted ?? 'SIGINT') : 1);
   } finally {
     releaseStop();
   }
@@ -2103,6 +2277,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           startedAt,
           finishedAt: new Date().toISOString(),
           result,
+          // The checkpoint it took of what it writes before its first write
+          // (--checkpoint-first): kept, or deleted once it wrote nothing.
+          ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
           created: {
             runId: kept.runId,
             ...(lastWrittenAt ? { lastWrittenAt } : {}),
