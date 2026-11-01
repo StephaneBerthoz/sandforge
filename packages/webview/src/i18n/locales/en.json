@@ -2739,7 +2739,8 @@
       "checkpoint_rewind": "Checkpoint Rewind",
       "checkpoint_undo": "Rewind Undo",
       "checkpoint_export": "Checkpoint Export",
-      "checkpoint_import": "Checkpoint Import"
+      "checkpoint_import": "Checkpoint Import",
+      "checkpoint_take": "Checkpoint Take"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",

@@ -25,6 +25,12 @@ export {
   type AutopilotLeftOutReason,
   type AutopilotLookupLeftEmpty,
   type AutopilotPlanScope,
+  type AutopilotFitMode,
+  type AutopilotFitCutWithParent,
+  type AutopilotFitObject,
+  type AutopilotFitEmptied,
+  type AutopilotFitReport,
+  type AutopilotPlanWriteGate,
   type AutopilotCurrencyPlan,
   type ExpectedPersonalData,
   type AnonymizationSummary,
@@ -304,6 +310,7 @@ export {
   mutedEntryWords,
   mutePermissionsOf,
   mutePlanOf,
+  stillRunningOf,
   stillRunsWords,
   type AuditMutedAutomation,
   type MuteAssignment,
@@ -315,6 +322,8 @@ export {
   type MutedAutomationStillRunning,
   type MutePlan,
   type MuteStillRunsWhy,
+  type StillRunning,
+  type StillRunningEntry,
 } from './utils/automation-mute.js';
 export { seedEmailEstimates, seedEmailsRefused } from './utils/seed-automation.js';
 export {

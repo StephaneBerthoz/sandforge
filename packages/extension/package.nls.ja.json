@@ -56,6 +56,7 @@
   "config.backup.maxCount.description": "組織ごとに保持するバックアップの最大数",
   "config.backup.maxAgeDays.description": "DataOps のバックアップを削除するまでこのマシンに保持する日数（すべての組織が対象、SandForge の起動時と各バックアップの後に適用）。0 にすると、リストアタブから削除するまで保持します。バックアップにはレコードの値が個人データを含めて平文で保存されます。Sync の実行が上書きした値も同じように保持され、同じ日数で削除されます。その後は実行を取り消しても元の値は戻りません",
   "config.backup.maxRecordsPerObject.description": "DataOps のバックアップがオブジェクトごとにページ単位で読み込むレコードの最大数。これより多くのレコードを持つオブジェクトは一部のみバックアップされ、その旨が表示されます。その場合、復元で戻るのはそのレコードのみです。",
+  "config.checkpoint.beforeRunKeepDays.description": "実行が最初の書き込みの前に、書き込むオブジェクトについて取得するチェックポイントを削除するまでこのマシンに保持する日数。0 にすると、チェックポイントページから削除するまで保持します。チェックポイントにはレコードの値が個人データを含めて平文で保存されます",
   "config.pipeline.timeout.description": "パイプライン実行のタイムアウト（ミリ秒）",
   "config.safety.requireProdConfirmation.description": "使用されなくなりました。SandForge は本番組織への書き込みの前に必ず確認を求め、この確認を無効にする設定はありません。",
   "config.safety.requireProdConfirmation.deprecation": "使用されなくなりました。本番組織への書き込みは常に事前に確認を求めます。",

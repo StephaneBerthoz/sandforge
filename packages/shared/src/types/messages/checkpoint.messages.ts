@@ -17,7 +17,7 @@ import type {
   RewindResult,
   RewindSelectionPlan,
 } from '../checkpoint.types.js';
-import type { ForgeTargetAutomation } from '../forge.types.js';
+import type { ForgeTargetAutomation, RunDeliverability } from '../forge.types.js';
 
 /*
  * The Checkpoints page and the command line speak this domain. Every request
@@ -142,6 +142,13 @@ export interface CheckpointRewindRequest extends BaseMessage {
     /** Rewind even though the org runs automation as its records are updated, deleted or brought back. */
     acceptAutomation: boolean;
     /**
+     * Rewind even though the org delivers every email its automation sends,
+     * or would not say whether it does, and what fires as the rewind writes
+     * sends some (`EMAILS_DELIVERED`). Never lifted by `acceptAutomation`;
+     * absent, not accepted.
+     */
+    acceptEmails?: boolean;
+    /**
      * Mute the target's automation for the run: assign the user it writes as,
      * for its duration, the permission sets holding the bypasses the target's
      * flows, processes and workflow rules test to stay quiet, and take them
@@ -184,6 +191,13 @@ export interface CheckpointUndoRequest extends BaseMessage {
     rewindId: string;
     /** Undo even though the org runs automation as its records are updated, deleted or brought back. */
     acceptAutomation: boolean;
+    /**
+     * Undo even though the org delivers every email its automation sends,
+     * or would not say whether it does, and what fires as the undo writes
+     * sends some (`EMAILS_DELIVERED`). Never lifted by `acceptAutomation`;
+     * absent, not accepted.
+     */
+    acceptEmails?: boolean;
     /**
      * Mute the target's automation for the run: assign the user it writes as,
      * for its duration, the permission sets holding the bypasses the target's
@@ -379,6 +393,12 @@ export interface CheckpointPreviewResponse extends BaseMessage {
      * refused — a package's, which no user reads. Absent when every one was.
      */
     emailsUncounted?: string;
+    /**
+     * What still runs as the rewind writes that may send an email, and
+     * whether the org delivers them: read only when a sender is left.
+     * Absent when nothing sends, or the rewind would write nothing.
+     */
+    deliverability?: RunDeliverability;
     estimate: CheckpointEstimate;
     refusal?: CheckpointRefusal;
   };

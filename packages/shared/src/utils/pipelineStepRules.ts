@@ -248,6 +248,9 @@ export const pipelineRewindStepConfigSchema = z.object({
   checkpointId: namedCheckpointSchema,
   objects: stepObjectsSchema.optional(),
   acceptAutomation: z.boolean().default(false),
+  // The emails the org's automation sends as the rewind writes, for an org
+  // that delivers them all: never lifted by acceptAutomation.
+  acceptEmails: z.boolean().default(false),
   acceptNoUndo: z.boolean().default(false),
   acceptRecreate: z.boolean().default(false),
   acceptOutside: z.boolean().default(false),
@@ -307,8 +310,10 @@ export type PipelineAnonymizeStepConfig = z.output<typeof pipelineAnonymizeStepC
  * What a Rewind step's confirmation is bound to, versioned: a change of what
  * it binds gives every confirmation a digest no configuration has, and asks
  * for each again rather than letting one stand for what it never covered.
+ * `/2` binds the acceptance of the emails (`acceptEmails`): a step confirmed
+ * before it was asked is confirmed again, its emails said this time.
  */
-const REWIND_GRANT_BINDING = 'sandforge-rewind-grant/1';
+const REWIND_GRANT_BINDING = 'sandforge-rewind-grant/2';
 
 /**
  * The digest a Rewind step's confirmation is kept with, `sha256:` and 64
@@ -329,6 +334,7 @@ export function rewindGrantDigest(config: PipelineRewindStepConfig): string {
     // Absent: every object the checkpoint holds, which no list of them is.
     objects: config.objects === undefined ? null : [...config.objects].sort(),
     acceptAutomation: config.acceptAutomation,
+    acceptEmails: config.acceptEmails,
     acceptNoUndo: config.acceptNoUndo,
     acceptRecreate: config.acceptRecreate,
     acceptOutside: config.acceptOutside,

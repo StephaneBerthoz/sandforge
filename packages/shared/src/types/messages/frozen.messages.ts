@@ -1,4 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
+import type { RunCheckpointRequest } from '../checkpoint.types.js';
 import type { ForgeSweepListing } from '../forge.types.js';
 import type {
   FrozenControlReport,
@@ -92,6 +93,14 @@ export interface FrozenLoadOptionsPayload {
    * asked about as ever.
    */
   muteAutomation?: boolean;
+  /**
+   * Take a checkpoint of the objects the run writes before its first write
+   * (`RunCheckpointRequest`: how many days it is kept, and what it leaves
+   * out), to rewind the run to: refused on a target the registry does not
+   * call a development org, and a take refused or failed refuses the run,
+   * nothing written. Absent, no checkpoint is taken.
+   */
+  checkpointFirst?: RunCheckpointRequest;
 }
 
 /**
@@ -140,6 +149,17 @@ export interface FrozenRemoveRequest extends BaseMessage {
      * the load's records back as one that stays.
      */
     sweep?: boolean;
+    /**
+     * With `sweep`, take too what the sweep lists as made late — tied to the
+     * run, created a minute to fifteen minutes after its record, or by the
+     * org's Automated Process user (`ForgeSweepListing.late`): kept otherwise.
+     */
+    sweepLate?: boolean;
+    /**
+     * With `sweep`, take too what it lists as tied to nothing of the run
+     * (`ForgeSweepListing.untied`), unless that is refused: kept otherwise.
+     */
+    sweepUntied?: boolean;
   };
 }
 

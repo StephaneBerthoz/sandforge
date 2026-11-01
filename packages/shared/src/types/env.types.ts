@@ -790,6 +790,13 @@ export interface EnvSavedPlanLine {
   replace: string[];
   replaceDrifted: boolean;
   acceptAutomation: boolean;
+  /**
+   * `--accept-emails`: the emails the target's automation sends as the
+   * resources are written, accepted for an org that delivers them all — never
+   * lifted by `acceptAutomation`. Absent from a plan saved before it was
+   * asked, which accepts none.
+   */
+  acceptEmails?: boolean;
   acceptNoState: boolean;
 }
 

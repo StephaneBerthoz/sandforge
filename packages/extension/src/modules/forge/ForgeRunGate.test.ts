@@ -1,5 +1,5 @@
 import * as fc from 'fast-check';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, expectTypeOf, vi } from 'vitest';
 import {
   DATA_STORAGE_NOT_TOLD,
   type ForgeAutomationWrite,
@@ -11,7 +11,11 @@ import {
 import {
   API_REQUESTS_NOT_TOLD,
   apiBudgetCheckOf,
+  apiBudgetRefusal,
+  confirmationApiOf,
   runRequestsEstimate,
+  runRequestsTotal,
+  type RunRequestParts,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
@@ -57,6 +61,7 @@ import {
   writePlanLines,
   writePlanOf,
 } from './ForgeRunGate.js';
+import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 
 const KB = 1024;
 const MB = 1024 * KB;
@@ -1851,6 +1856,86 @@ describe('the daily API requests', () => {
     expect(apiBudgetCheckOf(100, { unread: 'INSUFFICIENT_ACCESS' })).toMatchObject({
       verdict: 'unread',
       unread: 'INSUFFICIENT_ACCESS',
+    });
+  });
+});
+
+describe('the named parts of a run’s API requests', () => {
+  const budgets = [
+    { max: 15_000, remaining: 99 },
+    { max: 15_000, remaining: 1_500 },
+    { max: 15_000, remaining: 1_600 },
+    { unread: 'INSUFFICIENT_ACCESS' },
+    undefined,
+  ];
+
+  it('keeps every caller’s numbers and words when the run’s own requests are all there is', () => {
+    for (const budget of budgets) {
+      const asNumber = apiBudgetCheckOf(100, budget);
+      for (const parts of [
+        { run: 100 },
+        { run: 100, checkpoint: 0, readBack: 0, deliverability: 0, fit: 0 },
+      ]) {
+        const asParts = apiBudgetCheckOf(parts, budget);
+        expect(asParts, JSON.stringify(budget)).toEqual(asNumber);
+        expect(apiBudgetRefusal(asParts, 'SANDBOX')).toBe(apiBudgetRefusal(asNumber, 'SANDBOX'));
+        expect(confirmationApiOf(asParts)).toEqual(confirmationApiOf(asNumber));
+      }
+    }
+    expect(apiBudgetRefusal(apiBudgetCheckOf(100, budgets[0]), 'SANDBOX')).toBe(
+      'The run takes about 100 API requests, and SANDBOX has 99 of its 15000 daily requests ' +
+        'left: it would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. ' +
+        'Run it once the org has requests to spare — the limit is counted over the last 24 ' +
+        'hours — or write fewer records. Nothing was written.',
+    );
+  });
+
+  it('judges the refusal on the sum of the parts, and names those beside the run’s own', () => {
+    // The run alone fits; the checkpoint taken first and the read-backs take it past.
+    const parts = { run: 354, checkpoint: 58, readBack: 3 };
+    const check = apiBudgetCheckOf(parts, { max: 15_000, remaining: 400 });
+
+    expect(apiBudgetCheckOf(354, { max: 15_000, remaining: 400 }).verdict).toBe('near');
+    expect(check).toMatchObject({ verdict: 'exceeds', estimate: 415, parts });
+    expect(runRequestsTotal({ ...parts, deliverability: 2, fit: 19 })).toBe(436);
+    expect(apiBudgetRefusal(check, 'SANDBOX')).toMatch(
+      /^The run takes about 415 API requests \(58 of them for the checkpoint taken first, 3 to read back the record types the target gave\), and SANDBOX has 400 of its 15000 daily requests left/,
+    );
+    expect(
+      apiBudgetRefusal(
+        apiBudgetCheckOf({ run: 10, deliverability: 2, fit: 19 }, { max: 100, remaining: 5 }),
+        'SANDBOX',
+      ),
+    ).toContain(
+      '31 API requests (2 of them to read whether the target delivers its emails, 19 to fit the run to the storage)',
+    );
+  });
+
+  it('asks "near" on the sum, and the question says the parts', () => {
+    // 1 550 left of 15 000: the run's 10 leave 1 540, its 100 with the checkpoint
+    // 1 450, under a tenth of the day.
+    expect(apiBudgetCheckOf({ run: 10 }, { max: 15_000, remaining: 1_550 }).verdict).toBe('fits');
+    const check = apiBudgetCheckOf({ run: 10, checkpoint: 90 }, { max: 15_000, remaining: 1_550 });
+    expect(check.verdict).toBe('near');
+    expect(confirmationApiOf(check)).toEqual({
+      apiRequests: {
+        estimate: 100,
+        remaining: 1_550,
+        max: 15_000,
+        parts: { run: 10, checkpoint: 90 },
+      },
+    });
+    expectTypeOf<NonNullable<WriteConfirmation['apiRequests']>['parts']>().toEqualTypeOf<
+      RunRequestParts | undefined
+    >();
+  });
+
+  it('keeps the parts of a check the target would not say its requests of', () => {
+    expect(apiBudgetCheckOf({ run: 1, checkpoint: 68 }, { unread: 'refused' })).toEqual({
+      verdict: 'unread',
+      estimate: 69,
+      unread: 'refused',
+      parts: { run: 1, checkpoint: 68 },
     });
   });
 });

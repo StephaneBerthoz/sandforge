@@ -2739,7 +2739,8 @@
       "checkpoint_rewind": "Retour arrière à un point de contrôle",
       "checkpoint_undo": "Annulation d'un retour arrière",
       "checkpoint_export": "Export d'un point de contrôle",
-      "checkpoint_import": "Import d'un point de contrôle"
+      "checkpoint_import": "Import d'un point de contrôle",
+      "checkpoint_take": "Prise d'un point de contrôle"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",

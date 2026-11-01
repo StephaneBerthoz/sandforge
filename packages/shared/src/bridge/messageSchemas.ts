@@ -392,6 +392,8 @@ const AutomationMessages = [
   msg('autopilot:schema-result'),
   msg('autopilot:generate-plan'),
   msg('autopilot:plan-ready'),
+  // Fit the plan under review to the target's storage: answered by a plan-ready of the fitted plan.
+  msg('autopilot:fit-plan'),
   msg('autopilot:execute'),
   msg('autopilot:node-progress'),
   msg('autopilot:pause'),

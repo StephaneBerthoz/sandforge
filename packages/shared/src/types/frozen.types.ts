@@ -27,6 +27,8 @@ import type {
   ForgeUndoStatus,
 } from './forge.types.js';
 import type { SyncValidationRule } from './sync.types.js';
+import type { RecordTypeGiven } from './common.types.js';
+import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
@@ -372,6 +374,11 @@ export interface FrozenDryRunLoadControl {
   status: 'pending' | 'passed' | 'failed';
   at?: string;
   detail?: string;
+  /**
+   * Per object, the record type the target gave the records the load
+   * created without one, as read back. Absent when there was nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
 }
 
 /** The frozen dataset manifest (identity card — no source data). */
@@ -506,6 +513,23 @@ export interface FrozenLoadReportInfo {
    * were taken back. Absent when it was not asked.
    */
   mutedAutomation?: MutedAutomation;
+  /**
+   * The checkpoint of what the load writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as the load
+   * wrote nothing. Absent when it was not asked.
+   */
+  checkpoint?: RunCheckpointInfo;
+  /**
+   * The user the load wrote as, by Salesforce id, as its journal keeps it:
+   * what a removal's sweep holds the records the target's automation made
+   * to. Absent from a load recorded before it was kept.
+   */
+  runUserId?: string;
+  /**
+   * Per object, the record type the target gave the records the load
+   * created without one, as read back. Absent when there was nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
   orgId: string;
   mode: { pilot: boolean; reload: boolean };
   startedAt: string;
@@ -735,6 +759,11 @@ export interface FrozenLoadPlanInfo {
    * refused to say: any of them may still refuse a record counted to insert.
    */
   validationRulesUnread?: string;
+  /**
+   * What the checkpoint a load asked to take one first would hold and cost,
+   * and the refusal it would meet. Absent when not asked.
+   */
+  checkpoint?: RunCheckpointEstimate;
 }
 
 /**

@@ -432,6 +432,73 @@ export function mutedAutomationOf<
   };
 }
 
+/** One automation a run's write fires that still runs: what {@link stillRunningOf} lists. */
+export interface StillRunningEntry extends MutedAutomationEntry {
+  /** The write that fires it. One that starts on two writes the run makes is listed under each. */
+  write: ForgeAutomationWrite;
+  /** The flow, process or workflow rule as it was read; absent for an Apex trigger. */
+  flow?: ForgeTargetFlow;
+}
+
+/** What still runs of the target's automation for a run, once its mute's plan holds. */
+export interface StillRunning<A> {
+  /**
+   * The read as it stands for the run: what the plan keeps quiet held quiet,
+   * as {@link mutedAutomationOf} holds it; the read itself without a plan.
+   */
+  automation: A;
+  /**
+   * What the run's writes fire and nothing keeps quiet, object by object,
+   * write by write, in the order the platform runs it: what a checkpoint
+   * before the run holds the creations of, what a fit keeps storage for, and
+   * what may send the emails a run is asked about.
+   */
+  firing: StillRunningEntry[];
+}
+
+/**
+ * What still runs of the target's automation once a run's mute plan holds:
+ * the one function every computation made before the lease takes it from,
+ * the checkpoint's scope, the fit's reserve and the senders of emails alike,
+ * so none of them counts what another leaves out. Nothing is assigned: the
+ * plan says which bypasses the lease is to hold, and they are taken as held.
+ *
+ * Once the lease is taken, the same function given the sets it holds — the
+ * plan's, less those not read back held — says what then still runs, which a
+ * run compares with what it was planned from before it writes.
+ *
+ * @param plan - The sets the lease holds ({@link mutePlanOf}); absent for a run that does not mute.
+ * @param writes - The writes the run makes, per object; every write when not told.
+ */
+export function stillRunningOf<
+  A extends Pick<ForgeTargetAutomation, 'objects'> & {
+    bypassGrants?: ForgeTargetAutomation['bypassGrants'];
+  },
+>(
+  automation: A,
+  plan: Pick<MutePlan, 'assign'> | undefined,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean = () => true,
+): StillRunning<A> {
+  const asItStands = plan ? mutedAutomationOf(automation, mutePermissionsOf(plan)) : automation;
+  const firing: StillRunningEntry[] = [];
+  for (const object of asItStands.objects) {
+    for (const write of WRITES) {
+      if (!writes(object.objectApiName, write)) continue;
+      for (const fired of automationFiredOn(object, write)) {
+        if (fired.keptQuiet === true) continue;
+        firing.push({
+          objectApiName: object.objectApiName,
+          kind: fired.kind,
+          name: fired.name,
+          write,
+          ...(fired.flow ? { flow: fired.flow } : {}),
+        });
+      }
+    }
+  }
+  return { automation: asItStands, firing };
+}
+
 /** What the audit trail keeps of a run's mute ({@link AuditMutedAutomation}). */
 export function auditMutedOf(muted: MutedAutomation): AuditMutedAutomation {
   return {

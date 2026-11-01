@@ -198,3 +198,102 @@ export interface PriceCurrencySettled {
   /** How many prices. */
   prices: number;
 }
+
+/**
+ * Why a record a run created went to the target without a record type, and
+ * so with the one the target gives the user the run writes as:
+ *
+ * - `masterInSource`: the source holds it on Master, the type its object
+ *   carries when no other is set;
+ * - `notRead`: the run did not write the field — the source object has no
+ *   record type, or the field was not read or not written;
+ * - `decidedDefault`: a decision of the run's mapped its type to the
+ *   target's default (Forge's `map_record_type` to none);
+ * - `dropped`: the source's type is one the target lacks or keeps from that
+ *   user, and the field was left off.
+ */
+export type WithoutRecordTypeWhy = 'masterInSource' | 'notRead' | 'decidedDefault' | 'dropped';
+
+/** A record type as a line names it: its DeveloperName, `ns__Name` for a package's, and its label. */
+export interface RecordTypeNamed {
+  developerName: string;
+  label: string;
+}
+
+/**
+ * Why the target gives a record created without a record type the one it
+ * does, as the describe of the user the run writes as tells it: `userDefault`,
+ * the default it names is not Master; `onlyOneOpen`, it names Master, and the
+ * user can use exactly one other type of the object, which the platform
+ * gives. With Master named and none, or two or more, open, the record stays
+ * on Master, and there is nothing to say: what the probes of a scratch org's
+ * Opportunity and Account found, by REST, Apex and Bulk alike.
+ */
+export type RecordTypeGivenBasis = 'userDefault' | 'onlyOneOpen';
+
+/**
+ * The record type the target gave, or is to give, the records of one object
+ * a run creates without one: said only of an object of the target that has a
+ * type besides Master, and absent when there is nothing to say. Before the
+ * run, what the describe predicts; after it, what a read of the records
+ * created found, which the result says rather than the prediction.
+ */
+export interface RecordTypeGiven {
+  objectApiName: ApiName;
+  /** The records created without a record type. */
+  rows: number;
+  /** Of `rows`, how many for each reason ({@link WithoutRecordTypeWhy}). */
+  why: Partial<Record<WithoutRecordTypeWhy, number>>;
+  /** The type the describe says the target gives them, and why; absent when it gives Master. */
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+  /**
+   * What the records created were read back holding, by type, Master among
+   * them: the first 200 created, one request an object. `read` is how many
+   * were read; `unread`, the org's words when the read failed, which never
+   * fails the run.
+   */
+  readBack?: {
+    read: number;
+    types: Array<RecordTypeNamed & { rows: number }>;
+    unread?: string;
+  };
+}
+
+/**
+ * What the target's automation creates that a storage budget does not count,
+ * named rather than taken for nothing: an Apex trigger, whose code is not
+ * read; a flow, process or rule whose definition was not read; and the
+ * sharing rows (`*Share`), which may or may not take data storage.
+ */
+export interface StorageRoomNotCounted {
+  objectApiName: ApiName;
+  kind: 'trigger' | 'notRead' | 'share';
+  /** The trigger's name, the flow's, process's or rule's label, or the sharing object's API name. */
+  name: string;
+}
+
+/**
+ * The data storage a run fitted to the target may take, and what it is drawn
+ * from, as the fit's line says it: "fits 16.4 MB: 80 % of the 21 MB the org
+ * says it has left, 0.5 MB kept for its rounding, 0 MB for its flows (muted)".
+ * Shared by the fit of a Seed template and of an Autopilot plan.
+ */
+export interface StorageFitBudget {
+  /** The MB the fitted run may write, the room its automation needs taken off. */
+  budgetMB: number;
+  /** What the org's `/limits` say it has left, and its whole, in MB. */
+  remainingMB: number;
+  maxMB: number;
+  /** The share of what is left, past the rounding, the run may take: a fitted run passes the gate without the question "near". */
+  share: number;
+  /** MB kept for the rounding of `/limits`, which answers in whole MB. */
+  roundingMB: number;
+  /** The most MB asked of the fit (`--fit-within`); absent when not asked. */
+  withinMB?: number;
+  /** Which bound held it: what is left past the share and rounding, or `withinMB`. */
+  limitedBy: 'storage' | 'within';
+  /** MB kept for the records the target's automation that still runs creates under the run's. */
+  automationMB: number;
+  /** What that automation creates that is not counted; absent when nothing. */
+  notCounted?: StorageRoomNotCounted[];
+}

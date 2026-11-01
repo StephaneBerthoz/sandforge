@@ -420,6 +420,27 @@ describe('forge:execute, the gate before the first write', () => {
     });
   });
 
+  it('refuses a checkpoint first it cannot read before anything is read, and takes one it reads', async () => {
+    const orchestrator = orchestratorHanding();
+    handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+    const asking = (checkpointFirst: unknown, id: string): Promise<boolean> =>
+      handler.handle(
+        inboundRequest({
+          id,
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: graphOf(), config: CONFIG, checkpointFirst },
+        } as BaseMessage),
+      );
+
+    await asking({ keepDays: 'seven' }, 'wv-bad');
+    expect(orchestrator.execute).not.toHaveBeenCalled();
+    expect(posted('forge:execute:error').map((e) => e.payload.code)).toEqual(['INVALID_PAYLOAD']);
+
+    await asking({ keepDays: 7, excluded: ['FeedItem'] }, 'wv-good');
+    expect(posted('forge:execute:error').map((e) => e.payload.code)).toEqual(['INVALID_PAYLOAD']);
+  });
+
   it('counts in the audit trail, per object, the records a call may have written', async () => {
     const orchestrator = orchestratorHanding();
     orchestrator.execute.mockResolvedValue({
@@ -2186,7 +2207,9 @@ describe('forge:execute, the gate before the first write', () => {
         },
         ...setup,
       });
-      handler.setForgeOrchestrator(orchestratorHanding(), {
+      // The executor hands the rows to the write gate before it writes one:
+      // the lease is taken there, once the gate lets them through.
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
         targetAutomation: readerOf(MUTABLE),
         muteOrg: async () => muteOrgOf(org.connection),
         muteLeases: { dir, renewEveryMs: 0 },
@@ -2248,7 +2271,7 @@ describe('forge:execute, the gate before the first write', () => {
       // The trap org's shape: the set held for the flow's bypass grants a validation rule's too.
       const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
       const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
-      handler.setForgeOrchestrator(orchestratorHanding(), {
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
         targetAutomation: readerOf({
           ...MUTABLE,
           bypassGrants: [
@@ -2290,6 +2313,60 @@ describe('forge:execute, the gate before the first write', () => {
         },
       });
       expect(runs()[0]).toMatchObject({ muted: { assigned: ['Data_Load'], alsoLifted: 1 } });
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('takes the lease only once the write gate lets the rows through: a write declined there assigns nothing', async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+      const org = memoryPermissionOrg({
+        sets: [{ id: SET, name: 'Data_Load' }],
+        beforeWrite: (write) => {
+          calls.push(`assignment ${write.kind}`);
+        },
+      });
+      // Past the volume that asks: the gate puts its question, which is declined.
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(2_100)), {
+        targetAutomation: readerOf(MUTABLE),
+        muteOrg: async () => muteOrgOf(org.connection),
+        muteLeases: { dir, renewEveryMs: 0 },
+      });
+      answers = [true, false];
+
+      await executeMuted();
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+      expect(calls.filter((call) => call.startsWith('assignment'))).toEqual([]);
+      expect(org.writes).toEqual([]);
+      expect(calls).not.toContain('written');
+      expectStoppedAtTheGate('WRITE_DECLINED');
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('stops at the write gate, nothing written, when the lease cannot be taken there', async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+      const org = memoryPermissionOrg({
+        sets: [{ id: SET, name: 'Data_Load' }],
+        refuseAssigning: { [SET]: 'INSUFFICIENT_ACCESS_OR_READONLY' },
+      });
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
+        targetAutomation: readerOf(MUTABLE),
+        muteOrg: async () => muteOrgOf(org.connection),
+        muteLeases: { dir, renewEveryMs: 0 },
+      });
+
+      await executeMuted();
+
+      expect(calls).not.toContain('written');
+      expect(org.assignments()).toEqual([]);
+      expect(posted('forge:execute:error')[0]?.payload).toMatchObject({ code: 'MUTE_FAILED' });
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          objects: [],
+          details: expect.objectContaining({ code: 'MUTE_FAILED' }),
+        }),
+      ]);
+      expect(store.get('forge:history')).toBeUndefined();
       rmSync(dir, { recursive: true, force: true });
     });
 

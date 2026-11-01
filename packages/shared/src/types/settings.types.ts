@@ -24,6 +24,7 @@ export interface AppSettings {
   resilience: ResilienceSettings;
   security: SecuritySettings;
   onboarding: OnboardingSettings;
+  checkpoint: CheckpointSettings;
 }
 
 /** General settings */
@@ -107,6 +108,15 @@ export interface SecuritySettings {
   auditLogging: boolean;
   sensitiveDataDetection: boolean;
   allowedOperationsOnProd: string[];
+}
+
+/**
+ * Checkpoint settings: `sandforge.checkpoint.beforeRunKeepDays`, the days a
+ * checkpoint a run takes before its first write is kept, 0 until it is
+ * deleted (`CHECKPOINT_BEFORE_RUN_KEEP_DAYS`: 7 by default, 0 to 3,650).
+ */
+export interface CheckpointSettings {
+  beforeRunKeepDays: number;
 }
 
 /** Onboarding settings */

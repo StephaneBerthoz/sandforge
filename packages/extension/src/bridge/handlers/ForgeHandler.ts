@@ -60,7 +60,7 @@ import {
   PRODUCTION_GUARD_MISSING,
   undeletableAsker,
 } from './HandlerTypes.js';
-import { validatePayload } from '../validatePayload.js';
+import { checkpointFirstPayloadSchema, validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -68,6 +68,7 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  type HeldMute,
   type MuteOrg,
   type MuteLeaseOptions,
   type RunMute,
@@ -259,6 +260,9 @@ const executePayloadSchema = z.object({
   reviewSkipped: z.boolean().optional(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // Take a checkpoint of what the run writes before its first write. Never
+  // kept with what a resume takes the run up with: the same run takes none again.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 
 /**
@@ -376,6 +380,9 @@ const undoPayloadSchema = z.object({
   again: z.boolean().optional(),
   // Mute the target's automation for the removal, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // With the sweep, take too what it lists as made late, or tied to nothing of the run.
+  sweepLate: z.boolean().optional(),
+  sweepUntied: z.boolean().optional(),
 });
 // The run alone: what its removal deletes is read from the history, as the
 // removal reads it — every record it created, `again`.
@@ -2443,10 +2450,32 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
-      // The lease is taken before the first write and given back once the run
-      // ends, written, failed, stopped or thrown alike.
-      const held = mute ? await mute.acquire(operationId) : undefined;
-      if (held) mutedAutomation = held.outcome;
+      // The lease is taken as late as it can be: once the write gate has let
+      // the rows through, just before the first is written — the executor
+      // hands every row to `beforeWrite` before it writes one, and a stop or
+      // a refusal there writes nothing. Taken before the executor had the
+      // run, it held the bypass through every read of the rows and the
+      // gate's question, which waits on a person. It is given back once the
+      // run ends, written, failed, stopped or thrown alike.
+      let held: HeldMute | undefined;
+      const writeGate = this.writeGate({
+        guard,
+        targetOrgId: config.targetOrgId,
+        org: targetName,
+        orgTier,
+        lookup,
+        emailsPerInsert,
+        ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
+        mayBeInTarget,
+        ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
+        onSimulated: (plan) => {
+          simulatedPlan = plan;
+        },
+        onConfirmed: () => {
+          guardDecision = strongerDecision(guardDecision, 'confirmed');
+          audit.confirm('volume');
+        },
+      });
       const executed = await this.orchestrator
         .execute(graph, config, {
           recordTypeMappings,
@@ -2462,24 +2491,12 @@ export class ForgeHandler implements DomainHandler {
             ceiling: readCeiling,
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
-          beforeWrite: this.writeGate({
-            guard,
-            targetOrgId: config.targetOrgId,
-            org: targetName,
-            orgTier,
-            lookup,
-            emailsPerInsert,
-            ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
-            mayBeInTarget,
-            ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
-            onSimulated: (plan) => {
-              simulatedPlan = plan;
-            },
-            onConfirmed: () => {
-              guardDecision = strongerDecision(guardDecision, 'confirmed');
-              audit.confirm('volume');
-            },
-          }),
+          beforeWrite: async (boundary) => {
+            await writeGate(boundary);
+            if (!mute || boundary.dryRun || held) return;
+            held = await mute.acquire(operationId);
+            mutedAutomation = held.outcome;
+          },
         })
         // Every line of the journal written before the run's end is said.
         .finally(closeStore)
@@ -2573,7 +2590,8 @@ export class ForgeHandler implements DomainHandler {
       // before the first record was written: no failure, whatever the reads
       // had met, and nothing for the history to keep.
       const gate = isForgeRunGateError(error) ? error : undefined;
-      // A mute refused stops the run before its first write, as a gate does.
+      // A mute refused stops the run before its first write, as a gate does:
+      // at the write gate, with nothing written that its partial would say.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;
       if (
         gate?.code === 'AUTOMATION_DECLINED' ||
@@ -2594,7 +2612,7 @@ export class ForgeHandler implements DomainHandler {
       // What the run wrote before it threw travels with the error: an abort
       // after the first objects, or a failure further on, is recorded with
       // the rows it created and lost, not as a run that wrote nothing.
-      const partial = gate ? undefined : partialSummaryOf(error);
+      const partial = gate || muteRefused ? undefined : partialSummaryOf(error);
       const tallies = partial ? auditTalliesOf(partial) : undefined;
       const objects = tallies ? forgeAuditObjects(tallies) : [];
       /*

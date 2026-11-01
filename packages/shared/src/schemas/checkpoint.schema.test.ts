@@ -426,6 +426,39 @@ describe('orgCheckpointSchema', () => {
     expect(parsed.takenBy).not.toHaveProperty('queryAllFiles');
   });
 
+  it('reads where a checkpoint taken before a run comes from, and a checkpoint of version 1 that says nothing of it', () => {
+    const beforeRun = { module: 'forge', operationId: 'wv-execute-1', tool: 'panel' };
+
+    expect(orgCheckpointSchema.parse(checkpointWith({ beforeRun }))).toMatchObject({ beforeRun });
+    // Taken by hand, or by a version before the option: read as it ever was.
+    expect(orgCheckpointSchema.parse(readyCheckpoint())).not.toHaveProperty('beforeRun');
+  });
+
+  it('drops what a later version adds to where a run checkpoint comes from, and keeps the checkpoint', () => {
+    const parsed = orgCheckpointSchema.safeParse(
+      checkpointWith({
+        beforeRun: { module: 'sync', operationId: 'run-7', tool: 'cli', pipeline: 'Nightly' },
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.beforeRun).toEqual({ module: 'sync', operationId: 'run-7', tool: 'cli' });
+  });
+
+  it('refuses a run checkpoint of a module, a tool or an operation it cannot name', () => {
+    for (const beforeRun of [
+      { module: 'dataops', operationId: 'op-1', tool: 'panel' },
+      { module: 'seed', operationId: 'op-1', tool: 'pipeline' },
+      { module: 'seed', operationId: '', tool: 'cli' },
+      { module: 'seed', tool: 'cli' },
+    ]) {
+      expect(
+        orgCheckpointSchema.safeParse(checkpointWith({ beforeRun })).success,
+        JSON.stringify(beforeRun),
+      ).toBe(false);
+    }
+  });
+
   it('refuses files more anchored than held, an empty list of objects read by ids, and counts that are not whole', () => {
     for (const files of [
       { documents: 2, links: 3, anchored: 3 },

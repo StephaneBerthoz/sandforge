@@ -1,5 +1,6 @@
 import type { MutedAutomation } from '../utils/automation-mute.js';
-import type { AnonymizationMethod, CurrencyReplaced } from './common.types.js';
+import type { AnonymizationMethod, CurrencyReplaced, RecordTypeGiven } from './common.types.js';
+import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
 /** Mode used to specify the input for a Forge operation */
 export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
@@ -715,6 +716,22 @@ export interface ForgeUndoObjectResult {
    */
   heldBy: string[];
   /**
+   * Of `keptDependents`, those held by records created under the run's own
+   * during the run, as its user — likely by the target's automation — which
+   * a sweep takes first. Absent when none, and from a removal made before
+   * they were told apart.
+   */
+  heldByAutomation?: number;
+  /** The objects of the records counted in `heldByAutomation`, by API name. */
+  automationHolders?: string[];
+  /**
+   * Of `planned`, the records the platform copied as the run wrote — the
+   * quote lines of a quote the run synced with its opportunity — that the
+   * run's id map does not hold: part of the run, in its plan and named
+   * there. Absent when none.
+   */
+  platformCopies?: number;
+  /**
    * The objects the org deletes along with this one's records that cannot be
    * read by the record they depend on, by API name: whether a record of theirs
    * stays was not checked, and it goes with its parent.
@@ -807,6 +824,41 @@ export interface ForgeSweepFound {
    * object: none of them is swept, and the count stops at the bound.
    */
   overBound?: true;
+  /**
+   * Of `count`, how many fall in each class of what a sweep tells the run's
+   * from hand work ({@link ForgeSweepClasses}). Absent from a sweep that does
+   * not tell them apart: it takes them all, as before.
+   */
+  classes?: ForgeSweepClasses;
+}
+
+/**
+ * The classes of what a sweep found, by how a record is tied to the run:
+ *
+ * - `made`: it points at a record the run created, or such a record points
+ *   at it, or it points at one that does, three links at most; created as
+ *   the run's user at most a minute after that record. Swept with the sweep;
+ *   `sameSave`, of them, those created within two seconds of it;
+ * - `madeOver`: tied the same way to a record the run only wrote over — a
+ *   Sync run's update or matched upsert —, and to none it created. Swept with
+ *   the sweep;
+ * - `late`: tied, but created a minute to fifteen minutes after its record,
+ *   before the removal began, or created by the org's Automated Process user.
+ *   Listed and kept, unless `sweepLate`;
+ * - `untied`: created as the run's user in the run's window, tied to nothing
+ *   of the run. Listed and kept, unless `sweepUntied`, refused when another
+ *   run of this machine wrote in the window or hand work is seen;
+ * - `changed`: of the classes above, those changed since by someone other
+ *   than the run or a removal of it, kept unless the removal includes what
+ *   changed.
+ */
+export interface ForgeSweepClasses {
+  made: number;
+  sameSave?: number;
+  madeOver: number;
+  late: number;
+  untied: number;
+  changed?: number;
 }
 
 /** An object a sweep could not look at, and why, in the org's words or the sweep's. */
@@ -860,6 +912,31 @@ export interface ForgeSweepListing {
    * the reason the sweep is refused.
    */
   handWork: ForgeRemovalLeftCount[];
+  /**
+   * Per object, the records found tied to nothing of the run (class
+   * `untied`): listed and kept unless the removal asks for them
+   * (`sweepUntied`), and why that ask would be refused, when it would.
+   * Absent from a sweep that does not tell them apart.
+   */
+  untied?: { objects: ForgeRemovalLeftCount[]; refusal?: string };
+  /**
+   * Per object, the records found tied to the run but created late (class
+   * `late`): listed and kept unless the removal asks for them (`sweepLate`).
+   * Absent from a sweep that does not tell them apart.
+   */
+  late?: ForgeRemovalLeftCount[];
+  /**
+   * The objects a sweep did not look at, past the most it looks at — children
+   * of the run's objects counted beyond the bound — by API name. Absent when
+   * it looked at every one.
+   */
+  notLooked?: string[];
+  /**
+   * What the run's mute kept quiet as it wrote, and what still ran: what
+   * still ran is what may have made the records listed. Absent when the run
+   * did not mute.
+   */
+  muted?: Pick<MutedAutomation, 'silenced' | 'stillRan'>;
 }
 
 /** What a sweep did to one object's records. */
@@ -876,6 +953,13 @@ export interface ForgeSweepObjectResult {
   refused: number;
   /** Why records were refused, in the org's words: each reason once, a few at most. */
   reasons: string[];
+  /**
+   * Of `deleted`, those deleted once the run's own records were: records a
+   * record of the run points at through a lookup the org restricts the
+   * delete by (`Case.AssetId`), which go only once it is gone. Absent when
+   * none waited.
+   */
+  afterRemoval?: number;
 }
 
 /** What a sweep of a removal did, before the run's own records went. */
@@ -1427,6 +1511,26 @@ export interface ForgeExecutionResult {
    * were taken back. Absent when it was not asked.
    */
   mutedAutomation?: MutedAutomation;
+  /**
+   * The checkpoint of what the run writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as the run
+   * wrote nothing; of a simulation, what it would hold and cost, and the
+   * refusal a real run would meet. Absent when it was not asked.
+   */
+  checkpoint?: RunCheckpointInfo | RunCheckpointEstimate;
+  /**
+   * The user the run wrote as, by Salesforce id: what a removal's sweep
+   * holds the records the target's automation made to. Absent from a run
+   * recorded before it was kept, whose removal reads it again.
+   */
+  runUserId?: string;
+  /**
+   * Per object, the record type the target gave — of a simulation, is to
+   * give — the records the run created without one. Absent when there is
+   * nothing to say: no such record, or an object whose target has no type
+   * but Master.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
   /** Overall outcome of the operation */
   status: 'success' | 'partial' | 'failure';
   /** Final state of the dependency graph */
@@ -2233,6 +2337,51 @@ export interface ForgeTargetAutomation {
   validationRulesUnread?: string;
   /** The requests the read sent to the target. */
   requests: number;
+  /**
+   * Whether the target delivers the emails its automation sends, read just
+   * before the run's question when something that still runs sends one.
+   * Absent when it was not read: nothing left to send.
+   */
+  deliverability?: EmailDeliverability;
+}
+
+/**
+ * Whether an org delivers the emails its automation sends, as one line of
+ * anonymous Apex that sends nothing reads it
+ * (`Messaging.reserveSingleEmailCapacity(1)`):
+ *
+ * - `all`: it answered — Setup > Deliverability: All email;
+ * - `withheld`: it refused with its `NoAccessException`, "The organization is
+ *   not permitted to send email" — System email only, or No access, which the
+ *   read does not tell apart and need not: under either, no email of a flow,
+ *   a process, a workflow rule or Apex goes out;
+ * - `unread`: any other answer, in the org's words, or why it was not read.
+ *   Never taken for withheld: a run then asks as it would for `all`.
+ */
+export type EmailDeliverability = { level: 'all' } | { level: 'withheld' } | { unread: string };
+
+/**
+ * What of the target's automation may send an email as a run writes, and
+ * why it counts: `email`, it has an email action; `notRead`, it fires and
+ * its definition was not read, so it may; `assignment`, an assignment rule
+ * the run applies, which can mail the owner it assigns.
+ */
+export interface EmailSender {
+  objectApiName: string;
+  kind: 'flow' | 'process' | 'workflowRule' | 'assignmentRule';
+  /** The flow's, process's or rule's label. */
+  name: string;
+  why: 'email' | 'notRead' | 'assignment';
+}
+
+/**
+ * What a run's question and its result say of the emails that would leave
+ * the org: what still runs that may send them, and whether the org delivers
+ * them.
+ */
+export interface RunDeliverability {
+  reading: EmailDeliverability;
+  senders: EmailSender[];
 }
 
 /**

@@ -2739,7 +2739,8 @@
       "checkpoint_rewind": "Zurücksetzen auf einen Prüfpunkt",
       "checkpoint_undo": "Zurücksetzen rückgängig machen",
       "checkpoint_export": "Export eines Prüfpunkts",
-      "checkpoint_import": "Import eines Prüfpunkts"
+      "checkpoint_import": "Import eines Prüfpunkts",
+      "checkpoint_take": "Erstellung eines Prüfpunkts"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",

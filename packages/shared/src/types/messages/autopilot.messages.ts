@@ -6,8 +6,11 @@ import type {
   ExecutionPlan,
   AnonymizationOverride,
   AutopilotNodeStatus,
+  AutopilotFitMode,
+  AutopilotPlanWriteGate,
 } from '../autopilot.types.js';
 import type { ComplianceFrameworkType } from '../common.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from '../checkpoint.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
 
 /**
@@ -88,7 +91,25 @@ export interface AutopilotPlanReady extends BaseMessage {
   payload: {
     plan: ExecutionPlan;
     graph: AutopilotGraph;
+    /**
+     * What the plan comes to against the target's data storage, read once
+     * with `/limits` as it is made: said before Run, with what fitting it
+     * would take. Absent when it was not read.
+     */
+    writeGate?: AutopilotPlanWriteGate;
   };
+}
+
+/**
+ * `autopilot:fit-plan`. WebView -> Extension. Fit the plan under review to
+ * the target's storage, as a person asked (`AutopilotFitMode`): answered by
+ * an `autopilot:plan-ready` of the fitted plan, its report in
+ * `plan.scope.fitted`, the plan it was fitted from kept to go back to.
+ * Nothing is written; the gate is met again by the fitted plan at Run.
+ */
+export interface AutopilotFitPlanRequest extends BaseMessage {
+  type: 'autopilot:fit-plan';
+  payload: { mode: AutopilotFitMode };
 }
 
 /** Request to start autopilot execution */
@@ -105,6 +126,14 @@ export interface AutopilotExecuteRequest extends BaseMessage {
      * asked about as ever.
      */
     muteAutomation?: boolean;
+    /**
+     * Take a checkpoint of the objects the run writes before its first write
+     * (`RunCheckpointRequest`: how many days it is kept, and what it leaves
+     * out), to rewind the run to: refused on a target the registry does not
+     * call a development org, and a take refused or failed refuses the run,
+     * nothing written. Absent, no checkpoint is taken.
+     */
+    checkpointFirst?: RunCheckpointRequest;
   };
 }
 
@@ -187,6 +216,13 @@ export interface AutopilotCompleted extends BaseMessage {
      * were taken back. Absent when it was not asked.
      */
     mutedAutomation?: MutedAutomation;
+    /**
+     * The checkpoint of what the run writes, when it was asked to take one
+     * before its first write (`checkpointFirst`): taken, or deleted as the
+     * run wrote nothing. An Autopilot run has no removal: it is the way
+     * back. Absent when it was not asked.
+     */
+    checkpoint?: RunCheckpointInfo;
   };
 }
 

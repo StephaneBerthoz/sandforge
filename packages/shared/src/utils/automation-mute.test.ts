@@ -13,6 +13,7 @@ import {
   mutedEntryWords,
   mutePermissionsOf,
   mutePlanOf,
+  stillRunningOf,
   stillRunsWords,
 } from './automation-mute.js';
 import { emailsPerInsertOf, firedOnInsert, firedOnWriteOf } from './forge-target-automation.js';
@@ -363,6 +364,90 @@ describe('mutedAutomationOf', () => {
 
   it('leaves the read as it was without a bypass to hold', () => {
     expect(mutedAutomationOf(read, [])).toBe(read);
+  });
+});
+
+describe('stillRunningOf', () => {
+  /**
+   * The trap org's shape on Contact: a welcome flow and a workflow rule that
+   * test a bypass a set holds, a follow-up flow with no bypass that creates
+   * a Task, an Apex trigger, and a flow on update alone.
+   */
+  const read = automation(
+    [
+      object({
+        objectApiName: 'Contact',
+        flows: [
+          bypassed('Trap_Bypass_Flow', {
+            label: 'Welcome email',
+            apiName: 'Welcome_Email',
+            messages: [{ kind: 'email', name: 'Welcome', limit: 'SingleEmail' }],
+          }),
+          flow({ label: 'Follow-up task', apiName: 'Follow_Up', creates: ['Task'] }),
+          flow({ label: 'On update', apiName: 'On_Update', startsOn: 'update' }),
+        ],
+        workflowRules: [bypassed('Trap_Bypass_Flow', { label: 'Welcome rule', apiName: 'WR' })],
+        triggers: [{ name: 'ContactTrigger', events: ['afterInsert'] }],
+      }),
+    ],
+    [{ permission: 'Trap_Bypass_Flow', permissionSets: [set('Trap_Bypass')] }],
+  );
+  const inserts = (_object: string, write: string): boolean => write === 'insert';
+  const keys = (entries: ReadonlyArray<{ objectApiName: string; kind: string; name: string }>) =>
+    entries.map(({ objectApiName, kind, name }) => `${objectApiName} ${kind} ${name}`).sort();
+
+  it('lists what the run’s writes fire and nothing keeps quiet, without a mute', () => {
+    const running = stillRunningOf(read, undefined, inserts);
+    expect(running.automation).toBe(read);
+    expect(running.firing.map(({ name, write }) => [name, write])).toEqual([
+      ['ContactTrigger', 'insert'],
+      ['Welcome rule', 'insert'],
+      ['Welcome email', 'insert'],
+      ['Follow-up task', 'insert'],
+    ]);
+  });
+
+  it('leaves out what the plan silences, and lists exactly what the plan says still runs', () => {
+    const plan = mutePlanOf(read, inserts);
+    const running = stillRunningOf(read, plan, inserts);
+
+    expect(keys(running.firing)).toEqual(keys(plan.stillRuns));
+    expect(running.firing.map((entry) => entry.name)).toEqual(['ContactTrigger', 'Follow-up task']);
+    // What a checkpoint before the run adds to what it holds: the Task the
+    // follow-up flow creates, which the mute does not keep quiet.
+    expect(running.firing.flatMap((entry) => entry.flow?.creates ?? [])).toEqual(['Task']);
+    // The read as every gate takes it under the mute.
+    expect(running.automation).toEqual(mutedAutomationOf(read, mutePermissionsOf(plan)));
+  });
+
+  it('counts again what a set not read back held keeps quiet: what then still runs, before any write', () => {
+    const plan = mutePlanOf(read, inserts);
+    const heldBack = stillRunningOf(read, { assign: [] }, inserts);
+
+    expect(heldBack.firing.map((entry) => entry.name)).toEqual(
+      stillRunningOf(read, undefined, inserts).firing.map((entry) => entry.name),
+    );
+    expect(heldBack.firing.length).toBeGreaterThan(
+      stillRunningOf(read, plan, inserts).firing.length,
+    );
+  });
+
+  it('lists an automation under each write the run makes that starts it, and none of a write it does not make', () => {
+    const everyWrite = stillRunningOf(read, undefined);
+    expect(
+      everyWrite.firing.filter((entry) => entry.name === 'On update').map((e) => e.write),
+    ).toEqual(['update']);
+    expect(everyWrite.firing.filter((entry) => entry.name === 'ContactTrigger')).toHaveLength(1);
+    expect(stillRunningOf(read, undefined, inserts).firing.map((e) => e.name)).not.toContain(
+      'On update',
+    );
+  });
+
+  it('lists nothing a bypass the user holds keeps quiet already', () => {
+    const quiet = automation([
+      object({ flows: [flow({ permissions: [{ name: 'Held', bypass: true, held: true }] })] }),
+    ]);
+    expect(stillRunningOf(quiet, undefined).firing).toEqual([]);
   });
 });
 

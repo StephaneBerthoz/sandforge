@@ -18,8 +18,17 @@ import type {
   PipelineRewindGrantRequest,
   PipelineRewindRevokeRequest,
   PipelineRewindStepsRequest,
+  RunCheckpointRequest,
+  SeedFitApplied,
+  AutopilotFitMode,
 } from '@sandforge/shared';
-import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
+import {
+  CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
+  CSV_IMPORT_MAX_COLUMNS,
+  CSV_IMPORT_MAX_ROWS,
+} from '@sandforge/shared';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import {
   validatePayload,
@@ -59,6 +68,14 @@ import {
   pipelineRewindStepsPayloadSchema,
   pipelineRewindGrantPayloadSchema,
   pipelineRewindRevokePayloadSchema,
+  checkpointFirstPayloadSchema,
+  autopilotExecutePayloadSchema,
+  autopilotFitPlanPayloadSchema,
+  frozenLoadPayloadSchema,
+  frozenRemovePayloadSchema,
+  seedCloneExecutePayloadSchema,
+  seedRemovePayloadSchema,
+  syncRemovePayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
@@ -1065,6 +1082,34 @@ describe('checkpoint:* payloads', () => {
     ).toBe(false);
   });
 
+  it('takes whether a rewind or an undo accepts the emails the org delivers, and reads one that does not say as not accepting them', () => {
+    const rewind = {
+      checkpointId: CHECKPOINT,
+      previewId: 'pv-20261022-141030-c3d4',
+      acceptAutomation: true,
+      acceptNoUndo: false,
+      acceptRecreate: false,
+      acceptOutside: false,
+      acceptUnseen: false,
+    };
+    const undo = {
+      checkpointId: CHECKPOINT,
+      rewindId: 'rw-20261022-141102-e5f6',
+      acceptAutomation: true,
+    };
+    for (const [schema, payload] of [
+      [checkpointRewindPayloadSchema, rewind],
+      [checkpointUndoPayloadSchema, undo],
+    ] as const) {
+      // A page of 1.71, which sends none: the emails are not accepted.
+      expect(schema.parse(payload)).not.toHaveProperty('acceptEmails');
+      expect(schema.parse({ ...payload, acceptEmails: true })).toMatchObject({
+        acceptEmails: true,
+      });
+      expect(schema.safeParse({ ...payload, acceptEmails: 'yes' }).success).toBe(false);
+    }
+  });
+
   it('refuses ids that would name another folder than the one they stand for', () => {
     const traversal = '../../ck-20261022-140512-a1b2';
     expect(checkpointPreviewPayloadSchema.safeParse({ checkpointId: traversal }).success).toBe(
@@ -1119,5 +1164,166 @@ describe('checkpoint:* payloads', () => {
     expect(posted.correlationId).toBe('msg-1');
     expect(posted.payload.code).toBe('INVALID_PAYLOAD');
     expect(posted.payload.message).toContain('keepDays');
+  });
+});
+
+describe('the contract of wave 46 on the requests of a run', () => {
+  const ORG = '00Dxx0000001234AAA';
+  const runs: ReadonlyArray<[string, z.ZodType, Record<string, unknown>]> = [
+    ['sync:execute', syncExecutePayloadSchema, { config: validSyncConfig() }],
+    ['seed:execute', seedExecutePayloadSchema, { orgId: 'org-1', template: validSeedTemplate() }],
+    [
+      'seed:csv:execute',
+      seedCsvPayloadSchema,
+      {
+        orgId: 'org-1',
+        objectApiName: 'Account',
+        records: [{ Name: 'Acme' }],
+        columnMappings: [
+          { csvHeader: 'Name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 80 },
+        ],
+      },
+    ],
+    [
+      'seed:clone:execute',
+      seedCloneExecutePayloadSchema,
+      { sourceOrgId: 'org-1', targetOrgId: 'org-2', objects: [{ objectApiName: 'Account' }] },
+    ],
+    ['frozen:load', frozenLoadPayloadSchema, { targetOrgId: ORG }],
+    ['autopilot:execute', autopilotExecutePayloadSchema, { grappeThreshold: 0 }],
+  ];
+
+  it('reads the checkpoint a run asks to take first as the shared contract declares it', () => {
+    expectTypeOf<
+      z.infer<typeof checkpointFirstPayloadSchema>
+    >().toEqualTypeOf<RunCheckpointRequest>();
+  });
+
+  it('takes a checkpoint first on every run, refuses one it cannot read, and reads a request without one as before', () => {
+    const asked = { keepDays: 30, excluded: ['FeedItem'] };
+    for (const [type, schema, payload] of runs) {
+      expect(schema.safeParse(payload).success, type).toBe(true);
+      expect(schema.parse(payload), type).not.toHaveProperty('checkpointFirst');
+      expect(schema.parse({ ...payload, checkpointFirst: asked }), type).toMatchObject({
+        checkpointFirst: asked,
+      });
+      expect(
+        schema.safeParse({ ...payload, checkpointFirst: { keepDays: '7' } }).success,
+        type,
+      ).toBe(false);
+    }
+  });
+
+  it('keeps a checkpoint first the days the setting allows, and leaves out objects named once each', () => {
+    const reads = (value: unknown): boolean =>
+      checkpointFirstPayloadSchema.safeParse(value).success;
+    for (const ok of [
+      {},
+      { keepDays: 0 },
+      { keepDays: 7 },
+      { keepDays: 3_650 },
+      { excluded: [] },
+    ]) {
+      expect(reads(ok), JSON.stringify(ok)).toBe(true);
+    }
+    for (const refused of [
+      { keepDays: -1 },
+      { keepDays: 3_651 },
+      { keepDays: 2.5 },
+      { excluded: ['Account WHERE Id != null'] },
+      { excluded: ['FeedItem', 'FeedItem'] },
+      { keepDays: 7, pipeline: 'Nightly' },
+      true,
+    ]) {
+      expect(reads(refused), JSON.stringify(refused)).toBe(false);
+    }
+  });
+
+  it('declares the setting a checkpoint before a run is kept by as its days allow: 7, from 0 to 3,650', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8'),
+    ) as {
+      contributes: { configuration: { properties: Record<string, Record<string, unknown>> } };
+    };
+    expect(
+      manifest.contributes.configuration.properties['sandforge.checkpoint.beforeRunKeepDays'],
+    ).toMatchObject({
+      type: 'integer',
+      default: CHECKPOINT_BEFORE_RUN_KEEP_DAYS.default,
+      minimum: CHECKPOINT_BEFORE_RUN_KEEP_DAYS.min,
+      maximum: CHECKPOINT_BEFORE_RUN_KEEP_DAYS.max,
+    });
+  });
+
+  it('takes what a removal asks of the sweep’s late and untied records, and reads a removal that does not say as taking neither', () => {
+    const removals: ReadonlyArray<[string, z.ZodType, Record<string, unknown>]> = [
+      ['sync:remove', syncRemovePayloadSchema, { runId: 'run-1', sweep: true }],
+      ['seed:remove', seedRemovePayloadSchema, { runId: 'run-1', sweep: true }],
+      [
+        'frozen:remove',
+        frozenRemovePayloadSchema,
+        { targetOrgId: ORG, loadedAt: '2026-10-30T10:00:00.000Z', sweep: true },
+      ],
+    ];
+    for (const [type, schema, payload] of removals) {
+      const parsed = schema.parse(payload) as Record<string, unknown>;
+      expect(parsed, type).not.toHaveProperty('sweepLate');
+      expect(parsed, type).not.toHaveProperty('sweepUntied');
+      expect(schema.parse({ ...payload, sweepLate: true, sweepUntied: false }), type).toMatchObject(
+        {
+          sweepLate: true,
+          sweepUntied: false,
+        },
+      );
+      expect(schema.safeParse({ ...payload, sweepUntied: 'yes' }).success, type).toBe(false);
+    }
+  });
+
+  it('takes the fit a seed’s counts came from, for the audit trail, and refuses a share outside (0, 1]', () => {
+    const seed = { orgId: 'org-1', template: validSeedTemplate() };
+    expectTypeOf<
+      NonNullable<z.infer<typeof seedExecutePayloadSchema>['fit']>
+    >().toEqualTypeOf<SeedFitApplied>();
+    expect(seedExecutePayloadSchema.parse({ ...seed, fit: { share: 0.21 } }).fit).toEqual({
+      share: 0.21,
+    });
+    expect(
+      seedExecutePayloadSchema.safeParse({ ...seed, fit: { share: 1, withinMB: 3 } }).success,
+    ).toBe(true);
+    for (const fit of [{ share: 0 }, { share: 1.5 }, { share: 0.5, caps: {} }, { withinMB: 3 }]) {
+      expect(
+        seedExecutePayloadSchema.safeParse({ ...seed, fit }).success,
+        JSON.stringify(fit),
+      ).toBe(false);
+    }
+  });
+
+  it('fits an Autopilot plan by share, by caps or both, never by a bound alone', () => {
+    expectTypeOf<
+      z.infer<typeof autopilotFitPlanPayloadSchema>['mode']
+    >().toExtend<AutopilotFitMode>();
+    for (const mode of [
+      { share: true },
+      { caps: { Account: 3_000, Contact: 5_000 } },
+      { all: 1_000, withinMB: 16.8 },
+      { share: true, caps: { Account: 10 }, withinMB: 3 },
+    ]) {
+      expect(autopilotFitPlanPayloadSchema.safeParse({ mode }).success, JSON.stringify(mode)).toBe(
+        true,
+      );
+    }
+    for (const mode of [
+      {},
+      { withinMB: 3 },
+      { share: false },
+      { caps: { Account: 0 } },
+      { caps: { 'Account WHERE': 5 } },
+      { all: 2.5 },
+      { share: true, ids: ['001'] },
+    ]) {
+      expect(autopilotFitPlanPayloadSchema.safeParse({ mode }).success, JSON.stringify(mode)).toBe(
+        false,
+      );
+    }
   });
 });

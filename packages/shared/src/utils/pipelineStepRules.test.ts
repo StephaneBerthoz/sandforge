@@ -15,6 +15,7 @@ import {
   rewindGrantDigest,
   type PipelineRewindStepConfig,
 } from './pipelineStepRules';
+import { sha256Hex } from './sha256.js';
 
 describe('step types', () => {
   it('knows Approval and Sync, and none of the types SandForge no longer has', () => {
@@ -164,6 +165,7 @@ describe('pipelineRewindStepConfigSchema', () => {
       checkpointId: CHECKPOINT,
       maxRecords: 500,
       acceptAutomation: false,
+      acceptEmails: false,
       acceptNoUndo: false,
       acceptRecreate: false,
       acceptOutside: false,
@@ -176,6 +178,7 @@ describe('pipelineRewindStepConfigSchema', () => {
     const asked = rewindConfig({
       objects: ['Case', 'Contact'],
       acceptAutomation: true,
+      acceptEmails: true,
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
@@ -333,6 +336,7 @@ describe('rewindGrantDigest', () => {
       ['the objects named', { objects: ['Case'] }],
       ['the refusal when people are active', { refuseWhenActive: false }],
       ['accepting automation', { acceptAutomation: true }],
+      ['accepting the emails', { acceptEmails: true }],
       ['accepting deletions Undo cannot bring back', { acceptNoUndo: true }],
       ['accepting records made again', { acceptRecreate: true }],
       ['accepting records outside', { acceptOutside: true }],
@@ -347,6 +351,34 @@ describe('rewindGrantDigest', () => {
     // Each change gives a digest of its own, none another's.
     expect(digests.size).toBe(changes.length + 1);
     expect(digest({ objects: ['Case', 'Contact'] })).not.toBe(digest({ objects: ['Case'] }));
+  });
+
+  it('reads a step saved before the emails were asked as accepting none, and voids every confirmation given before', () => {
+    const config = read();
+    expect(config.acceptEmails).toBe(false);
+    expect(digest({ acceptEmails: false })).toBe(digest());
+    // The digest a confirmation was kept with until the emails were bound:
+    // the same fields, the emails apart, under the binding before.
+    const before = config;
+    const confirmedBefore = `sha256:${sha256Hex(
+      JSON.stringify({
+        binding: 'sandforge-rewind-grant/1',
+        orgId: before.orgId,
+        checkpointId: before.checkpointId,
+        objects: before.objects === undefined ? null : [...before.objects].sort(),
+        acceptAutomation: before.acceptAutomation,
+        acceptNoUndo: before.acceptNoUndo,
+        acceptRecreate: before.acceptRecreate,
+        acceptOutside: before.acceptOutside,
+        acceptUnseen: before.acceptUnseen,
+        maxRecords: before.maxRecords,
+        refuseWhenActive: before.refuseWhenActive,
+      }),
+    )}`;
+    expect(rewindGrantDigest(config)).not.toBe(confirmedBefore);
+    expect(
+      refusalOf(pipelineRewindStepConfigSchema, rewindConfig({ acceptEmails: 'yes' })),
+    ).toMatch(/^acceptEmails/);
   });
 
   it('is unchanged by what the step is called, described as, or a key the configuration does not define', () => {

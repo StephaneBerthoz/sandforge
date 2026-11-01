@@ -1915,6 +1915,18 @@ describe('forge:undo', () => {
       expect(org.deletes).toEqual([]);
       expect(live().sort()).toEqual([...CREATED].sort());
     });
+
+    it('refuses a request whose late or untied sweep is not a boolean, removing nothing', async () => {
+      for (const asked of [{ sweepLate: 'true' }, { sweepUntied: 1 }]) {
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, again: true, ...asked }),
+        );
+      }
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['INVALID_PAYLOAD', 'INVALID_PAYLOAD']);
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...CREATED].sort());
+    });
   });
 });
 

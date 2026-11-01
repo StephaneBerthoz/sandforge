@@ -145,6 +145,17 @@ const checkpointFilesSchema = z
     message: 'More files anchored than held',
   });
 
+/**
+ * Where a checkpoint taken before a run comes from: `CheckpointBeforeRun`
+ * (`types/checkpoint.types.ts`), pinned by the types' test. What a later
+ * version adds to it is dropped, never refused: the checkpoint stays usable.
+ */
+export const checkpointBeforeRunSchema = z.object({
+  module: z.enum(['forge', 'sync', 'seed', 'autopilot', 'frozen']),
+  operationId: z.string().min(1).max(200),
+  tool: z.enum(['panel', 'cli']),
+});
+
 /** `checkpoint.json`, version 1. */
 export const orgCheckpointSchema = z
   .object({
@@ -210,6 +221,9 @@ export const orgCheckpointSchema = z
         sha256: sha256Schema,
       })
       .optional(),
+    // Set on a checkpoint a run took of what it writes before its first
+    // write; one taken by hand, or by an earlier version, has none.
+    beforeRun: checkpointBeforeRunSchema.optional(),
   })
   // T1 follows every read of the take, and the rewind's deletions keep every
   // record created before it: a T1 before T0 would move that boundary back

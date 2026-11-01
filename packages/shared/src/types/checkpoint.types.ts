@@ -70,6 +70,21 @@ export type CheckpointCustomSettingKind = 'hierarchy' | 'list';
  */
 export type CheckpointStatus = 'taking' | 'ready' | 'failed';
 
+/** The modules whose run can take a checkpoint of the objects it writes before its first write. */
+export type CheckpointBeforeRunModule = 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen';
+
+/**
+ * Where a checkpoint taken before a run comes from (`Checkpoint first`): the
+ * module whose run took it, the run by its operation id, and whether the
+ * panel or a command line ran it. A version that does not know the field
+ * reads the checkpoint as any other.
+ */
+export interface CheckpointBeforeRun {
+  module: CheckpointBeforeRunModule;
+  operationId: string;
+  tool: 'panel' | 'cli';
+}
+
 /** The org a checkpoint is of, as it was when the take began. */
 export interface CheckpointOrg {
   /**
@@ -307,6 +322,8 @@ export interface OrgCheckpoint {
   files?: CheckpointFiles;
   /** Set on a checkpoint imported from a file another machine exported: see {@link CheckpointImportedFrom}. */
   importedFrom?: CheckpointImportedFrom;
+  /** Set on a checkpoint a run took of what it writes before its first write: see {@link CheckpointBeforeRun}. */
+  beforeRun?: CheckpointBeforeRun;
 }
 
 // ─── A checkpoint as a file that leaves the machine (.sfcheckpoint) ──────────
@@ -581,7 +598,27 @@ export type CheckpointRefusalCode =
    * permission sets, or a set could not be assigned. Said with why; nothing
    * was assigned, nothing written.
    */
-  | 'MUTE';
+  | 'MUTE'
+  /**
+   * A checkpoint asked before a run (`Checkpoint first`) would hold none of
+   * the objects the run writes: each is left out, unproven held by a user
+   * without View All Data and Modify All Data, or of a kind no checkpoint
+   * holds. The run is refused, nothing written: the option promised a rewind.
+   */
+  | 'NOTHING_HELD'
+  /**
+   * A checkpoint asked before a run would not fit on this machine's disk: the
+   * store's disk has less free than the take's bytes and a tenth more. Said
+   * before anything is read, as an import is refused (`IMPORT_DISK`).
+   */
+  | 'DISK'
+  /**
+   * The org delivers every email its automation sends (Setup > Deliverability:
+   * All email), or would not say whether it does, and what fires as the
+   * rewind or the undo writes sends some: written only once that is accepted
+   * (`acceptEmails`). Not `EMAILS`, the daily limit, which nothing lifts.
+   */
+  | 'EMAILS_DELIVERED';
 
 /**
  * What a rewind nobody watches is held to, in the place of the person who
@@ -654,6 +691,87 @@ export interface CheckpointRefusal {
   code: CheckpointRefusalCode;
   message: string;
 }
+
+// ─── A checkpoint taken before a run (Checkpoint first) ──────────────────────
+
+/**
+ * What a run asks of the checkpoint it takes before its first write
+ * (`checkpointFirst`, beside `muteAutomation` on the run's request): how many
+ * days it is kept — `sandforge.checkpoint.beforeRunKeepDays` when not said,
+ * 0 keeping it until it is deleted — and the objects, by API name, left out
+ * of it. Absent from the request, the run takes none.
+ */
+export interface RunCheckpointRequest {
+  keepDays?: number;
+  excluded?: string[];
+}
+
+/**
+ * An object a checkpoint before a run holds beside those the run writes
+ * (`added`), or leaves out (`notHeld`), and why, in the words a person reads:
+ * "the target's flow 'X' creates Asset records as Case records go in", "Chatter
+ * posts… a rewind leaves its records as they are", "left out as asked".
+ */
+export interface RunCheckpointObjectNote {
+  objectApiName: string;
+  reason: string;
+}
+
+/**
+ * What a checkpoint before a run would hold and cost, read before anything is
+ * taken: what a run's question, its simulation and its dry run say. The
+ * records, requests, seconds and bytes are the take's estimate, which the
+ * run's API budget counts as its `checkpoint` part; `refusal`, the one a real
+ * run would meet, which refuses it before its first write.
+ */
+export interface RunCheckpointEstimate {
+  state: 'planned';
+  estimate: CheckpointEstimate;
+  /** The objects it would hold, by API name, those the run writes first. */
+  objects: string[];
+  added: RunCheckpointObjectNote[];
+  notHeld: RunCheckpointObjectNote[];
+  /** The days it would be kept; 0 keeps it until it is deleted. */
+  keepDays: number;
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * The checkpoint a run took before its first write, as the run's result and
+ * its history name it: where to rewind to, what it holds, and what it does
+ * not. A process killed after the take leaves it ready.
+ */
+export interface RunCheckpointTaken {
+  state: 'taken';
+  checkpointId: string;
+  /** `Before Forge run 2026-10-30 21:40 UTC`. */
+  name: string;
+  /** T1 of the take, org clock. */
+  takenAt: ISODateString;
+  /** When it is deleted from this machine; null keeps it until it is deleted. */
+  expiresAt: ISODateString | null;
+  /** The objects it holds, by API name. */
+  objects: string[];
+  records: number;
+  bytes: number;
+  /** The API requests the take sent. */
+  requests: number;
+  added: RunCheckpointObjectNote[];
+  notHeld: RunCheckpointObjectNote[];
+}
+
+/**
+ * A checkpoint a run took and deleted again: the run wrote nothing — its
+ * mute refused, no row to write, or a stop before its first write — so there
+ * was nothing for it to rewind.
+ */
+export interface RunCheckpointDeleted {
+  state: 'deleted';
+  deleted: 'nothingWritten';
+}
+
+/** What a run's result says of the checkpoint it took before its first write. */
+export type RunCheckpointInfo = RunCheckpointTaken | RunCheckpointDeleted;
 
 // ─── The preview: what a rewind would do ─────────────────────────────────────
 

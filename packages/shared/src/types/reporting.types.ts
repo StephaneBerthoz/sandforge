@@ -46,6 +46,7 @@ export type AuditAction =
   | 'realtime_sync'
   | 'subject_erase'
   | 'cleanup_delete'
+  | 'checkpoint_take'
   | 'checkpoint_rewind'
   | 'checkpoint_undo'
   | 'checkpoint_export'
@@ -230,9 +231,45 @@ export interface AuditLogEntry {
    * counted, never named.
    */
   muted?: AuditMutedAutomation;
+  /**
+   * Of a run that took a checkpoint of what it writes before its first write
+   * (`Checkpoint first`), the checkpoint's id: what to rewind to. Absent when
+   * it took none, or deleted it as it wrote nothing.
+   */
+  checkpointId?: string;
+  /**
+   * Of a take (`checkpoint_take`) made before a run, the run it was made for:
+   * its module and operation id. Absent from a take made by hand.
+   */
+  beforeRun?: AuditBeforeRun;
+  /** Of a run whose plan was fitted to the target's storage, what the fit kept; see {@link AuditFit}. */
+  fit?: AuditFit;
   details: Record<string, unknown>;
   timestamp: ISODateString;
   ipAddress?: string;
+}
+
+/** The run a checkpoint was taken before, as the take's entry names it. */
+export interface AuditBeforeRun {
+  module: 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen';
+  operationId: string;
+}
+
+/**
+ * What the audit trail keeps of a fit to the target's storage: the module,
+ * the share applied or the caps, the bound asked, and the records kept of
+ * those the source held. Counts, never ids.
+ */
+export interface AuditFit {
+  module: 'seed' | 'autopilot';
+  /** The share kept, 0 < share ≤ 1; absent when caps alone fitted it. */
+  share?: number;
+  /** Whether per-object caps were applied. */
+  capped?: true;
+  withinMB?: number;
+  /** Records the fitted run set out to write, and those the unfitted one would have. */
+  kept: number;
+  inSource: number;
 }
 
 /** A part of the target's automation a read before a run could not take. */
@@ -292,9 +329,10 @@ export interface AuditDecisionCount {
  * it writes a second time; `volume`, the
  * records the run had read and was about to write — past the volume that
  * asks, or near the data storage the target has left, or with that storage
- * unread.
+ * unread; `emails`, the emails its automation sends to an org that delivers
+ * them all, or would not say whether it does.
  */
-export type AuditConfirmation = 'automation' | 'volume';
+export type AuditConfirmation = 'automation' | 'volume' | 'emails';
 
 /**
  * How a run was set up and let through, beside what it wrote: what a reader of
@@ -333,6 +371,13 @@ export interface AuditRunContext {
   confirmed?: AuditConfirmation[];
   /** The decisions the run's config held, kind by kind; absent when it held none. */
   decisions?: AuditDecisionCount[];
+  /**
+   * Whether the target delivered the emails what still ran sends, as read
+   * before the run's question: `all`, `withheld` — System email only or No
+   * access — or `unread`. Absent when nothing that ran sends one, so it was
+   * not read.
+   */
+  deliverability?: 'all' | 'withheld' | 'unread';
 }
 
 /** Every module and org an audit trail holds: what its filters can offer. */

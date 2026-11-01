@@ -1,5 +1,5 @@
 import type { MutedAutomation, MutePlan } from '../utils/automation-mute.js';
-import type { UUID, ISODateString, ApiName } from './common.types.js';
+import type { UUID, ISODateString, ApiName, StorageFitBudget } from './common.types.js';
 import type {
   ForgeEmailLimit,
   ForgeSweepResult,
@@ -7,7 +7,9 @@ import type {
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RunDeliverability,
 } from './forge.types.js';
+import type { RunCheckpointInfo, RunCheckpointRequest } from './checkpoint.types.js';
 
 /** Seed generation strategy */
 export type SeedStrategy = 'ai' | 'faker' | 'template' | 'csv_import' | 'clone';
@@ -211,6 +213,19 @@ export interface SeedExecutionResult {
    * were taken back. Absent when it was not asked.
    */
   mutedAutomation?: MutedAutomation;
+  /**
+   * The checkpoint of what the run writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as the run
+   * wrote nothing. The run's file keeps it on a line of its own. Absent when
+   * it was not asked.
+   */
+  checkpoint?: RunCheckpointInfo;
+  /**
+   * The user the run wrote as, by Salesforce id, as its run file keeps it:
+   * what a removal's sweep holds the records the target's automation made
+   * to. Absent from a run recorded before it was kept.
+   */
+  runUserId?: string;
   operationId: UUID;
   status: 'success' | 'partial' | 'failure';
   objectResults: SeedObjectResult[];
@@ -454,6 +469,11 @@ export interface CsvImportConfig {
   records: Record<string, string>[];
   columnMappings: CsvColumnMapping[];
   externalIdField?: string;
+  /**
+   * Take a checkpoint of the object the import writes before its first write
+   * (`RunCheckpointRequest`), as a seed does. Absent, no checkpoint is taken.
+   */
+  checkpointFirst?: RunCheckpointRequest;
 }
 
 /** Single validation error found in CSV data. */
@@ -574,6 +594,12 @@ export interface SeedRunRemovalInfo {
    * seeded from, and the agent its test file was last written for, once one was.
    */
   scenario?: { packId: string; agent?: string };
+  /**
+   * The checkpoint the run took of what it writes before its first write, as
+   * its file's `checkpoint` line keeps it: the history offers to rewind to
+   * it. Absent when the run took none.
+   */
+  checkpoint?: RunCheckpointInfo;
 }
 
 /** What removing what a Seed run created did, object by object, the last written first. */
@@ -707,6 +733,12 @@ export interface SeedAutomationPreview {
   blinded: boolean;
   /** Start conditions left unread past the most the read takes. */
   conditionsNotRead: number;
+  /**
+   * What still runs as the records are created that may send an email, and
+   * whether the org delivers them: read only when a sender is left. Absent
+   * when nothing sends.
+   */
+  deliverability?: RunDeliverability;
 }
 
 /** The emails a seed's records make an org send against one daily limit, and what is left of it. */
@@ -722,4 +754,43 @@ export interface SeedEmailEstimate {
   verdict: 'fits' | 'exceeds' | 'unread';
   remaining?: number;
   max?: number;
+}
+
+/**
+ * The counts a seed's template would take to fit the target's storage, by
+ * share: each root object about the share of its count, at least one; each
+ * child no more than the parents kept can hold; rows a scenario or a CSV
+ * gives, and keyed relations, kept whole. Proposed with the refusal of a
+ * template that does not fit, computed from what was read before it, and
+ * applied only by a person, after which the gate is met again.
+ */
+export interface SeedFitProposal {
+  /** The share kept, 0 < share ≤ 1: the largest that fits, to a root record. */
+  share: number;
+  budget: StorageFitBudget;
+  /** Per object of the template, in its order, its count and the one proposed. */
+  objects: Array<{
+    objectApiName: ApiName;
+    before: number;
+    after: number;
+    /** Why a count was kept as it was: rows the template gives, or a keyed relation. */
+    keptWhole?: 'rows' | 'byKey';
+  }>;
+  /** What the counts proposed take, MB, the room of the org's automation included. */
+  estimateMB: number;
+  /**
+   * Set when what is kept whole alone takes more than the budget, in words:
+   * "the 40 rows the scenario gives take 0.2 MB". Nothing is proposed then.
+   */
+  cannotFit?: string;
+}
+
+/**
+ * What a seed run says of the fit its counts came from, for the audit trail:
+ * the share applied and the bound asked. Absent from a seed whose counts
+ * were not fitted.
+ */
+export interface SeedFitApplied {
+  share: number;
+  withinMB?: number;
 }

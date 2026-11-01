@@ -651,6 +651,7 @@ const EVERY_ACTION: Readonly<Record<AuditAction, true>> = {
   realtime_sync: true,
   subject_erase: true,
   cleanup_delete: true,
+  checkpoint_take: true,
   checkpoint_rewind: true,
   checkpoint_undo: true,
   checkpoint_export: true,

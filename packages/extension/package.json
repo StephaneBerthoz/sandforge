@@ -412,6 +412,13 @@
           "maximum": 1000000,
           "description": "%config.backup.maxRecordsPerObject.description%"
         },
+        "sandforge.checkpoint.beforeRunKeepDays": {
+          "type": "integer",
+          "default": 7,
+          "minimum": 0,
+          "maximum": 3650,
+          "description": "%config.checkpoint.beforeRunKeepDays.description%"
+        },
         "sandforge.pipeline.timeout": {
           "type": "number",
           "default": 300000,

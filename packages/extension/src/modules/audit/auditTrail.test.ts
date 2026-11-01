@@ -222,6 +222,44 @@ describe('recordWriteRun', () => {
     expect(second).not.toHaveProperty('context');
   });
 
+  it('names the checkpoint a run took before its first write, the run a take was made for, and the fit of a run, and nothing of them for a run without', () => {
+    const deps = makeDeps();
+
+    recordWriteRun(deps, run({ checkpointId: 'ck-20261101-090000-a1b2' }));
+    recordWriteRun(
+      deps,
+      run({
+        action: 'checkpoint_take',
+        module: 'checkpoint',
+        operationId: 'op-take',
+        source: undefined,
+        objects: [],
+        beforeRun: { module: 'forge', operationId: 'op-1' },
+      }),
+    );
+    recordWriteRun(
+      deps,
+      run({
+        action: 'seed_execute',
+        module: 'seed',
+        operationId: 'op-seed',
+        fit: { module: 'seed', share: 0.21, kept: 1597, inSource: 7600 },
+      }),
+    );
+    recordWriteRun(deps, run({ operationId: 'op-plain' }));
+
+    const [plain, seeded, take, forge] = new AuditTrailStore(deps.configStore).list().entries;
+    expect(forge).toMatchObject({ checkpointId: 'ck-20261101-090000-a1b2' });
+    expect(take).toMatchObject({
+      action: 'checkpoint_take',
+      beforeRun: { module: 'forge', operationId: 'op-1' },
+    });
+    expect(seeded.fit).toEqual({ module: 'seed', share: 0.21, kept: 1597, inSource: 7600 });
+    for (const key of ['checkpointId', 'beforeRun', 'fit']) {
+      expect(plain, key).not.toHaveProperty(key);
+    }
+  });
+
   it('says a removal took up what an earlier one left, and when that one ended', () => {
     const deps = makeDeps();
 

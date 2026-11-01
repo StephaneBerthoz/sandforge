@@ -56,6 +56,7 @@
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.backup.maxAgeDays.description": "Days a DataOps backup is kept on this machine before it is deleted, every org's, as SandForge starts and after each backup; 0 keeps them until deleted from the Restore tab. A backup holds the records' values unencrypted, personal data among them. The values a Sync run wrote over are kept the same way, and go at the same age: removing the run no longer puts them back after that",
   "config.backup.maxRecordsPerObject.description": "Most records of each object a DataOps backup reads, page after page. An object holding more is backed up only in part, and the backup says so: a restore then brings back those records only.",
+  "config.checkpoint.beforeRunKeepDays.description": "Days a checkpoint a run takes of the objects it writes before its first write (Checkpoint first) is kept on this machine before it is deleted; 0 keeps it until deleted from the Checkpoints page. It holds the records' values unencrypted, personal data among them",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "No longer used: SandForge asks before every write to a production org, and no setting turns that question off.",
   "config.safety.requireProdConfirmation.deprecation": "No longer used: every write to a production org asks first.",

@@ -1424,6 +1424,8 @@ const envSavedPlanLineSchema = z.strictObject({
   replace: z.array(envNameSchema).max(ENV_MAX_RESOURCES),
   replaceDrifted: z.boolean(),
   acceptAutomation: z.boolean(),
+  // Absent from a plan saved before the emails were asked: none accepted.
+  acceptEmails: z.boolean().optional(),
   acceptNoState: z.boolean(),
 });
 

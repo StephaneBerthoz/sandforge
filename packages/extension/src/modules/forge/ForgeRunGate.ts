@@ -515,10 +515,66 @@ export function runRequestsEstimate(
   }, 0);
 }
 
-/** The calls a run makes against what the org it writes to has left today, or why that is not known. */
+/**
+ * The parts of the API requests a run takes of the org it writes to, each
+ * counted by what adds it and named where the run is refused for them:
+ *
+ * - `run`: its own reads and writes ({@link runRequestsEstimate});
+ * - `checkpoint`: the checkpoint it takes first of what it writes, as the
+ *   take estimates it (`Checkpoint first`);
+ * - `readBack`: the reads of the record type the target gave the records it
+ *   created without one, one an object;
+ * - `deliverability`: the read of whether the target delivers its emails,
+ *   when something that still runs sends one;
+ * - `fit`: the reads that fit it to the target's storage.
+ *
+ * A part a run does not have is absent, or 0. The refusal and the question
+ * "near" are judged on their sum ({@link runRequestsTotal}); each idea adds
+ * its own part, none rewrites the sum.
+ */
+export interface RunRequestParts {
+  run: number;
+  checkpoint?: number;
+  readBack?: number;
+  deliverability?: number;
+  fit?: number;
+}
+
+/** The parts of a run's requests beside its own, in the order a refusal names them. */
+const OTHER_PARTS = ['checkpoint', 'readBack', 'deliverability', 'fit'] as const;
+
+/** What each part beside the run's own is for, as a refusal says it. */
+const PART_WORDS: Readonly<Record<(typeof OTHER_PARTS)[number], string>> = {
+  checkpoint: 'for the checkpoint taken first',
+  readBack: 'to read back the record types the target gave',
+  deliverability: 'to read whether the target delivers its emails',
+  fit: 'to fit the run to the storage',
+};
+
+/** The API requests of a run, every part together. */
+export function runRequestsTotal(parts: RunRequestParts): number {
+  return OTHER_PARTS.reduce((sum, part) => sum + Math.max(0, parts[part] ?? 0), parts.run);
+}
+
+/** The parts of `parts` beside the run's own that add a request; undefined when none does. */
+function partsBeside(parts: RunRequestParts): RunRequestParts | undefined {
+  return OTHER_PARTS.some((part) => (parts[part] ?? 0) > 0) ? { ...parts } : undefined;
+}
+
+/**
+ * The calls a run makes against what the org it writes to has left today, or
+ * why that is not known. `estimate` is every part together; `parts` says them
+ * apart, absent when the run's own are all there is.
+ */
 export type ApiBudgetCheck =
-  | { verdict: 'fits' | 'near' | 'exceeds'; estimate: number; max: number; remaining: number }
-  | { verdict: 'unread'; estimate: number; unread: string };
+  | {
+      verdict: 'fits' | 'near' | 'exceeds';
+      estimate: number;
+      max: number;
+      remaining: number;
+      parts?: RunRequestParts;
+    }
+  | { verdict: 'unread'; estimate: number; unread: string; parts?: RunRequestParts };
 
 /**
  * A run's calls against the target's daily API requests: `exceeds` past what
@@ -529,17 +585,21 @@ export type ApiBudgetCheck =
  * through, its records refused with REQUEST_LIMIT_EXCEEDED.
  */
 export function apiBudgetCheckOf(
-  estimate: number,
+  requests: number | RunRequestParts,
   budget: ApiBudget | { unread: string } | undefined,
 ): ApiBudgetCheck {
+  const parts = typeof requests === 'number' ? undefined : partsBeside(requests);
+  const estimate = typeof requests === 'number' ? requests : runRequestsTotal(requests);
+  const named = parts ? { parts } : {};
   if (!budget) {
     return {
       verdict: 'unread',
       estimate,
       unread: 'the limits the org answered list no DailyApiRequests',
+      ...named,
     };
   }
-  if ('unread' in budget) return { verdict: 'unread', estimate, unread: budget.unread };
+  if ('unread' in budget) return { verdict: 'unread', estimate, unread: budget.unread, ...named };
   const { max, remaining } = budget;
   const verdict =
     estimate > remaining
@@ -547,7 +607,20 @@ export function apiBudgetCheckOf(
       : remaining - estimate < API_BUDGET_NEAR_SHARE * max
         ? 'near'
         : 'fits';
-  return { verdict, estimate, max, remaining };
+  return { verdict, estimate, max, remaining, ...named };
+}
+
+/**
+ * The parts of a check's requests beside the run's own, as a refusal names
+ * them: " (58 of them for the checkpoint taken first, 3 to read back the
+ * record types the target gave)"; nothing when the run's own are all there is.
+ */
+function partsWords(parts: RunRequestParts | undefined): string {
+  if (!parts) return '';
+  const named = OTHER_PARTS.filter((part) => (parts[part] ?? 0) > 0).map(
+    (part, i) => `${parts[part]}${i === 0 ? ' of them' : ''} ${PART_WORDS[part]}`,
+  );
+  return named.length > 0 ? ` (${named.join(', ')})` : '';
 }
 
 /**
@@ -560,7 +633,8 @@ export const API_BUDGET_EXCEEDED = 'API_BUDGET_EXCEEDED';
 export function apiBudgetRefusal(check: ApiBudgetCheck, target: string): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;
   return (
-    `The run takes about ${check.estimate} API requests, and ${target} has ${check.remaining} ` +
+    `The run takes about ${check.estimate} API requests${partsWords(check.parts)}, and ${target} ` +
+    `has ${check.remaining} ` +
     `of its ${check.max} daily requests left: it would stop part way through, its records ` +
     'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
     'limit is counted over the last 24 hours — or write fewer records. Nothing was written.'
@@ -570,9 +644,16 @@ export function apiBudgetRefusal(check: ApiBudgetCheck, target: string): string 
 /** The API requests of a check, as a run's question says them: only when they run short. */
 export function confirmationApiOf(
   check: ApiBudgetCheck,
-): { apiRequests: { estimate: number; remaining: number; max: number } } | Record<string, never> {
+): { apiRequests: NonNullable<WriteConfirmation['apiRequests']> } | Record<string, never> {
   return check.verdict === 'near'
-    ? { apiRequests: { estimate: check.estimate, remaining: check.remaining, max: check.max } }
+    ? {
+        apiRequests: {
+          estimate: check.estimate,
+          remaining: check.remaining,
+          max: check.max,
+          ...(check.parts ? { parts: { ...check.parts } } : {}),
+        },
+      }
     : {};
 }
 

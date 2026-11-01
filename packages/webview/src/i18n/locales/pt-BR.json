@@ -2739,7 +2739,8 @@
       "checkpoint_rewind": "Retrocesso a um ponto de verificação",
       "checkpoint_undo": "Desfazer um retrocesso",
       "checkpoint_export": "Exportação de um ponto de verificação",
-      "checkpoint_import": "Importação de um ponto de verificação"
+      "checkpoint_import": "Importação de um ponto de verificação",
+      "checkpoint_take": "Criação de um ponto de verificação"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",

@@ -560,6 +560,24 @@ export interface RunRemovalOptions {
    */
   sweep?: () => Promise<boolean>;
   /**
+   * The last part of a sweep granted with the removal, made once the run's
+   * records are deleted: what the sweep found made for the run that a record
+   * of the run points at through a lookup the org restricts the delete by —
+   * an Asset a Case of the run names (`Case.AssetId`) — which goes only once
+   * that record is gone. It resolves to whether it deleted anything; a
+   * record of the run kept leaves what it points at, and says so. Absent,
+   * nothing waits for the run's records.
+   */
+  afterRemoval?: () => Promise<boolean>;
+  /**
+   * The ids of the records a granted sweep found made for the run by the
+   * target's automation, which it deletes: a child among them, still in the
+   * org when its parent's turn comes, holds none of the run's records back,
+   * and goes along with it. Absent without a granted sweep: such a child
+   * holds its parent as any record that stays.
+   */
+  automationMade?: ReadonlySet<string>;
+  /**
    * Asked before the removal's first write, when the user it runs as may not
    * delete the records of some objects of the run, as their describes say:
    * whether to remove the rest, leaving those, or to stop with nothing

@@ -1,5 +1,6 @@
 import {
   AUTOPILOT_COUNTS_PER_REQUEST,
+  CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
   CSV_IMPORT_MAX_COLUMNS,
   CSV_IMPORT_MAX_ROWS,
   SEED_MAX_RECORDS_PER_OBJECT,
@@ -126,6 +127,39 @@ const MAX_OBJECTS_PER_REQUEST = 100;
 
 /** Max batch size accepted from the webview (matches manifest caps). */
 const MAX_BATCH_SIZE = 10_000;
+
+/**
+ * `checkpointFirst`, beside `muteAutomation` on every run's request: take a
+ * checkpoint of what the run writes before its first write
+ * (`RunCheckpointRequest`). The days it is kept are those the setting
+ * `sandforge.checkpoint.beforeRunKeepDays` allows; the objects left out are
+ * named as a take names those it picks, each once.
+ */
+export const checkpointFirstPayloadSchema = z
+  .object({
+    keepDays: z
+      .number()
+      .int()
+      .min(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.min)
+      .max(CHECKPOINT_BEFORE_RUN_KEEP_DAYS.max)
+      .optional(),
+    excluded: z
+      .array(sfApiNameSchema)
+      .max(MAX_OBJECTS_PER_REQUEST)
+      .refine((names) => new Set(names).size === names.length, 'An object is left out twice')
+      .optional(),
+  })
+  .strict();
+
+/**
+ * `sweepLate` and `sweepUntied`, beside `sweep` on every removal's request:
+ * take too what the sweep lists as made late, or as tied to nothing of the
+ * run. Never assumed: absent, those are listed and kept.
+ */
+const sweepClassesShape = {
+  sweepLate: z.boolean().optional(),
+  sweepUntied: z.boolean().optional(),
+};
 
 // ── sync:* payload schemas ────────────────────────────────────────────────
 
@@ -391,6 +425,8 @@ export const syncExecutePayloadSchema = z.object({
   config: syncConfigPayloadSchema,
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // Take a checkpoint of what the run writes before its first write.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 /** `sync:simulate` — the configuration a run would be given, checked as one is. */
 export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSchema });
@@ -502,6 +538,7 @@ export const syncRemovePayloadSchema = z.object({
   again: z.boolean().optional(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  ...sweepClassesShape,
 });
 // What a sweep asked with a Sync run's removal would take: the run, named as for its removal.
 export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
@@ -522,6 +559,7 @@ export const seedRemovePayloadSchema = z.object({
   again: z.boolean().optional(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  ...sweepClassesShape,
 });
 // What a sweep asked with a run's removal would take: the run, named as for its removal.
 export const seedRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
@@ -623,6 +661,19 @@ export const seedExecutePayloadSchema = z.object({
   template: seedTemplatePayloadSchema,
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // Take a checkpoint of what the run writes before its first write.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
+  /**
+   * The fit to the org's storage the counts were taken from, as a person
+   * applied it (`SeedFitApplied`): said in the audit trail, never acted on.
+   */
+  fit: z
+    .object({
+      share: z.number().gt(0).max(1),
+      withinMB: z.number().positive().max(1_000_000).optional(),
+    })
+    .strict()
+    .optional(),
 
   /**
    * The locale the people, addresses and phone numbers are drawn in, as
@@ -749,6 +800,8 @@ export const seedCloneExecutePayloadSchema = z
     externalIdField: sfApiNameSchema.optional(),
     previewId: opaqueIdSchema.optional(),
     keepContactPoints: z.boolean().optional(),
+    // Take a checkpoint of what the clone writes before its first write.
+    checkpointFirst: checkpointFirstPayloadSchema.optional(),
   })
   .refine((data) => !data.upsert || data.externalIdField !== undefined, {
     message: 'externalIdField is required when upsert is true',
@@ -779,6 +832,8 @@ export const seedCsvPayloadSchema = z.object({
     .max(CSV_IMPORT_MAX_ROWS),
   columnMappings: z.array(csvColumnMappingPayloadSchema).min(1).max(CSV_IMPORT_MAX_COLUMNS),
   externalIdField: sfApiNameSchema.optional(),
+  // Take a checkpoint of what the import writes before its first write.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 
 // ── dataops:* / backup payload schemas ────────────────────────────────────
@@ -1181,6 +1236,8 @@ export const frozenLoadPayloadSchema = z.object({
   maxRecords: z.number().int().positive().max(1_000_000).optional(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // Take a checkpoint of what the load writes before its first write.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1191,6 +1248,7 @@ export const frozenRemovePayloadSchema = z.object({
   includeChanged: z.boolean().optional(),
   // Sweep too what the target's automation created during the load, as its user.
   sweep: z.boolean().optional(),
+  ...sweepClassesShape,
 });
 // What a sweep asked with a load's removal would take: the load, named as for its removal.
 export const frozenRemoveSweepPayloadSchema = z.object({
@@ -1310,6 +1368,8 @@ export const checkpointRewindPayloadSchema = z.object({
   acceptAutomation: z.boolean(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // The emails the org delivers as the rewind writes: never lifted by acceptAutomation.
+  acceptEmails: z.boolean().optional(),
   acceptNoUndo: z.boolean(),
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
@@ -1347,6 +1407,8 @@ export const checkpointUndoPayloadSchema = z.object({
   acceptAutomation: z.boolean(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // The emails the org delivers as the undo writes: never lifted by acceptAutomation.
+  acceptEmails: z.boolean().optional(),
 });
 export const checkpointDeletePayloadSchema = z.object({
   checkpointIds: z
@@ -1439,6 +1501,32 @@ export const autopilotExecutePayloadSchema = z.object({
   keepContactPoints: z.boolean().optional(),
   // Mute the target's automation for the run, through its own bypass.
   muteAutomation: z.boolean().optional(),
+  // Take a checkpoint of what the run writes before its first write.
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
+});
+
+/**
+ * `autopilot:fit-plan`: how to fit the plan under review to the target's
+ * storage (`AutopilotFitMode`), as a person asked: by share, by caps per
+ * object or for every one, within so many MB. A fit asks for one of share
+ * and caps at least: a bound alone fits nothing.
+ */
+export const autopilotFitPlanPayloadSchema = z.object({
+  mode: z
+    .object({
+      share: z.literal(true).optional(),
+      caps: z
+        .record(sfApiNameSchema, z.number().int().min(1).max(SEED_MAX_RECORDS_PER_OBJECT))
+        .refine((caps) => Object.keys(caps).length <= MAX_OBJECTS_PER_REQUEST, 'Too many caps')
+        .optional(),
+      all: z.number().int().min(1).max(SEED_MAX_RECORDS_PER_OBJECT).optional(),
+      withinMB: z.number().positive().max(1_000_000).optional(),
+    })
+    .strict()
+    .refine(
+      (mode) => mode.share === true || mode.caps !== undefined || mode.all !== undefined,
+      'Fit by share, by caps, or both',
+    ),
 });
 
 export const autopilotSkipNodePayloadSchema = z.object({

@@ -5,6 +5,7 @@
  */
 
 import type { ForgeContactPointsReport } from './forge.types.js';
+import type { RunCheckpointRequest } from './checkpoint.types.js';
 
 /**
  * Configuration for a single object to clone.
@@ -35,6 +36,11 @@ export interface CloneConfig {
    * target's flows and email alerts then reach no one.
    */
   keepContactPoints?: boolean;
+  /**
+   * Take a checkpoint of the objects the clone writes before its first write
+   * (`RunCheckpointRequest`), as a seed does. Absent, no checkpoint is taken.
+   */
+  checkpointFirst?: RunCheckpointRequest;
 }
 
 /**

@@ -225,6 +225,16 @@ export const CSV_IMPORT_MAX_COLUMNS = 500;
  */
 export const SEED_MAX_RECORDS_PER_OBJECT = 1_000_000;
 
+/**
+ * Days a checkpoint a run takes before its first write (`Checkpoint first`)
+ * is kept, `sandforge.checkpoint.beforeRunKeepDays`: one a run, which holds
+ * the values of the target's records in clear on this machine — of a client's
+ * sandbox, personal data — is not kept a month without asking, as one taken
+ * by hand is. 0 keeps it until it is deleted; 3,650 days at most, as a
+ * checkpoint's own keep days.
+ */
+export const CHECKPOINT_BEFORE_RUN_KEEP_DAYS = { default: 7, min: 0, max: 3_650 } as const;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

@@ -11,6 +11,8 @@ import type {
   BaseAnonymizationRule,
   CurrencyReplaced,
   PriceCurrencySettled,
+  RecordTypeGiven,
+  StorageFitBudget,
 } from './common.types.js';
 
 /** Status of an autopilot node during execution */
@@ -87,6 +89,12 @@ export interface AutopilotNode {
    * and book in the currency written, or written in it.
    */
   pricesSettled?: PriceCurrencySettled[];
+  /**
+   * The record type the target gives the records of the object the run
+   * creates without one: predicted in the plan, read back once written.
+   * Absent when there is nothing to say.
+   */
+  recordTypeGiven?: RecordTypeGiven;
 }
 
 /**
@@ -276,6 +284,97 @@ export interface AutopilotPlanScope {
     readonly copied: number;
     readonly total?: number;
   }>;
+  /**
+   * Set on a plan fitted to the target's storage: what was kept of each
+   * object and why the rest was cut ({@link AutopilotFitReport}). The plan
+   * then reads its selected objects by the ids kept.
+   */
+  readonly fitted?: AutopilotFitReport;
+}
+
+/**
+ * How a plan is to be fitted to the target's storage, asked by a person —
+ * never done unasked: `share`, the largest share of every object that fits,
+ * spread over each table's ids, children following the parents kept; `caps`,
+ * at most so many records of an object, by API name, or `all` of every one;
+ * both, the caps first and then the share. `withinMB`, the most MB the run
+ * may write, beside what the org has left.
+ */
+export interface AutopilotFitMode {
+  readonly share?: true;
+  readonly caps?: Readonly<Record<ApiName, number>>;
+  readonly all?: number;
+  readonly withinMB?: number;
+}
+
+/**
+ * Why records of a fitted object were cut with their parent: the lookup
+ * that holds them to an object written before them, and how many it cut.
+ */
+export interface AutopilotFitCutWithParent {
+  readonly field: string;
+  readonly parent: ApiName;
+  readonly count: number;
+}
+
+/** What a fit kept of one object the plan selects, of what its source holds. */
+export interface AutopilotFitObject {
+  readonly objectApiName: ApiName;
+  readonly inSource: number;
+  readonly kept: number;
+  /** Records cut spread over the table: roots, or the followers a cap thinned. */
+  readonly cutSpread: number;
+  /** Records cut with the parent they are held to, lookup by lookup. */
+  readonly cutWithParent: readonly AutopilotFitCutWithParent[];
+}
+
+/**
+ * A lookup a fit leaves empty on records it keeps, and why: `selfReference`,
+ * the record it names in its own object was cut (`ParentId`); `owed`, the
+ * lookup of a cycle filled in after its wave, whose record was cut.
+ */
+export interface AutopilotFitEmptied {
+  readonly objectApiName: ApiName;
+  readonly field: string;
+  readonly count: number;
+  readonly why: 'selfReference' | 'owed';
+}
+
+/**
+ * What fitting a plan to the target's storage came to: the budget and what
+ * it is drawn from, the share chosen, what each selected object kept, the
+ * lookups left empty, the parents read by id for the records kept, and the
+ * requests the fit read to choose them.
+ */
+export interface AutopilotFitReport {
+  readonly mode: AutopilotFitMode;
+  readonly budget: StorageFitBudget;
+  /** The share kept, 0 < share ≤ 1; absent when caps alone fitted it. */
+  readonly share?: number;
+  readonly objects: readonly AutopilotFitObject[];
+  readonly emptied: readonly AutopilotFitEmptied[];
+  /** The other objects, read by id: the records the kept ones name. */
+  readonly parents: ReadonlyArray<{ readonly objectApiName: ApiName; readonly records: number }>;
+  /** Records the fitted plan writes, in all, and the MB they take. */
+  readonly records: number;
+  readonly estimateMB: number;
+  /** Requests the fit sent the source to choose the records. */
+  readonly requestsRead: number;
+}
+
+/**
+ * What a plan comes to against the target's data storage, read once with
+ * `/limits` as the plan is made: shown before Run, with "Fit to storage…"
+ * when it would be refused. `unread` when the target did not say.
+ */
+export interface AutopilotPlanWriteGate {
+  readonly records: number;
+  readonly estimateMB: number;
+  readonly remainingMB?: number;
+  readonly maxMB?: number;
+  readonly verdict: 'fits' | 'near' | 'exceeds' | 'unread';
+  /** Why the target did not say what it has left. */
+  readonly unread?: string;
 }
 
 /** What a plan says of the currencies the target does not hold active. */

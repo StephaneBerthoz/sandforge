@@ -1222,6 +1222,17 @@ describe('a saved plan', () => {
     expect(envSavedPlanSchema.safeParse({ ...saved, state: { found: false } }).success).toBe(true);
   });
 
+  it('reads whether its line accepted the emails, and a plan saved before the line could say so as accepting none', () => {
+    const accepting = { ...saved, line: { ...saved.line, acceptEmails: true } };
+
+    expect(envSavedPlanSchema.parse(accepting).line.acceptEmails).toBe(true);
+    expect(envSavedPlanSchema.parse(saved).line).not.toHaveProperty('acceptEmails');
+    expect(
+      envSavedPlanSchema.safeParse({ ...saved, line: { ...saved.line, acceptEmails: 'yes' } })
+        .success,
+    ).toBe(false);
+  });
+
   it('refuses a key it does not name, a state found with no lineage, and a version it does not know', () => {
     expect(envSavedPlanSchema.safeParse({ ...saved, accessToken: 'x' }).success).toBe(false);
     expect(

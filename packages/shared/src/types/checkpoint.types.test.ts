@@ -3,12 +3,15 @@ import type * as z from 'zod';
 
 import type {
   CheckpointArchiveHeader,
+  CheckpointBeforeRun,
+  CheckpointBeforeRunModule,
   CheckpointCustomSettingKind,
   CheckpointEstimate,
   CheckpointLeftOutFieldReason,
   CheckpointObjectAccess,
   CheckpointOrgTier,
   CheckpointReadMode,
+  CheckpointRefusalCode,
   CheckpointScopeMode,
   CheckpointStatus,
   CheckpointTakeRequests,
@@ -16,11 +19,16 @@ import type {
   RewindResidualReason,
   RewindResult,
   RewindStatus,
+  RunCheckpointEstimate,
+  RunCheckpointInfo,
+  RunCheckpointRequest,
+  RunCheckpointTaken,
 } from './checkpoint.types.js';
 import type { ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
 import {
   checkpointArchiveHeaderSchema,
+  checkpointBeforeRunSchema,
   checkpointCustomSettingKindSchema,
   checkpointLeftOutFieldReasonSchema,
   checkpointObjectAccessSchema,
@@ -70,6 +78,36 @@ describe('the checkpoint file and its schema', () => {
     expect(checkpointObjectAccessSchema.options).toEqual(['org', 'object', 'parent']);
     expectTypeOf<OrgCheckpoint['ignoredFields']>().toEqualTypeOf<string[]>();
     expectTypeOf<OrgCheckpoint['expiresAt']>().toEqualTypeOf<string | null>();
+  });
+
+  it('says where a checkpoint a run took before its first write comes from, as its schema reads it', () => {
+    expectTypeOf<z.infer<typeof checkpointBeforeRunSchema>>().toEqualTypeOf<CheckpointBeforeRun>();
+    expectTypeOf<OrgCheckpoint['beforeRun']>().toEqualTypeOf<CheckpointBeforeRun | undefined>();
+    expectTypeOf<CheckpointBeforeRun['module']>().toEqualTypeOf<CheckpointBeforeRunModule>();
+    expect(checkpointBeforeRunSchema.shape.module.options).toEqual([
+      'forge',
+      'sync',
+      'seed',
+      'autopilot',
+      'frozen',
+    ]);
+  });
+});
+
+describe('a checkpoint taken before a run', () => {
+  it('is in a run result taken, or deleted when the run wrote nothing, and planned in a question or a simulation', () => {
+    expectTypeOf<RunCheckpointInfo['state']>().toEqualTypeOf<'taken' | 'deleted'>();
+    expectTypeOf<RunCheckpointEstimate['state']>().toEqualTypeOf<'planned'>();
+    expectTypeOf<RunCheckpointEstimate['estimate']>().toEqualTypeOf<CheckpointEstimate>();
+    expectTypeOf<RunCheckpointTaken['expiresAt']>().toEqualTypeOf<string | null>();
+    expectTypeOf<RunCheckpointRequest>().toEqualTypeOf<{
+      keepDays?: number;
+      excluded?: string[];
+    }>();
+  });
+
+  it('is refused when it would hold nothing the run writes, or not fit on the disk', () => {
+    expectTypeOf<'NOTHING_HELD' | 'DISK' | 'EMAILS_DELIVERED'>().toExtend<CheckpointRefusalCode>();
   });
 });
 

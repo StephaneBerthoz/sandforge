@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { ForgeRemovalRisk } from '@sandforge/shared';
+import type { ForgeRemovalRisk, RunCheckpointEstimate, RunDeliverability } from '@sandforge/shared';
 
 /** Safety tier classification for Salesforce orgs */
 export type SafetyTier = 'production' | 'staging' | 'development' | 'scratch';
@@ -165,6 +165,14 @@ export interface AutomationConfirmation {
    * Draft. Absent or empty when none was found.
    */
   removal?: ForgeRemovalRisk[];
+  /**
+   * What still runs that may send an email as the run writes, and whether
+   * the target delivers them: the question's first block, put before what
+   * still runs. Set when the target delivers them all or would not say, and
+   * the answer then sends them ("Execute and send the emails"); absent when
+   * nothing sends, or the target sends none of them.
+   */
+  deliverability?: RunDeliverability;
 }
 
 /**
@@ -294,9 +302,35 @@ export interface WriteConfirmation {
   }>;
   /**
    * The API requests the run takes, when it would leave the org under a
-   * tenth of its daily requests. Absent otherwise.
+   * tenth of its daily requests, every part together, and the parts beside
+   * the run's own when it has any (`RunRequestParts`: the checkpoint first,
+   * the read-backs, the deliverability read, the fit). Absent otherwise.
    */
-  apiRequests?: { estimate: number; remaining: number; max: number };
+  apiRequests?: {
+    estimate: number;
+    remaining: number;
+    max: number;
+    parts?: {
+      run: number;
+      checkpoint?: number;
+      readBack?: number;
+      deliverability?: number;
+      fit?: number;
+    };
+  };
+  /**
+   * The checkpoint the run takes of what it writes before its first write,
+   * when asked (`Checkpoint first`): what it holds and adds, what it leaves
+   * out, what it costs and how long it is kept. Said after what still runs,
+   * before the storage. Absent when not asked.
+   */
+  checkpoint?: RunCheckpointEstimate;
+  /**
+   * What still runs that may send an email as the records go in, and whether
+   * the target delivers them: as {@link AutomationConfirmation.deliverability},
+   * for a run whose only question is this one (Sync, Seed, Autopilot).
+   */
+  deliverability?: RunDeliverability;
   /**
    * The daily email limits the records make the target's flows send against
    * that the target did not say what it has left of. Absent when none.

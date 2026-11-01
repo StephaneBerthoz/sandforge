@@ -1187,15 +1187,15 @@ describe('sandforge-clone target automation', () => {
       expect(perms.queries.some((soql) => /FROM PermissionSet\b/.test(soql))).toBe(false);
     });
 
-    it('takes the set back when the run throws once it holds it: refused at its write gate', async () => {
+    it('assigns nothing to a run refused at its write gate: the lease is taken once the gate lets the rows through', async () => {
       const { target, perms, events } = mutableTarget();
       withOrgs(target);
 
-      // Two records read, one allowed: the executor throws before its first write.
+      // Two records read, one allowed: the gate refuses before the first write.
       expect(await run(argv('--skip-preflight', '--mute-automation', '--max-total', '1'))).toBe(1);
 
       expect(stderr).toContain('more than --max-total 1');
-      expect(events).toEqual(['assignment insert', 'assignment delete']);
+      expect(events).toEqual([]);
       expect(perms.assignments()).toEqual([]);
     });
 

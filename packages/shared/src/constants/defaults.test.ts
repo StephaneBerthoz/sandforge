@@ -7,6 +7,7 @@ import {
   DEFAULT_GRAPPE_CONFIG,
   DEFAULT_MONITOR_CONFIG,
   MODULE_NAMES,
+  CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
 } from './defaults.js';
 
 describe('DEFAULT_BATCH_SIZES', () => {
@@ -105,5 +106,11 @@ describe('MODULE_NAMES', () => {
   it('should contain no duplicate entries', () => {
     const unique = new Set(MODULE_NAMES);
     expect(unique.size).toBe(MODULE_NAMES.length);
+  });
+});
+
+describe('CHECKPOINT_BEFORE_RUN_KEEP_DAYS', () => {
+  it('keeps a checkpoint taken before a run a week, and allows from kept for good to ten years', () => {
+    expect(CHECKPOINT_BEFORE_RUN_KEEP_DAYS).toEqual({ default: 7, min: 0, max: 3_650 });
   });
 });

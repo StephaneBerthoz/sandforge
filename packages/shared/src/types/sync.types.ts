@@ -5,6 +5,7 @@ import type {
   ApiName,
   CurrencyReplaced,
   PriceCurrencySettled,
+  RecordTypeGiven,
 } from './common.types.js';
 import type {
   ForgeContactPointsReport,
@@ -13,7 +14,9 @@ import type {
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RunDeliverability,
 } from './forge.types.js';
+import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
 /** Sync direction */
 export type SyncDirection = 'source_to_target' | 'target_to_source' | 'bidirectional';
@@ -289,6 +292,18 @@ export interface SyncExecutionResult {
    * were taken back. Absent when it was not asked.
    */
   mutedAutomation?: MutedAutomation;
+  /**
+   * The checkpoint of what the run writes, when it was asked to take one
+   * before its first write (`checkpointFirst`): taken, or deleted as the run
+   * wrote nothing. Absent when it was not asked.
+   */
+  checkpoint?: RunCheckpointInfo;
+  /**
+   * The user the run wrote as, by Salesforce id, as its run file keeps it:
+   * what a removal's sweep holds the records the target's automation made
+   * to. Absent from a run recorded before it was kept.
+   */
+  runUserId?: string;
   operationId: UUID;
   status: 'success' | 'partial' | 'failure';
   objectResults: SyncObjectResult[];
@@ -728,6 +743,13 @@ export interface SyncObjectResult {
    * Absent when none.
    */
   encryptedLeftOut?: ApiName[];
+  /**
+   * The record type the target gave the records the run created of the
+   * object without one, read back from them. Absent when there is nothing to
+   * say: none was created so, or the target has no type of the object but
+   * Master.
+   */
+  recordTypeGiven?: RecordTypeGiven;
 }
 
 /** See {@link SyncObjectResult.writtenWithoutFields}. */
@@ -880,6 +902,13 @@ export interface SyncWriteCheck {
   /** Why the target's automation could not be read, so no email was counted; absent when it was. */
   emailsUnread?: string;
   /**
+   * What still runs of the target's automation that may send an email as the
+   * records go in, and whether the target delivers them: read only when a
+   * sender is left. A run is asked, or refused unattended, unless the emails
+   * are accepted or withheld. Absent when nothing sends.
+   */
+  deliverability?: RunDeliverability;
+  /**
    * The objects the target would take none of, as the run writes them, with
    * the records the run would write of each: it has not the object, or the
    * user the run writes as may not see, create or edit it, or it would not
@@ -979,6 +1008,12 @@ export interface SyncObjectSimulation {
   alreadyCopied?: number;
   /** See {@link SyncObjectResult.encryptedLeftOut}: what a run would leave out. */
   encryptedLeftOut?: ApiName[];
+  /**
+   * The record type the target's describe says it gives the records a run
+   * would create of the object without one. Absent when there is nothing to
+   * say, as {@link SyncObjectResult.recordTypeGiven}.
+   */
+  recordTypeGiven?: RecordTypeGiven;
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */
@@ -1008,6 +1043,12 @@ export interface SyncSimulationResult {
   writeOrder?: SyncWriteOrder;
   /** What a run would be held to before its first write; absent when it could not be measured. */
   writeCheck?: SyncWriteCheck;
+  /**
+   * What the checkpoint a run asked to take one first would hold and cost,
+   * and the refusal it would meet. Absent when the simulation was not asked
+   * with `checkpointFirst`.
+   */
+  checkpoint?: RunCheckpointEstimate;
   /** Why the records could not be counted before the first write, when they could not. */
   writeCheckUnread?: string;
 }

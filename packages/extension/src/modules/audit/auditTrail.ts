@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 
 import type {
   AuditAction,
+  AuditBeforeRun,
   AuditFacets,
+  AuditFit,
   AuditMutedAutomation,
   AuditLogEntry,
   AuditObjectCounts,
@@ -198,6 +200,15 @@ export interface WriteRun {
   verdict?: ForgeVerificationVerdict;
   /** What the run muted of the target's automation, when it was asked to. */
   muted?: AuditMutedAutomation;
+  /**
+   * The checkpoint the run took of what it writes before its first write,
+   * by id: what to rewind to. Absent when it took none, or deleted it.
+   */
+  checkpointId?: string;
+  /** Of a take made before a run (`checkpoint_take`), that run: its module and operation id. */
+  beforeRun?: AuditBeforeRun;
+  /** Of a run whose plan was fitted to the target's storage, what the fit kept. */
+  fit?: AuditFit;
 }
 
 /**
@@ -287,6 +298,9 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       ...(run.context ? { context: run.context } : {}),
       ...(run.verdict ? { verdict: run.verdict } : {}),
       ...(run.muted ? { muted: run.muted } : {}),
+      ...(run.checkpointId ? { checkpointId: run.checkpointId } : {}),
+      ...(run.beforeRun ? { beforeRun: { ...run.beforeRun } } : {}),
+      ...(run.fit ? { fit: { ...run.fit } } : {}),
       details: { ...run.details, ...(run.code ? { code: run.code } : {}) },
       timestamp,
     });

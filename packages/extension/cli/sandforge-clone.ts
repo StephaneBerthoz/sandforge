@@ -241,6 +241,7 @@ import {
   muteLines,
   muteOrgOf,
   planMute,
+  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
@@ -6255,18 +6256,24 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // take it back from.
   running.executor = executor;
   await stopIfInterrupted(() => endJournal('cancelled', false));
-  // The lease is taken before the first write and given back as the run ends,
-  // written, failed, stopped or thrown alike, before anything is said of it.
-  const held =
-    !args.dryRun && mute?.prepared
-      ? await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
-          if (!isMuteRefusedError(err)) throw err;
-          recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
-          process.stderr.write(`${err.message}\n`);
-          process.exit(1);
-        })
-      : undefined;
-  if (held) mutedAutomation = held.outcome;
+  // The lease is taken as late as it can be: once the gate has let the rows
+  // through, just before the first is written — the executor hands every row
+  // to `beforeWrite` before it writes one. Taken before the executor had the
+  // run, it held the bypass through every read of the rows. It is given back
+  // as the run ends, written, failed, stopped or thrown alike, before
+  // anything is said of it.
+  let held: HeldMute | undefined;
+  const leaseAtTheGate = async (boundary: ForgeWriteBoundary): Promise<void> => {
+    await beforeWrite(boundary);
+    if (boundary.dryRun || args.dryRun || !mute?.prepared || held) return;
+    held = await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
+      if (!isMuteRefusedError(err)) throw err;
+      recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
+      process.stderr.write(`${err.message}\n`);
+      process.exit(1);
+    });
+    mutedAutomation = held.outcome;
+  };
   try {
     const executed = await executor
       .execute(
@@ -6289,7 +6296,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
               : executeOptions(args, graph, recordTypeMappings, (fields) =>
                   discovery.personalFields(fields),
                 )),
-            beforeWrite,
+            beforeWrite: leaseAtTheGate,
           },
           journalStore,
         ),
