@@ -18,6 +18,10 @@ import {
   type MemoryPermissionOrgSetup,
 } from '../src/test/memoryPermissionOrg.js';
 import { main, parseRemoveArgs } from './sandforge-clone';
+import {
+  writePathOrderDefects,
+  type WritePathStep,
+} from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -1023,7 +1027,10 @@ describe('sandforge-clone target automation', () => {
      * Salesforce answers them, and every write in the order it was sent: the
      * assignments and the records alike.
      */
-    function mutableTarget(setup: MemoryPermissionOrgSetup = {}) {
+    function mutableTarget(
+      setup: MemoryPermissionOrgSetup = {},
+      describes: Record<string, DescribeSObjectResult> = DESCRIBES,
+    ) {
       const events: string[] = [];
       const perms = memoryPermissionOrg({
         sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
@@ -1032,7 +1039,7 @@ describe('sandforge-clone target automation', () => {
         },
         ...setup,
       });
-      const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] });
+      const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }], describes });
       const base = target.conn as unknown as {
         query: (soql: string) => Promise<unknown>;
         sobject: (name: string) => Record<string, unknown> & {
@@ -1083,6 +1090,122 @@ describe('sandforge-clone target automation', () => {
         'mute: assigned Data_Load to the user the run writes as in TGT, for the run alone',
       );
       expect(printed).toContain('  taken back: Data_Load, as the run ended');
+    });
+
+    /** The record type the target's accounts give one sent without a type. */
+    const RETAIL = '012Fk00000RtAcCIAV';
+    /**
+     * The target's accounts, Master the user's default and one other type
+     * open: an account sent without a type gets that one.
+     */
+    const TYPED_ACCOUNT = {
+      ...DESCRIBES.Account,
+      recordTypeInfos: [
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: false,
+          developerName: 'Retail',
+          master: false,
+          name: 'Retail',
+          recordTypeId: RETAIL,
+          urls: {},
+        },
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: true,
+          developerName: 'Master',
+          master: true,
+          name: 'Master',
+          recordTypeId: '012000000000000AAA',
+          urls: {},
+        },
+      ],
+    } as unknown as DescribeSObjectResult;
+
+    it('reads the account’s record types again under the lease, gives the lease back after the last write, then reads back the type the target gave', async () => {
+      const { target, perms, events } = mutableTarget({}, { ...DESCRIBES, Account: TYPED_ACCOUNT });
+      const conn = target.conn as unknown as {
+        query: (soql: string) => Promise<unknown>;
+        sobject: (name: string) => Record<string, unknown> & { describe: () => Promise<unknown> };
+      };
+      const query = conn.query;
+      const sobject = conn.sobject;
+      const watched = Object.assign(Object.create(null) as object, conn, {
+        query: async (soql: string) => {
+          const readBack = /^SELECT RecordTypeId, COUNT\(Id\) n FROM (\w+) WHERE Id IN /.exec(soql);
+          if (!readBack) return query(soql);
+          events.push(`read back ${readBack[1]}`);
+          return { totalSize: 1, done: true, records: [{ RecordTypeId: RETAIL, n: 1 }] };
+        },
+        sobject: (name: string) => {
+          const object = sobject(name);
+          return {
+            ...object,
+            describe: async () => {
+              events.push(`describe ${name}`);
+              return object.describe();
+            },
+          };
+        },
+      });
+      withOrgs({ ...target, conn: watched as unknown as Connection });
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBeUndefined();
+
+      // The describes before the lease are the run's reads; the one after it,
+      // of the account alone, is read again for the set it assigned.
+      const fromTheLease = events.slice(events.indexOf('assignment insert'));
+      expect(fromTheLease).toEqual([
+        'assignment insert',
+        'describe Account',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+        'read back Account',
+      ]);
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        if (event.startsWith('write')) return 'write';
+        if (event.startsWith('read back')) return 'recordTypeReadBack';
+        return events.indexOf(event) > events.indexOf('assignment insert')
+          ? 'afterLeaseCheck'
+          : 'reads';
+      });
+      expect(writePathOrderDefects([...steps, 'result'])).toEqual([]);
+      expect(perms.assignments()).toEqual([]);
+      expect(JSON.parse(stdout).result.recordTypesGiven).toEqual([
+        {
+          objectApiName: 'Account',
+          rows: 1,
+          why: { notRead: 1 },
+          predicted: { developerName: 'Retail', label: 'Retail', basis: 'onlyOneOpen' },
+          readBack: { read: 1, types: [{ developerName: 'Retail', label: 'Retail', rows: 1 }] },
+        },
+      ]);
+    });
+
+    it('says on a dry run the type the target would give the account, that the sets to assign may open others, and reads nothing back', async () => {
+      const { target, perms } = mutableTarget({}, { ...DESCRIBES, Account: TYPED_ACCOUNT });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--dry-run'))).toBeUndefined();
+
+      expect(printed).toEqual(
+        expect.arrayContaining([
+          'record types the target would give the records created without one (1 object(s)):',
+          '  Account  1 record(s) whose record type the run does not write: would go in as ' +
+            'Retail, the only other Account record type open to the user the run writes as, ' +
+            'whose describe names Master the default',
+          '  the permission sets a real run assigns to mute the automation may open other record ' +
+            'types to the user it writes as: it reads them again once assigned, and its summary ' +
+            'says what the target gave',
+        ]),
+      );
+      expect(perms.writes).toEqual([]);
+      expect(orgs.TGT.regular.some((soql) => soql.includes('GROUP BY RecordTypeId'))).toBe(false);
     });
 
     it('says on a dry run what would be muted and what still runs, and assigns nothing', async () => {

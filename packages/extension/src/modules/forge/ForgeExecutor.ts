@@ -17,8 +17,13 @@ import type {
   ForgeRemapObjectCounts,
   ForgeWrittenBetween,
   ForgeWrittenWithoutFields,
+  RecordTypeGiven,
+  RecordTypeGivenBasis,
+  RecordTypeNamed,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
+import * as z from 'zod';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { isNotFound } from './ForgeMetadataDiff.js';
@@ -30,7 +35,12 @@ import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 import { ReferenceDataMapper } from './ReferenceDataMapper.js';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
-import { RecordTypeMapper, warnUnmappedRecordType } from '../sync/RecordTypeMapper.js';
+import {
+  RecordTypeMapper,
+  namesMasterRecordType,
+  warnUnmappedRecordType,
+} from '../sync/RecordTypeMapper.js';
+import { predictedRecordTypeOf, recordTypeGivenOf } from '../../core/metadata/recordTypeGiven.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
 import {
@@ -124,6 +134,7 @@ import {
   BatchWriter,
   WRITE_API_MAX_BATCH,
   addWrittenWithoutFields,
+  carriesRecordTypeId,
   emptyBatchWriteResult,
   writtenWithoutFieldsNote,
   type BatchWriteResult,
@@ -601,9 +612,10 @@ export interface ExecuteOptions {
    * the first is written — on a dry run too, which then writes none. What it
    * throws stops the run there, with nothing written. A run given it reads
    * every node before writing any, as one that copies files does: see
-   * `readsBeforeWriting`.
+   * `readsBeforeWriting`. What it answers is what it did that the write must
+   * know: the mute's lease it took ({@link ForgeWriteGateAnswer}).
    */
-  beforeWrite?: (boundary: ForgeWriteBoundary) => Promise<void>;
+  beforeWrite?: (boundary: ForgeWriteBoundary) => Promise<ForgeWriteGateAnswer | void>;
   /**
    * Read and write a run of whole tables page by page: each object read with
    * the org's cursor in the order of its ids, each page written before the
@@ -725,8 +737,40 @@ export interface ForgeWriteBoundary {
    * the cap. Absent when none.
    */
   capped?: { perObject: number; objects: string[] };
+  /**
+   * The requests the run sends once its writes are through to read back the
+   * record type the target gave the records it created without one — the
+   * `readBack` part of its API requests: one an object of the target with a
+   * type besides Master whose rows may go without one, and the read of the
+   * record types' names when the run has not read them. At most: an object
+   * none of whose rows went without one is read back by none. Absent on a
+   * dry run, which reads none back, and when there is none to read.
+   */
+  readBack?: number;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
+}
+
+/**
+ * What the gate a run is handed to before its first write did that the write
+ * must know: see {@link ExecuteOptions.beforeWrite}.
+ */
+export interface ForgeWriteGateAnswer {
+  /**
+   * The lease of the target's automation mute the gate took once it let the
+   * rows through: how many permission sets it assigned the user the run
+   * writes as, and how to give it back.
+   *
+   * A lease that assigned any has the describes of the objects the run
+   * writes read again before the first write: a set assigned may open a
+   * record type to that user, and what a record created without one gets
+   * changes with it. A fresh describe says so at once. The run gives the
+   * lease back once its last write is through, before it reads back what
+   * the target gave: the bypass held no longer than the writes. Whoever took
+   * it gives it back as ever, however the run ends; given back twice, a
+   * lease answers the same.
+   */
+  lease?: { assigned: number; giveBack: () => Promise<unknown> };
 }
 
 /** What a count says of an object a run read page by page will write: see {@link ForgeWriteBoundary.objects}. */
@@ -836,6 +880,15 @@ export interface ForgeExecutorDeps {
    * checked for form alone and record types are left to the platform.
    */
   describeObject?: (orgId: string, objectName: string) => Promise<TargetObjectInfo>;
+  /**
+   * The same, read again from the org rather than from what the run holds:
+   * asked of the objects a run writes once the mute's lease assigned a
+   * permission set, which may have opened record types to the user the run
+   * writes as. Absent, such a run says what the describe it holds gives a
+   * record created without a record type, and what it reads back once
+   * written.
+   */
+  describeObjectAgain?: (orgId: string, objectName: string) => Promise<TargetObjectInfo>;
   /**
    * What one record type of an object allows of every picklist field, from
    * the org's UI API in one request: the values it keeps, its default, and for
@@ -1122,6 +1175,14 @@ export interface ExecutionSummary {
    * there were none.
    */
   currenciesReplaced?: CurrencyReplaced[];
+  /**
+   * Per object of the target with a record type besides Master, the records
+   * the run created — on a dry run, would create — without a record type,
+   * why each went without one, the type the target's describe says it gives
+   * them, and, once a real run's writes are through, what the first of them
+   * were read back holding. Absent when there were none.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
   /**
    * Per object, the rows the target refused on fields it named — a validation
    * rule, or a restricted picklist refusing their value — that went in once
@@ -1753,6 +1814,20 @@ interface ExecutionState {
    * parent's take with them — an opportunity's products, its own.
    */
   readonly currencyChangesById: Map<string, CurrencyChange>;
+  /**
+   * The records the run created without a record type, by object of the
+   * target with a type besides Master: see `ExecutionSummary.recordTypesGiven`.
+   */
+  readonly recordTypesGiven: Map<string, RecordTypeTally>;
+  /**
+   * The target's record types of the objects the run writes, as a describe
+   * read again once the mute's lease assigned a permission set gives them
+   * (`readAgainUnderTheLease`): what a record created without one gets now.
+   * Empty when the lease assigned none, or there was no lease.
+   */
+  readonly recordTypesUnderTheLease: Map<string, RecordTypeAvailability[]>;
+  /** The lease the gate took, given back once the last write is through: see `ForgeWriteGateAnswer`. */
+  lease?: NonNullable<ForgeWriteGateAnswer['lease']>;
   /**
    * What became of each price whose currency changed — replaced by the
    * source's own price in the currency written, converted, or left in another
@@ -3101,6 +3176,158 @@ function simulatedWrites<D extends Pick<ForgeExecutorDeps, 'insertRecords'>>(
 }
 
 /**
+ * The records of one object a run created without a record type, as it
+ * counts them: how many and why, the type the target's describe says it gives
+ * them, and, of a real run, the first of their ids, which the read after the
+ * writes asks the target about.
+ */
+interface RecordTypeTally {
+  rows: number;
+  why: Partial<Record<WithoutRecordTypeWhy, number>>;
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+  /** The object's record types in the target, named: what a type read back is said by. */
+  types: readonly RecordTypeAvailability[];
+  /** The first ids created, {@link RECORD_TYPE_READ_BACK_IDS} at most. */
+  ids: string[];
+  readBack?: RecordTypeGiven['readBack'];
+}
+
+/**
+ * The ids a read back of the record types the target gave asks about: the
+ * first records of an object the run created, in one request. What a record
+ * created without a type gets is one fact of the user and the object for the
+ * whole run, the lease holding still as it writes; only the target's
+ * automation can set another on some of them, and the first records show it
+ * when it does. Read back whole, a large clone would send a request per 200
+ * of its records again, as many as its writes.
+ */
+export const RECORD_TYPE_READ_BACK_IDS = 200;
+
+/** A record id as the target answered it, fit to go into a statement as a literal. */
+const RECORD_ID = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
+
+/**
+ * The read of the record types the records `ids` hold in the target, counted
+ * by type: one request, the first {@link RECORD_TYPE_READ_BACK_IDS} of them.
+ * A record on Master reads an empty `RecordTypeId`.
+ */
+export function recordTypeReadBackSoql(objectApiName: string, ids: readonly string[]): string {
+  const asked = ids
+    .filter((id) => RECORD_ID.test(id))
+    .slice(0, RECORD_TYPE_READ_BACK_IDS)
+    .map((id) => `'${id}'`);
+  return (
+    `SELECT RecordTypeId, COUNT(Id) n FROM ${assertSoqlIdentifier(objectApiName)} ` +
+    `WHERE Id IN (${asked.join(', ')}) GROUP BY RecordTypeId`
+  );
+}
+
+/** One row of that read, as the org answers it: external input, checked before it is read. */
+const readBackRowSchema = z.object({
+  RecordTypeId: z.string().nullish(),
+  n: z.number().int().nonnegative(),
+});
+
+/**
+ * What a read back found, from the rows the org answered: per record type,
+ * named as the object's describe names it — Master for an empty
+ * `RecordTypeId` —, how many of the records read hold it, the most first.
+ * Rows the read cannot tell are its failure, said in words.
+ *
+ * @param types - The object's record types in the target, named.
+ */
+export function recordTypesReadBack(
+  rows: readonly unknown[],
+  types: readonly RecordTypeAvailability[],
+): NonNullable<RecordTypeGiven['readBack']> {
+  const parsed = z.array(readBackRowSchema).safeParse(rows);
+  if (!parsed.success) {
+    return { read: 0, types: [], unread: 'the org answered rows that name no record type count' };
+  }
+  const byType = new Map<string, RecordTypeNamed & { rows: number }>();
+  for (const { RecordTypeId, n } of parsed.data) {
+    const named = recordTypeNamedOf(RecordTypeId ?? null, types);
+    const known = byType.get(named.developerName);
+    if (known) known.rows += n;
+    else byType.set(named.developerName, { ...named, rows: n });
+  }
+  const found = [...byType.values()].sort((a, b) => b.rows - a.rows);
+  return { read: found.reduce((sum, type) => sum + type.rows, 0), types: found };
+}
+
+/** A record type read back, by the name its object's describe gives it: its id when the describe has none. */
+function recordTypeNamedOf(
+  id: string | null,
+  types: readonly RecordTypeAvailability[],
+): RecordTypeNamed {
+  if (id === null || namesMasterRecordType(id)) {
+    const master = types.find((type) => type.master);
+    return { developerName: master?.developerName ?? 'Master', label: master?.name ?? 'Master' };
+  }
+  const known = types.find((type) => type.recordTypeId.slice(0, 15) === id.slice(0, 15));
+  return known
+    ? { developerName: known.developerName, label: known.name }
+    : { developerName: id, label: id };
+}
+
+/**
+ * Why a row the run created went without a record type: the run writes no
+ * `RecordTypeId` for its object — the source has none, or the user excluded
+ * or renamed the field —; a decision sent its type to the target's default;
+ * or the source holds it on Master. Read from the row as the source gave it.
+ *
+ * @param recordTypeWritten - Whether the write sends `RecordTypeId` for the object at all.
+ */
+function withoutRecordTypeWhy(
+  built: CleanedRecord | undefined,
+  recordTypeWritten: boolean,
+  decisions: ForgeStageConfig['recordTypeDecisions'],
+): WithoutRecordTypeWhy {
+  if (!built || !recordTypeWritten) return 'notRead';
+  const read = built.source['RecordTypeId'];
+  if (typeof read === 'string' && read !== '' && decisions.get(read)?.to === null) {
+    return 'decidedDefault';
+  }
+  return 'RecordTypeId' in built.source && namesMasterRecordType(read)
+    ? 'masterInSource'
+    : 'notRead';
+}
+
+/**
+ * The id of the record type the target gives a record sent without one, from
+ * the describe of the user the run writes as: the type `recordTypeGivenOf`
+ * names, or Master's own id when the record stays on it; undefined with no
+ * describe, or one that lists no Master.
+ */
+function givenRecordTypeId(
+  infos: readonly RecordTypeAvailability[] | undefined,
+): string | undefined {
+  if (!infos) return undefined;
+  const given = recordTypeGivenOf(infos);
+  return given.kind === 'given'
+    ? given.info.recordTypeId
+    : infos.find((type) => type.master)?.recordTypeId;
+}
+
+/** What a run's summary says of an object's records created without a record type, from its tally. */
+function recordTypeGivenOfTally(objectApiName: string, tally: RecordTypeTally): RecordTypeGiven {
+  return {
+    objectApiName,
+    rows: tally.rows,
+    why: { ...tally.why },
+    ...(tally.predicted ? { predicted: { ...tally.predicted } } : {}),
+    ...(tally.readBack
+      ? {
+          readBack: {
+            ...tally.readBack,
+            types: tally.readBack.types.map((type) => ({ ...type })),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Executes a Forge plan by processing graph nodes in topological order.
  *
  * Thin orchestrator over the stage pipeline in `./stages/`:
@@ -3463,6 +3690,8 @@ export class ForgeExecutor {
       picklistChanges: new PicklistChangeTally(),
       currencyChanges: new CurrencyReplacementTally(),
       currencyChangesById: new Map<string, CurrencyChange>(),
+      recordTypesGiven: new Map<string, RecordTypeTally>(),
+      recordTypesUnderTheLease: new Map<string, RecordTypeAvailability[]>(),
       pricesSwappedSaid: [],
       prices: {
         standsFor: new Map<string, string>(),
@@ -4155,20 +4384,24 @@ export class ForgeExecutor {
       // them: see `pricesTheGateCounts`.
       const pricesForLines = await this.pricesTheGateCounts(state);
       const capped = cappedObjectsOf(state).cappedObjects;
-      await config.beforeWrite({
-        objects: await Promise.all(
-          [...state.preread].map(([objectApiName, read]) =>
-            this.toWriteAtTheGate(
-              state,
-              objectApiName,
-              read,
-              isPricebookEntry(objectApiName) ? pricesForLines : 0,
-            ),
+      const objects = await Promise.all(
+        [...state.preread].map(([objectApiName, read]) =>
+          this.toWriteAtTheGate(
+            state,
+            objectApiName,
+            read,
+            isPricebookEntry(objectApiName) ? pricesForLines : 0,
           ),
         ),
+      );
+      const readBack = config.dryRun ? 0 : await this.readBackRequests(state, objects);
+      const answer = await config.beforeWrite({
+        objects,
         ...(capped ? { capped } : {}),
+        ...(readBack > 0 ? { readBack } : {}),
         dryRun: config.dryRun,
       });
+      await this.afterTheGate(state, answer, objects);
     }
 
     // The write pass. Every row is in hand, so the order is free to be the
@@ -4271,14 +4504,207 @@ export class ForgeExecutor {
     this.reportDraftsExclusionsLeave(state);
     await this.restoreStatuses(state);
 
+    // The last write is through: the bypass the gate's lease holds is held no
+    // longer, and what follows only reads.
+    await this.giveTheLeaseBack(state);
+
     const orphanExpansionError = state.orphanExpander.buildErrorReport();
     if (orphanExpansionError) {
       state.errors.push(orphanExpansionError);
     }
 
-    // Every write is done: the target's dates of them are final.
+    // Every write is done: the target's dates of them are final, and so are
+    // the record types it gave the records sent without one.
     await this.readWrittenBetween(state);
+    await this.readBackRecordTypes(state);
     return this.summaryOf(state);
+  }
+
+  /**
+   * Keep what the gate's answer asks of the write before its first record:
+   * the lease it took, given back once the last write is through
+   * (`giveTheLeaseBack`), and, when the lease assigned a permission set, the
+   * record types of the objects written read again (`readAgainUnderTheLease`).
+   */
+  private async afterTheGate(
+    state: ExecutionState,
+    answer: ForgeWriteGateAnswer | void,
+    objects: ForgeWriteBoundary['objects'],
+  ): Promise<void> {
+    const lease = answer ? answer.lease : undefined;
+    if (!lease) return;
+    state.lease = lease;
+    if (lease.assigned > 0) await this.readAgainUnderTheLease(state, objects);
+  }
+
+  /**
+   * Read again from the target the record types of the objects the run
+   * writes whose records may go without one, once the mute's lease assigned a
+   * permission set: a set may open a record type to the user the run writes
+   * as, and a record created without one then gets another. On a scratch org,
+   * a describe read just after an assignment already said what it opened, and
+   * one asked only if modified since a time before it answered in full.
+   *
+   * Only what the run says of the type given reads them. What the gate held
+   * back for a record type closed to that user stays held back, as the gate
+   * said it would: written, the rows past what it was shown.
+   */
+  private async readAgainUnderTheLease(
+    state: ExecutionState,
+    objects: ForgeWriteBoundary['objects'],
+  ): Promise<void> {
+    const again = this.deps.describeObjectAgain;
+    if (!again) return;
+    const read = await Promise.all(
+      objects.map(async ({ objectApiName, rows, counted }) => {
+        if (!(await this.mayGoWithoutRecordType(state, objectApiName, rows, counted))) return [];
+        try {
+          const info = await again(state.targetOrgId, objectApiName);
+          return [[objectApiName, info.recordTypes] as const];
+        } catch {
+          // Unread, the run says what the describe it holds gives, and reads
+          // back what the target gave all the same.
+          return [];
+        }
+      }),
+    );
+    for (const [objectApiName, recordTypes] of read.flat()) {
+      state.recordTypesUnderTheLease.set(objectApiName, recordTypes);
+    }
+  }
+
+  /**
+   * Whether rows of an object the run is about to write may go in without a
+   * record type into a target that has one besides Master for it: of rows in
+   * hand, one on Master in the source, one a decision sends to the default,
+   * or any when the run writes no `RecordTypeId` for the object; of an object
+   * counted rather than read, any. Read from the describe the run holds.
+   */
+  private async mayGoWithoutRecordType(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    counted: ForgeCountedObject | undefined,
+  ): Promise<boolean> {
+    if (rows.length === 0 && (counted?.rows ?? 0) === 0) return false;
+    const target = await this.objectInfoOf(state.targetOrgId, objectApiName);
+    if (!target?.recordTypes.some((type) => !type.master)) return false;
+    if (rows.length === 0) return true;
+    const { config } = state;
+    const written =
+      state.preread.get(objectApiName)?.createableSet.has('RecordTypeId') === true &&
+      !(config.fieldExclusions[objectApiName] ?? []).includes('RecordTypeId') &&
+      config.fieldMappings[objectApiName]?.['RecordTypeId'] === undefined;
+    return (
+      !written ||
+      rows.some((row) => {
+        const read = row['RecordTypeId'];
+        return (
+          typeof read !== 'string' ||
+          namesMasterRecordType(read) ||
+          config.recordTypeDecisions.get(read)?.to === null
+        );
+      })
+    );
+  }
+
+  /**
+   * The requests the run will send once its writes are through to read back
+   * the record types the target gave (`ForgeWriteBoundary.readBack`): one an
+   * object whose rows may go without one (`mayGoWithoutRecordType`), and the
+   * read of the record types' names when the run has not read them yet.
+   */
+  private async readBackRequests(
+    state: ExecutionState,
+    objects: ForgeWriteBoundary['objects'],
+  ): Promise<number> {
+    const may = await Promise.all(
+      objects.map(({ objectApiName, rows, counted }) =>
+        this.mayGoWithoutRecordType(state, objectApiName, rows, counted),
+      ),
+    );
+    const reads = may.filter(Boolean).length;
+    return reads > 0 && !state.recordTypeRows.has(state.targetOrgId) ? reads + 1 : reads;
+  }
+
+  /**
+   * Give back the lease the gate took, once the run's last write is through.
+   * A lease never throws as it is given back; should one, the run's writes
+   * stand, and whoever took it gives it back again and says what it left.
+   */
+  private async giveTheLeaseBack(state: ExecutionState): Promise<void> {
+    const lease = state.lease;
+    if (!lease) return;
+    state.lease = undefined;
+    try {
+      await lease.giveBack();
+    } catch (err: unknown) {
+      logger.warn(
+        `[forge] the mute's lease was not given back as the writes ended: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Read back, once the writes are through and the lease given back, the
+   * record types the target gave the records the run created without one:
+   * one request an object, of its first records. A read that fails is said
+   * in the org's words, and fails nothing: the records are in. A simulation
+   * reads none back: it created nothing.
+   */
+  private async readBackRecordTypes(state: ExecutionState): Promise<void> {
+    if (state.simulated) return;
+    await Promise.all(
+      [...state.recordTypesGiven].map(async ([objectApiName, tally]) => {
+        if (tally.ids.length === 0) return;
+        try {
+          const rows = await this.deps.queryRecords(
+            state.targetOrgId,
+            recordTypeReadBackSoql(objectApiName, tally.ids),
+          );
+          tally.readBack = recordTypesReadBack(rows, tally.types);
+        } catch (err: unknown) {
+          tally.readBack = { read: 0, types: [], unread: extractErrorMessage(err) };
+        }
+      }),
+    );
+  }
+
+  /**
+   * What counts, as an object's rows are written, the records created without
+   * a record type — or, by a simulation, that would be —: undefined when the
+   * target has no type besides Master for the object, and nothing is said.
+   * The type the target gives them is predicted from its describe, read again
+   * under the lease when the lease assigned a permission set
+   * (`readAgainUnderTheLease`); a real run reads back what it gave.
+   *
+   * @param held - The target's describe of the object, as the run holds it.
+   * @param recordTypeWritten - Whether the write sends `RecordTypeId` for the object at all.
+   */
+  private async recordTypeCounter(
+    state: ExecutionState,
+    objectApiName: string,
+    held: TargetObjectInfo | null,
+    recordTypeWritten: boolean,
+  ): Promise<((built: CleanedRecord | undefined, targetId?: string) => void) | undefined> {
+    const infos = state.recordTypesUnderTheLease.get(objectApiName) ?? held?.recordTypes ?? [];
+    if (!infos.some((type) => !type.master)) return undefined;
+    const types = await this.namedRecordTypes(state.recordTypeRows, state.targetOrgId, infos);
+    const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+    const decisions = state.config.recordTypeDecisions;
+    return (built, targetId) => {
+      let tally = state.recordTypesGiven.get(objectApiName);
+      if (!tally) {
+        tally = { rows: 0, why: {}, ...(predicted ? { predicted } : {}), types, ids: [] };
+        state.recordTypesGiven.set(objectApiName, tally);
+      }
+      const why = withoutRecordTypeWhy(built, recordTypeWritten, decisions);
+      tally.rows++;
+      tally.why[why] = (tally.why[why] ?? 0) + 1;
+      if (targetId !== undefined && tally.ids.length < RECORD_TYPE_READ_BACK_IDS) {
+        tally.ids.push(targetId);
+      }
+    };
   }
 
   /**
@@ -4464,13 +4890,16 @@ export class ForgeExecutor {
       );
     }
     const perObject = capOnEachObject(config);
-    await beforeWrite({
+    const readBack = config.dryRun ? 0 : await this.readBackRequests(state, objects);
+    const answer = await beforeWrite({
       objects,
       ...(perObject !== undefined && pastTheCap.length > 0
         ? { capped: { perObject, objects: pastTheCap } }
         : {}),
+      ...(readBack > 0 ? { readBack } : {}),
       dryRun: config.dryRun,
     });
+    await this.afterTheGate(state, answer, objects);
   }
 
   /**
@@ -6525,6 +6954,13 @@ export class ForgeExecutor {
         : {}),
       ...(state.currencyChanges.size > 0
         ? { currenciesReplaced: state.currencyChanges.list() }
+        : {}),
+      ...(state.recordTypesGiven.size > 0
+        ? {
+            recordTypesGiven: [...state.recordTypesGiven].map(([objectApiName, tally]) =>
+              recordTypeGivenOfTally(objectApiName, tally),
+            ),
+          }
         : {}),
       ...(state.writtenWithoutFields.size > 0
         ? {
@@ -8748,8 +9184,9 @@ export class ForgeExecutor {
    * Of the rows of person accounts about to be written, those the target takes
    * as business accounts: it has no person accounts, or the record type each
    * gets there is a business account's — the one the record type mapping
-   * gives it, or the running user's default there when the row goes without
-   * its record type. Sent as a person account, such a row went without its
+   * gives it, or, when the row goes without its record type, the one the
+   * target gives the user the run writes as (`recordTypeGivenOf`), Master
+   * among them. Sent as a person account, such a row went without its
    * name and with fields a business account cannot hold, and the target
    * refused it. Nothing to say — the target's record types could not be read,
    * or a row keeps a record type the mapping does not know — and the row goes
@@ -8776,10 +9213,14 @@ export class ForgeExecutor {
       const read = row['RecordTypeId'];
       return recordTypeWritten && typeof read === 'string' && read !== '' ? read : undefined;
     };
+    // The type the target gives an account sent without one, as the rule the
+    // probes settled reads the describe, not the default it names: on a
+    // scratch org whose describe named Master the admin's default, with one
+    // other Opportunity type open, an opportunity sent without a type went in
+    // with that one. An account sent so where the one type open to the user is
+    // a person account's goes in as a person account.
     const defaultType = persons.some((row) => typeRead(row) === undefined)
-      ? (await this.objectInfoOf(state.targetOrgId, ACCOUNT))?.recordTypes.find(
-          (type) => type.defaultRecordTypeMapping,
-        )?.recordTypeId
+      ? givenRecordTypeId((await this.objectInfoOf(state.targetOrgId, ACCOUNT))?.recordTypes)
       : undefined;
     return new Set(
       persons.filter((row) => {
@@ -10503,6 +10944,7 @@ export class ForgeExecutor {
     keyPrefix: string | null | undefined,
     tally: BatchWriteResult,
     onProgress: (event: ForgeProgressEvent) => void,
+    createdWithoutType?: (built: CleanedRecord) => void,
   ): void {
     const { simulated } = state;
     if (!simulated) return;
@@ -10514,9 +10956,13 @@ export class ForgeExecutor {
       recordCount: round.records.length,
       message: `Simulating the write of ${round.records.length} ${objectApiName} records: nothing is sent...`,
     });
-    for (const built of round.cleaned) {
+    for (const [index, built] of round.cleaned.entries()) {
       const id = simulated.idFor(keyPrefix);
       tally.successCount++;
+      // Created without a record type, as a real run would send it.
+      if (createdWithoutType && !carriesRecordTypeId(round.records[index] ?? {})) {
+        createdWithoutType(built);
+      }
       const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
       if (sourceId !== undefined) state.remapper.add(sourceId, id, objectApiName);
       for (const nf of built.nullifiedFks) {
@@ -11334,18 +11780,18 @@ export class ForgeExecutor {
       for (const note of recordTypes?.notes ?? []) {
         this.sayRecordTypeNote(state, node.objectApiName, note);
       }
+      // Whether the write sends a record type at all: excluded or renamed, the
+      // field is the user's way of leaving it to the target.
+      const recordTypeWritten =
+        effectiveCreatableSet.has('RecordTypeId') &&
+        !excludedFields.has('RecordTypeId') &&
+        fieldRename['RecordTypeId'] === undefined;
       // A person account goes in as one only where the target takes it so: one
       // without person accounts, or a business record type there, takes it as
       // a business account, which needs its name.
       const businessAccounts =
         node.objectApiName === ACCOUNT
-          ? await this.takenAsBusinessAccounts(
-              state,
-              toWrite,
-              effectiveCreatableSet.has('RecordTypeId') &&
-                !excludedFields.has('RecordTypeId') &&
-                fieldRename['RecordTypeId'] === undefined,
-            )
+          ? await this.takenAsBusinessAccounts(state, toWrite, recordTypeWritten)
           : undefined;
       // Both orgs' currencies, read once a run when these rows carry one the
       // run writes: a currency the target does not hold active is replaced,
@@ -11566,6 +12012,15 @@ export class ForgeExecutor {
         rounds.push({ records: recordsToInsert, cleaned: cleanedRecords });
       }
 
+      // The records created without a record type, counted as each goes in —
+      // or, by a simulation, would —: what the run says the target gave them.
+      const createdWithoutType = await this.recordTypeCounter(
+        state,
+        node.objectApiName,
+        targetObject,
+        recordTypeWritten,
+      );
+
       // One tally for every round, filled as each call is answered.
       const writeResult = emptyBatchWriteResult();
       /** The cancel that stopped the node at the checkpoint before one of its calls, if one did. */
@@ -11580,6 +12035,7 @@ export class ForgeExecutor {
               targetObject?.keyPrefix,
               writeResult,
               onProgress,
+              createdWithoutType,
             );
             continue;
           }
@@ -11617,6 +12073,7 @@ export class ForgeExecutor {
                     },
                   }
                 : {}),
+              ...(createdWithoutType ? { onCreatedWithoutRecordType: createdWithoutType } : {}),
               waitIfPaused: () => this.waitIfPaused(),
               stopped: () => this.isAborted,
               onProgress,

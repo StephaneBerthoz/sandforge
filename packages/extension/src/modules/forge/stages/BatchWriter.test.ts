@@ -802,6 +802,76 @@ describe('BatchWriter', () => {
     infoSpy.mockRestore();
   });
 
+  it('tells of each row it created without a record type, and of none that went with one or failed', async () => {
+    const deps = makeDeps(async (_org, _object, rows) =>
+      rows.map((row, i) =>
+        row['Name'] === 'Refused'
+          ? {
+              id: '',
+              success: false,
+              errors: ['REQUIRED_FIELD_MISSING: Required fields are missing'],
+            }
+          : { id: `006NEW${i}`, success: true, errors: [] },
+      ),
+    );
+    const source = [
+      { Id: '006OLD0', Name: 'On Master', RecordTypeId: null },
+      { Id: '006OLD1', Name: 'Typed', RecordTypeId: '012000000000101AAA' },
+      { Id: '006OLD2', Name: 'Refused', RecordTypeId: null },
+    ];
+    const told: Array<[unknown, string]> = [];
+    const input = makeInput(source, {
+      node: makeNode('Opportunity', 3),
+      // As the write sends them: the one on Master without the field.
+      records: [
+        { Name: 'On Master' },
+        { Name: 'Typed', RecordTypeId: '012000000000101AAA' },
+        { Name: 'Refused' },
+      ],
+      creatableFields: new Set(['Name', 'RecordTypeId']),
+      onCreatedWithoutRecordType: (built, targetId) => told.push([built?.source['Id'], targetId]),
+    });
+
+    await new BatchWriter(deps).writeNode(input);
+
+    expect(told).toEqual([['006OLD0', '006NEW0']]);
+  });
+
+  it('tells of no row an upsert wrote over: the record keeps the record type it had', async () => {
+    const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([
+      { id: '006NEW1', success: true, created: true, errors: [] },
+      { id: '006HELD', success: true, created: false, errors: [] },
+    ]);
+    const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'ExternalKey__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        externalId: true,
+      },
+    ];
+    const source = [
+      { Id: '006OLD1', ExternalKey__c: 'KEY-1' },
+      { Id: '006OLD2', ExternalKey__c: 'KEY-2' },
+    ];
+    const told: string[] = [];
+    const input = makeInput(source, {
+      node: makeNode('Opportunity', 2),
+      records: source.map((r) => ({ ExternalKey__c: r.ExternalKey__c })),
+      fieldInfos: fields,
+      creatableFields: new Set(['ExternalKey__c']),
+      upsertMode: 'auto',
+      onCreatedWithoutRecordType: (_built, targetId) => told.push(targetId),
+    });
+
+    await new BatchWriter(deps).writeNode(input);
+
+    expect(told).toEqual(['006NEW1']);
+  });
+
   it('falls back to insert when no external Id candidate is unique across the batch', async () => {
     const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };

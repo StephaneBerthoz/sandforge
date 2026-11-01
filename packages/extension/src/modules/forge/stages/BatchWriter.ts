@@ -265,6 +265,13 @@ export interface WriteNodeInput {
    */
   onWritten?: (built: CleanedRecord, targetId: string) => void;
   /**
+   * Told of each row the target created that went without `RecordTypeId`, as
+   * its call's answer is counted: the target gave it a record type of its
+   * own, which the run reads back once it is through. A row an upsert wrote
+   * over keeps the type it had, and is not told. Absent, none is.
+   */
+  onCreatedWithoutRecordType?: (built: CleanedRecord | undefined, targetId: string) => void;
+  /**
    * Where each insert call is kept before it goes and once its answer is
    * counted: the run's journal. A process killed while a call was under way
    * left records in the target the journal did not name, and a resume wrote
@@ -461,6 +468,17 @@ function owedBy(row: RowToWrite): OwedAtInsert[] {
   }));
 }
 
+/**
+ * Whether a payload names the record type it goes in with. One that does not
+ * goes without the field, and the target gives it the type it gives the user
+ * the run writes as: a record on Master in the source, one a decision sends
+ * to the default, one whose field the run does not write.
+ */
+export function carriesRecordTypeId(payload: Readonly<Record<string, unknown>>): boolean {
+  const recordTypeId = payload['RecordTypeId'];
+  return typeof recordTypeId === 'string' && recordTypeId !== '';
+}
+
 /** What a row is sent as now: the payload first sent, without each field refused since. */
 function sentAs(row: RowToWrite): Record<string, unknown> {
   return row.refusals.length === 0 ? row.payload : without(row.payload, leftOutOf(row));
@@ -478,6 +496,9 @@ interface NodeWrite {
   readonly oweLookups: ((updates: readonly PendingFkUpdate[]) => void) | undefined;
   /** Told of each row the target took: see `WriteNodeInput.onWritten`. */
   readonly onWritten: ((built: CleanedRecord, targetId: string) => void) | undefined;
+  /** Told of each row created without a record type: see `WriteNodeInput.onCreatedWithoutRecordType`. */
+  readonly onCreatedWithoutRecordType:
+    ((built: CleanedRecord | undefined, targetId: string) => void) | undefined;
   /** Where each insert call is kept as it goes and as it is answered: see `WriteNodeInput.calls`. */
   readonly calls: InsertCallJournal | undefined;
   /** Duplicates the target did not name, for an object with a natural key. */
@@ -790,6 +811,7 @@ export class BatchWriter {
       tally,
       oweLookups: input.oweLookups,
       onWritten: input.onWritten,
+      onCreatedWithoutRecordType: input.onCreatedWithoutRecordType,
       calls: input.calls,
       byNaturalKey: [],
       refusedOnTheirFields: [],
@@ -1193,6 +1215,11 @@ export class BatchWriter {
         else remapper.add(oldId, result.id, objectApiName);
       }
       if (built) write.onWritten?.(built, result.id);
+      // Created without a record type, as it was last sent: the target gave
+      // it one, which may not be the one its describe names the default.
+      if (!updated && !carriesRecordTypeId(payload)) {
+        write.onCreatedWithoutRecordType?.(built, result.id);
+      }
       // Record nullified FKs so pass 2 can patch them
       // once the parent target is in the IdRemapper.
       if (built && built.nullifiedFks.length > 0) {

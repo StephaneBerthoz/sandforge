@@ -74,6 +74,8 @@ import type {
   ForgeTemplateInput,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RecordTypeGiven,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
@@ -131,6 +133,7 @@ import type {
   ForgeExecutorDeps,
   ForgeProgressEvent,
   ForgeWriteBoundary,
+  ForgeWriteGateAnswer,
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
@@ -2017,13 +2020,16 @@ export function describeOnce(
 /**
  * The key prefix and record types of an object, read from the describe the
  * connection already holds — `describe$` answers from jsforce's cache, which
- * the field describe of the same object filled. Exported so it can be tested.
+ * the field describe of the same object filled — or, `fresh`, asked of the
+ * org again: what a permission set the mute's lease assigned opened is in a
+ * describe read after it. Exported so it can be tested.
  */
 export async function describeObjectInfo(
   conn: Connection,
   objectName: string,
+  fresh = false,
 ): Promise<TargetObjectInfo> {
-  const meta = await conn.describe$(objectName);
+  const meta = fresh ? await conn.sobject(objectName).describe() : await conn.describe$(objectName);
   return {
     keyPrefix: meta.keyPrefix ?? null,
     recordTypes: parseRecordTypeInfos(meta.recordTypeInfos),
@@ -2043,6 +2049,108 @@ export async function describeObjectInfo(
  */
 export function failedOutright(summary: ExecutionSummary): boolean {
   return finishedRunStatus(summary) === 'failure';
+}
+
+/** Why records went without a record type, as a line says it of them. */
+const WITHOUT_RECORD_TYPE: Readonly<Record<WithoutRecordTypeWhy, string>> = {
+  masterInSource: 'on Master in the source',
+  notRead: 'whose record type the run does not write',
+  decidedDefault: 'sent to the default by your decision',
+  dropped: 'whose record type the target lacks or keeps from the user',
+};
+
+/** A record type as a line names it: its API name, and its label when that says something else. */
+function recordTypeNamed({
+  developerName,
+  label,
+}: {
+  developerName: string;
+  label: string;
+}): string {
+  return label !== '' && label !== developerName ? `${developerName} (${label})` : developerName;
+}
+
+/**
+ * What the line of an object says the target gives its records created
+ * without a record type, as its describe tells it: the type, and why the
+ * platform gives it that one.
+ */
+function predictedWords(entry: RecordTypeGiven, verb: string): string {
+  const { predicted } = entry;
+  if (!predicted) {
+    return `${verb} on Master, which the target gives a record sent without one for the user the run writes as`;
+  }
+  const named = recordTypeNamed(predicted);
+  return predicted.basis === 'userDefault'
+    ? `${verb} as ${named}, the default record type of the user the run writes as`
+    : `${verb} as ${named}, the only other ${entry.objectApiName} record type open to the ` +
+        'user the run writes as, whose describe names Master the default';
+}
+
+/**
+ * What an object's line says of what its records were read back holding,
+ * against what the describe said: one type, the one said, in a few words;
+ * another, or several, each with its count, and the target's automation
+ * named as what set them.
+ */
+function readBackWords(
+  entry: RecordTypeGiven,
+  readBack: NonNullable<RecordTypeGiven['readBack']>,
+): string {
+  const on = readBack.read < entry.rows ? `${readBack.read} of ${entry.rows}` : `${readBack.read}`;
+  const said = entry.predicted?.developerName ?? 'Master';
+  const [only, ...others] = readBack.types;
+  if (only && others.length === 0 && only.developerName === said) {
+    return `went in as ${recordTypeNamed(only)}, read back on ${on}`;
+  }
+  if (!only) return `none of them found as they were read back (asked of ${on})`;
+  const held = readBack.types.map((type) => `${type.rows} ${recordTypeNamed(type)}`).join(', ');
+  return (
+    `read back on ${on}: ${held}; the describe said ${said}: an automation of the target sets ` +
+    'the record type'
+  );
+}
+
+/**
+ * What a run says of the records it created without a record type into a
+ * target whose object has one besides Master, one line an object: how many,
+ * why each went without one, and the type the target gives them — of a dry
+ * run, what the describe of the user the run writes as says; of a real run,
+ * what the first of them were read back holding, the describe's word said
+ * beside it only where the target holds another. Exported so it can be
+ * tested.
+ */
+export function recordTypeGivenLines(
+  entries: readonly RecordTypeGiven[],
+  dryRun: boolean,
+): string[] {
+  if (entries.length === 0) return [];
+  const lines = [
+    `record types the target ${dryRun ? 'would give' : 'gave'} the records created without one ` +
+      `(${entries.length} object(s)):`,
+  ];
+  for (const entry of entries) {
+    const whys = (Object.keys(WITHOUT_RECORD_TYPE) as WithoutRecordTypeWhy[]).filter(
+      (why) => (entry.why[why] ?? 0) > 0,
+    );
+    const why =
+      whys.length === 1
+        ? ` ${WITHOUT_RECORD_TYPE[whys[0]!]}`
+        : whys.length > 1
+          ? ` (${whys.map((w) => `${entry.why[w]} ${WITHOUT_RECORD_TYPE[w]}`).join(', ')})`
+          : '';
+    const { readBack } = entry;
+    const outcome = dryRun
+      ? predictedWords(entry, 'would go in')
+      : !readBack
+        ? predictedWords(entry, 'went in, its describe says,')
+        : readBack.unread !== undefined
+          ? `${predictedWords(entry, 'went in, its describe says,')}; the record types they ` +
+            `hold could not be read back: ${readBack.unread}`
+          : readBackWords(entry, readBack);
+    lines.push(`  ${entry.objectApiName}  ${entry.rows} record(s)${why}: ${outcome}`);
+  }
+  return lines;
 }
 
 /**
@@ -2120,11 +2228,14 @@ function truncatedObjectsOf(
  * @param dryRun - Whether the run wrote nothing, for the files it would copy.
  * @param readCeiling - The most rows one read of an object took
  *   (`--max-records-per-object`), for the objects a read was cut at.
+ * @param muteAssigns - Whether a real run's mute would assign permission
+ *   sets, which may open record types a dry run's describe does not show.
  */
 export function summaryLines(
   summary: ExecutionSummary,
   dryRun = false,
   readCeiling?: number,
+  muteAssigns = false,
 ): string[] {
   const lines = [
     `success: ${summary.successCount}`,
@@ -2226,6 +2337,21 @@ export function summaryLines(
     lines.push('', `written in another currency (${objects} object(s)):`);
     for (const entry of currencies) {
       lines.push(`  ${entry.objectApiName}  ${describeCurrencyReplaced(entry)}`);
+    }
+  }
+  // A record on Master in the source goes without a record type, and the
+  // target gives it the one it gives the user the run writes as: not always
+  // the default its describe names. Said per object, with what was read back.
+  const recordTypes = recordTypeGivenLines(summary.recordTypesGiven ?? [], dryRun);
+  if (recordTypes.length > 0) {
+    lines.push('', ...recordTypes);
+    // A dry run assigns nothing, and what it says is what the user has now.
+    if (dryRun && muteAssigns) {
+      lines.push(
+        '  the permission sets a real run assigns to mute the automation may open other record ' +
+          'types to the user it writes as: it reads them again once assigned, and its summary ' +
+          'says what the target gave',
+      );
     }
   }
   // Refused by a validation rule on the fields it named, by a restricted
@@ -2613,6 +2739,10 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // Per object, the rows written in another currency than they were read
     // in, and their amounts converted or not; only when there were any.
     ...(summary.currenciesReplaced ? { currenciesReplaced: summary.currenciesReplaced } : {}),
+    // Per object, the records created without a record type, why, the type
+    // the target's describe says it gives them, and, of a real run, what the
+    // first of them were read back holding; only when there were any.
+    ...(summary.recordTypesGiven ? { recordTypesGiven: summary.recordTypesGiven } : {}),
     // Per object, the rows written again without the fields a validation rule
     // or a restricted picklist refused, each field with what refused it
     // (`refusedBy`) and the refusal; only when there were any.
@@ -5835,6 +5965,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (!c) throw new Error(`No connection for ${orgId}`);
       return describeObjectInfo(c, name);
     },
+    // The same, asked of the org again once the mute's lease assigned a
+    // permission set, which may have opened record types to the user.
+    describeObjectAgain: async (orgId, name) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return describeObjectInfo(c, name, true);
+    },
     // What a record type allows of the object's picklists, in one UI API
     // request the run keeps for every row of that record type.
     recordTypePicklists: async (orgId, name, recordTypeId) => {
@@ -6259,20 +6396,27 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // The lease is taken as late as it can be: once the gate has let the rows
   // through, just before the first is written — the executor hands every row
   // to `beforeWrite` before it writes one. Taken before the executor had the
-  // run, it held the bypass through every read of the rows. It is given back
-  // as the run ends, written, failed, stopped or thrown alike, before
-  // anything is said of it.
+  // run, it held the bypass through every read of the rows. The executor
+  // gives it back once its last write is through, before it reads back the
+  // record types the target gave; it is given back again as the run ends,
+  // written, failed, stopped or thrown alike, before anything is said of it.
   let held: HeldMute | undefined;
-  const leaseAtTheGate = async (boundary: ForgeWriteBoundary): Promise<void> => {
+  const leaseAtTheGate = async (
+    boundary: ForgeWriteBoundary,
+  ): Promise<ForgeWriteGateAnswer | undefined> => {
     await beforeWrite(boundary);
-    if (boundary.dryRun || args.dryRun || !mute?.prepared || held) return;
-    held = await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
+    if (boundary.dryRun || args.dryRun || !mute?.prepared || held) return undefined;
+    const lease = await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
       if (!isMuteRefusedError(err)) throw err;
       recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
     });
-    mutedAutomation = held.outcome;
+    held = lease;
+    mutedAutomation = lease.outcome;
+    return {
+      lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
+    };
   };
   try {
     const executed = await executor
@@ -6439,7 +6583,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.stdout.write(JSON.stringify(document, null, 2) + '\n');
   } else {
     console.log('');
-    for (const line of summaryLines(summary, args.dryRun, args.readCeiling)) console.log(line);
+    const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
+    for (const line of summaryLines(summary, args.dryRun, args.readCeiling, muteAssigns)) {
+      console.log(line);
+    }
     console.log(`\ndone in ${elapsed}ms`);
   }
   if (remapRefused !== undefined) {

@@ -972,6 +972,45 @@ describe('ForgeExecutor, person accounts', () => {
         expect(summary.failedCount).toBe(0);
       });
 
+      it('writes as a person account one sent without its record type where the only type open to the user is a person account’s, its describe naming Master the default', async () => {
+        // A scratch org's describe named Master the admin's default for
+        // Opportunity, one other type open to them, and an opportunity sent
+        // without a type went in with that one. Read from the default alone,
+        // Master, this person account was sent as a business account.
+        const MASTER_TYPE = '012000000000000AAA';
+        const { executor, inserted } = orgsWithPersonAccounts(undefined, TYPED_SOURCE, {
+          fields: TYPED_FIELDS,
+          recordTypes: RECORD_TYPES,
+          describeObject: async (_org, object) => ({
+            keyPrefix: null,
+            recordTypes:
+              object === 'Account'
+                ? [
+                    { ...recordType(BUSINESS_TYPE, false), available: false },
+                    recordType(PERSON_TYPE, false),
+                    {
+                      ...recordType(MASTER_TYPE, true),
+                      developerName: 'Master',
+                      name: 'Master',
+                      master: true,
+                    },
+                  ]
+                : [],
+          }),
+        });
+
+        const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', () => undefined, {
+          ...mappedTo(PERSON_TYPE),
+          fieldExclusions: { Account: ['RecordTypeId'] },
+        });
+
+        expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
+          { LastName: 'Doe', PersonEmail: 'person@example.com' },
+          { Name: 'Acme' },
+        ]);
+        expect(summary.failedCount).toBe(0);
+      });
+
       it('says on a dry run that reads the account first that its contact would be inserted', async () => {
         // A run of whole tables writes, and reads, the accounts before the
         // contacts. One that reads the contact first — its case before its

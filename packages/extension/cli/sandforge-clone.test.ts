@@ -390,6 +390,38 @@ describe('sandforge-clone target object info', () => {
     expect(describeCached).toHaveBeenCalledWith('Account');
     expect(describe).not.toHaveBeenCalled();
   });
+
+  it('asks the org again when told, rather than the describe jsforce cached before a lease assigned a set', async () => {
+    const describeCached = vi.fn().mockResolvedValue({ name: 'Account', recordTypeInfos: [] });
+    const describeAgain = vi.fn().mockResolvedValue({
+      name: 'Account',
+      keyPrefix: '001',
+      recordTypeInfos: [
+        {
+          active: true,
+          available: true,
+          defaultRecordTypeMapping: false,
+          developerName: 'Partner',
+          master: false,
+          name: 'Partner',
+          recordTypeId: '012Fk00000RtDeFIAV',
+          urls: {},
+        },
+      ],
+    });
+    const conn = {
+      describe$: describeCached,
+      sobject: (name: string) => ({ describe: () => describeAgain(name) }),
+    } as unknown as Connection;
+
+    const info = await describeObjectInfo(conn, 'Account', true);
+
+    expect(info.recordTypes.map((r) => [r.developerName, r.available])).toEqual([
+      ['Partner', true],
+    ]);
+    expect(describeAgain).toHaveBeenCalledWith('Account');
+    expect(describeCached).not.toHaveBeenCalled();
+  });
 });
 
 describe('sandforge-clone summary', () => {
@@ -1057,6 +1089,155 @@ describe('sandforge-clone summary', () => {
     );
     expect(summaryLines(summary({})).some((line) => line.includes('currency'))).toBe(false);
     expect(jsonResult(summary({})).currenciesReplaced).toBeUndefined();
+  });
+
+  describe('the record type the target gives the records sent without one', () => {
+    const RETAIL = { developerName: 'SFX_Retail', label: 'SFX Retail' };
+
+    it('says on a dry run the type the only one open to the user would give them, and why they go without one', () => {
+      const recordTypesGiven = [
+        {
+          objectApiName: 'Opportunity',
+          rows: 23,
+          why: { masterInSource: 22, decidedDefault: 1 },
+          predicted: { ...RETAIL, basis: 'onlyOneOpen' as const },
+        },
+        {
+          objectApiName: 'Account',
+          rows: 1,
+          why: { masterInSource: 1 },
+          predicted: {
+            developerName: 'Business_Account',
+            label: 'Business Account',
+            basis: 'userDefault' as const,
+          },
+        },
+        { objectApiName: 'Case', rows: 2, why: { notRead: 2 } },
+      ];
+
+      const lines = summaryLines(summary({ recordTypesGiven, wouldInsertCount: 26 }), true);
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'record types the target would give the records created without one (3 object(s)):',
+          '  Opportunity  23 record(s) (22 on Master in the source, 1 sent to the default by ' +
+            'your decision): would go in as SFX_Retail (SFX Retail), the only other Opportunity ' +
+            'record type open to the user the run writes as, whose describe names Master the default',
+          '  Account  1 record(s) on Master in the source: would go in as Business_Account ' +
+            '(Business Account), the default record type of the user the run writes as',
+          '  Case  2 record(s) whose record type the run does not write: would go in on Master, ' +
+            'which the target gives a record sent without one for the user the run writes as',
+        ]),
+      );
+      expect(jsonResult(summary({ recordTypesGiven })).recordTypesGiven).toEqual(recordTypesGiven);
+    });
+
+    it('says once written what they were read back holding, on how many of them', () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 1240,
+              why: { masterInSource: 1240 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: { read: 200, types: [{ ...RETAIL, rows: 200 }] },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'record types the target gave the records created without one (1 object(s)):',
+          '  Opportunity  1240 record(s) on Master in the source: went in as SFX_Retail ' +
+            '(SFX Retail), read back on 200 of 1240',
+        ]),
+      );
+    });
+
+    it('says what the target holds when it is not what the describe said, and names its automation', () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 23,
+              why: { masterInSource: 23 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: {
+                read: 23,
+                types: [
+                  { developerName: 'SFX_Other', label: 'SFX Other', rows: 20 },
+                  { ...RETAIL, rows: 3 },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toContain(
+        '  Opportunity  23 record(s) on Master in the source: read back on 23: 20 SFX_Other ' +
+          '(SFX Other), 3 SFX_Retail (SFX Retail); the describe said SFX_Retail: an automation ' +
+          'of the target sets the record type',
+      );
+    });
+
+    it("says the org's words when what they hold could not be read back", () => {
+      const lines = summaryLines(
+        summary({
+          recordTypesGiven: [
+            {
+              objectApiName: 'Opportunity',
+              rows: 1,
+              why: { masterInSource: 1 },
+              predicted: { ...RETAIL, basis: 'onlyOneOpen' },
+              readBack: {
+                read: 0,
+                types: [],
+                unread: 'INVALID_TYPE: sObject type is not supported.',
+              },
+            },
+          ],
+        }),
+      );
+
+      expect(lines).toContain(
+        '  Opportunity  1 record(s) on Master in the source: went in, its describe says, as ' +
+          'SFX_Retail (SFX Retail), the only other Opportunity record type open to the user the ' +
+          'run writes as, whose describe names Master the default; the record types they hold ' +
+          'could not be read back: INVALID_TYPE: sObject type is not supported.',
+      );
+    });
+
+    it('says on a dry run whose mute would assign sets that they may open other types, which a real run reads again', () => {
+      const recordTypesGiven = [
+        {
+          objectApiName: 'Opportunity',
+          rows: 1,
+          why: { masterInSource: 1 },
+          predicted: { ...RETAIL, basis: 'onlyOneOpen' as const },
+        },
+      ];
+      const said =
+        '  the permission sets a real run assigns to mute the automation may open other record ' +
+        'types to the user it writes as: it reads them again once assigned, and its summary says ' +
+        'what the target gave';
+
+      expect(summaryLines(summary({ recordTypesGiven }), true, undefined, true)).toContain(said);
+      expect(summaryLines(summary({ recordTypesGiven }), true, undefined, false)).not.toContain(
+        said,
+      );
+      expect(summaryLines(summary({ recordTypesGiven }), false, undefined, true)).not.toContain(
+        said,
+      );
+    });
+
+    it('says nothing, and gives nothing under --json, of a run that created none without one', () => {
+      expect(summaryLines(summary({})).some((line) => line.includes('record type'))).toBe(false);
+      expect(jsonResult(summary({})).recordTypesGiven).toBeUndefined();
+    });
   });
 
   it('says on a dry run the currency a gap of an inactive currency writes its rows in, and the amounts converted', () => {
