@@ -872,9 +872,13 @@ export function outcomeLines(result: ExecutionResult): string[] {
     }
   };
   for (const [name, outcome] of Object.entries(result.objectOutcomes ?? {})) {
+    // What a stop kept from the target, as the audit counts it: an object
+    // cut short or never reached read as one written whole, its line
+    // counting what it wrote and nothing it did not send.
+    const notSent = outcome.notSent ?? 0;
     lines.push(
       `  ${name.padEnd(28)} written ${outcome.written}  linked ${outcome.linked}  ` +
-        `refused ${outcome.failed}`,
+        `refused ${outcome.failed}${notSent > 0 ? `  not sent ${notSent}` : ''}`,
     );
     reasons(outcome.refusals);
     // Not sent: the target filled each in itself — the running user as owner.

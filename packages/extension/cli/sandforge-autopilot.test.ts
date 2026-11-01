@@ -286,6 +286,33 @@ describe('sandforge-autopilot — the run summary', () => {
       `  ${'Account'.padEnd(28)} FAILED: INVALID_SESSION_ID: Session expired or invalid`,
     ]);
   });
+
+  it('prints what a stop kept an object from sending, as the audit counts it, and nothing of the kind for one written whole', () => {
+    // Stopped as the contacts went in: one written, one never sent, and the
+    // leads never reached. Their lines read as objects written whole.
+    const lines = outcomeLines({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      stopped: true,
+      stoppedObjects: ['Contact', 'Lead'],
+      objectOutcomes: {
+        Account: { written: 1, linked: 0, failed: 0, refusals: [] },
+        Contact: { written: 1, linked: 0, failed: 0, refusals: [], notSent: 1 },
+        Lead: { written: 0, linked: 0, failed: 0, refusals: [], notSent: 2 },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Account'.padEnd(28)} written 1  linked 0  refused 0`,
+      `  ${'Contact'.padEnd(28)} written 1  linked 0  refused 0  not sent 1`,
+      `  ${'Lead'.padEnd(28)} written 0  linked 0  refused 0  not sent 2`,
+    ]);
+  });
 });
 
 describe('sandforge-autopilot — the plan', () => {

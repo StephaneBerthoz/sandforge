@@ -132,8 +132,9 @@ export interface AuditObjectCounts {
   mayHaveBeenWritten?: number;
   /**
    * Set when the run skipped the object whole and sent none of it: a record
-   * its rows cannot be written without failed, or the target takes no insert
-   * of it. `counted` when the run had read those rows, which `failed` counts;
+   * its rows cannot be written without failed, the target takes no insert of
+   * it, or the user skipped it. `counted` when the run knew how many rows it
+   * held, which `failed` counts — `notSent` for an object the user skipped;
    * `uncounted` when it never learned how many there were, which no column
    * can then say. Counted as nothing, such an object was not listed, and a
    * run that lost it read as one that never met it. Absent otherwise.

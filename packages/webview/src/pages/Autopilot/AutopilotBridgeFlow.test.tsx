@@ -572,6 +572,85 @@ describe('Autopilot bridge flow', () => {
     expect(screen.queryByTestId('control-stop')).toBeNull();
   });
 
+  it('says Skipped of an object the user skipped once the run’s end settles it, and never Completed in the report', () => {
+    render(<AutopilotPage />);
+    driveToReview();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const executeRequest = lastRequestOfType('autopilot:execute');
+    for (const [name, wave] of [
+      ['Account', 0],
+      ['Contact', 1],
+    ] as const) {
+      dispatchBridgeMessage(
+        'autopilot:node-progress',
+        { nodeId: name, objectName: name, status: 'processing', wave },
+        executeRequest.id,
+      );
+    }
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Account', objectName: 'Account', status: 'completed', wave: 0, recordCount: 100 },
+      executeRequest.id,
+    );
+    act(() => {
+      useAutopilotStore.getState().selectNode('Contact');
+    });
+    fireEvent.click(screen.getByTestId('control-skip'));
+
+    // The run's end settles every node once more, each on the status the
+    // executor gave it, as AutopilotHandler sends them.
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Account',
+        objectName: 'Account',
+        status: 'completed',
+        wave: 0,
+        recordCount: 100,
+        failureCount: 0,
+      },
+      executeRequest.id,
+    );
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'skipped',
+        wave: 1,
+        recordCount: 0,
+        failureCount: 0,
+        notSent: 80,
+      },
+      executeRequest.id,
+    );
+    dispatchBridgeMessage(
+      'autopilot:completed',
+      {
+        totalRecords: 100,
+        totalSuccessCount: 100,
+        totalFailureCount: 0,
+        totalElapsedMs: 900,
+        totalApiCalls: 0,
+      },
+      executeRequest.id,
+    );
+
+    const nodes = useAutopilotStore.getState().graph?.nodes ?? [];
+    expect(nodes.find((node) => node.objectApiName === 'Contact')?.status).toBe('skipped');
+    expect(nodes.find((node) => node.objectApiName === 'Account')?.status).toBe('completed');
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+    expect(screen.getByTestId('node-status-badge').textContent).toBe('Skipped');
+
+    fireEvent.click(screen.getByTestId('view-compliance-report'));
+    respondTo('autopilot:compliance-report', 'autopilot:compliance-report', { report: REPORT });
+    const timeline = [...screen.getByTestId('compliance-timeline').children].map(
+      (entry) => entry.textContent ?? '',
+    );
+    expect(timeline.find((entry) => entry.includes('Account'))).toContain('Completed');
+    expect(timeline.find((entry) => entry.includes('Contact')) ?? '').not.toContain('Completed');
+  });
+
   it('should surface a listing error and stay on the connect step', () => {
     render(<AutopilotPage />);
     fireEvent.click(screen.getByTestId('source-org-org-1'));

@@ -110,6 +110,8 @@ export const AutopilotPage: React.FC = () => {
       processing: 'extracting',
       completed: 'completed',
       failed: 'failed',
+      // Skipped by Skip Node: none of it sent. Unmapped, it fell to pending.
+      skipped: 'skipped',
       // Cut short or never reached by a stop: not written whole.
       stopped: 'skipped',
     };

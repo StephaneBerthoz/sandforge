@@ -911,7 +911,8 @@ export class AutopilotHandler implements DomainHandler {
         if (held) mutedAutomation = await held.release();
       });
 
-      // Send node-progress 'completed' or 'failed' per node based on execution result
+      // Each node settled on the status the executor gave it: completed,
+      // failed, skipped or stopped.
       const completedSet = new Set(result.completedObjects);
       const failedSet = new Set(result.failedObjects);
       const skippedSet = new Set(result.skippedObjects);
@@ -973,9 +974,21 @@ export class AutopilotHandler implements DomainHandler {
               error: result.nodeErrors?.[name] ?? `Execution failed for ${name}`,
             });
           } else if (skippedSet.has(name)) {
-            this.sendNodeProgress(msg, name, 'completed', wave.order, {
+            // Skipped by the user's Skip Node before its turn: none of it was
+            // sent. It was settled as completed with no record, and the
+            // graph and the compliance report's timeline said Completed of an
+            // object nothing was written to; the audit did not list it, and
+            // the entry read as a run that never met it.
+            const notSent = scanResult.recordCounts.get(name) ?? 0;
+            written.set(name, {
+              ...emptyCounts(name),
+              skipped: 'counted',
+              ...(notSent > 0 ? { notSent } : {}),
+            });
+            this.sendNodeProgress(msg, name, 'skipped', wave.order, {
               recordCount: 0,
               failureCount: 0,
+              ...(notSent > 0 ? { notSent } : {}),
             });
           } else if (stoppedSet.has(name)) {
             // Cut short or never reached by the stop: what it wrote, and what
@@ -1205,7 +1218,7 @@ export class AutopilotHandler implements DomainHandler {
   private sendNodeProgress(
     requestMsg: InboundRequest,
     objectName: string,
-    status: 'processing' | 'completed' | 'failed' | 'stopped',
+    status: 'processing' | 'completed' | 'failed' | 'skipped' | 'stopped',
     wave: number,
     extra?: {
       recordCount?: number;
@@ -1220,7 +1233,7 @@ export class AutopilotHandler implements DomainHandler {
       statusRefusals?: AutopilotRefusal[];
       /** Records read and never sent: the platform writes them, or what they hang from, itself. */
       leftToThePlatform?: number;
-      /** Records a stopped run never sent. */
+      /** Records a stopped run never sent, or those of an object skipped. */
       notSent?: number;
       /** Records written in another currency than they were read in, and their amounts. */
       currenciesReplaced?: CurrencyReplaced[];
