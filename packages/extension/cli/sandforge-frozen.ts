@@ -61,6 +61,7 @@ import type {
   FrozenSelectionStop,
   FrozenVerifyVerdict,
   OrgType,
+  RecordTypeGiven,
   RunCheckpointEstimate,
   RunCheckpointInfo,
   RunCheckpointRequest,
@@ -79,6 +80,7 @@ import {
   sweepListingLines,
   targetAutomationReader,
 } from './sandforge-clone.js';
+import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
 import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
@@ -1145,6 +1147,12 @@ export function messageLines(message: Posted): string[] {
       }
       const muted = (p.report as { mutedAutomation?: MutedAutomation }).mutedAutomation;
       if (muted) lines.push(...muteLines(muted, 'the target'));
+      lines.push(
+        ...frozenRecordTypeLines(
+          (p.report as { recordTypesGiven?: RecordTypeGiven[] }).recordTypesGiven,
+          false,
+        ),
+      );
       return lines;
     }
     case 'frozen:load:preview:response': {
@@ -1451,6 +1459,11 @@ export interface FrozenAnswer {
   /** The plan that is made from. */
   mutePlan?: MutePlan;
   /**
+   * Of a load, per object, the record type the target gave what it created
+   * without one, as read back; of a dry run, what the describe says it gives.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
+  /**
    * The checkpoint a load took of what it writes before its first write
    * (`--checkpoint-first`), kept or deleted once it wrote nothing; of a dry
    * run, what a real load's would hold and cost.
@@ -1551,6 +1564,8 @@ export async function frozenAnswer(
       await withDataset(context.datasetDir);
       const report = last('frozen:load:response')?.report as FrozenLoadReportInfo | undefined;
       const plan = last('frozen:load:preview:response')?.plan as FrozenLoadPlanInfo | undefined;
+      const recordTypesGiven = report ? report.recordTypesGiven : plan?.recordTypesGiven;
+      if (recordTypesGiven) answer.recordTypesGiven = recordTypesGiven;
       if (report) {
         answer.mapping = report.mappingPath;
         answer.objects = report.perObject.map((o) => ({
@@ -1867,6 +1882,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
             dryRunMute = { mutedAutomation: planned, mutePlan };
           }
+          // What the target would give the records that go in without a record
+          // type, as the describe of the user the load writes as says: the
+          // sets a real load's mute assigns may open others to that user.
+          for (const line of frozenRecordTypeLines(
+            plan?.recordTypesGiven,
+            true,
+            (dryRunMute?.mutePlan.assign.length ?? 0) > 0,
+          )) {
+            log(line);
+          }
           // What the checkpoint a real load takes first would hold and cost:
           // the objects the plan writes, and what still runs as it writes
           // them, what the mute keeps quiet held quiet.
@@ -2056,6 +2081,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 /** The writes of a load the target's automation fires on, as its mute plans for them. */
 const LOAD_WRITES = (_objectApiName: string, write: string): boolean =>
   write === 'insert' || write === 'update';
+
+/**
+ * What the command says of the records a load created — a dry run, would
+ * create — without a record type, as Sync and Autopilot say it. Exported so it
+ * can be tested.
+ *
+ * @param muteAssigns - Whether a real load's mute would assign permission sets.
+ */
+export function frozenRecordTypeLines(
+  given: readonly RecordTypeGiven[] | undefined,
+  dryRun: boolean,
+  muteAssigns = false,
+): string[] {
+  return recordTypeGivenOfObjectsLines(
+    (given ?? []).map((recordTypeGiven) => ({ recordTypeGiven })),
+    dryRun,
+    muteAssigns,
+  );
+}
 
 /** What still runs as a load writes, the mute's plan held; nothing named when the read failed. */
 function runningFor(

@@ -15,6 +15,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { compositeOver } from '../../test/compositeOver.js';
@@ -27,6 +28,11 @@ vi.mock('../../logger.js', () => ({
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
+// The real removal, its options read back by the case that names the load's user.
+vi.mock('../../modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../modules/forge/ForgeRunRemoval.js')>();
+  return { ...actual, removeRunRecords: vi.fn(actual.removeRunRecords) };
+});
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
@@ -429,6 +435,95 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       keptChanged: 0,
     });
     expect(ids('WorkOrder')).toEqual([]);
+  });
+
+  describe('the user the load kept, and what a sweep found made for it', () => {
+    /** The load's mapping again, kept by a load that says who it wrote as. */
+    const loadedAs = (runUserId: string) =>
+      new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+        now: () => new Date(LAST_WRITE),
+      }).persist(
+        new Map([
+          ['WorkOrder-000001', WORK_ORDER],
+          ['ServiceAppointment-000001', APPOINTMENT],
+        ]),
+        {
+          created: [
+            { objectApiName: 'WorkOrder', referenceIds: ['WorkOrder-000001'] },
+            { objectApiName: 'ServiceAppointment', referenceIds: ['ServiceAppointment-000001'] },
+          ],
+          startedAt: new Date(FIRST_WRITE),
+          writtenBetween: { first: FIRST_WRITE, last: LAST_WRITE },
+          runUserId,
+        },
+      );
+    const mapping = () =>
+      new SasReferenceIdMappingStore(sasDir, { orgId: TARGET_ORG, organizationId: ORGANIZATION });
+    const listing = async (): Promise<ForgeSweepListing | undefined> => {
+      await handler.handle(
+        buildMsg('frozen:remove:sweep', { targetOrgId: TARGET_ORG, loadedAt: LAST_WRITE }),
+      );
+      return posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'frozen:remove:sweep:response',
+      ).at(-1)?.payload.listing;
+    };
+
+    it('tells the sweep the user the load wrote as, whom its records no longer tell', async () => {
+      // Gone from the org and from its recycle bin, the load's records say
+      // nothing of who created them: asked of them, the sweep had no user,
+      // and looked for nothing.
+      org.rows.set('WorkOrder', []);
+      org.rows.set('ServiceAppointment', []);
+      const notTold = await listing();
+      expect(notTold?.refusal).toBeDefined();
+
+      await loadedAs(USER);
+      const told = await listing();
+
+      expect(told?.refusal).toBeUndefined();
+      expect(told?.found.map((found) => found.objectApiName)).toContain('Task');
+    });
+
+    it('tells the removal the user the load wrote as', async () => {
+      await loadedAs(USER);
+
+      await remove();
+
+      expect(vi.mocked(removeRunRecords).mock.calls.at(-1)?.[2]).toMatchObject({ runUserId: USER });
+    });
+
+    it('asks a load that names no user nothing it does not hold', async () => {
+      await remove();
+
+      expect(vi.mocked(removeRunRecords).mock.calls.at(-1)?.[2]).not.toHaveProperty('runUserId');
+    });
+
+    it('keeps what the sweep found made for the load', async () => {
+      await remove({ sweep: true });
+
+      const [load] = await mapping().recordedLoads();
+      expect(load?.madeEarlier).toEqual(
+        expect.arrayContaining([id('00T', 1), id('0D5', 1), id('0D5', 2)]),
+      );
+    });
+
+    it('takes as made for the load what a sweep found so, once nothing ties it any more', async () => {
+      // Left by a removal that stopped: the lookup that tied it to the load's
+      // work order was cleared with the work order.
+      const orphan = rec(id('00T', 3), 'Made for the load', USER, WITH_THEM);
+      org.rows.get('Task')?.push(orphan);
+      const untiedBefore = await listing();
+      const classesOf = (found?: ForgeSweepListing) =>
+        found?.found.find((entry) => entry.objectApiName === 'Task')?.classes;
+      const madeBefore = classesOf(untiedBefore)?.made ?? 0;
+
+      await mapping().recordMade(LAST_WRITE, [orphan.Id]);
+      const told = await listing();
+
+      expect(classesOf(told)?.made).toBe(madeBefore + 1);
+    });
   });
 
   it('lists what a sweep would take, and deletes nothing', async () => {

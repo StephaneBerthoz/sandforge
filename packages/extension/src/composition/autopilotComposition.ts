@@ -309,6 +309,12 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 }
                 return recordTypes;
               },
+              // Asked once the mute's lease assigned a permission set, which
+              // may have opened a record type to the running user: read from
+              // the target, past the describe the run holds. `describe` asks
+              // the org each time; only jsforce's `describe$` keeps an answer.
+              describeRecordTypesAgain: async (objectApiName: string) =>
+                parseRecordTypeInfos((await target.describe(objectApiName)).recordTypeInfos),
               // Asked only when the target has a record type the running user
               // cannot use: which of those types the object's records carry,
               // known before its first page; the records on them are held back.

@@ -66,13 +66,28 @@ import type {
   FrozenRefusedField,
   FrozenWrittenWithoutFields,
   GuardDecision,
+  RecordTypeGiven,
+  RecordTypeGivenBasis,
+  RecordTypeNamed,
   SyncValidationRule,
+  WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  parseRecordTypeInfos,
+  type RecordTypeAvailability,
+} from '../../core/metadata/recordTypeAvailability.js';
+import {
+  predictedRecordTypeOf,
+  recordTypeGivenOf,
+  recordTypeReadBackSoql,
+  recordTypesReadBack,
+  type GivenRecordType,
+} from '../../core/metadata/recordTypeGiven.js';
 import {
   ambiguousRecordTypeReason,
   qualifiedRecordTypeName,
@@ -123,7 +138,7 @@ import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOr
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
 import { CLOCK_LEEWAY_MS, takenAlong } from '../forge/ForgeRunRemoval.js';
 import { SasPathGuard } from './SasPathGuard.js';
-import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
+import { assertLoadGuards, datasetRecordCount, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
 import {
   writeCountingContract,
@@ -197,9 +212,10 @@ export interface FrozenDatasetLoaderDeps {
    */
   restoringWriter?: FrozenDmlWriter;
   /**
-   * Existing ProductionGuard — tier check on every DML batch. Each decision
-   * goes to the caller of `load` through `onGuardDecision`, and the bridge
-   * records the load with it in the audit trail.
+   * Existing ProductionGuard — tier check on every DML batch, and on the whole
+   * load at {@link FrozenDatasetLoader.gateLoad}. Each decision goes to the
+   * caller through `onGuardDecision`, and the bridge records the load with it
+   * in the audit trail.
    */
   guard: ProductionGuard;
   mockDetector: CalloutMockDetector;
@@ -284,16 +300,42 @@ export interface FrozenLoadOptions {
    * line of what the cancel cut short says what it kept back.
    */
   signal?: AbortSignal;
+  /**
+   * The lease of the target's automation mute its caller took before the
+   * load, which is given back once the last write is through, before the load
+   * reads back the record types the target gave: the bypass held no longer
+   * than the writes. Its caller gives it back as ever, however the load ends;
+   * given back twice, a lease answers the same.
+   *
+   * Taken before the load, it stands before everything the load reads of the
+   * target: a permission set that opens a record type to the user the load
+   * writes as is in the describes the load resolves and predicts from, a
+   * describe read just after an assignment already saying what it opened.
+   */
+  lease?: { giveBack: () => Promise<unknown> };
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
 
 /**
  * Options of a preview of a load ({@link FrozenDatasetLoader.planLoad}): a
- * load's, but for what only a write hears — Production Guard's decisions and
- * the cancel.
+ * load's, but for what only a write hears — Production Guard's decisions, the
+ * cancel and the mute's lease.
  */
-export type FrozenLoadPlanOptions = Omit<FrozenLoadOptions, 'onGuardDecision' | 'signal'>;
+export type FrozenLoadPlanOptions = Omit<FrozenLoadOptions, 'onGuardDecision' | 'signal' | 'lease'>;
+
+/** What {@link FrozenDatasetLoader.gateLoad} judges of a load, and whom it tells. */
+export type FrozenLoadGateOptions = Pick<
+  FrozenLoadOptions,
+  | 'orgId'
+  | 'orgTier'
+  | 'dataset'
+  | 'manifest'
+  | 'reload'
+  | 'pilot'
+  | 'onProgress'
+  | 'onGuardDecision'
+>;
 
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
@@ -528,6 +570,76 @@ interface PreparedLoad {
   accountKindOf: (referenceId: string) => AccountKind;
   /** The placeholders and defaults the required fields take. */
   plans: RequiredFieldPlan[];
+  /** Per object of the target with a record type besides Master, what it gives a record sent without one. */
+  givenRules: ReadonlyMap<string, GivenRule>;
+  /**
+   * Why a record the dataset named a record type for, or held on Master, goes
+   * without one, by referenceId. A record that holds no `RecordTypeId` at all
+   * is not here, and reads `notRead`.
+   */
+  withoutRecordType: ReadonlyMap<string, WithoutRecordTypeWhy>;
+}
+
+/**
+ * What the target gives a record of one object created without a record type,
+ * as the load holds it: the object's types, named, and the one the describe of
+ * the user it writes as says it gives, absent for Master.
+ */
+interface GivenRule {
+  types: readonly RecordTypeAvailability[];
+  predicted?: RecordTypeNamed & { basis: RecordTypeGivenBasis };
+}
+
+/** What a load says of one object's records without a record type, and the keys they go by. */
+interface RecordsGivenAType {
+  given: RecordTypeGiven;
+  rule: GivenRule;
+  keys: string[];
+}
+
+/**
+ * Of the records `counted` keeps, those that go in without a record type,
+ * into an object of the target with a type besides Master: per object, how
+ * many and why. A record that goes with a type gets it; one of an object with
+ * none besides Master has nothing to say. Told from the rows the load sends,
+ * not from what the dataset named: a field the alignment left out goes too.
+ */
+function recordsGivenAType(
+  prepared: Pick<PreparedLoad, 'alignedByObject' | 'givenRules' | 'withoutRecordType'>,
+  counted: (referenceId: string) => boolean,
+): RecordsGivenAType[] {
+  const entries: RecordsGivenAType[] = [];
+  for (const [objectApiName, rule] of prepared.givenRules) {
+    const keys: string[] = [];
+    const why: RecordTypeGiven['why'] = {};
+    for (const { referenceId, fields } of prepared.alignedByObject.get(objectApiName) ?? []) {
+      if (!leftEmpty(fields.RecordTypeId) || !counted(referenceId)) continue;
+      keys.push(referenceId);
+      const reason = prepared.withoutRecordType.get(referenceId) ?? 'notRead';
+      why[reason] = (why[reason] ?? 0) + 1;
+    }
+    if (keys.length === 0) continue;
+    const { predicted } = rule;
+    entries.push({
+      given: { objectApiName, rows: keys.length, why, ...(predicted ? { predicted } : {}) },
+      rule,
+      keys,
+    });
+  }
+  return entries;
+}
+
+/**
+ * What the target gives a record whose record type was dropped, as an issue
+ * says it: the type by name, and why that one.
+ */
+function givenRecordTypeWords(given: GivenRecordType | undefined): string {
+  if (!given) return "the user's default record type applies";
+  if (given.kind === 'master') return 'the target leaves it on Master for that user';
+  const { developerName } = given.info;
+  return given.basis === 'userDefault'
+    ? `the target gives it ${developerName}, the user's default record type`
+    : `the target gives it ${developerName}, the only other record type open to the user`;
 }
 
 /** What a load that fails part way has to keep, handed over by the load before its first write. */
@@ -870,6 +982,14 @@ function endOfACheck(
   };
 }
 
+/** The line that begins the entry guards. */
+const ENTRY_GUARDS_STARTED: FrozenLoadProgressEvent = {
+  phase: 'guards',
+  status: 'started',
+  progress: 0,
+  message: 'Evaluating entry guards',
+};
+
 /**
  * A step of the load — a reload's purge, the placeholders, a pass after the
  * inserts — as the line that ends it says it.
@@ -1094,6 +1214,60 @@ export class FrozenDatasetLoader {
   }
 
   /**
+   * What stands in a load's way before anything is taken for it, for its host
+   * to pass before the checkpoint asked first and the mute's lease: the entry
+   * guards, then Production Guard's question about the whole load, once.
+   *
+   * Both came after them, inside the load. A sandbox marked Staging, which the
+   * entry guards refuse, had a checkpoint of the tables it would have written
+   * taken and the bypass assigned, for a load that wrote nothing. And the
+   * guard, consulted batch by batch, would have asked under the lease. It
+   * judges every batch still, and a load refuses what it refuses; a question
+   * answered here is answered for them, by the host (`withGivenAnswer`).
+   *
+   * A stock guard asks nothing here: the entry guards let through only the
+   * tiers it asks nothing of. The question is for a guard a host injects.
+   *
+   * @returns What the guard decided: told to `onGuardDecision` too.
+   * @throws {LoadGuardError} When an entry guard or the guard refuses the
+   *   load, or its question is declined: nothing was taken, nothing written.
+   */
+  async gateLoad(options: FrozenLoadGateOptions): Promise<GuardDecision> {
+    try {
+      await this.passEntryGuards(options);
+    } catch (err: unknown) {
+      // Said here, a load that passes its guards says them once, as it starts.
+      options.onProgress?.(ENTRY_GUARDS_STARTED);
+      options.onProgress?.(endOfACheck('guards', 2, 'Entry guards not passed', err));
+      throw err;
+    }
+    const purges = options.reload === true && !options.pilot;
+    return this.consultGuard(options, {
+      orgId: options.orgId,
+      orgTier: options.orgTier,
+      operation: purges ? 'delete' : 'insert',
+      objectName: options.dataset.objects
+        .filter((object) => object.records.length > 0)
+        .map((object) => object.objectApiName)
+        .join(', '),
+      recordCount: { atMost: datasetRecordCount(options.dataset) },
+      module: 'frozendataset',
+    });
+  }
+
+  /** The entry guards of a load: refusal is actionable, never a DML on the source. */
+  private passEntryGuards(options: FrozenLoadGateOptions): Promise<void> {
+    return assertLoadGuards({
+      orgId: options.orgId,
+      orgTier: options.orgTier,
+      dataset: options.dataset,
+      manifest: options.manifest,
+      mockDetector: this.deps.mockDetector,
+      protectedOrgIds: this.config.protectedOrgIds,
+    });
+  }
+
+  /**
    * Load (or reload) the frozen dataset into the target sandbox.
    *
    * A load that fails once it has created records, or purged some an earlier
@@ -1252,16 +1426,9 @@ export class FrozenDatasetLoader {
 
     // 1. Entry guards — refusal is actionable, never a DML on the source.
     //    One that refuses the load ends their line failed, with why.
-    emit({ phase: 'guards', status: 'started', progress: 0, message: 'Evaluating entry guards' });
+    emit(ENTRY_GUARDS_STARTED);
     try {
-      await assertLoadGuards({
-        orgId,
-        orgTier: options.orgTier,
-        dataset: options.dataset,
-        manifest: options.manifest,
-        mockDetector: this.deps.mockDetector,
-        protectedOrgIds: this.config.protectedOrgIds,
-      });
+      await this.passEntryGuards(options);
     } catch (err: unknown) {
       emit(endOfACheck('guards', 2, 'Entry guards not passed', err));
       throw err;
@@ -1439,6 +1606,7 @@ export class FrozenDatasetLoader {
     const recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'] = [];
     const rtResolved = new Map<string, FrozenRecord[]>();
     const resolvedRecordTypes = new Map<string, string>();
+    const withoutRecordType = new Map<string, WithoutRecordTypeWhy>();
     for (const objectData of loading.objects) {
       const records: FrozenRecord[] = [];
       for (const record of objectData.records) {
@@ -1450,6 +1618,7 @@ export class FrozenDatasetLoader {
             record,
             resolvedRecordTypes,
             recordTypeIssues,
+            withoutRecordType,
           ),
         );
       }
@@ -1498,6 +1667,8 @@ export class FrozenDatasetLoader {
         : 'business';
     /** Per object, its required lookups at an object `excludedObjects` names: see `heldForAnExcludedParent`. */
     const lookupsAtExcluded = new Map<string, ExcludedParentLookup[]>();
+    /** What the target gives a record sent without a record type, from each describe it reads here. */
+    const givenRules = new Map<string, GivenRule>();
     // A manifest written since the extraction left out what it read masked
     // names those fields, or none; one written before has no such list, and
     // the dataset may hold the masks of the fields the target encrypts.
@@ -1575,6 +1746,11 @@ export class FrozenDatasetLoader {
         objectApiName,
         new Set(describe.fields.filter((f) => f.updateable === false).map((f) => f.name)),
       );
+      const types = parseRecordTypeInfos(describe.recordTypeInfos);
+      if (types.some((type) => !type.master)) {
+        const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
+        givenRules.set(objectApiName, { types, ...(predicted ? { predicted } : {}) });
+      }
       const atExcluded = lookupsAtExcludedObjects(objectApiName, describe, this.config);
       if (atExcluded.length > 0) lookupsAtExcluded.set(objectApiName, atExcluded);
       requiredLookups.set(
@@ -1708,6 +1884,8 @@ export class FrozenDatasetLoader {
       targetHasPersonAccounts,
       accountKindOf,
       plans,
+      givenRules,
+      withoutRecordType,
     };
   }
 
@@ -1766,6 +1944,12 @@ export class FrozenDatasetLoader {
     );
     if (tooMany) throw new LoadRecordsExceededError(tooMany);
 
+    // The user the load writes as, asked before its first write and kept with
+    // what it creates: what a removal and its sweep hold what the target's
+    // automation made to. Asked of the records instead, it went with them.
+    const runUserId = await this.runUserIdOf(orgId);
+    if (runUserId) this.journal?.writtenAs(runUserId);
+
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     const placeholders: PlaceholderCreation[] = [];
     const perObject: PerObjectLoadResult[] = [];
@@ -1820,6 +2004,7 @@ export class FrozenDatasetLoader {
         ...(withTheirRecord.size > 0
           ? { withTheirRecord: Object.fromEntries(withTheirRecord) }
           : {}),
+        ...(runUserId ? { runUserId } : {}),
       });
       mappingKept = true;
     };
@@ -2806,6 +2991,12 @@ export class FrozenDatasetLoader {
     // count as loaded what the cancel kept from the target.
     await checkpoint();
 
+    // The load's last write is through: the mute's lease goes back now, the
+    // bypass held no longer than the writes. A lease never throws as it is
+    // given back; should one, the writes stand, and the load's caller gives
+    // it back again and says what it left.
+    await options.lease?.giveBack().catch(() => undefined);
+
     // 10. Persist mapping + counting contract (sas).
     emit({
       phase: 'persist',
@@ -2857,6 +3048,16 @@ export class FrozenDatasetLoader {
       statuses.refused.length > 0 ||
       purge.failures.length > 0;
 
+    // The record types the target gave what the load created without one,
+    // read once the writes are through and the lease given back: what the
+    // result says rather than what the describe predicted.
+    const createdKeys = new Set(created.list().flatMap(({ referenceIds }) => referenceIds));
+    const recordTypesGiven = await this.readBackRecordTypes(
+      orgId,
+      recordsGivenAType(prepared, (referenceId) => createdKeys.has(referenceId)),
+      mapping,
+    );
+
     const report: FrozenLoadReport = {
       status: hasErrors ? 'completed-with-errors' : 'completed',
       orgId,
@@ -2884,6 +3085,8 @@ export class FrozenDatasetLoader {
       ...(heldForExcluded.length > 0
         ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
         : {}),
+      ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
+      ...(runUserId ? { runUserId } : {}),
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
     };
@@ -2907,22 +3110,30 @@ export class FrozenDatasetLoader {
     objectApiName: string,
     recordCount: number,
   ): Promise<void> {
-    const request: OperationRequest = {
+    await this.consultGuard(options, {
       orgId: options.orgId,
       orgTier: options.orgTier,
       operation,
       objectName: objectApiName,
       recordCount,
       module: 'frozendataset',
-    };
+    });
+  }
+
+  /** Consult Production Guard, tell the caller what it decided, and stop on a refusal. */
+  private async consultGuard(
+    options: Pick<FrozenLoadOptions, 'onGuardDecision'>,
+    request: OperationRequest,
+  ): Promise<GuardDecision> {
     const { check, decision } = await consultProductionGuard(this.deps.guard, request);
     options.onGuardDecision?.(decision);
     if (decision === 'refused' || decision === 'declined') {
       throw new LoadGuardError(
         'guard-refused',
-        `Production guard refused ${operation} on ${objectApiName}: ${check.blockedReason ?? 'confirmation declined'}`,
+        `Production guard refused ${request.operation} on ${request.objectName}: ${check.blockedReason ?? 'confirmation declined'}`,
       );
     }
+    return decision;
   }
 
   /**
@@ -3938,14 +4149,47 @@ export class FrozenDatasetLoader {
    * target does not say, or the question fails.
    */
   private async runningUser(orgId: string): Promise<string | undefined> {
+    const user = await this.runUserIdOf(orgId);
+    return user ? recordKey(user) : undefined;
+  }
+
+  /** The id of the user the load writes to the org as; undefined when the target does not say. */
+  private async runUserIdOf(orgId: string): Promise<string | undefined> {
     const userId = this.deps.orgAccess.userId;
     if (!userId) return undefined;
     try {
-      const user = await userId.call(this.deps.orgAccess, orgId);
-      return user ? recordKey(user) : undefined;
+      return (await userId.call(this.deps.orgAccess, orgId)) || undefined;
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * What the target gave the records the load created without a record type,
+   * read once its writes are through: one request an object, of its first
+   * records (`recordTypeReadBackSoql`). A read that fails is said in the org's
+   * words and fails nothing: the records are in.
+   */
+  private async readBackRecordTypes(
+    orgId: string,
+    entries: readonly RecordsGivenAType[],
+    mapping: ReadonlyMap<string, string>,
+  ): Promise<RecordTypeGiven[]> {
+    const read: RecordTypeGiven[] = [];
+    for (const { given, rule, keys } of entries) {
+      const ids = keys.flatMap((key) => mapping.get(key) ?? []);
+      try {
+        const rows = await this.deps.orgAccess.query(
+          orgId,
+          recordTypeReadBackSoql(given.objectApiName, ids),
+        );
+        read.push({ ...given, readBack: recordTypesReadBack(rows, rule.types) });
+      } catch (err: unknown) {
+        const unread = extractErrorMessage(err);
+        read.push({ ...given, readBack: { read: 0, types: [], unread } });
+      }
+    }
+    return read;
   }
 
   /** Some records of an object by id, with `fields`, {@link ID_IN_CHUNK} ids per query. */
@@ -3986,6 +4230,7 @@ export class FrozenDatasetLoader {
     record: FrozenRecord,
     resolvedRecordTypes: Map<string, string>,
     issues: SchemaAlignmentReport['recordTypeIssues'],
+    withoutRecordType: Map<string, WithoutRecordTypeWhy>,
   ): Promise<FrozenRecord> {
     const fields = { ...record.fields };
     if (objectApiName === ACCOUNT) {
@@ -3993,6 +4238,9 @@ export class FrozenDatasetLoader {
     }
     const rtName = fields.RecordTypeId;
     if (typeof rtName !== 'string' || rtName === '') {
+      // Empty, the record was on Master in the source, as the org reads one;
+      // not there at all, the source's object had no record type to read.
+      if ('RecordTypeId' in fields) withoutRecordType.set(record.referenceId, 'masterInSource');
       delete fields.RecordTypeId;
       return { referenceId: record.referenceId, fields };
     }
@@ -4000,6 +4248,7 @@ export class FrozenDatasetLoader {
     const ref = refs[0];
     if (!ref) {
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
@@ -4039,21 +4288,26 @@ export class FrozenDatasetLoader {
     }
     if (targetId !== null && typeof targetId === 'object') {
       // Kept, every record naming it is refused; dropped, the record goes in
-      // with the running user's default record type — and says so here.
+      // with the type the target gives the running user — and says which here.
+      const given = await this.deps.recordTypeResolver
+        .givenRecordType?.(options.orgId, objectApiName)
+        .catch(() => undefined);
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
         recordTypeName: rtName,
         detail:
           `RecordType ${developerName} is in the target org but not available to the running ` +
-          "user — RecordTypeId dropped, the user's default record type applies. Assign it to " +
+          `user — RecordTypeId dropped, ${givenRecordTypeWords(given)}. Assign it to ` +
           "the user's profile or a permission set to keep it.",
       });
       return { referenceId: record.referenceId, fields };
     }
     if (!targetId) {
       delete fields.RecordTypeId;
+      withoutRecordType.set(record.referenceId, 'dropped');
       issues.push({
         objectApiName,
         referenceId: record.referenceId,
@@ -5412,6 +5666,10 @@ function loadPlanOf(
   const leftUnrecorded = purge?.leftUnrecorded ?? {};
   const keptByThePlatform = purge?.keptByThePlatform ?? {};
   const heldForExcluded = prepared.heldForExclusions.counts();
+  const recordTypesGiven = recordsGivenAType(
+    prepared,
+    (referenceId) => !reused.has(referenceId) && !withTheirAccount.has(referenceId),
+  ).map(({ given }) => given);
   return {
     orgId: context.orgId,
     mode: context.mode,
@@ -5443,6 +5701,7 @@ function loadPlanOf(
     ...(heldForExcluded.length > 0
       ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
       : {}),
+    ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
   };
 }
 

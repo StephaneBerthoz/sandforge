@@ -44,8 +44,15 @@ vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../modules/frozendataset/index.js')>();
   return {
     ...actual,
-    FrozenDatasetLoader: vi.fn().mockImplementation(function () {
-      return { load: loaderLoad, planLoad: loaderPlan };
+    FrozenDatasetLoader: vi.fn().mockImplementation(function (
+      loaderDeps: ConstructorParameters<typeof actual.FrozenDatasetLoader>[0],
+    ) {
+      const real = new actual.FrozenDatasetLoader(loaderDeps);
+      return {
+        gateLoad: (options: Parameters<typeof real.gateLoad>[0]) => real.gateLoad(options),
+        load: loaderLoad,
+        planLoad: loaderPlan,
+      };
     }),
   };
 });

@@ -18,6 +18,7 @@
  */
 
 import type { ForgeWrittenBetween, FrozenExclusionCost } from '@sandforge/shared';
+import type { GivenRecordType } from '../../core/metadata/recordTypeGiven.js';
 import type { RecordTypeNameParts } from '../../core/metadata/recordTypeNames.js';
 import type { RowsLeftOut } from '../../core/common/platformRecords.js';
 
@@ -202,6 +203,12 @@ export interface RecordTypeIdResolver {
     developerName: string,
     namespacePrefix?: string | null,
   ): Promise<string | null | UnavailableRecordType | AmbiguousRecordType>;
+  /**
+   * What the target gives a record of the object sent without a record type,
+   * for the user the load writes as, from the describe the resolver holds;
+   * undefined when it holds none. What a record whose type was dropped gets.
+   */
+  givenRecordType?(orgId: string, sobjectType: string): Promise<GivenRecordType | undefined>;
 }
 
 /**
@@ -282,6 +289,12 @@ export interface PersistedLoad {
    * never deleted on their own. Absent when the load linked none.
    */
   withTheirRecord?: Readonly<Record<string, string>>;
+  /**
+   * The user the load wrote as, by Salesforce id: what a removal and its
+   * sweep hold the records the target's automation made to. Absent when the
+   * target did not say.
+   */
+  runUserId?: string;
 }
 
 /**
@@ -339,6 +352,11 @@ export interface LoadJournal {
    * {@link flush}.
    */
   created(objectApiName: string, records: ReadonlyArray<readonly [key: string, id: string]>): void;
+  /**
+   * The user the load writes as, told before its first batch: a load killed
+   * part way is read back with it, as one that ended keeps it with its mapping.
+   */
+  writtenAs(userId: string): void;
   /** Waits for what was appended to be written; says why some could not be, once. */
   flush(): Promise<string | undefined>;
   /**

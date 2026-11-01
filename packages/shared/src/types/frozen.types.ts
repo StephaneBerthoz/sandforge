@@ -764,6 +764,12 @@ export interface FrozenLoadPlanInfo {
    * and the refusal it would meet. Absent when not asked.
    */
   checkpoint?: RunCheckpointEstimate;
+  /**
+   * Per object, the records the load would create without a record type, and
+   * the type the describe of the user it writes as says the target gives
+   * them. Absent when there is nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
 }
 
 /**

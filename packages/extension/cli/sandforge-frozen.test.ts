@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { RecordTypeGiven } from '@sandforge/shared';
 import {
   discoveryLine,
+  frozenRecordTypeLines,
   FROZEN_PREVIEW_UNREAD,
   messageLines,
   parseArgs,
@@ -510,6 +512,76 @@ describe('messageLines — where the graph of a step came from', () => {
     expect(discoveryLine({ rediscovered: "the source's schema changed since" })).toBe(
       "rediscovered: the source's schema changed since",
     );
+  });
+});
+
+describe('what the command says of the record type the target gave', () => {
+  const PREDICTED: RecordTypeGiven = {
+    objectApiName: 'Opportunity',
+    rows: 3,
+    why: { masterInSource: 2, dropped: 1 },
+    predicted: { developerName: 'SFX_Retail', label: 'SFX Retail', basis: 'onlyOneOpen' },
+  };
+  const READ_BACK: RecordTypeGiven = {
+    ...PREDICTED,
+    readBack: {
+      read: 3,
+      types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 }],
+    },
+  };
+  const report = (recordTypesGiven?: RecordTypeGiven[]) => ({
+    type: 'frozen:load:response',
+    payload: {
+      report: {
+        status: 'completed',
+        durationMs: 1,
+        alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+        placeholders: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        purge: { deleted: {}, failures: [] },
+        ...(recordTypesGiven ? { recordTypesGiven } : {}),
+      },
+    },
+  });
+
+  it('says of a load what the first records were read back holding, and why they went without one', () => {
+    const lines = messageLines(report([READ_BACK]));
+
+    expect(lines).toContain(
+      'record types the target gave the records created without one (1 object(s)):',
+    );
+    const line = lines.find((said) => said.startsWith('  Opportunity  3 record(s)'));
+    expect(line).toContain('2 on Master in the source');
+    expect(line).toContain('1 whose record type the target lacks or keeps from the user');
+    expect(line).toContain('SFX_Retail');
+  });
+
+  it('says what the describe gave, and why the read failed, when the read back was refused', () => {
+    const lines = messageLines(
+      report([
+        { ...PREDICTED, readBack: { read: 0, types: [], unread: 'REQUEST_LIMIT_EXCEEDED' } },
+      ]),
+    );
+
+    expect(lines.join('\n')).toContain('could not be read back: REQUEST_LIMIT_EXCEEDED');
+  });
+
+  it('says nothing of a load with nothing to say', () => {
+    expect(messageLines(report()).join('\n')).not.toContain('record types the target');
+  });
+
+  it('says of a dry run what the describe gives, and what a real load’s mute may open', () => {
+    const quiet = frozenRecordTypeLines([PREDICTED], true);
+    const muted = frozenRecordTypeLines([PREDICTED], true, true);
+
+    expect(quiet[0]).toBe(
+      'record types the target would give the records created without one (1 object(s)):',
+    );
+    expect(quiet.join('\n')).toContain('would go in as SFX_Retail');
+    expect(quiet.join('\n')).not.toContain('may open other record types');
+    expect(muted.join('\n')).toContain('may open other record types');
+    expect(frozenRecordTypeLines(undefined, true, true)).toEqual([]);
   });
 });
 

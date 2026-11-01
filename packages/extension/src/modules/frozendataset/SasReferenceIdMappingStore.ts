@@ -13,9 +13,10 @@
  * those it linked go with a record it created, as a person account's contact
  * goes with its account, a contact's direct relation with the contact, an
  * email's task with the email — when it ran —
- * by this machine's clock, and by the target's — and what earlier removals of
- * it did; and the same of the loads before it that no reload purged, whose
- * records are still in the org. Record ids stay in the sas with the rest.
+ * by this machine's clock, and by the target's — as which user, and what
+ * earlier removals of it did and their sweeps found made for it; and the same
+ * of the loads before it that no reload purged, whose records are still in the
+ * org. Record ids stay in the sas with the rest.
  *
  * One file per target org: a load into one org leaves the loads into another
  * named, for their removal, their reload and their verification.
@@ -30,6 +31,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as z from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark, ForgeWrittenBetween } from '@sandforge/shared';
+import { SWEEP_MADE_PER_OBJECT } from '../forge/ForgeRemovalPlanStore.js';
 import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 import type {
   LoadCreatedRecords,
@@ -88,7 +90,11 @@ const journalBatchSchema = z.object({
 
 /** The first line of a journal: the load and the process writing it. */
 const journalHeadSchema = z.object({
-  journal: z.object({ startedAt: z.string().min(1).max(40), pid: z.number().int().positive() }),
+  journal: z.object({
+    startedAt: z.string().min(1).max(40),
+    pid: z.number().int().positive(),
+    runUserId: z.string().regex(RECORD_ID).optional(),
+  }),
 });
 
 /**
@@ -138,6 +144,7 @@ export function loadOfJournal(
         .filter(([, keys]) => keys.length > 0)
         .map(([objectApiName, referenceIds]) => ({ objectApiName, referenceIds })),
       load: { startedAt: head.startedAt, endedAt: last },
+      ...(head.runUserId ? { runUserId: head.runUserId } : {}),
     },
   };
 }
@@ -260,6 +267,14 @@ interface LoadPayload {
    * none, and from files written before it was recorded.
    */
   withTheirRecord?: Record<string, string>;
+  /** The user the load wrote as. Absent from files written before it was recorded. */
+  runUserId?: string;
+  /**
+   * What sweeps of the load's removals found the target's automation made for
+   * it, by record id: tied to it once, those stay its own for the next sweep,
+   * after the lookup that told it may be gone.
+   */
+  madeEarlier?: string[];
 }
 
 /** On-disk shape of the persisted mapping: the last load, and the ones it kept. */
@@ -308,6 +323,7 @@ const removalSpansSchema = z.array(
 );
 /** Keys of the mapping, each with the key of the record it goes with. */
 const keyLinksSchema = z.record(z.string(), z.string());
+const recordIdSchema = z.string().regex(RECORD_ID);
 
 /** The value a schema reads in `value`, or undefined when it reads none. */
 function readAs<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
@@ -338,6 +354,8 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
   const removalSpans = readAs(removalSpansSchema, raw.removalSpans);
   const personContacts = readAs(keyLinksSchema, raw.personContacts);
   const withTheirRecord = readAs(keyLinksSchema, raw.withTheirRecord);
+  const runUserId = readAs(recordIdSchema, raw.runUserId);
+  const madeEarlier = readAs(z.array(recordIdSchema), raw.madeEarlier);
   return {
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
     mapping,
@@ -349,6 +367,8 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
     ...(removalSpans ? { removalSpans } : {}),
     ...(personContacts ? { personContacts } : {}),
     ...(withTheirRecord ? { withTheirRecord } : {}),
+    ...(runUserId ? { runUserId } : {}),
+    ...(madeEarlier ? { madeEarlier } : {}),
   };
 }
 
@@ -417,6 +437,10 @@ export interface RecordedLoad {
    * the load linked none, or the file does not say.
    */
   withTheirRecord?: Readonly<Record<string, string>>;
+  /** The user the load wrote as. Undefined when the file does not say. */
+  runUserId?: string;
+  /** What sweeps of its removals found made for the load, by record id: see `recordMade`. */
+  madeEarlier?: readonly string[];
   /** Set for a load before the last one, which the last load kept. */
   earlier?: true;
 }
@@ -615,6 +639,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     let begun = false;
     let retired = false;
     let createdSome = false;
+    let runUserId: string | undefined;
     let writes: Promise<void> = Promise.resolve();
     let failure: string | undefined;
     JOURNALS_WRITING.add(file);
@@ -625,7 +650,13 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
           if (!begun) {
             begun = true;
             await fs.mkdir(path.dirname(file), { recursive: true });
-            const head = { journal: { startedAt: startedAt.toISOString(), pid: process.pid } };
+            const head = {
+              journal: {
+                startedAt: startedAt.toISOString(),
+                pid: process.pid,
+                ...(runUserId ? { runUserId } : {}),
+              },
+            };
             await fs.appendFile(file, `${JSON.stringify(head)}\n`, 'utf8');
           }
           await fs.appendFile(file, `${JSON.stringify(line)}\n`, 'utf8');
@@ -641,6 +672,9 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     };
     this.retiring.set(file, retire);
     return {
+      writtenAs: (userId) => {
+        if (RECORD_ID.test(userId)) runUserId = userId;
+      },
       created: (objectApiName, records) => {
         const valid = records.filter(([key, id]) => key !== '' && RECORD_ID.test(id));
         if (valid.length === 0) return;
@@ -787,6 +821,8 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       removalSpans: load.removalSpans ?? [],
       ...(load.personContacts ? { personContacts: load.personContacts } : {}),
       ...(load.withTheirRecord ? { withTheirRecord: load.withTheirRecord } : {}),
+      ...(load.runUserId ? { runUserId: load.runUserId } : {}),
+      ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
     };
   }
 
@@ -958,6 +994,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
             ...(load.writtenBetween ? { writtenBetween: { ...load.writtenBetween } } : {}),
             ...(Object.keys(personContacts).length > 0 ? { personContacts } : {}),
             ...(Object.keys(withTheirRecord).length > 0 ? { withTheirRecord } : {}),
+            ...(load.runUserId ? { runUserId: load.runUserId } : {}),
           }
         : {}),
       ...(kept.length > 0 ? { earlier: kept } : {}),
@@ -1016,6 +1053,39 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 
   /**
+   * Keep what the sweep of a load's removal found the target's automation
+   * made for it, for the next sweep (`SweepTies.madeEarlier`): once a removal
+   * deleted the record one was tied to, the org may have cleared the lookup
+   * that told it, and the next sweep listed it as tied to nothing. Each record
+   * once, up to {@link SWEEP_MADE_PER_OBJECT} of an object, as Forge keeps
+   * them.
+   *
+   * @param endedAt - When the load wrote its last record, as {@link recorded}
+   *   named it.
+   * @returns Whether the file still recorded that load, and was written.
+   */
+  async recordMade(endedAt: string, made: Iterable<string>): Promise<boolean> {
+    const { payload, journals } = await this.readWithJournals();
+    const last = loadPartsOf(payload);
+    if (payload === undefined || last === undefined) return false;
+    const loads = [last, ...earlierOf(payload)];
+    const swept = loads.findIndex((load) => endedAtOf(load) === endedAt);
+    if (swept < 0) return false;
+    const [nextLast, ...nextEarlier] = loads.map((load, index) =>
+      index === swept ? { ...load, madeEarlier: madeKept(load.madeEarlier, made) } : load,
+    );
+    await this.write({
+      version: 1,
+      orgId: typeof payload.orgId === 'string' ? payload.orgId : '',
+      ...(payload.organizationId !== undefined ? { organizationId: payload.organizationId } : {}),
+      ...nextLast,
+      ...(nextEarlier.length > 0 ? { earlier: nextEarlier } : {}),
+    });
+    await this.dropJournals(journals);
+    return true;
+  }
+
+  /**
    * Keep what a reload's purge left on records of the loads the file records
    * that it did not delete, by record id: the `LastModifiedDate` the org left
    * on each. Each load that names the record keeps it with what its removals
@@ -1052,6 +1122,23 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     await this.dropJournals(journals);
     return true;
   }
+}
+
+/** What a load keeps of what sweeps found made for it: see {@link SasReferenceIdMappingStore.recordMade}. */
+function madeKept(before: readonly string[] | undefined, made: Iterable<string>): string[] {
+  const perObject = new Map<string, number>();
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const id of [...(before ?? []), ...made]) {
+    const key = recordKey(id);
+    const object = key.slice(0, 3);
+    const count = perObject.get(object) ?? 0;
+    if (!RECORD_ID.test(id) || seen.has(key) || count >= SWEEP_MADE_PER_OBJECT) continue;
+    seen.add(key);
+    perObject.set(object, count + 1);
+    kept.push(id);
+  }
+  return kept;
 }
 
 /**

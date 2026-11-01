@@ -30,7 +30,7 @@ import type {
   RunCheckpointTaken,
 } from '@sandforge/shared';
 import { auditMutedOf, guardTierOf, stillRunningOf } from '@sandforge/shared';
-import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ProductionGuard, withGivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
   consultProductionGuard,
@@ -619,6 +619,7 @@ function removalSpanOf(
   | 'runRecordedAt'
   | 'removalStamps'
   | 'removalSpans'
+  | 'runUserId'
 > {
   const span = load.writtenBetween;
   const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
@@ -634,6 +635,7 @@ function removalSpanOf(
         }),
     removalStamps: load.removalStamps,
     removalSpans: load.removalSpans,
+    ...(load.runUserId ? { runUserId: load.runUserId } : {}),
   };
 }
 
@@ -699,6 +701,8 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
     ...(report.heldForExcludedParents
       ? { heldForExcludedParents: report.heldForExcludedParents }
       : {}),
+    ...(report.recordTypesGiven ? { recordTypesGiven: report.recordTypesGiven } : {}),
+    ...(report.runUserId ? { runUserId: report.runUserId } : {}),
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
   };
@@ -1577,12 +1581,26 @@ export class FrozenDatasetHandler implements DomainHandler {
             unique: f.unique === true,
             nameField: f.nameField === true,
           })),
-          // The REST describe carries each record type's developerName;
-          // jsforce's type for it leaves the field out.
+          // The REST describe carries each record type's developerName and
+          // whether it is active; jsforce's type for it leaves both out. The
+          // rest tells what the target gives a record sent without one.
           recordTypeInfos: (meta.recordTypeInfos ?? []).flatMap((rt) => {
-            const developerName = (rt as typeof rt & { developerName?: string }).developerName;
+            const { developerName, active } = rt as typeof rt & {
+              developerName?: string;
+              active?: boolean;
+            };
             return developerName
-              ? [{ developerName, recordTypeId: rt.recordTypeId, available: rt.available }]
+              ? [
+                  {
+                    developerName,
+                    recordTypeId: rt.recordTypeId,
+                    available: rt.available,
+                    name: rt.name,
+                    master: rt.master,
+                    defaultRecordTypeMapping: rt.defaultRecordTypeMapping,
+                    ...(active === undefined ? {} : { active }),
+                  },
+                ]
               : [];
           }),
         };
@@ -2516,9 +2534,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       // Asked to mute, the load reads what the target runs on the objects it
       // writes — it has no gate of its own that does — and plans the mute
       // from it: refused on a production org or for a user who cannot
-      // assign, it writes nothing. The lease is taken before its first
-      // write, and given back as it ends, whatever it ended on. Asked to take
-      // a checkpoint first, it reads the same once, for what still runs.
+      // assign, it writes nothing. The lease is taken before the load reads
+      // the record types its writes go by, and given back after its last
+      // write, or as it ends on anything else. Asked to take a checkpoint
+      // first, it reads the same once, for what still runs.
       const written = dataset.objects.map((object) => object.objectApiName);
       const read =
         parsed.muteAutomation === true || parsed.checkpointFirst !== undefined
@@ -2534,6 +2553,22 @@ export class FrozenDatasetHandler implements DomainHandler {
             })
           : undefined;
       mutedAutomation = mute?.muted;
+      // What stands in the load's way, before anything is taken for it: the
+      // entry guards, and Production Guard's question about the whole load,
+      // once. The batches it judges still take that answer, and ask nothing.
+      const orgTier = this.targetTier(parsed.targetOrgId);
+      const answer = await loader.gateLoad({
+        orgId: parsed.targetOrgId,
+        orgTier,
+        dataset,
+        manifest,
+        reload: parsed.reload,
+        pilot: parsed.pilot ? {} : undefined,
+        onProgress: (event) => throttledProgress(event),
+        onGuardDecision: (decision) => {
+          guardDecision = strongerDecision(guardDecision, decision);
+        },
+      });
       // The checkpoint of what the load writes, taken after the cost its
       // preview said and before the lease and the first write: refused,
       // failed or stopped, the load writes nothing and assigns nothing.
@@ -2551,25 +2586,30 @@ export class FrozenDatasetHandler implements DomainHandler {
       const held = mute?.prepared ? await mute.prepared.acquire(operationId) : undefined;
       if (held) mutedAutomation = held.outcome;
       loadStarted = true;
-      const loaded = loader.load({
-        orgId: parsed.targetOrgId,
-        orgTier: this.targetTier(parsed.targetOrgId),
-        dataset,
-        manifest,
-        sasDir,
-        reload: parsed.reload,
-        pilot: parsed.pilot ? {} : undefined,
-        ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
-        ...(parsed.maxRecords !== undefined ? { maxRecords: parsed.maxRecords } : {}),
-        onProgress: (event) => throttledProgress(event),
-        onGuardDecision: (decision) => {
-          guardDecision = strongerDecision(guardDecision, decision);
-          if (decision === 'allowed' || decision === 'confirmed') batchLetThrough = true;
-        },
-        // The controller the registry aborts: the load stops before its next
-        // write, where it used to run to its end.
-        signal: abortController.signal,
-      });
+      const load = (): Promise<FrozenLoadReport> =>
+        loader.load({
+          orgId: parsed.targetOrgId,
+          orgTier,
+          dataset,
+          manifest,
+          sasDir,
+          reload: parsed.reload,
+          pilot: parsed.pilot ? {} : undefined,
+          ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
+          ...(parsed.maxRecords !== undefined ? { maxRecords: parsed.maxRecords } : {}),
+          onProgress: (event) => throttledProgress(event),
+          onGuardDecision: (decision) => {
+            guardDecision = strongerDecision(guardDecision, decision);
+            if (decision === 'allowed' || decision === 'confirmed') batchLetThrough = true;
+          },
+          // The controller the registry aborts: the load stops before its next
+          // write, where it used to run to its end.
+          signal: abortController.signal,
+          // Given back after its last write, before it reads what the target
+          // gave its records; as it ends, below, whatever it ended on.
+          ...(held ? { lease: { giveBack: () => held.release() } } : {}),
+        });
+      const loaded = answer === 'confirmed' ? withGivenAnswer({ approved: true }, load) : load();
       const report = await loaded.finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
@@ -3978,6 +4018,9 @@ export class FrozenDatasetHandler implements DomainHandler {
           details: { ...details, loadedAt: load.endedAt },
         });
       },
+      keepMade: async (made) => {
+        await context.store.recordMade(load.endedAt, made);
+      },
     });
   }
 
@@ -4024,6 +4067,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         created,
         remap,
         automation: sweepAutomationOf(automation),
+        ...(load.runUserId ? { runUserId: load.runUserId } : {}),
         // Told the ties, the sweep takes only what is tied to the load's records.
         ties: await this.tiesOfLoad(load, writtenBetween, store),
         ...(signal ? { signal } : {}),
@@ -4035,9 +4079,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * What ties a record to the load beside its records (`SweepTies`): the
    * records of the other loads this sas recorded into the same org in its
-   * window, and when its first removal began. What the load's mute kept
-   * quiet, the user it wrote as and what earlier sweeps found made for it,
-   * its mapping does not keep.
+   * window, when its first removal began, and what earlier sweeps found made
+   * for it. What the load's mute kept quiet its mapping does not keep.
    */
   private async tiesOfLoad(
     load: RecordedLoad,
@@ -4059,6 +4102,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     return {
       otherRuns: otherRunsInSweep(writtenBetween, others),
       ...(began ? { removalBegan: began } : {}),
+      ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
     };
   }
 

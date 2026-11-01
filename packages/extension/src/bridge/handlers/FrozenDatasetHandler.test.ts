@@ -78,6 +78,7 @@ vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
     ) {
       const real = new actual.FrozenDatasetLoader(loaderDeps);
       return {
+        gateLoad: (options: Parameters<typeof real.gateLoad>[0]) => real.gateLoad(options),
         load: (options: Parameters<typeof real.load>[0]) =>
           loaderLoad.getMockImplementation() ? loaderLoad(options) : real.load(options),
         planLoad: (options: Parameters<typeof real.planLoad>[0]) =>
@@ -689,6 +690,8 @@ describe('FrozenDatasetHandler', () => {
       deps.infraServices = {
         productionGuard: new ProductionGuard(),
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      // A sandbox: the entry guards stand before the load, whatever a case scripts of it.
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({ orgType: 'Sandbox' } as never);
       vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
       handler = new FrozenDatasetHandler(deps);
       return store;

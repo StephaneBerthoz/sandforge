@@ -14,6 +14,7 @@ import type {
   FrozenLeftToThePlatform,
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
+  RecordTypeGiven,
 } from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
@@ -60,9 +61,19 @@ export interface TargetObjectDescribe {
   /**
    * Record types as the running user sees them. `available` is false for one
    * that exists and is active but is not assigned to that user — it resolves
-   * by DeveloperName and is then refused at insert.
+   * by DeveloperName and is then refused at insert. The rest of what the
+   * describe says of each tells what the target gives a record sent without
+   * one (`recordTypeGivenOf`).
    */
-  recordTypeInfos?: Array<{ developerName: string; recordTypeId: string; available: boolean }>;
+  recordTypeInfos?: Array<{
+    developerName: string;
+    recordTypeId: string;
+    available: boolean;
+    name?: string;
+    active?: boolean;
+    master?: boolean;
+    defaultRecordTypeMapping?: boolean;
+  }>;
 }
 
 /**
@@ -516,6 +527,13 @@ export interface FrozenLoadReport {
    * without such a record. Absent when none was.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * Per object, the record type the target gave the records the load created
+   * without one, as read back. Absent when there was nothing to say.
+   */
+  recordTypesGiven?: RecordTypeGiven[];
+  /** The user the load wrote as, by Salesforce id. Absent when the target did not say. */
+  runUserId?: string;
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */

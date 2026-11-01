@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { SWEEP_MADE_PER_OBJECT } from '../forge/ForgeRemovalPlanStore.js';
 import { InsideRepoPathError, SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import {
   REFERENCEID_MAPPING_FILENAME,
@@ -983,6 +984,127 @@ describe('SasReferenceIdMappingStore', () => {
     });
   });
 
+  describe('as which user a load wrote, and what sweeps found made for it', () => {
+    const USER = '005XX00000AbCdEAAA';
+    const TASK = '00TXX00000AbCdEAAA';
+    const FEED = '0D5XX00000AbCdEAAA';
+    const STARTED = new Date('2026-10-20T10:00:00.000Z');
+    const ENDED = '2026-10-20T10:02:00.000Z';
+
+    function storeOf(dir: string): SasReferenceIdMappingStore {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date(ENDED),
+      });
+    }
+
+    async function loaded(dir: string, runUserId?: string): Promise<void> {
+      await storeOf(dir).persist(new Map([['Account-000001', '001XX00000AbCdEAAA']]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: STARTED,
+        earlier: { settled: [] },
+        ...(runUserId ? { runUserId } : {}),
+      });
+    }
+
+    it('keeps the user with the load, and says nothing of one a file does not name', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir, USER);
+      await expect(storeOf(dir).recorded()).resolves.toMatchObject({ runUserId: USER });
+
+      const other = makeTmpDir();
+      await loaded(other);
+      expect(await storeOf(other).recorded()).not.toHaveProperty('runUserId');
+    });
+
+    it('reads no user from a file that does not hold an id', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir, USER);
+      const file = JSON.parse(fs.readFileSync(store.filePath, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(store.filePath, JSON.stringify({ ...file, runUserId: "x' OR ''='" }));
+
+      expect(await store.recorded()).not.toHaveProperty('runUserId');
+    });
+
+    it('keeps the user of the load before, once another load carries it on', async () => {
+      const dir = makeTmpDir();
+      await loaded(dir, USER);
+      await new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date('2026-10-20T11:02:00.000Z'),
+      }).persist(new Map([['Account-000002', '001XX00000FgHiJAAA']]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000002'] }],
+        startedAt: new Date('2026-10-20T11:00:00.000Z'),
+        earlier: { settled: [] },
+      });
+
+      const loads = await storeOf(dir).recordedLoads();
+
+      expect(loads[0]).not.toHaveProperty('runUserId');
+      expect(loads[1]).toMatchObject({ earlier: true, runUserId: USER });
+    });
+
+    it('keeps what a sweep found made for the load, each record once, across sweeps', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+
+      await expect(store.recordMade(ENDED, [TASK, FEED])).resolves.toBe(true);
+      await expect(store.recordMade(ENDED, [TASK.slice(0, 15)])).resolves.toBe(true);
+
+      expect((await store.recorded())?.madeEarlier).toEqual([TASK, FEED]);
+    });
+
+    it('keeps it through the removal that follows the sweep', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+      await store.recordMade(ENDED, [TASK]);
+
+      await store.recordRemoval(ENDED, { gone: [], stamps: {} });
+
+      expect((await store.recorded())?.madeEarlier).toEqual([TASK]);
+    });
+
+    it('leaves what names the load as it was: the removal still finds it', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+      const before = await store.recorded();
+
+      await store.recordMade(ENDED, [TASK]);
+
+      expect((await store.recorded())?.endedAt).toBe(before?.endedAt);
+    });
+
+    it('writes nothing for a load the file no longer records, nor a file that is not there', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await expect(store.recordMade(ENDED, [TASK])).resolves.toBe(false);
+
+      await loaded(dir);
+      await expect(store.recordMade('2026-10-19T00:00:00.000Z', [TASK])).resolves.toBe(false);
+      expect(await store.recorded()).not.toHaveProperty('madeEarlier');
+    });
+
+    it('takes no more of an object than a run of Forge keeps, and nothing that is no id', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+      const many = Array.from(
+        { length: SWEEP_MADE_PER_OBJECT + 5 },
+        (_, n) => `00TXX${String(n).padStart(10, '0')}AAA`,
+      );
+
+      await store.recordMade(ENDED, [...many, "x' OR ''='"]);
+
+      expect((await store.recorded())?.madeEarlier).toHaveLength(SWEEP_MADE_PER_OBJECT);
+    });
+  });
+
   it('keeps the dates the target gave the records a load created', async () => {
     const dir = makeTmpDir();
     const store = new SasReferenceIdMappingStore(dir, { guard: new SasPathGuard(repoRoot) });
@@ -1009,6 +1131,7 @@ describe('SasReferenceIdMappingStore', () => {
     const FIRST_ACCOUNT = '001XX00000AbCdEAAA';
     const ACCOUNT = '001XX00000FgHiJAAA';
     const CONTACTS = ['003XX00000FgHiJAAA', '003XX00000KlMnOAAA'];
+    const USER = '005XX00000FgHiJAAA';
     const FIRST = new Date('2026-09-24T10:00:00.000Z');
     const KILLED = new Date('2026-09-24T11:00:00.000Z');
     /** A process that is not running: the window whose load was killed. */
@@ -1183,6 +1306,38 @@ describe('SasReferenceIdMappingStore', () => {
       expect((await store.recordedLoads()).map((load) => load.startedAt)).toEqual([
         FIRST.toISOString(),
       ]);
+    });
+
+    it('names the user the load wrote as, read back from its journal once it was killed', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      const journal = store.journal(KILLED);
+      journal.writtenAs(USER);
+      journal.created('Account', [['Account-000002', ACCOUNT]]);
+      await journal.close();
+
+      await expect(store.recorded()).resolves.toMatchObject({
+        startedAt: KILLED.toISOString(),
+        runUserId: USER,
+      });
+    });
+
+    it('reads a journal written before it kept the user as a load that does not say', async () => {
+      const dir = makeTmpDir();
+      killedJournal(dir);
+
+      const load = await storeOf(dir).recorded();
+
+      expect(load).toBeDefined();
+      expect(load).not.toHaveProperty('runUserId');
+    });
+
+    it('takes no user from a journal that does not hold an id', () => {
+      const line = JSON.stringify({
+        journal: { startedAt: KILLED.toISOString(), pid: GONE, runUserId: "005' OR ''='" },
+      });
+
+      expect(loadOfJournal(line)).toBeUndefined();
     });
 
     it('leaves no journal of a load that created nothing, and keeps the one of a load whose mapping was never written', async () => {

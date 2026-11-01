@@ -329,6 +329,42 @@ describe('the --json answer of each step, as an environment reads it', () => {
     expect(await frozenAnswer('load', [], context())).not.toHaveProperty('mutePlan');
   });
 
+  it('gives a load what the target gave, as read back, and a dry run what the describe says', async () => {
+    const predicted = {
+      objectApiName: 'Opportunity',
+      rows: 1,
+      why: { masterInSource: 1 },
+      predicted: {
+        developerName: 'SFX_Retail',
+        label: 'SFX Retail',
+        basis: 'onlyOneOpen' as const,
+      },
+    };
+    const readBack = {
+      ...predicted,
+      readBack: {
+        read: 1,
+        types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 1 }],
+      },
+    };
+    const plan = (recordTypesGiven?: unknown) => ({
+      type: 'frozen:load:preview:response',
+      payload: { plan: { perObject: [], ...(recordTypesGiven ? { recordTypesGiven } : {}) } },
+    });
+    const report = {
+      type: 'frozen:load:response',
+      payload: {
+        report: { perObject: [], mappingPath: 'mapping.json', recordTypesGiven: [readBack] },
+      },
+    };
+
+    expect((await frozenAnswer('load', [plan([predicted])], context())).recordTypesGiven).toEqual([
+      predicted,
+    ]);
+    expect((await frozenAnswer('load', [report], context())).recordTypesGiven).toEqual([readBack]);
+    expect(await frozenAnswer('load', [plan()], context())).not.toHaveProperty('recordTypesGiven');
+  });
+
   it('gives an extraction the dataset it froze, its digest and version, and its records per object', async () => {
     const answer = await frozenAnswer(
       'extract',

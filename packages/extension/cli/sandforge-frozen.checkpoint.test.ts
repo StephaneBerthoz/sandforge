@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type {
+  ForgeTargetAutomation,
   FrozenLoadPlanInfo,
   MutedAutomation,
   RunCheckpointEstimate,
@@ -45,6 +46,7 @@ import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetL
 import type { FrozenLoadReport } from '../src/modules/frozendataset/loadTypes.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
+import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
 import {
   writePathOrderDefects,
   type BeforeRunTake,
@@ -66,6 +68,38 @@ import {
 
 /** The target, a sandbox, as its `Organization` record answers. */
 const ORG_ID = '00D000000000009AAA';
+
+/** What the target runs on the opportunities: a flow whose bypass `Data_Load` holds. */
+const AUTOMATION: ForgeTargetAutomation = {
+  objectsRead: ['Opportunity'],
+  objects: [
+    {
+      objectApiName: 'Opportunity',
+      flows: [
+        {
+          apiName: 'Deal_Welcome',
+          label: 'Deal welcome',
+          timing: 'afterSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+          creates: [],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Load_Data',
+      permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+    },
+  ],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 4,
+};
 
 /** What the checkpoint of the load would hold and cost, as its scope says. */
 const ESTIMATE: RunCheckpointEstimate = {
@@ -438,6 +472,38 @@ describe('sandforge-frozen load --checkpoint-first', () => {
     expect(asked[0].written).toEqual(['Account']);
     expect(answer().checkpoint).toEqual(ESTIMATE);
     expect(errored.join('')).toContain('  Checkpoint first: about 3 records of 2 objects');
+  });
+
+  it('says on a dry run what the target would give, and that the mute a real load holds may open more', async () => {
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(AUTOMATION);
+    vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      perObject: [
+        { objectApiName: 'Opportunity', fromFiles: 1, toInsert: 1, toPurge: 0, toDeactivate: 0 },
+      ],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypesGiven: [
+        {
+          objectApiName: 'Opportunity',
+          rows: 1,
+          why: { masterInSource: 1 },
+          predicted: { developerName: 'SFX_Retail', label: 'SFX Retail', basis: 'onlyOneOpen' },
+        },
+      ],
+    } as unknown as FrozenLoadPlanInfo);
+
+    await main(
+      argv('load', '--config', configPath, '--target', 'TGT', '--dry-run', '--mute-automation'),
+    );
+
+    const said = printed.join('');
+    expect(said).toContain('record types the target would give the records created without one');
+    expect(said).toContain('would go in as SFX_Retail');
+    expect(said).toContain('may open other record types');
   });
 
   it('says on a dry run that a real load would be refused for its checkpoint, exit 1', async () => {

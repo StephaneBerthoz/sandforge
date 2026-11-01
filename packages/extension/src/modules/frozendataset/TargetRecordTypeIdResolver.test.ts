@@ -78,6 +78,60 @@ describe('TargetRecordTypeIdResolver', () => {
     expect(describe).toHaveBeenCalledTimes(1);
   });
 
+  describe('what the target gives a record sent without a record type', () => {
+    /** The describe of an admin whose default is Master, with one other type open. */
+    const describedForTheFixture = () =>
+      vi.fn().mockResolvedValue({
+        name: 'Opportunity',
+        fields: [],
+        recordTypeInfos: [
+          { developerName: 'SFX_Hidden', recordTypeId: PACKAGED, available: false, master: false },
+          { developerName: 'SFX_Retail', recordTypeId: ORG_OWN, available: true, master: false },
+          {
+            developerName: 'Master',
+            recordTypeId: '012000000000000AAA',
+            available: true,
+            master: true,
+            defaultRecordTypeMapping: true,
+          },
+        ],
+      });
+
+    it('is the only other type open, where the describe names Master', async () => {
+      const resolver = new TargetRecordTypeIdResolver({
+        query: vi.fn(),
+        describe: describedForTheFixture(),
+      });
+
+      await expect(resolver.givenRecordType('00D-target', 'Opportunity')).resolves.toMatchObject({
+        kind: 'given',
+        basis: 'onlyOneOpen',
+        info: { developerName: 'SFX_Retail' },
+      });
+    });
+
+    it('is read from the describe that told a type unavailable, with no request of its own', async () => {
+      const describe = describedForTheFixture();
+      const resolver = new TargetRecordTypeIdResolver({
+        query: vi.fn().mockResolvedValue([row(PACKAGED, 'SFX_Hidden')]),
+        describe,
+      });
+
+      await expect(
+        resolver.resolveByDeveloperName('00D-target', 'Opportunity', 'SFX_Hidden'),
+      ).resolves.toEqual({ unavailable: true, id: PACKAGED });
+      await resolver.givenRecordType('00D-target', 'Opportunity');
+
+      expect(describe).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not said without a describe', async () => {
+      const resolver = new TargetRecordTypeIdResolver({ query: vi.fn() });
+
+      await expect(resolver.givenRecordType('00D-target', 'Opportunity')).resolves.toBeUndefined();
+    });
+  });
+
   it('escapes single quotes in SOQL literals', async () => {
     const query = vi.fn().mockResolvedValue([]);
     const resolver = new TargetRecordTypeIdResolver({ query });
