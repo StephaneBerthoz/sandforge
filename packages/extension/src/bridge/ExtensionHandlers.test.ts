@@ -357,14 +357,17 @@ describe('ExtensionHandlers', () => {
       }
     });
 
-    it('hands the checkpoint before a run to the handlers of Forge, Autopilot and Frozen Dataset', () => {
-      const own = handlers as unknown as Record<
-        'forgeHandler' | 'autopilotHandler' | 'frozenHandler',
-        { beforeRunCheckpoints?: unknown }
-      >;
-      expect(own.forgeHandler.beforeRunCheckpoints).toBe(handlers.beforeRunCheckpoints);
-      expect(own.autopilotHandler.beforeRunCheckpoints).toBe(handlers.beforeRunCheckpoints);
-      expect(own.frozenHandler.beforeRunCheckpoints).toBe(handlers.beforeRunCheckpoints);
+    it.each([
+      'forgeHandler',
+      'autopilotHandler',
+      'frozenHandler',
+      'syncHandler',
+      'seedHandler',
+      'seedCsvHandler',
+      'seedCloneHandler',
+    ])('hands the checkpoint before a run to %s', (name) => {
+      const own = handlers as unknown as Record<string, { beforeRunCheckpoints?: unknown }>;
+      expect(own[name].beforeRunCheckpoints).toBe(handlers.beforeRunCheckpoints);
     });
 
     it('gives the run handlers the checkpoint before a run through the Checkpoints’ own handler', async () => {

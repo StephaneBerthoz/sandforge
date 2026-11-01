@@ -317,6 +317,35 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     expect(fit.budget.automationMB).toBe(0);
   });
 
+  it('writes the fit a person applied in the audit trail', async () => {
+    developerEdition();
+    await execute(SALES_CLOUD_STARTER);
+    const fit = posted('seed:error')[0].payload.fit as SeedFitProposal;
+    const before = fit.objects.reduce((sum, o) => sum + o.before, 0);
+    const kept = fit.objects.reduce((sum, o) => sum + o.after, 0);
+    await execute(applied(SALES_CLOUD_STARTER, fit), { fit: { share: fit.share, before } });
+    await vi.waitFor(() => expect(executed).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(JSON.stringify(vi.mocked(deps.configStore.set).mock.calls)).toContain(
+        `"fit":{"module":"seed","share":${fit.share},"kept":${kept},"inSource":7600}`,
+      ),
+    );
+  });
+
+  it('writes no fit in the audit trail for a seed that was not fitted', async () => {
+    developerEdition();
+    await execute(SALES_CLOUD_STARTER);
+    const fit = posted('seed:error')[0].payload.fit as SeedFitProposal;
+    await execute(applied(SALES_CLOUD_STARTER, fit));
+    await vi.waitFor(() => expect(executed).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(JSON.stringify(vi.mocked(deps.configStore.set).mock.calls)).toContain(
+        '"outcome":"success"',
+      ),
+    );
+    expect(JSON.stringify(vi.mocked(deps.configStore.set).mock.calls)).not.toContain('"fit":');
+  });
+
   it('proposes nothing when the org will not say its storage: there is nothing to fit to', async () => {
     const request = vi.fn(async () => {
       steps.push('limits read');

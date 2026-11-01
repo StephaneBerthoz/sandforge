@@ -1,4 +1,5 @@
 import type {
+  AuditFit,
   AuditOutcome,
   CheckpointRefusal,
   CompiledScenario,
@@ -113,7 +114,12 @@ import {
 } from '../../core/precheck/ProductionGuard.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { seedFitBudgetOf, seedStorageGate } from '../../modules/seed/seedStorage.js';
-import { seedFitProposalOf, seedRoomOf, seedWritesOf } from '../../modules/seed/seedFit.js';
+import {
+  seedAuditFitOf,
+  seedFitProposalOf,
+  seedRoomOf,
+  seedWritesOf,
+} from '../../modules/seed/seedFit.js';
 import {
   API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
@@ -171,6 +177,8 @@ interface SeedRunPayload {
   locale: string;
   /** The mute it was asked for, planned before its gate: held while it writes. */
   mute?: RunMute;
+  /** The fit its counts were taken from, as the audit trail says it. */
+  fit?: AuditFit;
 }
 
 /**
@@ -1647,6 +1655,8 @@ export class SeedOpsHandler implements DomainHandler {
       }
     }
     if (mute) payload.mute = mute;
+    const auditFit = seedAuditFitOf(asked.fit, plannedRecords);
+    if (auditFit) payload.fit = auditFit;
     // What still runs of it once the mute's plan holds, nothing assigned, and
     // the room what it creates takes under the records: what a fit keeps.
     const stillRunning = seedRoomOf(read, mute?.plan, seedWritesOf(kinds.template, publishes));
@@ -2498,6 +2508,7 @@ export class SeedOpsHandler implements DomainHandler {
         ...(result.checkpoint?.state === 'taken'
           ? { checkpointId: result.checkpoint.checkpointId }
           : {}),
+        ...(payload.fit ? { fit: payload.fit } : {}),
       });
 
       const response = buildResponse(
@@ -2579,6 +2590,7 @@ export class SeedOpsHandler implements DomainHandler {
         guard: guardDecision,
         source,
         ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
+        ...(payload.fit ? { fit: payload.fit } : {}),
       });
       // Dual channel, single display (see handleExecute): seed:error settles
       // the in-flight webview mutation, operation:failed carries the
