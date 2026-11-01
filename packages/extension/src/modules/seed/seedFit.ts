@@ -44,9 +44,11 @@ import {
   plannedChildCount,
   relationFor,
   stillRunningOf,
+  type AuditFit,
   type ForgeAutomationWrite,
   type ForgeTargetAutomation,
   type MutePlan,
+  type SeedFitApplied,
   type SeedFitProposal,
   type SeedObjectConfig,
   type SeedRelation,
@@ -96,12 +98,22 @@ export interface SeedFit {
   requests: number;
 }
 
+/**
+ * The room a seed keeps under its records for what the target's automation
+ * creates there, and why none is kept when that automation could not be
+ * read: what a fit's proposal says to the page that shows it.
+ */
+export interface SeedAutomationRoom extends AutomationRoom {
+  /** Why no room is kept: the target's automation was not read. */
+  unread?: string;
+}
+
 /** What still runs of the target's automation as a seed writes, and the room it takes under the records. */
 export interface SeedRoom {
   /** Absent when the target's automation could not be read. */
   running?: StillRunning<ForgeTargetAutomation>;
-  room: AutomationRoom;
-  /** Why no room is kept: the target's automation was not read. */
+  room: SeedAutomationRoom;
+  /** Why no room is kept: the target's automation was not read; `room.unread` says the same. */
   unread?: string;
 }
 
@@ -142,7 +154,7 @@ export function seedRoomOf(
   writes: SeedWrites,
 ): SeedRoom {
   if (typeof read.unread === 'string') {
-    return { room: { perRecord: [], notCounted: [] }, unread: read.unread };
+    return { room: { perRecord: [], notCounted: [], unread: read.unread }, unread: read.unread };
   }
   const running = stillRunningOf(read as ForgeTargetAutomation, plan, writes);
   return { running, room: automationRoomOf(running, writes) };
@@ -311,12 +323,18 @@ function recordsWords(n: number): string {
  * What cannot be cut — rows a template gives, one record of each other
  * object, or what the caps leave when no share is asked — past the budget is
  * said in `cannotFit`, with the counts it would take and nothing proposed.
+ *
+ * The proposal's budget names the bound that held it — the storage, the MB
+ * asked, or the day's API requests when their writes would leave less than a
+ * tenth of it — and says why no room was kept when the target's automation
+ * could not be read (`automationUnread`): the page that shows it says no
+ * more than what was computed here.
  */
 export function fitSeedTemplate(input: {
   template: FitTemplate;
   personObjects: readonly string[];
   budget: FitBudget;
-  room: Pick<AutomationRoom, 'perRecord' | 'notCounted'>;
+  room: Pick<SeedAutomationRoom, 'perRecord' | 'notCounted' | 'unread'>;
   ask?: SeedFitAsk;
 }): SeedFit {
   const { template, personObjects, budget, room } = input;
@@ -345,9 +363,17 @@ export function fitSeedTemplate(input: {
     budget.runRequests === undefined || m.requests <= budget.runRequests;
   const fits = (m: Measure): boolean => inStorage(m) && inRequests(m);
 
-  const proposalOf = (share: number, m: Measure, cannotFit?: string): SeedFitProposal => ({
+  const proposalOf = (
+    share: number,
+    m: Measure,
+    heldBy: SeedFit['heldBy'],
+    cannotFit?: string,
+  ): SeedFitProposal => ({
     share,
-    budget: storageFitBudgetOf(budget, m.roomBytes, room),
+    budget: {
+      ...storageFitBudgetOf(budget, m.roomBytes, room),
+      ...(heldBy === 'apiRequests' ? { limitedBy: 'apiRequests' as const } : {}),
+    },
     objects: template.objects.map((object) => {
       const keptWhole = keptWholeOf(object, template.relations);
       return {
@@ -359,6 +385,7 @@ export function fitSeedTemplate(input: {
     }),
     estimateMB: m.bytes / BYTES_PER_MB,
     ...(cannotFit !== undefined ? { cannotFit } : {}),
+    ...(room.unread !== undefined ? { automationUnread: room.unread } : {}),
   });
   const result = (
     share: number,
@@ -366,7 +393,7 @@ export function fitSeedTemplate(input: {
     heldBy: SeedFit['heldBy'],
     cannotFit?: string,
   ): SeedFit => ({
-    proposal: proposalOf(share, m, cannotFit),
+    proposal: proposalOf(share, m, heldBy, cannotFit),
     heldBy,
     records: m.records,
     requests: m.requests,
@@ -381,6 +408,9 @@ export function fitSeedTemplate(input: {
           ? ", room for what the org's automation creates under them included"
           : '') +
         `, past the ${formatMB(budget.bytes / BYTES_PER_MB)} MB that fit`;
+  /** What holds `m` past the budget: the requests when its storage fits, the budget's bound otherwise. */
+  const overBy = (m: Measure): SeedFit['heldBy'] =>
+    inStorage(m) ? 'apiRequests' : budget.terms.limitedBy;
   const keptRows = template.objects
     .filter((o) => keptWholeOf(o, template.relations))
     .reduce((sum, o) => sum + o.recordCount, 0);
@@ -396,7 +426,7 @@ export function fitSeedTemplate(input: {
     return result(
       1,
       whole,
-      budget.terms.limitedBy,
+      overBy(whole),
       `with these caps the seed takes ${overWords(whole)}: lower them, or fit by share`,
     );
   }
@@ -405,7 +435,7 @@ export function fitSeedTemplate(input: {
     return result(
       1,
       whole,
-      budget.terms.limitedBy,
+      overBy(whole),
       `the ${keptRows} rows the template gives take ${overWords(whole)}, and rows are kept whole`,
     );
   }
@@ -416,7 +446,7 @@ export function fitSeedTemplate(input: {
     return result(
       1 / step.records,
       least,
-      budget.terms.limitedBy,
+      overBy(least),
       `the least it can be cut to — one ${step.objectApiName} and what follows it` +
         (keptRows > 0 ? `, with the ${keptRows} rows the template gives kept whole` : '') +
         `, ${recordsWords(least.records)} — takes ${overWords(least)}`,
@@ -437,8 +467,32 @@ export function seedFitProposalOf(
   budget: FitBudget | { unread: string },
   template: FitTemplate,
   personObjects: readonly string[],
-  room: Pick<AutomationRoom, 'perRecord' | 'notCounted'>,
+  room: Pick<SeedAutomationRoom, 'perRecord' | 'notCounted' | 'unread'>,
 ): SeedFitProposal | undefined {
   if ('unread' in budget) return undefined;
   return fitSeedTemplate({ template, personObjects, budget, room }).proposal;
+}
+
+/**
+ * What the audit trail keeps of the fit a seed's counts came from, as the
+ * page that applied it says it (`SeedFitApplied`): the share, the bound
+ * asked, the records the fitted seed sets out to write and those the
+ * template held before. A fit only takes records away: a request that says
+ * the template held fewer than the seed writes is not taken at its word, and
+ * nothing is kept of it. Nothing either for a seed whose counts were not fitted.
+ *
+ * @param kept - The records the seed sets out to write: its objects' counts, added.
+ */
+export function seedAuditFitOf(
+  applied: SeedFitApplied | undefined,
+  kept: number,
+): AuditFit | undefined {
+  if (!applied || applied.before < kept) return undefined;
+  return {
+    module: 'seed',
+    share: applied.share,
+    ...(applied.withinMB !== undefined ? { withinMB: applied.withinMB } : {}),
+    kept,
+    inSource: applied.before,
+  };
 }

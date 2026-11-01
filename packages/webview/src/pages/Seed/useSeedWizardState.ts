@@ -21,7 +21,7 @@ import { useSeedObjectSelection } from './useSeedObjectSelection';
 import { useSeedFieldConfig } from './useSeedFieldConfig';
 import { useSeedRelations } from './useSeedRelations';
 import type { CheckedRelation, RelationLookup } from './seedRelationDrafts';
-import { useSeedExecution } from './useSeedExecution';
+import { useSeedExecution, type SeedExecutionState } from './useSeedExecution';
 import { recordTypesMixed } from './seedRecordTypeChoices';
 
 /** Draft state safe to persist (no credentials, no execution results, no PII). */
@@ -104,6 +104,12 @@ export interface SeedWizardState {
   progressLabel: string | null;
   /** Id of this wizard's running seed once it has reported progress, else null. */
   operationId: string | null;
+  /** The counts that fit, carried by the refusal of the last run for its org's storage or API requests. */
+  fitProposal: SeedExecutionState['fitProposal'];
+  /** The fit the last run's counts came from, or null. */
+  fitApplied: SeedExecutionState['fitApplied'];
+  /** Send the refused run again at the counts that fit. */
+  seedFitted: () => void;
 
   /* Persona */
   /** Currently selected AI persona, or null. */

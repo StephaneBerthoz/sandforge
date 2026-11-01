@@ -24,6 +24,7 @@ import type { QuickSeedState } from './useQuickSeed';
 import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
 
 /** Props for the QuickSeedFlow component. */
 export interface QuickSeedFlowProps {
@@ -230,6 +231,17 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
             overallPercent={quickSeed.overallPercent}
             elapsedMs={quickSeed.elapsedMs}
           />
+          {/* Refused for what the org has left: the counts that fit, the one
+              click that seeds them, and the way back to set them by hand. */}
+          {!quickSeed.isRunning && quickSeed.fitProposal && (
+            <SeedFitProposalCard
+              proposal={quickSeed.fitProposal}
+              org={runOrgName}
+              onSeed={quickSeed.seedFitted}
+              onChangeCounts={quickSeed.seedAgain}
+              testId="quick-seed-fit"
+            />
+          )}
           {/* Offered once the run has reported progress, i.e. is registered:
               the wizard's Cancel, which the one-click path did not have. */}
           {quickSeed.isRunning && quickSeed.operationId && (
@@ -288,6 +300,15 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
                 </span>
               </div>
+
+              {/* The counts the run set out with, when they came from a fit. */}
+              {quickSeed.fitApplied && (
+                <SeedFitResultLine
+                  fitted={quickSeed.fitApplied}
+                  org={runOrgName}
+                  testId="quick-seed-result-fitted"
+                />
+              )}
 
               {/* What the run muted of the org's automation, when its box was ticked. */}
               <MutedAutomationResult

@@ -1284,13 +1284,24 @@ describe('the contract of wave 46 on the requests of a run', () => {
     expectTypeOf<
       NonNullable<z.infer<typeof seedExecutePayloadSchema>['fit']>
     >().toEqualTypeOf<SeedFitApplied>();
-    expect(seedExecutePayloadSchema.parse({ ...seed, fit: { share: 0.21 } }).fit).toEqual({
-      share: 0.21,
-    });
     expect(
-      seedExecutePayloadSchema.safeParse({ ...seed, fit: { share: 1, withinMB: 3 } }).success,
+      seedExecutePayloadSchema.parse({ ...seed, fit: { share: 0.21, before: 7600 } }).fit,
+    ).toEqual({ share: 0.21, before: 7600 });
+    expect(
+      seedExecutePayloadSchema.safeParse({ ...seed, fit: { share: 1, withinMB: 3, before: 10 } })
+        .success,
     ).toBe(true);
-    for (const fit of [{ share: 0 }, { share: 1.5 }, { share: 0.5, caps: {} }, { withinMB: 3 }]) {
+    for (const fit of [
+      { share: 0, before: 10 },
+      { share: 1.5, before: 10 },
+      { share: 0.5, before: 10, caps: {} },
+      { withinMB: 3, before: 10 },
+      // The records the template held before the fit: what the audit trail
+      // sets beside those the fitted seed writes.
+      { share: 0.21 },
+      { share: 0.21, before: 0 },
+      { share: 0.21, before: 2.5 },
+    ]) {
       expect(
         seedExecutePayloadSchema.safeParse({ ...seed, fit }).success,
         JSON.stringify(fit),

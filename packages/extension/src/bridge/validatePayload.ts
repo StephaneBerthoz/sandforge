@@ -665,12 +665,19 @@ export const seedExecutePayloadSchema = z.object({
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
   /**
    * The fit to the org's storage the counts were taken from, as a person
-   * applied it (`SeedFitApplied`): said in the audit trail, never acted on.
+   * applied it (`SeedFitApplied`): the share, the bound asked, and the
+   * records the template held before it. Said in the audit trail, never
+   * acted on: the counts the seed writes are its template's.
    */
   fit: z
     .object({
       share: z.number().gt(0).max(1),
       withinMB: z.number().positive().max(1_000_000).optional(),
+      before: z
+        .number()
+        .int()
+        .positive()
+        .max(SEED_MAX_RECORDS_PER_OBJECT * MAX_OBJECTS_PER_REQUEST),
     })
     .strict()
     .optional(),

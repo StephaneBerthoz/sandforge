@@ -1280,6 +1280,32 @@
         "unavailable": "No se puede escribir el archivo de prueba: {{message}}",
         "stale": "Esta ejecución se eliminó: su archivo de prueba nombra casos que ya no existen. Una prueba que creó en la org a partir de él sigue allí: elimínela con sf project delete source -m AiEvaluationDefinition:<nombre>."
       }
+    },
+    "fit": {
+      "title": "Lo que cabe en {{org}}",
+      "share": "La mayor parte de cada número que cabe: {{share}}. Cada hijo no conserva más registros de los que sus padres conservados pueden llevar.",
+      "boundStorage": "Caben {{fits}} MB: el {{near}} de los {{remaining}} MB que {{org}} dice que le quedan de {{max}} MB, tras reservar {{rounding}} MB para el redondeo de lo que indica.",
+      "boundWithin": "Caben {{fits}} MB: el máximo pedido para este seed.",
+      "boundRequests": "Lo limitaron las solicitudes de API de hoy: las escrituras de estos registros dejan a {{org}} una décima parte de sus solicitudes diarias.",
+      "roomKept": "De ellos, {{room}} MB se reservan para lo que los flujos de {{org}} que siguen activos crean bajo estos registros.",
+      "roomNone": "No se reserva nada para los flujos de {{org}}: ninguno de los que siguen activos crea registros bajo estos.",
+      "roomUnread": "No se reserva espacio para lo que crea la automatización de {{org}}: no se pudo leer ({{reason}}).",
+      "notCountedTrigger": "No contado: lo que crea el trigger de Apex {{name}} en {{object}}.",
+      "notCountedNotRead": "No contado: lo que crea {{name}} en {{object}}, ya que no se pudo leer.",
+      "notCountedShare": "No contadas: las filas {{name}} que crean los flujos en {{object}}.",
+      "caption": "Registros de cada objeto, pedidos y que caben",
+      "before": "Pedidos",
+      "after": "Caben",
+      "keptRows": "conservado entero: las filas que da la plantilla",
+      "keptByKey": "conservado entero: cada uno bajo la fila padre que nombra su clave",
+      "total": "{{after}} de {{before}} registros, unos {{estimate}} MB.",
+      "totalWithRoom": "{{after}} de {{before}} registros, unos {{estimate}} MB con lo que los flujos crean bajo ellos.",
+      "counted": "Según el cálculo de SandForge, con los tamaños que documenta Salesforce: 2 KB para la mayoría de los registros. {{org}} cuenta una carga en lo que dice que le queda hasta aproximadamente un minuto después: una ejecución iniciada antes tras otra puede leer un espacio que ya no tiene.",
+      "cannotFitStorage": "Incluso reducido al máximo, este seed ocupa unos {{estimate}} MB, más de los {{fits}} MB que caben en {{org}}. Deje objetos fuera o libere almacenamiento de datos en {{org}}.",
+      "cannotFitRequests": "Incluso reducido al máximo, las escrituras de este seed dejarían a {{org}} menos de una décima parte de sus solicitudes de API diarias. Ejecútelo mañana o deje objetos fuera.",
+      "seed": "Iniciar Seed con estos números",
+      "change": "Cambiar los números",
+      "fitted": "Números ajustados al almacenamiento de datos de {{org}}: {{after}} de los {{before}} registros que pedía la plantilla, el {{share}} de cada número."
     }
   },
   "sync": {

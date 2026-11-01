@@ -1280,6 +1280,32 @@
         "unavailable": "Le fichier de test ne peut pas être écrit : {{message}}",
         "stale": "Cette exécution a été retirée : son fichier de test nomme des requêtes disparues. Un test créé dans l'org à partir de lui y reste : retirez-le avec sf project delete source -m AiEvaluationDefinition:<nom>."
       }
+    },
+    "fit": {
+      "title": "Ce qui tient dans {{org}}",
+      "share": "La plus grande part de chaque nombre qui tient : {{share}}. Chaque enfant ne garde pas plus d'enregistrements que ses parents gardés ne peuvent en porter.",
+      "boundStorage": "{{fits}} Mo tiennent : {{near}} des {{remaining}} Mo qui restent d'après {{org}} sur {{max}} Mo, une fois {{rounding}} Mo mis de côté pour l'arrondi de ce qu'elle annonce.",
+      "boundWithin": "{{fits}} Mo tiennent : le maximum demandé pour ce seed.",
+      "boundRequests": "Les requêtes API du jour l'ont borné : les écritures de ces enregistrements laissent à {{org}} un dixième de ses requêtes quotidiennes.",
+      "roomKept": "Dont {{room}} Mo gardés pour ce que les Flows de {{org}} encore actifs créent sous ces enregistrements.",
+      "roomNone": "Rien n'est gardé pour les Flows de {{org}} : aucun de ceux encore actifs ne crée d'enregistrement sous ceux-ci.",
+      "roomUnread": "Aucune place n'est gardée pour ce que l'automatisation de {{org}} crée : elle n'a pas pu être lue ({{reason}}).",
+      "notCountedTrigger": "Non compté : ce que crée le trigger Apex {{name}} sur {{object}}.",
+      "notCountedNotRead": "Non compté : ce que crée {{name}} sur {{object}}, qui n'a pas pu être lu.",
+      "notCountedShare": "Non comptées : les lignes {{name}} que créent les Flows sur {{object}}.",
+      "caption": "Enregistrements de chaque objet, demandés et qui tiennent",
+      "before": "Demandés",
+      "after": "Tiennent",
+      "keptRows": "gardé entier : les lignes que donne le modèle",
+      "keptByKey": "gardé entier : chacun sous la ligne parente que nomme sa clé",
+      "total": "{{after}} enregistrements sur {{before}}, environ {{estimate}} Mo.",
+      "totalWithRoom": "{{after}} enregistrements sur {{before}}, environ {{estimate}} Mo avec ce que les Flows créent dessous.",
+      "counted": "Selon le compte de SandForge, aux tailles que Salesforce documente : 2 Ko pour la plupart des enregistrements. {{org}} compte un chargement dans ce qui lui reste jusqu'à environ une minute après : un run lancé plus tôt après un autre peut lire une place qu'elle n'a plus.",
+      "cannotFitStorage": "Même réduit au plus loin, ce seed prend environ {{estimate}} Mo, au-delà des {{fits}} Mo qui tiennent dans {{org}}. Retirez des objets, ou libérez du stockage de données dans {{org}}.",
+      "cannotFitRequests": "Même réduit au plus loin, les écritures de ce seed laisseraient à {{org}} moins d'un dixième de ses requêtes API quotidiennes. Lancez-le demain, ou retirez des objets.",
+      "seed": "Lancer le seed avec ces nombres",
+      "change": "Modifier les nombres",
+      "fitted": "Nombres ajustés au stockage de données de {{org}} : {{after}} des {{before}} enregistrements que demandait le modèle, {{share}} de chaque nombre."
     }
   },
   "sync": {

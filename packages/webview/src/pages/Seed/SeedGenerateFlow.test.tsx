@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -51,6 +51,9 @@ const wizard = vi.hoisted(() => ({
   result: undefined as unknown,
   availableObjects: [] as Array<{ apiName: string; label: string }>,
   fieldConfigs: [] as Array<{ objectApiName: string; objectLabel: string; fields: [] }>,
+  fitApplied: null as unknown,
+  fitProposal: null as unknown,
+  seedFitted: vi.fn(),
 }));
 vi.mock('./useSeedWizardState', () => ({
   useSeedWizardState: () => ({
@@ -73,6 +76,9 @@ vi.mock('./useSeedWizardState', () => ({
     overallPercent: 0,
     elapsedMs: 0,
     selectedPersona: null,
+    fitProposal: wizard.fitProposal,
+    fitApplied: wizard.fitApplied,
+    seedFitted: wizard.seedFitted,
   }),
 }));
 
@@ -83,7 +89,65 @@ describe('SeedGenerateFlow', () => {
     wizard.result = undefined;
     wizard.availableObjects = [];
     wizard.fieldConfigs = [];
+    wizard.fitApplied = null;
+    wizard.fitProposal = null;
+    wizard.seedFitted.mockClear();
     mockPostMessage.mockClear();
+  });
+
+  it('shows, on the step the run is started from, the counts that fit under its refusal', () => {
+    // The run goes from the last step, and its refusal lands there.
+    wizard.step = 3;
+    wizard.error = 'The seed was refused before it wrote anything.';
+    wizard.fitProposal = {
+      share: 0.4,
+      budget: {
+        budgetMB: 0.16,
+        remainingMB: 1,
+        maxMB: 5,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'storage',
+        automationMB: 0,
+      },
+      objects: [
+        { objectApiName: 'Account', before: 100, after: 40 },
+        { objectApiName: 'Contact', before: 100, after: 40 },
+      ],
+      estimateMB: 0.15625,
+    };
+    render(<SeedGenerateFlow active onBack={vi.fn()} />);
+
+    const card = screen.getByRole('region', { name: 'What fits in dev1' });
+    fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));
+    expect(wizard.seedFitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('says on its results that the counts were fitted, and nothing for a run that was not', () => {
+    wizard.step = 3;
+    wizard.result = {
+      templateId: 'tpl-1',
+      operationId: 'op-1',
+      status: 'success',
+      objectResults: [],
+      totalRecordsCreated: 80,
+      totalRecordsFailed: 0,
+      duration: 100,
+      timestamp: '2026-11-01T10:00:00.000Z',
+    };
+    wizard.fitApplied = {
+      counts: { Account: 40, Contact: 40 },
+      records: 80,
+      fit: { share: 0.4, before: 200 },
+    };
+    const { rerender } = render(<SeedGenerateFlow active onBack={vi.fn()} />);
+    expect(screen.getByTestId('seed-results-fitted').textContent).toBe(
+      'Counts fitted to the data storage of dev1: 80 of the 200 records the template asked for, 40% of every count.',
+    );
+
+    wizard.fitApplied = null;
+    rerender(<SeedGenerateFlow active onBack={vi.fn()} />);
+    expect(screen.queryByTestId('seed-results-fitted')).toBeNull();
   });
 
   it('heads the wizard with its step and the org it writes to, and goes back on request', () => {

@@ -1206,6 +1206,32 @@
         "unavailable": "テストファイルを書けません: {{message}}",
         "stale": "この実行は削除されました。そのテストファイルは、もう存在しないケースを指しています。それをもとに組織で作成したテストは残っています。sf project delete source -m AiEvaluationDefinition:<名前> で削除してください。"
       }
+    },
+    "fit": {
+      "title": "{{org}}に収まる件数",
+      "share": "収まる範囲で各件数に掛けられる最大の割合：{{share}}。子レコードは、残した親が持てる件数を超えません。",
+      "boundStorage": "{{fits}} MB が収まります：{{org}}が申告する残り{{remaining}} MB（{{max}} MB 中）の{{near}}。申告値の丸め分として先に{{rounding}} MB を除いています。",
+      "boundWithin": "{{fits}} MB が収まります：このシードに指定された上限です。",
+      "boundRequests": "本日の API リクエストで上限が決まりました：これらのレコードの書き込み後も、{{org}}には 1 日のリクエストの 10 分の 1 が残ります。",
+      "roomKept": "うち{{room}} MB は、{{org}}でまだ動くフローがこれらのレコードの下に作成するもののために確保しています。",
+      "roomNone": "{{org}}のフロー用には何も確保していません：まだ動くフローのうち、これらのレコードの下にレコードを作成するものはありません。",
+      "roomUnread": "{{org}}の自動化が作成するもののための容量は確保していません：自動化を読み取れませんでした（{{reason}}）。",
+      "notCountedTrigger": "計上外：{{object}}の Apex トリガー {{name}} が作成するもの。",
+      "notCountedNotRead": "計上外：{{object}}の{{name}}が作成するもの（読み取れませんでした）。",
+      "notCountedShare": "計上外：{{object}}のフローが作成する{{name}}の行。",
+      "caption": "各オブジェクトのレコード数（指定と収まる件数）",
+      "before": "指定",
+      "after": "収まる件数",
+      "keptRows": "そのまま維持：テンプレートが指定する行",
+      "keptByKey": "そのまま維持：それぞれキーが示す親の行の下",
+      "total": "{{before}}件中{{after}}件、約{{estimate}} MB。",
+      "totalWithRoom": "{{before}}件中{{after}}件、フローがその下に作成するものを含めて約{{estimate}} MB。",
+      "counted": "SandForge の計算で、Salesforce が公開しているサイズによります：ほとんどのレコードは 2 KB です。{{org}}は読み込みを残り容量に反映するまで約 1 分かかることがあります：別の実行の直後に始めた実行は、もう残っていない容量を読み取る場合があります。",
+      "cannotFitStorage": "最大限減らしても、このシードは約{{estimate}} MB を使い、{{org}}に収まる{{fits}} MB を超えます。オブジェクトを外すか、{{org}}のデータストレージを空けてください。",
+      "cannotFitRequests": "最大限減らしても、このシードの書き込みで{{org}}に残る API リクエストが 1 日の 10 分の 1 未満になります。明日実行するか、オブジェクトを外してください。",
+      "seed": "この件数で Seed を開始",
+      "change": "件数を変更",
+      "fitted": "{{org}}のデータストレージに合わせた件数：テンプレートが指定した{{before}}件中{{after}}件、各件数の{{share}}。"
     }
   },
   "sync": {

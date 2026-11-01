@@ -18,7 +18,9 @@ import { seedRequestsEstimate, seedStorageBytes } from './seedStorage.js';
 import {
   fitSeedTemplate,
   fittedTemplate,
+  seedAuditFitOf,
   seedCountsAt,
+  seedFitProposalOf,
   seedRoomOf,
   seedWritesOf,
 } from './seedFit.js';
@@ -336,9 +338,24 @@ describe('fitSeedTemplate', () => {
 
   it('keeps no room, and says why, when the target’s automation could not be read', () => {
     expect(seedRoomOf({ unread: 'INVALID_SESSION_ID' }, undefined, () => true)).toEqual({
-      room: { perRecord: [], notCounted: [] },
+      room: { perRecord: [], notCounted: [], unread: 'INVALID_SESSION_ID' },
       unread: 'INVALID_SESSION_ID',
     });
+  });
+
+  it('says in its proposal that no room was kept when the target’s automation could not be read', () => {
+    // A page given only "0 MB for its flows" would say none still running
+    // creates records under them: of an automation nobody read.
+    const unread = seedRoomOf({ unread: 'INVALID_SESSION_ID' }, undefined, () => true);
+    const proposal = seedFitProposalOf(developerEdition(), SALES_CLOUD_STARTER, [], unread.room);
+    expect(proposal).toMatchObject({
+      automationUnread: 'INVALID_SESSION_ID',
+      budget: { automationMB: 0 },
+    });
+    const read = seedRoomOf(AUTOMATION, mutePlanOf(AUTOMATION), seedWritesOf(SALES_CLOUD_STARTER));
+    expect(
+      seedFitProposalOf(developerEdition(), SALES_CLOUD_STARTER, [], read.room),
+    ).not.toHaveProperty('automationUnread');
   });
 
   it('keeps rows whole, and says it cannot fit when they alone take more than the budget', () => {
@@ -440,16 +457,46 @@ describe('fitSeedTemplate', () => {
     });
     expect(fit.heldBy).toBe('apiRequests');
     expect(fit.requests).toBeLessThanOrEqual(9);
-    expect(
+    const cannot = fitSeedTemplate({
+      template: SERVICE_CLOUD_STARTER,
+      personObjects: [],
+      budget: budgetOf(500 * BYTES_PER_MB, 1),
+      room: NO_ROOM,
+    });
+    expect(cannot.proposal.cannotFit).toMatch(
+      /takes about 5 API requests, past the 1 that leave the org a tenth of its daily requests$/,
+    );
+    expect(cannot.heldBy).toBe('apiRequests');
+  });
+
+  it('names the requests as the bound in its proposal’s budget when they held it, the storage otherwise', () => {
+    // The panel has the proposal alone, not what held it: "80 % of the 500 MB
+    // the org says it has left" under a share the day's requests set was false.
+    const byRequests = (runRequests: number) =>
       fitSeedTemplate({
         template: SERVICE_CLOUD_STARTER,
         personObjects: [],
-        budget: budgetOf(500 * BYTES_PER_MB, 1),
+        budget: budgetOf(500 * BYTES_PER_MB, runRequests),
         room: NO_ROOM,
-      }).proposal.cannotFit,
-    ).toMatch(
-      /takes about 5 API requests, past the 1 that leave the org a tenth of its daily requests$/,
-    );
+      }).proposal.budget.limitedBy;
+    expect(byRequests(9)).toBe('apiRequests');
+    expect(byRequests(1)).toBe('apiRequests');
+    expect(
+      fitSeedTemplate({
+        template: SALES_CLOUD_STARTER,
+        personObjects: [],
+        budget: developerEdition(),
+        room: NO_ROOM,
+      }).proposal.budget.limitedBy,
+    ).toBe('storage');
+    expect(
+      fitSeedTemplate({
+        template: SALES_CLOUD_STARTER,
+        personObjects: [],
+        budget: budgetOf(1 * KB),
+        room: NO_ROOM,
+      }).proposal.budget.limitedBy,
+    ).toBe('storage');
   });
 
   it('proposes the template as it is when it fits whole', () => {
@@ -477,6 +524,30 @@ describe('fittedTemplate', () => {
     expect(fittedTemplate(SALES_CLOUD_STARTER, { ...fit.proposal, cannotFit: 'no' })).toBe(
       SALES_CLOUD_STARTER,
     );
+  });
+});
+
+describe('seedAuditFitOf', () => {
+  it('keeps the share, the bound asked, the records the fitted seed writes and those the template held', () => {
+    expect(seedAuditFitOf({ share: 0.242, before: 7600 }, 1839)).toEqual({
+      module: 'seed',
+      share: 0.242,
+      kept: 1839,
+      inSource: 7600,
+    });
+    expect(seedAuditFitOf({ share: 0.5, withinMB: 3, before: 100 }, 50)).toEqual({
+      module: 'seed',
+      share: 0.5,
+      withinMB: 3,
+      kept: 50,
+      inSource: 100,
+    });
+  });
+
+  it('keeps nothing of a seed not fitted, nor of a fit that says the template held fewer than it writes', () => {
+    expect(seedAuditFitOf(undefined, 1839)).toBeUndefined();
+    expect(seedAuditFitOf({ share: 0.5, before: 10 }, 11)).toBeUndefined();
+    expect(seedAuditFitOf({ share: 1, before: 11 }, 11)).toMatchObject({ kept: 11, inSource: 11 });
   });
 });
 

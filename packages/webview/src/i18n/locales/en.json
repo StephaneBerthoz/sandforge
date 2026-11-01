@@ -1280,6 +1280,32 @@
         "unavailable": "The test file cannot be written: {{message}}",
         "stale": "This run was removed: its test file names cases that are gone. A test you created in the org from it stays there: remove it with sf project delete source -m AiEvaluationDefinition:<name>."
       }
+    },
+    "fit": {
+      "title": "What fits in {{org}}",
+      "share": "The largest share of every count that fits: {{share}}. Each child keeps no more records than the parents kept can hold.",
+      "boundStorage": "{{fits}} MB fit: {{near}} of the {{remaining}} MB {{org}} says it has left of {{max}} MB, once {{rounding}} MB is set aside for the rounding of what it says.",
+      "boundWithin": "{{fits}} MB fit: the most asked of this seed.",
+      "boundRequests": "Today's API requests held it: the writes of these records leave {{org}} a tenth of its daily requests.",
+      "roomKept": "{{room}} MB of it is kept for what the flows of {{org}} that still run create under these records.",
+      "roomNone": "Nothing is kept for the flows of {{org}}: none of those that still run creates records under these.",
+      "roomUnread": "No room is kept for what the automation of {{org}} creates: it could not be read ({{reason}}).",
+      "notCountedTrigger": "Not counted: what the Apex trigger {{name}} on {{object}} creates.",
+      "notCountedNotRead": "Not counted: what {{name}} on {{object}} creates, as it could not be read.",
+      "notCountedShare": "Not counted: the {{name}} rows the flows on {{object}} create.",
+      "caption": "Records of each object, asked and fitting",
+      "before": "Asked",
+      "after": "Fits",
+      "keptRows": "kept whole: the rows the template gives",
+      "keptByKey": "kept whole: each under the parent row its key names",
+      "total": "{{after}} of {{before}} records, about {{estimate}} MB.",
+      "totalWithRoom": "{{after}} of {{before}} records, about {{estimate}} MB with what the flows create under them.",
+      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records. {{org}} counts a load in what it says it has left up to about a minute after it: a run started sooner after another may read room it no longer has.",
+      "cannotFitStorage": "Even cut as far as it goes, this seed takes about {{estimate}} MB, past the {{fits}} MB that fit in {{org}}. Leave objects out, or free data storage in {{org}}.",
+      "cannotFitRequests": "Even cut as far as it goes, the writes of this seed would leave {{org}} less than a tenth of its daily API requests. Seed it tomorrow, or leave objects out.",
+      "seed": "Seed these counts",
+      "change": "Change the counts",
+      "fitted": "Counts fitted to the data storage of {{org}}: {{after}} of the {{before}} records the template asked for, {{share}} of every count."
     }
   },
   "sync": {

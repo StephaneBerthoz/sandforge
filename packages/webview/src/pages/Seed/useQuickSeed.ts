@@ -3,6 +3,7 @@ import type {
   SalesforceOrg,
   SeedTemplate,
   SeedExecutionResult,
+  SeedFitProposal,
   SeedObjectConfig,
   FieldRuleConfig,
 } from '@sandforge/shared';
@@ -15,6 +16,8 @@ import { buildMessage } from '../../bridge/messageHelpers';
 import { useOrgStore } from '../../stores/useOrgStore';
 import type { ObjectProgress } from './Step7_Execute';
 import { templateWithCounts, withCount } from './templateCounts';
+import type { TemplateCounts } from './templateCounts';
+import { fittedRunOf, useSeedFitRefusal, type FittedSeedRun } from './SeedFitProposal';
 
 /**
  * Phase of the Quick Seed state machine: the gallery, then one confirmation —
@@ -82,8 +85,21 @@ export interface QuickSeedState {
   setLocale: (locale: string) => void;
   /** Tick or untick the box that mutes the org's automation for the run. */
   setMuteAutomation: (mute: boolean) => void;
+  /**
+   * The counts that fit, as the refusal of the last run for the storage or
+   * the API requests its org has left carried them; null otherwise.
+   */
+  fitProposal: SeedFitProposal | null;
+  /** The fit the last run's counts came from; null for a run whose counts were not fitted. */
+  fitApplied: FittedSeedRun | null;
   /** Trigger seed execution. */
   execute: () => void;
+  /**
+   * Send the refused run again at the counts of {@link fitProposal}, which
+   * become the confirmation's counts, saying the fit in its request: its
+   * gate is met again. Nothing when there is no proposal, or nothing fits.
+   */
+  seedFitted: () => void;
   /**
    * Stop the running seed, as the wizard's Cancel does: before its next
    * object or batch, what it wrote staying in the org. Nothing is sent before
@@ -125,6 +141,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [fitApplied, setFitApplied] = useState<FittedSeedRun | null>(null);
 
   const executeMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
@@ -205,6 +222,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
       setError(null);
       setExecutionResult(undefined);
       setElapsedMs(0);
+      setFitApplied(null);
     },
     [initialOrgId],
   );
@@ -236,41 +254,69 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const runId = executeMutation.requestId;
   const progress = (isRunning && runId !== null ? getProgress(runId) : undefined) ?? null;
 
-  const execute = useCallback(() => {
-    if (!selectedTemplate || !selectedOrgId) return;
-    // An object set to 0 is not sent, nor what cannot be written without it.
-    const kept = templateWithCounts(selectedTemplate, customizedCounts);
-    if (kept.objects.length === 0) return;
+  /** Send the template at `counts`, and the fit they came from when they did. */
+  const run = useCallback(
+    (counts: TemplateCounts, fitted?: FittedSeedRun): void => {
+      if (!selectedTemplate || !selectedOrgId) return;
+      // An object set to 0 is not sent, nor what cannot be written without it.
+      const kept = templateWithCounts(selectedTemplate, counts);
+      if (kept.objects.length === 0) return;
 
-    const objects: SeedObjectConfig[] = kept.objects.map((obj) => ({
-      objectApiName: obj.objectApiName,
-      recordCount: customizedCounts[obj.objectApiName] ?? obj.recordCount,
-      fieldRules: obj.fieldRules.map((r) => ({
-        fieldApiName: r.fieldApiName,
-        ruleType: r.ruleType,
-        config: r.config as FieldRuleConfig,
-      })),
-      excludedFields: obj.excludedFields,
-      insertOrder: obj.insertOrder,
-      batchSize: obj.batchSize,
-    }));
+      const objects: SeedObjectConfig[] = kept.objects.map((obj) => ({
+        objectApiName: obj.objectApiName,
+        recordCount: counts[obj.objectApiName] ?? obj.recordCount,
+        fieldRules: obj.fieldRules.map((r) => ({
+          fieldApiName: r.fieldApiName,
+          ruleType: r.ruleType,
+          config: r.config as FieldRuleConfig,
+        })),
+        excludedFields: obj.excludedFields,
+        insertOrder: obj.insertOrder,
+        batchSize: obj.batchSize,
+      }));
 
-    const template: SeedTemplate = {
-      ...kept,
-      objects,
-    };
+      const template: SeedTemplate = {
+        ...kept,
+        objects,
+      };
 
-    setPhase('executing');
-    setElapsedMs(0);
+      setPhase('executing');
+      setElapsedMs(0);
+      // A run sent again from a refusal no longer stands under it.
+      setError(null);
+      setFitApplied(fitted ?? null);
 
-    executeMutation.mutate({
-      orgId: selectedOrgId,
-      template: template as unknown as Record<string, unknown>,
-      // The org's own locale unless one was chosen: the extension reads it.
-      ...(locale ? { locale } : {}),
-      ...(muteAutomation ? { muteAutomation: true } : {}),
-    });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, locale, muteAutomation, executeMutation]);
+      executeMutation.mutate({
+        orgId: selectedOrgId,
+        template: template as unknown as Record<string, unknown>,
+        // The org's own locale unless one was chosen: the extension reads it.
+        ...(locale ? { locale } : {}),
+        ...(muteAutomation ? { muteAutomation: true } : {}),
+        ...(fitted ? { fit: fitted.fit } : {}),
+      });
+    },
+    [selectedTemplate, selectedOrgId, locale, muteAutomation, executeMutation],
+  );
+
+  const execute = useCallback(() => run(customizedCounts), [run, customizedCounts]);
+
+  // The counts that fit, as the refusal of the last run carried them.
+  const fitProposal = useSeedFitRefusal(executeMutation.requestId);
+
+  /*
+   * The refused run sent again at the counts that fit: they become the
+   * confirmation's, so the run says them as it goes and Seed again comes
+   * back to them; the objects left out stay out, and the org, the locale and
+   * the mute stay as they were. Its request says the fit, for the audit
+   * trail; the gate is met again by the counts, as for any run.
+   */
+  const seedFitted = useCallback(() => {
+    if (!fitProposal || fitProposal.cannotFit !== undefined) return;
+    const fitted = fittedRunOf(fitProposal);
+    const counts = { ...customizedCounts, ...fitted.counts };
+    setCustomizedCounts(counts);
+    run(counts, fitted);
+  }, [fitProposal, customizedCounts, run]);
 
   const sendMessage = useSendMessage();
   const operationId = progress ? runId : null;
@@ -297,6 +343,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     setExecutionResult(undefined);
     setError(null);
     setElapsedMs(0);
+    setFitApplied(null);
     executeMutation.reset();
     setPhase('confirm');
   }, [selectedTemplate, executeMutation]);
@@ -308,6 +355,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     setExecutionResult(undefined);
     setError(null);
     setElapsedMs(0);
+    setFitApplied(null);
     executeMutation.reset();
   }, [executeMutation]);
 
@@ -356,12 +404,15 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     elapsedMs,
     error,
     operationId,
+    fitProposal,
+    fitApplied,
     startQuickSeed,
     setCount,
     selectOrg,
     setLocale,
     setMuteAutomation,
     execute,
+    seedFitted,
     cancel,
     seedAgain,
     reset,

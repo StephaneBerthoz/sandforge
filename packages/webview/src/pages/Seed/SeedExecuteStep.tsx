@@ -14,6 +14,8 @@ import { personaName } from './Persona/personaText';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import type { SeedAutomationState } from './useSeedAutomation';
 import { SeedLocalePicker } from './SeedLocalePicker';
+import type { SeedFitProposal } from '@sandforge/shared';
+import { SeedFitProposalCard } from './SeedFitProposal';
 
 /** Props for the SeedExecuteStep section. */
 export interface SeedExecuteStepProps {
@@ -47,6 +49,12 @@ export interface SeedExecuteStepProps {
   records?: Readonly<Record<string, number>>;
   /** Whether the run mutes the org's automation, and the box's toggle, beside what it runs. */
   mute?: { checked: boolean; onChange: (mute: boolean) => void };
+  /**
+   * The counts that fit, as the refusal of the last run for the storage or
+   * the API requests the org has left carried them, and what seeds them;
+   * absent, or no proposal, nothing is shown.
+   */
+  fit?: { proposal: SeedFitProposal | null; onSeed: () => void };
 }
 
 /**
@@ -77,6 +85,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   orgName = '',
   records = {},
   mute,
+  fit,
 }) => {
   const { t, i18n } = useTranslation();
   const persona = useSeedWizardStore((s) => s.selectedPersona);
@@ -115,6 +124,14 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       <div className="flex items-center gap-1.5">
         <InfoTooltip id="seed.stepHelp.execute" content={t('seed.stepHelp.execute')} />
       </div>
+
+      {/* A run goes from the wizard's last step, and is refused there: back on
+          this step, the counts that fit stay offered until the run changes. */}
+      {fit?.proposal && !isRunning && (
+        <div className="mb-2">
+          <SeedFitProposalCard proposal={fit.proposal} org={orgName} onSeed={fit.onSeed} />
+        </div>
+      )}
 
       {/* Adaptive: what the run's rules are when configure was skipped, and
           what it waits for while an object is not described yet */}

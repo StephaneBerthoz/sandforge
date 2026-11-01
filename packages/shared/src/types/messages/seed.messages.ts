@@ -12,6 +12,7 @@ import type {
   SeedRemovalResult,
   SeedRunRemovalInfo,
   SeedFitApplied,
+  SeedFitProposal,
 } from '../seed.types.js';
 import type { RunCheckpointRequest } from '../checkpoint.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
@@ -135,10 +136,16 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
  * Error response for seed template/describe/execute/persona failures (emitted
  * via sendHandlerError). Transport-level execute failures merge an extra
  * offline `retryHint` object into the payload (sendHandlerError extraPayload).
+ *
+ * A seed refused for the data storage or the daily API requests its target
+ * has left (`SEED_STORAGE_EXCEEDED`, `API_BUDGET_EXCEEDED`) carries the
+ * counts that fit (`fit`), computed from what its gate read, for a person to
+ * apply: the page sends them again with `fit` on `seed:execute`, and the gate
+ * is met again.
  */
 export interface SeedErrorResponse extends BaseMessage {
   type: 'seed:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: { message: string; code: string; retryable: boolean; fit?: SeedFitProposal };
 }
 
 /**

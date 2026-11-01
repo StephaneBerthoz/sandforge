@@ -279,7 +279,8 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     expect(fit.budget.automationMB).toBe((accounts * 2 * KB) / BYTES_PER_MB);
 
     // Applied, the counts meet the gate again, and the seed runs.
-    await execute(fitted, { fit: { share: fit.share } });
+    const before = fit.objects.reduce((sum, o) => sum + o.before, 0);
+    await execute(fitted, { fit: { share: fit.share, before } });
     await vi.waitFor(() => expect(executed).toHaveLength(1));
     expect(executed[0].objects.map((o) => o.recordCount)).toEqual(fit.objects.map((o) => o.after));
   });
@@ -297,6 +298,23 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     expect(fit.cannotFit).toMatch(
       /takes about 6 API requests, past the 0 that leave the org a tenth of its daily requests$/,
     );
+  });
+
+  it('says in its proposal that no room was kept when what the org runs could not be read', async () => {
+    // Without it the page could only say the flows that still run create
+    // nothing under the records: of an automation nobody read.
+    read.mockImplementation(async () => {
+      steps.push('automation read');
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+    developerEdition();
+    await execute(SALES_CLOUD_STARTER);
+
+    const [error] = posted('seed:error');
+    expect(error.payload).toMatchObject({ code: 'SEED_STORAGE_EXCEEDED' });
+    const fit = error.payload.fit as SeedFitProposal;
+    expect(fit.automationUnread).toBe('INVALID_SESSION_ID: Session expired or invalid');
+    expect(fit.budget.automationMB).toBe(0);
   });
 
   it('proposes nothing when the org will not say its storage: there is nothing to fit to', async () => {

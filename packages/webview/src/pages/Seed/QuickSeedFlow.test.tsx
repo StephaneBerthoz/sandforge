@@ -8,7 +8,12 @@ import { productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg, SeedTemplate, SeedExecutionResult } from '@sandforge/shared';
+import type {
+  SalesforceOrg,
+  SeedTemplate,
+  SeedExecutionResult,
+  SeedFitProposal,
+} from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
 /* Bridge double: what the results post                                */
@@ -132,12 +137,15 @@ const baseQuickSeed: QuickSeedState = {
   elapsedMs: 0,
   error: null,
   operationId: null,
+  fitProposal: null,
+  fitApplied: null,
   startQuickSeed: vi.fn(),
   setCount: vi.fn(),
   selectOrg: vi.fn(),
   setLocale: vi.fn(),
   setMuteAutomation: vi.fn(),
   execute: vi.fn(),
+  seedFitted: vi.fn(),
   cancel: vi.fn(),
   seedAgain: vi.fn(),
   reset: vi.fn(),
@@ -852,6 +860,88 @@ describe('QuickSeedFlow', () => {
       expect(screen.getByTestId('quick-seed-result-status').textContent).toBe(
         'Cancelled. Written: 20 of 150.',
       );
+    });
+  });
+
+  describe('a template refused for what its org has left', () => {
+    const PROPOSAL: SeedFitProposal = {
+      share: 0.4,
+      budget: {
+        budgetMB: 0.24,
+        remainingMB: 1,
+        maxMB: 5,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'storage',
+        automationMB: 0,
+      },
+      objects: [
+        { objectApiName: 'Account', before: 50, after: 20 },
+        { objectApiName: 'Contact', before: 100, after: 40 },
+      ],
+      estimateMB: 0.1171875,
+    };
+    const refused: QuickSeedState = {
+      ...baseQuickSeed,
+      phase: 'executing',
+      selectedTemplate: mockTemplate,
+      selectedOrgId: 'org-1',
+      error: 'The seed was refused before it wrote anything.',
+      fitProposal: PROPOSAL,
+    };
+
+    it('shows the counts that fit under the refusal, seeds them, or goes back to set them by hand', () => {
+      const seedFitted = vi.fn();
+      const seedAgain = vi.fn();
+      render(<QuickSeedFlow quickSeed={{ ...refused, seedFitted, seedAgain }} orgs={mockOrgs} />);
+
+      const card = screen.getByRole('region', { name: 'What fits in dev1' });
+      expect(within(card).getByTestId('quick-seed-fit-total').textContent).toBe(
+        '60 of 150 records, about 0.12 MB.',
+      );
+      fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));
+      expect(seedFitted).toHaveBeenCalledTimes(1);
+      fireEvent.click(within(card).getByRole('button', { name: 'Change the counts' }));
+      expect(seedAgain).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no proposal while the fitted run is in flight', () => {
+      render(
+        <QuickSeedFlow
+          quickSeed={{ ...refused, isRunning: true, error: null, operationId: 'op-1' }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.queryByTestId('quick-seed-fit')).toBeNull();
+    });
+
+    it('says in the results that the counts were fitted, and nothing for a run that was not', () => {
+      const results: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'results',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        executionResult: mockExecutionResult,
+      };
+      const { rerender } = render(
+        <QuickSeedFlow
+          quickSeed={{
+            ...results,
+            fitApplied: {
+              counts: { Account: 20, Contact: 40 },
+              records: 60,
+              fit: { share: 0.4, before: 150 },
+            },
+          }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.getByTestId('quick-seed-result-fitted').textContent).toBe(
+        'Counts fitted to the data storage of dev1: 60 of the 150 records the template asked for, 40% of every count.',
+      );
+
+      rerender(<QuickSeedFlow quickSeed={results} orgs={mockOrgs} />);
+      expect(screen.queryByTestId('quick-seed-result-fitted')).toBeNull();
     });
   });
 });

@@ -1280,6 +1280,32 @@
         "unavailable": "Die Testdatei kann nicht geschrieben werden: {{message}}",
         "stale": "Dieser Lauf wurde entfernt: Seine Testdatei nennt Kundenvorgänge, die es nicht mehr gibt. Ein daraus in der Org erstellter Test bleibt dort: Entfernen Sie ihn mit sf project delete source -m AiEvaluationDefinition:<Name>."
       }
+    },
+    "fit": {
+      "title": "Was in {{org}} passt",
+      "share": "Der größte Anteil jeder Anzahl, der passt: {{share}}. Jedes Kind behält nicht mehr Datensätze, als die behaltenen Eltern tragen können.",
+      "boundStorage": "{{fits}} MB passen: {{near}} der {{remaining}} MB, die {{org}} laut eigener Angabe von {{max}} MB noch frei hat, nachdem {{rounding}} MB für die Rundung dieser Angabe beiseitegelegt sind.",
+      "boundWithin": "{{fits}} MB passen: das Höchste, das für diesen Seed verlangt ist.",
+      "boundRequests": "Die API-Anfragen des Tages haben es begrenzt: Die Schreibvorgänge dieser Datensätze lassen {{org}} ein Zehntel ihrer täglichen Anfragen.",
+      "roomKept": "Davon sind {{room}} MB für das freigehalten, was die noch laufenden Flows von {{org}} unter diesen Datensätzen anlegen.",
+      "roomNone": "Für die Flows von {{org}} wird nichts freigehalten: Keiner der noch laufenden legt unter diesen Datensätzen etwas an.",
+      "roomUnread": "Für das, was die Automatisierung von {{org}} anlegt, wird kein Platz freigehalten: Sie konnte nicht gelesen werden ({{reason}}).",
+      "notCountedTrigger": "Nicht gezählt: was der Apex-Trigger {{name}} auf {{object}} anlegt.",
+      "notCountedNotRead": "Nicht gezählt: was {{name}} auf {{object}} anlegt, da es nicht gelesen werden konnte.",
+      "notCountedShare": "Nicht gezählt: die {{name}}-Zeilen, die die Flows auf {{object}} anlegen.",
+      "caption": "Datensätze jedes Objekts, verlangt und passend",
+      "before": "Verlangt",
+      "after": "Passt",
+      "keptRows": "ganz behalten: die Zeilen, die die Vorlage vorgibt",
+      "keptByKey": "ganz behalten: jede unter der Elternzeile, die ihr Schlüssel nennt",
+      "total": "{{after}} von {{before}} Datensätzen, etwa {{estimate}} MB.",
+      "totalWithRoom": "{{after}} von {{before}} Datensätzen, etwa {{estimate}} MB mit dem, was die Flows darunter anlegen.",
+      "counted": "Nach der Zählung von SandForge, mit den Größen, die Salesforce dokumentiert: 2 KB für die meisten Datensätze. {{org}} rechnet einen Ladevorgang bis zu etwa einer Minute danach in ihren freien Speicher ein: Ein früher nach einem anderen gestarteter Lauf kann Platz lesen, den sie nicht mehr hat.",
+      "cannotFitStorage": "Selbst so weit wie möglich gekürzt braucht dieser Seed etwa {{estimate}} MB, mehr als die {{fits}} MB, die in {{org}} passen. Lassen Sie Objekte weg oder geben Sie Datenspeicher in {{org}} frei.",
+      "cannotFitRequests": "Selbst so weit wie möglich gekürzt ließen die Schreibvorgänge dieses Seeds {{org}} weniger als ein Zehntel ihrer täglichen API-Anfragen. Starten Sie ihn morgen oder lassen Sie Objekte weg.",
+      "seed": "Seed mit diesen Anzahlen starten",
+      "change": "Anzahlen ändern",
+      "fitted": "Anzahlen an den Datenspeicher von {{org}} angepasst: {{after}} der {{before}} Datensätze, die die Vorlage verlangte, {{share}} jeder Anzahl."
     }
   },
   "sync": {

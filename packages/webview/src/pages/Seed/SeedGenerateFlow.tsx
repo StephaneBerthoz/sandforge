@@ -20,6 +20,7 @@ import { PersonaGallery } from './Persona/PersonaGallery';
 import { personaName } from './Persona/personaText';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import { objectLabelsOf } from '../../utils/objectLabels';
+import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -261,10 +262,30 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               orgName={wizardOrgName}
               records={wizardRecords}
               mute={{ checked: state.muteAutomation, onChange: state.setMuteAutomation }}
+              fit={{ proposal: state.fitProposal, onSeed: state.seedFitted }}
             />
           )}
 
-          {/* STEP 4: RESULTS */}
+          {/* STEP 4: RESULTS — where the run is started, and refused: the
+              counts that fit under the refusal; and, for a run whose counts
+              were fitted, which. */}
+          {state.currentStep === 3 &&
+            state.fitProposal &&
+            !state.isRunning &&
+            !state.executionResult && (
+              <SeedFitProposalCard
+                proposal={state.fitProposal}
+                org={wizardOrgName}
+                onSeed={state.seedFitted}
+              />
+            )}
+          {state.currentStep === 3 && state.fitApplied && state.executionResult && (
+            <SeedFitResultLine
+              fitted={state.fitApplied}
+              org={wizardOrgName}
+              testId="seed-results-fitted"
+            />
+          )}
           {state.currentStep === 3 && (
             <SeedResultsStep
               executionResult={state.executionResult}

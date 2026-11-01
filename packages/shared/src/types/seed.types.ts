@@ -783,14 +783,27 @@ export interface SeedFitProposal {
    * "the 40 rows the scenario gives take 0.2 MB". Nothing is proposed then.
    */
   cannotFit?: string;
+  /**
+   * Why no room is kept for what the target's automation creates under the
+   * records: it could not be read. Absent when it was read, the room then
+   * what `budget.automationMB` says, none when nothing that still runs
+   * creates records under them.
+   */
+  automationUnread?: string;
 }
 
 /**
  * What a seed run says of the fit its counts came from, for the audit trail:
- * the share applied and the bound asked. Absent from a seed whose counts
- * were not fitted.
+ * the share applied, the bound asked, and the records of the template the
+ * fit was taken of. Absent from a seed whose counts were not fitted.
  */
 export interface SeedFitApplied {
   share: number;
   withinMB?: number;
+  /**
+   * The records the template held before the fit, every object's count
+   * added: what the audit trail sets beside those the fitted run set out to
+   * write (`AuditFit.inSource`).
+   */
+  before: number;
 }

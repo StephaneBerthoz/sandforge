@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
+import type { SeedFitProposal } from '@sandforge/shared';
 import '../../i18n';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedExecuteStep } from './SeedExecuteStep';
@@ -216,5 +217,43 @@ describe('SeedExecuteStep', () => {
     renderStep({ isRunning: true });
 
     expect(screen.queryByTestId('seed-locale')).toBeNull();
+  });
+
+  describe('after a run refused for what the org has left', () => {
+    const PROPOSAL: SeedFitProposal = {
+      share: 0.4,
+      budget: {
+        budgetMB: 0.16,
+        remainingMB: 1,
+        maxMB: 5,
+        share: 0.8,
+        roundingMB: 0.5,
+        limitedBy: 'storage',
+        automationMB: 0,
+      },
+      objects: [
+        { objectApiName: 'Account', before: 100, after: 40 },
+        { objectApiName: 'Contact', before: 100, after: 40 },
+      ],
+      estimateMB: 0.15625,
+    };
+
+    it('shows the counts that fit in the org, and seeds them at one click', () => {
+      const onSeed = vi.fn();
+      renderStep({ orgName: 'my-dev-org', fit: { proposal: PROPOSAL, onSeed } });
+
+      const card = screen.getByRole('region', { name: 'What fits in my-dev-org' });
+      expect(within(card).getByTestId('seed-fit-object-Account').textContent).toBe('Account10040');
+      fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));
+      expect(onSeed).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no proposal while a run is in flight, nor when there is none', () => {
+      renderStep({ isRunning: true, fit: { proposal: PROPOSAL, onSeed: vi.fn() } });
+      expect(screen.queryByTestId('seed-fit')).toBeNull();
+      cleanup();
+      renderStep({ fit: { proposal: null, onSeed: vi.fn() } });
+      expect(screen.queryByTestId('seed-fit')).toBeNull();
+    });
   });
 });
