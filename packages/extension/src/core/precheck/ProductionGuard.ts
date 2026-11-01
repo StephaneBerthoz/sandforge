@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { BYTES_PER_MB } from '@sandforge/shared';
 import type { ForgeRemovalRisk, RunCheckpointEstimate, RunDeliverability } from '@sandforge/shared';
 
 /** Safety tier classification for Salesforce orgs */
@@ -857,4 +858,136 @@ function buildImpactSummary(request: OperationRequest): string {
     `${request.objectName} record(s)${besides} on ${request.orgTier} org ${request.orgId} ` +
     `[module: ${request.module}]`
   );
+}
+
+// ─── The checkpoint's block of a run's question ──────────────────────────────
+
+/**
+ * The blocks of a run's one question before it writes, in the order it says
+ * them: what leaves the org — whether the target delivers the emails what
+ * still runs sends, and its daily emails —; the automation that still runs;
+ * the checkpoint the run takes first; then the storage, the API requests and
+ * the fit. Forge says the first two at its automation question, before it
+ * reads its rows, and the last two at its write gate, once they are read.
+ */
+export const WRITE_QUESTION_BLOCKS = [
+  'leavesTheOrg',
+  'stillRunning',
+  'checkpoint',
+  'limits',
+] as const;
+
+/** A block of a run's question ({@link WRITE_QUESTION_BLOCKS}). */
+export type WriteQuestionBlock = (typeof WRITE_QUESTION_BLOCKS)[number];
+
+/** The lines of a run's question, each block's in its place, whatever order they were made in. */
+export function inQuestionOrder(
+  blocks: Partial<Record<WriteQuestionBlock, readonly string[]>>,
+): string[] {
+  return WRITE_QUESTION_BLOCKS.flatMap((block) => [...(blocks[block] ?? [])]);
+}
+
+/** What the checkpoint's block says it costs, as its words are handed it. */
+export interface CheckpointCost {
+  records: number;
+  objects: number;
+  requests: number;
+  seconds: number;
+  /** What it keeps on this machine, in MB as the block says them: to a tenth, rounded up. */
+  megabytes: string;
+  /** The days it is kept; 0 keeps it until it is deleted. */
+  keepDays: number;
+}
+
+/**
+ * The words the checkpoint's block of a run's question is put in, piece by
+ * piece ({@link checkpointQuestionLines}): English by default, the host's
+ * translations in VS Code. Why an object is added or left out is the
+ * engine's sentence, put in as it is.
+ */
+export interface CheckpointQuestionWords {
+  /** What it costs, what it keeps where, and for how long. */
+  cost: (cost: CheckpointCost) => string;
+  /** An object it holds beside those the run writes, and why. */
+  added: (objectApiName: string, reason: string) => string;
+  /** An object it does not hold, and what a rewind does to it. */
+  notHeld: (objectApiName: string, reason: string) => string;
+  /** The objects of a list past those it names. */
+  more: (count: number) => string;
+  /**
+   * What no read tells: the records an Apex trigger, whose code is not read,
+   * or automation that could not be read creates as the run writes.
+   */
+  unknown: string;
+}
+
+/** `count` of `unit`, the unit in the plural but for one. */
+function counted(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
+}
+
+/** The checkpoint's block in English, as every host without translations says it. */
+export const ENGLISH_CHECKPOINT_WORDS: CheckpointQuestionWords = {
+  cost: ({ records, objects, requests, seconds, megabytes, keepDays }) =>
+    `Checkpoint first: about ${counted(records, 'record')} of ${counted(objects, 'object')}, ` +
+    `${counted(requests, 'API request')}, ${seconds} s, ${megabytes} MB on this machine, ` +
+    "unencrypted, and none of the org's storage, " +
+    (keepDays === 0 ? 'kept until you delete it.' : `kept ${counted(keepDays, 'day')}.`),
+  added: (objectApiName, reason) => `Added: ${objectApiName} — ${reason}`,
+  notHeld: (objectApiName, reason) => `Not in the checkpoint: ${objectApiName} — ${reason}`,
+  more: (count) => `… and ${count} more`,
+  unknown:
+    'What an Apex trigger, or automation that could not be read, creates as the run writes is ' +
+    'not known: a rewind leaves those records as they are.',
+};
+
+/** The objects a list of the checkpoint's block names before it counts the rest. */
+const CHECKPOINT_LISTED = 10;
+
+/** Megabytes as the checkpoint's block says them: to a tenth, rounded up, never 0 of a take that keeps a byte. */
+function megabytesOf(bytes: number): string {
+  if (bytes <= 0) return '0';
+  return Math.max(0.1, Math.ceil((bytes / BYTES_PER_MB) * 10 - 1e-9) / 10).toFixed(1);
+}
+
+/**
+ * What a run's question says of the checkpoint it takes first, its third
+ * block ({@link WRITE_QUESTION_BLOCKS}): what it costs — the target's tables,
+ * not the run's rows — what it keeps on this machine and how long; each
+ * object it adds beside those the run writes, and why; each it does not
+ * hold, and what a rewind does to it; and what no read can tell. A run whose
+ * checkpoint is refused is refused before its question, so the block never
+ * says a refusal.
+ */
+export function checkpointQuestionLines(
+  checkpoint: Pick<
+    RunCheckpointEstimate,
+    'estimate' | 'objects' | 'added' | 'notHeld' | 'keepDays'
+  >,
+  words: CheckpointQuestionWords = ENGLISH_CHECKPOINT_WORDS,
+): string[] {
+  const { estimate } = checkpoint;
+  const lines = [
+    words.cost({
+      records: estimate.records,
+      objects: checkpoint.objects.length,
+      requests: estimate.apiRequests,
+      seconds: Math.ceil(estimate.seconds),
+      megabytes: megabytesOf(estimate.bytes),
+      keepDays: checkpoint.keepDays,
+    }),
+  ];
+  const list = (
+    notes: RunCheckpointEstimate['added'],
+    say: (objectApiName: string, reason: string) => string,
+  ): void => {
+    for (const { objectApiName, reason } of notes.slice(0, CHECKPOINT_LISTED)) {
+      lines.push(say(objectApiName, reason));
+    }
+    if (notes.length > CHECKPOINT_LISTED) lines.push(words.more(notes.length - CHECKPOINT_LISTED));
+  };
+  list(checkpoint.added, words.added);
+  list(checkpoint.notHeld, words.notHeld);
+  lines.push(words.unknown);
+  return lines;
 }

@@ -9,10 +9,12 @@
  * storage at all; its planned records went to Production Guard alone.
  */
 
-import type { SeedTemplate } from '@sandforge/shared';
+import type { CheckpointRefusal, RunCheckpointEstimate, SeedTemplate } from '@sandforge/shared';
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  checkpointPartOf,
+  checkpointScopeStop,
   countedStorageBytes,
   readApiBudget,
   readDataStorage,
@@ -69,15 +71,23 @@ export interface SeedStorageGate {
   check: StorageCheck;
   /**
    * Its calls against the daily API requests the target has left, read from
-   * the same `/limits`, or on their own when the storage could not be read.
+   * the same `/limits`, or on their own when the storage could not be read:
+   * those of the checkpoint it takes first among them.
    */
   api: ApiBudgetCheck;
   /**
-   * Why nothing is written: the records take more than the target has left
-   * of its storage, or of today's API requests (`refusedFor`).
+   * Why nothing is written: the checkpoint it takes first was refused, or
+   * the records take more than the target has left of its storage, or of
+   * today's API requests (`refusedFor`).
    */
   refusal?: string;
-  refusedFor?: 'storage' | 'apiRequests';
+  refusedFor?: 'checkpoint' | 'storage' | 'apiRequests';
+  /**
+   * The refusal the checkpoint's scope met, by its code — `DISK` where this
+   * machine has no room for it, `NOTHING_HELD`, another run writing… — for
+   * the run's record to keep beside its own. Set with `refusedFor: 'checkpoint'`.
+   */
+  checkpointRefusal?: CheckpointRefusal;
 }
 
 /**
@@ -86,13 +96,22 @@ export interface SeedStorageGate {
  * may not read its limits — lets the seed through, its check `unread`, for
  * the caller to say so.
  *
+ * Asked to take a checkpoint first, the seed is refused for the refusal its
+ * scope met at the gate before anything else — the disk of this machine
+ * among them, which the port of the checkpoints reads before anything of the
+ * org is: a take that fills it fails and keeps nothing, after minutes of
+ * reads — and the checkpoint's requests are counted with the seed's.
+ *
  * @param target - The org, as the refusal names it.
+ * @param checkpoint - What the checkpoint the seed takes first would hold and
+ *   cost, as the port of the checkpoints scoped it; absent when not asked.
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
   template: Pick<SeedTemplate, 'objects'>,
   personObjects: readonly string[],
   target: string,
+  checkpoint?: RunCheckpointEstimate,
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
   let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
@@ -111,7 +130,20 @@ export async function seedStorageGate(
           unread: extractErrorMessage(err),
         }))
       : storage.dailyApiRequests;
-  const api = apiBudgetCheckOf(seedRequestsEstimate(template), budget);
+  const api = apiBudgetCheckOf(
+    { run: seedRequestsEstimate(template), ...checkpointPartOf(checkpoint) },
+    budget,
+  );
+  const refused = checkpointScopeStop(checkpoint);
+  if (refused) {
+    return {
+      check,
+      api,
+      refusal: refused.message,
+      refusedFor: 'checkpoint',
+      checkpointRefusal: refused.refusal,
+    };
+  }
   const refusal = storageRefusal(check, target);
   if (refusal) {
     return { check, api, refusal: `${refusal} Nothing was written.`, refusedFor: 'storage' };

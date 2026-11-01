@@ -32,8 +32,10 @@ import {
   firedOnRemovalStepsOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
+  isForgeRunGateCode,
 } from '@sandforge/shared';
 import type {
+  CheckpointRefusal,
   ForgeAutomationWrite,
   ForgeConfig,
   ForgeEmailLimit,
@@ -48,7 +50,14 @@ import type {
   ForgeRunGateStop,
   ForgeTargetAutomation,
   ForgeTargetFlow,
+  RunCheckpointEstimate,
+  RunCheckpointTaken,
 } from '@sandforge/shared';
+import {
+  beforeRunFailedWords,
+  beforeRunRefusedWords,
+  type BeforeRunTake,
+} from '../checkpoint/beforeRunCheckpoint.js';
 import {
   ACCOUNT,
   CONTACT,
@@ -67,6 +76,7 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
 
@@ -655,6 +665,188 @@ export function confirmationApiOf(
         },
       }
     : {};
+}
+
+/**
+ * The code every module's run is refused under for the checkpoint it was
+ * asked to take of what it writes before its first write (`Checkpoint
+ * first`): its scope refused at the gate, or its take refused or failed once
+ * the question was answered. The take's own refusal goes with it, for its
+ * code (`DISK`, `NOTHING_HELD`, `API_BUDGET`…). Nothing was written, and the
+ * mute assigned nothing: the take comes before the lease.
+ */
+export const CHECKPOINT_REFUSED = 'CHECKPOINT_REFUSED';
+
+/**
+ * The `checkpoint` part of a run's API requests: what the take of its
+ * checkpoint first is estimated to send — the objects' records and their
+ * recycle bin, as its scope counted them at the gate. Absent for a run that
+ * takes none.
+ */
+export function checkpointPartOf(
+  checkpoint: Pick<RunCheckpointEstimate, 'estimate'> | undefined,
+): Pick<RunRequestParts, 'checkpoint'> {
+  return checkpoint ? { checkpoint: checkpoint.estimate.apiRequests } : {};
+}
+
+/** Why a run stops before its first write for the checkpoint it was asked to take first. */
+export interface CheckpointFirstStop {
+  /** {@link CHECKPOINT_REFUSED}, or `RUN_CANCELLED` when the run's Stop came while the take read. */
+  code: typeof CHECKPOINT_REFUSED | typeof RUN_CANCELLED;
+  message: string;
+  /** The take's refusal, by its code; absent for a take that failed or was stopped. */
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * Why a run is refused at its gate for the checkpoint it takes first: the
+ * refusal its scope met there — another run writing, the org's lock, its
+ * limits, the day's requests, the disk of this machine, or none of the
+ * objects the run writes held. The run is refused before its question,
+ * nothing taken and nothing written.
+ */
+export function checkpointScopeStop(
+  checkpoint: Pick<RunCheckpointEstimate, 'refusal'> | undefined,
+): { code: typeof CHECKPOINT_REFUSED; message: string; refusal: CheckpointRefusal } | undefined {
+  const refusal = checkpoint?.refusal;
+  if (refusal === undefined) return undefined;
+  return { code: CHECKPOINT_REFUSED, message: beforeRunRefusedWords(refusal), refusal };
+}
+
+/** What a run says when its Stop came while it took the checkpoint first. */
+export const CHECKPOINT_STOPPED_WORDS =
+  'The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing ' +
+  'was written.';
+
+/**
+ * The take of the checkpoint a run asked for first, once its question is
+ * answered and before the mute's lease is taken: the checkpoint, or why the
+ * run stops with nothing written — the take refused, failed, or stopped by
+ * the run's Stop, keeping nothing. A take that failed keeps nothing either,
+ * and the run would have no checkpoint to rewind to, which the option
+ * promised: it writes nothing.
+ */
+export async function takeCheckpointFirst(
+  take: () => Promise<BeforeRunTake>,
+): Promise<{ checkpoint: RunCheckpointTaken } | { stop: CheckpointFirstStop }> {
+  let outcome: BeforeRunTake;
+  try {
+    outcome = await take();
+  } catch (err: unknown) {
+    return { stop: { code: CHECKPOINT_REFUSED, message: beforeRunFailedWords(err) } };
+  }
+  if (outcome.taken) return { checkpoint: outcome.checkpoint };
+  if ('stopped' in outcome) {
+    return { stop: { code: RUN_CANCELLED, message: CHECKPOINT_STOPPED_WORDS } };
+  }
+  return {
+    stop: {
+      code: CHECKPOINT_REFUSED,
+      message: beforeRunRefusedWords(outcome.refusal),
+      refusal: outcome.refusal,
+    },
+  };
+}
+
+/**
+ * The parts of the API requests a Forge run takes of its target once its
+ * write gate lets the rows through:
+ *
+ * - `run`: its writes — a REST call per 200 rows of each object, every row
+ *   going through sObject collections, and as many again for the objects its
+ *   second pass updates (`objectsUpdatedAfterInsert`), at most;
+ * - `checkpoint`: the take of the checkpoint it takes first, as its scope
+ *   estimates it;
+ * - `readBack`: the reads of the record types the target gave the records
+ *   created without one (`ForgeWriteBoundary.readBack`), at most.
+ *
+ * Its reads are past by then, and of the source: the target's budget never
+ * paid for them.
+ */
+export function forgeRequestPartsOf(input: {
+  plan: Pick<WritePlan, 'objects'>;
+  /** The objects whose rows the run writes a second time. */
+  updatedAfterInsert?: readonly string[];
+  readBack?: number;
+  checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+}): RunRequestParts {
+  const updated = new Set(input.updatedAfterInsert ?? []);
+  const writes = input.plan.objects.map(({ rows }) => ({ rows }));
+  const updates = input.plan.objects
+    .filter(({ objectApiName }) => updated.has(objectApiName))
+    .map(({ rows }) => ({ rows }));
+  return {
+    run: runRequestsEstimate([...writes, ...updates]),
+    ...checkpointPartOf(input.checkpoint),
+    ...(input.readBack !== undefined && input.readBack > 0 ? { readBack: input.readBack } : {}),
+  };
+}
+
+/**
+ * What Forge's write gate holds a run's rows to beside their storage and
+ * their emails: the target's daily API requests, part by part, and the
+ * checkpoint the run takes first.
+ */
+export interface ForgeWriteBudget {
+  /** The requests against what the target has left today, every part together. */
+  api: ApiBudgetCheck;
+  /**
+   * Why the run is refused, nothing written: its checkpoint first refused at
+   * the gate, or its requests past what the target has left, the refusal
+   * naming each part beside the run's own. Absent when neither refuses it.
+   */
+  stop?: {
+    code: typeof API_BUDGET_EXCEEDED | typeof CHECKPOINT_REFUSED;
+    message: string;
+    refusal?: CheckpointRefusal;
+  };
+  /**
+   * Whether the gate asks for them, whatever the volume: a checkpoint taken
+   * first reads whole tables of the target, not the run's rows, and its cost
+   * is said before anything is taken.
+   */
+  asks: boolean;
+  /** What the run's question says of them: the requests when they run short, and the checkpoint. */
+  confirmation: Pick<WriteConfirmation, 'apiRequests' | 'checkpoint'>;
+}
+
+/**
+ * Forge's write gate on the API requests its rows take of the target and on
+ * the checkpoint it takes first: refused for the checkpoint's own refusal
+ * first, then past the requests the target has left, judged on the sum of
+ * the parts ({@link forgeRequestPartsOf}); asked whenever a checkpoint is
+ * taken first; the question told the requests when they run short, and the
+ * checkpoint. Forge's gate held no budget: a clone into an org whose
+ * integrations had spent the day's requests stopped part way through, as
+ * Sync, Seed and Autopilot no longer do.
+ *
+ * @param input.budget - The daily API requests the target has, read with its
+ *   storage (`DataStorage.dailyApiRequests`), or on their own when the
+ *   storage could not be read (`readApiBudget`), or why they could not be.
+ * @param input.target - The org, as the refusal names it.
+ */
+export function forgeWriteBudgetOf(input: {
+  plan: Pick<WritePlan, 'objects'>;
+  updatedAfterInsert?: readonly string[];
+  readBack?: number;
+  checkpoint?: RunCheckpointEstimate;
+  budget: ApiBudget | { unread: string } | undefined;
+  target: string;
+}): ForgeWriteBudget {
+  const api = apiBudgetCheckOf(forgeRequestPartsOf(input), input.budget);
+  const overBudget = apiBudgetRefusal(api, input.target);
+  const stop =
+    checkpointScopeStop(input.checkpoint) ??
+    (overBudget !== undefined ? { code: API_BUDGET_EXCEEDED, message: overBudget } : undefined);
+  return {
+    api,
+    ...(stop ? { stop } : {}),
+    asks: input.checkpoint !== undefined,
+    confirmation: {
+      ...confirmationApiOf(api),
+      ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+    },
+  };
 }
 
 /** What the rows take against what the target has left, or why that could not be told. */
@@ -1397,9 +1589,18 @@ export function automationUnreadOf(
   );
 }
 
-/** The codes a run's gate stops it with: the extension's, and the command line's own. */
+/**
+ * The codes a run's gate stops it with: the extension's, the command line's
+ * own, and those every module's run is refused under — past the target's
+ * daily API requests, and for the checkpoint it takes first.
+ */
 export type ForgeRunGateErrorCode =
-  ForgeRunGateCode | 'MAX_TOTAL_EXCEEDED' | 'AUTOMATION_NOT_ACCEPTED' | 'EMAILS_EXCEEDED';
+  | ForgeRunGateCode
+  | 'MAX_TOTAL_EXCEEDED'
+  | 'AUTOMATION_NOT_ACCEPTED'
+  | 'EMAILS_EXCEEDED'
+  | typeof API_BUDGET_EXCEEDED
+  | typeof CHECKPOINT_REFUSED;
 
 /**
  * Raised when a run's gate stops it: before it reads anything, or once it has
@@ -1426,15 +1627,13 @@ export class ForgeRunGateError extends Error {
     if (ceiling !== undefined) this.ceiling = ceiling;
   }
 
-  /** The stop as the page is told it; none for a code of the command line's own. */
+  /**
+   * The stop as the page is told it: none for a code of the command line's
+   * own, nor for one every module is refused under, which the page words by
+   * its code alone.
+   */
   get stop(): ForgeRunGateStop | undefined {
-    if (
-      this.code === 'MAX_TOTAL_EXCEEDED' ||
-      this.code === 'AUTOMATION_NOT_ACCEPTED' ||
-      this.code === 'EMAILS_EXCEEDED'
-    ) {
-      return undefined;
-    }
+    if (!isForgeRunGateCode(this.code)) return undefined;
     return {
       code: this.code,
       ...(this.storage ? { storage: this.storage } : {}),

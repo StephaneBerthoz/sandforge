@@ -18,14 +18,23 @@
  */
 
 import type {
+  CheckpointRefusal,
   ForgeAutomationWrite,
   ForgeEmailLimit,
   ForgeTargetAutomation,
   MutedAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointTaken,
+  StillRunning,
   SyncOperation,
   SyncUnwritableReason,
   SyncWriteCheck,
 } from '@sandforge/shared';
+import { stillRunningOf } from '@sandforge/shared';
+import type { BeforeRunTake } from '../checkpoint/beforeRunCheckpoint.js';
+import { beforeRunFailedWords } from '../checkpoint/beforeRunCheckpoint.js';
+import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
+import type { RUN_CANCELLED } from '../forge/forgeAudit.js';
 import {
   isMuteRefusedError,
   type HeldMute,
@@ -40,8 +49,11 @@ import type {
 import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
 import {
   API_BUDGET_EXCEEDED,
+  CHECKPOINT_REFUSED,
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  checkpointPartOf,
+  checkpointScopeStop,
   confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
@@ -50,6 +62,7 @@ import {
   overEmailOf,
   runRequestsEstimate,
   storageCheckOf,
+  takeCheckpointFirst,
   unreadEmailOf,
   writePlanOf,
   type ApiBudget,
@@ -87,6 +100,13 @@ export interface SyncCountedWrite {
    * from `objects`. Absent when none.
    */
   unwritable?: SyncUnwritableObject[];
+  /**
+   * The requests the run sends once its writes are through to read back the
+   * record type the target gave the records it created without one: the
+   * `readBack` part of its API requests, at most. Absent when there is none
+   * to read.
+   */
+  readBack?: number;
 }
 
 /** Whether an object's write creates records: an insert, or an upsert that may. */
@@ -133,6 +153,30 @@ export interface SyncWriteMeasures {
   readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
   /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks; 0 never asks. */
   confirmAboveRecords: number;
+  /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
+  checkpointFirst?: SyncCheckpointFirst;
+}
+
+/**
+ * The checkpoint a run is asked to take of what it writes before its first
+ * write (`Checkpoint first`), as its gate holds it: the port of the
+ * checkpoints (`BeforeRunCheckpoints`) bound to the run, whose own mark does
+ * not refuse the take.
+ */
+export interface SyncCheckpointFirst {
+  /**
+   * What it would hold and cost, at the gate, reading no record: the objects
+   * the run writes, every operation together — a rewind deletes what was
+   * created since, gives back what was changed and brings back what was
+   * deleted — and what still runs as it writes them once the mute's plan
+   * holds, whose creations it holds too.
+   */
+  scope(
+    written: readonly string[],
+    running: Pick<StillRunning<unknown>, 'firing'>,
+  ): Promise<RunCheckpointEstimate>;
+  /** The take, once the question is answered and before the mute's lease, held to what the gate said it takes. */
+  take(planned: RunCheckpointEstimate): Promise<BeforeRunTake>;
 }
 
 /** A run's write, measured against the target before its first write. */
@@ -143,8 +187,65 @@ export interface MeasuredSyncWrite {
   plan: WritePlan;
   storage: StorageCheck;
   emails: EmailCheck[];
-  /** Its calls against the daily API requests the target has left. */
+  /** Its calls against the daily API requests the target has left, the checkpoint's among them. */
   api: ApiBudgetCheck;
+  /**
+   * What the checkpoint it takes first would hold and cost, and the refusal a
+   * real run would meet. Absent when not asked, or for a run that writes nothing.
+   */
+  checkpoint?: RunCheckpointEstimate;
+  /** Why the checkpoint's scope could not be read, in the run's words: the run is refused. */
+  checkpointFailed?: string;
+}
+
+/**
+ * What a run's writes fire, object by object, as its operations make them:
+ * an insert, an update, both for an upsert, a delete as a mirror deletes.
+ * An object it only updates fires nothing that runs on an insert of it, and
+ * what that would create is no part of what a rewind takes back.
+ */
+export function syncWritesOf(
+  counted: Pick<SyncCountedWrite, 'objects'>,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  const writes = new Map<string, Set<ForgeAutomationWrite>>();
+  for (const { objectApiName, operation } of counted.objects) {
+    const of = writes.get(objectApiName) ?? new Set<ForgeAutomationWrite>();
+    if (operation === 'insert' || operation === 'upsert') of.add('insert');
+    if (operation === 'update' || operation === 'upsert') of.add('update');
+    if (operation === 'delete') of.add('delete');
+    writes.set(objectApiName, of);
+  }
+  return (objectApiName, write) => writes.get(objectApiName)?.has(write) === true;
+}
+
+/** What the target runs on `objects`, of a read that holds them and maybe more. */
+function automationOn(
+  read: ForgeTargetAutomation,
+  objects: readonly string[],
+): ForgeTargetAutomation {
+  const wanted = new Set(objects);
+  return {
+    ...read,
+    objectsRead: read.objectsRead.filter((name) => wanted.has(name)),
+    objects: read.objects.filter((object) => wanted.has(object.objectApiName)),
+  };
+}
+
+/**
+ * The target's automation read once for a run's gate: the checkpoint's scope
+ * reads it on every object the run writes, and the emails on those it
+ * creates, which that read holds already.
+ */
+function readOnce(read: SyncWriteMeasures['readAutomation']): SyncWriteMeasures['readAutomation'] {
+  let first: { objects: readonly string[]; answer: Promise<ForgeTargetAutomation> } | undefined;
+  return (objects) => {
+    if (first && objects.every((name) => first?.objects.includes(name))) {
+      return first.answer.then((answer) => automationOn(answer, objects));
+    }
+    const answer = read(objects);
+    first ??= { objects: [...objects], answer };
+    return answer;
+  };
 }
 
 /**
@@ -171,9 +272,42 @@ export async function measureSyncWrite(
   let storage: StorageCheck = storageCheckOf(plan, { maxMB: 0, remainingMB: 0 });
   let emails: EmailCheck[] = [];
   let emailsUnread: string | undefined;
+  // The checkpoint the run takes first, scoped from what still runs as the
+  // run writes — what the mute keeps quiet held quiet, when the run mutes —
+  // before its requests are counted: they are among them. What the target
+  // runs is read once, for the scope and the emails alike.
+  let readAutomation = measures.readAutomation;
+  let checkpoint: RunCheckpointEstimate | undefined;
+  let checkpointFailed: string | undefined;
+  if (total > 0 && measures.checkpointFirst) {
+    readAutomation = readOnce(measures.readAutomation);
+    const written = counted.objects
+      .filter((object) => object.rows > 0)
+      .map((object) => object.objectApiName);
+    // What could not be read creates nothing the scope can name: the
+    // checkpoint then holds the objects the run writes, and the question
+    // says what it cannot know.
+    const running = await readAutomation(written).then(
+      (automation) => stillRunningOf(automation, undefined, syncWritesOf(counted)),
+      () => ({ firing: [] }),
+    );
+    try {
+      checkpoint = await measures.checkpointFirst.scope(written, running);
+    } catch (err: unknown) {
+      checkpointFailed = beforeRunFailedWords(err);
+    }
+  }
   // The calls of its writes to the target, against its daily requests, read
   // with the storage: its reads are of the source, whose own budget they take.
-  const estimate = runRequestsEstimate(objects);
+  // The checkpoint's reads and the read-backs of the record types given are
+  // the target's, and are counted beside them.
+  const estimate = {
+    run: runRequestsEstimate(objects),
+    ...checkpointPartOf(checkpoint),
+    ...(counted.readBack !== undefined && counted.readBack > 0
+      ? { readBack: counted.readBack }
+      : {}),
+  };
   let api: ApiBudgetCheck = apiBudgetCheckOf(estimate, { unread: 'not read' });
   if (total > 0) {
     const limits = await measures.readStorage().catch((err: unknown) => ({
@@ -195,7 +329,7 @@ export async function measureSyncWrite(
     const said = await countedTargetEmails({
       plan,
       objects: plan.objects.map((object) => object.objectApiName),
-      readAutomation: measures.readAutomation,
+      readAutomation,
       readLimits: measures.readLimits,
     });
     emails = said.checks;
@@ -212,18 +346,25 @@ export async function measureSyncWrite(
   // storage it would not say is, and so is an automation that could not be
   // read, whose emails were not counted at all: the page said both and the
   // run went on without a word to the user who started it.
+  // A checkpoint asked first is asked about: it reads whole tables of the
+  // target, not the run's rows, and the question says its cost before
+  // anything is taken. Refused at its scope, it refuses the run.
   const verdict: SyncWriteCheck['verdict'] =
     total === 0
       ? unwritable.length > 0
         ? 'refused'
         : 'writes'
-      : storage.verdict === 'exceeds' || api.verdict === 'exceeds'
+      : storage.verdict === 'exceeds' ||
+          api.verdict === 'exceeds' ||
+          checkpointFailed !== undefined ||
+          checkpoint?.refusal !== undefined
         ? 'refused'
         : aboveRecords !== undefined ||
             unwritable.length > 0 ||
             (plan.totalRows > 0 && storage.verdict !== 'fits') ||
             emails.some((check) => check.verdict !== 'fits') ||
-            emailsUnread !== undefined
+            emailsUnread !== undefined ||
+            checkpoint !== undefined
           ? 'asks'
           : 'writes';
   const check: SyncWriteCheck = {
@@ -270,7 +411,15 @@ export async function measureSyncWrite(
       : {}),
     verdict,
   };
-  return { check, plan, storage, emails, api };
+  return {
+    check,
+    plan,
+    storage,
+    emails,
+    api,
+    ...(checkpoint !== undefined ? { checkpoint } : {}),
+    ...(checkpointFailed !== undefined ? { checkpointFailed } : {}),
+  };
 }
 
 /**
@@ -285,6 +434,8 @@ export type SyncGateCode =
   | 'SYNC_EMAILS_EXCEEDED'
   | 'SYNC_WRITE_DECLINED'
   | 'SYNC_CONFIRMATION_UNAVAILABLE'
+  | typeof CHECKPOINT_REFUSED
+  | typeof RUN_CANCELLED
   | MuteRefusalCode;
 
 /**
@@ -302,9 +453,22 @@ export type SyncGateCode =
  */
 export type SyncGatePolicy = 'ask' | 'unattended' | 'refuse';
 
-/** What the gate came to: the run goes on, or it stops before its first write, and why. */
+/**
+ * What the gate came to: the run goes on, or it stops before its first
+ * write, and why. `checkpoint` is the checkpoint it took first: the run's to
+ * point at once it has written, and to delete when it stops before writing
+ * — its lease refused after the take — as it then wrote nothing.
+ * `refusal` is the take's own refusal of one stopped for its checkpoint.
+ */
 export type SyncGateAnswer =
-  { go: true; asked: boolean } | { go: false; code: SyncGateCode; message: string };
+  | { go: true; asked: boolean; checkpoint?: RunCheckpointTaken }
+  | {
+      go: false;
+      code: SyncGateCode;
+      message: string;
+      refusal?: CheckpointRefusal;
+      checkpoint?: RunCheckpointTaken;
+    };
 
 /**
  * Hold a measured run to its policy: see {@link SyncGatePolicy}.
@@ -334,6 +498,14 @@ export async function gateSyncWrite(
     };
   }
   if (check.total === 0) return { go: true, asked: false };
+  // The checkpoint asked first, refused at its scope or unread: the run is
+  // refused before its question, whoever answers for it, as the option
+  // promised a rewind the run could not then have.
+  if (measured.checkpointFailed !== undefined) {
+    return { go: false, code: CHECKPOINT_REFUSED, message: measured.checkpointFailed };
+  }
+  const refused = checkpointScopeStop(measured.checkpoint);
+  if (refused) return { go: false, ...refused };
   if (plan.totalRows > 0 && storage.verdict === 'exceeds') {
     return {
       go: false,
@@ -378,6 +550,7 @@ export async function gateSyncWrite(
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
         ...(unwritable.length > 0 ? { unwritable } : {}),
         ...confirmationApiOf(api),
+        ...(measured.checkpoint !== undefined ? { checkpoint: measured.checkpoint } : {}),
       })
     : 'unavailable';
   if (answer === 'confirmed') return { go: true, asked: true };
@@ -452,9 +625,32 @@ export function syncWriteGate(
     measure: async (counted) => (await measureSyncWrite(counted, measures)).check,
     hold: async (counted) => {
       const measured = await measureSyncWrite(counted, measures);
-      return { check: measured.check, answer: await gateSyncWrite(measured, decide) };
+      const answer = await gateSyncWrite(measured, decide);
+      return {
+        check: measured.check,
+        answer: await takeSyncCheckpoint(measured, answer, measures.checkpointFirst),
+      };
     },
   };
+}
+
+/**
+ * The take of the checkpoint a run asked for first, once its gate let it
+ * write: after its question, so that nothing others change while a person
+ * reads it is held as the run's T0, and before the mute's lease, which a run
+ * that takes it after its gate (`mutingSyncWriteGate`) takes last. Refused,
+ * failed, or stopped by the run's Stop, it stops the run with nothing
+ * written and nothing assigned; a run that writes nothing takes none.
+ */
+export async function takeSyncCheckpoint(
+  measured: Pick<MeasuredSyncWrite, 'checkpoint'>,
+  answer: SyncGateAnswer,
+  checkpointFirst: Pick<SyncCheckpointFirst, 'take'> | undefined,
+): Promise<SyncGateAnswer> {
+  const planned = measured.checkpoint;
+  if (!answer.go || planned === undefined || checkpointFirst === undefined) return answer;
+  const took = await takeCheckpointFirst(() => checkpointFirst.take(planned));
+  return 'stop' in took ? { go: false, ...took.stop } : { ...answer, checkpoint: took.checkpoint };
 }
 
 /** What a run writes of each object it writes: it inserts, upserts, updates — and deletes, mirroring. */
@@ -470,6 +666,16 @@ export interface MutingSyncWriteGate {
    * run muted, or undefined when it never reached its gate.
    */
   release(): Promise<MutedAutomation | undefined>;
+  /**
+   * The lease the gate took as it let the run write, as Forge's write gate
+   * answers it: how many permission sets it assigned the user the run writes
+   * as, and how to give it back — right after the last write, before the run
+   * reads back the record types the target gave, so that the bypass is held
+   * no longer than the writes. Undefined until the gate took one, and for a
+   * run with nothing to mute. Given back so, the lease is not given back
+   * twice: `release` then answers what it gave back.
+   */
+  lease(): ForgeWriteGateAnswer['lease'];
 }
 
 /**
@@ -477,9 +683,13 @@ export interface MutingSyncWriteGate {
  * the run, before its first write, the mute is planned from what the target
  * runs on the objects it writes (`plan`), and the gate measures the run on
  * that read with what the mute keeps quiet held quiet: what still runs is
- * what it counts the emails of. Once the gate lets the run write, the lease
- * is taken. Refused — a production org, a user who cannot assign, a set that
- * cannot be assigned — the run stops at its gate, nothing written.
+ * what it counts the emails of, and what the checkpoint it takes first holds
+ * the creations of. Once the gate lets the run write and the checkpoint is
+ * taken, the lease is: the shortest window the bypass is held, and none at
+ * all for a run whose checkpoint is refused. Refused — a production org, a
+ * user who cannot assign, a set that cannot be assigned — the run stops at
+ * its gate, nothing written, and its answer names the checkpoint taken
+ * before the lease was refused, for the run to delete.
  *
  * @param build - The run's gate, over the reader of the target's automation it is given.
  * @param plan - The mute of a run writing the objects read; throws `MuteRefusedError` when refused.
@@ -494,14 +704,9 @@ export function mutingSyncWriteGate(
   let held: HeldMute | undefined;
   let muted: MutedAutomation | undefined;
   const gate = build(async (objects) => {
-    const wanted = new Set(objects);
     const view = mute?.automation;
     if (view && objects.every((name) => view.objectsRead.includes(name))) {
-      return {
-        ...view,
-        objectsRead: view.objectsRead.filter((name) => wanted.has(name)),
-        objects: view.objects.filter((object) => wanted.has(object.objectApiName)),
-      };
+      return automationOn(view, objects);
     }
     return readAutomation(objects);
   });
@@ -533,7 +738,11 @@ export function mutingSyncWriteGate(
             held = await mute.prepared.acquire(runId);
             muted = held.outcome;
           } catch (err: unknown) {
-            return { check: answer.check, answer: refusedBy(err) };
+            const { checkpoint } = answer.answer;
+            return {
+              check: answer.check,
+              answer: { ...refusedBy(err), ...(checkpoint ? { checkpoint } : {}) },
+            };
           }
         }
         return answer;
@@ -542,6 +751,17 @@ export function mutingSyncWriteGate(
     release: async () => {
       if (held) muted = await held.release();
       return muted;
+    },
+    lease: () => {
+      const taken = held;
+      if (!taken) return undefined;
+      return {
+        assigned: taken.outcome.assigned.length,
+        giveBack: async () => {
+          muted = await taken.release();
+          return muted;
+        },
+      };
     },
   };
 }

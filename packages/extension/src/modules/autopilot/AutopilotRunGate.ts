@@ -14,7 +14,16 @@
  * without loading it.
  */
 
-import type { ExecutionPlan, ForgeEmailLimit, ForgeTargetAutomation } from '@sandforge/shared';
+import type {
+  CheckpointRefusal,
+  ExecutionPlan,
+  ForgeEmailLimit,
+  ForgeTargetAutomation,
+  RunCheckpointEstimate,
+  RunCheckpointTaken,
+} from '@sandforge/shared';
+import type { BeforeRunTake } from '../checkpoint/beforeRunCheckpoint.js';
+import type { RUN_CANCELLED } from '../forge/forgeAudit.js';
 import type {
   RunConfirmationAnswer,
   SafetyTier,
@@ -24,6 +33,8 @@ import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
+  checkpointPartOf,
+  checkpointScopeStop,
   confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
@@ -31,6 +42,7 @@ import {
   runRequestsEstimate,
   storageCheckOf,
   storageRefusal,
+  takeCheckpointFirst,
   writePlanOf,
   type ApiBudget,
   type ApiBudgetCheck,
@@ -38,6 +50,7 @@ import {
   type EmailCheck,
   type EmailLimit,
   type StorageCheck,
+  type CHECKPOINT_REFUSED,
   type TargetEmails,
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
@@ -126,19 +139,22 @@ function unreadEmailsOf(
     .map((check) => ({ limit: check.limit, emails: check.emails, unread: check.unread ?? '' }));
 }
 
-/** Why a run's gate stopped it: Forge's codes for the same stops. */
 /**
  * The plan's calls against the daily API requests the target has left, read
  * from the same `/limits` as its storage, or on their own when the storage
  * could not be, as Sync reads them: a Standard User's `/limits` list the
- * daily requests and not the storage, and the run took both for unread.
+ * daily requests and not the storage, and the run took both for unread. The
+ * checkpoint the run takes first reads the target too, and its requests are
+ * counted beside the plan's.
  *
  * @param readApiBudget - The target's daily API requests, read on their own.
+ * @param checkpoint - What the checkpoint taken first would cost; absent when not asked.
  */
 export async function autopilotApiCheck(
   plan: Pick<WritePlan, 'objects'>,
   storage: DataStorage | { unread: string },
   readApiBudget: () => Promise<ApiBudget>,
+  checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>,
 ): Promise<ApiBudgetCheck> {
   const budget =
     'unread' in storage
@@ -146,16 +162,79 @@ export async function autopilotApiCheck(
           unread: err instanceof Error ? err.message : String(err),
         }))
       : storage.dailyApiRequests;
-  return apiBudgetCheckOf(runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))), budget);
+  return apiBudgetCheckOf(
+    {
+      run: runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
+      ...checkpointPartOf(checkpoint),
+    },
+    budget,
+  );
 }
 
+/** Why a run's gate stopped it: Forge's codes for the same stops. */
 export type AutopilotGateCode =
   'STORAGE_EXCEEDED' | 'API_BUDGET_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
 
-/** What the gate came to: the run goes on, or it stops before its first write, and why. */
+/**
+ * Why the gate of a plan that takes a checkpoint first stopped it for that
+ * checkpoint: refused at its scope or at its take, or the take failed
+ * (`CHECKPOINT_REFUSED`); the run's Stop while the take read (`RUN_CANCELLED`).
+ */
+export type AutopilotCheckpointCode = typeof CHECKPOINT_REFUSED | typeof RUN_CANCELLED;
+
+/**
+ * What the gate came to: the run goes on, or it stops before its first
+ * write, and why. A run that goes on names the checkpoint it took first.
+ */
 export type AutopilotGateOutcome =
-  | { go: true; check: StorageCheck; asked: boolean }
+  | { go: true; check: StorageCheck; asked: boolean; checkpoint?: RunCheckpointTaken }
   | { go: false; code: AutopilotGateCode; message: string; check: StorageCheck };
+
+/**
+ * What the gate of a plan that takes a checkpoint first came to: as
+ * {@link AutopilotGateOutcome}, or stopped for its checkpoint, with the
+ * take's own refusal when it refused. Typed apart, so that a host that asks
+ * for no checkpoint has no stop of one to word.
+ */
+export type AutopilotCheckpointGateOutcome =
+  | AutopilotGateOutcome
+  | {
+      go: false;
+      code: AutopilotCheckpointCode;
+      message: string;
+      check: StorageCheck;
+      refusal?: CheckpointRefusal;
+    };
+
+/**
+ * The checkpoint a plan is asked to take of what it writes before its first
+ * write (`Checkpoint first`), as its gate holds it: what its scope said at
+ * the gate, through the port of the checkpoints bound to the run, and the
+ * take, which the gate makes once the question is answered.
+ */
+export interface AutopilotCheckpointFirst {
+  /**
+   * What it would hold and cost: the objects the plan writes, and those the
+   * flows that still run create as it inserts and updates them.
+   */
+  estimate: RunCheckpointEstimate;
+  /** The take, held to what the gate said it takes; the mute's lease comes after it. */
+  take(planned: RunCheckpointEstimate): Promise<BeforeRunTake>;
+}
+
+/** What a plan is held to at its gate: see {@link gateAutopilotWrite}. */
+export interface AutopilotGateInput {
+  plan: WritePlan;
+  storage: DataStorage | { unread: string };
+  readApiBudget: () => Promise<ApiBudget>;
+  confirmAboveRecords: number;
+  emails?: readonly EmailCheck[];
+  emailsUncounted?: string;
+  org: string;
+  orgTier: SafetyTier;
+  confirm: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
+  checkpointFirst?: AutopilotCheckpointFirst;
+}
 
 /**
  * Hold a plan to the gate, as the panel holds it: refused past the storage
@@ -164,6 +243,14 @@ export type AutopilotGateOutcome =
  * daily email limit the target's flows would send against, as Forge's gate
  * asks, or when what the target runs could not be read, as Sync's asks; let
  * through otherwise.
+ *
+ * Asked to take a checkpoint first, the plan is refused before its question
+ * when the checkpoint's scope was refused, its requests are counted with the
+ * plan's, and it is always asked: the checkpoint reads whole tables of the
+ * target, not the plan's records, and the question says its cost before
+ * anything is taken. Once the question is answered, the gate takes it —
+ * before the mute's lease, which its caller takes on a plan let through —
+ * and a take refused, failed or stopped stops the plan with nothing written.
  *
  * @param input.plan - The records the plan writes ({@link autopilotWritePlan}).
  * @param input.storage - What the target said of its storage, or why it said nothing.
@@ -174,21 +261,23 @@ export type AutopilotGateOutcome =
  * @param input.emailsUncounted - Why some of them were not counted: what of
  *   the target's automation could not be read (`AutopilotEmails.unread`).
  * @param input.confirm - Puts the question (`ProductionGuard.confirmRun`).
+ * @param input.checkpointFirst - The checkpoint the plan takes first; absent when not asked.
  */
-export async function gateAutopilotWrite(input: {
-  plan: WritePlan;
-  storage: DataStorage | { unread: string };
-  readApiBudget: () => Promise<ApiBudget>;
-  confirmAboveRecords: number;
-  emails?: readonly EmailCheck[];
-  emailsUncounted?: string;
-  org: string;
-  orgTier: SafetyTier;
-  confirm: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
-}): Promise<AutopilotGateOutcome> {
+export function gateAutopilotWrite(
+  input: AutopilotGateInput & { checkpointFirst?: undefined },
+): Promise<AutopilotGateOutcome>;
+export function gateAutopilotWrite(
+  input: AutopilotGateInput,
+): Promise<AutopilotCheckpointGateOutcome>;
+export async function gateAutopilotWrite(
+  input: AutopilotGateInput,
+): Promise<AutopilotCheckpointGateOutcome> {
   const { plan } = input;
   const check = storageCheckOf(plan, input.storage);
   if (plan.totalRows === 0) return { go: true, check, asked: false };
+  const checkpoint = input.checkpointFirst?.estimate;
+  const refused = checkpointScopeStop(checkpoint);
+  if (refused) return { go: false, ...refused, check };
   const refusal = storageRefusal(check, input.org);
   if (refusal) {
     return {
@@ -199,8 +288,8 @@ export async function gateAutopilotWrite(input: {
     };
   }
   // Refused past the daily API requests the target has left, as the run
-  // would stop part way through.
-  const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget);
+  // would stop part way through: the checkpoint's among them.
+  const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget, checkpoint);
   const overBudget = apiBudgetRefusal(api, input.org);
   if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };
   const threshold = input.confirmAboveRecords;
@@ -212,14 +301,25 @@ export async function gateAutopilotWrite(input: {
   // And so is an automation that could not be read, whose emails were not
   // counted at all, as a Sync run asks: Autopilot logged it and wrote.
   const uncounted = input.emailsUncounted;
+  // The checkpoint asked first is taken once the plan may write: after its
+  // question, before the lease its caller takes.
+  const go = async (asked: boolean): Promise<AutopilotCheckpointGateOutcome> => {
+    const first = input.checkpointFirst;
+    if (first === undefined) return { go: true, check, asked };
+    const took = await takeCheckpointFirst(() => first.take(first.estimate));
+    return 'stop' in took
+      ? { go: false, ...took.stop, check }
+      : { go: true, check, asked, checkpoint: took.checkpoint };
+  };
   if (
     aboveRecords === undefined &&
     check.verdict === 'fits' &&
     overEmails.length === 0 &&
     unreadEmails.length === 0 &&
-    uncounted === undefined
+    uncounted === undefined &&
+    checkpoint === undefined
   ) {
-    return { go: true, check, asked: false };
+    return go(false);
   }
   const line = largeVolumeThreshold(input.orgTier);
   const answer = await input.confirm({
@@ -237,8 +337,9 @@ export async function gateAutopilotWrite(input: {
     ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
     ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
     ...confirmationApiOf(api),
+    ...(checkpoint !== undefined ? { checkpoint } : {}),
   });
-  if (answer === 'confirmed') return { go: true, check, asked: true };
+  if (answer === 'confirmed') return go(true);
   return answer === 'declined'
     ? {
         go: false,
