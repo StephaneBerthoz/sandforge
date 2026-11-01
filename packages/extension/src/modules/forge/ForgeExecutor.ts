@@ -90,6 +90,20 @@ import {
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
+import {
+  OPPORTUNITY_LINE_OBJECT,
+  OPPORTUNITY_OBJECT,
+  PAIRED_PRODUCT_FIELD,
+  QUOTE_FIELD,
+  QUOTE_LINE_OBJECT,
+  SYNCED_QUOTE_FIELD,
+  copiesOfTheLines,
+  fieldsTheCopyLacks,
+  quoteLinesUnder,
+  syncCopiesNote,
+  syncedQuoteWriteEdges,
+  type QuoteLineToPair,
+} from './stages/SyncedQuoteLines.js';
 import { pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
 import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
 import { ContactPointNeutralizer } from './stages/ContactPointNeutralizer.js';
@@ -3025,6 +3039,9 @@ function recordTypesToMapTo(target: TargetObjectInfo | null): string[] {
 
 /** The values of a unique field one request asks the target for. */
 const UNIQUE_VALUES_PER_REQUEST = 200;
+
+/** The copies of quote lines one update gives their fields, as the REST API takes records a call. */
+const UPDATES_PER_CALL = 200;
 
 /** A value with a control character in it, which a SOQL literal is not asked with. */
 // eslint-disable-next-line no-control-regex
@@ -6371,9 +6388,11 @@ export class ForgeExecutor {
    * name: see `emailWriteEdges`.
    *
    * A lookup no write can set orders nothing, as the fields say it of the
-   * objects at the edge of discovery too (`withWhatTheFieldsSayOfEdges`); and
-   * in an org with person accounts, the accounts go before the contacts the
-   * platform writes with them: see `personAccountWriteEdges`.
+   * objects at the edge of discovery too (`withWhatTheFieldsSayOfEdges`); in
+   * an org with person accounts, the accounts go before the contacts the
+   * platform writes with them: see `personAccountWriteEdges`; and the quotes
+   * before the opportunity's products, so that the sync is on as they go in:
+   * see `syncedQuoteWriteEdges`.
    *
    * The objects outside the graph the run reads records of for the rows that
    * cannot be written without them are written too, each in a turn of its
@@ -6426,6 +6445,7 @@ export class ForgeExecutor {
       ...(priced ? recordsBeforeTheirPrices(objects, lines, [...required, ...catalog]) : []),
       ...emailWriteEdges(objects),
       ...personAccountWriteEdges(objects, fieldsByObject),
+      ...syncedQuoteWriteEdges(objects, fieldsByObject),
     ]);
   }
 
@@ -8957,6 +8977,270 @@ export class ForgeExecutor {
       state.existingRecords.push({ objectApiName: TASK, linked, unidentified: 0 });
     }
     return { rows: kept, linked };
+  }
+
+  /**
+   * Take, of the quote lines about to be written, each the platform copied
+   * from the run's product it is paired with, under the quote the product's
+   * opportunity syncs with: mapped as a line the run created — what points at
+   * it points at the copy, and a removal of the run's records takes it back —
+   * given the fields of the source's line the copy did not take, and out of
+   * the rows the write sends. See `stages/SyncedQuoteLines.ts`.
+   *
+   * Asked of a run that reads every object before it writes one: its second
+   * pass sets the opportunity's synced quote as soon as the quote is in, and
+   * the quote goes before the products (`syncedQuoteWriteEdges`). A run of
+   * whole tables sets it at its end, once every line is in: no copy is there
+   * to find as its lines go. Asked of the lines whose quote and product the
+   * run created, in this part, in an earlier one it takes up, or in the run it
+   * retries. A simulation, which wrote nothing, takes the lines a real run
+   * finds a copy of — those whose product's opportunity the second pass owes
+   * their quote as its synced quote — and reads nothing.
+   *
+   * Not looked up, the lines go in as read, and the report says why a quote
+   * may then hold a line twice. An update the target refuses leaves a copy as
+   * the platform wrote it, taken all the same: it is the line, short of the
+   * fields the report names.
+   *
+   * @param cleaned - The node's rows as cleaned; those taken are removed.
+   * @param payloads - Their payloads, index-aligned; those taken are removed.
+   * @param writtenBefore - The node's rows the run this one takes up or
+   *   retries wrote: their records are lines that run wrote, no copy.
+   * @returns How many lines were taken, and how many of them an update gave fields.
+   */
+  private async takeTheSyncCopies(
+    state: ExecutionState,
+    cleaned: CleanedRecord[],
+    payloads: Record<string, unknown>[],
+    writtenBefore: readonly Record<string, unknown>[],
+    target: {
+      fields?: readonly FieldInfo[];
+      updatable?: ReadonlySet<string>;
+      keyPrefix?: string | null;
+    },
+  ): Promise<{ taken: number; given: number }> {
+    const none = { taken: 0, given: 0 };
+    if (!state.readsEverythingFirst) return none;
+    const { remapper, simulated, config } = state;
+    // Under a quote and paired with a product the run wrote, a line is one
+    // the run made the platform write. Where either is a record the target
+    // already held, linked to, the line may be the target's own, which no
+    // removal of the run may take.
+    const theRuns = (sourceId: string): boolean =>
+      remapper.wasCreated(sourceId) || config.writtenBefore.has(sourceId);
+    const lines: QuoteLineToPair[] = [];
+    cleaned.forEach(({ source }, index) => {
+      const quote = source[QUOTE_FIELD];
+      const product = source[PAIRED_PRODUCT_FIELD];
+      if (typeof quote !== 'string' || typeof product !== 'string') return;
+      if (!theRuns(quote) || !theRuns(product)) return;
+      const quoteId = remapper.get(quote);
+      const productId = remapper.get(product);
+      if (quoteId && productId) lines.push({ index, quote: quoteId, product: productId });
+    });
+    if (lines.length === 0) return none;
+
+    const updatable = (field: string): boolean =>
+      target.updatable
+        ? target.updatable.has(field)
+        : target.fields?.find((f) => f.name === field)?.updateable !== false;
+    let copies: Map<number, Readonly<Record<string, unknown>>>;
+    if (simulated) {
+      copies = this.copiesASimulationFinds(state, cleaned, lines, target.keyPrefix);
+    } else {
+      const queryable = (field: string): boolean =>
+        target.fields === undefined ||
+        target.fields.some((f) => f.name === field && f.queryable !== false);
+      const fields = [
+        ...new Set(lines.flatMap(({ index }) => Object.keys(payloads[index] ?? {}))),
+      ].filter((field) => updatable(field) && queryable(field));
+      let read: Array<Record<string, unknown>>;
+      try {
+        read = await quoteLinesUnder(
+          (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+          lines,
+          fields,
+        );
+      } catch (err) {
+        state.errors.push({
+          objectApiName: QUOTE_LINE_OBJECT,
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: '(quote lines the platform copied from their opportunity products)',
+              messages: [
+                'Not looked up, so written as read: a quote that syncs with its opportunity ' +
+                  `may hold a line twice. ${extractErrorMessage(err)}`,
+              ],
+            },
+          ],
+        });
+        return none;
+      }
+      // The lines the run this one takes up or retries wrote are its own, and
+      // no copy: taken, a removal of this run would delete another's record.
+      const taken = new Set<string>();
+      for (const row of writtenBefore) {
+        const written = remapper.get(String(row['Id']));
+        if (written) taken.add(written.slice(0, 15));
+      }
+      copies = copiesOfTheLines(lines, read, taken);
+    }
+    if (copies.size === 0) return none;
+
+    // Given their fields before they are mapped: a run stopped in between
+    // finds the copies again when it is taken up, and gives what is left.
+    const given = simulated
+      ? 0
+      : await this.giveTheCopiesTheirFields(state, cleaned, payloads, copies, updatable);
+    for (const [index, copy] of copies) {
+      const built = cleaned[index];
+      const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+      const copyId = String(copy['Id']);
+      if (sourceId !== undefined) remapper.add(sourceId, copyId, QUOTE_LINE_OBJECT);
+      // The lookups it went without are owed on the copy, as on a line inserted.
+      if (built.nullifiedFks.length > 0) {
+        this.oweToTheSecondPass(
+          state,
+          built.nullifiedFks.map((nf): PendingFkUpdate => ({
+            objectApiName: QUOTE_LINE_OBJECT,
+            newId: copyId,
+            sourceId,
+            fieldName: nf.field,
+            sourceRefId: nf.sourceRefId,
+            ...(nf.insertOnly ? { insertOnly: true as const } : {}),
+          })),
+        );
+      }
+    }
+    remapper.persist();
+    for (const index of [...copies.keys()].sort((a, b) => b - a)) {
+      cleaned.splice(index, 1);
+      payloads.splice(index, 1);
+    }
+    return { taken: copies.size, given };
+  }
+
+  /**
+   * The copies a real run finds of the lines a simulation would write: one
+   * per product under the quote the product's opportunity syncs with, where
+   * the second pass owes that opportunity this quote as its synced quote. A
+   * simulation patches nothing, so what it owes is all there is to read: the
+   * quote is written, the opportunity's `SyncedQuoteId` waits for it, and a
+   * real run sets it before the products go in. Each copy gets an id of the
+   * simulation's, as a line it writes does.
+   */
+  private copiesASimulationFinds(
+    state: ExecutionState,
+    cleaned: readonly CleanedRecord[],
+    lines: readonly QuoteLineToPair[],
+    keyPrefix: string | null | undefined,
+  ): Map<number, Readonly<Record<string, unknown>>> {
+    const copies = new Map<number, Readonly<Record<string, unknown>>>();
+    const { simulated } = state;
+    if (!simulated) return copies;
+    const keyOf = (id: unknown): string | undefined =>
+      typeof id === 'string' && id !== '' ? id.slice(0, 15) : undefined;
+    /** The quote each opportunity is owed as its synced quote, by source id. */
+    const syncsWith = new Map<string, string>();
+    for (const update of state.pendingFkUpdates) {
+      const opportunity = keyOf(update.sourceId);
+      const quote = keyOf(update.sourceRefId);
+      if (
+        update.objectApiName === OPPORTUNITY_OBJECT &&
+        update.fieldName === SYNCED_QUOTE_FIELD &&
+        opportunity &&
+        quote
+      ) {
+        syncsWith.set(opportunity, quote);
+      }
+    }
+    if (syncsWith.size === 0) return copies;
+    /** The opportunity of each product read, by source id. */
+    const opportunityOf = new Map<string, string>();
+    for (const row of state.preread.get(OPPORTUNITY_LINE_OBJECT)?.records ?? []) {
+      const product = keyOf(row['Id']);
+      const opportunity = keyOf(row['OpportunityId']);
+      if (product && opportunity) opportunityOf.set(product, opportunity);
+    }
+    /** One copy a product, under the one quote it syncs with. */
+    const copied = new Set<string>();
+    for (const { index } of lines) {
+      const { source } = cleaned[index];
+      const product = keyOf(source[PAIRED_PRODUCT_FIELD]);
+      const quote = keyOf(source[QUOTE_FIELD]);
+      const opportunity = product ? opportunityOf.get(product) : undefined;
+      if (!product || !quote || !opportunity || syncsWith.get(opportunity) !== quote) continue;
+      if (copied.has(product)) continue;
+      copied.add(product);
+      copies.set(index, { Id: simulated.idFor(keyPrefix) });
+    }
+    return copies;
+  }
+
+  /**
+   * Give each copy taken the fields of its source's line it holds otherwise
+   * (`fieldsTheCopyLacks`), in calls of up to two hundred, and say what the
+   * target refused: a copy it refused stays as the platform wrote it. One
+   * the run sends no update to, or that a cancel kept the update from,
+   * stays so too. Returns how many copies were given their fields.
+   */
+  private async giveTheCopiesTheirFields(
+    state: ExecutionState,
+    cleaned: readonly CleanedRecord[],
+    payloads: readonly Record<string, unknown>[],
+    copies: ReadonlyMap<number, Readonly<Record<string, unknown>>>,
+    updatable: (field: string) => boolean,
+  ): Promise<number> {
+    const updates: Record<string, unknown>[] = [];
+    for (const [index, copy] of copies) {
+      const owed = new Set(cleaned[index].nullifiedFks.map((nf) => nf.field));
+      const lacks = fieldsTheCopyLacks(payloads[index] ?? {}, copy, updatable, owed);
+      if (Object.keys(lacks).length > 0) updates.push({ Id: copy['Id'], ...lacks });
+    }
+    if (updates.length === 0) return 0;
+    const update = this.deps.updateRecords;
+    const refused: string[] = [];
+    let given = 0;
+    for (let at = 0; at < updates.length; at += UPDATES_PER_CALL) {
+      const call = updates.slice(at, at + UPDATES_PER_CALL);
+      if (!update || this.isAborted) {
+        refused.push(
+          `${call.length} not sent: ${update ? 'the run was cancelled first' : 'the run sends no update'}`,
+        );
+        continue;
+      }
+      try {
+        const answers = await update(state.targetOrgId, QUOTE_LINE_OBJECT, call);
+        call.forEach((row, i) => {
+          const answer = answers[i];
+          if (answer?.success) given++;
+          else refused.push(`${String(row['Id'])}: ${answer?.errors.join('; ') ?? 'no answer'}`);
+        });
+      } catch (err) {
+        refused.push(`${call.length} not updated: ${extractErrorMessage(err)}`);
+      }
+    }
+    if (refused.length > 0) {
+      state.errors.push({
+        objectApiName: QUOTE_LINE_OBJECT,
+        stage: 'insert',
+        failedCount: 0,
+        attemptedCount: updates.length,
+        samples: [
+          {
+            recordSummary: '(quote lines the platform copied from their opportunity products)',
+            messages: [
+              `Taken, and left as the platform copied them, without the fields of the ` +
+                `source's lines: ${refused.slice(0, 3).join(' | ')}`,
+            ],
+          },
+        ],
+      });
+    }
+    return given;
   }
 
   /**
@@ -11875,6 +12159,18 @@ export class ForgeExecutor {
         });
       }
 
+      // A quote line the platform copied from one of the run's products, under
+      // the quote the product's opportunity syncs with, is the source's line:
+      // taken, and out of what the write sends. See `takeTheSyncCopies`.
+      const fromTheSync =
+        node.objectApiName === QUOTE_LINE_OBJECT
+          ? await this.takeTheSyncCopies(state, cleanedRecords, recordsToInsert, writtenBefore, {
+              fields: targetFields,
+              updatable: targetUpdatableSet,
+              keyPrefix: targetObject?.keyPrefix,
+            })
+          : { taken: 0, given: 0 };
+
       // An order past Draft goes in as a draft, and gets its status back once
       // every node is written: see `restoreStatuses`.
       const startedAsDrafts = await this.startAsDrafts(state, node.objectApiName, recordsToInsert);
@@ -11920,7 +12216,8 @@ export class ForgeExecutor {
           });
         }
       }
-      if (rounds.length === 0) {
+      // Every row taken from the copies, there is nothing left to send.
+      if (rounds.length === 0 && (recordsToInsert.length > 0 || fromTheSync.taken === 0)) {
         rounds.push({ records: recordsToInsert, cleaned: cleanedRecords });
       }
 
@@ -11933,8 +12230,11 @@ export class ForgeExecutor {
         recordTypeWritten,
       );
 
-      // One tally for every round, filled as each call is answered.
+      // One tally for every round, filled as each call is answered. The lines
+      // taken from the copies are created records of the run's, as the
+      // inserted ones are.
       const writeResult = emptyBatchWriteResult();
+      writeResult.successCount += fromTheSync.taken;
       /** The cancel that stopped the node at the checkpoint before one of its calls, if one did. */
       let stoppedBy: ForgeAbortedError | undefined;
       try {
@@ -12153,8 +12453,14 @@ export class ForgeExecutor {
       const readById =
         afterTheirTask === undefined ? readAsParentsNote(state, node.objectApiName) : '';
       const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
+      // Counted with the rows created, as the run's records they are: how many
+      // of them the platform's copies were.
+      const takenFromTheSync =
+        fromTheSync.taken > 0
+          ? ` (${syncCopiesNote(fromTheSync.taken, fromTheSync.given, config.dryRun)})`
+          : '';
       const counts = (reasons: readonly HeldBackReason[]): string =>
-        `${nodeSuccess} ${succeeded}${updated}${linked}${writtenWithTheirEmail}` +
+        `${nodeSuccess} ${succeeded}${takenFromTheSync}${updated}${linked}${writtenWithTheirEmail}` +
         `${writtenWithTheirAccount}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
       const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}${readById}`;
