@@ -864,6 +864,15 @@ export interface RunRemovalOutcome {
   preview?: RunRemovalPreview;
 }
 
+/** What a removal that took none of the run's records hands on: a sweep alone. */
+export const NOTHING_REMOVED: RunRemovalOutcome = {
+  objects: [],
+  cancelled: false,
+  gone: [],
+  stamps: {},
+  left: async function* () {},
+};
+
 /** One row of a delete's answer, or an update's. */
 const writeResultSchema = z
   .object({

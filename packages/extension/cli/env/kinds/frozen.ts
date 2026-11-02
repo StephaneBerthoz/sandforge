@@ -31,8 +31,9 @@
  *
  * What a load refuses — an org its entry guards turn away, a required field
  * the dataset leaves empty with no default, the loads a reload replaces
- * leaving records — the dry run refuses first, and the plan blocks the
- * resource with the script's own words. What it leaves out without refusing
+ * leaving records, what fires as its purge deletes them unaccepted — the dry
+ * run refuses first, and the plan blocks the resource with the script's own
+ * words. What it leaves out without refusing
  * — a field the target encrypts that may hold masks, a picklist value a
  * restricted picklist would refuse and its rule rewrites — the plan says
  * beside its counts. A load never reads the salt the dataset was drawn with.
@@ -268,14 +269,16 @@ function frozenSwitches(step: string, input: FrozenLine): string[] {
 /**
  * The line of a frozen resource's dry run: what a load would insert, link and
  * purge, nothing written. A replace's is a reload's. Its own store, when the
- * sas is one loads keep: a dry run writes nothing there.
+ * sas is one loads keep: a dry run writes nothing there. A reload's purge
+ * deletes, and what fires as it does refuses it unless accepted.
  */
 export function frozenDryRunLine(
-  input: FrozenLine & { reload: boolean; store?: string },
+  input: FrozenLine & { reload: boolean; store?: string; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
+    ...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),
     ...(input.store !== undefined ? ['--store', valueOf('--store', input.store)] : []),
     '--dry-run',
     '--json',
@@ -285,14 +288,16 @@ export function frozenDryRunLine(
 /**
  * The line of a frozen resource's run: held to the records its dry run
  * counted to insert; a replace's is a reload, refused when it would leave
- * records of the loads before it.
+ * records of the loads before it, or while what fires as they go is not
+ * accepted.
  */
 export function frozenApplyLine(
-  input: FrozenLine & { reload: boolean; maxTotal: number },
+  input: FrozenLine & { reload: boolean; maxTotal: number; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
+    ...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--max-total',
     String(input.maxTotal),
     '--yes',

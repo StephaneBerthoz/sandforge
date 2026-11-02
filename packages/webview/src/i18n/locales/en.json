@@ -5087,6 +5087,7 @@
       "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. After a reload, these include the records earlier loads created that the reload found again and kept as its own. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
       "includeChanged": "Also remove the records changed since the load, and what was added to them since",
       "sweep": "Sweep first: also delete the records the target's flows and triggers created for this load; otherwise they can keep the load's records from being removed",
+      "sweepAction": "Take back what the target's automation created",
       "sweepTitle": "What the sweep takes from {{org}}",
       "sweepLoading": "Reading what {{org}}'s automation created during the load…",
       "sweepError": "What the sweep would take from {{org}} could not be read: {{reason}}",
@@ -5156,6 +5157,81 @@
       "failed": "The rules file was not written: {{reason}}"
     },
     "refusal": {
+      "selectionMissing": {
+        "explanation": "No selection is saved, and the extraction takes its records from one.",
+        "action": "Click Run selection on the Extract tab first."
+      },
+      "selectionEmpty": {
+        "explanation": "The last selection kept no root: every combination was uncovered, and the selection says why for each.",
+        "action": "Adjust the axes or the expected objects, then click Run selection again."
+      },
+      "controlFailed": {
+        "explanation": "The non-reidentification control failed, and nothing was written.",
+        "action": "Fix the rules file by the checks it lists as failed, then click Run extraction again."
+      },
+      "saltMissing": {
+        "explanation": "There is no pseudonymization salt, and VS Code's secret storage could not keep one here.",
+        "action": "Set SANDFORGE_FROZEN_SALT to the salt the dataset was built with, and start VS Code from that shell: another salt gives the same records other pseudonyms."
+      },
+      "sasPathRefused": {
+        "explanation": "The sas folder is inside a repository: versioned, it would hold a table from real values to their pseudonyms. Nothing was written.",
+        "action": "Set a sas folder outside any repository in the configuration."
+      },
+      "budgetExceeded": {
+        "explanation": "The selection measured {{total}} records for a budget of {{budget}}.",
+        "heaviest": "The heaviest: {{objects}}.",
+        "action": "Leave out the objects the dataset does not need, narrow the coverage axes or edge cases, or raise the budget."
+      },
+      "noLoad": {
+        "explanation": "No load into this org is recorded in this sas, and nothing was changed.",
+        "action": "Load the dataset into it first."
+      },
+      "notRecorded": {
+        "explanation": "This load was recorded before loads kept what they created: its records cannot be told from the ones it linked.",
+        "action": "It cannot be removed from here, nor replaced by a reload, which would delete what someone changed since."
+      },
+      "loadChanged": {
+        "explanation": "Another load was recorded since this one was shown, and nothing was removed.",
+        "action": "Check what a removal takes now, then confirm it again."
+      },
+      "targetRefreshed": {
+        "explanation": "The target org was refreshed after the load: the records it created went with the refresh, and nothing was changed.",
+        "action": "Load the dataset again."
+      },
+      "loadStopped": {
+        "explanation": "The last load stopped part way and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it.",
+        "action": "Reload the dataset, or remove that load before loading it again; then verify."
+      },
+      "loadRemoved": {
+        "explanation": "The records the last load created were removed: there is nothing to verify.",
+        "action": "Load the dataset again, then verify.",
+        "partExplanation": "A removal took part of the records the last load created and left {{left}} of them in the org: a verification would read the ones it took as missing.",
+        "partAction": "Remove what is left, or reload the dataset; then verify."
+      },
+      "loadConfig": {
+        "explanation": "The dataset leaves required fields empty that the configuration does not cover, and nothing was written.",
+        "action": "Declare them all in the configuration, then load again: {{gaps}}"
+      },
+      "timeout": {
+        "explanation": "This step ran out of time and stopped.",
+        "action": "Try it again."
+      },
+      "nonSandbox": {
+        "explanation": "{{org}} is no sandbox, scratch org or Developer Edition org: a load goes into those alone, and nothing was written.",
+        "action": "Pick one of those as the target."
+      },
+      "protectedEnvironment": {
+        "explanation": "{{org}} is among the protected orgs of the configuration, and nothing was written.",
+        "action": "Pick another sandbox, or review that list if this org was retired."
+      },
+      "unmockedCallouts": {
+        "explanation": "The records of a load into {{org}} would trigger real external calls: its callouts are not mocked, and nothing was written.",
+        "action": "Deploy the mock configuration to that org, then load again."
+      },
+      "emptyDataset": {
+        "explanation": "The dataset holds no record, and nothing was written.",
+        "action": "Run the selection and the extraction again with a coverage matrix that matches the source."
+      },
       "configMissing": {
         "explanation": "No project configuration is saved, and the runs read the saved one.",
         "action": "Click Save configuration on the Extract tab first."

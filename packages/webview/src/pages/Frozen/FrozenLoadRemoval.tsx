@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Square, Trash2 } from 'lucide-react';
+import { Eraser, Square, Trash2 } from 'lucide-react';
 import type {
   ForgeRemovalSteps,
   ForgeSweepListing,
@@ -46,6 +46,7 @@ import {
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
 import { FrozenReloadRefused } from './FrozenReloadRefused';
+import { frozenErrorWords } from './frozenErrorWords';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -97,6 +98,8 @@ interface FrozenRemovalAutomationProps {
   org: string;
   /** The objects a sweep ticked with the removal deletes records of. */
   sweptObjects: readonly string[];
+  /** Read for a reload's purge, which takes what every load before it left. */
+  reload?: boolean;
   mute: { checked: boolean; onChange: (checked: boolean) => void };
 }
 
@@ -108,13 +111,15 @@ interface FrozenRemovalAutomationProps {
  * the ticks change it. A removal of a load fired the target's flows with no
  * question and no way to keep them quiet. Where a bypass silences something of
  * it, the box that mutes it for the removal is offered under it, planned from
- * the same steps; the read shown stays until the answer lands.
+ * the same steps; the read shown stays until the answer lands. A reload's
+ * confirmation shows it too: its purge deletes as a removal does.
  */
-const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = ({
+export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = ({
   orgId,
   loadedAt,
   org,
   sweptObjects,
+  reload = false,
   mute,
 }) => {
   const read = useBridgeMutation<AutomationAnswer>('frozen:remove:automation', {
@@ -134,8 +139,9 @@ const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = ({
         targetOrgId: orgId,
         loadedAt,
         ...(swept !== '' ? { sweptObjects: swept.split(',') } : {}),
+        ...(reload ? { reload: true } : {}),
       }),
-    [orgId, loadedAt, swept, mutate],
+    [orgId, loadedAt, swept, reload, mutate],
   );
   useEffect(() => {
     setLastRead(null);
@@ -435,6 +441,8 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     setConfirming(true);
   };
 
+  /** What the sweep's list says it takes, ticked: what fires as those records go. */
+  const sweptObjects = sweep && sweepListing ? sweepTakenObjects(sweepListing, ticks) : [];
   // When the last removal ended, said with its mark above the action and not
   // in its place: a removal that left records in the org marked the load,
   // and the card offered nothing more while the status still counted them.
@@ -457,6 +465,24 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         <p data-testid="frozen-removal-nothing" className="text-[11px] text-text-secondary">
           {t('frozen.removal.nothingCreated')}
         </p>
+      );
+    } else if (records.removed && org) {
+      // Nothing of the load left to remove: what the target's automation made
+      // for it may be, a sweep that failed having left it, and the sweep
+      // alone is offered, as for a run of Forge.
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Eraser size={11} />}
+          loading={removal.loading}
+          disabled={removal.loading || busy}
+          onClick={askSweep}
+          data-testid="frozen-removal-sweep-alone"
+          className="self-start text-[11px]"
+        >
+          {t('frozen.removal.sweepAction')}
+        </Button>
       );
     }
   } else if (!org) {
@@ -549,7 +575,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           )}
           {removal.error && (
             <ErrorBanner
-              message={removal.error}
+              message={
+                frozenErrorWords(
+                  { code: removal.errorCode ?? undefined },
+                  t,
+                  (id) => orgs.find((o) => o.id === id)?.alias ?? id,
+                ) ?? removal.error
+              }
               code={removal.errorCode}
               data-testid="frozen-removal-error"
             />
@@ -591,13 +623,16 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           linked={records.linked}
           {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
         />
-        <FrozenRemovalAutomation
-          orgId={records.orgId}
-          loadedAt={records.loadedAt}
-          org={org ?? ''}
-          sweptObjects={sweep && sweepListing ? sweepTakenObjects(sweepListing, ticks) : []}
-          mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
-        />
+        {/* A sweep alone fires what goes with what its list takes, and nothing before. */}
+        {(created > 0 || sweptObjects.length > 0) && (
+          <FrozenRemovalAutomation
+            orgId={records.orgId}
+            loadedAt={records.loadedAt}
+            org={org ?? ''}
+            sweptObjects={sweptObjects}
+            mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+          />
+        )}
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"
@@ -607,16 +642,19 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           />
           {t('frozen.removal.includeChanged')}
         </label>
-        {/* Never ticked unasked: a sweep deletes records the load did not write. */}
-        <label className="flex items-center gap-2 mt-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={sweep}
-            onChange={(e) => setSweep(e.target.checked)}
-            data-testid="frozen-removal-sweep-toggle"
-          />
-          {t('frozen.removal.sweep')}
-        </label>
+        {/* Never ticked unasked: a sweep deletes records the load did not write.
+            Alone, it is what the confirmation is for. */}
+        {created > 0 && (
+          <label className="flex items-center gap-2 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sweep}
+              onChange={(e) => setSweep(e.target.checked)}
+              data-testid="frozen-removal-sweep-toggle"
+            />
+            {t('frozen.removal.sweep')}
+          </label>
+        )}
         {sweep && confirming && (
           <FrozenRemovalSweep
             orgId={records.orgId}

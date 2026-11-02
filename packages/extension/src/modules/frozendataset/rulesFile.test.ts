@@ -353,6 +353,111 @@ describe('the platform settings an empty rules file keeps', () => {
   });
 });
 
+describe('what a load cannot do without of a catalog and its lines', () => {
+  const empty = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+  /** The describes of a real org: each price nillable, a quote line's total the org's own. */
+  const schema = new Map<string, RuleSchemaField[]>([
+    [
+      'OpportunityLineItem',
+      [
+        { name: 'UnitPrice', type: 'currency', nillable: true, createable: true },
+        { name: 'TotalPrice', type: 'currency', nillable: true, createable: true },
+      ],
+    ],
+    [
+      'QuoteLineItem',
+      [
+        { name: 'UnitPrice', type: 'currency', nillable: true, createable: true },
+        { name: 'TotalPrice', type: 'currency', nillable: true, createable: false },
+      ],
+    ],
+  ]);
+  const extracted = (
+    ...objects: Array<[string, Record<string, unknown>]>
+  ): Pick<ExtractedDataset, 'objects'> => ({
+    objects: objects.map(([objectApiName, fields]) => ({
+      objectApiName,
+      records: [{ referenceId: `${objectApiName}-000001`, sourceId: 'x', fields }],
+    })),
+  });
+  const priced = { UnitPrice: 115, TotalPrice: 230 };
+
+  it('names the unit price of a line the rules clear both prices of', () => {
+    expect(
+      requiredFieldsLeftEmpty(extracted(['OpportunityLineItem', priced]), empty, schema),
+    ).toEqual(['OpportunityLineItem.UnitPrice']);
+  });
+
+  it('names nothing of a line that keeps either price', () => {
+    for (const field of ['UnitPrice', 'TotalPrice']) {
+      const kept = parsePseudonymRules({
+        rulesVersion: '1.0.0',
+        rules: { [`OpportunityLineItem.${field}`]: { generator: 'keep', approved: true } },
+      });
+
+      expect(
+        requiredFieldsLeftEmpty(extracted(['OpportunityLineItem', priced]), kept, schema),
+      ).toEqual([]);
+    }
+  });
+
+  it('names the unit price of a quote line, whose total no insert sends', () => {
+    const totalKept = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'QuoteLineItem.TotalPrice': { generator: 'keep', approved: true } },
+    });
+
+    expect(
+      requiredFieldsLeftEmpty(extracted(['QuoteLineItem', priced]), totalKept, schema),
+    ).toEqual(['QuoteLineItem.UnitPrice']);
+  });
+
+  it('names nothing of a line that held no price, nor of an object with no record', () => {
+    expect(
+      requiredFieldsLeftEmpty(
+        extracted(['OpportunityLineItem', { UnitPrice: null, TotalPrice: null }]),
+        empty,
+        schema,
+      ),
+    ).toEqual([]);
+    expect(
+      requiredFieldsLeftEmpty(
+        { objects: [{ objectApiName: 'OpportunityLineItem', records: [] }] },
+        empty,
+        schema,
+      ),
+    ).toEqual([]);
+  });
+
+  it('names a required price once, however the describe of the org says it', () => {
+    const required = new Map<string, RuleSchemaField[]>([
+      ['QuoteLineItem', [{ name: 'UnitPrice', type: 'currency', nillable: false }]],
+    ]);
+
+    expect(requiredFieldsLeftEmpty(extracted(['QuoteLineItem', priced]), empty, required)).toEqual([
+      'QuoteLineItem.UnitPrice',
+    ]);
+  });
+
+  it('keeps whether a catalog is active, which is listed for review, and clears its prices', () => {
+    for (const objectApiName of ['Pricebook2', 'PricebookEntry', 'Product2']) {
+      expect(resolveGenerator(empty, objectApiName, 'IsActive')).toBe('keep');
+    }
+    expect(resolveGenerator(empty, 'PricebookEntry', 'UnitPrice')).toBe('clear');
+    expect(resolveGenerator(empty, 'Account', 'IsActive')).toBe('clear');
+    expect(keptWithoutARule(extracted(['Pricebook2', { IsActive: true }]), empty)).toEqual([
+      'Pricebook2.IsActive',
+    ]);
+    const cleared = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'Pricebook2.IsActive': { generator: 'clear' } },
+    });
+    expect(
+      resolveGenerator(withSchemaDefaults(cleared, schema, detector), 'Pricebook2', 'IsActive'),
+    ).toBe('clear');
+  });
+});
+
 describe('a restricted picklist that says what a person is', () => {
   const restricted = { type: 'picklist', restrictedPicklist: true, nillable: true };
   const schema = new Map<string, RuleSchemaField[]>([

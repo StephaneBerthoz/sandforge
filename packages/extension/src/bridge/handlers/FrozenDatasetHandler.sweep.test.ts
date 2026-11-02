@@ -830,6 +830,114 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       ).toBe('partial');
     });
 
+    describe('asked again once the load’s records went', () => {
+      beforeEach(async () => {
+        // Gone, the load's records no longer say who wrote them: the sweep
+        // reads it from the load.
+        await new SasReferenceIdMappingStore(sasDir, {
+          orgId: TARGET_ORG,
+          organizationId: ORGANIZATION,
+          now: () => new Date(LAST_WRITE),
+        }).persist(
+          new Map([
+            ['WorkOrder-000001', WORK_ORDER],
+            ['ServiceAppointment-000001', APPOINTMENT],
+          ]),
+          {
+            created: [
+              { objectApiName: 'WorkOrder', referenceIds: ['WorkOrder-000001'] },
+              { objectApiName: 'ServiceAppointment', referenceIds: ['ServiceAppointment-000001'] },
+            ],
+            startedAt: new Date(FIRST_WRITE),
+            writtenBetween: { first: FIRST_WRITE, last: LAST_WRITE },
+            runUserId: USER,
+          },
+        );
+        mockGetConn.mockResolvedValue(refusingTheAsset() as never);
+        await remove({ sweep: true });
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        tied.deletes.length = 0;
+      });
+
+      it('runs alone, deleting what is left of what it was to take, and ends a success', async () => {
+        mockGetConn.mockResolvedValue(tied.conn as never);
+
+        await remove({ sweep: true });
+
+        expect(errors()).toEqual([]);
+        expect(answer()).toMatchObject({
+          status: 'success',
+          objects: [],
+          sweep: { status: 'success', objects: [{ objectApiName: 'Asset', deleted: 1 }] },
+        });
+        expect(tied.ids('Asset')).toEqual([]);
+        expect(tied.deletes.map((call) => call.object)).toEqual(['Asset']);
+      });
+
+      it('ends partial while the org refuses it, and no success goes on the page or Live Operations', async () => {
+        await remove({ sweep: true });
+
+        expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
+        expect(tied.ids('Asset')).toEqual([ASSET]);
+        expect(
+          posted<BaseMessage & { payload: { result: { status?: string } } }>(
+            'operation:completed',
+          ).at(-1)?.payload.result.status,
+        ).toBe('failure');
+      });
+
+      it('writes the sweep’s entry in the audit trail, and none of a removal that took nothing', async () => {
+        mockGetConn.mockResolvedValue(tied.conn as never);
+        const before = new AuditTrailStore(store).list().entries.length;
+
+        await remove({ sweep: true });
+
+        const added = new AuditTrailStore(store).list().entries.slice(0, -before);
+        expect(added).toEqual([expect.objectContaining({ module: 'frozen', outcome: 'success' })]);
+        expect(added[0].details).toMatchObject({ sweep: true, deleted: 1, loadedAt: LAST_WRITE });
+      });
+
+      it('leaves the removal’s mark as the records went', async () => {
+        const marked = async () =>
+          (
+            await new SasReferenceIdMappingStore(sasDir, {
+              orgId: TARGET_ORG,
+              organizationId: ORGANIZATION,
+            }).recordedLoads()
+          )[0]?.removal;
+        const before = await marked();
+        mockGetConn.mockResolvedValue(tied.conn as never);
+
+        await remove({ sweep: true });
+
+        expect(await marked()).toEqual(before);
+      });
+
+      it('still answers it took everything to a removal with no sweep', async () => {
+        await remove();
+
+        expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+        expect(answer()).toBeUndefined();
+      });
+
+      it('lists what fires on what the sweep’s list names, where it refused the load as removed', async () => {
+        await handler.handle(
+          buildMsg('frozen:remove:automation', {
+            targetOrgId: TARGET_ORG,
+            loadedAt: LAST_WRITE,
+            sweptObjects: ['Asset'],
+          }),
+        );
+
+        expect(errors('frozen:remove:automation:error')).toEqual([]);
+        expect(
+          posted<BaseMessage & { payload: { steps: unknown } }>(
+            'frozen:remove:automation:response',
+          ).at(-1)?.payload.steps,
+        ).toEqual({ setToDraft: [], delete: ['Asset'] });
+      });
+    });
+
     it('keeps the two apart in the audit trail: the removal as its records ended, the sweep as it did', async () => {
       mockGetConn.mockResolvedValue(refusingTheAsset() as never);
 
@@ -958,6 +1066,81 @@ describe('a sweep asked with the removal of a Frozen load', () => {
 
         expect(read).toHaveBeenCalledWith(TARGET_ORG, ['ServiceAppointment', 'WorkOrder']);
         expect(automation()?.automation.objects).toEqual([]);
+      });
+
+      describe('of a reload’s purge', () => {
+        const askPurge = (loadedAt = LAST_WRITE) =>
+          handler.handle(
+            buildMsg('frozen:remove:automation', {
+              targetOrgId: TARGET_ORG,
+              loadedAt,
+              reload: true,
+            }),
+          );
+
+        it('reads what every load before it left, and what names one load refuses it nothing', async () => {
+          await new SasReferenceIdMappingStore(sasDir, {
+            orgId: TARGET_ORG,
+            organizationId: ORGANIZATION,
+            now: () => new Date('2026-09-20T10:10:00.000Z'),
+          }).persist(new Map([['Their-000001', id('00T', 7)]]), {
+            created: [{ objectApiName: 'Task', referenceIds: ['Their-000001'] }],
+            startedAt: new Date('2026-09-20T10:09:00.000Z'),
+            earlier: { settled: [] },
+            writtenBetween: {
+              first: '2026-09-20T10:09:00.000Z',
+              last: '2026-09-20T10:10:00.000Z',
+            },
+          });
+
+          await askPurge();
+
+          expect(errors('frozen:remove:automation:error')).toEqual([]);
+          expect(automation()?.steps).toEqual({
+            setToDraft: [],
+            delete: ['Task', 'ServiceAppointment', 'WorkOrder'],
+          });
+          expect(read).toHaveBeenCalledWith(TARGET_ORG, [
+            'Task',
+            'ServiceAppointment',
+            'WorkOrder',
+          ]);
+        });
+
+        it('leaves out what the configuration has it deactivate, which goes by an update', async () => {
+          store.set(
+            'frozen:config',
+            {
+              rootObject: 'WorkOrder',
+              axes: [],
+              edgeCases: [],
+              sasDir,
+              undeletableObjects: { WorkOrder: 'Status' },
+            },
+            'frozen',
+          );
+
+          await askPurge();
+
+          expect(automation()?.steps).toEqual({
+            setToDraft: [],
+            delete: ['ServiceAppointment'],
+          });
+        });
+
+        it('reads nothing of a load a refresh of the target took with it', async () => {
+          mockGetConn.mockResolvedValue({
+            ...tied.conn,
+            query: async (soql: string) =>
+              soql === 'SELECT Id FROM Organization'
+                ? { totalSize: 1, done: true, records: [{ Id: '00DXX00000ZzYyX2A1' }] }
+                : tied.conn.query(soql),
+          } as never);
+
+          await askPurge();
+
+          expect(automation()?.steps).toEqual({ setToDraft: [], delete: [] });
+        });
       });
 
       it('refuses to read for a load other than the one shown, as the removal is', async () => {

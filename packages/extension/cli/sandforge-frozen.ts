@@ -49,6 +49,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
 import type {
+  ForgeAutomationWrite,
   ForgeRemovalSteps,
   ForgeSweepListing,
   ForgeSweepResult,
@@ -177,9 +178,12 @@ Options:
                          out of the user's sight or unread — or when one of them was
                          recorded before loads kept what they created: take the load
                          back with remove first (--include-changed takes what changed
-                         since). With --pilot, a reload purges nothing, and is not
-                         asked
-  --max-total <n>        with load: the most records it may insert — the count its dry
+                         since). What the target runs as the purge deletes is read
+                         and named first, and nothing is written while something
+                         fires unless --accept-automation or --mute-automation
+                         answers it. With --pilot, a reload purges nothing, and is
+                         not asked
+  --max-total <n>       with load: the most records it may insert — the count its dry
                          run gave. A load, or a reload, that would insert more is
                          refused before anything is written, the purge included; a dry
                          run says it would be, exit 1
@@ -199,13 +203,14 @@ Options:
                          Refused on a production org and for a user who cannot assign
                          permission sets, exit 1; with --dry-run or --preview, says
                          what would be muted and assigns nothing
-  --accept-automation    with remove: delete although the target runs flows, Apex
-                         triggers, processes or workflow rules as the records go,
-                         those --sweep deletes included — before or after a delete,
-                         or as an activated order is set back to Draft for its delete
-                         — or could not say what it runs. Each is named before
-                         anything is deleted; without the flag the removal then
-                         deletes nothing, exit 1
+  --accept-automation    with remove, or load --reload: delete although the target
+                         runs flows, Apex triggers, processes or workflow rules as
+                         the records go, those --sweep deletes included — before or
+                         after a delete, or as an activated order is set back to
+                         Draft for its delete — or could not say what it runs. Each
+                         is named before anything is deleted; without the flag the
+                         removal then deletes nothing, the reload writes nothing,
+                         exit 1
 ${checkpointFirstHelp({
   run: 'the load',
   simulation: '--dry-run',
@@ -238,7 +243,9 @@ ${checkpointFirstHelp({
                          created in the window tied to nothing of it. Such
                          records then keep none of the load's records as records
                          that stay. A sweep refused, or that did not take all it was
-                         asked to, ends the removal partial, exit 3 (off otherwise)
+                         asked to, ends the removal partial, exit 3; once the load's
+                         records went already, the sweep runs alone, the way to
+                         take what such a sweep left (off otherwise)
   --sweep-late           with --sweep: take too what it lists as made late
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
                          the load; refused when another run wrote to the target
@@ -438,8 +445,14 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--mute-automation goes with load or remove. Run with --help.\n');
     process.exit(2);
   }
-  if (args.includes('--accept-automation') && step !== 'remove') {
-    process.stderr.write('--accept-automation goes with remove. Run with --help.\n');
+  if (
+    args.includes('--accept-automation') &&
+    step !== 'remove' &&
+    !(step === 'load' && args.includes('--reload'))
+  ) {
+    process.stderr.write(
+      '--accept-automation goes with remove or load --reload. Run with --help.\n',
+    );
     process.exit(2);
   }
   if (args.includes(CHECKPOINT_FIRST) && step !== 'load') {
@@ -761,11 +774,14 @@ export function removalPlanLines(records: LoadRecords, org: string): string[] {
 
 /**
  * Whether the person is asked to type the org's name before the removal: when
- * it would delete something — records the load created, or what an earlier
- * removal left of them. Exported so it can be tested.
+ * it would delete something — records the load created, what an earlier
+ * removal left of them, or what a sweep that goes alone takes, once it has
+ * read. Exported so it can be tested.
+ *
+ * @param steps - What the removal and its sweep delete, step by step.
  */
-export function removalAsks(records: LoadRecords): boolean {
-  return records.recorded && recordsToTake(records) > 0;
+export function removalAsks(records: LoadRecords, steps?: ForgeRemovalSteps): boolean {
+  return records.recorded && (recordsToTake(records) > 0 || (steps?.delete ?? []).length > 0);
 }
 
 /** What became of one object's records in a removal, the counts that are not zero. */
@@ -1438,11 +1454,17 @@ export function messageLines(message: Posted): string[] {
         keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
+      // A sweep alone took none of the load's records: only its own lines are said.
+      const alone = r.sweep !== undefined && r.objects.length === 0;
       return [
         // The sweep ran first, before the load's records went.
         ...(r.sweep ? sweepLines(r.sweep) : []),
-        `removal: ${r.status.toUpperCase()}` +
-          (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
+        ...(alone
+          ? []
+          : [
+              `removal: ${r.status.toUpperCase()}` +
+                (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
+            ]),
         ...r.objects.flatMap((o) => [
           `  ${o.objectApiName}: ${removalCounts(o) || 'nothing'} of ${o.planned}${platformCopiesWords(o)}`,
           ...o.reasons.map((reason) => `      ${reason}`),
@@ -1946,6 +1968,63 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   /**
+   * What the target runs as records of a load go, read as `asked` and said as
+   * a removal says it before its first delete: a mute asked for is planned, and
+   * nothing assigned. Why the step goes no further without --accept-automation.
+   */
+  async function automationOfDeletes(asked: Record<string, unknown>): Promise<{
+    steps?: ForgeRemovalSteps;
+    planned?: ReturnType<typeof planMute>;
+    refusal?: string;
+  }> {
+    await send('frozen:remove:automation', asked);
+    const payload = (type: string): Record<string, unknown> | undefined =>
+      posted.find((m) => m.type === type)?.payload;
+    const read = payload('frozen:remove:automation:response') as
+      { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
+    const planned =
+      read && args.muteAutomation
+        ? planMute(read.automation, removalStepsWrites(read.steps))
+        : undefined;
+    const { lines, refusal } = removalAutomation(
+      {
+        read: read?.automation ?? {
+          unread: String(payload('frozen:remove:automation:error')?.message),
+        },
+        steps: read?.steps ?? {},
+        ...(planned ? { mute: { automation: planned.automation, muted: planned.planned } } : {}),
+      },
+      args.target ?? '',
+      userOfTarget(),
+    );
+    for (const line of lines) log(line);
+    return {
+      ...(read ? { steps: read.steps } : {}),
+      ...(planned ? { planned } : {}),
+      ...(refusal !== undefined && !args.acceptAutomation ? { refusal } : {}),
+    };
+  }
+
+  /**
+   * {@link automationOfDeletes} of a reload's purge: of what the loads before it
+   * left in the target, none of which a pilot purges. Undefined with nothing
+   * left to purge.
+   */
+  async function purgeAutomation(): Promise<
+    Awaited<ReturnType<typeof automationOfDeletes>> | undefined
+  > {
+    if (!args.reload || args.pilot) return undefined;
+    quiet = true;
+    await send('frozen:status', {});
+    quiet = false;
+    const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
+      ?.status as { loadRecords?: LoadRecords[] } | undefined;
+    const records = status?.loadRecords?.find((load) => load.orgId === targetOrgId);
+    if (!records || records.created.length === 0) return undefined;
+    return automationOfDeletes({ targetOrgId, loadedAt: records.loadedAt, reload: true });
+  }
+
+  /**
    * The step itself: the configuration saved, then the step's own request;
    * `ended` when it stopped short of its request, having said why.
    */
@@ -1988,16 +2067,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             refusals.push(tooMany);
             log(`a load would be refused: ${tooMany}`);
           }
+          // What a reload's purge would fire, read and judged as the reload
+          // reads it before it writes: a dry run that let by what its run then
+          // refused would have a plan apply what it cannot.
+          const purge = plan ? await purgeAutomation() : undefined;
+          if (purge?.refusal !== undefined) {
+            refusals.push(purge.refusal);
+            log(`a load would be refused: ${purge.refusal}`);
+          }
           // What a load with --mute-automation would assign, silence, leave
           // running and lift beside, read from the target as the load would
           // read it; nothing assigned, and said in the summary as in the lines.
           let automation: ForgeTargetAutomation | undefined;
           if (args.muteAutomation && plan && targetConn) {
-            automation = await targetAutomationReader(targetConn).read(
-              targetOrgId!,
-              plan.perObject.map((object) => object.objectApiName),
-            );
-            const { planned, plan: mutePlan } = planMute(automation, LOAD_WRITES);
+            automation = await targetAutomationReader(targetConn).read(targetOrgId!, [
+              ...new Set([
+                ...plan.perObject.map((object) => object.objectApiName),
+                ...(purge?.steps?.delete ?? []),
+              ]),
+            ]);
+            const { planned, plan: mutePlan } = planMute(automation, loadWrites(purge?.steps));
             for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
             dryRunMute = { mutedAutomation: planned, mutePlan };
           }
@@ -2036,6 +2125,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             }
           }
           break;
+        }
+        // A reload deletes before it loads: what fires as its purge goes is
+        // said and answered before anything is asked or written, as a removal's.
+        const purge = args.reload && !args.pilot ? await purgeAutomation() : undefined;
+        if (purge?.refusal !== undefined) {
+          refusals.push(purge.refusal);
+          log(purge.refusal);
+          failed = true;
+          return 'ended';
         }
         if (!args.yes) {
           const ok = await confirm(
@@ -2157,35 +2255,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             loadedAt: records.loadedAt,
             ...(args.includeChanged ? { includeChanged: true } : {}),
           });
-          // What the target runs as a removal takes them, read and said as the
-          // removal says it before its first delete; a mute asked for is
-          // planned, and nothing assigned.
           if (posted.some((m) => m.type === 'frozen:remove:preview:response')) {
-            await send('frozen:remove:automation', { targetOrgId, loadedAt: records.loadedAt });
-            const payload = (type: string): Record<string, unknown> | undefined =>
-              posted.find((m) => m.type === type)?.payload;
-            const read = payload('frozen:remove:automation:response') as
-              { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
-            const planned =
-              read && args.muteAutomation
-                ? planMute(read.automation, removalStepsWrites(read.steps))
-                : undefined;
+            const { planned, refusal } = await automationOfDeletes({
+              targetOrgId,
+              loadedAt: records.loadedAt,
+            });
             if (planned) dryRunMute = { mutedAutomation: planned.planned, mutePlan: planned.plan };
-            const { lines, refusal } = removalAutomation(
-              {
-                read: read?.automation ?? {
-                  unread: String(payload('frozen:remove:automation:error')?.message),
-                },
-                steps: read?.steps ?? {},
-                ...(planned
-                  ? { mute: { automation: planned.automation, muted: planned.planned } }
-                  : {}),
-              },
-              args.target ?? '',
-              userOfTarget(),
-            );
-            for (const line of lines) log(line);
-            if (refusal !== undefined && !args.acceptAutomation) {
+            if (refusal !== undefined) {
               removalRefusals.push(refusal);
               log(`a removal would be refused: ${refusal}`);
             }
@@ -2202,8 +2278,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         for (const line of removalPlanLines(records, args.target ?? '')) log(line);
         if (args.sweep) {
           log(
-            "before them, a sweep deletes what the target's automation made for the load, as " +
-              "the load's user, tied to its records — run with --sweep-list to see what",
+            `${recordsToTake(records) > 0 ? 'before them, a sweep deletes' : 'a sweep alone deletes'} ` +
+              "what the target's automation made for the load, as the load's user, tied to its " +
+              'records — run with --sweep-list to see what',
           );
         }
         // Asked by the removal once its sweep has read what it takes, before
@@ -2217,7 +2294,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           if (refusal !== undefined && !args.acceptAutomation) {
             return { message: refusal, code: 'AUTOMATION_NOT_ACCEPTED' };
           }
-          if (!args.yes && removalAsks(records)) {
+          if (!args.yes && removalAsks(records, question.steps)) {
             // Typed, as the panel asks it: the name of the org the records leave.
             asking = true;
             const answer = await typed(`Type ${args.target} to delete them:`);
@@ -2249,6 +2326,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 /** The writes of a load the target's automation fires on, as its mute plans for them. */
 const LOAD_WRITES = (_objectApiName: string, write: string): boolean =>
   write === 'insert' || write === 'update';
+
+/** The writes of a load, and of the purge a reload runs first, which deletes. */
+function loadWrites(
+  purge: ForgeRemovalSteps | undefined,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  const purged = purge ? removalStepsWrites(purge) : undefined;
+  return (objectApiName, write) =>
+    LOAD_WRITES(objectApiName, write) || purged?.(objectApiName, write) === true;
+}
 
 /**
  * What the command says of the records a load created — a dry run, would

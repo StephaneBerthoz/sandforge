@@ -54,6 +54,7 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
+  exclusiveFieldsToDrop,
   isPricebookEntry,
   isRequiredLookup,
 } from '@sandforge/shared';
@@ -339,7 +340,11 @@ export type FrozenLoadGateOptions = Pick<
 
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** What the configuration has to declare, each as the message lists it, when it lists any. */
+    readonly gaps?: readonly string[],
+  ) {
     super(message);
     this.name = 'LoadConfigError';
   }
@@ -4424,6 +4429,7 @@ export class FrozenDatasetLoader {
         `The dataset leaves ${gaps.length} required field(s) empty that the configuration does ` +
           'not cover. Nothing was written. Declare them all, then load again — ' +
           `records are never silently excluded:\n- ${gaps.join('\n- ')}`,
+        gaps,
       );
     }
     return plans;
@@ -4620,6 +4626,10 @@ export class FrozenDatasetLoader {
       const filled = lookupsThePlatformFills(objectApiName, payload);
       for (const field of filled) delete payload[field];
       pendingFk.push(...pending.filter((p) => !filled.includes(p.field)));
+      // Two fields the describe calls createable that the platform takes one
+      // of: rules that keep a line's unit and total price had every line
+      // refused, "only one of unit price or total price may be specified".
+      for (const field of exclusiveFieldsToDrop(objectApiName, payload)) delete payload[field];
       return payload;
     });
     /** Keep a record the target took: mapped, created by the load, counted. */

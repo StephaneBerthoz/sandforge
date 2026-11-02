@@ -9,6 +9,7 @@ import {
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
+  LoadConfigError,
   LoadGuardError,
   LoadRecordsExceededError,
   PostLoadVerifier,
@@ -968,6 +969,19 @@ describe('FrozenDatasetHandler', () => {
             guard: 'source-is-target',
             orgId: '00D000000000002AAA',
           }),
+        ]);
+      });
+
+      it('names what the configuration has to declare beside a refusal of the required fields', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        const gaps = ['requiredFieldDefaults["OpportunityLineItem.UnitPrice"]: a value'];
+        loaderPlan.mockRejectedValueOnce(new LoadConfigError('Declare them all', gaps));
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        expect(posted(deps, 'frozen:load:preview:error').map((error) => error.payload)).toEqual([
+          expect.objectContaining({ code: 'LOAD_CONFIG', gaps }),
         ]);
       });
 

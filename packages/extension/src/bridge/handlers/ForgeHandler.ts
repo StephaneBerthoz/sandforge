@@ -195,6 +195,7 @@ import {
 } from '../../modules/forge/forgeAudit.js';
 import { ForgeRunAudit, RecentTrials, forgeCaseKey } from '../../modules/forge/forgeRunAudit.js';
 import {
+  NOTHING_REMOVED,
   isRunRecords,
   objectsIn,
   recordsIn,
@@ -796,15 +797,6 @@ const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Timeout for listing what a sweep would take, in milliseconds: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
-
-/** What a removal that took none of the run's records hands on: a sweep alone. */
-const NOTHING_REMOVED: RunRemovalOutcome = {
-  objects: [],
-  cancelled: false,
-  gone: [],
-  stamps: {},
-  left: async function* () {},
-};
 
 /**
  * When a run wrote, in epoch milliseconds: the target's dates where the run

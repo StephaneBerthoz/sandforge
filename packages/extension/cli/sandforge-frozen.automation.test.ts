@@ -383,6 +383,91 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     expect(stdout).toContain('left, tied to nothing of the run: Task: 1');
   });
 
+  describe('run again once the load’s records went and its sweep did not take all it was to', () => {
+    /** The removal whose records went and whose sweep the org refused: exit 3, the asset in the org. */
+    const sweepRefused = async (): Promise<void> => {
+      expect(await remove('--sweep', '--accept-automation', '--yes')).toBe(3);
+      expect(org.ids('Case')).toEqual([]);
+      expect(org.ids('Asset')).toEqual([ASSET]);
+      steps = [];
+    };
+
+    it('runs the sweep alone, which the bypass lets through, where it answered nothing to do, exit 0', async () => {
+      await sweepRefused();
+
+      expect(await remove('--sweep', '--mute-automation', '--yes', '--json')).toBe(0);
+
+      expect(org.ids('Asset')).toEqual([]);
+      const answer = JSON.parse(stdout) as {
+        status: string;
+        posted: Array<{ type: string; payload: { code?: string; result?: unknown } }>;
+      };
+      expect(answer.status).toBe('success');
+      expect(answer.posted.map((message) => message.payload.code)).not.toContain('ALREADY_REMOVED');
+      expect(
+        answer.posted.find((message) => message.type === 'frozen:remove:response')?.payload.result,
+      ).toMatchObject({
+        status: 'success',
+        objects: [],
+        sweep: { status: 'success', objects: [{ objectApiName: 'Asset', deleted: 1 }] },
+      });
+      // On what it deletes alone, under the lease.
+      expect(steps).toContain('read Asset');
+      expect(steps.indexOf('lease')).toBeLessThan(steps.indexOf('delete Asset'));
+    });
+
+    it('ends exit 3 and partial while the org still refuses it, with its own lines alone', async () => {
+      await sweepRefused();
+
+      expect(await remove('--sweep', '--accept-automation', '--yes')).toBe(3);
+
+      expect(stdout).toContain('sweep: FAILURE');
+      expect(stdout).not.toContain('removal: ');
+      expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('asks of what fires on what it takes, and deletes nothing unaccepted', async () => {
+      await sweepRefused();
+
+      expect(await remove('--sweep', '--yes')).toBe(1);
+
+      expect(stdout).toContain('Asset: flow "Asset guard"');
+      expect(stdout).toContain('[AUTOMATION_NOT_ACCEPTED]');
+      expect(org.deletes.map((call) => call.object)).not.toContain('Asset');
+    });
+
+    it('asks for the name of the org before it deletes, the records it takes being in no plan', async () => {
+      await sweepRefused();
+      vi.mocked(typed).mockResolvedValue('no');
+
+      expect(await remove('--sweep', '--accept-automation')).toBe(0);
+
+      expect(typed).toHaveBeenCalledWith('Type TGT to delete them:');
+      expect(stdout).toContain('Nothing deleted.');
+      expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('answers as before with no sweep asked: nothing to remove, no failure', async () => {
+      await sweepRefused();
+
+      expect(await remove('--accept-automation', '--yes')).toBe(0);
+
+      expect(stdout).toContain('nothing to remove: The records this load created were already');
+      expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('takes nothing and asks nothing of a sweep that finds nothing', async () => {
+      expect(await remove('--sweep', '--mute-automation', '--yes')).toBe(0);
+      steps = [];
+
+      expect(await remove('--sweep')).toBe(0);
+
+      expect(typed).not.toHaveBeenCalled();
+      expect(steps.filter((step) => step.startsWith('delete'))).toEqual([]);
+      expect(stdout).toContain('sweep: SUCCESS');
+    });
+  });
+
   it('refuses a read that failed unaccepted, and goes on accepted', async () => {
     vi.mocked(TargetAutomationReader.prototype.read).mockRejectedValue(new Error('REQUEST_LIMIT'));
 
@@ -545,9 +630,10 @@ describe('the command line of a removal', () => {
     });
   });
 
-  it('reads --accept-automation with remove, and only there', () => {
+  it('reads --accept-automation with remove and with a reload, and only there', () => {
     expect(parseArgs(argv('remove', '--accept-automation')).acceptAutomation).toBe(true);
     expect(parseArgs(argv('remove')).acceptAutomation).toBe(false);
+    expect(parseArgs(argv('load', '--reload', '--accept-automation')).acceptAutomation).toBe(true);
 
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new ExitCalled(code);
@@ -556,7 +642,7 @@ describe('the command line of a removal', () => {
     try {
       expect(() => parseArgs(argv('load', '--accept-automation'))).toThrow('process.exit(2)');
       expect(stderr).toHaveBeenCalledWith(
-        '--accept-automation goes with remove. Run with --help.\n',
+        '--accept-automation goes with remove or load --reload. Run with --help.\n',
       );
       expect(() => parseArgs(argv('verify', '--mute-automation'))).toThrow('process.exit(2)');
       expect(stderr).toHaveBeenCalledWith(

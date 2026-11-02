@@ -12,6 +12,8 @@
  * explicit review: keeping a field in clear text is never automatic.
  */
 
+import { exclusiveFieldToFill } from '@sandforge/shared';
+
 import {
   accountKindOf,
   accountKindRequiring,
@@ -229,9 +231,18 @@ const WEEK_DAYS = [
  * refused for no longer holding "at least one day with valid start and end
  * times", and the time zones of both were required. Their names stay cleared:
  * a name is free text, which anyone may have typed anything into.
+ *
+ * Whether a catalog's price book, product or price is active is the org's
+ * setting too. Cleared by default, they went in inactive, as the platform
+ * defaults them: run for real, the target then refused to sync a quote, "it
+ * has an inactive or archived price book". Prices are left to the rules: what
+ * a customer pays may be anyone's business, and a load asks a value for them.
  */
 const KEPT_WITHOUT_A_RULE: ReadonlySet<string> = new Set([
   'FeedItem.Type',
+  'Pricebook2.IsActive',
+  'PricebookEntry.IsActive',
+  'Product2.IsActive',
   ...WEEK_DAYS.flatMap((day) => [`BusinessHours.${day}StartTime`, `BusinessHours.${day}EndTime`]),
   'BusinessHours.TimeZoneSidKey',
   'OperatingHours.TimeZone',
@@ -384,6 +395,10 @@ export function keptWithoutARule(
  * person account, which the describe of an org with person accounts does not
  * say (`accountKindRequiring`): each is named when a record of that kind holds
  * a value the rules clear.
+ *
+ * Nor does a describe say that a line needs one of its two prices, each of them
+ * nillable (`exclusiveFieldToFill`): the one a load would ask for is named when
+ * the rules clear them both.
  */
 export function requiredFieldsLeftEmpty(
   extracted: Pick<ExtractedDataset, 'objects'>,
@@ -418,6 +433,20 @@ export function requiredFieldsLeftEmpty(
       });
       if (held) left.push(`${objectData.objectApiName}.${field.name}`);
     }
+    const objectApiName = objectData.objectApiName;
+    const toFill = exclusiveFieldToFill(
+      objectApiName,
+      (name) => fields.some((f) => f.name === name && f.createable !== false),
+      (name) => resolveGenerator(rules, objectApiName, name) !== 'clear',
+    );
+    const key = `${objectApiName}.${toFill}`;
+    const heldCleared =
+      toFill !== undefined &&
+      objectData.records.some((record) => {
+        const value = record.fields[toFill];
+        return value !== undefined && value !== null && value !== '';
+      });
+    if (heldCleared && !left.includes(key)) left.push(key);
   }
   return left.sort();
 }

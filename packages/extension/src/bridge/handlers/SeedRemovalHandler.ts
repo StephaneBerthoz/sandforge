@@ -67,7 +67,7 @@ import {
 } from '../../modules/sync/inFlightJob.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
-import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
+import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
   sweepAuditDetails,
@@ -980,9 +980,12 @@ export class SeedRemovalHandler implements DomainHandler {
           ? await removalMute.prepared.acquire(operationId)
           : undefined;
       let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+      const org = removalOrg(conn, 'seed:remove');
+      // Read before the first delete: the items that name them go with the records.
+      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       const { result: removed, notes } = await removeSyncRun({
         run,
-        org: removalOrg(conn, 'seed:remove'),
+        org,
         includeChanged,
         ...(again ? { again } : {}),
         store,
@@ -1007,12 +1010,16 @@ export class SeedRemovalHandler implements DomainHandler {
       });
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
-      for (const note of notes) this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
+      // Stopped, it makes no call to the org it can do without.
+      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take();
+      for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
+        this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
+      }
       const result: SeedRemovalResult = {
         runId: removed.runId,
         status: removalStatusWithSweep(removed.status, swept),
         includeChanged: removed.includeChanged,
-        objects: removed.objects,
+        objects: emptied.object ? [...removed.objects, emptied.object] : removed.objects,
         finishedAt: removed.finishedAt,
         ...(removed.leftBy ? { leftBy: removed.leftBy } : {}),
         ...(swept ? { sweep: swept } : {}),

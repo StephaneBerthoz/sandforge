@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as z from 'zod';
 import type { Connection } from 'jsforce';
-import type { FrozenLoadPlanInfo } from '@sandforge/shared';
+import type { ForgeTargetAutomation, FrozenLoadPlanInfo } from '@sandforge/shared';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -28,6 +28,7 @@ import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
+import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
 import { frozenAnswer, main } from './sandforge-frozen.js';
 
 /*
@@ -677,6 +678,86 @@ describe('sandforge-frozen load --reload, a replace', () => {
     expect(answer.posted.find((m) => m.type === 'frozen:load:error')?.payload.code).toBe(
       'REPLACE_LEAVES_RECORDS',
     );
+  });
+
+  describe('while the target runs automation as its purge deletes', () => {
+    /** A trigger that fires as a contact is deleted, and no bypass of it. */
+    const FIRING = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [{ name: 'ContactCleanup', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+
+    beforeEach(() => {
+      vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(FIRING);
+    });
+
+    afterEach(() => {
+      vi.mocked(TargetAutomationReader.prototype.read).mockRestore();
+    });
+
+    it('names it and writes nothing unaccepted: exit 1, where it purged unasked', async () => {
+      const { writes } = targetOrg();
+      await loaded();
+
+      await main(
+        argv('load', '--config', configPath, '--target', 'TGT', '--reload', '--yes', '--json'),
+      );
+
+      expect(writes).toEqual([]);
+      expect(process.exitCode).toBe(1);
+      const answer = JSON.parse(printed.join('')) as { refusals: string[]; ended: boolean };
+      expect(answer.ended).toBe(true);
+      expect(answer.refusals[0]).toContain('ContactCleanup');
+      expect(answer.refusals[0]).toContain('--accept-automation');
+    });
+
+    it('goes past it accepted, and hands the load on', async () => {
+      targetOrg();
+      await loaded();
+
+      await main(
+        argv(
+          'load',
+          '--config',
+          configPath,
+          '--target',
+          'TGT',
+          '--reload',
+          '--accept-automation',
+          '--yes',
+          '--json',
+        ),
+      );
+
+      const answer = JSON.parse(printed.join('')) as {
+        refusals?: string[];
+        posted: Array<{ type: string }>;
+      };
+      expect(answer.refusals).toBeUndefined();
+      expect(answer.posted.map((message) => message.type)).toContain('operation:started');
+    });
+
+    it('asks nothing of a first load, which purges nothing', async () => {
+      targetOrg();
+
+      await main(
+        argv('load', '--config', configPath, '--target', 'TGT', '--reload', '--yes', '--json'),
+      );
+
+      const answer = JSON.parse(printed.join('')) as {
+        refusals?: string[];
+        posted: Array<{ type: string }>;
+      };
+      expect(answer.refusals).toBeUndefined();
+      expect(answer.posted.map((message) => message.type)).toContain('operation:started');
+    });
   });
 });
 

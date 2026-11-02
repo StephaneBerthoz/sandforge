@@ -23,6 +23,8 @@
  *     reported for the placeholder pattern; records are never dropped.
  */
 
+import { exclusiveFieldToFill } from '@sandforge/shared';
+
 import {
   ACCOUNT,
   accountKindRequiring,
@@ -217,6 +219,23 @@ export class SchemaAligner {
           ...(ofKind ? { accountKind: ofKind } : {}),
         });
       }
+    }
+    // Two fields the describe leaves nillable, of which the platform needs
+    // one: rules that cleared both counted the lines to insert, and the org
+    // refused each. Asked here as any required field: said before the first
+    // write, and settled by a declared default.
+    const toFill = exclusiveFieldToFill(
+      input.objectApiName,
+      (name) => input.describe.fields.some((fd) => fd.name === name && fd.createable),
+      (name) => written.some((r) => r[name] !== undefined && r[name] !== null && r[name] !== ''),
+    );
+    if (toFill !== undefined && !missing.some((m) => m.field === toFill)) {
+      missing.push({
+        objectApiName: input.objectApiName,
+        field: toFill,
+        isLookup: false,
+        referenceTo: [],
+      });
     }
     return missing;
   }

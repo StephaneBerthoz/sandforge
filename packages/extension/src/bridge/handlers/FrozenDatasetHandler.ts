@@ -45,11 +45,13 @@ import {
 } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
+  NOTHING_REMOVED,
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
   type RemovalOrg,
   type RunRemovalOptions,
+  type RunRemovalOutcome,
 } from '../../modules/forge/ForgeRunRemoval.js';
 import {
   listSweep,
@@ -1791,12 +1793,18 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * What an error names beside its message, for the panel to word it in the
    * interface language: the guard that refused a load and what it refused
-   * (`guard`, `orgId`, `tier`), or the rules file the extraction looked for
-   * (`rulesPath`). Nothing for any other error.
+   * (`guard`, `orgId`, `tier`), the rules file the extraction looked for
+   * (`rulesPath`), the figures of a budget gone past (`total`, `budgetMax`,
+   * `heaviest`), or what the configuration has to declare (`gaps`). Nothing
+   * for any other error.
    */
   private errorDetailOf(err: unknown): Record<string, unknown> | undefined {
     if (err instanceof RulesFileMissingError) return { rulesPath: err.rulesPath };
     if (err instanceof LoadGuardError) return { guard: err.code, ...err.params };
+    if (err instanceof VolumetryBudgetExceededError) {
+      return { total: err.total, budgetMax: err.budgetMax, heaviest: err.heaviest };
+    }
+    if (err instanceof LoadConfigError && err.gaps) return { gaps: err.gaps };
     return undefined;
   }
 
@@ -2025,6 +2033,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendHandlerError(this.deps, 'frozen:select', 'frozen:select:error', msg, err, {
         code: this.errorCodeFor(err, 'SELECT_ERROR'),
         retryable: err instanceof TimeoutError,
+        extraPayload: this.errorDetailOf(err),
       });
     } finally {
       clearTimeout(timer);
@@ -2617,19 +2626,27 @@ export class FrozenDatasetHandler implements DomainHandler {
       // assign, it writes nothing. The lease is taken before the load reads
       // the record types its writes go by, and given back after its last
       // write, or as it ends on anything else. Asked to take a checkpoint
-      // first, it reads the same once, for what still runs.
+      // first, it reads the same once, for what still runs. A reload's purge
+      // deletes before the load inserts: a mute planned from the inserts alone
+      // left what fires on those deletes running.
       const written = dataset.objects.map((object) => object.objectApiName);
+      const purge =
+        parsed.muteAutomation === true && parsed.reload === true && !parsed.pilot
+          ? await this.purgeStepsOf(mappingStore, config)
+          : undefined;
       const read =
         parsed.muteAutomation === true || parsed.checkpointFirst !== undefined
           ? await this.targetAutomation
-              .read(parsed.targetOrgId, written)
+              .read(parsed.targetOrgId, [...new Set([...written, ...(purge?.delete ?? [])])])
               .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
           : undefined;
+      const purgeWrites = purge ? removalStepsWrites(purge) : undefined;
       const mute =
         parsed.muteAutomation === true && read
           ? await muteForRun(async () => muteOrgOf(conn), read, {
               ...this.muteLeases,
-              writes: LOAD_WRITES,
+              writes: (object, write) =>
+                LOAD_WRITES(object, write) || purgeWrites?.(object, write) === true,
             })
           : undefined;
       mutedAutomation = mute?.muted;
@@ -3314,7 +3331,7 @@ export class FrozenDatasetHandler implements DomainHandler {
               ? `The removal of ${removed.removedAt} took part of the records the last load created and left ${left} in the org: a verification would read the ones it took as missing. Remove what is left, or reload the dataset, which purges or finds it again; then verify.`
               : `The records the last load created were removed on ${removed.removedAt}. Load the dataset again, then verify.`,
           ),
-          { code: 'LOAD_REMOVED' },
+          { code: 'LOAD_REMOVED', extraPayload: { left } },
         );
         return;
       }
@@ -3431,7 +3448,10 @@ export class FrozenDatasetHandler implements DomainHandler {
    * Refused before anything is read from the org when no load wrote a mapping,
    * when the mapping holds another load than the one confirmed, predates loads
    * keeping what they created, had its records all removed already, holds
-   * nothing created, or is being removed now. Then Production Guard judges the
+   * nothing created, or is being removed now. A sweep asked of a load whose
+   * records all went runs alone, as of a Forge run: asked again after a removal
+   * whose sweep alone failed, it was refused as nothing to do, what that sweep
+   * was to take still in the org. Then Production Guard judges the
    * delete — a production org is refused, a missing guard refuses too — the
    * target is asked whether it is still the org the load wrote to, and Forge's
    * removal runs: children before their parents, what records staying in the
@@ -3473,7 +3493,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       return;
     }
     const refused = removalRefusalOf(load, parsed);
-    if (refused || !load) {
+    const sweepAlone = parsed.sweep === true && refused?.code === 'ALREADY_REMOVED';
+    if ((refused && !sweepAlone) || !load) {
       if (refused) refuse(refused.message, refused.code);
       return;
     }
@@ -3523,7 +3544,8 @@ export class FrozenDatasetHandler implements DomainHandler {
    * A removal deletes, and the target runs what fires on a delete: a Frozen
    * removal read nothing of it, and its flows ran with no question and no way
    * to keep them quiet, where Forge's, Sync's and Seed's list them and offer the
-   * box that mutes them.
+   * box that mutes them. So does a reload's purge, asked with `reload`: read
+   * for what every load before it left, and what names one load does not refuse it.
    */
   private async handleRemoveAutomation(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
@@ -3539,30 +3561,37 @@ export class FrozenDatasetHandler implements DomainHandler {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
-      const load = loadToRemove(await store.recordedLoads());
-      const refused = removalRefusalOf(load, parsed);
-      if (refused || !load) {
-        if (refused) {
-          sendHandlerError(
-            this.deps,
-            'frozen:remove:automation',
-            'frozen:remove:automation:error',
-            msg,
-            new Error(refused.message),
-            { code: refused.code },
-          );
+      let steps: ForgeRemovalSteps;
+      if (parsed.reload === true) {
+        steps = await this.purgeStepsOf(store, config);
+      } else {
+        const load = loadToRemove(await store.recordedLoads());
+        const refused = removalRefusalOf(load, parsed);
+        // What a sweep alone deletes fires as much as what goes with a removal.
+        const sweepAlone = parsed.sweptObjects !== undefined && refused?.code === 'ALREADY_REMOVED';
+        if ((refused && !sweepAlone) || !load) {
+          if (refused) {
+            sendHandlerError(
+              this.deps,
+              'frozen:remove:automation',
+              'frozen:remove:automation:error',
+              msg,
+              new Error(refused.message),
+              { code: refused.code },
+            );
+          }
+          return;
         }
-        return;
+        steps = removalStepsOfLoad(loadRecordsLeft(load), parsed.sweptObjects ?? []);
       }
-      const steps = removalStepsOfLoad(loadRecordsLeft(load), parsed.sweptObjects ?? []);
       const reader = this.targetAutomation;
       const automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
         'frozen:remove:automation',
-        () => reader.read(load.orgId, steps.delete ?? []),
+        () => reader.read(parsed.targetOrgId, steps.delete ?? []),
       );
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:remove:automation:response', {
-          loadedAt: load.endedAt,
+          loadedAt: parsed.loadedAt,
           automation,
           steps,
         }),
@@ -3581,6 +3610,26 @@ export class FrozenDatasetHandler implements DomainHandler {
         },
       );
     }
+  }
+
+  /**
+   * What a reload's purge writes, step by step: what every load recorded into
+   * the org left for a removal. What the configuration has it deactivate is no
+   * delete. What the reload finds again by its keys it does not delete either,
+   * which is known only once it has read the target: said here, it is said of
+   * an object the purge may spare. A target refreshed since took those records
+   * with it.
+   */
+  private async purgeStepsOf(
+    store: SasReferenceIdMappingStore,
+    config: FrozenProjectConfig,
+  ): Promise<ForgeRemovalSteps> {
+    if (await store.isStale()) return removalStepsOfLoad([], []);
+    const deactivated = config.undeletableObjects ?? {};
+    const left = (await store.recordedLoads())
+      .flatMap((load) => loadRecordsLeft(load))
+      .filter(({ objectApiName }) => !Object.hasOwn(deactivated, objectApiName));
+    return removalStepsOfLoad(left, []);
   }
 
   // ── frozen:remove:preview ──────────────────────────────────────────────
@@ -3847,17 +3896,22 @@ export class FrozenDatasetHandler implements DomainHandler {
       refuse(PRODUCTION_GUARD_MISSING.message, PRODUCTION_GUARD_MISSING.code);
       return;
     }
-    const { check, decision } = await consultProductionGuard(productionGuard, {
-      orgId,
-      // The tier the load took the org for: a Developer Edition org it may
-      // load into is one it may take its records back from, as for Forge.
-      orgTier: this.targetTier(orgId),
-      operation: 'delete',
-      objectName: plan.map((o) => o.objectApiName).join(', '),
-      recordCount: total,
-      module: 'frozen',
-    });
-    if (decision === 'refused' || decision === 'declined') {
+    // A sweep alone deletes none of the load's records: Production Guard
+    // judges its deletes once it has found them.
+    const { check, decision } =
+      total > 0
+        ? await consultProductionGuard(productionGuard, {
+            orgId,
+            // The tier the load took the org for: a Developer Edition org it may
+            // load into is one it may take its records back from, as for Forge.
+            orgTier: this.targetTier(orgId),
+            operation: 'delete',
+            objectName: plan.map((o) => o.objectApiName).join(', '),
+            recordCount: total,
+            module: 'frozen',
+          })
+        : { check: undefined, decision: 'allowed' as const };
+    if (check && (decision === 'refused' || decision === 'declined')) {
       // No removal started: recorded under the id of the request, which a removal runs under.
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
@@ -3958,7 +4012,10 @@ export class FrozenDatasetHandler implements DomainHandler {
     // controller below as Live Operations' does. Minted here, it was an id
     // the card never saw, and only Live Operations could stop the removal.
     const operationId = msg.id;
-    const description = `Removing ${total} record(s) a Frozen load created`;
+    const description =
+      total > 0
+        ? `Removing ${total} record(s) a Frozen load created`
+        : "Sweeping what the target's automation made for a Frozen load";
     const abortController = new AbortController();
     let settle: (err?: unknown) => void = () => {};
     const tracked = new Promise<void>((resolve, reject) => {
@@ -3974,6 +4031,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     let runError: unknown;
     /** The sweep asked with the removal, in its parts around the load's records. */
     let sweeping: RemovalSweep | undefined;
+    /** What the removal muted of the target's automation, when it was asked to. */
+    let mutedAutomation: MutedAutomation | undefined;
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -3993,6 +4052,8 @@ export class FrozenDatasetHandler implements DomainHandler {
             signal: abortController.signal,
             guard: productionGuard,
             operationId,
+            // A sweep alone has no entry of the removal's to name its mute.
+            muted: () => (total === 0 ? mutedAutomation : undefined),
           })
         : undefined;
       const sweepParts = sweeping;
@@ -4006,11 +4067,16 @@ export class FrozenDatasetHandler implements DomainHandler {
       // the removal ends, whatever it ended on. Refused, nothing goes. The
       // panel's confirmation listed what fires before the org's name was typed:
       // what a mute silences is read here, on what the sweep really takes. A
-      // stop while the sweep read asks nothing: the removal stops at its next call.
+      // stop while the sweep read asks nothing: the removal stops at its next
+      // call. A sweep alone that found nothing to take fires nothing.
       let removalMute: RunMute | undefined;
       const asker = this.removalAsker;
-      if ((args.muteAutomation || asker) && !abortController.signal.aborted) {
-        const steps = removalStepsOfLoad(plan, sweepParts?.takes ?? []);
+      const steps = removalStepsOfLoad(plan, sweepParts?.takes ?? []);
+      if (
+        (args.muteAutomation || asker) &&
+        !abortController.signal.aborted &&
+        (steps.delete ?? []).length > 0
+      ) {
         const reader = this.targetAutomation;
         const read = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS)
           .withTimeout('frozen:remove automation', () => reader.read(orgId, steps.delete ?? []))
@@ -4028,28 +4094,40 @@ export class FrozenDatasetHandler implements DomainHandler {
         removalMute?.prepared && !abortController.signal.aborted
           ? await removalMute.prepared.acquire(operationId)
           : undefined;
-      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
-      const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
-        ...removalSpanOf(load),
-        ...(sweepParts
-          ? {
-              sweep: () => sweepParts.first(),
-              afterRemoval: () => sweepParts.afterRemoval(),
-              automationMade: sweepParts.automationMade,
-            }
-          : {}),
-        onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
-        includeChanged,
-        signal: abortController.signal,
-        onProgress: (settled, of, objectApiName) => {
-          const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
-          sendOperationProgress(this.deps, operationId, percent, settled, of, objectApiName);
-          // A removal cancelled from Live Operations finishes its call to the
-          // org; the registry has recorded the stop and hears no more of it.
-          if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
-          this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
-        },
-      }).finally(async () => {
+      mutedAutomation = held?.outcome ?? removalMute?.muted;
+      // Nothing of the load to remove: the sweep alone, and no record of it goes.
+      const sweepAlone = async (): Promise<RunRemovalOutcome> => {
+        await sweepParts?.first();
+        await sweepParts?.afterRemoval();
+        return NOTHING_REMOVED;
+      };
+      const outcome = await (
+        total === 0
+          ? sweepAlone()
+          : removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
+              ...removalSpanOf(load),
+              ...(sweepParts
+                ? {
+                    sweep: () => sweepParts.first(),
+                    afterRemoval: () => sweepParts.afterRemoval(),
+                    automationMade: sweepParts.automationMade,
+                  }
+                : {}),
+              onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
+              includeChanged,
+              signal: abortController.signal,
+              onProgress: (settled, of, objectApiName) => {
+                const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
+                sendOperationProgress(this.deps, operationId, percent, settled, of, objectApiName);
+                // A removal cancelled from Live Operations finishes its call to the
+                // org; the registry has recorded the stop and hears no more of it.
+                if (!abortController.signal.aborted) {
+                  this.registry?.updateProgress(operationId, percent);
+                }
+                this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
+              },
+            })
+      ).finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
       // What the sweep did, in all its parts, recorded beside the removal.
@@ -4075,17 +4153,20 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
-      recordWriteRun(this.deps, {
-        action: 'cleanup_delete',
-        module: 'frozen',
-        operationId,
-        orgId,
-        outcome: removalAuditOutcome({ status: ownStatus }),
-        guard: decision,
-        objects: removalAuditObjects(result.objects),
-        ...(leftBy ? { leftBy } : {}),
-        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
-      });
+      // A sweep alone removed none of the load's records: its own entry says what it did.
+      if (total > 0) {
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'frozen',
+          operationId,
+          orgId,
+          outcome: removalAuditOutcome({ status: ownStatus }),
+          guard: decision,
+          objects: removalAuditObjects(result.objects),
+          ...(leftBy ? { leftBy } : {}),
+          ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+        });
+      }
 
       // The mapping forgets what went, keeps what the removal left on the
       // rest and when it ran, which the next removal reads as its doing, and
@@ -4118,14 +4199,23 @@ export class FrozenDatasetHandler implements DomainHandler {
         operationId,
       });
       this.deps.broker.postToWebview(response);
+      // A sweep alone ends as the sweep did.
+      const failed =
+        result.status === 'failure'
+          ? 'No record this load created could be removed.'
+          : total === 0 && sweepResult && sweepResult.status !== 'success'
+            ? (sweepResult.refusal ?? 'The sweep left records in the org.')
+            : undefined;
       if (result.status === 'cancelled' || sweepResult?.status === 'cancelled') {
         sendOperationCompleted(this.deps, operationId, { aborted: true });
         this.liveTracker?.cancel(operationId);
       } else {
-        sendOperationCompleted(this.deps, operationId, { status: result.status });
-        if (result.status === 'failure') {
-          runError = new Error('No record this load created could be removed.');
-          this.liveTracker?.fail(operationId, 'No record this load created could be removed.');
+        sendOperationCompleted(this.deps, operationId, {
+          status: failed && total === 0 ? 'failure' : result.status,
+        });
+        if (failed) {
+          runError = new Error(failed);
+          this.liveTracker?.fail(operationId, failed);
         } else {
           this.liveTracker?.complete(operationId);
         }
@@ -4183,6 +4273,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     signal: AbortSignal;
     guard: ProductionGuard;
     operationId: string;
+    /** What a sweep alone muted, which no entry of the removal's records. */
+    muted: () => MutedAutomation | undefined;
   }): Promise<RemovalSweep> {
     const { conn, load } = context;
     return removalSweepOf({
@@ -4210,6 +4302,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       onGuardDecision: (result, guard) => {
         const details = sweepAuditDetails(result, '');
         delete details.forgeId;
+        const muted = context.muted();
         recordWriteRun(this.deps, {
           action: 'cleanup_delete',
           module: 'frozen',
@@ -4220,6 +4313,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
           objects: sweepAuditObjects(result),
           details: { ...details, loadedAt: load.endedAt },
+          ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
       },
       keepMade: async (made) => {

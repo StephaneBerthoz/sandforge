@@ -170,6 +170,7 @@ export {
 export {
   EXCLUSIVE_FIELD_GROUPS,
   exclusiveFieldsToDrop,
+  exclusiveFieldToFill,
   type ExclusiveFieldGroup,
 } from './constants/exclusive-fields.js';
 export {

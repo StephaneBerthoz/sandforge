@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
+import type { RemovalOrg } from '../forge/ForgeRunRemoval';
 import {
+  duplicateSetsOfRemoval,
   seedSweepInput,
   seedWrittenBetween,
   writerOf,
@@ -10,6 +12,76 @@ import {
 } from './seedRunSweep';
 
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+
+describe('duplicateSetsOfRemoval', () => {
+  const CONTACT = fakeId('003', 1);
+  const SET = fakeId('0GK', 1);
+
+  /** An org answering the items a set holds, and what it refuses of them. */
+  function orgHolding(items: () => Array<{ DuplicateRecordSetId: string }>) {
+    const asked: string[] = [];
+    const destroy = vi.fn(async (_object: string, ids: string[]) =>
+      ids.map((id) => ({ id, success: true, errors: [] })),
+    );
+    return {
+      asked,
+      destroy,
+      org: {
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          return { records: items() };
+        }),
+        destroy,
+      } as unknown as RemovalOrg,
+    };
+  }
+
+  it('reads the sets by the items that name the run’s records, and asks nothing more of a run with none', async () => {
+    const { org, asked, destroy } = orgHolding(() => []);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect(asked).toEqual([
+      `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN ('${CONTACT}')`,
+    ]);
+    expect(await sets.take()).toEqual({});
+    expect(asked).toHaveLength(1);
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('deletes a set once no item names it, and counts it', async () => {
+    let held = [{ DuplicateRecordSetId: SET }];
+    const { org, destroy } = orgHolding(() => held);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+    held = [];
+    const { object } = await sets.take();
+
+    expect(destroy).toHaveBeenCalledWith('DuplicateRecordSet', [SET]);
+    expect(object).toMatchObject({ planned: 1, deleted: 1, refused: 0 });
+  });
+
+  it('keeps a set that still holds an item, and says nothing of it', async () => {
+    const { org, destroy } = orgHolding(() => [{ DuplicateRecordSetId: SET }]);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect(await sets.take()).toEqual({});
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('says a read the org refused, never throwing it: the removal stands', async () => {
+    const org = {
+      query: vi.fn(async () => {
+        throw new Error("INVALID_TYPE: sObject type 'DuplicateRecordItem' is not supported");
+      }),
+    } as unknown as RemovalOrg;
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+
+    expect((await sets.take()).note).toContain('INVALID_TYPE');
+  });
+});
 
 /**
  * An org answering `SELECT Id, CreatedDate FROM <Object> WHERE Id IN (…)`

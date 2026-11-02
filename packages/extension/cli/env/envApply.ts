@@ -640,6 +640,8 @@ interface RunStepInput {
   readTooEarly: boolean;
   /** Whether the run replaces runs of it still in the org: a frozen resource's is a reload. */
   replace: boolean;
+  /** The line's `--accept-automation` or the file's, which a reload's purge is held to. */
+  acceptAutomation: boolean;
   /** The line's `--accept-emails`, handed to a run whose script asks for it. */
   acceptEmails: boolean;
   signal: AbortSignal;
@@ -864,6 +866,7 @@ async function runFrozenStep(
     runId: '',
     summaryFile: '',
     replace: input.replace,
+    acceptAutomation: input.acceptAutomation,
     ...(maxTotal !== undefined ? { maxTotal } : {}),
   });
   const ran = await deps.runner(line.script, line.args, signal);
@@ -1296,6 +1299,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           dry: input.dryRuns[step.resource],
           readTooEarly,
           replace: step.action === 'replace' && replacesInOneRun(resource.kind),
+          acceptAutomation:
+            input.acceptAutomation ||
+            resolved.checked.file.resources[step.resource]?.accept?.automation === true,
           acceptEmails: input.acceptEmails === true,
           signal: stop.signal,
         });

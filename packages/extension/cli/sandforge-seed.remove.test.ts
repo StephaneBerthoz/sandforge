@@ -295,6 +295,39 @@ describe('sandforge-seed --remove', () => {
     expect(makeConn).not.toHaveBeenCalled();
   });
 
+  it('takes the duplicate record set its deletes left empty, and names it in its answer', async () => {
+    const SET = fakeId('0GK', 1);
+    org = new MemoryRemovalOrg({
+      Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }],
+      Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+    });
+    const at = new Date(Date.now() - 10 * 60_000).toISOString();
+    org.add('Account', { Id: A1 }, at);
+    org.add('Account', { Id: A2 }, at);
+    org.add('Contact', { Id: C1, AccountId: A1 }, at);
+    org.add('Contact', { Id: C2, AccountId: A2 }, at);
+    org.add('DuplicateRecordSet', { Id: SET }, at);
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: SET },
+      at,
+    );
+    vi.mocked(removalOrg).mockReturnValue(org);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+    expect(org.all('DuplicateRecordSet')).toEqual([]);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: {
+        status: 'success',
+        planned: 4,
+        objects: expect.arrayContaining([
+          expect.objectContaining({ objectApiName: 'DuplicateRecordSet', deleted: 1 }),
+        ]),
+      },
+    });
+  });
+
   it('keeps a record changed since the run unless told to include it, and exits 3', async () => {
     org.touch('Contact', C2, new Date().toISOString());
     const exit = stubExit();

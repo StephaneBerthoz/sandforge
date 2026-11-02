@@ -28,7 +28,7 @@ import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
-import { FrozenLoadRemoval } from './FrozenLoadRemoval';
+import { FrozenLoadRemoval, FrozenRemovalAutomation } from './FrozenLoadRemoval';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
@@ -754,6 +754,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   count: reloadPurge?.deactivated ?? 0,
                 })}
               </p>
+            )}
+            {/* What the purge fires, before the org's name is typed, with the box
+                that mutes it: the one beside Load, which the load is sent with. */}
+            {reloadPurge !== null && targetRecords !== undefined && (
+              <FrozenRemovalAutomation
+                orgId={targetRecords.orgId}
+                loadedAt={targetRecords.loadedAt}
+                org={targetName}
+                sweptObjects={[]}
+                reload
+                mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+              />
             )}
           </DangerConfirm>
           {noLoadIntoTarget && (

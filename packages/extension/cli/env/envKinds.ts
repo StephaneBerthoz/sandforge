@@ -290,6 +290,8 @@ export interface EnvDryRunContext {
   runId: string;
   /** Whether the run replaces runs before it: a frozen resource's is a reload. */
   replace?: boolean;
+  /** Whether what fires as a reload's purge deletes is accepted: the line's, or the file's. */
+  acceptAutomation?: boolean;
   /** The store a frozen dry run keeps the script's own state in, apart from the sas. */
   storeFile?: string;
   /** The DataOps store a mask resource's script keeps its snapshots and its template in. */
@@ -344,6 +346,7 @@ export function dryRunLineOf(
           configFile: context.templateFile,
           target: context.target,
           reload: context.replace === true,
+          acceptAutomation: context.acceptAutomation === true,
           ...(context.storeFile !== undefined ? { store: context.storeFile } : {}),
         }),
       };
@@ -501,6 +504,7 @@ export function applyLineOf(
           configFile: context.templateFile,
           target: context.target,
           reload: context.replace === true,
+          acceptAutomation: context.acceptAutomation === true,
           maxTotal: context.maxTotal,
         }),
       };

@@ -5087,6 +5087,7 @@
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Ladevorgang erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Nach einem Neuladen gehören dazu auch die Datensätze, die frühere Ladevorgänge erstellt haben und die das Neuladen wiedergefunden und als seine eigenen behalten hat. Datensätze, mit denen der Ladevorgang verknüpft hat oder die er wiederverwendet hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ladevorgang geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
       "includeChanged": "Auch die seit dem Ladevorgang geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
       "sweep": "Zuerst aufräumen: auch die Datensätze löschen, die Flows und Trigger des Ziels für dieses Laden erstellt haben; sonst können sie das Entfernen der Datensätze des Ladens verhindern",
+      "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat",
       "sweepTitle": "Was das Aufräumen aus {{org}} nimmt",
       "sweepLoading": "Lesen, was die Automatisierung von {{org}} während des Ladens erstellt hat…",
       "sweepError": "Was das Aufräumen aus {{org}} nehmen würde, konnte nicht gelesen werden: {{reason}}",
@@ -5156,6 +5157,81 @@
       "failed": "Die Regeldatei wurde nicht geschrieben: {{reason}}"
     },
     "refusal": {
+      "selectionMissing": {
+        "explanation": "Es ist keine Auswahl gespeichert, und die Extraktion entnimmt ihre Datensätze einer Auswahl.",
+        "action": "Klicken Sie zuerst auf dem Tab Extrahieren auf Auswahl starten."
+      },
+      "selectionEmpty": {
+        "explanation": "Die letzte Auswahl hat keine Wurzel behalten: Jede Kombination blieb unabgedeckt, und die Auswahl sagt für jede, warum.",
+        "action": "Passen Sie die Achsen oder die erwarteten Objekte an und klicken Sie dann erneut auf Auswahl starten."
+      },
+      "controlFailed": {
+        "explanation": "Die Kontrolle gegen Re-Identifizierung ist fehlgeschlagen, und nichts wurde geschrieben.",
+        "action": "Korrigieren Sie die Regeldatei anhand der fehlgeschlagenen Prüfungen und klicken Sie dann erneut auf Extraktion starten."
+      },
+      "saltMissing": {
+        "explanation": "Es gibt kein Pseudonymisierungs-Salt, und der geheime Speicher von VS Code konnte hier keines behalten.",
+        "action": "Setzen Sie SANDFORGE_FROZEN_SALT auf das Salt, mit dem das Dataset erstellt wurde, und starten Sie VS Code aus dieser Shell: Ein anderes Salt gibt denselben Datensätzen andere Pseudonyme."
+      },
+      "sasPathRefused": {
+        "explanation": "Der sas-Ordner liegt in einem Repository: Versioniert enthielte er eine Tabelle von echten Werten zu ihren Pseudonymen. Es wurde nichts geschrieben.",
+        "action": "Legen Sie in der Konfiguration einen sas-Ordner außerhalb jedes Repositorys fest."
+      },
+      "budgetExceeded": {
+        "explanation": "Die Auswahl hat {{total}} Datensätze bei einem Budget von {{budget}} gemessen.",
+        "heaviest": "Die schwersten: {{objects}}.",
+        "action": "Lassen Sie die Objekte weg, die das Dataset nicht braucht, grenzen Sie die Abdeckungsachsen oder Sonderfälle ein, oder erhöhen Sie das Budget."
+      },
+      "noLoad": {
+        "explanation": "In diesem sas ist kein Ladevorgang in diese Org verzeichnet, und nichts wurde geändert.",
+        "action": "Laden Sie das Dataset zuerst dorthin."
+      },
+      "notRecorded": {
+        "explanation": "Dieser Ladevorgang wurde verzeichnet, bevor Ladevorgänge festhielten, was sie erstellen: Seine Datensätze lassen sich nicht von den verknüpften unterscheiden.",
+        "action": "Er lässt sich weder von hier entfernen noch durch ein Neuladen ersetzen, das löschen würde, was jemand seitdem geändert hat."
+      },
+      "loadChanged": {
+        "explanation": "Seit der Anzeige dieses Ladevorgangs wurde ein anderer verzeichnet, und nichts wurde entfernt.",
+        "action": "Prüfen Sie, was eine Entfernung jetzt nimmt, und bestätigen Sie dann erneut."
+      },
+      "targetRefreshed": {
+        "explanation": "Die Ziel-Org wurde nach dem Ladevorgang aktualisiert: Die von ihm erstellten Datensätze sind mit der Aktualisierung verschwunden, und nichts wurde geändert.",
+        "action": "Laden Sie das Dataset erneut."
+      },
+      "loadStopped": {
+        "explanation": "Der letzte Ladevorgang hat mittendrin angehalten und keinen Zählvertrag geschrieben: Der im sas zählt einen früheren Ladevorgang und würde diesen danach beurteilen.",
+        "action": "Laden Sie das Dataset neu, oder entfernen Sie diesen Ladevorgang, bevor Sie es erneut laden; prüfen Sie dann."
+      },
+      "loadRemoved": {
+        "explanation": "Die vom letzten Ladevorgang erstellten Datensätze wurden entfernt: Es gibt nichts zu prüfen.",
+        "action": "Laden Sie das Dataset erneut und prüfen Sie dann.",
+        "partExplanation": "Eine Entfernung hat einen Teil der vom letzten Ladevorgang erstellten Datensätze genommen und {{left}} davon in der Org gelassen: Eine Prüfung läse die genommenen als fehlend.",
+        "partAction": "Entfernen Sie den Rest, oder laden Sie das Dataset neu; prüfen Sie dann."
+      },
+      "loadConfig": {
+        "explanation": "Das Dataset lässt Pflichtfelder leer, die die Konfiguration nicht abdeckt, und nichts wurde geschrieben.",
+        "action": "Deklarieren Sie alle in der Konfiguration und laden Sie dann erneut: {{gaps}}"
+      },
+      "timeout": {
+        "explanation": "Für diesen Schritt reichte die Zeit nicht, und er wurde angehalten.",
+        "action": "Versuchen Sie es erneut."
+      },
+      "nonSandbox": {
+        "explanation": "{{org}} ist weder eine Sandbox noch eine Scratch-Org noch eine Developer-Edition-Org: Ein Ladevorgang geht nur in diese, und nichts wurde geschrieben.",
+        "action": "Wählen Sie eine davon als Ziel."
+      },
+      "protectedEnvironment": {
+        "explanation": "{{org}} gehört zu den geschützten Orgs der Konfiguration, und nichts wurde geschrieben.",
+        "action": "Wählen Sie eine andere Sandbox, oder prüfen Sie diese Liste, falls diese Org außer Betrieb ist."
+      },
+      "unmockedCallouts": {
+        "explanation": "Die Datensätze eines Ladevorgangs in {{org}} würden echte externe Aufrufe auslösen: Ihre Callouts sind nicht simuliert, und nichts wurde geschrieben.",
+        "action": "Stellen Sie die Mock-Konfiguration in dieser Org bereit und laden Sie dann erneut."
+      },
+      "emptyDataset": {
+        "explanation": "Das Dataset enthält keinen Datensatz, und nichts wurde geschrieben.",
+        "action": "Führen Sie Auswahl und Extraktion erneut mit einer Abdeckungsmatrix aus, die zur Quelle passt."
+      },
       "configMissing": {
         "explanation": "Es ist keine Projektkonfiguration gespeichert, und die Läufe lesen die gespeicherte.",
         "action": "Klicken Sie zuerst auf dem Tab Extrahieren auf Konfiguration speichern."

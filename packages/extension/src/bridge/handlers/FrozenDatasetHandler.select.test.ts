@@ -101,6 +101,23 @@ afterEach(() => {
 });
 
 describe('a selection on an org shaped like a large one', () => {
+  it('names the figures of a budget it went past, for the panel to say them in its language', async () => {
+    const { conn } = countingConnection(largeOrg({ cases: 12 }));
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    const deps = depsWith(caseSelection(4, 3, { budgetMaxRecords: 1 }));
+
+    await new FrozenDatasetHandler(deps).handle(selectMsg());
+
+    expect(posted(deps, 'frozen:select:error')).toEqual([
+      expect.objectContaining({
+        code: 'BUDGET_EXCEEDED',
+        budgetMax: 1,
+        total: expect.any(Number),
+        heaviest: expect.any(Array),
+      }),
+    ]);
+  });
+
   it('describes each object once for the whole selection, however many candidates it probes', async () => {
     // Every candidate's extraction described every object of the graph again:
     // half the calls of a selection were describes discovery had made.

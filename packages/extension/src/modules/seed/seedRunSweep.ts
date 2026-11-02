@@ -40,11 +40,16 @@
  * records it updated.
  */
 
-import type { ForgeTargetAutomation, ForgeWrittenBetween } from '@sandforge/shared';
+import type {
+  ForgeTargetAutomation,
+  ForgeUndoObjectResult,
+  ForgeWrittenBetween,
+} from '@sandforge/shared';
 
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { idLists } from '../dataops/RecordRemoval.js';
-import type { RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { deleteBatch, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import {
   SWEEP_LEAD_MS,
   SWEEP_TRAIL_MS,
@@ -86,6 +91,97 @@ export async function seedWrittenBetween(
   }
   if (!Number.isFinite(first) || !Number.isFinite(last)) return undefined;
   return { first: new Date(first).toISOString(), last: new Date(last).toISOString() };
+}
+
+/** What a removal did of the duplicate record sets its deletes left empty. */
+interface EmptyDuplicateSets {
+  /** The sets, as a line of the removal's objects; absent when none was left empty. */
+  object?: ForgeUndoObjectResult;
+  /** Why they could not be read, when they could not: said, never thrown. */
+  note?: string;
+}
+
+/**
+ * The duplicate record sets of a run, read before its removal, and what takes
+ * them once its deletes emptied them.
+ *
+ * An org whose duplicate rules report writes a set and an item per record as
+ * the records go in. The removal's deletes take the items with the records, and
+ * the org keeps the set, empty. Run for real, a seed into a Developer Edition
+ * org left sixteen of them that no removal and no sweep named. Read by the
+ * items that name the run's records, before they go: a set dated in the run's
+ * window could be anyone's, and a set that still holds an item names a record
+ * that stays. Nothing of a run that reads none is asked of the org again.
+ */
+export async function duplicateSetsOfRemoval(
+  org: RemovalOrg,
+  created: Created,
+): Promise<{ take: () => Promise<EmptyDuplicateSets> }> {
+  const unread = (err: unknown): EmptyDuplicateSets => ({
+    note:
+      'What the duplicate rules of the target reported of the run could not be read ' +
+      `(${extractErrorMessage(err)}): the empty DuplicateRecordSet records it left, if any, stay.`,
+  });
+  const sets = new Set<string>();
+  try {
+    for (const { ids } of created) {
+      for (const list of idLists(ids)) {
+        const { records } = await org.query(
+          `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN (${list})`,
+        );
+        for (const row of records) {
+          const set = (row as { DuplicateRecordSetId?: unknown }).DuplicateRecordSetId;
+          if (typeof set === 'string') sets.add(set);
+        }
+      }
+    }
+  } catch (err: unknown) {
+    return { take: async () => unread(err) };
+  }
+  return {
+    take: async () => {
+      if (sets.size === 0) return {};
+      const held = new Set<string>();
+      try {
+        for (const list of idLists([...sets])) {
+          const { records } = await org.query(
+            `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE DuplicateRecordSetId IN (${list})`,
+          );
+          for (const row of records) {
+            held.add(String((row as { DuplicateRecordSetId?: unknown }).DuplicateRecordSetId));
+          }
+        }
+      } catch (err: unknown) {
+        return unread(err);
+      }
+      const empty = [...sets].filter((set) => !held.has(set));
+      if (empty.length === 0) return {};
+      const object: ForgeUndoObjectResult = {
+        objectApiName: 'DuplicateRecordSet',
+        planned: empty.length,
+        deleted: 0,
+        alreadyGone: 0,
+        keptChanged: 0,
+        keptDependents: 0,
+        refused: 0,
+        heldBy: [],
+        unchecked: [],
+        reasons: [],
+      };
+      for (let at = 0; at < empty.length; at += RECORDS_PER_CALL) {
+        const batch = empty.slice(at, at + RECORDS_PER_CALL);
+        for (const outcome of await deleteBatch(org, object.objectApiName, batch)) {
+          if (outcome.kind === 'deleted') object.deleted += 1;
+          else if (outcome.kind === 'gone') object.alreadyGone += 1;
+          else {
+            object.refused += 1;
+            if (!object.reasons.includes(outcome.reason)) object.reasons.push(outcome.reason);
+          }
+        }
+      }
+      return { object };
+    },
+  };
 }
 
 /**

@@ -94,6 +94,27 @@ const ACCOUNT_FLOW: ForgeTargetAutomation = {
   requests: 4,
 };
 
+/** What the target runs as an account is deleted, under the same bypass. */
+const ACCOUNT_DELETE_FLOW: ForgeTargetAutomation = {
+  ...ACCOUNT_FLOW,
+  objects: [
+    {
+      objectApiName: 'Account',
+      flows: [
+        {
+          apiName: 'Account_Guard',
+          label: 'Account guard',
+          timing: 'beforeSave',
+          startsOn: 'delete',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+};
+
 const ESTIMATE: RunCheckpointEstimate = {
   state: 'planned',
   estimate: { records: 12, apiRequests: 8, apiRequestsLeft: 14_000, seconds: 4, bytes: 120_000 },
@@ -371,6 +392,47 @@ describe('frozen:load, its write path through the real loader', () => {
       status: 'completed',
       checkpoint: TAKEN,
       mutedAutomation: { released: true },
+    });
+  });
+
+  describe('of a reload, whose purge deletes first', () => {
+    /** The target once the first load's accounts are in its recycle bin: the reload's check reads them gone. */
+    async function loadedThenGone() {
+      const { connection } = target();
+      const answered = connection.query.getMockImplementation();
+      connection.query.mockImplementation(async (soql: string) => {
+        const gone = /^SELECT Id FROM Account WHERE Id IN \((.*)\) AND IsDeleted = true$/.exec(
+          soql,
+        );
+        if (!gone) return answered?.(soql);
+        const records = gone[1].split(', ').map((quoted) => ({ Id: quoted.slice(1, -1) }));
+        return { totalSize: records.length, done: true, records };
+      });
+      await load({});
+      vi.mocked(deps.broker.postToWebview).mockClear();
+    }
+
+    it('mutes what fires on its deletes, where a mute planned from the inserts left it running', async () => {
+      await loadedThenGone();
+      const read = vi.fn(async () => ACCOUNT_DELETE_FLOW);
+      handler.setTargetAutomation({ read });
+
+      await load({ reload: true, muteAutomation: true });
+
+      expect(read).toHaveBeenCalledWith('org-2', ['Account']);
+      expect(report()).toMatchObject({
+        mutedAutomation: { state: 'muted', assigned: ['Data_Load'], released: true },
+      });
+    });
+
+    it('takes no lease for the deletes of a load that is no reload, which purges nothing', async () => {
+      await loadedThenGone();
+      handler.setTargetAutomation({ read: vi.fn(async () => ACCOUNT_DELETE_FLOW) });
+
+      await load({ muteAutomation: true });
+
+      expect(report()?.mutedAutomation?.assigned ?? []).toEqual([]);
+      expect(report()?.status).toBeDefined();
     });
   });
 

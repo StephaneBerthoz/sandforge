@@ -1511,7 +1511,7 @@ describe('the frozen resource and the references between resources, on the page'
       [
         PLAN,
         'What a removal would be refused for that a frozen resource',
-        'and so does a reload, which is why a replace is not held to it',
+        'A reload is held to it, as its purge deletes',
       ],
     ];
     for (const [code, said, page] of pins) {

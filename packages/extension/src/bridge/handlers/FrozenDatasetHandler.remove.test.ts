@@ -536,13 +536,14 @@ describe('frozen:remove', () => {
 
       await handler.handle(buildMsg('frozen:verify', { targetOrgId: TARGET_ORG }));
 
-      const refusals = posted<BaseMessage & { payload: { code: string; message: string } }>(
-        'frozen:verify:error',
-      );
+      const refusals = posted<
+        BaseMessage & { payload: { code: string; message: string; left?: number } }
+      >('frozen:verify:error');
       expect(refusals.map((e) => e.payload.code)).toEqual(['LOAD_REMOVED']);
       expect(refusals[0].payload.message).toBe(
         `The removal of ${first?.finishedAt} took part of the records the last load created and left 2 in the org: a verification would read the ones it took as missing. Remove what is left, or reload the dataset, which purges or finds it again; then verify.`,
       );
+      expect(refusals[0].payload.left).toBe(2);
     });
 
     it('counts in the mark a removal cancelled between two others, and offers what it did not reach', async () => {

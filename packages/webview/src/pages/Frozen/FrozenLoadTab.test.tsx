@@ -949,7 +949,9 @@ describe('FrozenLoadTab', () => {
       rerender(tab());
 
       const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByRole('heading').textContent).toBe('Reload into DEV-SANDBOX');
+      expect(within(dialog).getByTestId('danger-title').textContent).toBe(
+        'Reload into DEV-SANDBOX',
+      );
       expect(dialog.textContent).toContain(
         'This reload deletes from DEV-SANDBOX 5 records that earlier loads of this dataset created and this one does not find again, then loads the dataset.',
       );
@@ -964,6 +966,76 @@ describe('FrozenLoadTab', () => {
       expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
         ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
       ]);
+    });
+
+    describe('what the target runs as its purge deletes', () => {
+      const LOADED_AT = '2026-09-24T10:05:00.000Z';
+      const FLOW = {
+        apiName: 'Account_Guard',
+        label: 'Account guard',
+        timing: 'beforeSave',
+        startsOn: 'delete',
+        condition: 'read',
+        permissions: [{ name: 'Load_Data', bypass: true }],
+      };
+      const AUTOMATION = {
+        objectsRead: ['Account'],
+        objects: [{ objectApiName: 'Account', flows: [FLOW], triggers: [] }],
+        bypassGrants: [
+          {
+            permission: 'Load_Data',
+            permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 1,
+      };
+      const confirmation = () => {
+        useFrozenStore.setState({
+          status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+        });
+        answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+        answers['frozen:remove:automation'] = {
+          data: {
+            loadedAt: LOADED_AT,
+            automation: AUTOMATION,
+            steps: { setToDraft: [], delete: ['Account'] },
+          },
+        };
+        render(tab());
+        fireEvent.click(screen.getByTestId('frozen-load-reload'));
+        fireEvent.click(screen.getByTestId('frozen-load-run'));
+      };
+
+      it('reads it as the confirmation opens, of a reload, and names it before the org is typed', () => {
+        confirmation();
+
+        expect(mutate).toHaveBeenCalledWith('frozen:remove:automation', {
+          targetOrgId: 'org-dev',
+          loadedAt: LOADED_AT,
+          reload: true,
+        });
+        expect(screen.getByTestId('frozen-removal-automation').textContent).toContain(
+          'Account guard',
+        );
+      });
+
+      it('sends the load muted once the box of the confirmation is ticked', () => {
+        confirmation();
+
+        const box = within(screen.getByRole('dialog')).getByTestId(
+          'frozen-removal-automation-mute',
+        );
+        fireEvent.click(within(box).getByRole('checkbox'));
+        fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+        fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+        expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+          ['frozen:load', { targetOrgId: 'org-dev', reload: true, muteAutomation: true }],
+        ]);
+      });
     });
 
     it('loads at once when the plan it reads purges nothing', () => {

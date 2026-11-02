@@ -5087,6 +5087,7 @@
       "removeDescription": "Exclui de {{org}} os registros que esta carga criou, os filhos antes dos pais; eles vão para a lixeira dela. Após uma recarga, eles incluem os registros que cargas anteriores criaram e que a recarga reencontrou e manteve como seus. Os registros aos quais a carga se vinculou ou que reutilizou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde a carga, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
       "includeChanged": "Remover também os registros alterados desde a carga, e o que foi adicionado a eles desde então",
       "sweep": "Varrer primeiro: excluir também os registros que os Flows e gatilhos do destino criaram para este carregamento; caso contrário, eles podem impedir a remoção dos registros dele",
+      "sweepAction": "Recuperar o que a automação do destino criou",
       "sweepTitle": "O que a varredura recupera de {{org}}",
       "sweepLoading": "Lendo o que a automação de {{org}} criou durante o carregamento…",
       "sweepError": "Não foi possível ler o que a varredura recuperaria de {{org}}: {{reason}}",
@@ -5156,6 +5157,81 @@
       "failed": "O arquivo de regras não foi gravado: {{reason}}"
     },
     "refusal": {
+      "selectionMissing": {
+        "explanation": "Nenhuma seleção está salva, e a extração tira seus registros de uma.",
+        "action": "Clique primeiro em Executar seleção, na aba Extrair."
+      },
+      "selectionEmpty": {
+        "explanation": "A última seleção não manteve nenhuma raiz: cada combinação ficou sem cobertura, e a seleção diz o motivo de cada uma.",
+        "action": "Ajuste os eixos ou os objetos esperados e clique de novo em Executar seleção."
+      },
+      "controlFailed": {
+        "explanation": "O controle de não reidentificação falhou, e nada foi gravado.",
+        "action": "Corrija o arquivo de regras pelas verificações que ele aponta como falhas e clique de novo em Executar extração."
+      },
+      "saltMissing": {
+        "explanation": "Não há salt de pseudonimização, e o armazenamento secreto do VS Code não conseguiu guardar um aqui.",
+        "action": "Defina SANDFORGE_FROZEN_SALT com o salt com que o dataset foi construído e inicie o VS Code a partir desse shell: outro salt dá aos mesmos registros outros pseudônimos."
+      },
+      "sasPathRefused": {
+        "explanation": "A pasta sas está dentro de um repositório: versionada, ela guardaria uma tabela de valores reais para seus pseudônimos. Nada foi gravado.",
+        "action": "Defina na configuração uma pasta sas fora de qualquer repositório."
+      },
+      "budgetExceeded": {
+        "explanation": "A seleção mediu {{total}} registros para um orçamento de {{budget}}.",
+        "heaviest": "Os mais pesados: {{objects}}.",
+        "action": "Deixe de fora os objetos de que o dataset não precisa, restrinja os eixos de cobertura ou os casos-limite, ou aumente o orçamento."
+      },
+      "noLoad": {
+        "explanation": "Nenhuma carga nesta org consta neste sas, e nada foi alterado.",
+        "action": "Carregue o dataset nela primeiro."
+      },
+      "notRecorded": {
+        "explanation": "Esta carga foi registrada antes de as cargas guardarem o que criam: seus registros não se distinguem dos que ela vinculou.",
+        "action": "Ela não pode ser removida daqui, nem substituída por uma recarga, que excluiria o que alguém alterou desde então."
+      },
+      "loadChanged": {
+        "explanation": "Outra carga foi registrada desde que esta foi mostrada, e nada foi removido.",
+        "action": "Confira o que uma remoção leva agora e confirme de novo."
+      },
+      "targetRefreshed": {
+        "explanation": "A org de destino foi atualizada depois da carga: os registros que ela criou se foram com a atualização, e nada foi alterado.",
+        "action": "Carregue o dataset de novo."
+      },
+      "loadStopped": {
+        "explanation": "A última carga parou no meio e não gravou nenhum contrato de contagem: o do sas conta uma carga anterior, e julgaria esta por ele.",
+        "action": "Recarregue o dataset, ou remova essa carga antes de carregá-lo de novo; depois verifique."
+      },
+      "loadRemoved": {
+        "explanation": "Os registros que a última carga criou foram removidos: não há nada a verificar.",
+        "action": "Carregue o dataset de novo e verifique.",
+        "partExplanation": "Uma remoção levou parte dos registros que a última carga criou e deixou {{left}} na org: uma verificação leria os que ela levou como ausentes.",
+        "partAction": "Remova o que restou, ou recarregue o dataset; depois verifique."
+      },
+      "loadConfig": {
+        "explanation": "O dataset deixa vazios campos obrigatórios que a configuração não cobre, e nada foi gravado.",
+        "action": "Declare todos na configuração e carregue de novo: {{gaps}}"
+      },
+      "timeout": {
+        "explanation": "Esta etapa ficou sem tempo e parou.",
+        "action": "Tente de novo."
+      },
+      "nonSandbox": {
+        "explanation": "{{org}} não é uma sandbox, nem uma scratch org, nem uma org Developer Edition: uma carga só vai para essas, e nada foi gravado.",
+        "action": "Escolha uma delas como destino."
+      },
+      "protectedEnvironment": {
+        "explanation": "{{org}} está entre as orgs protegidas da configuração, e nada foi gravado.",
+        "action": "Escolha outra sandbox, ou revise essa lista se esta org foi desativada."
+      },
+      "unmockedCallouts": {
+        "explanation": "Os registros de uma carga em {{org}} disparariam chamadas externas reais: os callouts dela não estão simulados, e nada foi gravado.",
+        "action": "Implante a configuração de simulação nessa org e carregue de novo."
+      },
+      "emptyDataset": {
+        "explanation": "O dataset não contém nenhum registro, e nada foi gravado.",
+        "action": "Execute de novo a seleção e a extração com uma matriz de cobertura que corresponda à origem."
+      },
       "configMissing": {
         "explanation": "Nenhuma configuração de projeto está salva, e as execuções leem a configuração salva.",
         "action": "Clique primeiro em Salvar configuração, na aba Extrair."

@@ -8020,6 +8020,65 @@ for (const theme of SCANNED_THEMES) {
       });
       await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
       await expect(page.getByTestId('frozen-removal-kept')).toBeVisible();
+      // What a sweep that failed left in the org, offered alone.
+      await expect(page.getByTestId('frozen-removal-sweep-alone')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Frozen reload confirmation listing what the target runs as its purge deletes, with the box that mutes it', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_WITH_DATASET,
+        lastLoads: FROZEN_STATUS_AFTER_LOAD.lastLoads,
+        loadRecords: [FROZEN_LAST_LOAD_RECORDS],
+      });
+      await page.getByTestId('frozen-load-reload').check();
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+      await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+        plan: FROZEN_RELOAD_PLAN,
+      });
+      const dialog = page.getByRole('dialog', { name: `Reload into ${QA_SANDBOX.alias}` });
+      await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(dialog.getByTestId('frozen-removal-automation-loading')).toBeVisible();
+      await bridge.waitForMessage('frozen:remove:automation', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:automation', 'frozen:remove:automation:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        steps: { setToDraft: [], delete: ['Contact'] },
+        automation: {
+          objectsRead: ['Contact'],
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Bypass', label: 'Delete bypass', grants: 1 }],
+            },
+          ],
+        },
+      });
+      await dialog
+        .getByTestId('frozen-removal-automation-mute-toggle')
+        .waitFor({ timeout: 10_000 });
 
       expectNoViolations(await checkAccessibility(page));
     });

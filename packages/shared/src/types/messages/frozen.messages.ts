@@ -177,7 +177,8 @@ export interface FrozenRemoveRequest extends BaseMessage {
  * list before the user types the org's name. The load is named, never its
  * records; a sweep's objects are named, read from the listing the confirmation
  * shows, for this read alone: the removal's mute plans from what its own sweep
- * reads.
+ * reads. Asked of a reload, the same read of what its purge takes: the records
+ * every load into the org created and no removal took.
  */
 export interface FrozenRemoveAutomationRequest extends BaseMessage {
   type: 'frozen:remove:automation';
@@ -188,6 +189,8 @@ export interface FrozenRemoveAutomationRequest extends BaseMessage {
     loadedAt: string;
     /** The objects a sweep asked with the removal deletes records of (`sweepTakenObjects`). */
     sweptObjects?: string[];
+    /** Read for a reload's purge, not for a removal of this load. */
+    reload?: boolean;
   };
 }
 

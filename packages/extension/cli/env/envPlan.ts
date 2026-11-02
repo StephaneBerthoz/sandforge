@@ -241,7 +241,8 @@ interface Held {
   refusals: string[];
   /**
    * What a removal would be refused for that a frozen resource's replace is
-   * not: a reload takes no acceptance of the automation a removal asks about.
+   * not asked here: what its purge fires is the reload's own dry run's to say,
+   * of every load it replaces.
    */
   removalAlone: string[];
   failed: string[];

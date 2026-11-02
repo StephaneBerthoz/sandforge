@@ -1116,6 +1116,7 @@ async function dryRun(
   signal: AbortSignal,
   seeds: Readonly<Record<string, number>> = {},
   acceptEmails = false,
+  acceptAutomation = false,
 ): Promise<Record<string, EnvDryRun>> {
   const { resolved, target, state, store } = prepared;
   const dryRuns: Record<string, EnvDryRun> = {};
@@ -1172,6 +1173,10 @@ async function dryRun(
           templateFile,
           runId: envRunIdOf(env, resource.name, nextRunNumber(state?.resources[resource.name])),
           replace: action === 'replace' && replacesInOneRun(resource.kind),
+          // A reload's purge is held to it, as the apply's run will be.
+          acceptAutomation:
+            acceptAutomation ||
+            resolved.checked.file.resources[resource.name]?.accept?.automation === true,
           ...(seed !== undefined ? { seed } : {}),
           ...(storeFile !== undefined ? { storeFile } : {}),
           // A store of the plan's own: a dry run saves the rules as a template,
@@ -1290,7 +1295,16 @@ async function planOf(
     drafts.filter((d) => d.action === 'create' || d.action === 'replace').map((d) => d.resource),
   );
   const draws = await drawsOf(prepared, running);
-  const dryRuns = await dryRun(prepared, drafts, draws, say, signal, seeds, args.acceptEmails);
+  const dryRuns = await dryRun(
+    prepared,
+    drafts,
+    draws,
+    say,
+    signal,
+    seeds,
+    args.acceptEmails,
+    args.acceptAutomation,
+  );
   const budget = await readBudget(prepared.reached.conn);
   const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
   return {

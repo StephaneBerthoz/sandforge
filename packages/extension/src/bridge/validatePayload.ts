@@ -1289,6 +1289,8 @@ export const frozenRemoveAutomationPayloadSchema = z.object({
   loadedAt: z.string().min(1).max(64),
   // As the sweep's list reads them: its objects, for this read alone.
   sweptObjects: sweptObjectsSchema.optional(),
+  // Read for a reload's purge, not for a removal of this load.
+  reload: z.boolean().optional(),
 });
 // What a removal of a load would do, read and nothing written: the load, named as for its removal.
 export const frozenRemovePreviewPayloadSchema = z.object({

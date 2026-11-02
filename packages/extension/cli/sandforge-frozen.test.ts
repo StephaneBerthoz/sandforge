@@ -422,6 +422,17 @@ describe('removalAsks', () => {
     ).toBe(false);
     expect(removalAsks({ ...loaded, created: [], recorded: false })).toBe(false);
   });
+
+  it('asks before a sweep alone deletes what it found, and of nothing it did not', () => {
+    const removed = {
+      ...loaded,
+      created: [],
+      removed: { removedAt: '2026-09-29T15:51:27.295Z' },
+    };
+
+    expect(removalAsks(removed, { delete: ['Asset'] })).toBe(true);
+    expect(removalAsks(removed, { delete: [] })).toBe(false);
+  });
 });
 
 describe('messageLines — a selection as it runs', () => {

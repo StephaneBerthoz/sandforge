@@ -5087,6 +5087,7 @@
       "removeDescription": "Elimina de {{org}} los registros que creó esta carga, los hijos antes que sus padres; van a su papelera de reciclaje. Tras una recarga, entre ellos están los registros que crearon cargas anteriores y que la recarga volvió a encontrar y conservó como suyos. Los registros a los que se vinculó la carga o que reutilizó, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la carga, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
       "includeChanged": "Eliminar también los registros modificados desde la carga, y lo que se les añadió desde entonces",
       "sweep": "Barrer primero: eliminar también los registros que los Flows y desencadenadores del destino crearon para esta carga; si no, pueden impedir que se quiten sus registros",
+      "sweepAction": "Recuperar lo que creó la automatización del destino",
       "sweepTitle": "Lo que el barrido recupera de {{org}}",
       "sweepLoading": "Leyendo lo que la automatización de {{org}} creó durante la carga…",
       "sweepError": "No se pudo leer lo que el barrido recuperaría de {{org}}: {{reason}}",
@@ -5156,6 +5157,81 @@
       "failed": "El archivo de reglas no se escribió: {{reason}}"
     },
     "refusal": {
+      "selectionMissing": {
+        "explanation": "No hay ninguna selección guardada, y la extracción toma sus registros de una.",
+        "action": "Haga clic primero en Ejecutar selección, en la pestaña Extraer."
+      },
+      "selectionEmpty": {
+        "explanation": "La última selección no conservó ninguna raíz: cada combinación quedó sin cubrir, y la selección dice por qué en cada una.",
+        "action": "Ajuste los ejes o los objetos esperados y haga clic de nuevo en Ejecutar selección."
+      },
+      "controlFailed": {
+        "explanation": "El control de no reidentificación falló, y no se escribió nada.",
+        "action": "Corrija el archivo de reglas según las comprobaciones que indica como fallidas y haga clic de nuevo en Ejecutar extracción."
+      },
+      "saltMissing": {
+        "explanation": "No hay sal de seudonimización, y el almacenamiento secreto de VS Code no pudo guardar una aquí.",
+        "action": "Asigne a SANDFORGE_FROZEN_SALT la sal con la que se construyó el dataset e inicie VS Code desde ese shell: otra sal da a los mismos registros otros seudónimos."
+      },
+      "sasPathRefused": {
+        "explanation": "La carpeta sas está dentro de un repositorio: versionada, contendría una tabla de valores reales a sus seudónimos. No se escribió nada.",
+        "action": "Indique en la configuración una carpeta sas fuera de todo repositorio."
+      },
+      "budgetExceeded": {
+        "explanation": "La selección midió {{total}} registros para un presupuesto de {{budget}}.",
+        "heaviest": "Los más pesados: {{objects}}.",
+        "action": "Deje fuera los objetos que el dataset no necesita, acote los ejes de cobertura o los casos límite, o suba el presupuesto."
+      },
+      "noLoad": {
+        "explanation": "En este sas no consta ninguna carga en esta org, y no se cambió nada.",
+        "action": "Cargue primero el dataset en ella."
+      },
+      "notRecorded": {
+        "explanation": "Esta carga se registró antes de que las cargas guardaran lo que crean: sus registros no se distinguen de los que vinculó.",
+        "action": "No se puede retirar desde aquí, ni reemplazar con una recarga, que eliminaría lo que alguien cambió desde entonces."
+      },
+      "loadChanged": {
+        "explanation": "Se registró otra carga desde que se mostró esta, y no se retiró nada.",
+        "action": "Compruebe lo que toma ahora un retiro y confírmelo de nuevo."
+      },
+      "targetRefreshed": {
+        "explanation": "La org de destino se actualizó después de la carga: los registros que creó se fueron con la actualización, y no se cambió nada.",
+        "action": "Cargue de nuevo el dataset."
+      },
+      "loadStopped": {
+        "explanation": "La última carga se detuvo a medias y no escribió ningún contrato de recuento: el del sas cuenta una carga anterior, y juzgaría esta según él.",
+        "action": "Recargue el dataset, o retire esa carga antes de cargarlo de nuevo; después verifique."
+      },
+      "loadRemoved": {
+        "explanation": "Los registros que creó la última carga se retiraron: no hay nada que verificar.",
+        "action": "Cargue de nuevo el dataset y verifique.",
+        "partExplanation": "Un retiro tomó parte de los registros que creó la última carga y dejó {{left}} en la org: una verificación leería los que tomó como ausentes.",
+        "partAction": "Retire lo que queda, o recargue el dataset; después verifique."
+      },
+      "loadConfig": {
+        "explanation": "El dataset deja vacíos campos obligatorios que la configuración no cubre, y no se escribió nada.",
+        "action": "Declárelos todos en la configuración y cargue de nuevo: {{gaps}}"
+      },
+      "timeout": {
+        "explanation": "Este paso se quedó sin tiempo y se detuvo.",
+        "action": "Inténtelo de nuevo."
+      },
+      "nonSandbox": {
+        "explanation": "{{org}} no es un sandbox, ni una scratch org, ni una org Developer Edition: una carga solo va a esas, y no se escribió nada.",
+        "action": "Elija una de ellas como destino."
+      },
+      "protectedEnvironment": {
+        "explanation": "{{org}} está entre las orgs protegidas de la configuración, y no se escribió nada.",
+        "action": "Elija otro sandbox, o revise esa lista si esta org se dio de baja."
+      },
+      "unmockedCallouts": {
+        "explanation": "Los registros de una carga en {{org}} dispararían llamadas externas reales: sus callouts no están simulados, y no se escribió nada.",
+        "action": "Implemente la configuración de simulación en esa org y cargue de nuevo."
+      },
+      "emptyDataset": {
+        "explanation": "El dataset no contiene ningún registro, y no se escribió nada.",
+        "action": "Ejecute de nuevo la selección y la extracción con una matriz de cobertura que coincida con el origen."
+      },
       "configMissing": {
         "explanation": "No hay ninguna configuración de proyecto guardada, y las ejecuciones leen la guardada.",
         "action": "Haga clic primero en Guardar configuración, en la pestaña Extraer."

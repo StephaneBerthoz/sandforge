@@ -225,6 +225,16 @@ describe('CoverageMatrixSelector', () => {
         '"PolicyCoverage__c"])',
     );
     expect(refusal.message).not.toContain('Dossier__c 5');
+    // Beside the message, for the panel to say them in its language.
+    expect(refusal).toMatchObject({
+      heaviest: [
+        'ServiceTerritory 39540',
+        'OrderForm__c 10281',
+        'Offer__c 6840',
+        'Coverage__c 2624',
+        'PolicyCoverage__c 831',
+      ],
+    });
   });
 
   it('defaults the budget to 2 500 records', async () => {

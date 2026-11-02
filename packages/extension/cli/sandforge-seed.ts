@@ -175,7 +175,7 @@ import {
   SEED_RUNS_DIR,
   seedRunKept,
 } from '../src/modules/seed/SeedRunCreations.js';
-import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { madeKept } from '../src/modules/forge/sweepTies.js';
@@ -3434,10 +3434,13 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           })
       : undefined;
   let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+  const removalTarget = removalOrg(conn, 'sandforge-seed --remove');
+  // Read before the first delete: the items that name them go with the records.
+  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
   try {
     outcome = await removeSyncRun({
       run,
-      org: removalOrg(conn, 'sandforge-seed --remove'),
+      org: removalTarget,
       includeChanged: args.includeChanged,
       ...sweepPartsOptions(parts),
       ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
@@ -3480,10 +3483,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // Stopped before its first delete, for objects the user may not delete:
   // named above, and nothing was removed.
   if (outcome.stoppedForUndeletable) process.exit(1);
-  for (const note of outcome.notes) process.stderr.write(`${note}\n`);
+  // Stopped, it makes no call to the org it can do without.
+  const emptied = outcome.result.status === 'cancelled' ? {} : await duplicateSets.take();
+  for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
+    process.stderr.write(`${note}\n`);
+  }
   const sweep = parts?.result();
   const status = removalStatusWithSweep(outcome.result.status, sweep);
-  output(status, outcome.result.objects, outcome.planned, sweep, mutedAutomation);
+  output(
+    status,
+    emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,
+    outcome.planned,
+    sweep,
+    mutedAutomation,
+  );
   if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 

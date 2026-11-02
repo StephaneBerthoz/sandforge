@@ -554,6 +554,98 @@ describe('a sweep asked with the removal of a Seed run', () => {
       ]);
     });
 
+    describe('the duplicate record sets the org wrote as the seed went in', () => {
+      const THE_RUNS = id('0GK', 1);
+      const SHARED = id('0GK', 2);
+      const OTHER_CONTACT = id('003', 9);
+      /** A duplicate rule's report: the set, as the org keeps it, and an item per record. */
+      const reported = (recordId: string, item: number, set: string) => ({
+        ...rec(id('0GL', item), `Item ${item}`, USER, JUST_AFTER),
+        RecordId: recordId,
+        DuplicateRecordSetId: set,
+      });
+
+      beforeEach(() => {
+        // The item goes with its record, as the org cascades it, and the set stays.
+        tied.shape('Contact', {
+          references: { AccountId: ['Account'] },
+          children: [
+            { childSObject: 'Task', field: 'WhoId' },
+            { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+          ],
+        });
+        tied.shape('DuplicateRecordItem', {
+          references: { RecordId: ['Contact'], DuplicateRecordSetId: ['DuplicateRecordSet'] },
+        });
+        tied.add('DuplicateRecordSet', rec(THE_RUNS, 'The run’s set', USER, JUST_AFTER));
+        tied.add('DuplicateRecordSet', rec(SHARED, 'A shared set', USER, JUST_AFTER));
+        tied.add('Contact', rec(OTHER_CONTACT, 'Someone else', USER, LONG_AFTER));
+        tied.add('DuplicateRecordItem', reported(CONTACT, 1, THE_RUNS));
+        tied.add('DuplicateRecordItem', reported(CONTACT, 2, SHARED));
+        tied.add('DuplicateRecordItem', reported(OTHER_CONTACT, 3, SHARED));
+      });
+
+      it('takes the set the removal left empty, says it, and leaves one that still names a record', async () => {
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Contact')).toEqual([OTHER_CONTACT]);
+        expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect(answer()?.objects.at(-1)).toMatchObject({
+          objectApiName: 'DuplicateRecordSet',
+          planned: 1,
+          deleted: 1,
+          refused: 0,
+        });
+        expect(
+          new AuditTrailStore(store)
+            .list()
+            .entries.flatMap((entry) => entry.objects ?? [])
+            .find((object) => object.objectApiName === 'DuplicateRecordSet'),
+        ).toMatchObject({ deleted: 1 });
+      });
+
+      it('touches no set while a record the set names stays, kept as changed since the run', async () => {
+        const contact = tied.row('Contact', CONTACT);
+        if (contact) contact.LastModifiedDate = LONG_AFTER;
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(tied.ids('Contact')).toContain(CONTACT);
+        expect(tied.ids('DuplicateRecordSet')).toEqual([THE_RUNS, SHARED]);
+      });
+
+      it('says the set the org refused, the run’s own records gone, and stays a success', async () => {
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...tied.conn,
+          sobject: (object: string) =>
+            object === 'DuplicateRecordSet'
+              ? {
+                  destroy: async (ids: string[]) =>
+                    ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        { statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'No access.' },
+                      ],
+                    })),
+                }
+              : tied.conn.sobject(object),
+        } as never);
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect(answer()?.objects.at(-1)).toMatchObject({
+          objectApiName: 'DuplicateRecordSet',
+          refused: 1,
+          reasons: [expect.stringContaining('INSUFFICIENT_ACCESS_OR_READONLY')],
+        });
+        expect(tied.ids('DuplicateRecordSet')).toEqual([THE_RUNS, SHARED]);
+      });
+    });
+
     it('takes what is tied to nothing when asked', async () => {
       await handler.handle(
         buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepUntied: true }),

@@ -708,6 +708,40 @@ describe('FrozenLoadRemoval', () => {
     );
   });
 
+  it('says a refusal of its own in the panel’s language, what it asks of the host’s English gone', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      confirmRemoval();
+
+      answerRemoval('frozen:remove:error', {
+        message: 'Another load was recorded since this one was shown, and nothing was removed.',
+        code: 'LOAD_CHANGED',
+        retryable: false,
+      });
+
+      expect(screen.getByTestId('frozen-removal-error').textContent).toContain(
+        fr.frozen.refusal.loadChanged.explanation,
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('keeps what the org answered, which is not the panel’s to say', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+    confirmRemoval();
+
+    answerRemoval('frozen:remove:error', {
+      message: 'INVALID_SESSION_ID: Session expired or invalid',
+      code: 'REMOVE_ERROR',
+      retryable: true,
+    });
+
+    expect(screen.getByTestId('frozen-removal-error').textContent).toContain('INVALID_SESSION_ID');
+  });
+
   it('says a removal Production Guard refused in the panel’s language, with the guard’s reason, not the English sentence', async () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await act(async () => {
@@ -775,6 +809,91 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
       /^Records removed on 2026-09-24 \d\d:\d\d: 3 deleted$/,
     );
+  });
+
+  describe('a load whose records all went', () => {
+    const LOADED_AT = '2026-09-24T10:05:00.000Z';
+    const GONE: FrozenLoadRecordsInfo = {
+      ...LOADED,
+      created: [],
+      removed: {
+        removedAt: '2026-09-24T11:00:00.000Z',
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      },
+    };
+    /** What the sweep's list answers: what the automation made, by object. */
+    const listing = (objectApiName: string) => ({
+      loadedAt: LOADED_AT,
+      listing: {
+        looked: [objectApiName],
+        found: [
+          {
+            objectApiName,
+            count: 1,
+            names: ['Risk'],
+            classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+          },
+        ],
+        unread: [],
+        handWork: [],
+      },
+    });
+
+    it('offers the sweep alone, ticked by that gesture, and sends it once the org name is typed', () => {
+      render(<FrozenLoadRemoval records={GONE} onAnswered={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('frozen-removal-sweep-alone'));
+      expect(screen.queryByTestId('frozen-removal-sweep-toggle')).toBeNull();
+      expect(sent('frozen:remove:sweep')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED_AT,
+      });
+      answer('frozen:remove:sweep', 'frozen:remove:sweep:response', listing('Asset'));
+      expect(screen.getByTestId('danger-confirm-btn').textContent).toContain(
+        'Delete what the sweep takes',
+      );
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sent('frozen:remove')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED_AT,
+        sweep: true,
+      });
+    });
+
+    it('reads what fires on what the sweep’s list takes alone, never on the load, whose records went', () => {
+      render(<FrozenLoadRemoval records={GONE} onAnswered={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('frozen-removal-sweep-alone'));
+      expect(sent('frozen:remove:automation')).toBeUndefined();
+      answer('frozen:remove:sweep', 'frozen:remove:sweep:response', listing('Asset'));
+
+      expect(sent('frozen:remove:automation')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED_AT,
+        sweptObjects: ['Asset'],
+      });
+    });
+
+    it('offers no sweep of a load that created nothing, of an org gone, or while a load runs', () => {
+      const { rerender } = render(
+        <FrozenLoadRemoval records={{ ...LOADED, created: [] }} onAnswered={vi.fn()} />,
+      );
+      expect(screen.queryByTestId('frozen-removal-sweep-alone')).toBeNull();
+
+      rerender(<FrozenLoadRemoval records={GONE} onAnswered={vi.fn()} busy />);
+      expect((screen.getByTestId('frozen-removal-sweep-alone') as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+
+      useOrgStore.setState({ orgs: [] });
+      rerender(<FrozenLoadRemoval records={GONE} onAnswered={vi.fn()} />);
+      expect(screen.queryByTestId('frozen-removal-sweep-alone')).toBeNull();
+    });
   });
 
   describe('once a removal left records in the org', () => {
