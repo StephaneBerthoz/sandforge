@@ -5169,6 +5169,39 @@
       "rewind": "この実行の前まで巻き戻す…",
       "rewindLoad": "このロードの前まで巻き戻す…",
       "afterRemoval": "削除で残ったものは、このチェックポイントまで巻き戻すと取り消せます。"
+    },
+    "recordTypeGiven": {
+      "title": "ターゲット組織が付与したレコードタイプ",
+      "titlePredicted": "ターゲット組織が付与するレコードタイプ",
+      "hint": "レコードタイプなしで作成されたレコードには、SandForge が書き込むユーザーにターゲット組織が付与するレコードタイプが付きます。更新されたレコードは自身のレコードタイプを保持します。",
+      "toCreate_other": "レコードタイプなしで作成する {{object}} のレコード {{count}} 件（{{why}}）",
+      "created_other": "レコードタイプなしで作成された {{object}} のレコード {{count}} 件（{{why}}）",
+      "why": {
+        "masterInSource": "ソースで Master",
+        "notRead": "ソースからレコードタイプを読み取っていない",
+        "decidedDefault": "あなたの決定でデフォルトに任せた",
+        "dropped": "ターゲット組織にないか、SandForge が書き込むユーザーに許可されていないため、ソースのレコードタイプを外した"
+      },
+      "whyCounted": {
+        "masterInSource_other": "ソースで Master のもの {{count}} 件",
+        "notRead_other": "ソースからレコードタイプを読み取っていないもの {{count}} 件",
+        "decidedDefault_other": "あなたの決定でデフォルトに任せたもの {{count}} 件",
+        "dropped_other": "ターゲット組織にないか、SandForge が書き込むユーザーに許可されていないため、ソースのレコードタイプを外したもの {{count}} 件"
+      },
+      "given": {
+        "userDefault": "SandForge が書き込むユーザーのデフォルトのレコードタイプである {{type}}",
+        "onlyOneOpen": "SandForge が書き込むユーザーが使える唯一の他の {{object}} レコードタイプである {{type}}（describe ではそのユーザーのデフォルトは Master ですが、タイプなしで書き込んだレコードにはこちらが付きます）",
+        "master": "Master（SandForge が書き込むユーザーのデフォルトで、そのユーザーが使える他の {{object}} レコードタイプはないか、複数あります）"
+      },
+      "wouldGive_other": "{{lead}}: ターゲット組織は {{given}} を付与します。",
+      "gave_other": "{{lead}}: {{given}} が付与される予測です。読み戻しはしていません。",
+      "unread_other": "{{lead}}: {{given}} が付与される予測です。付いているレコードタイプを読み戻せませんでした: {{reason}}",
+      "readBack_other": "{{lead}}: {{type}} として書き込まれました（{{read}} 件を読み戻し）。",
+      "readOf": "{{rows}} 件中 {{read}}",
+      "held": "{{type}} が {{rows}} 件",
+      "differs_other": "{{lead}}: {{read}} 件を読み戻すと {{held}} で、予測は {{said}} でした。ターゲット組織の自動化がレコードタイプを設定しています。",
+      "differsNamed_other": "{{lead}}: {{read}} 件を読み戻すと {{held}} で、予測は {{said}} でした。ターゲット組織の自動化がレコードタイプを設定しています。{{object}} でまだ実行されたもの: {{names}}。",
+      "noneFound_other": "{{lead}}: 読み戻しでは見つかりませんでした。"
     }
   },
   "grappe": {

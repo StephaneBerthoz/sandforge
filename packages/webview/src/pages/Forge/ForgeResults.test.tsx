@@ -2616,6 +2616,102 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-currencies')).toBeNull();
   });
 
+  it('says the record type the target would give the records a simulation would create without one, the one read back after a run, and nothing for a run whose records carried theirs', () => {
+    const opportunity = {
+      objectApiName: 'Opportunity',
+      rows: 3,
+      why: { masterInSource: 2, decidedDefault: 1 },
+      predicted: {
+        developerName: 'SFX_Retail',
+        label: 'SFX Retail',
+        basis: 'onlyOneOpen' as const,
+      },
+    };
+    mockResult = {
+      ...makeMockResult(),
+      dryRun: true,
+      recordTypesGiven: [opportunity],
+    } as typeof mockResult;
+    const { unmount } = render(<ForgeResults />);
+
+    const predicted = screen.getByTestId('forge-results-record-types');
+    expect(
+      within(predicted).getByRole('heading', { name: 'Record types the target org would give' }),
+    ).toBeDefined();
+    expect(screen.getByTestId('forge-results-record-types-Opportunity').textContent).toMatch(
+      /^3 Opportunity records to create without a record type, 2 on Master in the source and 1 given the default by your decision: the target org would give them SFX_Retail \(SFX Retail\), /,
+    );
+    unmount();
+
+    mockResult = Object.assign(makeMockResult(), {
+      recordTypesGiven: [
+        {
+          ...opportunity,
+          readBack: {
+            read: 3,
+            types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 3 }],
+          },
+        },
+      ],
+    });
+    const { unmount: unmountRun } = render(<ForgeResults />);
+    expect(screen.getByRole('heading', { name: 'Record types the target org gave' })).toBeDefined();
+    expect(screen.getByTestId('forge-results-record-types-Opportunity').textContent).toBe(
+      '3 Opportunity records created without a record type, 2 on Master in the source and 1 ' +
+        'given the default by your decision: they went in as SFX_Retail (SFX Retail), read back on 3.',
+    );
+    unmountRun();
+
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+    expect(screen.queryByTestId('forge-results-record-types')).toBeNull();
+  });
+
+  it('names what still ran of a muted run where the target set another record type than was predicted', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      mutedAutomation: {
+        state: 'muted' as const,
+        assigned: ['Bypass_Automation'],
+        held: [],
+        permissions: ['Bypass_Flows'],
+        silenced: [],
+        stillRan: [
+          {
+            objectApiName: 'Opportunity',
+            kind: 'flow' as const,
+            name: 'Set Opportunity Type',
+            why: 'managedPackage' as const,
+          },
+        ],
+        released: true,
+      },
+      recordTypesGiven: [
+        {
+          objectApiName: 'Opportunity',
+          rows: 2,
+          why: { masterInSource: 2 },
+          predicted: {
+            developerName: 'SFX_Retail',
+            label: 'SFX Retail',
+            basis: 'onlyOneOpen' as const,
+          },
+          readBack: {
+            read: 2,
+            types: [{ developerName: 'SFX_Other', label: 'SFX Other', rows: 2 }],
+          },
+        },
+      ],
+    });
+    render(<ForgeResults />);
+
+    const line = screen.getByTestId('forge-results-record-types-Opportunity');
+    expect(line.textContent).toContain(
+      "where SFX_Retail (SFX Retail) was predicted. The target org's automation sets the " +
+        'record type, among what still ran on Opportunity: Flow: Set Opportunity Type.',
+    );
+    expect(line.textContent).not.toContain('went in as SFX_Retail');
+  });
+
   it('lists the decisions the run applied, each with its rows, and none for a run that applied none', () => {
     mockResult = Object.assign(makeMockResult(), {
       decisionsApplied: [

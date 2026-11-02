@@ -131,6 +131,43 @@ describe('SyncSimulationResults', () => {
     expect(screen.queryByTestId('sync-simulation-encrypted-Account')).toBeNull();
   });
 
+  it('says beside an object the record type the target would give the records a run would create without one, and nothing of an object whose records carry theirs', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        simulation={{
+          ...base,
+          objects: [
+            base.objects[0]!,
+            {
+              ...base.objects[1]!,
+              objectApiName: 'Opportunity',
+              recordTypeGiven: {
+                objectApiName: 'Opportunity',
+                rows: 1,
+                why: { masterInSource: 1 },
+                predicted: {
+                  developerName: 'SFX_Retail',
+                  label: 'SFX Retail',
+                  basis: 'onlyOneOpen',
+                },
+              },
+            },
+          ],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-record-type-Opportunity').textContent).toBe(
+      '1 Opportunity record to create without a record type, on Master in the source: the ' +
+        'target org would give it SFX_Retail (SFX Retail), the only other Opportunity record ' +
+        "type open to the user SandForge writes as — its describe names Master that user's " +
+        'default, yet a record written without one gets this one.',
+    );
+    expect(screen.queryByTestId('sync-simulation-record-type-Account')).toBeNull();
+  });
+
   it("lists beside an object the target's validation rules, which a simulation cannot evaluate", () => {
     const base = simulation();
     render(

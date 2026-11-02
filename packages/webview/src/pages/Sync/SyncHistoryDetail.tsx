@@ -17,6 +17,7 @@ import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
+import { stillRanOf } from '../shared/RecordTypeGivenLine';
 import { heldRecordChoiceOf } from './heldRecordChoice';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
@@ -217,10 +218,17 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
                   <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />
                 </div>
               )}
-              {/* Linked rather than written, written without a lookup or a field: no refusal. */}
+              {/* Linked rather than written, written without a lookup or a
+                  field, given a record type by the target: no refusal. What
+                  still ran of a muted run is named where the target set
+                  another type than its describe said. */}
               {hasWrittenLines(obj) && (
                 <div className="mt-1">
-                  <SyncWrittenLines result={obj} testId={`history-written-${obj.objectApiName}`} />
+                  <SyncWrittenLines
+                    result={obj}
+                    stillRan={stillRanOf(result.mutedAutomation)}
+                    testId={`history-written-${obj.objectApiName}`}
+                  />
                 </div>
               )}
               {obj.errors.length > 0 && (

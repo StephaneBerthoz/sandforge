@@ -5500,6 +5500,52 @@
       "rewind": "Auf den Stand vor diesem Lauf zurücksetzen…",
       "rewindLoad": "Auf den Stand vor diesem Ladevorgang zurücksetzen…",
       "afterRemoval": "Was das Entfernen behalten hat, nimmt ein Zurücksetzen auf diesen Prüfpunkt zurück."
+    },
+    "recordTypeGiven": {
+      "title": "Datensatztypen, die die Ziel-Org vergeben hat",
+      "titlePredicted": "Datensatztypen, die die Ziel-Org vergeben würde",
+      "hint": "Ein ohne Datensatztyp erstellter Datensatz erhält den, den die Ziel-Org dem Benutzer gibt, mit dem SandForge schreibt; ein aktualisierter Datensatz behält seinen eigenen.",
+      "toCreate_one": "{{count}} {{object}}-Datensatz, ohne Datensatztyp zu erstellen, {{why}}",
+      "toCreate_other": "{{count}} {{object}}-Datensätze, ohne Datensatztyp zu erstellen, {{why}}",
+      "created_one": "{{count}} {{object}}-Datensatz, ohne Datensatztyp erstellt, {{why}}",
+      "created_other": "{{count}} {{object}}-Datensätze, ohne Datensatztyp erstellt, {{why}}",
+      "why": {
+        "masterInSource": "in der Quelle auf Master",
+        "notRead": "keiner aus der Quelle gelesen",
+        "decidedDefault": "durch Ihre Entscheidung dem Standard überlassen",
+        "dropped": "der Typ der Quelle entfernt, da die Ziel-Org ihn nicht hat oder dem Benutzer vorenthält, mit dem SandForge schreibt"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} in der Quelle auf Master",
+        "masterInSource_other": "{{count}} in der Quelle auf Master",
+        "notRead_one": "{{count}} ohne aus der Quelle gelesenen Typ",
+        "notRead_other": "{{count}} ohne aus der Quelle gelesenen Typ",
+        "decidedDefault_one": "{{count}} durch Ihre Entscheidung dem Standard überlassen",
+        "decidedDefault_other": "{{count}} durch Ihre Entscheidung dem Standard überlassen",
+        "dropped_one": "{{count}}, dessen Typ der Quelle entfernt wurde, da die Ziel-Org ihn nicht hat oder dem Benutzer vorenthält, mit dem SandForge schreibt",
+        "dropped_other": "{{count}}, deren Typ der Quelle entfernt wurde, da die Ziel-Org ihn nicht hat oder dem Benutzer vorenthält, mit dem SandForge schreibt"
+      },
+      "given": {
+        "userDefault": "{{type}}, den Standard-Datensatztyp des Benutzers, mit dem SandForge schreibt",
+        "onlyOneOpen": "{{type}}, den einzigen anderen {{object}}-Datensatztyp, der dem Benutzer offensteht, mit dem SandForge schreibt – sein Describe nennt Master als Standard dieses Benutzers, doch ein ohne Typ geschriebener Datensatz erhält diesen",
+        "master": "Master, den Standard des Benutzers, mit dem SandForge schreibt, der keinen anderen {{object}}-Datensatztyp verwenden kann oder mehrere"
+      },
+      "wouldGive_one": "{{lead}}: Die Ziel-Org würde ihm {{given}} geben.",
+      "wouldGive_other": "{{lead}}: Die Ziel-Org würde ihnen {{given}} geben.",
+      "gave_one": "{{lead}}: Er sollte {{given}} erhalten. Er wurde nicht zurückgelesen.",
+      "gave_other": "{{lead}}: Sie sollten {{given}} erhalten. Sie wurden nicht zurückgelesen.",
+      "unread_one": "{{lead}}: Er sollte {{given}} erhalten. Was er trägt, konnte nicht zurückgelesen werden: {{reason}}",
+      "unread_other": "{{lead}}: Sie sollten {{given}} erhalten. Was sie tragen, konnte nicht zurückgelesen werden: {{reason}}",
+      "readBack_one": "{{lead}}: Er ging als {{type}} hinein, wie zurückgelesen.",
+      "readBack_other": "{{lead}}: Sie gingen als {{type}} hinein, zurückgelesen bei {{read}}.",
+      "readOf": "{{read}} von {{rows}}",
+      "held": "{{rows}} mit {{type}}",
+      "differs_one": "{{lead}}: Zurückgelesen trägt er {{held}}, wo {{said}} vorhergesagt war. Eine Automatisierung der Ziel-Org setzt den Datensatztyp.",
+      "differs_other": "{{lead}}: Zurückgelesen bei {{read}}: {{held}}, wo {{said}} vorhergesagt war. Eine Automatisierung der Ziel-Org setzt den Datensatztyp.",
+      "differsNamed_one": "{{lead}}: Zurückgelesen trägt er {{held}}, wo {{said}} vorhergesagt war. Die Automatisierung der Ziel-Org setzt den Datensatztyp, unter dem, was auf {{object}} noch lief: {{names}}.",
+      "differsNamed_other": "{{lead}}: Zurückgelesen bei {{read}}: {{held}}, wo {{said}} vorhergesagt war. Die Automatisierung der Ziel-Org setzt den Datensatztyp, unter dem, was auf {{object}} noch lief: {{names}}.",
+      "noneFound_one": "{{lead}}: Er wurde beim Zurücklesen nicht gefunden.",
+      "noneFound_other": "{{lead}}: Keiner von ihnen wurde beim Zurücklesen gefunden."
     }
   },
   "grappe": {

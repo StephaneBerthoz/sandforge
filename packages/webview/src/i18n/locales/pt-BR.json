@@ -5500,6 +5500,52 @@
       "rewind": "Retroceder a antes desta execução…",
       "rewindLoad": "Retroceder a antes desta carga…",
       "afterRemoval": "O que a remoção manteve, retroceder a este ponto de verificação desfaz."
+    },
+    "recordTypeGiven": {
+      "title": "Tipos de registro que a org de destino deu",
+      "titlePredicted": "Tipos de registro que a org de destino daria",
+      "hint": "Um registro criado sem tipo de registro recebe o que a org de destino dá ao usuário com que o SandForge grava; um registro atualizado mantém o seu.",
+      "toCreate_one": "{{count}} registro de {{object}} a criar sem tipo de registro, {{why}}",
+      "toCreate_other": "{{count}} registros de {{object}} a criar sem tipo de registro, {{why}}",
+      "created_one": "{{count}} registro de {{object}} criado sem tipo de registro, {{why}}",
+      "created_other": "{{count}} registros de {{object}} criados sem tipo de registro, {{why}}",
+      "why": {
+        "masterInSource": "em Master na origem",
+        "notRead": "sem nenhum lido da origem",
+        "decidedDefault": "deixado ao padrão por sua decisão",
+        "dropped": "retirado o tipo da origem, porque a org de destino não o tem ou o nega ao usuário com que o SandForge grava"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} em Master na origem",
+        "masterInSource_other": "{{count}} em Master na origem",
+        "notRead_one": "{{count}} sem tipo lido da origem",
+        "notRead_other": "{{count}} sem tipo lido da origem",
+        "decidedDefault_one": "{{count}} deixado ao padrão por sua decisão",
+        "decidedDefault_other": "{{count}} deixados ao padrão por sua decisão",
+        "dropped_one": "{{count}} cujo tipo da origem foi retirado, porque a org de destino não o tem ou o nega ao usuário com que o SandForge grava",
+        "dropped_other": "{{count}} cujo tipo da origem foi retirado, porque a org de destino não o tem ou o nega ao usuário com que o SandForge grava"
+      },
+      "given": {
+        "userDefault": "{{type}}, o tipo de registro padrão do usuário com que o SandForge grava",
+        "onlyOneOpen": "{{type}}, o único outro tipo de registro de {{object}} aberto ao usuário com que o SandForge grava — o describe dela nomeia Master como padrão desse usuário, mas um registro gravado sem tipo recebe este",
+        "master": "Master, o padrão do usuário com que o SandForge grava, que não pode usar nenhum outro tipo de registro de {{object}}, ou vários"
+      },
+      "wouldGive_one": "{{lead}}: a org de destino daria a ele {{given}}.",
+      "wouldGive_other": "{{lead}}: a org de destino daria a eles {{given}}.",
+      "gave_one": "{{lead}}: deveria receber {{given}}. Não foi relido.",
+      "gave_other": "{{lead}}: deveriam receber {{given}}. Não foram relidos.",
+      "unread_one": "{{lead}}: deveria receber {{given}}. O que ele tem não pôde ser relido: {{reason}}",
+      "unread_other": "{{lead}}: deveriam receber {{given}}. O que eles têm não pôde ser relido: {{reason}}",
+      "readBack_one": "{{lead}}: entrou como {{type}}, conforme relido.",
+      "readBack_other": "{{lead}}: entraram como {{type}}, relidos em {{read}}.",
+      "readOf": "{{read}} de {{rows}}",
+      "held": "{{rows}} com {{type}}",
+      "differs_one": "{{lead}}: relido, ele tem {{held}}, onde se previa {{said}}. Uma automação da org de destino define o tipo de registro.",
+      "differs_other": "{{lead}}: relidos em {{read}}, {{held}}, onde se previa {{said}}. Uma automação da org de destino define o tipo de registro.",
+      "differsNamed_one": "{{lead}}: relido, ele tem {{held}}, onde se previa {{said}}. A automação da org de destino define o tipo de registro, entre o que ainda rodou em {{object}}: {{names}}.",
+      "differsNamed_other": "{{lead}}: relidos em {{read}}, {{held}}, onde se previa {{said}}. A automação da org de destino define o tipo de registro, entre o que ainda rodou em {{object}}: {{names}}.",
+      "noneFound_one": "{{lead}}: não foi encontrado ao ser relido.",
+      "noneFound_other": "{{lead}}: nenhum deles foi encontrado ao ser relido."
     }
   },
   "grappe": {

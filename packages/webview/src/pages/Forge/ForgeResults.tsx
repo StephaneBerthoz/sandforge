@@ -57,6 +57,7 @@ import { ForgeDecisionsResult } from './ForgeDecisionsResult';
 import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
 import { ForgeCurrenciesResult } from './ForgeCurrenciesResult';
+import { RecordTypesGivenSection, stillRanOf } from '../shared/RecordTypeGivenLine';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
@@ -1356,6 +1357,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {result?.currenciesReplaced && result.currenciesReplaced.length > 0 && (
         <ForgeCurrenciesResult entries={result.currenciesReplaced} />
       )}
+      {/* The record type the target gave the records the run created without
+          one — of a simulation, what the describe of the user it writes as
+          says it would —, the type read back from them once written, and
+          what still ran of a muted run named where it set another. */}
+      <RecordTypesGivenSection
+        entries={result?.recordTypesGiven}
+        stage={simulation ? 'predicted' : 'written'}
+        stillRan={stillRanOf(result?.mutedAutomation)}
+        testId="forge-results-record-types"
+      />
       {/* Refused by a validation rule of the target on the fields it named,
           by a restricted picklist on their value, or by the lookup filter of
           a lookup it lets be empty, these records went in once written again

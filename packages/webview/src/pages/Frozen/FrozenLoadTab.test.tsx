@@ -432,6 +432,75 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says the record type the target would give the records the load creates without one, and in the report the one read back', () => {
+      const given = {
+        objectApiName: 'Opportunity',
+        rows: 2,
+        why: { masterInSource: 1, dropped: 1 },
+        predicted: {
+          developerName: 'SFX_Retail',
+          label: 'SFX Retail',
+          basis: 'onlyOneOpen' as const,
+        },
+      };
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, recordTypesGiven: [given] } } };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+          recordTypesGiven: [
+            {
+              ...given,
+              readBack: {
+                read: 0,
+                types: [],
+                unread: 'INVALID_TYPE: sObject type RecordType is not supported.',
+              },
+            },
+          ],
+        },
+      });
+
+      render(tab());
+
+      const preview = screen.getByTestId('frozen-preview-record-types');
+      expect(within(preview).getByRole('heading').textContent).toBe(
+        'Record types the target org would give',
+      );
+      expect(screen.getByTestId('frozen-preview-record-types-Opportunity').textContent).toMatch(
+        new RegExp(
+          '^2 Opportunity records to create without a record type, 1 on Master in the source ' +
+            'and 1 whose source type was dropped, as the target org lacks it or keeps it from the ' +
+            'user SandForge writes as: the target org would give them SFX_Retail \\(SFX Retail\\), ',
+        ),
+      );
+      const report = screen.getByTestId('frozen-load-report-record-types-Opportunity');
+      expect(report.textContent).toMatch(
+        /What they hold could not be read back: INVALID_TYPE: sObject type RecordType is not supported\.$/,
+      );
+    });
+
+    it('says nothing of record types when every record the load creates carries its own', () => {
+      answers['frozen:load:preview'] = { data: { plan: PLAN } };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview')).toBeDefined();
+      expect(screen.queryByTestId('frozen-preview-record-types')).toBeNull();
+    });
+
     it('says which records the load would leave out for a parent excludedObjects leaves out', () => {
       answers['frozen:load:preview'] = {
         data: {

@@ -5500,6 +5500,52 @@
       "rewind": "Rewind to before this run…",
       "rewindLoad": "Rewind to before this load…",
       "afterRemoval": "What the removal kept, a rewind to this checkpoint takes back."
+    },
+    "recordTypeGiven": {
+      "title": "Record types the target org gave",
+      "titlePredicted": "Record types the target org would give",
+      "hint": "A record created without a record type gets the one the target org gives the user SandForge writes as; a record updated keeps its own.",
+      "toCreate_one": "{{count}} {{object}} record to create without a record type, {{why}}",
+      "toCreate_other": "{{count}} {{object}} records to create without a record type, {{why}}",
+      "created_one": "{{count}} {{object}} record created without a record type, {{why}}",
+      "created_other": "{{count}} {{object}} records created without a record type, {{why}}",
+      "why": {
+        "masterInSource": "on Master in the source",
+        "notRead": "none read from the source",
+        "decidedDefault": "given the default by your decision",
+        "dropped": "the source's type dropped, as the target org lacks it or keeps it from the user SandForge writes as"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} on Master in the source",
+        "masterInSource_other": "{{count}} on Master in the source",
+        "notRead_one": "{{count}} with none read from the source",
+        "notRead_other": "{{count}} with none read from the source",
+        "decidedDefault_one": "{{count}} given the default by your decision",
+        "decidedDefault_other": "{{count}} given the default by your decision",
+        "dropped_one": "{{count}} whose source type was dropped, as the target org lacks it or keeps it from the user SandForge writes as",
+        "dropped_other": "{{count}} whose source type was dropped, as the target org lacks it or keeps it from the user SandForge writes as"
+      },
+      "given": {
+        "userDefault": "{{type}}, the default record type of the user SandForge writes as",
+        "onlyOneOpen": "{{type}}, the only other {{object}} record type open to the user SandForge writes as — its describe names Master that user's default, yet a record written without one gets this one",
+        "master": "Master, the default of the user SandForge writes as, who can use no other {{object}} record type, or several"
+      },
+      "wouldGive_one": "{{lead}}: the target org would give it {{given}}.",
+      "wouldGive_other": "{{lead}}: the target org would give them {{given}}.",
+      "gave_one": "{{lead}}: predicted to get {{given}}. It was not read back.",
+      "gave_other": "{{lead}}: predicted to get {{given}}. They were not read back.",
+      "unread_one": "{{lead}}: predicted to get {{given}}. What it holds could not be read back: {{reason}}",
+      "unread_other": "{{lead}}: predicted to get {{given}}. What they hold could not be read back: {{reason}}",
+      "readBack_one": "{{lead}}: it went in as {{type}}, as read back.",
+      "readBack_other": "{{lead}}: they went in as {{type}}, read back on {{read}}.",
+      "readOf": "{{read}} of {{rows}}",
+      "held": "{{rows}} with {{type}}",
+      "differs_one": "{{lead}}: read back, it holds {{held}}, where {{said}} was predicted. An automation of the target org sets the record type.",
+      "differs_other": "{{lead}}: read back on {{read}}, {{held}}, where {{said}} was predicted. An automation of the target org sets the record type.",
+      "differsNamed_one": "{{lead}}: read back, it holds {{held}}, where {{said}} was predicted. The target org's automation sets the record type, among what still ran on {{object}}: {{names}}.",
+      "differsNamed_other": "{{lead}}: read back on {{read}}, {{held}}, where {{said}} was predicted. The target org's automation sets the record type, among what still ran on {{object}}: {{names}}.",
+      "noneFound_one": "{{lead}}: it was not found when read back.",
+      "noneFound_other": "{{lead}}: none of them was found when read back."
     }
   },
   "grappe": {

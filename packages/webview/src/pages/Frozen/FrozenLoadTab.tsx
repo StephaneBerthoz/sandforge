@@ -41,6 +41,7 @@ import {
 } from '../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { RecordTypesGivenSection, stillRanOf } from '../shared/RecordTypeGivenLine';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { runCheckpointOf } from '../../utils/runCheckpoint';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -910,6 +911,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.preview.recordTypeIssues', { count: plan.recordTypeIssues })}
                 </p>
               )}
+              {/* The type the target would give the records the load creates
+                  without one — on Master at the extraction, or theirs dropped
+                  —, as the describe of the user it writes as says. */}
+              <RecordTypesGivenSection
+                entries={plan.recordTypesGiven}
+                stage="predicted"
+                testId="frozen-preview-record-types"
+              />
               {Object.keys(plan.leftUnrecorded ?? {}).length > 0 && (
                 <p className="text-[11px] text-text-secondary">
                   {t('frozen.report.purge.leftUnrecorded', {
@@ -1140,6 +1149,16 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   }
                 />
               </div>
+
+              {/* The type the target gave the records the load created
+                  without one, read back from them, and what still ran of a
+                  muted load named where it set another. */}
+              <RecordTypesGivenSection
+                entries={loadReport.recordTypesGiven}
+                stage="written"
+                stillRan={stillRanOf(loadReport.mutedAutomation)}
+                testId="frozen-load-report-record-types"
+              />
 
               {failureRows.length > 0 && (
                 <div data-testid="frozen-report-failures">

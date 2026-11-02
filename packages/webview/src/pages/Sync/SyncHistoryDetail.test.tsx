@@ -481,6 +481,50 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('history-delta-Account')).toBeNull();
   });
 
+  it('keeps the record type the target gave a run’s records, and names what still ran of its mute where the target set another', () => {
+    const entry = makeMockEntry();
+    entry.result.mutedAutomation = {
+      state: 'muted',
+      assigned: ['Bypass_Automation'],
+      held: [],
+      permissions: ['Bypass_Flows'],
+      silenced: [],
+      stillRan: [
+        { objectApiName: 'Account', kind: 'trigger', name: 'AccountTypeTrigger', why: 'noBypass' },
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome', why: 'noBypass' },
+      ],
+      released: true,
+    };
+    entry.result.objectResults[0] = {
+      ...entry.result.objectResults[0]!,
+      recordTypeGiven: {
+        objectApiName: 'Account',
+        rows: 90,
+        why: { masterInSource: 90 },
+        predicted: {
+          developerName: 'Business_Account',
+          label: 'Business Account',
+          basis: 'userDefault',
+        },
+        readBack: {
+          read: 90,
+          types: [{ developerName: 'Partner', label: 'Partner', rows: 90 }],
+        },
+      },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const line = screen.getByTestId('history-written-Account-recordType');
+    expect(line.textContent).toBe(
+      '90 Account records created without a record type, on Master in the source: read back ' +
+        'on 90, 90 with Partner, where Business_Account (Business Account) was predicted. ' +
+        "The target org's automation sets the record type, among what still ran on Account: " +
+        'Apex trigger: AccountTypeTrigger.',
+    );
+    expect(screen.queryByTestId('history-written-Contact-recordType')).toBeNull();
+  });
+
   it("says a pipeline's run was started by a pipeline, not by a schedule", () => {
     useSyncHistoryStore.setState({
       selectedEntry: { ...makeMockEntry(), triggeredBy: 'pipeline' },

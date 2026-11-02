@@ -5500,6 +5500,52 @@
       "rewind": "Revenir à l'état d'avant cette exécution…",
       "rewindLoad": "Revenir à l'état d'avant ce chargement…",
       "afterRemoval": "Ce que la suppression a gardé, un retour arrière à ce point de contrôle le reprend."
+    },
+    "recordTypeGiven": {
+      "title": "Types d'enregistrement donnés par l'org cible",
+      "titlePredicted": "Types d'enregistrement que donnerait l'org cible",
+      "hint": "Un enregistrement créé sans type d'enregistrement reçoit celui que l'org cible donne à l'utilisateur avec lequel SandForge écrit ; un enregistrement mis à jour garde le sien.",
+      "toCreate_one": "{{count}} enregistrement {{object}} à créer sans type d'enregistrement, {{why}}",
+      "toCreate_other": "{{count}} enregistrements {{object}} à créer sans type d'enregistrement, {{why}}",
+      "created_one": "{{count}} enregistrement {{object}} créé sans type d'enregistrement, {{why}}",
+      "created_other": "{{count}} enregistrements {{object}} créés sans type d'enregistrement, {{why}}",
+      "why": {
+        "masterInSource": "sur Master dans la source",
+        "notRead": "aucun n'étant lu dans la source",
+        "decidedDefault": "laissé au type par défaut par votre décision",
+        "dropped": "le type de la source retiré, l'org cible ne l'ayant pas ou le refusant à l'utilisateur avec lequel SandForge écrit"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} sur Master dans la source",
+        "masterInSource_other": "{{count}} sur Master dans la source",
+        "notRead_one": "{{count}} sans type lu dans la source",
+        "notRead_other": "{{count}} sans type lu dans la source",
+        "decidedDefault_one": "{{count}} laissé au type par défaut par votre décision",
+        "decidedDefault_other": "{{count}} laissés au type par défaut par votre décision",
+        "dropped_one": "{{count}} dont le type de la source a été retiré, l'org cible ne l'ayant pas ou le refusant à l'utilisateur avec lequel SandForge écrit",
+        "dropped_other": "{{count}} dont le type de la source a été retiré, l'org cible ne l'ayant pas ou le refusant à l'utilisateur avec lequel SandForge écrit"
+      },
+      "given": {
+        "userDefault": "{{type}}, le type d'enregistrement par défaut de l'utilisateur avec lequel SandForge écrit",
+        "onlyOneOpen": "{{type}}, le seul autre type d'enregistrement {{object}} ouvert à l'utilisateur avec lequel SandForge écrit — son describe nomme Master comme défaut de cet utilisateur, mais un enregistrement écrit sans type reçoit celui-ci",
+        "master": "Master, le défaut de l'utilisateur avec lequel SandForge écrit, qui ne peut utiliser aucun autre type d'enregistrement {{object}}, ou plusieurs"
+      },
+      "wouldGive_one": "{{lead}} : l'org cible lui donnerait {{given}}.",
+      "wouldGive_other": "{{lead}} : l'org cible leur donnerait {{given}}.",
+      "gave_one": "{{lead}} : il devait recevoir {{given}}. Il n'a pas été relu.",
+      "gave_other": "{{lead}} : ils devaient recevoir {{given}}. Ils n'ont pas été relus.",
+      "unread_one": "{{lead}} : il devait recevoir {{given}}. Ce qu'il porte n'a pas pu être relu : {{reason}}",
+      "unread_other": "{{lead}} : ils devaient recevoir {{given}}. Ce qu'ils portent n'a pas pu être relu : {{reason}}",
+      "readBack_one": "{{lead}} : il est entré en {{type}}, d'après sa relecture.",
+      "readBack_other": "{{lead}} : ils sont entrés en {{type}}, relus sur {{read}}.",
+      "readOf": "{{read}} sur {{rows}}",
+      "held": "{{rows}} avec {{type}}",
+      "differs_one": "{{lead}} : relu, il porte {{held}}, là où {{said}} était prévu. Une automatisation de l'org cible pose le type d'enregistrement.",
+      "differs_other": "{{lead}} : relus sur {{read}}, {{held}}, là où {{said}} était prévu. Une automatisation de l'org cible pose le type d'enregistrement.",
+      "differsNamed_one": "{{lead}} : relu, il porte {{held}}, là où {{said}} était prévu. L'automatisation de l'org cible pose le type d'enregistrement, parmi ce qui s'est encore exécuté sur {{object}} : {{names}}.",
+      "differsNamed_other": "{{lead}} : relus sur {{read}}, {{held}}, là où {{said}} était prévu. L'automatisation de l'org cible pose le type d'enregistrement, parmi ce qui s'est encore exécuté sur {{object}} : {{names}}.",
+      "noneFound_one": "{{lead}} : il est introuvable à la relecture.",
+      "noneFound_other": "{{lead}} : aucun d'eux n'a été trouvé à la relecture."
     }
   },
   "grappe": {

@@ -5500,6 +5500,52 @@
       "rewind": "Retroceder a antes de esta ejecución…",
       "rewindLoad": "Retroceder a antes de esta carga…",
       "afterRemoval": "Lo que la eliminación conservó, retroceder a este punto de control lo deshace."
+    },
+    "recordTypeGiven": {
+      "title": "Tipos de registro que dio la org de destino",
+      "titlePredicted": "Tipos de registro que daría la org de destino",
+      "hint": "Un registro creado sin tipo de registro recibe el que la org de destino da al usuario con el que SandForge escribe; un registro actualizado conserva el suyo.",
+      "toCreate_one": "{{count}} registro de {{object}} por crear sin tipo de registro, {{why}}",
+      "toCreate_other": "{{count}} registros de {{object}} por crear sin tipo de registro, {{why}}",
+      "created_one": "{{count}} registro de {{object}} creado sin tipo de registro, {{why}}",
+      "created_other": "{{count}} registros de {{object}} creados sin tipo de registro, {{why}}",
+      "why": {
+        "masterInSource": "en Master en el origen",
+        "notRead": "sin ninguno leído del origen",
+        "decidedDefault": "dejado al predeterminado por su decisión",
+        "dropped": "quitado el tipo del origen, porque la org de destino no lo tiene o se lo niega al usuario con el que SandForge escribe"
+      },
+      "whyCounted": {
+        "masterInSource_one": "{{count}} en Master en el origen",
+        "masterInSource_other": "{{count}} en Master en el origen",
+        "notRead_one": "{{count}} sin tipo leído del origen",
+        "notRead_other": "{{count}} sin tipo leído del origen",
+        "decidedDefault_one": "{{count}} dejado al predeterminado por su decisión",
+        "decidedDefault_other": "{{count}} dejados al predeterminado por su decisión",
+        "dropped_one": "{{count}} cuyo tipo del origen se quitó, porque la org de destino no lo tiene o se lo niega al usuario con el que SandForge escribe",
+        "dropped_other": "{{count}} cuyo tipo del origen se quitó, porque la org de destino no lo tiene o se lo niega al usuario con el que SandForge escribe"
+      },
+      "given": {
+        "userDefault": "{{type}}, el tipo de registro predeterminado del usuario con el que SandForge escribe",
+        "onlyOneOpen": "{{type}}, el único otro tipo de registro de {{object}} abierto al usuario con el que SandForge escribe — su describe nombra Master como predeterminado de ese usuario, pero un registro escrito sin tipo recibe este",
+        "master": "Master, el predeterminado del usuario con el que SandForge escribe, que no puede usar ningún otro tipo de registro de {{object}}, o varios"
+      },
+      "wouldGive_one": "{{lead}}: la org de destino le daría {{given}}.",
+      "wouldGive_other": "{{lead}}: la org de destino les daría {{given}}.",
+      "gave_one": "{{lead}}: debía recibir {{given}}. No se volvió a leer.",
+      "gave_other": "{{lead}}: debían recibir {{given}}. No se volvieron a leer.",
+      "unread_one": "{{lead}}: debía recibir {{given}}. No se pudo volver a leer lo que tiene: {{reason}}",
+      "unread_other": "{{lead}}: debían recibir {{given}}. No se pudo volver a leer lo que tienen: {{reason}}",
+      "readBack_one": "{{lead}}: entró como {{type}}, según su relectura.",
+      "readBack_other": "{{lead}}: entraron como {{type}}, releídos en {{read}}.",
+      "readOf": "{{read}} de {{rows}}",
+      "held": "{{rows}} con {{type}}",
+      "differs_one": "{{lead}}: releído, tiene {{held}}, donde se predijo {{said}}. Una automatización de la org de destino pone el tipo de registro.",
+      "differs_other": "{{lead}}: releídos en {{read}}, {{held}}, donde se predijo {{said}}. Una automatización de la org de destino pone el tipo de registro.",
+      "differsNamed_one": "{{lead}}: releído, tiene {{held}}, donde se predijo {{said}}. La automatización de la org de destino pone el tipo de registro, entre lo que aún se ejecutó en {{object}}: {{names}}.",
+      "differsNamed_other": "{{lead}}: releídos en {{read}}, {{held}}, donde se predijo {{said}}. La automatización de la org de destino pone el tipo de registro, entre lo que aún se ejecutó en {{object}}: {{names}}.",
+      "noneFound_one": "{{lead}}: no se encontró al volver a leerlo.",
+      "noneFound_other": "{{lead}}: ninguno se encontró al volver a leerlos."
     }
   },
   "grappe": {

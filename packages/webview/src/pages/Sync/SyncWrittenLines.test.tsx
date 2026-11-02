@@ -137,6 +137,66 @@ describe('SyncWrittenLines', () => {
     expect(screen.getByTestId('lines').className).not.toContain('status-error');
   });
 
+  it('says the record type the target gave the records created without one, as read back, and names what still ran where it set another', () => {
+    const result = {
+      recordTypeGiven: {
+        objectApiName: 'Opportunity',
+        rows: 1,
+        why: { masterInSource: 1 },
+        predicted: {
+          developerName: 'SFX_Retail',
+          label: 'SFX Retail',
+          basis: 'onlyOneOpen' as const,
+        },
+        readBack: {
+          read: 1,
+          types: [{ developerName: 'SFX_Retail', label: 'SFX Retail', rows: 1 }],
+        },
+      },
+    };
+    const { unmount } = render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-recordType').textContent).toBe(
+      '1 Opportunity record created without a record type, on Master in the source: it went ' +
+        'in as SFX_Retail (SFX Retail), as read back.',
+    );
+    unmount();
+
+    render(
+      <SyncWrittenLines
+        result={{
+          recordTypeGiven: {
+            ...result.recordTypeGiven,
+            readBack: {
+              read: 1,
+              types: [{ developerName: 'SFX_Other', label: 'SFX Other', rows: 1 }],
+            },
+          },
+        }}
+        stillRan={[
+          { objectApiName: 'Opportunity', kind: 'flow', name: 'Set Type', why: 'noBypass' },
+        ]}
+        testId="lines"
+      />,
+    );
+    const differs = screen.getByTestId('lines-recordType');
+    expect(differs.textContent).toContain(
+      'read back, it holds SFX_Other (SFX Other), where SFX_Retail (SFX Retail) was predicted. ' +
+        "The target org's automation sets the record type, among what still ran " +
+        'on Opportunity: Flow: Set Type.',
+    );
+    expect(differs.className).toContain('text-status-warning');
+  });
+
+  it('says nothing of the record type when every record created carried its own', () => {
+    const result = { recordTypeGiven: undefined };
+
+    expect(hasWrittenLines(result)).toBe(false);
+    render(<SyncWrittenLines result={result} testId="lines" />);
+    expect(screen.queryByTestId('lines-recordType')).toBeNull();
+  });
+
   it('says it in the language of the panel', async () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await act(async () => {

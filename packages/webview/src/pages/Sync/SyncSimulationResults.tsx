@@ -8,6 +8,7 @@ import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOpti
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
 import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
+import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
@@ -178,6 +179,16 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 })}
               </p>
             )}
+            {/* The type the target gives the records the run would create
+                without one, as the describe of the user it writes as says:
+                on a scratch org's Opportunity it named Master, and the
+                platform gave the one other type open to that user. */}
+            <RecordTypeGivenLine
+              entry={o.recordTypeGiven}
+              stage="predicted"
+              testId={`sync-simulation-record-type-${o.objectApiName}`}
+              className="mt-2 text-xs text-text-secondary"
+            />
             {o.alreadyCopied !== undefined && o.alreadyCopied > 0 && (
               <div className="mt-2">
                 <SyncAlreadyCopiedLine
