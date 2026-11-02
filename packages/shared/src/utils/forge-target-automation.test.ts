@@ -839,7 +839,7 @@ describe('sweepTakenObjects', () => {
         names: [],
         classes: { made: 0, madeOver: 0, late: 0, untied: 1 },
       },
-      { objectApiName: 'FeedItem', count: 10_000, names: [], overBound: true },
+      { objectApiName: 'FeedItem', count: 10_000, names: [], overBound: true as const },
     ],
     untied: { objects: [{ objectApiName: 'Note', count: 1 }] },
   };
