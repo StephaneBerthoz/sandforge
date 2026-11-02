@@ -5,7 +5,7 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.72.0] - 2026-11-03
+## [1.72.0] - 2026-11-02
 
 A run can take a checkpoint of what it writes before its first write, and its results then open the rewind to it in one click. A removal takes back what the target's automation made for the run and keeps what it cannot tie to it. Before it writes, a run says whether the target would deliver its emails; Seed and Autopilot fit what is too big to the storage left; Sync, Forge, Autopilot and Frozen Dataset say which record type the target gave. Two changes reach your scripts: `--sweep` takes only what is tied to the run, and a run into an org on All email needs `--accept-emails`. Automation gets a pipeline's life cycle, and Reports, Grappe, Settings and the AI Assistant now work as the other pages do.
 
