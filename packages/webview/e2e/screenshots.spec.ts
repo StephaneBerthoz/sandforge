@@ -10,7 +10,9 @@ import { encodeGif, type GifFrame } from './helpers/gifEncoder';
 import { readPng } from './helpers/readPng';
 import { MOCK_ORGS } from './fixtures';
 import { diffObject, listEntry, readyCheckpoint, USERS } from './fixtures/checkpoints';
+import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
+import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
 
 /**
  * Marketplace screenshot generator.
@@ -137,6 +139,34 @@ function generatorFingerprint(): string {
   return createHash('sha256').update(source).digest('hex').slice(0, 16);
 }
 
+/**
+ * Paint the panel as VS Code paints it under Light 2026, the theme a new
+ * install opens on: the host's colours on `<html>`, and the stylesheet it
+ * prepends to every webview.
+ */
+async function paintLightHost(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript(
+    ({ colours, defaultStyles }: { colours: Record<string, string>; defaultStyles: string }) => {
+      const paint = (): void => {
+        for (const [name, value] of Object.entries(colours)) {
+          document.documentElement.style.setProperty(`--vscode-${name}`, value);
+        }
+      };
+      const prependDefaultStyles = (): void => {
+        const style = document.createElement('style');
+        style.id = '_defaultStyles';
+        style.textContent = defaultStyles;
+        document.head.prepend(style);
+      };
+      if (document.documentElement) paint();
+      else document.addEventListener('DOMContentLoaded', paint);
+      if (document.head) prependDefaultStyles();
+      else document.addEventListener('DOMContentLoaded', prependDefaultStyles);
+    },
+    { colours: hostColours(vscodeTheme('Light 2026')), defaultStyles: VSCODE_DEFAULT_STYLES },
+  );
+}
+
 /** Boot the app straight into one module panel, orgs already connected. */
 async function openModule(
   page: import('@playwright/test').Page,
@@ -147,6 +177,7 @@ async function openModule(
   // Before goto: the clock has to be in place for the first render, not just
   // for the ticks after it.
   await freezeClock(page);
+  await paintLightHost(page);
   await page.addInitScript((id) => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
   }, moduleId);
@@ -1253,6 +1284,7 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = new MockBridge();
     await bridge.setup(page);
     await freezeClock(page);
+    await paintLightHost(page);
     await page.addInitScript(() => {
       (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'sidepanel';
     });
@@ -1347,7 +1379,7 @@ test.describe('Marketplace Screenshots', () => {
     // The tabs take a second row since Controls joined them, and the graph
     // search keeps lines for what it finds: at 1400 pixels Rehearse, Simulate
     // and Execute fell off the foot again.
-    await shoot(page, 'forge-review', { maxHeight: 1600 });
+    await shoot(page, 'forge-review', { maxHeight: 1700 });
   });
 
   test('forge-results', async ({ page }) => {
