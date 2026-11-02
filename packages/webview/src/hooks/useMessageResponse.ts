@@ -415,7 +415,7 @@ export function useMessageResponse<T>(
           setErrorCode(code);
           setError(
             (code === 'RUN_CANCELLED' && STOPPED_DURING_THE_TAKE.has(errorType)
-              ? i18n.t('autopilot.refusal.runCancelled')
+              ? i18n.t('errors.checkpointRefused.stopped')
               : guardRefusal(code, said, eventData.payload)) ??
               said ??
               requestError('bridge.failed', { request: requestType }),

@@ -5407,18 +5407,6 @@
         "wouldRefuse": "Une vraie exécution serait refusée pour son point de contrôle. {{reason}}"
       },
       "notHeldTitle": "Hors du point de contrôle, laissés tels quels par un retour arrière :",
-      "refusal": {
-        "disk": "Le disque de cette machine n'a pas assez de place pour lui.",
-        "runWriting": "Une autre exécution SandForge, une prise, un retour arrière ou une annulation écrit dans l'org : lancez celle-ci une fois qu'elle est finie.",
-        "nothingHeld": "Il ne tiendrait aucun des objets que l'exécution écrit : chacun est laissé de côté, ou d'un genre qu'aucun point de contrôle ne tient.",
-        "tooManyRecords": "Les objets qu'il tiendrait ont plus d'enregistrements qu'un point de contrôle n'en prend : lancez l'exécution sans lui, ou laissez des objets hors de l'exécution.",
-        "apiBudget": "Ses requêtes d'API dépassent ce qu'il reste aujourd'hui à l'org.",
-        "permissions": "Rien ne montre que l'utilisateur sous lequel SandForge se connecte lit en entier les objets qu'il tiendrait : il lui faut Afficher toutes les données et Modifier toutes les données, ou Afficher tout et Modifier tout sur chacun.",
-        "production": "SandForge ne prend aucun point de contrôle d'une org de production.",
-        "scratchExpired": "La scratch org a expiré.",
-        "other": "Ses gardes l'ont refusé : la sortie SandForge dit pourquoi.",
-        "unsaid": "Il a été refusé, ou n'a pas pu être pris : la sortie SandForge dit pourquoi."
-      },
       "taken_one": "Point de contrôle pris d'abord : « {{name}} », {{formatted}} enregistrement de {{objects}}.",
       "taken_other": "Point de contrôle pris d'abord : « {{name}} », {{formatted}} enregistrements de {{objects}}.",
       "keptUntil": "Gardé sur cette machine jusqu'au {{until}}.",
@@ -6050,7 +6038,20 @@
     },
     "checkpointRefused": {
       "explanation": "L'exécution a été refusée avant d'écrire quoi que ce soit : le point de contrôle qu'elle devait prendre d'abord des objets qu'elle écrit a été refusé.",
-      "action": "Rien n'a été écrit. Décochez Point de contrôle d'abord pour la lancer sans lui, ou corrigez ce qui le refuse."
+      "action": "Rien n'a été écrit. Décochez Point de contrôle d'abord pour la lancer sans lui, ou corrigez ce qui le refuse.",
+      "reason": {
+        "disk": "Le disque de cette machine n'a pas assez de place pour lui.",
+        "runWriting": "Une autre exécution SandForge, une prise, un retour arrière ou une annulation écrit dans l'org : lancez celle-ci une fois qu'elle est finie.",
+        "nothingHeld": "Il ne tiendrait aucun des objets que l'exécution écrit : chacun est laissé de côté, ou d'un genre qu'aucun point de contrôle ne tient.",
+        "tooManyRecords": "Les objets qu'il tiendrait ont plus d'enregistrements qu'un point de contrôle n'en prend : lancez l'exécution sans lui, ou laissez des objets hors de l'exécution.",
+        "apiBudget": "Ses requêtes d'API dépassent ce qu'il reste aujourd'hui à l'org.",
+        "permissions": "Rien ne montre que l'utilisateur sous lequel SandForge se connecte lit en entier les objets qu'il tiendrait : il lui faut Afficher toutes les données et Modifier toutes les données, ou Afficher tout et Modifier tout sur chacun.",
+        "production": "SandForge ne prend aucun point de contrôle d'une org de production.",
+        "scratchExpired": "La scratch org a expiré.",
+        "other": "Ses gardes l'ont refusé : la sortie SandForge dit pourquoi.",
+        "unsaid": "Il a été refusé, ou n'a pas pu être pris : la sortie SandForge dit pourquoi."
+      },
+      "stopped": "L'exécution a été arrêtée pendant qu'elle prenait le point de contrôle d'abord : rien n'en a été gardé, et rien n'a été écrit."
     },
     "seedConfirmationUnavailable": {
       "explanation": "L'exécution a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",

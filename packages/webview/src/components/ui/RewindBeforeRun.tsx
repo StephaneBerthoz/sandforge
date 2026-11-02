@@ -111,7 +111,7 @@ export const RewindBeforeRun: React.FC<RewindBeforeRunProps> = ({
     return (
       <p
         data-testid={`${testId}-deleted`}
-        className={cn('flex items-start gap-1 text-[11px] text-text-secondary', className)}
+        className={cn('flex items-start gap-1 text-[11px] text-text-primary', className)}
       >
         <History size={11} aria-hidden="true" className="mt-0.5 shrink-0" />
         <span>

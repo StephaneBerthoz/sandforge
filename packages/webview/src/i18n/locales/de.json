@@ -5407,18 +5407,6 @@
         "wouldRefuse": "Ein echter Lauf würde wegen seines Prüfpunkts abgelehnt. {{reason}}"
       },
       "notHeldTitle": "Nicht im Prüfpunkt, von einem Zurücksetzen gelassen, wie sie sind:",
-      "refusal": {
-        "disk": "Die Festplatte dieses Rechners hat nicht genug Platz dafür.",
-        "runWriting": "Ein anderer SandForge-Lauf, ein Prüfpunkt, ein Zurücksetzen oder ein Rückgängigmachen schreibt in die Org: Starten Sie diesen Lauf, sobald er beendet ist.",
-        "nothingHeld": "Er würde keines der Objekte halten, die der Lauf schreibt: Jedes ist ausgelassen oder von einer Art, die kein Prüfpunkt hält.",
-        "tooManyRecords": "Die Objekte, die er halten würde, haben mehr Datensätze, als ein Prüfpunkt aufnimmt: Starten Sie den Lauf ohne ihn, oder lassen Sie Objekte aus dem Lauf heraus.",
-        "apiBudget": "Seine API-Anfragen übersteigen, was die Org heute noch hat.",
-        "permissions": "Es ist nicht belegt, dass der Benutzer, als den SandForge sich verbindet, die Objekte, die er halten würde, ganz liest: Er braucht „Alle Daten anzeigen“ und „Alle Daten ändern“, oder „Alle anzeigen“ und „Alle ändern“ auf jedem.",
-        "production": "SandForge erstellt keinen Prüfpunkt einer Produktions-Org.",
-        "scratchExpired": "Die Scratch-Org ist abgelaufen.",
-        "other": "Seine Prüfungen haben ihn abgelehnt: Die SandForge-Ausgabe sagt, warum.",
-        "unsaid": "Er wurde abgelehnt oder konnte nicht erstellt werden: Die SandForge-Ausgabe sagt, warum."
-      },
       "taken_one": "Zuerst erstellter Prüfpunkt: „{{name}}“, {{formatted}} Datensatz von {{objects}}.",
       "taken_other": "Zuerst erstellter Prüfpunkt: „{{name}}“, {{formatted}} Datensätze von {{objects}}.",
       "keptUntil": "Auf diesem Rechner aufbewahrt bis {{until}}.",
@@ -6050,7 +6038,20 @@
     },
     "checkpointRefused": {
       "explanation": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt.",
-      "action": "Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt."
+      "action": "Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt.",
+      "reason": {
+        "disk": "Die Festplatte dieses Rechners hat nicht genug Platz dafür.",
+        "runWriting": "Ein anderer SandForge-Lauf, ein Prüfpunkt, ein Zurücksetzen oder ein Rückgängigmachen schreibt in die Org: Starten Sie diesen Lauf, sobald er beendet ist.",
+        "nothingHeld": "Er würde keines der Objekte halten, die der Lauf schreibt: Jedes ist ausgelassen oder von einer Art, die kein Prüfpunkt hält.",
+        "tooManyRecords": "Die Objekte, die er halten würde, haben mehr Datensätze, als ein Prüfpunkt aufnimmt: Starten Sie den Lauf ohne ihn, oder lassen Sie Objekte aus dem Lauf heraus.",
+        "apiBudget": "Seine API-Anfragen übersteigen, was die Org heute noch hat.",
+        "permissions": "Es ist nicht belegt, dass der Benutzer, als den SandForge sich verbindet, die Objekte, die er halten würde, ganz liest: Er braucht „Alle Daten anzeigen“ und „Alle Daten ändern“, oder „Alle anzeigen“ und „Alle ändern“ auf jedem.",
+        "production": "SandForge erstellt keinen Prüfpunkt einer Produktions-Org.",
+        "scratchExpired": "Die Scratch-Org ist abgelaufen.",
+        "other": "Seine Prüfungen haben ihn abgelehnt: Die SandForge-Ausgabe sagt, warum.",
+        "unsaid": "Er wurde abgelehnt oder konnte nicht erstellt werden: Die SandForge-Ausgabe sagt, warum."
+      },
+      "stopped": "Der Lauf wurde angehalten, während er zuerst den Prüfpunkt erstellte: Davon wurde nichts behalten, und es wurde nichts geschrieben."
     },
     "seedConfirmationUnavailable": {
       "explanation": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",

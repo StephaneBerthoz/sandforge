@@ -5407,18 +5407,6 @@
         "wouldRefuse": "Uma execução real seria recusada pelo seu ponto de verificação. {{reason}}"
       },
       "notHeldTitle": "Fora do ponto de verificação, que retroceder deixa como estão:",
-      "refusal": {
-        "disk": "O disco desta máquina não tem espaço suficiente para ele.",
-        "runWriting": "Outra execução do SandForge, uma criação, um retrocesso ou um desfazer está gravando na org: inicie esta execução quando ela terminar.",
-        "nothingHeld": "Ele não conteria nenhum dos objetos que a execução grava: cada um fica de fora, ou é de um tipo que nenhum ponto de verificação contém.",
-        "tooManyRecords": "Os objetos que ele conteria têm mais registros do que um ponto de verificação aceita: execute sem ele, ou deixe objetos fora da execução.",
-        "apiBudget": "Suas solicitações de API passam do que resta hoje à org.",
-        "permissions": "Nada mostra que o usuário com que o SandForge se conecta lê por inteiro os objetos que ele conteria: ele precisa de Exibir todos os dados e Modificar todos os dados, ou Exibir tudo e Modificar tudo em cada um.",
-        "production": "O SandForge não cria ponto de verificação de uma org de produção.",
-        "scratchExpired": "A scratch org expirou.",
-        "other": "Suas verificações o recusaram: a saída do SandForge diz por quê.",
-        "unsaid": "Ele foi recusado, ou não pôde ser criado: a saída do SandForge diz por quê."
-      },
       "taken_one": "Ponto de verificação criado primeiro: “{{name}}”, {{formatted}} registro de {{objects}}.",
       "taken_other": "Ponto de verificação criado primeiro: “{{name}}”, {{formatted}} registros de {{objects}}.",
       "keptUntil": "Mantido nesta máquina até {{until}}.",
@@ -6050,7 +6038,20 @@
     },
     "checkpointRefused": {
       "explanation": "A execução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado.",
-      "action": "Nada foi gravado. Desmarque Primeiro um ponto de verificação para executá-la sem ele, ou corrija o que o recusa."
+      "action": "Nada foi gravado. Desmarque Primeiro um ponto de verificação para executá-la sem ele, ou corrija o que o recusa.",
+      "reason": {
+        "disk": "O disco desta máquina não tem espaço suficiente para ele.",
+        "runWriting": "Outra execução do SandForge, uma criação, um retrocesso ou um desfazer está gravando na org: inicie esta execução quando ela terminar.",
+        "nothingHeld": "Ele não conteria nenhum dos objetos que a execução grava: cada um fica de fora, ou é de um tipo que nenhum ponto de verificação contém.",
+        "tooManyRecords": "Os objetos que ele conteria têm mais registros do que um ponto de verificação aceita: execute sem ele, ou deixe objetos fora da execução.",
+        "apiBudget": "Suas solicitações de API passam do que resta hoje à org.",
+        "permissions": "Nada mostra que o usuário com que o SandForge se conecta lê por inteiro os objetos que ele conteria: ele precisa de Exibir todos os dados e Modificar todos os dados, ou Exibir tudo e Modificar tudo em cada um.",
+        "production": "O SandForge não cria ponto de verificação de uma org de produção.",
+        "scratchExpired": "A scratch org expirou.",
+        "other": "Suas verificações o recusaram: a saída do SandForge diz por quê.",
+        "unsaid": "Ele foi recusado, ou não pôde ser criado: a saída do SandForge diz por quê."
+      },
+      "stopped": "A execução foi interrompida enquanto criava primeiro o ponto de verificação: nada dele foi mantido, e nada foi gravado."
     },
     "seedConfirmationUnavailable": {
       "explanation": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",

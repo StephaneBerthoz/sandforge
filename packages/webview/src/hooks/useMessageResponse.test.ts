@@ -779,7 +779,7 @@ describe('useMessageResponse', () => {
       };
 
       for (const errorType of ['sync:error', 'seed:error', 'seed:csv:error']) {
-        expect(stoppedOn(errorType), errorType).toBe(i18n.t('autopilot.refusal.runCancelled'));
+        expect(stoppedOn(errorType), errorType).toBe(i18n.t('errors.checkpointRefused.stopped'));
       }
       // A Forge run's error carries the code for any cancel.
       expect(stoppedOn('forge:execute:error')).toBe(said);

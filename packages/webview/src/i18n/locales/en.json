@@ -5407,18 +5407,6 @@
         "wouldRefuse": "A real run would be refused for its checkpoint. {{reason}}"
       },
       "notHeldTitle": "Not in the checkpoint, left as they are by a rewind:",
-      "refusal": {
-        "disk": "This machine's disk has too little room for it.",
-        "runWriting": "Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.",
-        "nothingHeld": "It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.",
-        "tooManyRecords": "The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.",
-        "apiBudget": "Its API requests are past what the org has left today.",
-        "permissions": "The user SandForge connects as is not shown to read whole the objects it would hold: it needs View All Data and Modify All Data, or View All and Modify All on each.",
-        "production": "SandForge takes no checkpoint of a production org.",
-        "scratchExpired": "The scratch org has expired.",
-        "other": "Its guards refused it: the SandForge output says why.",
-        "unsaid": "It was refused, or could not be taken: the SandForge output says why."
-      },
       "taken_one": "Checkpoint taken first: “{{name}}”, {{formatted}} record of {{objects}}.",
       "taken_other": "Checkpoint taken first: “{{name}}”, {{formatted}} records of {{objects}}.",
       "keptUntil": "Kept on this machine until {{until}}.",
@@ -6050,7 +6038,20 @@
     },
     "checkpointRefused": {
       "explanation": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused.",
-      "action": "Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it."
+      "action": "Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
+      "reason": {
+        "disk": "This machine's disk has too little room for it.",
+        "runWriting": "Another SandForge run, take, rewind or undo is writing to the org: start this run once it has ended.",
+        "nothingHeld": "It would hold none of the objects the run writes: each is left out, or of a kind no checkpoint holds.",
+        "tooManyRecords": "The objects it would hold have more records than a checkpoint takes: run without it, or leave objects out of the run.",
+        "apiBudget": "Its API requests are past what the org has left today.",
+        "permissions": "The user SandForge connects as is not shown to read whole the objects it would hold: it needs View All Data and Modify All Data, or View All and Modify All on each.",
+        "production": "SandForge takes no checkpoint of a production org.",
+        "scratchExpired": "The scratch org has expired.",
+        "other": "Its guards refused it: the SandForge output says why.",
+        "unsaid": "It was refused, or could not be taken: the SandForge output says why."
+      },
+      "stopped": "The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written."
     },
     "seedConfirmationUnavailable": {
       "explanation": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",

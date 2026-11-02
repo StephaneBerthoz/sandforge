@@ -5407,18 +5407,6 @@
         "wouldRefuse": "Una ejecución real se rechazaría por su punto de control. {{reason}}"
       },
       "notHeldTitle": "Fuera del punto de control, que retroceder deja como están:",
-      "refusal": {
-        "disk": "El disco de esta máquina no tiene espacio suficiente para él.",
-        "runWriting": "Otra ejecución de SandForge, una toma, un retroceso o una anulación está escribiendo en la org: inicie esta ejecución cuando haya terminado.",
-        "nothingHeld": "No contendría ninguno de los objetos que escribe la ejecución: cada uno queda fuera, o es de un tipo que ningún punto de control contiene.",
-        "tooManyRecords": "Los objetos que contendría tienen más registros de los que toma un punto de control: lance la ejecución sin él, o deje objetos fuera de la ejecución.",
-        "apiBudget": "Sus solicitudes de API superan lo que le queda hoy a la org.",
-        "permissions": "Nada muestra que el usuario con el que se conecta SandForge lea completos los objetos que contendría: necesita Ver todos los datos y Modificar todos los datos, o Ver todo y Modificar todo en cada uno.",
-        "production": "SandForge no toma ningún punto de control de una org de producción.",
-        "scratchExpired": "La scratch org ha caducado.",
-        "other": "Sus controles lo rechazaron: la salida de SandForge dice por qué.",
-        "unsaid": "Se rechazó, o no se pudo tomar: la salida de SandForge dice por qué."
-      },
       "taken_one": "Punto de control tomado primero: «{{name}}», {{formatted}} registro de {{objects}}.",
       "taken_other": "Punto de control tomado primero: «{{name}}», {{formatted}} registros de {{objects}}.",
       "keptUntil": "Conservado en esta máquina hasta el {{until}}.",
@@ -6050,7 +6038,20 @@
     },
     "checkpointRefused": {
       "explanation": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó.",
-      "action": "No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza."
+      "action": "No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza.",
+      "reason": {
+        "disk": "El disco de esta máquina no tiene espacio suficiente para él.",
+        "runWriting": "Otra ejecución de SandForge, una toma, un retroceso o una anulación está escribiendo en la org: inicie esta ejecución cuando haya terminado.",
+        "nothingHeld": "No contendría ninguno de los objetos que escribe la ejecución: cada uno queda fuera, o es de un tipo que ningún punto de control contiene.",
+        "tooManyRecords": "Los objetos que contendría tienen más registros de los que toma un punto de control: lance la ejecución sin él, o deje objetos fuera de la ejecución.",
+        "apiBudget": "Sus solicitudes de API superan lo que le queda hoy a la org.",
+        "permissions": "Nada muestra que el usuario con el que se conecta SandForge lea completos los objetos que contendría: necesita Ver todos los datos y Modificar todos los datos, o Ver todo y Modificar todo en cada uno.",
+        "production": "SandForge no toma ningún punto de control de una org de producción.",
+        "scratchExpired": "La scratch org ha caducado.",
+        "other": "Sus controles lo rechazaron: la salida de SandForge dice por qué.",
+        "unsaid": "Se rechazó, o no se pudo tomar: la salida de SandForge dice por qué."
+      },
+      "stopped": "La ejecución se detuvo mientras tomaba primero el punto de control: no se conservó nada de él, y no se escribió nada."
     },
     "seedConfirmationUnavailable": {
       "explanation": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",

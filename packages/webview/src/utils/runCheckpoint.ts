@@ -11,14 +11,14 @@ import {
  * take's guards refusing it.
  */
 const REFUSAL_KEYS: ReadonlyMap<string, string> = new Map([
-  ['DISK', 'runResults.checkpoint.refusal.disk'],
-  ['RUN_WRITING', 'runResults.checkpoint.refusal.runWriting'],
-  ['NOTHING_HELD', 'runResults.checkpoint.refusal.nothingHeld'],
-  ['TOO_MANY_RECORDS', 'runResults.checkpoint.refusal.tooManyRecords'],
-  ['API_BUDGET', 'runResults.checkpoint.refusal.apiBudget'],
-  ['PERMISSIONS', 'runResults.checkpoint.refusal.permissions'],
-  ['PRODUCTION', 'runResults.checkpoint.refusal.production'],
-  ['SCRATCH_EXPIRED', 'runResults.checkpoint.refusal.scratchExpired'],
+  ['DISK', 'errors.checkpointRefused.reason.disk'],
+  ['RUN_WRITING', 'errors.checkpointRefused.reason.runWriting'],
+  ['NOTHING_HELD', 'errors.checkpointRefused.reason.nothingHeld'],
+  ['TOO_MANY_RECORDS', 'errors.checkpointRefused.reason.tooManyRecords'],
+  ['API_BUDGET', 'errors.checkpointRefused.reason.apiBudget'],
+  ['PERMISSIONS', 'errors.checkpointRefused.reason.permissions'],
+  ['PRODUCTION', 'errors.checkpointRefused.reason.production'],
+  ['SCRATCH_EXPIRED', 'errors.checkpointRefused.reason.scratchExpired'],
 ]);
 
 /**
@@ -34,8 +34,8 @@ export function checkpointRefusalWords(
   reason: string | undefined,
   t: (key: string) => string,
 ): string {
-  if (reason === undefined) return t('runResults.checkpoint.refusal.unsaid');
-  return t(REFUSAL_KEYS.get(reason) ?? 'runResults.checkpoint.refusal.other');
+  if (reason === undefined) return t('errors.checkpointRefused.reason.unsaid');
+  return t(REFUSAL_KEYS.get(reason) ?? 'errors.checkpointRefused.reason.other');
 }
 
 /**
