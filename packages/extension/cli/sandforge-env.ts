@@ -258,7 +258,8 @@ apply:
 destroy:
   --include-changed          take also the records changed since apply, and what was created
                              under them since: on a shared sandbox, a colleague's work
-  --sweep                    take also what the org's automation created during each run
+  --sweep                    take also what the org's automation made for each run: what a
+                             removal can tie to the run's records
   --accept-automation        delete although the org runs automation as records go
   --accept-emails            with --rewind, rewind although the org delivers the emails what still
                              runs sends, or would not say whether it does
