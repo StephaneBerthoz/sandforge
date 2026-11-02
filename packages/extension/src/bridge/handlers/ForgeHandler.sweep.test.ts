@@ -730,6 +730,8 @@ describe('a sweep asked with a removal', () => {
       status: 'refused',
       refusal: expect.stringMatching(/^Operation blocked by Production Guard/),
     });
+    // Asked and refused: no success, though nothing of the run was left to take.
+    expect(answer()?.status).toBe('partial');
     expect(history()[0]).not.toHaveProperty('sweep');
     expect(trail()[0]).toMatchObject({
       action: 'cleanup_delete',

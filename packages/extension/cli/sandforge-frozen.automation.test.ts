@@ -1,0 +1,570 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Connection } from 'jsforce';
+import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
+
+vi.mock('../src/logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+vi.mock('./sfSession.js', async (original) => ({
+  ...(await original<typeof import('./sfSession.js')>()),
+  loadOrg: vi.fn(async (alias: string) => ({
+    alias,
+    username: 'someone@example.invalid',
+    instanceUrl: 'https://target.example.invalid',
+    accessToken: 'token',
+  })),
+  makeConn: vi.fn(),
+}));
+vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
+  ...(await original<typeof import('../src/core/connection/ConnectionHelper.js')>()),
+  getJsforceConnection: vi.fn(),
+}));
+vi.mock('./prompt.js', async (original) => {
+  const actual = await original<typeof import('./prompt.js')>();
+  return { ...actual, typed: vi.fn(actual.typed) };
+});
+
+import { makeConn } from './sfSession.js';
+import { typed } from './prompt.js';
+import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
+import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
+import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
+import { tiedTargetOrg, type TiedRow, type TiedTargetOrg } from '../src/test/tiedTargetOrg.js';
+import { main, removalAutomation, removalAsked, parseArgs } from './sandforge-frozen.js';
+
+/**
+ * What `sandforge-frozen remove` does of what the target runs as the records
+ * go, on a fake org that refuses what the real one refused: the handler, the
+ * sweep and the removal are the real ones, on an org where a Flow with a bypass
+ * refuses the delete of an asset the load never wrote, unless the user holds
+ * that bypass. A Frozen removal read nothing of the target's automation: it
+ * deleted with no question, and a sweep the org refused ended exit 0.
+ */
+
+/** Thrown in place of `process.exit`, with its code. */
+class ExitCalled extends Error {
+  constructor(readonly code: number | undefined) {
+    super(`process.exit(${String(code)})`);
+  }
+}
+
+/** A fake id: the object's prefix and a counter, the length of a real one. */
+const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+
+const ORG_ID = '00D000000000009AAA';
+const USER = fakeId('005', 1);
+const ACCOUNT = fakeId('001', 1);
+const CASE = fakeId('500', 1);
+const ASSET = fakeId('02i', 1);
+
+const WRITTEN = '2026-10-01T10:00:00.000Z';
+/** Two seconds into the load, as the org writes a date. */
+const SAVED = '2026-10-01T10:00:02.000+0000';
+const WRITTEN_OVER = '2026-10-01T10:00:05.000Z';
+
+/** What refuses the delete, keeps quiet for the holder of `Load_Data`. */
+const ASSET_FLOW = {
+  apiName: 'Asset_Guard',
+  label: 'Asset guard',
+  timing: 'beforeSave',
+  startsOn: 'delete',
+  condition: 'read',
+  permissions: [{ name: 'Load_Data', bypass: true }],
+} as unknown as ForgeTargetFlow;
+
+/** What runs on a record of the load, with no bypass. */
+const CASE_FLOW = {
+  apiName: 'Case_Audit',
+  label: 'Case audit',
+  timing: 'afterSave',
+  startsOn: 'delete',
+  condition: 'read',
+  permissions: [],
+} as unknown as ForgeTargetFlow;
+
+/**
+ * What the org runs, read on `objects` as the real reader reads: an object not
+ * asked for is not said.
+ */
+function automationOn(objects: readonly string[], onCase: boolean): ForgeTargetAutomation {
+  return {
+    objectsRead: [...objects],
+    objects: [
+      ...(objects.includes('Asset')
+        ? [{ objectApiName: 'Asset', flows: [ASSET_FLOW], triggers: [] }]
+        : []),
+      ...(onCase && objects.includes('Case')
+        ? [{ objectApiName: 'Case', flows: [CASE_FLOW], triggers: [] }]
+        : []),
+    ],
+    bypassGrants: [
+      {
+        permission: 'Load_Data',
+        permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+      },
+    ],
+    unread: [],
+  } as unknown as ForgeTargetAutomation;
+}
+
+/** The objects the permission org answers for: a mute's reads of the permission sets. */
+const PERMISSION_OBJECTS =
+  /\bFROM\s+(UserPermissionAccess|PermissionSetAssignment|SetupEntityAccess|ObjectPermissions|CustomPermission|PermissionSet)\b/i;
+
+const rec = (id: string, name: string, lookups: Record<string, string> = {}): TiedRow => ({
+  Id: id,
+  Name: name,
+  CreatedById: USER,
+  CreatedDate: SAVED,
+  LastModifiedDate: SAVED,
+  LastModifiedById: USER,
+  SystemModstamp: SAVED,
+  ...lookups,
+});
+
+/** The org after the load: its account and its case, and the asset a Flow made and named on the case. */
+function targetOrg(): TiedTargetOrg {
+  const org = tiedTargetOrg(USER);
+  org.shape('Account', {
+    children: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }],
+  });
+  org.shape('Case', { references: { AccountId: ['Account'], AssetId: ['Asset'] } });
+  org.shape('Asset', {
+    children: [{ childSObject: 'Case', field: 'AssetId', restrictedDelete: true }],
+  });
+  org.add('Account', rec(ACCOUNT, 'Loaded account'));
+  org.add('Case', rec(CASE, 'Loaded case', { AccountId: ACCOUNT, AssetId: ASSET }));
+  org.add('Asset', rec(ASSET, 'Insured risk'));
+  return org;
+}
+
+describe('sandforge-frozen remove, and what the target runs as the records go', () => {
+  let dir: string;
+  let configPath: string;
+  let org: TiedTargetOrg;
+  let permissions: ReturnType<typeof memoryPermissionOrg>;
+  /** What the org was told, in order: each read of what fires, each lease, each delete. */
+  let steps: string[];
+  let stdout: string;
+  let stderr: string;
+  /** Whether a Flow runs on the case, with no bypass. */
+  let onCase: boolean;
+
+  /** The command's step with `args`: how it ended. */
+  async function remove(...args: string[]): Promise<number> {
+    stdout = '';
+    stderr = '';
+    process.exitCode = undefined;
+    await main([
+      'node',
+      'sandforge-frozen.ts',
+      'remove',
+      '--config',
+      configPath,
+      '--target',
+      'TGT',
+      ...args,
+    ]);
+    return Number(process.exitCode ?? 0);
+  }
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sandforge-frozen-automation-'));
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', join(dir, 'journal'));
+    vi.stubEnv('SANDFORGE_MUTE_LEASES_DIR', join(dir, 'leases'));
+    configPath = join(dir, 'frozen.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({ rootObject: 'Account', axes: [], edgeCases: [], sasDir: dir }),
+    );
+    await new SasReferenceIdMappingStore(dir, {
+      orgId: ORG_ID,
+      organizationId: ORG_ID,
+      now: () => new Date(WRITTEN_OVER),
+    }).persist(
+      new Map([
+        ['Account-000001', ACCOUNT],
+        ['Case-000001', CASE],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Case', referenceIds: ['Case-000001'] },
+        ],
+        startedAt: new Date(WRITTEN),
+        writtenBetween: { first: WRITTEN, last: WRITTEN_OVER },
+        runUserId: USER,
+      },
+    );
+    org = targetOrg();
+    steps = [];
+    onCase = false;
+    permissions = memoryPermissionOrg({
+      userId: USER,
+      organizationId: ORG_ID,
+      sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+      beforeWrite: (write) => {
+        steps.push(write.kind === 'insert' ? 'lease' : 'release');
+      },
+    });
+    const conn = {
+      ...org.conn,
+      identity: permissions.connection.identity,
+      query: async (soql: string, options?: { scanAll?: boolean }) => {
+        if (soql.startsWith('SELECT Id, IsSandbox')) {
+          return { records: [{ Id: ORG_ID, IsSandbox: true }] };
+        }
+        if (/\bFROM\s+Organization\b/i.test(soql)) return permissions.connection.query(soql);
+        if (PERMISSION_OBJECTS.test(soql)) return permissions.connection.query(soql);
+        return org.conn.query(soql, options);
+      },
+      // The Flow on the asset refuses its delete, unless the user holds the bypass.
+      sobject: (object: string) => {
+        if (object === 'PermissionSetAssignment') return permissions.connection.sobject(object);
+        const records = org.conn.sobject(object);
+        const taken = {
+          ...records,
+          destroy: async (ids: string[]) => {
+            steps.push(`delete ${object}`);
+            return records.destroy(ids);
+          },
+        };
+        if (object !== 'Asset') return taken;
+        return {
+          ...taken,
+          destroy: async (ids: string[]) =>
+            permissions.assignments().length > 0
+              ? taken.destroy(ids)
+              : ids.map((id) => ({
+                  id,
+                  success: false,
+                  errors: [
+                    {
+                      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                      message: 'An asset cannot be deleted without the bypass.',
+                    },
+                  ],
+                })),
+        };
+      },
+    };
+    vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockImplementation(async (_org, objects) => {
+      steps.push(`read ${[...objects].sort().join(' ')}`);
+      return automationOn(objects, onCase);
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new ExitCalled(code);
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      stdout += chunk;
+      return true;
+    }) as never);
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+    vi.mocked(typed).mockReset();
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    process.exitCode = undefined;
+  });
+
+  it('names what fires on what the sweep deletes, and deletes nothing unaccepted', async () => {
+    expect(await remove('--sweep', '--yes')).toBe(1);
+
+    expect(stdout).toContain('Asset: flow "Asset guard"');
+    expect(stdout).toContain('--accept-automation');
+    expect(stdout).toContain('[AUTOMATION_NOT_ACCEPTED]');
+    expect(org.deletes).toEqual([]);
+    expect(org.ids('Asset')).toEqual([ASSET]);
+    expect(org.ids('Case')).toEqual([CASE]);
+    // Once, on what both delete: the sweep's own read of what the load's
+    // objects fire comes before it, and tells nothing of the asset.
+    expect(steps.at(-1)).toBe('read Account Asset Case');
+  });
+
+  it('names what fires on the load’s own records, with no sweep', async () => {
+    onCase = true;
+
+    expect(await remove('--yes')).toBe(1);
+
+    expect(stdout).toContain('Case: after delete: flow "Case audit"');
+    expect(org.deletes).toEqual([]);
+    expect(steps).toEqual(['read Account Case']);
+  });
+
+  it('goes unasked where nothing fires, and says so', async () => {
+    expect(await remove('--yes')).toBe(0);
+
+    expect(stdout).toContain('nothing fires on the 2 object(s) it writes records of');
+    expect(org.ids('Case')).toEqual([]);
+    expect(org.ids('Account')).toEqual([]);
+  });
+
+  it('says a sweep the org refused in its status and its exit code, where it ended 0 and a success', async () => {
+    expect(await remove('--sweep', '--accept-automation', '--yes', '--json')).toBe(3);
+
+    const answer = JSON.parse(stdout) as {
+      status: string;
+      posted: Array<{ type: string; payload: { result?: Record<string, unknown> } }>;
+    };
+    expect(answer.status).toBe('partial');
+    const result = answer.posted.find((m) => m.type === 'frozen:remove:response')?.payload.result;
+    expect(result).toMatchObject({
+      status: 'partial',
+      sweep: {
+        status: 'failure',
+        objects: [
+          {
+            objectApiName: 'Asset',
+            refused: 1,
+            reasons: [expect.stringContaining('FIELD_CUSTOM_VALIDATION_EXCEPTION')],
+          },
+        ],
+      },
+    });
+    expect(org.ids('Asset')).toEqual([ASSET]);
+    expect(org.ids('Case')).toEqual([]);
+  });
+
+  it('says so in words too', async () => {
+    expect(await remove('--sweep', '--accept-automation', '--yes')).toBe(3);
+
+    expect(stdout).toContain('sweep: FAILURE');
+    expect(stdout).toContain('removal: PARTIAL');
+  });
+
+  it('mutes what fires on what the sweep deletes, under a lease taken after the question, and says it under --json', async () => {
+    expect(await remove('--sweep', '--mute-automation', '--yes', '--json')).toBe(0);
+
+    expect(org.ids('Asset')).toEqual([]);
+    expect(org.ids('Case')).toEqual([]);
+    expect(permissions.assignments()).toEqual([]);
+    expect(steps.filter((step) => step === 'lease')).toHaveLength(1);
+    expect(steps.indexOf('read Account Asset Case')).toBeLessThan(steps.indexOf('lease'));
+    expect(steps.indexOf('lease')).toBeLessThan(steps.indexOf('delete Asset'));
+    expect(steps.indexOf('delete Asset')).toBeLessThan(steps.indexOf('release'));
+    expect(JSON.parse(stdout)).toMatchObject({
+      status: 'success',
+      mutedAutomation: { state: 'muted', assigned: ['Data_Load'], released: true },
+    });
+    expect(stderr).toContain('mute: assigned Data_Load');
+  });
+
+  it('still asks about what no bypass keeps quiet, and takes no lease for a removal that stops', async () => {
+    onCase = true;
+
+    expect(await remove('--sweep', '--mute-automation', '--yes')).toBe(1);
+
+    expect(stdout).toContain('silenced: Asset');
+    expect(stdout).toContain('Case: flow "Case audit" (after delete)');
+    expect(steps).not.toContain('lease');
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('stays a success when the sweep kept what is tied to nothing, and says what it left', async () => {
+    org.add('Task', rec(fakeId('00T', 1), 'Loose task'));
+
+    expect(await remove('--sweep', '--mute-automation', '--yes')).toBe(0);
+
+    expect(org.ids('Task')).toHaveLength(1);
+    expect(stdout).toContain('sweep: SUCCESS');
+    expect(stdout).toContain('removal: SUCCESS');
+    expect(stdout).toContain('left, tied to nothing of the run: Task: 1');
+  });
+
+  it('refuses a read that failed unaccepted, and goes on accepted', async () => {
+    vi.mocked(TargetAutomationReader.prototype.read).mockRejectedValue(new Error('REQUEST_LIMIT'));
+
+    expect(await remove('--yes')).toBe(1);
+    expect(stdout).toContain('could not be read: REQUEST_LIMIT');
+    expect(stdout).toContain('--accept-automation');
+    expect(org.deletes).toEqual([]);
+
+    expect(await remove('--accept-automation', '--yes')).toBe(0);
+    expect(org.ids('Case')).toEqual([]);
+  });
+
+  describe('at the question a removal asks without --yes', () => {
+    it('asks for the name of the org last, once what fires is said', async () => {
+      vi.mocked(typed).mockImplementation(async () => {
+        expect(stdout).toContain('nothing fires on the 2 object(s)');
+        expect(steps).toEqual(['read Account Case']);
+        return 'TGT';
+      });
+
+      expect(await remove()).toBe(0);
+
+      expect(typed).toHaveBeenCalledWith('Type TGT to delete them:');
+      expect(org.ids('Case')).toEqual([]);
+    });
+
+    it('never asks a removal it refuses', async () => {
+      onCase = true;
+
+      expect(await remove()).toBe(1);
+
+      expect(typed).not.toHaveBeenCalled();
+    });
+
+    it('deletes nothing for another word, and ends as done, nothing failed', async () => {
+      vi.mocked(typed).mockResolvedValue('no');
+
+      expect(await remove('--json')).toBe(0);
+
+      expect(stderr).toContain('Nothing deleted.');
+      expect(org.deletes).toEqual([]);
+      expect(JSON.parse(stdout)).toMatchObject({ ended: true });
+    });
+
+    it('stops at it with no terminal to answer, exit 2, what fires said and nothing deleted', async () => {
+      // A CI step: stdin is no terminal, and the question ends the command.
+      await remove();
+
+      expect(process.exit).toHaveBeenCalledWith(2);
+      expect(stderr).toContain('no terminal to answer: give --yes');
+      expect(stdout).toContain('nothing fires on the 2 object(s)');
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('takes no lease before it is answered', async () => {
+      vi.mocked(typed).mockImplementation(async () => {
+        expect(steps).not.toContain('lease');
+        return 'TGT';
+      });
+
+      expect(await remove('--sweep', '--mute-automation')).toBe(0);
+
+      expect(steps).toContain('lease');
+    });
+  });
+
+  describe('--preview', () => {
+    it('says what fires and what a removal would be refused for, deletes nothing, and ends as done', async () => {
+      onCase = true;
+
+      expect(await remove('--preview', '--json')).toBe(0);
+
+      expect(org.deletes).toEqual([]);
+      expect(stderr).toContain('Case: after delete: flow "Case audit"');
+      const answer = JSON.parse(stdout) as { refusals: string[] };
+      expect(answer.refusals).toHaveLength(1);
+      expect(answer.refusals[0]).toContain('--accept-automation');
+    });
+
+    it('refuses nothing accepted', async () => {
+      onCase = true;
+
+      expect(await remove('--preview', '--accept-automation', '--json')).toBe(0);
+
+      expect(stderr).toContain('Case: after delete: flow "Case audit"');
+      expect(JSON.parse(stdout)).not.toHaveProperty('refusals');
+    });
+
+    it('says what a mute would keep quiet, and assigns nothing', async () => {
+      expect(await remove('--preview', '--mute-automation', '--json')).toBe(0);
+
+      expect(steps).toEqual(['read Account Case']);
+      expect(permissions.assignments()).toEqual([]);
+      expect(JSON.parse(stdout)).toMatchObject({ mutedAutomation: { state: 'nothing' } });
+    });
+
+    it('says a read that failed among what a removal would be refused for, its preview standing', async () => {
+      vi.mocked(TargetAutomationReader.prototype.read).mockRejectedValue(
+        new Error('REQUEST_LIMIT'),
+      );
+
+      expect(await remove('--preview', '--json')).toBe(0);
+
+      const answer = JSON.parse(stdout) as { refusals: string[]; objects: unknown[] };
+      expect(answer.objects).toHaveLength(2);
+      expect(answer.refusals[0]).toContain('could not be read (REQUEST_LIMIT)');
+    });
+  });
+});
+
+describe('the words of what a removal runs into', () => {
+  it('says a read that failed whole, and refuses it', () => {
+    const { lines, refusal } = removalAutomation(
+      { read: { unread: 'timed out' }, steps: { delete: ['Case'] } },
+      'TGT',
+      undefined,
+    );
+
+    expect(lines).toEqual(['removal automation: what TGT runs could not be read: timed out']);
+    expect(refusal).toContain('--accept-automation');
+    expect(refusal).toContain('Nothing was written or deleted.');
+  });
+
+  it('refuses nothing when nothing fires and all of it was read', () => {
+    const { refusal } = removalAutomation(
+      { read: automationOn(['Account'], false), steps: { delete: ['Account'] } },
+      'TGT',
+      undefined,
+    );
+
+    expect(refusal).toBeUndefined();
+  });
+
+  it('gives the command that assigns the bypass of what fires', () => {
+    const { refusal } = removalAutomation(
+      { read: automationOn(['Asset'], false), steps: { delete: ['Asset'] } },
+      'TGT',
+      { alias: 'TGT', username: 'someone@example.invalid' },
+    );
+
+    expect(refusal).toContain('Data_Load');
+    expect(refusal).toContain('someone@example.invalid');
+  });
+});
+
+describe('the command line of a removal', () => {
+  const argv = (...args: string[]): string[] => [
+    'node',
+    'sandforge-frozen.ts',
+    ...args,
+    '--config',
+    'c.json',
+    '--target',
+    'TGT',
+  ];
+
+  it('asks the handler to mute, as the panel’s box does', () => {
+    expect(removalAsked(parseArgs(argv('remove', '--mute-automation')))).toEqual({
+      muteAutomation: true,
+    });
+  });
+
+  it('reads --accept-automation with remove, and only there', () => {
+    expect(parseArgs(argv('remove', '--accept-automation')).acceptAutomation).toBe(true);
+    expect(parseArgs(argv('remove')).acceptAutomation).toBe(false);
+
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new ExitCalled(code);
+    }) as never);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      expect(() => parseArgs(argv('load', '--accept-automation'))).toThrow('process.exit(2)');
+      expect(stderr).toHaveBeenCalledWith(
+        '--accept-automation goes with remove. Run with --help.\n',
+      );
+      expect(() => parseArgs(argv('verify', '--mute-automation'))).toThrow('process.exit(2)');
+      expect(stderr).toHaveBeenCalledWith(
+        '--mute-automation goes with load or remove. Run with --help.\n',
+      );
+    } finally {
+      exit.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+});

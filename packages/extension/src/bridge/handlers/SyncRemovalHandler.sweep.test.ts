@@ -742,6 +742,36 @@ describe('a sweep asked with the removal of a Sync run', () => {
       expect(tied.composites.length).toBeGreaterThan(0);
     });
 
+    it('ends partial when the org refused what the sweep was to take, the run’s records gone: no success on the page', async () => {
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...tied.conn,
+        sobject: (object: string) => {
+          const records = tied.conn.sobject(object);
+          if (object !== 'Asset') return records;
+          return {
+            ...records,
+            destroy: async (ids: string[]) =>
+              ids.map((recordId) => ({
+                id: recordId,
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                    message: 'An asset cannot be deleted without the bypass.',
+                  },
+                ],
+              })),
+          };
+        },
+      } as never);
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
+
+      expect(tied.ids('Case')).toEqual([]);
+      expect(tied.ids('Asset')).toEqual([ASSET]);
+      expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
+    });
+
     it('takes what is tied to nothing when asked, and not while another run of this machine wrote in the window', async () => {
       await handler.handle(
         buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),

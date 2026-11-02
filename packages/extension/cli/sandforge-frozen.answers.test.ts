@@ -571,6 +571,8 @@ function targetOrg(contactModified = '2026-10-20T10:02:00.000+0000') {
       );
     }),
     queryMore: vi.fn(),
+    // Nothing fires: a removal's preview reads the org's triggers and rules here.
+    tooling: { query: vi.fn(async () => page([])), queryMore: vi.fn() },
     describe: vi.fn(async (object: string) => ({
       name: object,
       deletable: true,

@@ -166,15 +166,6 @@ export function frozenRunOfResource(
       ),
     );
   }
-  if (resource.accept?.automation === true) {
-    warnings.push(
-      refusalAt(
-        ['resources', name, 'accept', 'automation'],
-        'a Frozen load and its removal take no acceptance of automation: what the org runs as ' +
-          'the records go in, they run unasked',
-      ),
-    );
-  }
   return {
     run: { configFile: resource.config, config, dataset: { ...resource.dataset } },
     warnings,
@@ -314,24 +305,32 @@ export function frozenVerifyLine(input: FrozenLine): string[] {
   return [...frozenSwitches('verify', input), '--json'];
 }
 
-/** The line of the removal of the next load a removal takes, the last first. */
+/**
+ * The line of the removal of the next load a removal takes, the last first: it
+ * deletes nothing while the target runs automation as the records go, unless
+ * accepted.
+ */
 export function frozenRemoveLine(
-  input: FrozenLine & { includeChanged?: boolean; sweep?: boolean },
+  input: FrozenLine & { includeChanged?: boolean; sweep?: boolean; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
     ...(input.sweep === true ? ['--sweep'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--yes',
     '--json',
   ];
 }
 
 /** The line of the preview of that removal: what it would do, nothing written. */
-export function frozenPreviewLine(input: FrozenLine & { includeChanged?: boolean }): string[] {
+export function frozenPreviewLine(
+  input: FrozenLine & { includeChanged?: boolean; acceptAutomation?: boolean },
+): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--preview',
     '--json',
   ];
@@ -448,18 +447,25 @@ function postedError(
  * What `sandforge-frozen remove --preview --json` prints, read as every
  * kind's preview is: per object what a removal would delete, keep and find
  * gone, and what it would be refused for. With no load recorded, or nothing
- * left to take, nothing is to delete.
+ * left to take, nothing is to delete. `removalAlone` holds what the script read
+ * beside the handler's preview: the target's automation, which stops a removal
+ * and no load, a replace of a frozen resource being a reload.
  */
 export const frozenPreviewAnswerSchema = z
   .object({ ...answerBase, step: z.literal('remove') })
   .transform((answer, ctx) => {
-    const error = postedError(answer.posted);
+    // Said among the refusals: the preview it comes after stands.
+    const error = postedError(
+      answer.posted.filter((message) => message.type !== 'frozen:remove:automation:error'),
+    );
     const empty: z.infer<typeof removalPreviewSchema> = { planned: 0, objects: [], userNames: {} };
     if (error !== undefined && !NOTHING_TO_REMOVE.has(error.code ?? '')) {
-      return { tool: answer.tool, preview: empty, refusals: [error.message] };
+      return { tool: answer.tool, preview: empty, refusals: [error.message], removalAlone: [] };
     }
     const raw = postedOf(answer.posted, 'frozen:remove:preview:response')?.['preview'];
-    if (raw === undefined) return { tool: answer.tool, preview: empty, refusals: [] };
+    if (raw === undefined) {
+      return { tool: answer.tool, preview: empty, refusals: [], removalAlone: [] };
+    }
     const read = removalPreviewSchema
       .extend({ refusals: z.array(z.string()) })
       .loose()
@@ -469,7 +475,8 @@ export const frozenPreviewAnswerSchema = z
       return z.NEVER;
     }
     const { refusals, ...preview } = read.data;
-    return { tool: answer.tool, preview, refusals };
+    const removalAlone = (answer.refusals ?? []).filter((refusal) => !refusals.includes(refusal));
+    return { tool: answer.tool, preview, refusals, removalAlone };
   });
 
 /**

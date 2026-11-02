@@ -239,6 +239,11 @@ interface Held {
   objects: Map<string, { present: number; gone: number; changed: number; unread: number }>;
   changedBy: Map<string, number>;
   refusals: string[];
+  /**
+   * What a removal would be refused for that a frozen resource's replace is
+   * not: a reload takes no acceptance of the automation a removal asks about.
+   */
+  removalAlone: string[];
   failed: string[];
   /** What its verification FAILED, each object named. */
   verified: string[];
@@ -249,6 +254,7 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     objects: new Map(),
     changedBy: new Map(),
     refusals: [],
+    removalAlone: [],
     failed: [],
     verified: [],
   };
@@ -285,8 +291,14 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     for (const refusal of run.preview.refusals) {
       if (!held.refusals.includes(refusal)) held.refusals.push(refusal);
     }
+    if ('removalAlone' in run.preview) held.removalAlone.push(...run.preview.removalAlone);
   }
   return held;
+}
+
+/** What a removal of a resource's runs would be refused for now, whatever else its replace is. */
+function removalRefusalsOf(held: Held): string[] {
+  return [...held.refusals, ...held.removalAlone];
 }
 
 function heldObjects(held: Held): EnvPlanObject[] {
@@ -516,9 +528,10 @@ export function classifyResources(
       };
     }
     const held = heldOf(previews?.[name] ?? []);
+    const refused = removalRefusalsOf(held);
     const refusal =
-      held.refusals.length > 0
-        ? `a removal of its runs would be refused now: ${held.refusals.join(' ')}`
+      refused.length > 0
+        ? `a removal of its runs would be refused now: ${refused.join(' ')}`
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): plan again`
           : undefined;
@@ -1022,9 +1035,10 @@ export function destructionPlan(
       };
     }
     const held = heldOf(input.previews?.[name] ?? []);
+    const refused = removalRefusalsOf(held);
     const refusal =
-      held.refusals.length > 0
-        ? `a removal of its runs would be refused now: ${held.refusals.join(' ')}`
+      refused.length > 0
+        ? `a removal of its runs would be refused now: ${refused.join(' ')}`
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): run destroy again`
           : undefined;

@@ -66,6 +66,24 @@ const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>>
   },
 };
 
+/**
+ * What that first line says of a removal partial by its sweep alone, where the
+ * title of a partial removal says that records of the run stay: none did, and
+ * what stays is the sweep's, listed under it.
+ */
+const SWEEP_LEFT_KEYS: Partial<Record<RemovalSubject, string>> = {
+  run: 'runRemoval.resultSweepLeft',
+  load: 'runRemoval.load.resultSweepLeft',
+};
+
+/** Whether a removal's own records all went: partial then, its sweep made it so. */
+function tookAllItsRecords(objects: readonly ForgeUndoObjectResult[]): boolean {
+  return objects.every(
+    (object) =>
+      object.keptChanged + object.keptDependents + object.refused + (object.notVisible ?? 0) === 0,
+  );
+}
+
 /** What a record kept for a change since is said to have changed since. */
 const CHANGED_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultChanged',
@@ -618,6 +636,10 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   if (result.sweep && result.objects.length === 0) {
     return <ForgeRunSweepResult result={result.sweep} org={org} />;
   }
+  const sweepLeft =
+    result.status === 'partial' && result.sweep !== undefined && tookAllItsRecords(result.objects);
+  const titleKey =
+    (sweepLeft ? SWEEP_LEFT_KEYS[subject] : undefined) ?? RESULT_TITLE_KEYS[subject][result.status];
   return (
     <section
       aria-labelledby={headingId}
@@ -628,7 +650,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         id={headingId}
         className={cn('text-[11px] font-semibold', RESULT_TITLE_CLASSES[result.status])}
       >
-        {t(RESULT_TITLE_KEYS[subject][result.status], { org })}
+        {t(titleKey, { org })}
       </h4>
       {result.leftBy !== undefined && (
         <p data-testid="forge-removal-result-left-by" className="text-text-secondary">

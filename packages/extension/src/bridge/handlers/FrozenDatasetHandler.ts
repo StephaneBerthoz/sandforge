@@ -6,6 +6,7 @@ import type {
   AuditOutcome,
   ForgeConfig,
   ForgeGraph,
+  ForgeRemovalSteps,
   FrozenControlReport,
   FrozenDiscoveryOrigin,
   FrozenGraphCoverage,
@@ -29,7 +30,13 @@ import type {
   RunCheckpointRequest,
   RunCheckpointTaken,
 } from '@sandforge/shared';
-import { auditMutedOf, guardTierOf, stillRunningOf } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  guardTierOf,
+  removalStepsWithSweep,
+  removalStepsWrites,
+  stillRunningOf,
+} from '@sandforge/shared';
 import { ProductionGuard, withGivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
@@ -40,6 +47,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
   removalOrg,
   removeRunRecords,
+  setBackToDraftOf,
   type RemovalOrg,
   type RunRemovalOptions,
 } from '../../modules/forge/ForgeRunRemoval.js';
@@ -87,6 +95,7 @@ import {
   removalAuditOutcome,
   removalMark,
   removalStatus,
+  removalStatusWithSweep,
 } from '../../modules/forge/removalOutcome.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type {
@@ -114,6 +123,7 @@ import {
   frozenSelectPayloadSchema,
   frozenExtractPayloadSchema,
   frozenLoadPayloadSchema,
+  frozenRemoveAutomationPayloadSchema,
   frozenRemovePayloadSchema,
   frozenRemovePreviewPayloadSchema,
   frozenRemoveSweepPayloadSchema,
@@ -247,6 +257,7 @@ const FROZEN_TYPES = new Set([
   'frozen:verify',
   'frozen:remove',
   'frozen:remove:sweep',
+  'frozen:remove:automation',
   'frozen:remove:preview',
   'frozen:status',
   'frozen:rules:clear',
@@ -258,6 +269,57 @@ const FROZEN_TYPES = new Set([
  * removal of the loads it replaces would leave records in the org.
  */
 const REPLACE_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
+
+/** What a removal has found once it knows what it deletes, nothing deleted yet. */
+export interface FrozenRemovalQuestion {
+  /** What the target runs on what the removal and its sweep delete, or why it could not be read. */
+  read: ForgeTargetAutomation | { unread: string };
+  /** What each step of the removal writes, what the sweep deletes among its deletes. */
+  steps: ForgeRemovalSteps;
+  /** The mute asked for, planned from that read, nothing assigned yet. */
+  mute: RunMute | undefined;
+}
+
+/** Why a removal goes no further, in the words and under the code its error carries. */
+export interface FrozenRemovalStop {
+  message: string;
+  code: string;
+}
+
+/**
+ * What the command line asks a removal, as the commands that take a run back
+ * ask it: once the sweep has read what it takes and Production Guard answered,
+ * before the lease, a person answering holding no permission set assigned, and
+ * before the first delete. The panel's confirmation lists all this before the
+ * org's name is typed; the sweep the command line sends does not read before
+ * the removal does, so the question waits for it, on what both delete.
+ */
+export type FrozenRemovalAsker = (
+  question: FrozenRemovalQuestion,
+) => Promise<FrozenRemovalStop | undefined>;
+
+/** A removal its asker stopped before its first delete. */
+class RemovalStopped extends Error {
+  constructor(readonly stop: FrozenRemovalStop) {
+    super(stop.message);
+    this.name = 'RemovalStopped';
+  }
+  get code(): string {
+    return this.stop.code;
+  }
+}
+
+/**
+ * What each step of a load's removal writes: what it deletes, what it sets
+ * back to Draft first, and what its sweep deletes beside them.
+ */
+function removalStepsOfLoad(
+  plan: readonly ForgeRunObjectRecords[],
+  swept: readonly string[],
+): ForgeRemovalSteps {
+  const removed = [...new Set(plan.map((object) => object.objectApiName))];
+  return removalStepsWithSweep({ setToDraft: setBackToDraftOf(removed), delete: removed }, swept);
+}
 
 /** ConfigStore category for all frozen-dataset data. */
 const FROZEN_CATEGORY = 'frozen';
@@ -1006,6 +1068,18 @@ export class FrozenDatasetHandler implements DomainHandler {
   /** Where and how the mute leases are kept, when not the home directory's. */
   private muteLeases: MuteLeaseOptions = {};
 
+  /**
+   * What a removal is asked before its first delete, in place of the panel's
+   * confirmation, which listed what it fires before the org's name was typed:
+   * see {@link FrozenRemovalAsker}. None in the panel.
+   */
+  setRemovalAsker(asker: FrozenRemovalAsker): void {
+    this.removalAsker = asker;
+  }
+
+  /** See {@link setRemovalAsker}. */
+  private removalAsker: FrozenRemovalAsker | undefined;
+
   /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
   private ownReader(): Promise<TargetAutomationReader> {
     this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
@@ -1103,6 +1177,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.writing.during(payloadText(msg, 'targetOrgId'), () =>
           this.handleRemoveSweep(msg),
         );
+        return true;
+      case 'frozen:remove:automation':
+        await this.handleRemoveAutomation(msg);
         return true;
       case 'frozen:remove:preview':
         await this.handleRemovePreview(msg);
@@ -3358,7 +3435,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    * delete — a production org is refused, a missing guard refuses too — the
    * target is asked whether it is still the org the load wrote to, and Forge's
    * removal runs: children before their parents, what records staying in the
-   * org depend on kept, what changed since the load kept unless included. It
+   * org depend on kept, what changed since the load kept unless included. What
+   * the target runs as they go is listed by the confirmation, from
+   * `frozen:remove:automation`; asked to mute it, the removal reads it again on
+   * what it and its sweep delete, and holds the lease from before its first
+   * delete to its end. It
    * runs on the registry and in Live Operations, under the id of the request,
    * where Cancel — Live Operations' or the removal card's — stops it before
    * its next call to the org. The audit trail records it whatever the outcome;
@@ -3421,11 +3502,84 @@ export class FrozenDatasetHandler implements DomainHandler {
         sweep: parsed.sweep === true,
         sweepLate: parsed.sweep === true && parsed.sweepLate === true,
         sweepUntied: parsed.sweep === true && parsed.sweepUntied === true,
+        muteAutomation: parsed.muteAutomation === true,
         pending,
       });
     } finally {
       this.removing.delete(claim);
       pending?.release();
+    }
+  }
+
+  // ── frozen:remove:automation ───────────────────────────────────────────
+
+  /**
+   * What the target runs as a removal of the load takes its records back, for
+   * the confirmation to list before the user types the org's name, and for the
+   * command line's `--preview`: on the objects each step of the removal writes,
+   * and those a sweep ticked with it deletes, which the page names as its list
+   * reads them. Refused, before the org is read, as the removal is. Read only.
+   *
+   * A removal deletes, and the target runs what fires on a delete: a Frozen
+   * removal read nothing of it, and its flows ran with no question and no way
+   * to keep them quiet, where Forge's, Sync's and Seed's list them and offer the
+   * box that mutes them.
+   */
+  private async handleRemoveAutomation(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenRemoveAutomationPayloadSchema,
+      msg,
+      'frozen:remove:automation:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:remove:automation:error');
+    if (!config) return;
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const load = loadToRemove(await store.recordedLoads());
+      const refused = removalRefusalOf(load, parsed);
+      if (refused || !load) {
+        if (refused) {
+          sendHandlerError(
+            this.deps,
+            'frozen:remove:automation',
+            'frozen:remove:automation:error',
+            msg,
+            new Error(refused.message),
+            { code: refused.code },
+          );
+        }
+        return;
+      }
+      const steps = removalStepsOfLoad(loadRecordsLeft(load), parsed.sweptObjects ?? []);
+      const reader = this.targetAutomation;
+      const automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
+        'frozen:remove:automation',
+        () => reader.read(load.orgId, steps.delete ?? []),
+      );
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:remove:automation:response', {
+          loadedAt: load.endedAt,
+          automation,
+          steps,
+        }),
+      );
+    } catch (err: unknown) {
+      sendHandlerError(
+        this.deps,
+        'frozen:remove:automation',
+        'frozen:remove:automation:error',
+        msg,
+        err,
+        {
+          code:
+            err instanceof TimeoutError ? 'TIMEOUT' : this.errorCodeFor(err, 'AUTOMATION_ERROR'),
+          retryable: true,
+        },
+      );
     }
   }
 
@@ -3667,6 +3821,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       /** With the sweep, take too what it lists as made late, or tied to nothing of the load. */
       sweepLate?: boolean;
       sweepUntied?: boolean;
+      /** Mute what it fires, what its sweep deletes included, through the target's own bypass. */
+      muteAutomation: boolean;
       /** The hold a cancel of the removal before it started reaches. */
       pending?: PendingStart;
     },
@@ -3840,6 +3996,39 @@ export class FrozenDatasetHandler implements DomainHandler {
           })
         : undefined;
       const sweepParts = sweeping;
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease: a person answering holds no permission set assigned. It
+      // deletes at its turn, once the removal has read the load's records.
+      await sweepParts?.ask();
+      // Asked to mute, or on the command line, the removal reads what its
+      // deletes fire, what the sweep deletes among them, plans the mute from
+      // it, and takes the lease before its first delete; it is given back as
+      // the removal ends, whatever it ended on. Refused, nothing goes. The
+      // panel's confirmation listed what fires before the org's name was typed:
+      // what a mute silences is read here, on what the sweep really takes. A
+      // stop while the sweep read asks nothing: the removal stops at its next call.
+      let removalMute: RunMute | undefined;
+      const asker = this.removalAsker;
+      if ((args.muteAutomation || asker) && !abortController.signal.aborted) {
+        const steps = removalStepsOfLoad(plan, sweepParts?.takes ?? []);
+        const reader = this.targetAutomation;
+        const read = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS)
+          .withTimeout('frozen:remove automation', () => reader.read(orgId, steps.delete ?? []))
+          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+        if (args.muteAutomation) {
+          removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+            ...this.muteLeases,
+            writes: removalStepsWrites(steps),
+          });
+        }
+        const stop = await asker?.({ read, steps, mute: removalMute });
+        if (stop) throw new RemovalStopped(stop);
+      }
+      const held =
+        removalMute?.prepared && !abortController.signal.aborted
+          ? await removalMute.prepared.acquire(operationId)
+          : undefined;
+      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
         ...removalSpanOf(load),
         ...(sweepParts
@@ -3860,6 +4049,8 @@ export class FrozenDatasetHandler implements DomainHandler {
           if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
+      }).finally(async () => {
+        if (held) mutedAutomation = await held.release();
       });
       // What the sweep did, in all its parts, recorded beside the removal.
       const sweepResult = await sweeping?.settle();
@@ -3870,14 +4061,18 @@ export class FrozenDatasetHandler implements DomainHandler {
       // sent: said as kept, never counted as refused. Sent, the business
       // hours of a load were refused, and the removal ended partial.
       const keptByThePlatform = loadRecordsKept(load);
+      // The sweep has its own entry in the audit trail: this one says what
+      // became of the load's records.
+      const ownStatus = removalStatus(outcome.objects, outcome.cancelled);
       const result: FrozenRemovalResult = {
-        status: removalStatus(outcome.objects, outcome.cancelled),
+        status: removalStatusWithSweep(ownStatus, sweepResult),
         includeChanged,
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
         ...(sweepResult ? { sweep: sweepResult } : {}),
         ...(keptByThePlatform.length > 0 ? { keptByThePlatform } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
       recordWriteRun(this.deps, {
@@ -3885,10 +4080,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         module: 'frozen',
         operationId,
         orgId,
-        outcome: removalAuditOutcome(result),
+        outcome: removalAuditOutcome({ status: ownStatus }),
         guard: decision,
         objects: removalAuditObjects(result.objects),
         ...(leftBy ? { leftBy } : {}),
+        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
       });
 
       // The mapping forgets what went, keeps what the removal left on the
@@ -3938,16 +4134,21 @@ export class FrozenDatasetHandler implements DomainHandler {
       runError = error;
       // What the sweep deleted before the removal threw is recorded all the same.
       await sweeping?.settle().catch(() => undefined);
+      // A mute refused, a lease that could not be taken, or what the command
+      // line's question stopped: before the first delete.
+      const stopped =
+        isMuteRefusedError(error) || error instanceof RemovalStopped ? error : undefined;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'frozen',
         operationId,
         orgId,
-        outcome: 'failure',
+        outcome: stopped ? 'stopped' : 'failure',
         guard: decision,
+        ...(stopped ? { code: stopped.code } : {}),
       });
       sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, error, {
-        code: 'REMOVE_ERROR',
+        code: stopped?.code ?? 'REMOVE_ERROR',
         retryable: true,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

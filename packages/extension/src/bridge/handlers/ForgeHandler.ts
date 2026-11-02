@@ -232,6 +232,7 @@ import {
   removalAuditOutcome,
   removalMark,
   removalStatus,
+  removalStatusWithSweep,
 } from '../../modules/forge/removalOutcome.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import {
@@ -5746,6 +5747,7 @@ export class ForgeHandler implements DomainHandler {
 
       const result: ForgeUndoResult = {
         ...removed,
+        status: removalStatusWithSweep(removed.status, sweepResult),
         ...(sweepResult ? { sweep: sweepResult } : {}),
       };
 

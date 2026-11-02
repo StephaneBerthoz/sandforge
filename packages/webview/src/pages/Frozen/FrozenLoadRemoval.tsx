@@ -1,11 +1,20 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
 import type {
+  ForgeRemovalSteps,
   ForgeSweepListing,
+  ForgeTargetAutomation,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
   FrozenRemovalResult,
+} from '@sandforge/shared';
+import {
+  firedOnRemovalStepsOf,
+  mutePlanOf,
+  removalStepsBypassesOf,
+  removalStepsWrites,
+  sweepTakenObjects,
 } from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -14,6 +23,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
 import { useRewoundMarks } from '../../hooks/useRewoundMarks';
@@ -29,6 +39,12 @@ import {
   useRemovalSweep,
   type SweepTicks,
 } from '../Forge/ForgeRemovalSweep';
+import {
+  DELETE_WHEN_KEYS,
+  RemovalAutomationView,
+  type RemovalAutomationShown,
+  type RemovalAutomationWords,
+} from '../Forge/ForgeRemovalAutomation';
 import { FrozenReloadRefused } from './FrozenReloadRefused';
 
 /**
@@ -39,6 +55,9 @@ const REMOVAL_TIMEOUT_MS = 1_800_000;
 
 /** How long the read of what a sweep would take may take: the target's automation, then one read per object. */
 const SWEEP_READ_TIMEOUT_MS = 150_000;
+
+/** How long the read of what the removal fires may take: the extension gives up after 60 seconds. */
+const AUTOMATION_READ_TIMEOUT_MS = 90_000;
 
 /** What `frozen:remove` answers. */
 interface RemoveAnswer {
@@ -52,6 +71,122 @@ interface SweepAnswer {
   listing: ForgeSweepListing;
 }
 
+/** What `frozen:remove:automation` answers. */
+interface AutomationAnswer {
+  loadedAt: string;
+  automation: ForgeTargetAutomation;
+  steps: ForgeRemovalSteps;
+}
+
+/** What the confirmation's automation section says, as a removal takes a load back. */
+const AUTOMATION_WORDS: RemovalAutomationWords = {
+  title: 'frozen.removal.automationTitle',
+  loading: 'frozen.removal.automationLoading',
+  intro: 'frozen.removal.automationIntro',
+  none: 'frozen.removal.automationNone',
+  error: 'frozen.removal.automationError',
+};
+
+/** Props for {@link FrozenRemovalAutomation}. */
+interface FrozenRemovalAutomationProps {
+  /** The org the load wrote to, registered. */
+  orgId: string;
+  /** When the load wrote its last record: which load. */
+  loadedAt: string;
+  /** The org as the user knows it. */
+  org: string;
+  /** The objects a sweep ticked with the removal deletes records of. */
+  sweptObjects: readonly string[];
+  mute: { checked: boolean; onChange: (checked: boolean) => void };
+}
+
+/**
+ * What the target runs as the removal takes the load back, read as the
+ * confirmation opens and listed before the user types the org's name: what
+ * fires as it sets an activated order back to Draft, then before and after
+ * each delete, what a sweep ticked with it deletes among them, read again as
+ * the ticks change it. A removal of a load fired the target's flows with no
+ * question and no way to keep them quiet. Where a bypass silences something of
+ * it, the box that mutes it for the removal is offered under it, planned from
+ * the same steps; the read shown stays until the answer lands.
+ */
+const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = ({
+  orgId,
+  loadedAt,
+  org,
+  sweptObjects,
+  mute,
+}) => {
+  const read = useBridgeMutation<AutomationAnswer>('frozen:remove:automation', {
+    responseType: 'frozen:remove:automation:response',
+    errorType: 'frozen:remove:automation:error',
+    timeoutMs: AUTOMATION_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  // A new request clears the answer it waits on: the last one is shown
+  // meanwhile.
+  const [lastRead, setLastRead] = useState<AutomationAnswer | null>(null);
+  // By value: a new list of the same objects reads nothing again.
+  const swept = sweptObjects.join(',');
+  const readAgain = useCallback(
+    () =>
+      mutate({
+        targetOrgId: orgId,
+        loadedAt,
+        ...(swept !== '' ? { sweptObjects: swept.split(',') } : {}),
+      }),
+    [orgId, loadedAt, swept, mutate],
+  );
+  useEffect(() => {
+    setLastRead(null);
+  }, [orgId, loadedAt]);
+  useEffect(() => {
+    readAgain();
+  }, [readAgain]);
+  useEffect(() => {
+    if (read.data) setLastRead(read.data);
+  }, [read.data]);
+  const answer = read.data ?? lastRead;
+  const shown: RemovalAutomationShown | undefined =
+    answer && answer.loadedAt === loadedAt
+      ? {
+          automation: answer.automation,
+          entries: firedOnRemovalStepsOf(answer.automation, answer.steps).map((fired) => ({
+            part: fired.step,
+            fired,
+            whyKey:
+              fired.step === 'delete'
+                ? DELETE_WHEN_KEYS[fired.when]
+                : 'runRemoval.automation.drafted',
+          })),
+          bypasses: removalStepsBypassesOf(answer.automation, answer.steps),
+        }
+      : undefined;
+  const offer =
+    shown && answer ? mutePlanOf(answer.automation, removalStepsWrites(answer.steps)) : null;
+  return (
+    <RemovalAutomationView
+      testId="frozen-removal-automation"
+      org={org}
+      targetOrgId={orgId}
+      words={AUTOMATION_WORDS}
+      shown={shown}
+      error={read.error}
+      reading={read.loading}
+      onReadAgain={readAgain}
+      after={
+        <AutomationMuteBox
+          offer={offer}
+          checked={mute.checked}
+          onChange={mute.onChange}
+          org={org}
+          testId="frozen-removal-automation-mute"
+        />
+      }
+    />
+  );
+};
+
 /** Props for {@link FrozenRemovalSweep}. */
 interface FrozenRemovalSweepProps {
   /** The org the load wrote to, registered. */
@@ -63,6 +198,8 @@ interface FrozenRemovalSweepProps {
   /** The ticks under the list: what it keeps, taken too. */
   ticks: SweepTicks;
   onTicksChange: (ticks: SweepTicks) => void;
+  /** Told what it read, null until it has: what the confirmation reads the automation of. */
+  onListing: (listing: ForgeSweepListing | null) => void;
 }
 
 /**
@@ -79,6 +216,7 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   org,
   ticks,
   onTicksChange,
+  onListing,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -91,6 +229,11 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   useEffect(() => {
     mutate({ targetOrgId: orgId, loadedAt });
   }, [orgId, loadedAt, mutate]);
+  const listing = read.data?.loadedAt === loadedAt ? read.data.listing : null;
+  useEffect(() => {
+    onListing(listing);
+  }, [listing, onListing]);
+  useEffect(() => () => onListing(null), [onListing]);
 
   let body: React.ReactNode;
   if (read.error) {
@@ -99,20 +242,14 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
         {t('frozen.removal.sweepError', { org, reason: read.error })}
       </p>
     );
-  } else if (!read.data || read.data.loadedAt !== loadedAt) {
+  } else if (!listing) {
     body = (
       <p data-testid="frozen-sweep-loading" className="text-text-secondary">
         {t('frozen.removal.sweepLoading', { org })}
       </p>
     );
   } else {
-    body = (
-      <ForgeSweepListingView
-        listing={read.data.listing}
-        ticks={ticks}
-        onTicksChange={onTicksChange}
-      />
-    );
+    body = <ForgeSweepListingView listing={listing} ticks={ticks} onTicksChange={onTicksChange} />;
   }
   return (
     <section
@@ -187,8 +324,9 @@ export interface FrozenLoadRemovalProps {
  * Taking a load back used to mean a reload, whose purge deletes what the last
  * load wrote only to write the dataset again. This removes what the load
  * created and nothing else — the extension reads which records from the sas
- * mapping — with Forge's removal: the confirmation names the org, typed, and
- * the records per object; what the load linked to or reused stays. A removal
+ * mapping — with Forge's removal: the confirmation names the org, typed, the
+ * records per object and what the target runs as they go, with the box that
+ * mutes it; what the load linked to or reused stays. A removal
  * that left some of them in the org — kept, or refused — says so on the card,
  * which then offers to remove what is left. Once the last load's records all
  * went, the card offers the load before it whose records the loads after it
@@ -210,6 +348,10 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
+  /** What the sweep's list says, while it is shown: what fires as its records go is read with the load's. */
+  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
+  /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
+  const [muteAutomation, setMuteAutomation] = useState(false);
   const removal = useBridgeMutation<RemoveAnswer>('frozen:remove', {
     responseType: 'frozen:remove:response',
     errorType: 'frozen:remove:error',
@@ -270,6 +412,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       loadedAt: records.loadedAt,
       ...(includeChanged ? { includeChanged: true } : {}),
       ...asked,
+      ...(muteAutomation ? { muteAutomation: true } : {}),
     });
     setConfirming(false);
     // The way out the refused reload offered is taken: the load is going.
@@ -280,6 +423,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const askRemoval = (changedToo: boolean): void => {
     setIncludeChanged(changedToo);
     setSweep(false);
+    setMuteAutomation(false);
     setConfirming(true);
   };
 
@@ -287,6 +431,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const askSweep = (): void => {
     setIncludeChanged(false);
     setSweep(true);
+    setMuteAutomation(false);
     setConfirming(true);
   };
 
@@ -446,6 +591,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           linked={records.linked}
           {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
         />
+        <FrozenRemovalAutomation
+          orgId={records.orgId}
+          loadedAt={records.loadedAt}
+          org={org ?? ''}
+          sweptObjects={sweep && sweepListing ? sweepTakenObjects(sweepListing, ticks) : []}
+          mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+        />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"
@@ -472,6 +624,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             org={org ?? ''}
             ticks={ticks}
             onTicksChange={setTicks}
+            onListing={setSweepListing}
           />
         )}
       </DangerConfirm>

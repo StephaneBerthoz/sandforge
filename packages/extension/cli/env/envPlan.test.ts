@@ -1099,6 +1099,7 @@ describe('the plan of a frozen resource', () => {
         userNames: {},
       },
       refusals: [],
+      removalAlone: [],
     },
     ...(refreshed !== undefined ? { refreshed } : {}),
   });

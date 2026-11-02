@@ -501,13 +501,23 @@ function compositeOfNothing(body: string | undefined): unknown {
   };
 }
 
+/** From this long, a timer bounds a read rather than waits: `TimeoutManager`'s. */
+const BOUND_MS = 30_000;
+
 /**
  * Run `work` with every pause of it answered at once: a verification reads
  * the target after two seconds, and again until two readings agree, which in
- * memory agree at once.
+ * memory agree at once. A bound around a read stays a timer: answered at once,
+ * it fires before the read it bounds, and an org that answers reads as one
+ * that timed out.
  */
 async function withoutPauses<T>(work: () => Promise<T>): Promise<T> {
-  const pause = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void) => {
+  const timer = globalThis.setTimeout;
+  const pause = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    handler: () => void,
+    ms = 0,
+  ) => {
+    if (ms >= BOUND_MS) return timer(handler, ms);
     handler();
     return 0;
   }) as unknown as typeof setTimeout);

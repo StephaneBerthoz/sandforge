@@ -12,6 +12,7 @@ import type {
 
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
@@ -20,6 +21,7 @@ import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasRefer
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { compositeOver } from '../../test/compositeOver.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { addSyncedQuote, tiedTargetOrg, type TiedTargetOrg } from '../../test/tiedTargetOrg.js';
 
 vi.mock('../../logger.js', () => ({
@@ -278,6 +280,10 @@ const AUTOMATION = {
   ],
   unread: [],
 } as unknown as ForgeTargetAutomation;
+
+/** The objects the permission org answers for: the mute's reads of the permission sets. */
+const PERMISSION_OBJECTS =
+  /\bFROM\s+(Organization|UserPermissionAccess|PermissionSetAssignment|SetupEntityAccess|ObjectPermissions|CustomPermission|PermissionSet)\b/i;
 
 function buildMsg(type: string, payload?: unknown): InboundRequest {
   return inboundRequest({
@@ -784,6 +790,324 @@ describe('a sweep asked with the removal of a Frozen load', () => {
 
       expect(errors()).toEqual([]);
       expect(tied.ids('Task')).toEqual([]);
+    });
+
+    /** The org as a Flow on the asset has it refuse the delete. */
+    const refusingTheAsset = () => ({
+      ...tied.conn,
+      sobject: (object: string) => {
+        const records = tied.conn.sobject(object);
+        if (object !== 'Asset') return records;
+        return { ...records, destroy: refusesTheAsset };
+      },
+    });
+    /** What the org answers of an asset the Flow on it keeps. */
+    const refusesTheAsset = async (ids: string[]) =>
+      ids.map((recordId) => ({
+        id: recordId,
+        success: false,
+        errors: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'An asset cannot be deleted without the bypass.',
+          },
+        ],
+      }));
+
+    it('ends partial when the org refused what the sweep was to take, the load’s records gone, and no success goes on the page or Live Operations', async () => {
+      mockGetConn.mockResolvedValue(refusingTheAsset() as never);
+
+      await remove({ sweep: true });
+
+      expect(answer()?.objects.every((o) => o.refused === 0 && o.keptDependents === 0)).toBe(true);
+      expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
+      expect(tied.ids('WorkOrder')).toEqual([]);
+      expect(tied.ids('Asset')).toEqual([ASSET]);
+      expect(
+        posted<BaseMessage & { payload: { result: { status?: string } } }>(
+          'operation:completed',
+        ).at(-1)?.payload.result.status,
+      ).toBe('partial');
+    });
+
+    it('keeps the two apart in the audit trail: the removal as its records ended, the sweep as it did', async () => {
+      mockGetConn.mockResolvedValue(refusingTheAsset() as never);
+
+      await remove({ sweep: true });
+
+      const entries = new AuditTrailStore(store).list().entries;
+      const sweep = entries.find((entry) => entry.details?.sweep === true);
+      const removal = entries.find((entry) => entry.details?.sweep !== true);
+      expect(sweep?.outcome).toBe('failure');
+      expect(removal?.outcome).toBe('success');
+    });
+
+    it('stays a success when it kept what is tied to nothing: it did what it was asked', async () => {
+      await remove({ sweep: true });
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        sweep: { status: 'success', left: [expect.objectContaining({ class: 'untied' })] },
+      });
+    });
+
+    describe('what the target runs as the records go', () => {
+      /** What the org runs: a Flow with a bypass on the asset, said only when asked of it. */
+      const onTheAsset = (_orgId: string, objects: readonly string[]) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: objects.includes('Asset')
+            ? [
+                {
+                  objectApiName: 'Asset',
+                  flows: [
+                    {
+                      apiName: 'Asset_Guard',
+                      label: 'Asset guard',
+                      timing: 'beforeSave',
+                      startsOn: 'delete',
+                      condition: 'read',
+                      permissions: [{ name: 'Load_Data', bypass: true }],
+                    },
+                  ],
+                  triggers: [],
+                },
+              ]
+            : [],
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+            },
+          ],
+          unread: [],
+        } as unknown as ForgeTargetAutomation);
+
+      let leases: string;
+      let read: ReturnType<typeof vi.fn<typeof onTheAsset>>;
+
+      /** The org's automation read as asked, and its permission sets to assign. */
+      function leased(canAssign = true) {
+        const permissions = memoryPermissionOrg({
+          userId: USER,
+          organizationId: ORGANIZATION,
+          canAssign,
+          sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+          beforeWrite: (write) => {
+            (tied.events as string[]).push(
+              write.kind === 'insert' ? 'leaseAcquire' : 'leaseRelease',
+            );
+          },
+        });
+        const conn = {
+          ...tied.conn,
+          identity: permissions.connection.identity,
+          query: (soql: string, options?: { scanAll?: boolean }) =>
+            PERMISSION_OBJECTS.test(soql)
+              ? permissions.connection.query(soql)
+              : tied.conn.query(soql, options),
+          sobject: (name: string) =>
+            name === 'PermissionSetAssignment'
+              ? permissions.connection.sobject(name)
+              : tied.conn.sobject(name),
+        };
+        return { conn, permissions };
+      }
+
+      beforeEach(() => {
+        leases = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-sweep-leases-'));
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        read = vi.fn(onTheAsset);
+        handler.setTargetAutomation({ read });
+      });
+
+      afterEach(() => {
+        fs.rmSync(leases, { recursive: true, force: true });
+      });
+
+      /** The answer of `frozen:remove:automation`. */
+      const automation = () =>
+        posted<
+          BaseMessage & {
+            payload: { loadedAt: string; automation: ForgeTargetAutomation; steps: unknown };
+          }
+        >('frozen:remove:automation:response').at(-1)?.payload;
+
+      it('lists what fires on the load’s objects, and those the sweep’s list names, read only', async () => {
+        await handler.handle(
+          buildMsg('frozen:remove:automation', {
+            targetOrgId: TARGET_ORG,
+            loadedAt: LAST_WRITE,
+            sweptObjects: ['Asset'],
+          }),
+        );
+
+        expect(automation()?.loadedAt).toBe(LAST_WRITE);
+        expect(automation()?.steps).toEqual({
+          setToDraft: [],
+          delete: ['ServiceAppointment', 'WorkOrder', 'Asset'],
+        });
+        expect(automation()?.automation.objects.map((o) => o.objectApiName)).toEqual(['Asset']);
+        expect(tied.deletes).toEqual([]);
+      });
+
+      it('lists what fires on the load’s objects alone with no sweep ticked', async () => {
+        await handler.handle(
+          buildMsg('frozen:remove:automation', { targetOrgId: TARGET_ORG, loadedAt: LAST_WRITE }),
+        );
+
+        expect(read).toHaveBeenCalledWith(TARGET_ORG, ['ServiceAppointment', 'WorkOrder']);
+        expect(automation()?.automation.objects).toEqual([]);
+      });
+
+      it('refuses to read for a load other than the one shown, as the removal is', async () => {
+        await handler.handle(
+          buildMsg('frozen:remove:automation', {
+            targetOrgId: TARGET_ORG,
+            loadedAt: '2026-09-19T08:00:00.000Z',
+          }),
+        );
+
+        expect(errors('frozen:remove:automation:error')[0]?.payload.code).toBe('LOAD_CHANGED');
+        expect(read).not.toHaveBeenCalled();
+      });
+
+      it('says why it could not read', async () => {
+        read.mockRejectedValueOnce(new Error('REQUEST_LIMIT_EXCEEDED'));
+
+        await handler.handle(
+          buildMsg('frozen:remove:automation', { targetOrgId: TARGET_ORG, loadedAt: LAST_WRITE }),
+        );
+
+        expect(errors('frozen:remove:automation:error')[0]?.payload).toMatchObject({
+          code: 'AUTOMATION_ERROR',
+          message: 'REQUEST_LIMIT_EXCEEDED',
+        });
+      });
+
+      it('reads nothing as it removes unless asked to mute: the confirmation listed it', async () => {
+        await remove();
+
+        expect(read).not.toHaveBeenCalled();
+        expect(answer()).not.toHaveProperty('mutedAutomation');
+      });
+
+      it('mutes what fires on what the sweep deletes, read once it has read, or the org refuses it', async () => {
+        const { conn, permissions } = leased();
+        mockGetConn.mockResolvedValue({
+          ...conn,
+          sobject: (name: string) => {
+            const records = conn.sobject(name);
+            if (name !== 'Asset') return records;
+            return permissions.assignments().length > 0
+              ? records
+              : { ...records, destroy: refusesTheAsset };
+          },
+        } as never);
+
+        await remove({ sweep: true, muteAutomation: true });
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Asset')).toEqual([]);
+        expect(answer()).toMatchObject({
+          status: 'success',
+          sweep: { status: 'success' },
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Data_Load'],
+            released: true,
+            silenced: [expect.objectContaining({ objectApiName: 'Asset' })],
+          },
+        });
+        expect(read.mock.calls.at(-1)?.[1]).toEqual(['ServiceAppointment', 'WorkOrder', 'Asset']);
+        expect(permissions.assignments()).toEqual([]);
+        const events = tied.events as string[];
+        expect(events.indexOf('leaseAcquire')).toBeLessThan(events.indexOf('write'));
+        expect(events.lastIndexOf('leaseRelease')).toBeGreaterThan(events.lastIndexOf('write'));
+        expect(
+          new AuditTrailStore(store).list().entries.find((entry) => entry.muted)?.muted,
+        ).toMatchObject({ assigned: ['Data_Load'] });
+      });
+
+      it('assigns nothing once a stop came while the sweep read', async () => {
+        const { conn, permissions } = leased();
+        mockGetConn.mockResolvedValue(conn as never);
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        read.mockImplementation(async (orgId, objects) => {
+          for (const operation of registry.getRunning()) registry.abort(operation.operationId);
+          return onTheAsset(orgId, objects);
+        });
+
+        await remove({ sweep: true, muteAutomation: true });
+
+        expect(answer()?.status).toBe('cancelled');
+        expect(permissions.assignments()).toEqual([]);
+        expect(tied.events as string[]).not.toContain('leaseAcquire');
+      });
+
+      it('deletes nothing when the mute is refused, and records the removal as stopped', async () => {
+        const { conn } = leased(false);
+        mockGetConn.mockResolvedValue(conn as never);
+
+        await remove({ sweep: true, muteAutomation: true });
+
+        expect(errors()[0]?.payload.code).toBe('MUTE_NO_RIGHT');
+        expect(tied.deletes).toEqual([]);
+        expect(
+          new AuditTrailStore(store).list().entries.find((entry) => entry.details?.sweep !== true),
+        ).toMatchObject({ outcome: 'stopped', details: { code: 'MUTE_NO_RIGHT' } });
+      });
+
+      describe('on the command line, which asks before the first delete', () => {
+        it('stops where its question says, nothing deleted, and records why', async () => {
+          handler.setRemovalAsker(async ({ steps }) => {
+            expect(steps.delete).toContain('Asset');
+            return { message: 'Asked no.', code: 'AUTOMATION_NOT_ACCEPTED' };
+          });
+
+          await remove({ sweep: true });
+
+          expect(errors()[0]?.payload).toMatchObject({
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            message: 'Asked no.',
+          });
+          expect(tied.deletes).toEqual([]);
+          expect(answer()).toBeUndefined();
+          expect(
+            new AuditTrailStore(store)
+              .list()
+              .entries.find((entry) => entry.details?.sweep !== true),
+          ).toMatchObject({ outcome: 'stopped', details: { code: 'AUTOMATION_NOT_ACCEPTED' } });
+        });
+
+        it('asks once, on what the removal and its sweep delete, before the lease', async () => {
+          const { conn } = leased();
+          mockGetConn.mockResolvedValue(conn as never);
+          const asked = vi.fn(async () => {
+            expect(tied.events).not.toContain('leaseAcquire');
+            return undefined;
+          });
+          handler.setRemovalAsker(asked);
+
+          await remove({ sweep: true, muteAutomation: true });
+
+          expect(asked).toHaveBeenCalledTimes(1);
+          expect(tied.events).toContain('leaseAcquire');
+        });
+
+        it('hands it the read that failed, as the panel’s mute is told', async () => {
+          read.mockRejectedValue(new Error('REQUEST_LIMIT_EXCEEDED'));
+          const asked = vi.fn(async () => undefined);
+          handler.setRemovalAsker(asked);
+
+          await remove();
+
+          expect(asked).toHaveBeenCalledWith(
+            expect.objectContaining({ read: { unread: 'REQUEST_LIMIT_EXCEEDED' } }),
+          );
+        });
+      });
     });
 
     it('keeps what is tied to nothing, asked or not, while a run of another module wrote in the window', async () => {

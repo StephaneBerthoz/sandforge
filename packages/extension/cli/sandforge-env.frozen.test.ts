@@ -8,6 +8,7 @@ import {
   envRunResultSchema,
   envValidationSchema,
   type EnvPlan,
+  type ForgeTargetAutomation,
 } from '@sandforge/shared';
 
 vi.mock('../src/logger.js', () => ({
@@ -602,5 +603,97 @@ describe('plan and apply a frozen resource', () => {
       'destroyed',
       'destroyed',
     ]);
+  });
+
+  describe('while the org runs automation as the records of the load go', () => {
+    /** A trigger on the accounts the load created, as the org's automation reads. */
+    const FIRING = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 1,
+    } as unknown as ForgeTargetAutomation;
+
+    it('blocks a destroy, what fires named, and the load’s records stay', async () => {
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code).toBe(1);
+      const result = envRunResultSchema.parse(destroyed.answer);
+      expect(result.refusal).toContain('claims: a removal of its runs would be refused now:');
+      expect(result.refusal).toContain('AccountCleanup');
+      expect(result.refusal).toContain('--accept-automation');
+      expect(named('Account', 'claim')).toHaveLength(2);
+    });
+
+    it('takes it back once the line accepts it, handing the acceptance to the load’s removal', async () => {
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run([
+        'destroy',
+        '--org',
+        'TGT',
+        '--accept-automation',
+        '--yes',
+        '--json',
+      ]);
+
+      expect(destroyed.code, destroyed.said).toBe(0);
+      expect(world.records('Account')).toEqual([]);
+      const removal = linesOf('sandforge-frozen').find(
+        (args) => args[0] === 'remove' && !args.includes('--preview'),
+      );
+      expect(removal).toContain('--accept-automation');
+    });
+
+    it('takes it back once the file accepts it on the resource, and warns of nothing', async () => {
+      const accepted = file();
+      writeFile({
+        ...accepted,
+        resources: {
+          ...accepted.resources,
+          claims: { ...accepted.resources.claims, accept: { automation: true } },
+        },
+      });
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code, destroyed.said).toBe(0);
+      expect(destroyed.said).not.toContain('takes no acceptance');
+      expect(world.records('Account')).toEqual([]);
+    });
+
+    it('asks a replace nothing of it: a reload is no removal, and takes no acceptance', async () => {
+      await apply();
+      world.automation = FIRING;
+      vi.setSystemTime(Date.now() + 120_000);
+      const refrozen = await freezeDataset(join(dir, 'datasets', 'claims-2'), {
+        accounts: 3,
+        perAccount: 1,
+        mark: 'claim',
+        version: '1.1.0',
+      });
+      process.env['SANDFORGE_CLAIMS_DATASET'] = refrozen;
+      writeFile(file({}, { version: '1.1.0', digest: await frozenDatasetDigest(refrozen) }));
+
+      const { plan: planned } = await plan();
+
+      const claims = planned.actions.find((each) => each.resource === 'claims');
+      expect(claims?.action).toBe('replace');
+      expect(claims?.refusal).toBeUndefined();
+    });
   });
 });

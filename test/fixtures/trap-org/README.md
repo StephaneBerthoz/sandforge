@@ -192,7 +192,9 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
   `canary-frozen-rules.json`, items left out for trap 8, a salt of the canary's own unless
   `SANDFORGE_FROZEN_SALT` gives one). Trap 2 refuses the subcategory of its case, which goes in
   without it. What the load created is read from the sas before the removal, which runs with
-  `--sweep` and takes the tasks trap 18's flow opened, and counted by id after it.
+  `--sweep`, `--sweep-untied` and `--accept-automation` (the trap's flows run on what it deletes,
+  and a removal deletes nothing without it) and takes the tasks trap 18's flow opened, and counted
+  by id after it.
 - Autopilot copies the source's twenty leads whole, its plan held to one lookup and three
   objects and its run to `--max-total 25`. The target holds two of their emails and blocks a
   duplicate of either (trap 4): the four leads that carry them are refused. What the run created

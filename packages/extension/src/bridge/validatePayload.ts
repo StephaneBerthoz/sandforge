@@ -1275,11 +1275,20 @@ export const frozenRemovePayloadSchema = z.object({
   // Sweep too what the target's automation created during the load, as its user.
   sweep: z.boolean().optional(),
   ...sweepClassesShape,
+  // Mute what the removal fires, what its sweep deletes included, through the target's own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 // What a sweep asked with a load's removal would take: the load, named as for its removal.
 export const frozenRemoveSweepPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
+});
+// What the target runs as a load's removal takes it back: the load, named as for its removal.
+export const frozenRemoveAutomationPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  loadedAt: z.string().min(1).max(64),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
 });
 // What a removal of a load would do, read and nothing written: the load, named as for its removal.
 export const frozenRemovePreviewPayloadSchema = z.object({

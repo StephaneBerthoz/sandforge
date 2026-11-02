@@ -21,7 +21,8 @@
  *   verify   check the last load against the dataset, read-only
  *   remove   delete from the sandbox the records the last load created — what an
  *            earlier removal left of them, or, once they all went, those of the
- *            load before it — deletes; with --preview, what it would delete,
+ *            load before it — deletes, what the target runs as they go named
+ *            first and accepted or muted; with --preview, what it would delete,
  *            read from the target, and nothing deleted
  *   status   what the store knows so far
  *
@@ -48,6 +49,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
 import type {
+  ForgeRemovalSteps,
   ForgeSweepListing,
   ForgeSweepResult,
   ForgeTargetAutomation,
@@ -68,7 +70,12 @@ import type {
   RunCheckpointTaken,
   StillRunning,
 } from '@sandforge/shared';
-import { orgTypeOf, stillRunningOf } from '@sandforge/shared';
+import {
+  orgTypeOf,
+  removalStepsBypassesOf,
+  removalStepsWrites,
+  stillRunningOf,
+} from '@sandforge/shared';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import {
   SWEEP_CLASS_FLAGS,
@@ -81,12 +88,15 @@ import {
   targetAutomationReader,
 } from './sandforge-clone.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
-import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
+import { muteLines, planMute, type RunMute } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
   CHECKPOINT_REFUSED,
   CHECKPOINT_STOPPED_WORDS,
+  bypassesToAssign,
+  removalStepsAutomationLines,
+  removalStepsAutomationRefusal,
   takeCheckpointFirst,
 } from '../src/modules/forge/ForgeRunGate.js';
 import {
@@ -104,7 +114,10 @@ import {
   type CommandCheckpoints,
 } from './beforeRunCheckpoint.js';
 import { fileConfigStore } from './fileConfigStore.js';
-import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
+import {
+  FrozenDatasetHandler,
+  type FrozenRemovalQuestion,
+} from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
@@ -140,7 +153,9 @@ Steps:
              — WRITES                                                 (needs --target)
   verify     check the last load against the dataset                 (needs --target)
   remove     delete the records a load created, the last first — DELETES (needs --target);
-             with --preview, say what it would delete, and delete nothing
+             what the target runs as they go is named first, and takes --accept-automation
+             or --mute-automation; with --preview, say what it would delete, and delete
+             nothing
   status     what the store knows so far
 
 Required:
@@ -174,14 +189,23 @@ Options:
                          holds them, though its manifest does not say its extraction
                          left out what it read masked — they may hold masks such as
                          ****1234 (left out otherwise, each named)
-  --mute-automation      with load: mute the target's automation for the load through
-                         its own bypass — assign the user it writes as, for the load
-                         alone, the permission sets holding the custom permissions its
-                         flows, processes and workflow rules test to stay quiet, and
-                         take them back as it ends; what no bypass keeps quiet still
-                         runs, and is named. Refused on a production org and for a user
-                         who cannot assign permission sets, exit 1; with --dry-run,
-                         says what would be muted and assigns nothing
+  --mute-automation      with load or remove: mute the target's automation for that
+                         step through its own bypass — assign the user it writes as,
+                         for the step alone, the permission sets holding the custom
+                         permissions its flows, processes and workflow rules test to
+                         stay quiet, those of what --sweep deletes included, and take
+                         them back as it ends; what no bypass keeps quiet still runs,
+                         and is named, and a removal then needs --accept-automation.
+                         Refused on a production org and for a user who cannot assign
+                         permission sets, exit 1; with --dry-run or --preview, says
+                         what would be muted and assigns nothing
+  --accept-automation    with remove: delete although the target runs flows, Apex
+                         triggers, processes or workflow rules as the records go,
+                         those --sweep deletes included — before or after a delete,
+                         or as an activated order is set back to Draft for its delete
+                         — or could not say what it runs. Each is named before
+                         anything is deleted; without the flag the removal then
+                         deletes nothing, exit 1
 ${checkpointFirstHelp({
   run: 'the load',
   simulation: '--dry-run',
@@ -213,7 +237,8 @@ ${checkpointFirstHelp({
                          org's Automated Process user; and what the load's user
                          created in the window tied to nothing of it. Such
                          records then keep none of the load's records as records
-                         that stay (off otherwise)
+                         that stay. A sweep refused, or that did not take all it was
+                         asked to, ends the removal partial, exit 3 (off otherwise)
   --sweep-late           with --sweep: take too what it lists as made late
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
                          the load; refused when another run wrote to the target
@@ -227,15 +252,18 @@ ${checkpointFirstHelp({
                          records it would delete, those it would keep as changed since
                          the load and who changed them, those gone already, those it
                          cannot see, and those it would leave because the user may not
-                         delete them — and what it would be refused for. It deletes
-                         nothing, writes nothing to the sas and asks nothing; it exits 0
-                         once it has said it. It cannot know what hangs from the records,
-                         which a removal reads at each object's turn. Not with --sweep
-                         or --sweep-list
-  --yes                  do not ask before a load writes or a removal deletes.
-                         Without it, a step with no terminal to answer the
-                         question — a CI step — stops there, exit 2, and
-                         writes nothing
+                         delete them — what the target runs as they go, and what it
+                         would be refused for, that automation without
+                         --accept-automation included. It deletes nothing, writes
+                         nothing to the sas and asks nothing; it exits 0 once it has
+                         said it. It cannot know what hangs from the records, which a
+                         removal reads at each object's turn. Not with --sweep or
+                         --sweep-list
+  --yes                  do not ask before a load writes or a removal deletes: a
+                         removal asks last, once what it deletes and what the
+                         target runs as they go are said. Without it, a step
+                         with no terminal to answer the question — a CI step —
+                         stops there, exit 2, and writes nothing
   --json                 emit what the panel would receive, every other line on
                          stderr; a step that ends before its request, refused or
                          with nothing to do, says "ended": true. Beside it, "step";
@@ -265,13 +293,15 @@ out — or a SIGHUP stops it the same way. Ctrl-C again ends it at once.
 
 Exit codes: 0 the step finished — a removal with nothing to take included, and a
 removal's preview once said, its refusals included —, and verify's verdict is
-PASSED; 1 it failed or could not start, verify's verdict is FAILED, or a dry run
-says the load would be refused; 2 a bad command line, or a question with no
-terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
-completed with errors, or a removal left records of the load; 4 verify's verdict
-is UNSTABLE: no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM,
-129 a SIGHUP. A load is judged by its own report: the verification it runs after it
-is said, and the verify step gives it a code.
+PASSED; 1 it failed or could not start, verify's verdict is FAILED, a dry run says
+the load would be refused, or a removal stopped before its first delete at what the
+target runs, without --accept-automation; 2 a bad command line, or a question with
+no terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
+completed with errors, or a removal left records of the load or its sweep did not
+take all it was asked to; 4 verify's verdict is UNSTABLE: no two readings agreed;
+130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a SIGHUP. A load is judged by its
+own report: the verification it runs after it is said, and the verify step gives it
+a code.
 `;
 
 const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
@@ -293,8 +323,10 @@ interface CliArgs {
   dryRun: boolean;
   /** With load: write the fields the target encrypts though the dataset may hold their masks. */
   writeEncrypted: boolean;
-  /** With load: mute the target's automation for the load, through its own bypass. */
+  /** With load or remove: mute the target's automation for the step, through its own bypass. */
   muteAutomation: boolean;
+  /** With remove: delete although the target runs automation as the records go. */
+  acceptAutomation: boolean;
   /**
    * With load: take a checkpoint of what the load writes before its first
    * write (`--checkpoint-first`). undefined = none.
@@ -329,6 +361,7 @@ const FLAGS: CommandFlags = {
     '--dry-run',
     '--write-encrypted',
     '--mute-automation',
+    '--accept-automation',
     '--include-changed',
     '--sweep',
     '--sweep-list',
@@ -401,8 +434,12 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
     process.exit(2);
   }
-  if (args.includes('--mute-automation') && step !== 'load') {
-    process.stderr.write('--mute-automation goes with load. Run with --help.\n');
+  if (args.includes('--mute-automation') && step !== 'load' && step !== 'remove') {
+    process.stderr.write('--mute-automation goes with load or remove. Run with --help.\n');
+    process.exit(2);
+  }
+  if (args.includes('--accept-automation') && step !== 'remove') {
+    process.stderr.write('--accept-automation goes with remove. Run with --help.\n');
     process.exit(2);
   }
   if (args.includes(CHECKPOINT_FIRST) && step !== 'load') {
@@ -460,6 +497,7 @@ export function parseArgs(argv: string[]): CliArgs {
     dryRun: args.includes('--dry-run'),
     writeEncrypted: args.includes('--write-encrypted'),
     muteAutomation: args.includes('--mute-automation'),
+    acceptAutomation: args.includes('--accept-automation'),
     ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
@@ -629,18 +667,68 @@ function recordsToTake(records: LoadRecords): number {
 
 /**
  * What the command line asks of the removal it sends: the records changed
- * since, the sweep, and what the sweep takes beside what is tied to the load,
- * as the panel's boxes ask them; the panel's handler tells it the ties.
- * Exported so it can be tested.
+ * since, the sweep, what the sweep takes beside what is tied to the load, and
+ * the mute, as the panel's boxes ask them; the panel's handler tells it the
+ * ties. Exported so it can be tested.
  */
 export function removalAsked(
-  args: Pick<CliArgs, 'includeChanged' | 'sweep' | 'sweepLate' | 'sweepUntied'>,
+  args: Pick<CliArgs, 'includeChanged' | 'sweep' | 'sweepLate' | 'sweepUntied' | 'muteAutomation'>,
 ): Record<string, true> {
   return {
     ...(args.includeChanged ? { includeChanged: true } : {}),
     ...(args.sweep ? { sweep: true } : {}),
     ...(args.sweepLate ? { sweepLate: true } : {}),
     ...(args.sweepUntied ? { sweepUntied: true } : {}),
+    ...(args.muteAutomation ? { muteAutomation: true } : {}),
+  };
+}
+
+/** What a removal would run into, as `removalAutomation` is asked it. */
+interface RemovalAutomationAsk {
+  /** What the target runs on what the removal and its sweep delete, or why it could not be read. */
+  read: FrozenRemovalQuestion['read'];
+  steps: ForgeRemovalSteps;
+  /** The mute asked for, planned from that read. */
+  mute?: Pick<RunMute, 'automation' | 'muted'>;
+}
+
+/**
+ * What the command says of what the target runs as a removal goes, before its
+ * first delete, as Forge's, Sync's and Seed's removals say it: what fires, step
+ * by step, what a mute keeps quiet and what it leaves, and why a removal will
+ * not go without `--accept-automation`, the bypasses to assign among it. The
+ * Frozen removal read none of this, and its flows ran with no question.
+ * Exported so it can be tested.
+ *
+ * @param user - The user it deletes as, whom a bypass's command assigns it to.
+ */
+export function removalAutomation(
+  { read, steps, mute }: RemovalAutomationAsk,
+  target: string,
+  user: { alias: string; username: string } | undefined,
+): { lines: string[]; refusal?: string } {
+  const muted = mute ? muteLines(mute.muted, target).map((line) => `  ${line}`) : [];
+  // Read whole or not at all: what could not be read of it is said below.
+  if (!('objects' in read)) {
+    return {
+      lines: [
+        `removal automation: what ${target} runs could not be read: ${read.unread}`,
+        ...muted,
+      ],
+      refusal:
+        `What ${target} runs as this removal writes could not be read (${read.unread}), so what ` +
+        'fires as the records go is not known. Nothing was written or deleted. Add ' +
+        `--accept-automation to remove all the same, or turn that automation off in ${target} first.`,
+    };
+  }
+  const automation = mute?.automation ?? read;
+  const refusal = removalStepsAutomationRefusal(automation, target, {
+    steps,
+    assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps), user),
+  });
+  return {
+    lines: [...removalStepsAutomationLines(read, target, steps), ...muted],
+    ...(refusal !== undefined ? { refusal } : {}),
   };
 }
 
@@ -791,18 +879,26 @@ const NOTHING_TO_REMOVE_CODES: ReadonlySet<string> = new Set([
   'NOTHING_TO_REMOVE',
 ]);
 
+/** The code of a removal the person declined at its question: nothing deleted, and no failure. */
+const REMOVAL_DECLINED = 'REMOVAL_DECLINED';
+
 /**
  * Whether a message the handler posts fails the step: an error, but for a
  * removal's refusal that it has nothing to take. Run again after a removal,
  * the command ended on exit 1 for a removal there was no need of, and a
- * script took it for a failure. Exported so it can be tested.
+ * script took it for a failure. Nor does a person who answered no at the
+ * question fail it. Exported so it can be tested.
  */
 export function failsTheStep(message: Posted): boolean {
   const type = String(message.type ?? '');
   if (!type.endsWith(':error')) return false;
+  // A preview's: said with what it would be refused for, and a preview said ends as done.
+  if (type === 'frozen:remove:automation:error') return false;
+  const code = String(message.payload?.code);
+  if (type === 'frozen:remove:error' && code === REMOVAL_DECLINED) return false;
   return !(
     (type === 'frozen:remove:error' || type === 'frozen:remove:preview:error') &&
-    NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
+    NOTHING_TO_REMOVE_CODES.has(code)
   );
 }
 
@@ -817,9 +913,10 @@ const VERDICT_EXIT: Readonly<Record<string, number>> = {
 /**
  * The exit code of a step that ran through, from what it posted: `verify` by
  * its verdict — FAILED 1, PARTIAL 3, UNSTABLE 4 —, `load` 3 when it completed
- * with errors, `remove` 3 when it left records of the load. A load is judged
- * by its own report: the verification it runs after it is said, and `verify`
- * gives its verdict a code. Exported so it can be tested.
+ * with errors, `remove` 3 when it left records of the load or its sweep did
+ * not take all it was asked to, which its status says. A load is judged by its
+ * own report: the verification it runs after it is said, and `verify` gives
+ * its verdict a code. Exported so it can be tested.
  */
 export function frozenStepExit(step: string, posted: readonly Posted[]): number {
   return worstExit(
@@ -859,6 +956,10 @@ export function messageLines(message: Posted): string[] {
   ) {
     return [`nothing to remove: ${String(p.message ?? '')}`];
   }
+  if (type === 'frozen:remove:error' && !failsTheStep(message)) {
+    return [String(p.message ?? '')];
+  }
+  if (type === 'frozen:remove:automation:error') return [];
   if (type.endsWith(':error')) {
     return [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`];
   }
@@ -1316,6 +1417,7 @@ export function messageLines(message: Posted): string[] {
         status: string;
         leftBy?: string;
         sweep?: ForgeSweepResult;
+        mutedAutomation?: MutedAutomation;
         objects: Array<{
           objectApiName: string;
           planned: number;
@@ -1354,6 +1456,7 @@ export function messageLines(message: Posted): string[] {
         // What kept records of the load for records the automation likely
         // made under them, and what takes them.
         ...automationHeldLines(r.objects, { sweep: r.sweep !== undefined }),
+        ...(r.mutedAutomation ? muteLines(r.mutedAutomation, 'the target') : []),
       ];
     }
     case 'frozen:remove:sweep:response':
@@ -1454,7 +1557,11 @@ export interface FrozenAnswer {
   preview?: true;
   /** What a dry run or a removal's preview says a real run would be refused for. */
   refusals?: string[];
-  /** Of a dry run asked to mute: what a real load would assign, silence, leave running and lift beside. */
+  /**
+   * Of a dry run or a preview asked to mute: what a real load or removal would
+   * assign, silence, leave running and lift beside; of a removal that muted,
+   * what it did.
+   */
   mutedAutomation?: MutedAutomation;
   /** The plan that is made from. */
   mutePlan?: MutePlan;
@@ -1481,7 +1588,7 @@ export interface FrozenAnswerContext {
   targetOrgId?: string;
   /** What the step itself says a real run would be refused for. */
   refusals?: readonly string[];
-  /** Of a dry run asked to mute, what a real load's mute would do. */
+  /** Of a dry run or a preview asked to mute, what a real step's mute would do. */
   mute?: { mutedAutomation: MutedAutomation; mutePlan: MutePlan };
   /** The checkpoint the load took first, or of a dry run, the one a real load would take. */
   checkpoint?: RunCheckpointEstimate | RunCheckpointInfo;
@@ -1607,6 +1714,7 @@ export async function frozenAnswer(
         FrozenRemovalPreview | undefined;
       if (result) {
         answer.status = result.status;
+        if (result.mutedAutomation) answer.mutedAutomation = result.mutedAutomation;
         answer.objects = result.objects.map((o) => ({
           objectApiName: o.objectApiName,
           planned: o.planned,
@@ -1739,6 +1847,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let taking: AbortController | undefined;
   /** Whether a Ctrl-C stopped that take: nothing of it kept, nothing written. */
   let stoppedTaking = false;
+  /** Whether a removal waits on its question: nothing is deleted yet, and no lease taken. */
+  let asking = false;
   let interrupted: StopSignal | undefined;
   const interrupt = (signal: StopSignal): void => {
     interrupted = signal;
@@ -1754,7 +1864,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
     if (underWay) registry.cancelBeforeStart(underWay);
     // Nothing under way — a question on the terminal: nothing was written.
-    if (!underWay) process.exit(stopExitCode(signal));
+    if (!underWay || asking) process.exit(stopExitCode(signal));
   };
   const releaseStop = onStopSignal(interrupt);
   /** The dataset the configuration points a load at. */
@@ -1762,7 +1872,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     typeof config.datasetDir === 'string' ? config.datasetDir : join(sasDir, 'dataset');
   /** What a dry run says the load would be refused for, beside its plan. */
   const refusals: string[] = [];
-  /** What a dry run asked to mute says a real load's mute would do. */
+  /** What a removal's preview says it would be refused for: a preview said exits 0. */
+  const removalRefusals: string[] = [];
+  /** What a dry run or a preview asked to mute says a real step's mute would do. */
   let dryRunMute: FrozenAnswerContext['mute'];
   /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
   let checkpointAnswer: FrozenAnswerContext['checkpoint'];
@@ -1772,11 +1884,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    */
   const emit = async (ended?: true): Promise<void> => {
     if (!args.json) return;
+    const refused = [...refusals, ...removalRefusals];
     const answer = await frozenAnswer(args.step, posted, {
       datasetDir,
       sasDir,
       ...(targetOrgId ? { targetOrgId } : {}),
-      ...(refusals.length > 0 ? { refusals } : {}),
+      ...(refused.length > 0 ? { refusals: refused } : {}),
       ...(dryRunMute ? { mute: dryRunMute } : {}),
       ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
@@ -1825,6 +1938,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   log(`done in ${Date.now() - t0}ms`);
+
+  /** The user a removal deletes as, whom a bypass's command assigns it to. */
+  function userOfTarget(): { alias: string; username: string } | undefined {
+    const username = target?.session.username;
+    return args.target && username ? { alias: args.target, username } : undefined;
+  }
 
   /**
    * The step itself: the configuration saved, then the step's own request;
@@ -2038,6 +2157,39 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             loadedAt: records.loadedAt,
             ...(args.includeChanged ? { includeChanged: true } : {}),
           });
+          // What the target runs as a removal takes them, read and said as the
+          // removal says it before its first delete; a mute asked for is
+          // planned, and nothing assigned.
+          if (posted.some((m) => m.type === 'frozen:remove:preview:response')) {
+            await send('frozen:remove:automation', { targetOrgId, loadedAt: records.loadedAt });
+            const payload = (type: string): Record<string, unknown> | undefined =>
+              posted.find((m) => m.type === type)?.payload;
+            const read = payload('frozen:remove:automation:response') as
+              { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
+            const planned =
+              read && args.muteAutomation
+                ? planMute(read.automation, removalStepsWrites(read.steps))
+                : undefined;
+            if (planned) dryRunMute = { mutedAutomation: planned.planned, mutePlan: planned.plan };
+            const { lines, refusal } = removalAutomation(
+              {
+                read: read?.automation ?? {
+                  unread: String(payload('frozen:remove:automation:error')?.message),
+                },
+                steps: read?.steps ?? {},
+                ...(planned
+                  ? { mute: { automation: planned.automation, muted: planned.planned } }
+                  : {}),
+              },
+              args.target ?? '',
+              userOfTarget(),
+            );
+            for (const line of lines) log(line);
+            if (refusal !== undefined && !args.acceptAutomation) {
+              removalRefusals.push(refusal);
+              log(`a removal would be refused: ${refusal}`);
+            }
+          }
           break;
         }
         if (args.sweepList) {
@@ -2054,20 +2206,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               "the load's user, tied to its records — run with --sweep-list to see what",
           );
         }
-        if (!args.yes && removalAsks(records)) {
-          // Typed, as the panel asks it: the name of the org the records leave.
-          const answer = await typed(`Type ${args.target} to delete them:`);
-          if (answer !== args.target) {
-            log('Nothing deleted.');
-            return 'ended';
+        // Asked by the removal once its sweep has read what it takes, before
+        // the lease and before the first delete: what the target runs is read
+        // on what both delete, and said before the name of the org is typed,
+        // as the panel lists it. A stop while the sweep read asks nothing.
+        let declined = false;
+        handler.setRemovalAsker(async (question) => {
+          const { lines, refusal } = removalAutomation(question, args.target ?? '', userOfTarget());
+          for (const line of lines) log(line);
+          if (refusal !== undefined && !args.acceptAutomation) {
+            return { message: refusal, code: 'AUTOMATION_NOT_ACCEPTED' };
           }
-        }
-        log(`removing from ${args.target}…`);
+          if (!args.yes && removalAsks(records)) {
+            // Typed, as the panel asks it: the name of the org the records leave.
+            asking = true;
+            const answer = await typed(`Type ${args.target} to delete them:`);
+            asking = false;
+            if (answer !== args.target) {
+              declined = true;
+              return { message: 'Nothing deleted.', code: REMOVAL_DECLINED };
+            }
+          }
+          log(`removing from ${args.target}…`);
+          return undefined;
+        });
         await send('frozen:remove', {
           targetOrgId,
           loadedAt: records.loadedAt,
           ...removalAsked(args),
         });
+        if (declined) return 'ended';
         break;
       }
       case 'status':

@@ -563,6 +563,35 @@ describe('a sweep asked with the removal of a Seed run', () => {
       expect(tied.ids('Task')).toEqual([]);
     });
 
+    it('ends partial when the org refused what the sweep was to take, the seed’s records gone: no success on the page', async () => {
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...tied.conn,
+        sobject: (object: string) => {
+          const records = tied.conn.sobject(object);
+          if (object !== 'Task') return records;
+          return {
+            ...records,
+            destroy: async (ids: string[]) =>
+              ids.map((recordId) => ({
+                id: recordId,
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                    message: 'A task cannot be deleted without the bypass.',
+                  },
+                ],
+              })),
+          };
+        },
+      } as never);
+
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+
+      expect(tied.ids('Task')).toContain(FLOW_TASK);
+      expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
+    });
+
     it('keeps what is tied to nothing while another seed of this machine wrote in the window', async () => {
       await keep('op-other', [['Contact', [id('003', 7)]]]);
       tied.add('Contact', rec(id('003', 7), 'Their person', USER, SEEDED));

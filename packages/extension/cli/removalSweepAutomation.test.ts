@@ -335,7 +335,10 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
 
     expect(JSON.parse(stdout)).toMatchObject({
       result: {
+        // Exit 3 said it, and the status of the removal did not.
+        status: 'partial',
         sweep: {
+          status: 'failure',
           objects: [
             {
               objectApiName: 'Asset',
@@ -347,6 +350,14 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
       },
     });
     expect(org.ids('Asset')).toEqual([ASSET]);
+    expect(org.ids('Case')).toEqual([]);
+  });
+
+  it('says it without --json too', async () => {
+    expect(await remove('--sweep', '--accept-automation')).toBe(3);
+
+    expect(stdout).toContain('removal: PARTIAL');
+    expect(stdout).toContain('sweep: FAILURE');
   });
 
   it('mutes what fires on what the sweep deletes, under a lease taken after the question, and says it under --json', async () => {

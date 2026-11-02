@@ -49,7 +49,11 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
-import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
+import {
+  removalAuditObjects,
+  removalAuditOutcome,
+  removalStatusWithSweep,
+} from '../../modules/forge/removalOutcome.js';
 import {
   createdCount,
   syncRemovalPlan,
@@ -1006,7 +1010,7 @@ export class SeedRemovalHandler implements DomainHandler {
       for (const note of notes) this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
       const result: SeedRemovalResult = {
         runId: removed.runId,
-        status: removed.status,
+        status: removalStatusWithSweep(removed.status, swept),
         includeChanged: removed.includeChanged,
         objects: removed.objects,
         finishedAt: removed.finishedAt,
@@ -1015,12 +1019,13 @@ export class SeedRemovalHandler implements DomainHandler {
         ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
+      // The sweep has its own entry: this one says what became of the run's records.
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'seed',
         operationId,
         orgId,
-        outcome: removalAuditOutcome(result),
+        outcome: removalAuditOutcome(removed),
         guard: decision,
         objects: removalAuditObjects(result.objects),
         ...(result.leftBy ? { leftBy: result.leftBy } : {}),

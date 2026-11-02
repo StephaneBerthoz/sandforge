@@ -541,6 +541,7 @@ import type {
   FrozenVerifyRequest,
   FrozenRemoveRequest,
   FrozenRemoveSweepRequest,
+  FrozenRemoveAutomationRequest,
   FrozenRemovePreviewRequest,
   FrozenStatusRequest,
   FrozenRulesClearRequest,
@@ -558,6 +559,7 @@ import type {
   FrozenVerifyResultMessage,
   FrozenRemoveResponse,
   FrozenRemoveSweepResponse,
+  FrozenRemoveAutomationResponse,
   FrozenRemovePreviewResponse,
   FrozenStatusResponse,
   FrozenRulesClearResponse,
@@ -570,6 +572,7 @@ import type {
   FrozenVerifyErrorMessage,
   FrozenRemoveErrorMessage,
   FrozenRemoveSweepErrorMessage,
+  FrozenRemoveAutomationErrorMessage,
   FrozenRemovePreviewErrorMessage,
   FrozenRulesClearErrorMessage,
   FrozenRulesCreateErrorMessage,
@@ -845,6 +848,7 @@ export type WebViewToExtensionMessage =
   | FrozenVerifyRequest
   | FrozenRemoveRequest
   | FrozenRemoveSweepRequest
+  | FrozenRemoveAutomationRequest
   | FrozenRemovePreviewRequest
   | FrozenStatusRequest
   | FrozenRulesClearRequest
@@ -1161,6 +1165,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyResultMessage
   | FrozenRemoveResponse
   | FrozenRemoveSweepResponse
+  | FrozenRemoveAutomationResponse
   | FrozenRemovePreviewResponse
   | FrozenStatusResponse
   | FrozenRulesClearResponse
@@ -1173,6 +1178,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyErrorMessage
   | FrozenRemoveErrorMessage
   | FrozenRemoveSweepErrorMessage
+  | FrozenRemoveAutomationErrorMessage
   | FrozenRemovePreviewErrorMessage
   | FrozenRulesClearErrorMessage
   | FrozenRulesCreateErrorMessage

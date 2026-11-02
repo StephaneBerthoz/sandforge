@@ -8,6 +8,7 @@ import type {
   AuditObjectCounts,
   AuditOutcome,
   ForgeUndoMark,
+  ForgeSweepResult,
   ForgeUndoObjectResult,
   ForgeUndoResult,
   ForgeUndoStatus,
@@ -34,6 +35,23 @@ export function removalStatus(
   if (cancelled) return 'cancelled';
   if (objects.every((o) => leftInOrg(o) === 0)) return 'success';
   return objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
+}
+
+/**
+ * How a removal ended once its sweep is counted: the sweep was asked of it, and
+ * a removal that took the run's records with its sweep refused, failed or
+ * stopped short is no success. Its exit code said so, and its status did not:
+ * a script reading `.result.status`, and the panel's first line, read a success
+ * with the records of the sweep still in the org. A removal that left records
+ * of its own ends as it ended; a sweep that kept what came late or is tied to
+ * nothing did what it was asked, and stays a success (`ForgeSweepResult.left`).
+ */
+export function removalStatusWithSweep(
+  status: ForgeUndoStatus,
+  sweep: Pick<ForgeSweepResult, 'status'> | undefined,
+): ForgeUndoStatus {
+  if (status !== 'success' || !sweep || sweep.status === 'success') return status;
+  return sweep.status === 'cancelled' ? 'cancelled' : 'partial';
 }
 
 /**

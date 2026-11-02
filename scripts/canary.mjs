@@ -778,9 +778,11 @@ function frozenRun(user) {
 
 /**
  * Remove the load with the sweep, asked to take what is tied to nothing of the
- * run as trap 18's tasks are, then count by id what the target holds of it, and
- * the tasks of that flow left in the seconds its contacts were created. What the removal left is deleted all the same, so that nothing of
- * the canary's stays in the target; the step then fails.
+ * run as trap 18's tasks are, and to delete although the target's automation
+ * runs as the records go, as the clone's removal is, then count by id what the
+ * target holds of it, and the tasks of that flow left in the seconds its
+ * contacts were created. What the removal left is deleted all the same, so that
+ * nothing of the canary's stays in the target; the step then fails.
  */
 function frozenRemove(step, created, user, window, { quiet = false } = {}) {
   const opened = followUpTasks('frozen-tasks-before', user, window)?.length;
@@ -790,6 +792,7 @@ function frozenRemove(step, created, user, window, { quiet = false } = {}) {
     TARGET,
     '--sweep',
     '--sweep-untied',
+    '--accept-automation',
     '--yes',
   ]);
   const removal = postedOf(remove.doc, 'frozen:remove:response')?.payload?.result;

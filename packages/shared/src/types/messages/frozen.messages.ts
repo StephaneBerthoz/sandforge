@@ -1,6 +1,7 @@
 import type { BaseMessage } from './base.messages.js';
 import type { RunCheckpointRequest } from '../checkpoint.types.js';
-import type { ForgeSweepListing } from '../forge.types.js';
+import type { ForgeSweepListing, ForgeTargetAutomation } from '../forge.types.js';
+import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
 import type {
   FrozenControlReport,
   FrozenLoadPlanInfo,
@@ -160,6 +161,33 @@ export interface FrozenRemoveRequest extends BaseMessage {
      * (`ForgeSweepListing.untied`), unless that is refused: kept otherwise.
      */
     sweepUntied?: boolean;
+    /**
+     * Mute what the removal fires through the target's own bypass, what its
+     * sweep deletes included: planned from what the target runs on both, read
+     * once the sweep has read what it takes, and held from before the first
+     * delete to the end of the removal.
+     */
+    muteAutomation?: boolean;
+  };
+}
+
+/**
+ * `frozen:remove:automation`. WebView -> Extension. What the target runs as a
+ * removal of the load takes its records, read only, for the confirmation to
+ * list before the user types the org's name. The load is named, never its
+ * records; a sweep's objects are named, read from the listing the confirmation
+ * shows, for this read alone: the removal's mute plans from what its own sweep
+ * reads.
+ */
+export interface FrozenRemoveAutomationRequest extends BaseMessage {
+  type: 'frozen:remove:automation';
+  payload: {
+    /** The org the load wrote to. */
+    targetOrgId: string;
+    /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+    loadedAt: string;
+    /** The objects a sweep asked with the removal deletes records of (`sweepTakenObjects`). */
+    sweptObjects?: string[];
   };
 }
 
@@ -352,6 +380,12 @@ export interface FrozenRemovePreviewResponse extends BaseMessage {
   payload: { preview: FrozenRemovalPreview };
 }
 
+/** `frozen:remove:automation:response`. Extension -> WebView. What the target runs as a removal of the load writes, step by step. */
+export interface FrozenRemoveAutomationResponse extends BaseMessage {
+  type: 'frozen:remove:automation:response';
+  payload: { loadedAt: string; automation: ForgeTargetAutomation; steps: ForgeRemovalSteps };
+}
+
 /** `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the load's removal would take. */
 export interface FrozenRemoveSweepResponse extends BaseMessage {
   type: 'frozen:remove:sweep:response';
@@ -414,8 +448,9 @@ export interface FrozenVerifyErrorMessage extends BaseMessage {
 /**
  * `frozen:remove:error`. Extension -> WebView. A removal refused before it
  * started (`NO_LOAD`, `NOT_RECORDED`, `LOAD_CHANGED`, `ALREADY_REMOVED`,
- * `NOTHING_TO_REMOVE`, `DUPLICATE`, `TARGET_REFRESHED`, the guard's codes), or
- * one that failed.
+ * `NOTHING_TO_REMOVE`, `DUPLICATE`, `TARGET_REFRESHED`, the guard's codes, a
+ * mute's, and the command line's `AUTOMATION_NOT_ACCEPTED` and
+ * `REMOVAL_DECLINED`), or one that failed.
  */
 export interface FrozenRemoveErrorMessage extends BaseMessage {
   type: 'frozen:remove:error';
@@ -429,6 +464,16 @@ export interface FrozenRemoveErrorMessage extends BaseMessage {
  */
 export interface FrozenRemovePreviewErrorMessage extends BaseMessage {
   type: 'frozen:remove:preview:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:remove:automation:error`. Extension -> WebView. What the target runs
+ * as a removal of the load writes could not be read: no load recorded, another
+ * load since, nothing of it left to take, or a read that failed.
+ */
+export interface FrozenRemoveAutomationErrorMessage extends BaseMessage {
+  type: 'frozen:remove:automation:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

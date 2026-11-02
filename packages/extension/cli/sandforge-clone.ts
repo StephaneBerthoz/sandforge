@@ -188,6 +188,7 @@ import {
   removalAuditObjects,
   removalAuditOutcome,
   removalStatus,
+  removalStatusWithSweep,
 } from '../src/modules/forge/removalOutcome.js';
 import {
   SWEEP_LEAD_MS,
@@ -5425,7 +5426,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         'to as changed since the run, which --include-changed then takes.\n',
     );
   }
-  const status = outcome ? removalStatus(outcome.objects, outcome.cancelled) : 'success';
+  const status = removalStatusWithSweep(
+    outcome ? removalStatus(outcome.objects, outcome.cancelled) : 'success',
+    sweep,
+  );
   output(
     status,
     outcome?.objects ?? [],
@@ -5433,9 +5437,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     removals && !failure ? removalsFile : undefined,
     sweep,
   );
-  if (status !== 'success' || (sweep && sweep.status !== 'success')) {
-    process.exit(RECORDS_LEFT_EXIT);
-  }
+  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // ─── --remove --preview ──────────────────────────────────────────────────────

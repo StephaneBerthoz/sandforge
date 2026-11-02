@@ -952,6 +952,8 @@ export interface FrozenRemovalResult {
    * when the load created none.
    */
   keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
+  /** What the removal muted of the target's automation, when it was asked to. */
+  mutedAutomation?: MutedAutomation;
 }
 
 /**

@@ -7801,6 +7801,62 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Frozen load removal confirmation listing what the target runs as the records go, with the box that mutes it', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await expect(dialog.getByTestId('frozen-removal-automation-loading')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await bridge.waitForMessage('frozen:remove:automation', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:automation', 'frozen:remove:automation:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        steps: { setToDraft: [], delete: ['Contact', 'Account'] },
+        automation: {
+          objectsRead: ['Contact', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+            },
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Bypass', label: 'Delete bypass', grants: 1 }],
+            },
+          ],
+        },
+      });
+      await dialog
+        .getByTestId('frozen-removal-automation-mute-toggle')
+        .waitFor({ timeout: 10_000 });
+      await expect(dialog.getByTestId('frozen-removal-automation-delete-Account')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen load removal confirmation with a sweep ticked, listing what it would take', async ({
       page,
     }) => {

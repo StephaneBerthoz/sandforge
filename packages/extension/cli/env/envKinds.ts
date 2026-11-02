@@ -566,6 +566,7 @@ export function previewLineOf(
           configFile: context.subject,
           target: context.target,
           includeChanged: context.includeChanged,
+          acceptAutomation: context.acceptAutomation,
         }),
       };
     case DATAOPS_SCRIPT:
@@ -645,7 +646,6 @@ export function removeLineOf(
     case FORGE_SCRIPT:
       return { script, args: forgeRemoveLine(input) };
     case FROZEN_SCRIPT:
-      // A Frozen removal takes no acceptance of automation: it reads none.
       return {
         script,
         args: frozenRemoveLine({
@@ -653,6 +653,7 @@ export function removeLineOf(
           target: context.target,
           includeChanged: context.includeChanged,
           sweep: context.sweep,
+          acceptAutomation: context.acceptAutomation,
         }),
       };
     case DATAOPS_SCRIPT:

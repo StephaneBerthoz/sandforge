@@ -100,6 +100,7 @@ import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.j
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
@@ -3566,8 +3567,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   const { readWhole, filesForgotten } = outcome.result;
   const sweep = parts?.result();
+  const status = removalStatusWithSweep(outcome.result.status, sweep);
   output(
-    outcome.result.status,
+    status,
     outcome.result.objects,
     outcome.planned,
     {
@@ -3580,9 +3582,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     outcome.result.undeleted,
     mutedAutomation,
   );
-  if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
-    process.exit(RECORDS_LEFT_EXIT);
-  }
+  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // `tsx` runs this file directly; the import check keeps it silent under test.

@@ -1505,8 +1505,13 @@ describe('the frozen resource and the references between resources, on the page'
       [FROZEN_KIND, "'may-hold-masks'", 'a field the target encrypts that may hold masks'],
       [
         FROZEN_KIND,
-        'a Frozen load and its removal take no acceptance of automation',
-        '`accept: { automation: true }` on a frozen resource is warned of',
+        "...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+        'unless `--accept-automation` or `accept: { automation: true }` on the resource, handed to `remove`',
+      ],
+      [
+        PLAN,
+        'What a removal would be refused for that a frozen resource',
+        'and so does a reload, which is why a replace is not held to it',
       ],
     ];
     for (const [code, said, page] of pins) {

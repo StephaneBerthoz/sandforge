@@ -6,6 +6,7 @@ import {
   removalAuditOutcome,
   removalMark,
   removalStatus,
+  removalStatusWithSweep,
 } from './removalOutcome.js';
 
 /** One object's outcome, nothing counted but what a test names. */
@@ -24,6 +25,31 @@ function object(overrides: Partial<ForgeUndoObjectResult>): ForgeUndoObjectResul
     ...overrides,
   };
 }
+
+describe('removalStatusWithSweep', () => {
+  it.each(['partial', 'failure', 'refused'] as const)(
+    'makes partial a removal that took its records with a sweep that ended %s',
+    (status) => {
+      expect(removalStatusWithSweep('success', { status })).toBe('partial');
+    },
+  );
+
+  it('says a sweep stopped part way as a stop', () => {
+    expect(removalStatusWithSweep('success', { status: 'cancelled' })).toBe('cancelled');
+  });
+
+  it('leaves a success with a sweep that took what it was asked, or none asked', () => {
+    expect(removalStatusWithSweep('success', { status: 'success' })).toBe('success');
+    expect(removalStatusWithSweep('success', undefined)).toBe('success');
+  });
+
+  it.each(['partial', 'failure', 'cancelled'] as const)(
+    'leaves a removal that ended %s as it ended, whatever its sweep did',
+    (status) => {
+      expect(removalStatusWithSweep(status, { status: 'refused' })).toBe(status);
+    },
+  );
+});
 
 describe('removalStatus', () => {
   it('is a success when nothing is left in the org, deleted or found gone', () => {

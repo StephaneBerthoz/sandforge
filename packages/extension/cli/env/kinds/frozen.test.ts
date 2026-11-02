@@ -115,7 +115,6 @@ describe('a frozen resource, converted', () => {
     });
     expect(converted.warnings.map((warning) => warning.message)).toEqual([
       'claims.frozen.json gives datasetDir, which the environment sets: the loads are kept beside the state, and the dataset is the one the file pins',
-      'a Frozen load and its removal take no acceptance of automation: what the org runs as the records go in, they run unasked',
     ]);
   });
 
@@ -256,7 +255,20 @@ describe('a frozen resource’s lines', () => {
       step: 'remove',
       preview: false,
       sweep: true,
+      acceptAutomation: false,
       yes: true,
+    });
+  });
+
+  it('hands a removal and its preview the acceptance of automation it was given, as the script reads it', () => {
+    expect(parsed(frozenRemoveLine({ ...line, acceptAutomation: true }))).toMatchObject({
+      step: 'remove',
+      acceptAutomation: true,
+    });
+    expect(parsed(frozenPreviewLine({ ...line, acceptAutomation: true }))).toMatchObject({
+      step: 'remove',
+      preview: true,
+      acceptAutomation: true,
     });
   });
 

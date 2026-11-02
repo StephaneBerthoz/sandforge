@@ -55,7 +55,11 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
-import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
+import {
+  removalAuditObjects,
+  removalAuditOutcome,
+  removalStatusWithSweep,
+} from '../../modules/forge/removalOutcome.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import {
@@ -1278,16 +1282,18 @@ export class SyncRemovalHandler implements DomainHandler {
       }
       const result: SyncRemovalResult = {
         ...removed,
+        status: removalStatusWithSweep(removed.status, swept),
         ...(swept ? { sweep: swept } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
+      // The sweep has its own entry: this one says what became of the run's records.
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'sync',
         operationId,
         orgId,
-        outcome: removalAuditOutcome(result),
+        outcome: removalAuditOutcome(removed),
         guard: decision,
         objects: withRestoreAudit(
           removalAuditObjects(result.objects),

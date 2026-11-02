@@ -176,6 +176,7 @@ import {
 } from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
+import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { madeKept } from '../src/modules/forge/sweepTies.js';
 import { keepRunUser } from '../src/modules/sync/runUser.js';
 import {
@@ -3464,10 +3465,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (outcome.stoppedForUndeletable) process.exit(1);
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const sweep = parts?.result();
-  output(outcome.result.status, outcome.result.objects, outcome.planned, sweep, mutedAutomation);
-  if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
-    process.exit(RECORDS_LEFT_EXIT);
-  }
+  const status = removalStatusWithSweep(outcome.result.status, sweep);
+  output(status, outcome.result.objects, outcome.planned, sweep, mutedAutomation);
+  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // ─── --remove --preview ──────────────────────────────────────────────────────

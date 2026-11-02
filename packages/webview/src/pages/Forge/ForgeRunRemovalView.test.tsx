@@ -188,6 +188,51 @@ describe('ForgeRunRemovalPlan', () => {
 });
 
 describe('ForgeRunRemovalResult', () => {
+  describe('a removal its sweep made partial', () => {
+    const sweep = {
+      status: 'failure' as const,
+      objects: [],
+      unread: [],
+      handWork: [],
+    };
+
+    it('says the run’s records went, and that the sweep left what it was asked to take', () => {
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+            sweep,
+          })}
+        />,
+      );
+
+      const title = screen.getAllByRole('heading')[0];
+      expect(title?.textContent).toBe(
+        'No record this run created is left in DEV-SANDBOX, but the sweep did not take all it was asked to, as listed below.',
+      );
+      expect(title?.className).toContain('text-status-warning');
+    });
+
+    it('says a partial removal as ever when records of the run stay too', () => {
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 2, refused: 1 })],
+            sweep,
+          })}
+        />,
+      );
+
+      expect(screen.getAllByRole('heading')[0]?.textContent).toBe(
+        'Records this run created were removed from DEV-SANDBOX; the others stay, as listed.',
+      );
+    });
+  });
+
   it('says, per object, only the counts that are not zero', () => {
     render(
       <ForgeRunRemovalResult
