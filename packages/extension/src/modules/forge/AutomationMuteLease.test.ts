@@ -567,8 +567,8 @@ describe('muteLines', () => {
   it('says on a dry run what a real run would assign, and that it assigns nothing', async () => {
     const mute = await prepared(orgWith(), asProcess(100));
     expect(muteLines(mute.planned, 'TGT')[0]).toBe(
-      'mute: a real run would assign the permission set(s) holding Account_BypassFlow, Bypass_VR ' +
-        'to the user it writes as in TGT, for the run alone; this dry run assigns nothing',
+      'mute: planned, the permission set(s) holding Account_BypassFlow, Bypass_VR ' +
+        'for the user it writes as in TGT, for the run alone; nothing is assigned yet',
     );
   });
 

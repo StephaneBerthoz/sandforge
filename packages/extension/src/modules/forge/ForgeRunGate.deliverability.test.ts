@@ -72,7 +72,8 @@ describe('deliverabilityGate', () => {
     expect(gate.audit).toBe('withheld');
     expect(gate.line).toBe(
       'deliverability: System email only or No access — none of the emails its flows, ' +
-        'processes, workflow rules and Apex send goes out (read with one line of anonymous ' +
+        'processes, workflow rules and Apex send goes out, and the org still counts them against ' +
+        'its daily email limits (read with one line of anonymous ' +
         'Apex that sends nothing)',
     );
   });

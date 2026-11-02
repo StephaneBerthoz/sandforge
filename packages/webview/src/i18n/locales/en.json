@@ -5563,7 +5563,7 @@
     "deliverability": {
       "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the run writes may send some: {{senders}}.",
       "unread": "Whether {{org}} delivers the emails its automation sends could not be read ({{reason}}), and what still runs as the run writes may send some: {{senders}}. On System email only or No access (Setup > Deliverability), none of them goes out.",
-      "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of {{senders}} as the run writes.",
+      "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of {{senders}} as the run writes. {{org}} still counts them against its daily email limits.",
       "quiet": "What sends emails as the run writes tests a bypass: muted, none of it sends, and nothing is asked of them.",
       "addresses": "They go to the addresses the records and the alerts name, those of the records' owners and of the records already in {{org}} among them.",
       "readAgain": "The run reads {{org}} again just before it writes, and asks first if they would go out.",

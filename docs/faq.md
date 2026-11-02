@@ -123,7 +123,7 @@ Only if the target delivers them, which SandForge reads before it writes. Neutra
 
 | The org is on                   | What goes out                                          | What the run does                                                                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| System email only, or No access | None of what its flows, processes, rules and Apex send | Asks nothing, and says why. A flow's Send Email is held back without an error, and the record saves                                                                                |
+| System email only, or No access | None of what its flows, processes, rules and Apex send | Asks nothing, and says why. A flow's Send Email is held back without an error, the record saves, and the org still counts the email against its daily limits                       |
 | All email                       | Every email of what still runs                         | The panel's question names what sends and where it goes, and its button reads **Execute and send the emails**; the command line writes nothing without `--accept-emails`, exit `1` |
 | The org would not say           | Unknown: taken for All email                           | The same: a user the org will not let run anonymous Apex reads so on any org                                                                                                       |
 

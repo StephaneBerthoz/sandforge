@@ -5563,7 +5563,7 @@
     "deliverability": {
       "all": "{{org}} délivre tous les e-mails que ses automatisations envoient (Configuration > Délivrabilité : Tous les e-mails), et ce qui reste actif quand l'exécution écrit peut en envoyer : {{senders}}.",
       "unread": "Impossible de lire si {{org}} délivre les e-mails que ses automatisations envoient ({{reason}}), et ce qui reste actif quand l'exécution écrit peut en envoyer : {{senders}}. En E-mail système uniquement ou Aucun accès (Configuration > Délivrabilité), aucun ne part.",
-      "withheld": "{{org}} ne délivre aucun des e-mails que ses Flows, processus, règles de workflow et Apex envoient (Configuration > Délivrabilité : E-mail système uniquement ou Aucun accès) : rien ne part de {{senders}} quand l'exécution écrit.",
+      "withheld": "{{org}} ne délivre aucun des e-mails que ses Flows, processus, règles de workflow et Apex envoient (Configuration > Délivrabilité : E-mail système uniquement ou Aucun accès) : rien ne part de {{senders}} quand l'exécution écrit. {{org}} les compte tout de même dans ses limites quotidiennes d'e-mails.",
       "quiet": "Ce qui envoie des e-mails quand l'exécution écrit teste un contournement : rendu muet, il n'en envoie aucun, et rien n'est demandé à leur sujet.",
       "addresses": "Ils partent aux adresses que nomment les enregistrements et les alertes, dont celles des propriétaires des enregistrements et des enregistrements déjà dans {{org}}.",
       "readAgain": "L'exécution relit {{org}} juste avant d'écrire, et demande d'abord s'ils partiraient.",

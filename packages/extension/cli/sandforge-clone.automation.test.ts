@@ -1265,8 +1265,8 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--mute-automation', '--dry-run'))).toBeUndefined();
 
       expect(printed).toContain(
-        '  mute: a real run would assign the permission set(s) holding Load_Data to the user it ' +
-          'writes as in TGT, for the run alone; this dry run assigns nothing',
+        '  mute: planned, the permission set(s) holding Load_Data for the user it ' +
+          'writes as in TGT, for the run alone; nothing is assigned yet',
       );
       expect(printed).toContain('    silenced: Contact: flow "Contact welcome" (bypass Load_Data)');
       expect(perms.writes).toEqual([]);
@@ -1779,7 +1779,8 @@ describe('sandforge-clone target automation', () => {
       expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
       expect(printed).toContain(
         '  deliverability: System email only or No access — none of the emails its flows, ' +
-          'processes, workflow rules and Apex send goes out (read with one line of anonymous Apex ' +
+          'processes, workflow rules and Apex send goes out, and the org still counts them against ' +
+          'its daily email limits (read with one line of anonymous Apex ' +
           'that sends nothing)',
       );
     });

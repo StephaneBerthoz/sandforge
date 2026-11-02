@@ -302,8 +302,9 @@ Options:
                          (Messaging.reserveSingleEmailCapacity(1)), as the
                          user the run writes as, never in a production org; on
                          System email only or No access, none of them goes
-                         out and nothing is asked. What an Apex trigger sends
-                         is read nowhere                   (default: off)
+                         out, the org still counts them against its daily
+                         limits, and nothing is asked. What an Apex trigger
+                         sends is read nowhere             (default: off)
   --fit share            seed the largest share of every count that fits
                          the data storage the target has left: each object
                          about that share of its records, at least one, a

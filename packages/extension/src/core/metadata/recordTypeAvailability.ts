@@ -104,7 +104,9 @@ export function parseRecordTypeInfos(raw: unknown): RecordTypeAvailability[] {
     const name = info.name ?? info.developerName ?? info.recordTypeId;
     infos.push({
       recordTypeId: info.recordTypeId,
-      developerName: info.developerName ?? name,
+      // Both names of the master record type follow the org's language
+      // (`Principal` in a French org), where every other type keeps its own.
+      developerName: info.master === true ? 'Master' : (info.developerName ?? name),
       name,
       available: info.available,
       active: info.active ?? true,

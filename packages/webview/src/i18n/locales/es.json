@@ -5563,7 +5563,7 @@
     "deliverability": {
       "all": "{{org}} entrega todos los correos que envían sus automatizaciones (Configuración > Capacidad de entrega: Todos los emails), y lo que sigue activo cuando la ejecución escribe puede enviar algunos: {{senders}}.",
       "unread": "No se pudo leer si {{org}} entrega los correos que envían sus automatizaciones ({{reason}}), y lo que sigue activo cuando la ejecución escribe puede enviar algunos: {{senders}}. Con Solo email del sistema o Sin acceso (Configuración > Capacidad de entrega), no sale ninguno.",
-      "withheld": "{{org}} no entrega ninguno de los correos que envían sus flujos, procesos, reglas de flujo de trabajo y Apex (Configuración > Capacidad de entrega: Solo email del sistema o Sin acceso): no sale nada de {{senders}} cuando la ejecución escribe.",
+      "withheld": "{{org}} no entrega ninguno de los correos que envían sus flujos, procesos, reglas de flujo de trabajo y Apex (Configuración > Capacidad de entrega: Solo email del sistema o Sin acceso): no sale nada de {{senders}} cuando la ejecución escribe. {{org}} los cuenta igualmente en sus límites diarios de correo.",
       "quiet": "Lo que envía correos cuando la ejecución escribe comprueba un bypass: silenciado, no envía ninguno y no se pregunta nada sobre ellos.",
       "addresses": "Van a las direcciones que nombran los registros y las alertas, entre ellas las de los propietarios de los registros y las de los registros que ya están en {{org}}.",
       "readAgain": "La ejecución vuelve a leer {{org}} justo antes de escribir, y pregunta primero si saldrían.",

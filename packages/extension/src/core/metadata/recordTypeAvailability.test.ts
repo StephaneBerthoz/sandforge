@@ -63,6 +63,27 @@ const ACCOUNT_RECORD_TYPE_INFOS = [
 ];
 
 describe('parseRecordTypeInfos', () => {
+  it('names the master record type Master, whatever language the org answers in', () => {
+    const [master, own] = parseRecordTypeInfos([
+      {
+        recordTypeId: '012000000000000AAA',
+        developerName: 'Principal',
+        name: 'Principal',
+        available: true,
+        master: true,
+      },
+      {
+        recordTypeId: '012000000000001AAA',
+        developerName: 'Principal_Case',
+        name: 'Principal Case',
+        available: true,
+      },
+    ]);
+
+    expect(master).toMatchObject({ developerName: 'Master', name: 'Principal', master: true });
+    expect(own).toMatchObject({ developerName: 'Principal_Case', master: false });
+  });
+
   it('reads availability, activity and the default for the running user', () => {
     const infos = parseRecordTypeInfos(ACCOUNT_RECORD_TYPE_INFOS);
 

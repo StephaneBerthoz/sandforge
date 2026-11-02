@@ -1028,8 +1028,8 @@ export function muteLines(muted: MutedAutomation, target: string): string[] {
     lines.push(`mute: ${muted.reason ?? NOTHING_TO_MUTE}`);
   } else if (muted.state === 'planned') {
     lines.push(
-      `mute: a real run would assign ${muted.permissions.length > 0 ? `the permission set(s) holding ${muted.permissions.join(', ')}` : 'nothing'} ` +
-        `to the user it writes as in ${target}, for the run alone; this dry run assigns nothing`,
+      `mute: planned, ${muted.permissions.length > 0 ? `the permission set(s) holding ${muted.permissions.join(', ')}` : 'nothing'} ` +
+        `for the user it writes as in ${target}, for the run alone; nothing is assigned yet`,
     );
   } else {
     lines.push(

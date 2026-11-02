@@ -5563,7 +5563,7 @@
     "deliverability": {
       "all": "{{org}} entrega todos os e-mails que suas automações enviam (Configuração > Capacidade de entrega: Todos os emails), e o que continua ativo quando a execução grava pode enviar alguns: {{senders}}.",
       "unread": "Não foi possível ler se {{org}} entrega os e-mails que suas automações enviam ({{reason}}), e o que continua ativo quando a execução grava pode enviar alguns: {{senders}}. Com Somente email do sistema ou Sem acesso (Configuração > Capacidade de entrega), nenhum sai.",
-      "withheld": "{{org}} não entrega nenhum dos e-mails que seus fluxos, processos, regras de fluxo de trabalho e Apex enviam (Configuração > Capacidade de entrega: Somente email do sistema ou Sem acesso): nada sai de {{senders}} quando a execução grava.",
+      "withheld": "{{org}} não entrega nenhum dos e-mails que seus fluxos, processos, regras de fluxo de trabalho e Apex enviam (Configuração > Capacidade de entrega: Somente email do sistema ou Sem acesso): nada sai de {{senders}} quando a execução grava. {{org}} ainda os conta nos limites diários de e-mail.",
       "quiet": "O que envia e-mails quando a execução grava testa um bypass: silenciado, não envia nenhum, e nada é perguntado sobre eles.",
       "addresses": "Eles vão para os endereços que os registros e os alertas nomeiam, entre eles os dos proprietários dos registros e os dos registros que já estão em {{org}}.",
       "readAgain": "A execução lê {{org}} de novo logo antes de gravar, e pergunta primeiro se eles sairiam.",

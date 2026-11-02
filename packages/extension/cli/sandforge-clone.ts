@@ -643,8 +643,9 @@ Options:
                          Messaging.reserveSingleEmailCapacity(1), as the user
                          the run writes as, never in a production org; on
                          System email only or No access, none of them goes
-                         out and nothing is asked. What an Apex trigger sends
-                         is read nowhere                        (default: off)
+                         out, the org still counts them against its daily
+                         limits, and nothing is asked. What an Apex trigger
+                         sends is read nowhere                  (default: off)
   --mute-automation      mute the target's automation for the run through its
                          own bypass: assign the user the run writes as, for the
                          run alone, the permission sets holding the custom

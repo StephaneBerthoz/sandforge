@@ -5563,7 +5563,7 @@
     "deliverability": {
       "all": "{{org}} stellt jede E-Mail zu, die ihre Automatisierungen senden (Setup > Zustellbarkeit: Alle E-Mails), und was noch aktiv ist, wenn der Lauf schreibt, kann welche senden: {{senders}}.",
       "unread": "Ob {{org}} die E-Mails zustellt, die ihre Automatisierungen senden, konnte nicht gelesen werden ({{reason}}), und was noch aktiv ist, wenn der Lauf schreibt, kann welche senden: {{senders}}. Bei „Nur System-E-Mails“ oder „Kein Zugriff“ (Setup > Zustellbarkeit) geht keine davon hinaus.",
-      "withheld": "{{org}} stellt keine der E-Mails zu, die ihre Flows, Prozesse, Workflow-Regeln und Apex senden (Setup > Zustellbarkeit: Nur System-E-Mails oder Kein Zugriff): Von {{senders}} geht nichts hinaus, wenn der Lauf schreibt.",
+      "withheld": "{{org}} stellt keine der E-Mails zu, die ihre Flows, Prozesse, Workflow-Regeln und Apex senden (Setup > Zustellbarkeit: Nur System-E-Mails oder Kein Zugriff): Von {{senders}} geht nichts hinaus, wenn der Lauf schreibt. {{org}} rechnet sie trotzdem auf seine täglichen E-Mail-Limits an.",
       "quiet": "Was beim Schreiben des Laufs E-Mails sendet, prüft einen Bypass: Stummgeschaltet sendet es keine, und nichts wird dazu gefragt.",
       "addresses": "Sie gehen an die Adressen, die die Datensätze und die Benachrichtigungen nennen, darunter die der Inhaber der Datensätze und der Datensätze, die bereits in {{org}} sind.",
       "readAgain": "Der Lauf liest {{org}} unmittelbar vor dem Schreiben erneut und fragt zuerst, falls sie hinausgingen.",

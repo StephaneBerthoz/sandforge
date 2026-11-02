@@ -1485,7 +1485,8 @@ export function deliverabilityLineOf(reading: EmailDeliverability): string {
   }
   return (
     'deliverability: System email only or No access — none of the emails its flows, ' +
-    `processes, workflow rules and Apex send goes out (${READ_WITH})`
+    'processes, workflow rules and Apex send goes out, and the org still counts them against ' +
+    `its daily email limits (${READ_WITH})`
   );
 }
 
