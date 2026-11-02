@@ -49,6 +49,7 @@ import {
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
 import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
+import { RewindDeliverability, rewindEmailsAskOf } from './RewindDeliverability';
 import {
   FILE_LINK_OBJECT,
   FILE_OBJECT,
@@ -128,15 +129,18 @@ const DAY_MS = 86_400_000;
 
 /**
  * The refusals the preview's boxes lift: what the org runs as a rewind
- * writes, the records Undo could not bring back, the records made again with
- * new Ids, and what the deletions take along out of the user's sight. Any
- * other the preview names — a SandForge run writing to the org, too few API
- * requests left today — holds the rewind whatever is ticked.
+ * writes, the emails it sends that an org on All email delivers, the records
+ * Undo could not bring back, the records made again with new Ids, and what
+ * the deletions take along out of the user's sight. Any other the preview
+ * names — a SandForge run writing to the org, too few API requests left
+ * today, more emails than the org has left today (`EMAILS`) — holds the
+ * rewind whatever is ticked.
  */
 const LIFTED_BY: Partial<
-  Record<CheckpointRefusalCode, 'automation' | 'noUndo' | 'recreate' | 'unseen'>
+  Record<CheckpointRefusalCode, 'automation' | 'emails' | 'noUndo' | 'recreate' | 'unseen'>
 > = {
   AUTOMATION: 'automation',
+  EMAILS_DELIVERED: 'emails',
   NO_UNDO: 'noUndo',
   RECREATE: 'recreate',
   UNSEEN: 'unseen',
@@ -227,6 +231,13 @@ export interface RewindAcceptances {
    * box beside what it fires was ticked; absent, nothing is muted.
    */
   muteAutomation?: true;
+  /**
+   * Let the org send the emails what still runs sends as the rewind writes,
+   * on All email or an org that would not say, as their own box was ticked:
+   * unaccepted, such a rewind is refused (`EMAILS_DELIVERED`), writing
+   * nothing. Never given by the automation's box; absent, not accepted.
+   */
+  acceptEmails?: true;
 }
 
 /** Props for {@link RewindPreview}. */
@@ -251,6 +262,13 @@ export interface RewindPreviewProps {
    * page's Rewind step shows this preview, and runs no mute.
    */
   muteBox?: MuteBoxOf;
+  /**
+   * Open with the box that mutes ticked: the preview opened from the result
+   * of a run that muted the org's automation, whose checkpoint it rewinds
+   * to, and whose rewind fires the same automation. The box stays the
+   * user's to untick, and a read again keeps what it was left at.
+   */
+  startMuted?: boolean;
 }
 
 /** Draws the box that mutes a rewind's automation from the offer of a preview. */
@@ -263,6 +281,7 @@ export type MuteBoxOf = (
 /** The boxes of a preview, ticked for that preview alone: one read again starts unticked. */
 interface Ticked {
   automation: boolean;
+  emails: boolean;
   noUndo: boolean;
   recreate: boolean;
   outside: boolean;
@@ -283,7 +302,9 @@ interface Ticked {
  *
  * What Undo could not bring back, the records the recycle bin no longer gives
  * back, which the rewind makes again with new Ids, the automation the org
- * runs as the rewind writes, and, for a user without View All Data and Modify
+ * runs as the rewind writes, the emails what still runs sends where the org
+ * delivers them all or would not say (their own box: the automation's never
+ * stands for it), and, for a user without View All Data and Modify
  * All Data, what the rewind's deletions take along that the user is not
  * proven to see, are each accepted with a box before Rewind can be pressed;
  * in a checkpoint of
@@ -312,9 +333,14 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   onClose,
   onRewind,
   muteBox,
+  startMuted = false,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
+  // The box beside what the rewind fires: mute it, through the org's own
+  // bypass. Not among the boxes that lift a refusal, which a read again
+  // unticks: ticked, it asks something more of the org, which may refuse it.
+  const [mute, setMute] = useState(startMuted);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
   useFocusOnChange(headingRef, checkpoint.checkpointId, { onMount: true });
@@ -374,6 +400,8 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
         onReadAgain={preview.refetch}
         onRewind={onRewind}
         {...(muteBox ? { muteBox } : {})}
+        mute={mute}
+        onMute={setMute}
       />
     );
   }
@@ -465,6 +493,9 @@ interface PreviewBodyProps {
   onReadAgain: () => void;
   onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
   muteBox?: MuteBoxOf;
+  /** Whether the box that mutes is ticked, and its toggle. */
+  mute: boolean;
+  onMute: (mute: boolean) => void;
 }
 
 /** What a rewind would do, as the org answered: see {@link RewindPreview}. */
@@ -477,10 +508,12 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   onReadAgain,
   onRewind,
   muteBox,
+  mute,
+  onMute,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
-  const { diff, automation, emails, emailsUncounted, estimate, refusal } = answer;
+  const { diff, automation, emails, emailsUncounted, deliverability, estimate, refusal } = answer;
   const settings = customSettingsOf(checkpoint);
   const undoCannotId = useId();
   const recreateId = useId();
@@ -492,10 +525,12 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     recreate: useId(),
     unseen: useId(),
     automation: useId(),
+    emails: useId(),
   } as const;
   const rewindNeedsId = useId();
   const [ticked, setTicked] = useState<Ticked>({
     automation: false,
+    emails: false,
     noUndo: false,
     recreate: false,
     outside: false,
@@ -503,10 +538,6 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   });
   // What Rewind accepted as it was pressed, while the org's name is typed.
   const [confirming, setConfirming] = useState<RewindAcceptances | null>(null);
-  // The box beside what the rewind fires: mute it, through the org's own
-  // bypass. Not among the boxes that lift a refusal: ticked, it asks for
-  // something more of the org, which may refuse it.
-  const [mute, setMute] = useState(false);
   const tick = (box: keyof Ticked, value: boolean): void =>
     setTicked((was) => ({ ...was, [box]: value }));
 
@@ -586,6 +617,18 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const automationFound =
     automation !== undefined &&
     (stillFires.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
+  // The emails what still runs sends, which an org on All email — or one
+  // that would not say — delivers: accepted with their own box, which the
+  // automation's never stands for, as the rewind's gate refuses them without
+  // it. What the mute keeps quiet sends none.
+  const emailsAsk = rewindEmailsAskOf({
+    deliverability,
+    automation,
+    steps,
+    ...(muting && muteOffer ? { mute: muteOffer } : {}),
+    refused: refusal?.code === 'EMAILS_DELIVERED',
+  });
+  const emailsAsked = emailsAsk.verdict === 'asks';
   const outside = outsideLines(counted);
   const remade = recreateLines(counted);
   // Read object by object: what the deletions take along out of the user's
@@ -614,7 +657,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     (counted.undoCannot.length === 0 || ticked.noUndo) &&
     (remade.length === 0 || ticked.recreate) &&
     (unseen.length === 0 || ticked.unseen) &&
-    (!automationFound || ticked.automation);
+    (!automationFound || ticked.automation) &&
+    (!emailsAsked || ticked.emails);
 
   // The boxes still to tick, each with the words it is ticked by. The
   // labels are the Automation Rewind step's, so both places say the same.
@@ -623,6 +667,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     recreate: t('checkpoint.preview.recreate.accept'),
     unseen: t('checkpoint.preview.unseen.accept'),
     automation: t('checkpoint.preview.automation.accept'),
+    emails: t('checkpoint.preview.deliverability.accept', { org: orgName }),
   };
   const untickedBoxes = (
     [
@@ -630,6 +675,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       ['recreate', remade.length > 0],
       ['unseen', unseen.length > 0],
       ['automation', writes && shown !== undefined && automationFound],
+      ['emails', writes && emailsAsked],
     ] as const
   )
     .filter(([box, asked]) => asked && !ticked[box])
@@ -689,6 +735,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       acceptUnseen: unseen.length > 0 && ticked.unseen,
       ...(selecting ? { objects: picks } : {}),
       ...(muting ? { muteAutomation: true as const } : {}),
+      ...(emailsAsked && ticked.emails ? { acceptEmails: true as const } : {}),
     });
   };
   const confirmed = (): void => {
@@ -928,7 +975,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             error={null}
             reading={readingAgain}
             onReadAgain={onReadAgain}
-            {...(muteBox ? { after: muteBox(muteOffer, mute, setMute) } : {})}
+            {...(muteBox ? { after: muteBox(muteOffer, mute, onMute) } : {})}
           />
           {emails && emails.length > 0 && <Emails emails={emails} orgName={orgName} />}
           {/* Said whether or not anything else sends: a package's flow is never read. */}
@@ -947,6 +994,28 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
               onChange={(value) => tick('automation', value)}
               label={boxLabels.automation}
               testId="checkpoint-preview-accept-automation"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Apart from what fires: the automation's box lets it run, and never
+          lets the org send its emails out. */}
+      {writes && emailsAsk.verdict !== 'none' && (
+        <div className="flex flex-col gap-1.5" data-testid="checkpoint-preview-emails-out">
+          <RewindDeliverability
+            ask={emailsAsk}
+            reading={deliverability?.reading}
+            orgName={orgName}
+            testId="checkpoint-preview-deliverability"
+          />
+          {emailsAsked && (
+            <Box
+              id={boxIds.emails}
+              checked={ticked.emails}
+              onChange={(value) => tick('emails', value)}
+              label={boxLabels.emails}
+              testId="checkpoint-preview-accept-emails"
             />
           )}
         </div>

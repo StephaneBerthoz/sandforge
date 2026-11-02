@@ -2640,7 +2640,8 @@
       "acceptNoUndo": "Permitir eliminaciones que Deshacer este retroceso no podrá recuperar",
       "acceptRecreate": "Volver a crear, con Id nuevos, los registros ya vaciados de la papelera",
       "acceptOutside": "Permitir eliminaciones que se extienden a registros secundarios de objetos fuera del punto de control",
-      "acceptUnseen": "Permitir eliminaciones que se extienden a registros que el usuario conectado quizá no vea (sin View All Data ni Modify All Data)"
+      "acceptUnseen": "Permitir eliminaciones que se extienden a registros que el usuario conectado quizá no vea (sin View All Data ni Modify All Data)",
+      "acceptEmails": "Ejecutar aunque la org entregue los correos que envían sus flujos, procesos o reglas de flujo de trabajo cuando escribe (Todos los emails), o no diga si los entrega"
     },
     "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» en cada ejecución, incluidas las programadas, como máximo {{max}} registros, revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces.",
     "rewindSaveFirst": "Guarde el pipeline y luego confirme este retroceso.",
@@ -6227,7 +6228,14 @@
       "access": {
         "perObject": "Creado con View All y Modify All objeto por objeto, sin View All Data y Modify All Data: solo guarda los objetos que su usuario veía enteros."
       },
-      "more": "Más"
+      "more": "Más",
+      "beforeRun": {
+        "forge": "Antes de la ejecución de Forge",
+        "sync": "Antes de la ejecución de Sync",
+        "seed": "Antes de la ejecución de Seed",
+        "autopilot": "Antes de la ejecución de Autopilot",
+        "frozen": "Antes de la carga de Dataset congelado"
+      }
     },
     "rename": {
       "title": "Cambiar el nombre de «{{name}}»"
@@ -6541,6 +6549,24 @@
         "tick": "Para retroceder, marque:",
         "plan": "Leyendo el plan de los objetos marcados…",
         "planFailed": "No se pudo leer el plan de los objetos marcados: vuelva a intentarlo más arriba."
+      },
+      "deliverability": {
+        "all": "{{org}} entrega todos los correos que envían sus automatizaciones (Configuración > Capacidad de entrega: Todos los emails), y lo que sigue ejecutándose cuando el retroceso escribe puede enviar algunos: {{senders}}.",
+        "unread": "No se pudo leer si {{org}} entrega los correos que envían sus automatizaciones ({{reason}}), y lo que sigue ejecutándose cuando el retroceso escribe puede enviar algunos: {{senders}}. Con Solo email del sistema o Sin acceso (Configuración > Capacidad de entrega), no sale ninguno.",
+        "unlisted": "lo que no se pudo leer de sus automatizaciones",
+        "addresses": "Van a las direcciones que contienen los registros, a sus propietarios y a las direcciones que nombra una alerta: un retroceso vuelve a escribir los propios valores de {{org}}, nunca bajo .invalid.",
+        "withheld": "{{org}} no entrega ninguno de los correos que envían sus flujos, procesos, reglas de flujo de trabajo y Apex (Configuración > Capacidad de entrega: Solo email del sistema o Sin acceso): no sale nada y no se pregunta nada sobre ellos.",
+        "quiet": "Lo que envía correos cuando el retroceso escribe comprueba un bypass: silenciado, no envía ninguno y no se pregunta nada sobre ellos.",
+        "sender": {
+          "flow": "Flujo «{{name}}» en {{object}}",
+          "process": "Proceso «{{name}}» en {{object}}",
+          "workflowRule": "Regla de flujo de trabajo «{{name}}» en {{object}}",
+          "assignmentRule": "Regla de asignación «{{name}}» en {{object}}"
+        },
+        "notRead": "{{sender}} (no se leyó su definición)",
+        "moreSenders_one": "{{formatted}} más",
+        "moreSenders_other": "{{formatted}} más",
+        "accept": "Dejar que {{org}} envíe estos correos"
       }
     },
     "run": {
@@ -6564,7 +6590,11 @@
       "undoProgress": "Progreso de Deshacer",
       "stop": "Detener el retroceso",
       "stopUndo": "Detener Deshacer",
-      "stopping": "Deteniendo antes de su próxima llamada a {{org}}…"
+      "stopping": "Deteniendo antes de su próxima llamada a {{org}}…",
+      "emailsRefused": {
+        "rewind": "En esta página, el --accept-emails de la línea de comandos es la casilla «Dejar que {{org}} envíe estos correos» de la vista previa: retroceda de nuevo para marcarla.",
+        "undo": "En esta página, el --accept-emails de la línea de comandos es la casilla de los correos de la confirmación del deshacer: ábrala de nuevo para marcarla."
+      }
     },
     "result": {
       "success": "{{org}} ha vuelto a «{{name}}». Leída de nuevo: nada difiere en los objetos y campos que contiene.",
@@ -6698,7 +6728,8 @@
       "open": "Deshacer este retroceso",
       "title": "¿Deshacer el último retroceso de {{org}}?",
       "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes, envía de nuevo a la papelera lo que recuperó y elimina de nuevo lo que creó de nuevo. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
-      "acceptAutomation": "Deshacer aunque {{org}} ejecute automatizaciones cuando se actualizan, eliminan o recuperan registros"
+      "acceptAutomation": "Deshacer aunque {{org}} ejecute automatizaciones cuando se actualizan, eliminan o recuperan registros",
+      "acceptEmails": "Deshacer aunque {{org}} entregue todos los correos que envían sus automatizaciones cuando el deshacer escribe, o no diga si los entrega"
     },
     "stopComparing": {
       "title": "Dejar de comparar campos de «{{name}}»",

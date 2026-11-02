@@ -2640,7 +2640,8 @@
       "acceptNoUndo": "Autoriser des suppressions que l'annulation de ce retour arrière ne pourra pas rétablir",
       "acceptRecreate": "Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille",
       "acceptOutside": "Autoriser des suppressions qui s'étendent aux enregistrements enfants d'objets hors du point de contrôle",
-      "acceptUnseen": "Autoriser des suppressions qui s'étendent à des enregistrements que l'utilisateur connecté ne voit peut-être pas (sans View All Data ni Modify All Data)"
+      "acceptUnseen": "Autoriser des suppressions qui s'étendent à des enregistrements que l'utilisateur connecté ne voit peut-être pas (sans View All Data ni Modify All Data)",
+      "acceptEmails": "Lancer même si l'org délivre les e-mails que ses Flows, processus ou règles de workflow envoient quand il écrit (Tous les e-mails), ou ne dit pas s'ils partent"
     },
     "rewindConfirmedOn": "Confirmé le {{date}} : cette étape fait revenir {{org}} à « {{name}} » à chaque exécution, planifiées comprises, au plus {{max}} enregistrements, en annulant ou supprimant toute modification faite depuis, par qui que ce soit.",
     "rewindSaveFirst": "Enregistrez le pipeline, puis confirmez ce retour arrière.",
@@ -6227,7 +6228,14 @@
       "access": {
         "perObject": "Pris avec View All et Modify All objet par objet, sans View All Data et Modify All Data : il ne garde que les objets que son utilisateur voyait en entier."
       },
-      "more": "Plus"
+      "more": "Plus",
+      "beforeRun": {
+        "forge": "Avant l'exécution Forge",
+        "sync": "Avant l'exécution Sync",
+        "seed": "Avant l'exécution Seed",
+        "autopilot": "Avant l'exécution Autopilot",
+        "frozen": "Avant le chargement du Jeu de données figé"
+      }
     },
     "rename": {
       "title": "Renommer « {{name}} »"
@@ -6541,6 +6549,24 @@
         "tick": "Pour revenir à ce point, cochez :",
         "plan": "Lecture du plan des objets cochés…",
         "planFailed": "Le plan des objets cochés n'a pas pu être lu : réessayez plus haut."
+      },
+      "deliverability": {
+        "all": "{{org}} délivre tous les e-mails que ses automatisations envoient (Configuration > Délivrabilité : Tous les e-mails), et ce qui s'exécute encore quand le retour arrière écrit peut en envoyer : {{senders}}.",
+        "unread": "Impossible de lire si {{org}} délivre les e-mails que ses automatisations envoient ({{reason}}), et ce qui s'exécute encore quand le retour arrière écrit peut en envoyer : {{senders}}. En E-mail système uniquement ou Aucun accès (Configuration > Délivrabilité), aucun ne part.",
+        "unlisted": "ce qui n'a pas pu être lu de ses automatisations",
+        "addresses": "Ils partent vers les adresses que portent les enregistrements, vers leurs propriétaires et vers les adresses qu'une alerte nomme : un retour arrière réécrit les propres valeurs de {{org}}, jamais mises sous .invalid.",
+        "withheld": "{{org}} ne délivre aucun des e-mails que ses Flows, processus, règles de workflow et Apex envoient (Configuration > Délivrabilité : E-mail système uniquement ou Aucun accès) : rien ne part, et rien n'est demandé à leur sujet.",
+        "quiet": "Ce qui envoie des e-mails quand le retour arrière écrit teste un contournement : rendu muet, il n'en envoie aucun, et rien n'est demandé à leur sujet.",
+        "sender": {
+          "flow": "Flow « {{name}} » sur {{object}}",
+          "process": "Processus « {{name}} » sur {{object}}",
+          "workflowRule": "Règle de workflow « {{name}} » sur {{object}}",
+          "assignmentRule": "Règle d'attribution « {{name}} » sur {{object}}"
+        },
+        "notRead": "{{sender}} (sa définition n'a pas été lue)",
+        "moreSenders_one": "{{formatted}} autre",
+        "moreSenders_other": "{{formatted}} autres",
+        "accept": "Laisser {{org}} envoyer ces e-mails"
       }
     },
     "run": {
@@ -6564,7 +6590,11 @@
       "undoProgress": "Progression de l'annulation",
       "stop": "Arrêter le retour arrière",
       "stopUndo": "Arrêter l'annulation",
-      "stopping": "Arrêt avant son prochain appel à {{org}}…"
+      "stopping": "Arrêt avant son prochain appel à {{org}}…",
+      "emailsRefused": {
+        "rewind": "Sur cette page, le --accept-emails de la ligne de commande est la case « Laisser {{org}} envoyer ces e-mails » de l'aperçu : relancez le retour arrière pour la cocher.",
+        "undo": "Sur cette page, le --accept-emails de la ligne de commande est la case des e-mails de la confirmation de l'annulation : rouvrez-la pour la cocher."
+      }
     },
     "result": {
       "success": "{{org}} est revenue à « {{name}} ». Relue : rien ne diffère dans les objets et les champs qu'il contient.",
@@ -6698,7 +6728,8 @@
       "open": "Annuler ce retour arrière",
       "title": "Annuler le dernier retour arrière de {{org}} ?",
       "description": "Rétablit depuis la corbeille ce que le retour arrière a supprimé, rend à ce qu'il a écrasé ses valeurs d'avant, renvoie à la corbeille ce qu'il a rétabli et supprime de nouveau ce qu'il a recréé. Ce que chacun a modifié dans {{org}} depuis le retour arrière reste tel quel.",
-      "acceptAutomation": "Annuler même si {{org}} exécute des automatisations quand des enregistrements sont modifiés, supprimés ou rétablis"
+      "acceptAutomation": "Annuler même si {{org}} exécute des automatisations quand des enregistrements sont modifiés, supprimés ou rétablis",
+      "acceptEmails": "Annuler même si {{org}} délivre tous les e-mails que ses automatisations envoient quand l'annulation écrit, ou ne dit pas s'ils partent"
     },
     "stopComparing": {
       "title": "Ne plus comparer des champs de « {{name}} »",

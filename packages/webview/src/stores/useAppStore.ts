@@ -83,9 +83,16 @@ export interface NavigationIntent {
   takeCheckpoint?: true;
   /**
    * Open Checkpoints on what a rewind of the selected org to this checkpoint
-   * would do: Home's "Rewind…", for the org's latest.
+   * would do: Home's "Rewind…", for the org's latest, and a run's "Rewind to
+   * before this run…", for the checkpoint it took first.
    */
   previewCheckpointId?: string;
+  /**
+   * The preview of `previewCheckpointId` opens with its mute ticked: the run
+   * whose checkpoint it is muted the target's automation, and its rewind
+   * fires the same automation.
+   */
+  previewMuted?: true;
   /**
    * A saved Sync configuration to open on Sync's execute step, by its id and
    * the name it was saved under: Migration's "Open in Sync", with the two

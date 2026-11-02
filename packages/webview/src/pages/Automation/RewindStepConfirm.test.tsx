@@ -191,6 +191,7 @@ describe('StepConfigPanel, a Rewind step', () => {
 
   it('groups the acceptances under a heading saying they widen the risk, folded while none is ticked', () => {
     // Five boxes stood unlabelled in the column, worded to be read twice.
+    // The emails' came beside the automation's, which never stands for it.
     renderPanel({ steps: [] });
     const group = screen.getByTestId('rewind-acceptances');
     expect(group.tagName).toBe('DETAILS');
@@ -201,12 +202,32 @@ describe('StepConfigPanel, a Rewind step', () => {
     const boxes = screen.getByRole('group', { name: 'Allow riskier changes (off by default)' });
     expect(Array.from(boxes.querySelectorAll('label'), (label) => label.textContent)).toEqual([
       'Run even if triggers, flows or workflow rules fire on the records it writes',
+      'Run even if the org delivers the emails its flows, processes or workflow rules send as it writes (All email), or would not say whether it does',
       'Allow deletions that Undo of this rewind cannot bring back',
       'Recreate, with new Ids, records already emptied from the Recycle Bin',
       'Allow deletions that cascade to child records of objects outside the checkpoint',
       'Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)',
     ]);
     expect(screen.queryByTestId('rewind-acceptances-count')).toBeNull();
+  });
+
+  it('accepts the emails off by default, and on only once its box is ticked', () => {
+    const onUpdate = vi.fn();
+    render(<StepConfigPanel step={step} onUpdate={onUpdate} rewind={{ steps: [] }} />);
+    const box = screen.getByTestId('config-acceptEmails') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(screen.getByTestId('config-acceptAutomation'));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      'step-r',
+      expect.objectContaining({
+        config: expect.not.objectContaining({ acceptEmails: true }),
+      }),
+    );
+    fireEvent.click(box);
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      'step-r',
+      expect.objectContaining({ config: expect.objectContaining({ acceptEmails: true }) }),
+    );
   });
 
   it('opens the acceptances of a step that gives one, and counts them on the heading', () => {

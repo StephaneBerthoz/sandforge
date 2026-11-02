@@ -85,6 +85,19 @@ describe('RewindBeforeRun', () => {
     expect(host.current?.lastPayload('org:select')).toEqual({ orgId: 'org-dev' });
   });
 
+  it('opens the preview with its mute ticked when the run muted the target’s automation', () => {
+    render(
+      <RewindBeforeRun checkpoint={TAKEN} orgId="org-dev" beside="none" muted testId="back" />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Rewind to before this run…' }));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'checkpoint',
+      previewCheckpointId: 'ck-20261101-101540-a1b2',
+      targetOrgId: 'org-dev',
+      previewMuted: true,
+    });
+  });
+
   it('says what the rewind does beside the removal, the checkpoint’s objects named', () => {
     render(<RewindBeforeRun checkpoint={TAKEN} orgId="org-dev" beside="run" testId="back" />);
     expect(screen.getByTestId('back-beside')).toHaveTextContent(

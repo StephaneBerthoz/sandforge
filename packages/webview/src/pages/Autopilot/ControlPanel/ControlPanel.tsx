@@ -257,6 +257,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             checkpoint={runEnd.checkpoint}
             orgId={runEnd.orgId}
             beside="none"
+            muted={mutedAutomation !== undefined}
             testId="control-checkpoint"
           />
         </div>

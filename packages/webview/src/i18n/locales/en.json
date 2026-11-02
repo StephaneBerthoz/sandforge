@@ -2640,7 +2640,8 @@
       "acceptNoUndo": "Allow deletions that Undo of this rewind cannot bring back",
       "acceptRecreate": "Recreate, with new Ids, records already emptied from the Recycle Bin",
       "acceptOutside": "Allow deletions that cascade to child records of objects outside the checkpoint",
-      "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)"
+      "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)",
+      "acceptEmails": "Run even if the org delivers the emails its flows, processes or workflow rules send as it writes (All email), or would not say whether it does"
     },
     "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",
@@ -6227,7 +6228,14 @@
       "access": {
         "perObject": "Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole."
       },
-      "more": "More"
+      "more": "More",
+      "beforeRun": {
+        "forge": "Before Forge run",
+        "sync": "Before Sync run",
+        "seed": "Before Seed run",
+        "autopilot": "Before Autopilot run",
+        "frozen": "Before Frozen Dataset load"
+      }
     },
     "rename": {
       "title": "Rename “{{name}}”"
@@ -6541,6 +6549,24 @@
         "tick": "To rewind, tick:",
         "plan": "Reading the plan of the objects ticked…",
         "planFailed": "The plan of the objects ticked could not be read: try again above."
+      },
+      "deliverability": {
+        "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the rewind writes may send some: {{senders}}.",
+        "unread": "Whether {{org}} delivers the emails its automation sends could not be read ({{reason}}), and what still runs as the rewind writes may send some: {{senders}}. On System email only or No access (Setup > Deliverability), none of them goes out.",
+        "unlisted": "what of its automation could not be read",
+        "addresses": "They go to the addresses the records hold, to the records' owners and to the addresses an alert names: a rewind writes back {{org}}'s own values, never put under .invalid.",
+        "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access): nothing goes out, and nothing is asked of them.",
+        "quiet": "What sends emails as the rewind writes tests a bypass: muted, none of it sends, and nothing is asked of them.",
+        "sender": {
+          "flow": "Flow “{{name}}” on {{object}}",
+          "process": "Process “{{name}}” on {{object}}",
+          "workflowRule": "Workflow rule “{{name}}” on {{object}}",
+          "assignmentRule": "Assignment rule “{{name}}” on {{object}}"
+        },
+        "notRead": "{{sender}} (its definition was not read)",
+        "moreSenders_one": "{{formatted}} more",
+        "moreSenders_other": "{{formatted}} more",
+        "accept": "Let {{org}} send these emails"
       }
     },
     "run": {
@@ -6564,7 +6590,11 @@
       "undoProgress": "Progress of the undo",
       "stop": "Stop the rewind",
       "stopUndo": "Stop the undo",
-      "stopping": "Stopping before its next call to {{org}}…"
+      "stopping": "Stopping before its next call to {{org}}…",
+      "emailsRefused": {
+        "rewind": "On this page, the command line's --accept-emails is the box “Let {{org}} send these emails” of the preview: rewind again to tick it.",
+        "undo": "On this page, the command line's --accept-emails is the emails' box of the undo's confirmation: open it again to tick it."
+      }
     },
     "result": {
       "success": "{{org}} is back at “{{name}}”. Read again: nothing differs among the objects and fields it holds.",
@@ -6698,7 +6728,8 @@
       "open": "Undo this rewind",
       "title": "Undo the last rewind of {{org}}?",
       "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again. What anyone changed in {{org}} since the rewind stays as it is.",
-      "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back"
+      "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back",
+      "acceptEmails": "Undo even though {{org}} delivers every email its automation sends as the undo writes, or would not say whether it does"
     },
     "stopComparing": {
       "title": "Stop comparing fields of “{{name}}”",

@@ -365,6 +365,53 @@ describe('CheckpointList', () => {
     expect(onStopComparing).toHaveBeenCalledWith(readyCheckpoint());
   });
 
+  it('names beside a checkpoint the run that took it before its first write, whatever it is called since', () => {
+    renderList([
+      listEntry(
+        readyCheckpoint({
+          name: 'Kept for the demo',
+          beforeRun: { module: 'frozen', operationId: 'op-frozen-1', tool: 'cli' },
+        }),
+      ),
+    ]);
+    expect(screen.getByTestId(`checkpoint-row-before-run-${ID}`).textContent).toBe(
+      'Before Frozen Dataset load',
+    );
+  });
+
+  it('names Forge, Sync, Seed and Autopilot runs alike, and nothing on a checkpoint no run took', () => {
+    for (const [module, words] of [
+      ['forge', 'Before Forge run'],
+      ['sync', 'Before Sync run'],
+      ['seed', 'Before Seed run'],
+      ['autopilot', 'Before Autopilot run'],
+    ] as const) {
+      const { unmount } = render(
+        <CheckpointList
+          entries={[
+            listEntry(
+              readyCheckpoint({
+                beforeRun: { module, operationId: `op-${module}`, tool: 'panel' },
+              }),
+            ),
+          ]}
+          orgName="DEV-SB"
+          onRename={vi.fn()}
+          onKeep={vi.fn()}
+          onDelete={vi.fn()}
+          onRewind={vi.fn()}
+          onUndo={vi.fn()}
+          onStopComparing={vi.fn()}
+          onExport={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId(`checkpoint-row-before-run-${ID}`).textContent).toBe(words);
+      unmount();
+    }
+    renderList();
+    expect(screen.queryByTestId(`checkpoint-row-before-run-${ID}`)).toBeNull();
+  });
+
   it('offers neither Undo nor Stop comparing for a checkpoint that can only be deleted', () => {
     renderList([
       listEntry(readyCheckpoint(), {

@@ -2640,7 +2640,8 @@
       "acceptNoUndo": "Löschungen erlauben, die das Rückgängigmachen dieses Zurücksetzens nicht zurückholen kann",
       "acceptRecreate": "Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen",
       "acceptOutside": "Löschungen erlauben, die untergeordnete Datensätze von Objekten außerhalb des Prüfpunkts mitlöschen",
-      "acceptUnseen": "Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)"
+      "acceptUnseen": "Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)",
+      "acceptEmails": "Ausführen, auch wenn die Org die E-Mails zustellt, die ihre Flows, Prozesse oder Workflow-Regeln beim Schreiben senden (Alle E-Mails), oder nicht sagt, ob sie sie zustellt"
     },
     "rewindConfirmedOn": "Bestätigt am {{date}}: Dieser Schritt setzt {{org}} bei jeder Ausführung, geplante eingeschlossen, auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht jede seither von irgendjemandem vorgenommene Änderung rückgängig oder löscht sie.",
     "rewindSaveFirst": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen.",
@@ -6227,7 +6228,14 @@
       "access": {
         "perObject": "Mit View All und Modify All Objekt für Objekt erstellt, ohne View All Data und Modify All Data: Er hält nur die Objekte, die sein Benutzer ganz sah."
       },
-      "more": "Mehr"
+      "more": "Mehr",
+      "beforeRun": {
+        "forge": "Vor Forge-Lauf",
+        "sync": "Vor Sync-Lauf",
+        "seed": "Vor Seed-Lauf",
+        "autopilot": "Vor Autopilot-Lauf",
+        "frozen": "Vor dem Laden (Eingefrorenes Dataset)"
+      }
     },
     "rename": {
       "title": "„{{name}}“ umbenennen"
@@ -6541,6 +6549,24 @@
         "tick": "Zum Zurücksetzen anhaken:",
         "plan": "Der Plan der angehakten Objekte wird gelesen…",
         "planFailed": "Der Plan der angehakten Objekte konnte nicht gelesen werden: Versuchen Sie es oben erneut."
+      },
+      "deliverability": {
+        "all": "{{org}} stellt jede E-Mail zu, die ihre Automatisierungen senden (Setup > Zustellbarkeit: Alle E-Mails), und was beim Schreiben des Zurücksetzens noch läuft, kann welche senden: {{senders}}.",
+        "unread": "Ob {{org}} die E-Mails zustellt, die ihre Automatisierungen senden, konnte nicht gelesen werden ({{reason}}), und was beim Schreiben des Zurücksetzens noch läuft, kann welche senden: {{senders}}. Bei „Nur System-E-Mails“ oder „Kein Zugriff“ (Setup > Zustellbarkeit) geht keine davon hinaus.",
+        "unlisted": "was von ihren Automatisierungen nicht gelesen werden konnte",
+        "addresses": "Sie gehen an die Adressen, die die Datensätze enthalten, an deren Inhaber und an die Adressen, die eine Benachrichtigung nennt: Ein Zurücksetzen schreibt die eigenen Werte von {{org}} zurück, nie unter .invalid.",
+        "withheld": "{{org}} stellt keine der E-Mails zu, die ihre Flows, Prozesse, Workflow-Regeln und Apex senden (Setup > Zustellbarkeit: Nur System-E-Mails oder Kein Zugriff): Nichts geht hinaus, und nichts wird dazu gefragt.",
+        "quiet": "Was beim Schreiben des Zurücksetzens E-Mails sendet, prüft einen Bypass: Stummgeschaltet sendet es keine, und nichts wird dazu gefragt.",
+        "sender": {
+          "flow": "Flow „{{name}}“ auf {{object}}",
+          "process": "Prozess „{{name}}“ auf {{object}}",
+          "workflowRule": "Workflow-Regel „{{name}}“ auf {{object}}",
+          "assignmentRule": "Zuweisungsregel „{{name}}“ auf {{object}}"
+        },
+        "notRead": "{{sender}} (seine Definition wurde nicht gelesen)",
+        "moreSenders_one": "{{formatted}} weiteres",
+        "moreSenders_other": "{{formatted}} weitere",
+        "accept": "{{org}} diese E-Mails senden lassen"
       }
     },
     "run": {
@@ -6564,7 +6590,11 @@
       "undoProgress": "Fortschritt des Rückgängigmachens",
       "stop": "Zurücksetzen stoppen",
       "stopUndo": "Rückgängigmachen stoppen",
-      "stopping": "Wird vor seinem nächsten Aufruf an {{org}} gestoppt…"
+      "stopping": "Wird vor seinem nächsten Aufruf an {{org}} gestoppt…",
+      "emailsRefused": {
+        "rewind": "Auf dieser Seite entspricht --accept-emails der Befehlszeile dem Kästchen „{{org}} diese E-Mails senden lassen“ der Vorschau: Setzen Sie erneut zurück, um es anzukreuzen.",
+        "undo": "Auf dieser Seite entspricht --accept-emails der Befehlszeile dem E-Mail-Kästchen der Bestätigung des Rückgängigmachens: Öffnen Sie sie erneut, um es anzukreuzen."
+      }
     },
     "result": {
       "success": "{{org}} ist wieder auf „{{name}}“. Erneut gelesen: Bei den Objekten und Feldern, die er enthält, unterscheidet sich nichts.",
@@ -6698,7 +6728,8 @@
       "open": "Dieses Zurücksetzen rückgängig machen",
       "title": "Das letzte Zurücksetzen von {{org}} rückgängig machen?",
       "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück, schickt das, was es zurückgeholt hat, wieder in den Papierkorb und löscht wieder, was es neu angelegt hat. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
-      "acceptAutomation": "Rückgängig machen, auch wenn {{org}} Automatisierungen ausführt, wenn Datensätze aktualisiert, gelöscht oder zurückgeholt werden"
+      "acceptAutomation": "Rückgängig machen, auch wenn {{org}} Automatisierungen ausführt, wenn Datensätze aktualisiert, gelöscht oder zurückgeholt werden",
+      "acceptEmails": "Rückgängig machen, auch wenn {{org}} jede E-Mail zustellt, die ihre Automatisierungen beim Schreiben des Rückgängigmachens senden, oder nicht sagt, ob sie sie zustellt"
     },
     "stopComparing": {
       "title": "Felder von „{{name}}“ nicht mehr vergleichen",

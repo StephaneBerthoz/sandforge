@@ -458,9 +458,16 @@ const CheckField: React.FC<CheckFieldProps> = ({ label, testId, checked, onChang
   </label>
 );
 
-/** The acceptances a Rewind step gives, each off unless the step says yes, as the command line's flags. */
+/**
+ * The acceptances a Rewind step gives, each off unless the step says yes, as
+ * the command line's flags. The emails what still runs sends, which an org on
+ * All email delivers, are their own: the automation's never stands for them,
+ * and a step confirmed before cannot send them, its confirmation bound to
+ * what it accepted.
+ */
 const REWIND_ACCEPTANCES = [
   'acceptAutomation',
+  'acceptEmails',
   'acceptNoUndo',
   'acceptRecreate',
   'acceptOutside',

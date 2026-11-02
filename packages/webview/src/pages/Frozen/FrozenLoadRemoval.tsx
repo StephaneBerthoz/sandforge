@@ -426,6 +426,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               beside="load"
               compact
               leftByRemoval={records.removed.kept + records.removed.refused > 0}
+              muted={report?.mutedAutomation !== undefined}
               testId="frozen-removal-checkpoint"
             />
           )}

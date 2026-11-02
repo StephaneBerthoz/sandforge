@@ -712,3 +712,87 @@ export function undoResult(
   if (!('undo' in overrides)) delete result.undo;
   return result;
 }
+
+/**
+ * A checkpoint a Forge run took of what it writes before its first write, as
+ * the list shows it beside the run's chip.
+ */
+export function beforeRunCheckpoint(): OrgCheckpoint {
+  return readyCheckpoint({
+    checkpointId: 'ck-before-forge',
+    name: 'Before Forge run 2026-11-01 10:15 UTC',
+    readFrom: daysFromNow(-1),
+    takenAt: daysFromNow(-1),
+    expiresAt: daysFromNow(6),
+    scope: { mode: 'picked', leftOut: [] },
+    beforeRun: { module: 'forge', operationId: 'forge-execute-1', tool: 'panel' },
+  });
+}
+
+/**
+ * What `checkpoint:preview` answers for a rewind whose writes fire what sends
+ * emails, as the trap org's automation does: a flow on the contact's update
+ * that tests the org's bypass, and an alert on the account's delete that
+ * tests none — and whether the org delivers them, as the extension read it:
+ * All email, System email only or No access (`withheld`), or not read.
+ */
+export function previewThatSends(
+  checkpointId: string,
+  reading: NonNullable<CheckpointPreviewResponse['payload']['deliverability']>['reading'],
+): CheckpointPreviewResponse['payload'] {
+  return {
+    ...plainPreview(checkpointId, 'pv-emails'),
+    automation: {
+      objectsRead: ['Contact', 'Account'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Contact_Welcome_Email',
+              label: 'Contact Welcome Email',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Bypass_Flow', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Welcome', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Gone_Alert',
+              label: 'Account Gone Alert',
+              timing: 'beforeDelete',
+              startsOn: 'delete',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Owner alert', limit: 'DailyWorkflowEmails' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Bypass_Flow',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow bypass', grants: 1 }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 4,
+    },
+    deliverability: {
+      reading,
+      senders: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome Email', why: 'email' },
+        { objectApiName: 'Account', kind: 'flow', name: 'Account Gone Alert', why: 'email' },
+      ],
+    },
+  };
+}

@@ -71,6 +71,12 @@ export interface RewindBeforeRunProps {
    * under it, or they changed since. Said on its line: a rewind takes them.
    */
   leftByRemoval?: boolean;
+  /**
+   * The run muted the target's automation (its result's `mutedAutomation`):
+   * the preview the button opens has its mute ticked, as the rewind fires
+   * the automation the run kept quiet.
+   */
+  muted?: boolean;
   /** Test id of the part; its button's is `${testId}-action`, a deleted checkpoint's line `${testId}-deleted`. */
   testId: string;
   className?: string;
@@ -88,7 +94,8 @@ export interface RewindBeforeRunProps {
  *
  * The preview opens through the intent Home's "Rewind…" uses, the org
  * selected first as "Take a checkpoint now" selects it: Checkpoints opens on
- * that org's preview and no other's. Offered for a connected sandbox,
+ * that org's preview and no other's, its mute ticked when the run muted.
+ * Offered for a connected sandbox,
  * scratch org or Developer Edition only, as a rewind of any other is refused.
  */
 export const RewindBeforeRun: React.FC<RewindBeforeRunProps> = ({
@@ -97,6 +104,7 @@ export const RewindBeforeRun: React.FC<RewindBeforeRunProps> = ({
   beside,
   compact = false,
   leftByRemoval = false,
+  muted = false,
   testId,
   className,
 }) => {
@@ -132,7 +140,11 @@ export const RewindBeforeRun: React.FC<RewindBeforeRunProps> = ({
     if (!org) return;
     selectOrg(org.id);
     sendBridgeMessage('org:select', { orgId: org.id });
-    navigate('checkpoint', { previewCheckpointId: checkpoint.checkpointId, targetOrgId: org.id });
+    navigate('checkpoint', {
+      previewCheckpointId: checkpoint.checkpointId,
+      targetOrgId: org.id,
+      ...(muted ? { previewMuted: true as const } : {}),
+    });
   };
 
   return (

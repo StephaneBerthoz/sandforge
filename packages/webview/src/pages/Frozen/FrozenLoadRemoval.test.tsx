@@ -26,6 +26,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 
@@ -875,6 +876,44 @@ describe('FrozenLoadRemoval', () => {
       );
       expect(screen.getByTestId('frozen-removal-checkpoint-action').textContent).toBe(
         'Rewind to before this load…',
+      );
+    });
+
+    it('opens the preview of a rewind to it with its mute ticked when the load muted', () => {
+      useAppStore.setState({ currentRoute: 'frozen', navigationIntent: null });
+      render(
+        <FrozenLoadRemoval
+          records={{
+            ...LOADED,
+            removed: {
+              removedAt: '2026-09-24T11:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 2,
+              refused: 0,
+            },
+          }}
+          onAnswered={vi.fn()}
+          lastReport={{
+            ...REPORT,
+            mutedAutomation: {
+              state: 'muted',
+              assigned: ['Data_Load'],
+              held: [],
+              permissions: ['Load_Data'],
+              silenced: [],
+              stillRan: [],
+              released: true,
+            },
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('frozen-removal-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual(
+        expect.objectContaining({
+          previewCheckpointId: 'ck-20260924-100000-a1b2',
+          previewMuted: true,
+        }),
       );
     });
 

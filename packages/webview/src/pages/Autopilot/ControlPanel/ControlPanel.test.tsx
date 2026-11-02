@@ -5,6 +5,7 @@ import en from '../../../i18n/locales/en.json';
 import fr from '../../../i18n/locales/fr.json';
 import { ControlPanel } from './ControlPanel';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
 import { developerOrg } from '../../Checkpoint/testing/checkpointFixtures';
 
 /** Captured bridge messages sent by the control panel. */
@@ -152,6 +153,50 @@ describe('ControlPanel', () => {
         checkpointId: 'ck-20261101-101540-a1b2',
       });
       expect(screen.getByTestId('control-rewound').getAttribute('data-kind')).toBe('rewound');
+    });
+
+    it('opens the preview of a rewind to it with its mute ticked once the run muted, and unticked otherwise', () => {
+      const checkpoint = {
+        state: 'taken' as const,
+        checkpointId: 'ck-20261101-101540-a1b2',
+        name: 'Before Autopilot run 2026-11-01 10:15 UTC',
+        takenAt: '2026-11-01T10:15:40.000Z',
+        expiresAt: '2026-11-08T10:15:40.000Z',
+        objects: ['Account', 'Contact'],
+        records: 38,
+        bytes: 2_100_000,
+        requests: 66,
+        added: [],
+        notHeld: [],
+      };
+      mockStoreState = { ...mockStoreState, runEnd: { ...RUN_END, checkpoint } };
+      useAppStore.setState({ currentRoute: 'autopilot', navigationIntent: null });
+      const { unmount } = render(
+        <ControlPanel
+          mutedAutomation={{
+            state: 'muted',
+            assigned: ['Data_Load'],
+            held: [],
+            permissions: ['Load_Data'],
+            silenced: [],
+            stillRan: [],
+            released: true,
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('control-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual(
+        expect.objectContaining({
+          previewCheckpointId: checkpoint.checkpointId,
+          previewMuted: true,
+        }),
+      );
+      unmount();
+
+      useAppStore.setState({ currentRoute: 'autopilot', navigationIntent: null });
+      render(<ControlPanel />);
+      fireEvent.click(screen.getByTestId('control-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).not.toHaveProperty('previewMuted');
     });
 
     it('says nothing of a run that took none, and asks no mark before one ended', () => {
