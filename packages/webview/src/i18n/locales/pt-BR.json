@@ -1472,7 +1472,7 @@
       },
       "eventCount_one": "{{count}} evento",
       "eventCount_other": "{{count}} eventos",
-      "contactPointsHint": "Cada endereço de e-mail que uma alteração grava vai sob .invalid e cada número de telefone como um fictício, para que a automação da org de destino não alcance ninguém. Um objeto encontrado pelo mapeamento de uma configuração salva segue a escolha dessa configuração.",
+      "contactPointsHint": "Cada endereço de e-mail que uma alteração grava vai sob .invalid e cada número de telefone como um fictício, para que o que a automação da org de destino lhes envia não alcance ninguém. Isso não cobre os proprietários dos registros, os registros que já estão na org de destino nem um endereço que um alerta nomeie. Um objeto encontrado pelo mapeamento de uma configuração salva segue a escolha dessa configuração.",
       "kept": "O que uma sessão grava é guardado à medida que ela grava: depois que ela para, Sessões anteriores, mais abaixo, a lista, e removê-la devolve o que ela sobrescreveu, recupera da lixeira o que ela excluiu e exclui o que ela criou."
     },
     "tabs": {
@@ -1673,8 +1673,8 @@
     },
     "contactPoints": {
       "toggle": "Neutralizar e-mails e números de telefone (recomendado)",
-      "toggleDetails": "Ativado, a menos que desmarcado. Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém. Desmarcado, eles são copiados como a origem os contém, e os fluxos do destino podem enviar e-mails e SMS a pessoas reais. O campo com que a gravação faz a correspondência é mantido como lido.",
-      "toggleHint": "Grava cada email sob .invalid e cada número de telefone como um fictício, para que a automação do destino não alcance ninguém."
+      "toggleDetails": "Ativado, a menos que desmarcado. Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que o que a automação da org de destino lhes envia não alcance ninguém. Isso não cobre os proprietários dos registros, os registros que já estão na org de destino nem um endereço que um alerta nomeie. Desmarcado, eles são copiados como a origem os contém, e os fluxos do destino podem enviar e-mails e SMS a pessoas reais. O campo com que a gravação faz a correspondência é mantido como lido.",
+      "toggleHint": "Grava cada email sob .invalid e cada número de telefone como um fictício, para que o que a automação do destino lhes envia não alcance ninguém."
     },
     "files": {
       "toggle": "Copiar os arquivos destes registros",
@@ -4515,7 +4515,7 @@
       "piiFields": "Campos PII detectados",
       "anonymizedFields": "Campos a anonimizar",
       "contactPoints": "Neutralizar e-mails e números de telefone (recomendado)",
-      "contactPointsHint": "Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém. Desmarcado, eles são copiados como a origem os contém.",
+      "contactPointsHint": "Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que o que a automação da org de destino lhes envia não alcance ninguém. Isso não cobre os proprietários dos registros, os registros que já estão na org de destino nem um endereço que um alerta nomeie. Desmarcado, eles são copiados como a origem os contém.",
       "advancedCompliance": "Avançado: estrutura de conformidade",
       "noFrameworkHint": "Nenhuma estrutura de conformidade foi escolhida: nomes, endereços e os demais campos pessoais são copiados como a origem os contém. Escolha uma em “{{advanced}}” para anonimizar os que ela cobre.",
       "description": "Revise sua configuração antes de iniciar o Autopilot.",
@@ -5426,7 +5426,7 @@
       "title": "E-mails e números de telefone",
       "numbersExhausted_one": "{{count}} número de telefone deixado vazio: os 10.000 números fictícios do intervalo foram todos dados a outros números da execução.",
       "numbersExhausted_other": "{{count}} números de telefone deixados vazios: os 10.000 números fictícios do intervalo foram todos dados a outros números da execução.",
-      "neutralized": "Neutralizados antes da gravação: {{values}} em {{fields}}. Cada endereço de e-mail foi gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcançasse ninguém.",
+      "neutralized": "Neutralizados antes da gravação: {{values}} em {{fields}}. Cada endereço de e-mail foi gravado sob .invalid e cada número de telefone como um número fictício, para que o que a automação da org de destino lhes enviou não alcançasse ninguém.",
       "none": "Neutralizados antes da gravação: os registros gravados não continham endereço de e-mail nem número de telefone.",
       "kept": "Gravados como a origem os tem, como foi pedido: a automação da org de destino pode ter enviado e-mails ou SMS a pessoas reais.",
       "neutralizedSimulated": "Uma execução real neutralizaria {{values}} em {{fields}}: cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício.",
@@ -5436,7 +5436,7 @@
       "values_other": "{{count}} valores",
       "keep": "Manter e-mails e números de telefone como estão",
       "keepWarning": "E-mails e números de telefone serão gravados como a origem os tem: os Flows, os triggers e os alertas de e-mail da org de destino poderão então enviar e-mails ou SMS a pessoas reais.",
-      "keepHint": "Desativado, o clone grava cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém.",
+      "keepHint": "Desativado, o clone grava cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício, para que o que a automação da org de destino lhes envia não alcance ninguém. Isso não cobre os proprietários dos registros, os registros que já estão na org de destino nem um endereço que um alerta nomeie.",
       "neutralizedUnlessKept": "E-mails e números de telefone são neutralizados (.invalid, números fictícios), a menos que você marque Manter e-mails e números de telefone como estão."
     },
     "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados.",
@@ -5547,6 +5547,25 @@
       "differsNamed_other": "{{lead}}: relidos em {{read}}, {{held}}, onde se previa {{said}}. A automação da org de destino define o tipo de registro, entre o que ainda rodou em {{object}}: {{names}}.",
       "noneFound_one": "{{lead}}: não foi encontrado ao ser relido.",
       "noneFound_other": "{{lead}}: nenhum deles foi encontrado ao ser relido."
+    },
+    "deliverability": {
+      "all": "{{org}} entrega todos os e-mails que suas automações enviam (Configuração > Capacidade de entrega: Todos os emails), e o que continua ativo quando a execução grava pode enviar alguns: {{senders}}.",
+      "unread": "Não foi possível ler se {{org}} entrega os e-mails que suas automações enviam ({{reason}}), e o que continua ativo quando a execução grava pode enviar alguns: {{senders}}. Com Somente email do sistema ou Sem acesso (Configuração > Capacidade de entrega), nenhum sai.",
+      "withheld": "{{org}} não entrega nenhum dos e-mails que seus fluxos, processos, regras de fluxo de trabalho e Apex enviam (Configuração > Capacidade de entrega: Somente email do sistema ou Sem acesso): nada sai de {{senders}} quando a execução grava.",
+      "quiet": "O que envia e-mails quando a execução grava testa um bypass: silenciado, não envia nenhum, e nada é perguntado sobre eles.",
+      "addresses": "Eles vão para os endereços que os registros e os alertas nomeiam, entre eles os dos proprietários dos registros e os dos registros que já estão em {{org}}.",
+      "readAgain": "A execução lê {{org}} de novo logo antes de gravar, e pergunta primeiro se eles sairiam.",
+      "sender": {
+        "flow": "Fluxo “{{name}}” em {{object}}",
+        "process": "Processo “{{name}}” em {{object}}",
+        "workflowRule": "Regra de fluxo de trabalho “{{name}}” em {{object}}",
+        "assignmentRule": "Regra de atribuição “{{name}}” em {{object}}"
+      },
+      "notRead": "{{sender}} (sua definição não foi lida)",
+      "assignment": "{{sender}} (aplicada: pode escrever ao proprietário que atribui)",
+      "unlisted": "o que não pôde ser lido de suas automações",
+      "moreSenders_one": "mais {{formatted}}",
+      "moreSenders_other": "mais {{formatted}}"
     }
   },
   "grappe": {
@@ -5943,11 +5962,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "Um Flow da org falhou ao salvar o registro, e a org recusou o registro; a mensagem nomeia o Flow. Uma ação Enviar email falha assim quando a capacidade de entrega de email da org está em Sem acesso.",
-      "action": "Corrija o Flow, ou desative-o enquanto a execução grava, e execute de novo. Não coloque a capacidade de entrega em Todos os emails para contornar isso: o Flow poderia então enviar emails às pessoas dos registros.",
+      "explanation": "Um Flow da org falhou ao salvar o registro, e a org recusou o registro; a mensagem nomeia o Flow. A capacidade de entrega de email da org não é a causa: com Somente email do sistema ou Sem acesso, uma ação Enviar email é retida sem erro e o registro é salvo. Passados os emails que restam hoje à org, um Flow que envia falha.",
+      "action": "Corrija o Flow, ou desative-o enquanto a execução grava, e execute de novo. Passados os emails do dia, um bypass que silencie o Flow, ou uma execução menor, evita isso.",
       "forge": {
-        "explanation": "Um Flow da org de destino — um Flow acionado por registro, ou um processo, que roda como tal — falhou quando o registro foi salvo, e a org de destino o recusou; a mensagem nomeia o Flow e o que deu errado. Uma causa frequente numa sandbox é uma ação Enviar email: com a capacidade de entrega de email da org em Sem acesso, a ação falha assim que usa um modelo de email ou registra o email. Uma sandbox nova ou atualizada fica em Somente email do sistema.",
-        "action": "Desative esse Flow na org de destino durante a clonagem, ou corrija-o, e então tente de novo os objetos com falha; a aba Automação da revisão nomeia as permissões personalizadas que silenciam um Flow para o usuário que as tem. Não coloque a capacidade de entrega da org de destino em Todos os emails para deixar passar uma ação Enviar email: o Flow poderia então enviar emails às pessoas dos registros clonados."
+        "explanation": "Um Flow da org de destino — um Flow acionado por registro, ou um processo, que roda como tal — falhou quando o registro foi salvo, e a org de destino o recusou; a mensagem nomeia o Flow e o que deu errado. A capacidade de entrega de email da org não é a causa: com Somente email do sistema ou Sem acesso, uma ação Enviar email é retida sem erro e o registro é salvo. Passados os emails que restam hoje ao destino, um Flow que envia falha.",
+        "action": "Desative esse Flow na org de destino durante a clonagem, ou corrija-o, e então tente de novo os objetos com falha; a aba Automação da revisão nomeia as permissões personalizadas que silenciam um Flow para o usuário que as tem. Passados os emails do dia, esse bypass, ou uma execução menor, evita isso."
       },
       "seed": {
         "action": "Corrija o Flow, ou desative-o durante o seed."
@@ -6181,6 +6200,14 @@
     "seedConfirmationUnavailable": {
       "explanation": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
       "action": "Execute-a pela página Seed, onde você pode confirmá-la."
+    },
+    "emailsNotAccepted": {
+      "explanation": "A execução foi recusada antes de gravar qualquer coisa: o que continua ativo das automações da org de destino pode enviar e-mails, a org os entrega ou não diz se o faz, e ninguém os aceitou.",
+      "action": "Nada foi gravado. Se as automações do destino deviam ser silenciadas, faltou um conjunto de permissões: desmarque o silêncio para ser perguntado sobre os e-mails, ou execute de novo quando esse conjunto puder ser atribuído."
+    },
+    "emailsDelivered": {
+      "explanation": "Foi recusado antes de gravar qualquer coisa: o que continua ativo das automações da org envia e-mails, a org os entrega ou não diz se o faz, e eles não foram aceitos.",
+      "action": "Nada foi gravado. Inicie de novo e marque a caixa que deixa a org enviá-los, ou desative o que os envia."
     }
   },
   "moduleSummary": {
@@ -6590,11 +6617,7 @@
       "undoProgress": "Progresso de Desfazer",
       "stop": "Parar o retrocesso",
       "stopUndo": "Parar Desfazer",
-      "stopping": "Parando antes da próxima chamada a {{org}}…",
-      "emailsRefused": {
-        "rewind": "Nesta página, o --accept-emails da linha de comando é a caixa “Deixar {{org}} enviar estes e-mails” da prévia: retroceda de novo para marcá-la.",
-        "undo": "Nesta página, o --accept-emails da linha de comando é a caixa dos e-mails da confirmação de desfazer: abra-a de novo para marcá-la."
-      }
+      "stopping": "Parando antes da próxima chamada a {{org}}…"
     },
     "result": {
       "success": "{{org}} voltou a “{{name}}”. Lida de novo: nada difere nos objetos e campos que ele contém.",

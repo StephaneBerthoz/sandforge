@@ -1174,7 +1174,11 @@ export const SyncPage: React.FC = () => {
                   </p>
                 )}
                 {simulation ? (
-                  <SyncSimulationResults simulation={simulation} onRun={handleExecute} />
+                  <SyncSimulationResults
+                    simulation={simulation}
+                    targetOrg={targetOrgName}
+                    onRun={handleExecute}
+                  />
                 ) : !result ? (
                   <p className="text-xs text-center text-text-secondary py-4">
                     {t('common.noData')}

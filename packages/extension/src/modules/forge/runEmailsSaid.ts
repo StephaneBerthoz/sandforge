@@ -47,11 +47,14 @@ export function runEmailsDetailsOf(said: RunEmailsSaid | undefined): Record<stri
 const LIFTED_ON_THE_COMMAND_LINE: Partial<Record<DeliverabilityRun, string>> = {
   sync: 'Add --accept-emails to sync all the same',
   autopilot: 'Add --accept-emails to run it all the same',
+  rewind: 'Add --accept-emails to rewind all the same',
+  undo: 'Add --accept-emails to undo all the same',
 };
 
 /**
  * A refusal for the emails, saying what lifts it where the run runs: a panel,
- * a schedule and a pipeline have no flag to add.
+ * a schedule and a pipeline have no flag to add. The sentence may name an org,
+ * whose alias is the user's to spell: it is put in as it is said.
  *
  * @param liftedBy - The sentence to say instead; the command line's when absent.
  */
@@ -61,5 +64,7 @@ export function emailsRefusalWords(
   liftedBy: string | undefined,
 ): string {
   const flag = LIFTED_ON_THE_COMMAND_LINE[run];
-  return liftedBy !== undefined && flag !== undefined ? message.replace(flag, liftedBy) : message;
+  return liftedBy !== undefined && flag !== undefined
+    ? message.replace(flag, () => liftedBy)
+    : message;
 }

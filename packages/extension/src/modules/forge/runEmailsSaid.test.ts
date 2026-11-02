@@ -59,4 +59,14 @@ describe('emailsRefusalWords', () => {
       ),
     ).toBe('Untick Mute automation to run it all the same, or run it again');
   });
+
+  it('puts in an alias as it is spelled, whatever a replacement would make of it', () => {
+    expect(
+      emailsRefusalWords(
+        'Nothing was written. Add --accept-emails to rewind all the same.',
+        'rewind',
+        'Tick "Let DEV$&SB send these emails" to rewind all the same',
+      ),
+    ).toBe('Nothing was written. Tick "Let DEV$&SB send these emails" to rewind all the same.');
+  });
 });

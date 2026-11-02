@@ -742,6 +742,40 @@ describe('Autopilot bridge flow', () => {
     }
   });
 
+  it('says a run its lease left a sender running in the panel’s language, on the review, with no flag', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<AutopilotPage />);
+      driveToReview();
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      dispatchBridgeMessage(
+        'autopilot:error',
+        {
+          message:
+            "The mute's lease does not hold every permission set it was to assign. Nothing was written. Untick Mute automation to be asked about them and run it all the same.",
+          code: 'EMAILS_NOT_ACCEPTED',
+        },
+        lastRequestOfType('autopilot:execute').id,
+      );
+
+      expect(useAutopilotStore.getState().step).toBe('review');
+      expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
+        fr.errors.emailsNotAccepted.explanation,
+      );
+      expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
+        fr.errors.emailsNotAccepted.action,
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
   it('says a run refused for a missing Production Guard in the panel’s language, by its code', async () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await act(async () => {

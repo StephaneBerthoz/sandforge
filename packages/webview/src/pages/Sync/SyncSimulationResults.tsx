@@ -9,11 +9,14 @@ import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
 import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
 import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
+import { RunDeliverabilityLine } from '../shared/RunDeliverabilityLine';
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
   /** What the simulation found. */
   simulation: SyncSimulationResult;
+  /** The target org, as the user knows it. */
+  targetOrg: string;
   /** Run the sync for real, with the configuration just simulated. */
   onRun: () => void;
 }
@@ -39,10 +42,12 @@ function totalsOf(objects: readonly SyncObjectSimulation[]) {
  */
 export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
   simulation,
+  targetOrg,
   onRun,
 }) => {
   const { t } = useTranslation();
   const totals = totalsOf(simulation.objects);
+  const emails = simulation.writeCheck?.deliverability;
   const bidirectional = simulation.direction === 'bidirectional';
   // A delta run carrying the source's deletions deletes too.
   const deletes = simulation.objects.some(
@@ -91,6 +96,17 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         unread={simulation.writeCheckUnread}
         order={simulation.writeOrder}
       />
+      {/* Whether the target delivers the emails of what still runs, and who sends them. */}
+      {emails && (
+        <RunDeliverabilityLine
+          reading={emails.reading}
+          senders={emails.senders}
+          unlisted={emails.sendersUnread !== undefined}
+          org={targetOrg}
+          testId="sync-simulation-deliverability"
+          className="text-xs text-text-primary"
+        />
+      )}
       {/* What the checkpoint it asked first would hold and cost: nothing taken. */}
       {simulation.checkpoint && (
         <CheckpointFirstEstimate

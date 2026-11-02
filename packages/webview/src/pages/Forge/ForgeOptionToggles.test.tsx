@@ -26,7 +26,7 @@ describe('ForgeOptionToggles', () => {
     const toggle = screen.getByLabelText('Keep emails and phone numbers as they are');
     expect((toggle as HTMLInputElement).checked).toBe(false);
     expect(toggle.closest('label')?.getAttribute('title')).toBe(
-      "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one.",
+      "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names.",
     );
     expect(screen.queryByTestId('forge-keep-contact-points-warning')).toBeNull();
   });

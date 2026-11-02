@@ -603,9 +603,9 @@ Options:
   --keep-contact-points  write emails and phone numbers as read (default: off)
                          Off, every record is written with its email addresses
                          under .invalid and its phone numbers in a fictional
-                         range, anonymized or not, so the target's flows and
-                         email alerts reach no one. On, they may reach the
-                         real people the records name.
+                         range, anonymized or not, so what the target's flows
+                         and email alerts send to them reaches no one. On,
+                         they may reach the real people the records name.
   --dry-run              skip writes, surface scoped queries    (default: off)
                          It reads the automation and counts the records as a
                          real run does, and says what would stop that run.

@@ -233,20 +233,23 @@ for (const theme of THEMES) {
 
       await expect.poll(async () => (await outgoing(page, 'checkpoint:undo')).length).toBe(1);
       const [first] = await outgoing(page, 'checkpoint:undo');
-      expect(first.payload).toEqual(expect.objectContaining({ acceptAutomation: true }));
+      // The page says it is the page: a refusal then names its box, not a flag.
+      expect(first.payload).toEqual(
+        expect.objectContaining({ acceptAutomation: true, fromPage: true }),
+      );
       expect(first.payload).not.toHaveProperty('acceptEmails');
       await sendExtensionMessage(page, {
         type: 'checkpoint:error',
         id: 'undo-refused',
         correlationId: String(first.id),
         payload: {
-          message: `${ORG} delivers every email its automation sends. Nothing was written. Add --accept-emails to undo all the same.`,
+          message: `${ORG} delivers every email its automation sends. Nothing was written. Tick the box for these emails in the undo's confirmation to undo all the same.`,
           code: 'EMAILS_DELIVERED',
           retryable: false,
         },
       });
-      await expect(page.getByTestId('checkpoint-run-emails-refused')).toContainText(
-        "the emails' box of the undo's confirmation",
+      await expect(page.getByTestId('error-hint')).toContainText(
+        'tick the box that lets the org send them',
       );
       await expectAxeClean(page);
 

@@ -329,6 +329,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       acceptAutomation: undoAcceptsAutomation,
       ...(undoAcceptsEmails ? { acceptEmails: true } : {}),
       ...(undoMutesAutomation ? { muteAutomation: true } : {}),
+      fromPage: true,
     });
     setRun({ kind: 'undo', rewindId: undoAsked.rewindId, checkpoint: undoAsked.checkpoint });
     setPreviewing(null);
@@ -455,7 +456,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       : undefined;
   if (previewed) {
     const rewind = (acceptances: RewindAcceptances, diff: RewindDiff): void => {
-      rewinding.mutate({ checkpointId: previewed.checkpointId, ...acceptances });
+      rewinding.mutate({ checkpointId: previewed.checkpointId, ...acceptances, fromPage: true });
       setRun({ kind: 'rewind', diff, checkpoint: previewed.checkpoint });
       setPreviewing(null);
       setMutedArrival(null);

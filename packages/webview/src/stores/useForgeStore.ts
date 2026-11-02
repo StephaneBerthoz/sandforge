@@ -23,7 +23,11 @@ import { FILE_COPY_DEFAULT_MAX_MB, forgeNodeStatusSchema } from '@sandforge/shar
 import i18n from '../i18n';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
 import { muteRefusalWords } from '../utils/muteRefusal';
-import { runCheckpointEstimateOf, runCheckpointOf } from '../utils/runCheckpoint';
+import {
+  panelRefusalWords,
+  runCheckpointEstimateOf,
+  runCheckpointOf,
+} from '../utils/runCheckpoint';
 import type { ForgeGapChoice, ForgeKeptDecision } from '../utils/forgeGapDecisions';
 import {
   withGapDecision,
@@ -1612,9 +1616,14 @@ function takeRunMessage(event: MessageEvent): void {
     const said =
       typeof payload.message === 'string' && payload.message !== '' ? payload.message : undefined;
     // A mute refused before the first write, in the interface language: the
-    // host words it in English.
+    // host words it in English. So a run refused for its emails, once its
+    // lease left a sender running: the host's words name the command line's
+    // flag. Every other code keeps the page it has.
     const message =
       muteRefusalWords(code, said, (key, options) => i18n.t(key, options)) ??
+      (code === 'EMAILS_NOT_ACCEPTED'
+        ? panelRefusalWords(code, payload, (key) => i18n.t(key))
+        : undefined) ??
       said ??
       i18n.t('forge.executeFailed');
     const stoppedRun =

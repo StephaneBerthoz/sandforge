@@ -1075,6 +1075,54 @@ describe('CheckpointHandler — the preview', () => {
     });
   });
 
+  it('names the box to the page that asked and the flag to the command line, which replays its request, for a rewind and an undo', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.anonymousApex = { compiled: true, success: true };
+    sendingEmail(h);
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+    const previewId = (answerOf(h, 'wv-preview-1').payload.diff as { previewId: string }).previewId;
+    const said = (requestId: string): string =>
+      (answerOf(h, requestId).payload as { message: string }).message;
+    const accepted = { acceptAutomation: true };
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId, accepted));
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { ...accepted, fromPage: true }),
+    );
+
+    expect(said('wv-rewind-1')).toContain('Add --accept-emails to rewind all the same');
+    expect(said('wv-rewind-2')).toContain(
+      'Tick "Let DEV-SB send these emails" in the preview to rewind all the same',
+    );
+    expect(said('wv-rewind-2')).not.toContain('--accept-emails');
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-3',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { ...accepted, acceptEmails: true }),
+    );
+    const { rewindId } = resultOf(h, 'wv-rewind-3', 'checkpoint:rewind:response');
+    const undo = { checkpointId, rewindId, ...accepted };
+
+    await h.send('wv-undo-1', 'checkpoint:undo', undo);
+    await h.send('wv-undo-2', 'checkpoint:undo', { ...undo, fromPage: true });
+
+    expect(said('wv-undo-1')).toContain('Add --accept-emails to undo all the same');
+    expect(said('wv-undo-2')).toContain(
+      "Tick the box for these emails in the undo's confirmation to undo all the same",
+    );
+    expect(said('wv-undo-2')).not.toContain('--accept-emails');
+    // The words change, not the stop: both are refused under the emails' code.
+    expect(answerOf(h, 'wv-undo-2').payload).toMatchObject({ code: 'EMAILS_DELIVERED' });
+  });
+
   it('says nothing was confirmed of the emails an org withholds, whatever the request accepts', async () => {
     const h = harness();
     const checkpointId = await taken(h);

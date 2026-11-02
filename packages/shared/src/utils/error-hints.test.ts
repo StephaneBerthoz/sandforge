@@ -567,6 +567,30 @@ describe('the connection errors a panel words by their code', () => {
     expect(panelWordingOf(null)).toBeUndefined();
   });
 
+  it('words a run refused for its emails in place of the host, whose words name the command line’s flag', () => {
+    expect(panelWordingOf('EMAILS_NOT_ACCEPTED')).toEqual({
+      explanationKey: 'errors.emailsNotAccepted.explanation',
+      actionKey: 'errors.emailsNotAccepted.action',
+    });
+    expect(
+      bannerHintOf('Add --accept-emails to sync all the same.', 'EMAILS_NOT_ACCEPTED'),
+    ).toBeNull();
+  });
+
+  it('keeps the host’s words of a rewind refused for its emails, which name who sends, and hints the way past them', () => {
+    expect(panelWordingOf('EMAILS_DELIVERED')).toBeUndefined();
+    expect(bannerHintOf('DEV-SB delivers every email.', 'EMAILS_DELIVERED')).toMatchObject({
+      code: 'EMAILS_DELIVERED',
+      explanationKey: 'errors.emailsDelivered.explanation',
+      actionKey: 'errors.emailsDelivered.action',
+      severity: 'error',
+    });
+    // A code of SandForge's own: Salesforce Help knows nothing of it.
+    expect(
+      bannerHintOf('DEV-SB delivers every email.', 'EMAILS_DELIVERED')?.docUrl,
+    ).toBeUndefined();
+  });
+
   it("words a Sync run its write gate refused before its first write in place of the host's English", () => {
     expect(panelWordingOf('SYNC_STORAGE_EXCEEDED')).toEqual({
       explanationKey: 'errors.syncStorageExceeded.explanation',

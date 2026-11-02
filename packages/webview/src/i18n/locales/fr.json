@@ -1472,7 +1472,7 @@
       },
       "eventCount_one": "{{count}} événement",
       "eventCount_other": "{{count}} événements",
-      "contactPointsHint": "Chaque adresse e-mail qu'un changement écrit passe sous .invalid et chaque numéro de téléphone devient fictif, pour que l'automatisation de l'org cible n'atteigne personne. Un objet trouvé par le mapping d'une sync enregistrée suit le choix de cette configuration.",
+      "contactPointsHint": "Chaque adresse e-mail qu'un changement écrit passe sous .invalid et chaque numéro de téléphone devient fictif, pour que ce que l'automatisation de l'org cible leur envoie n'atteigne personne. Cela ne couvre ni les propriétaires des enregistrements, ni les enregistrements déjà dans l'org cible, ni une adresse que nomme une alerte. Un objet trouvé par le mapping d'une sync enregistrée suit le choix de cette configuration.",
       "kept": "Ce qu'une session écrit est conservé à mesure qu'elle l'écrit : une fois arrêtée, Sessions précédentes, plus bas, la liste, et son retrait rend ce qu'elle a écrasé, rétablit depuis la corbeille ce qu'elle a supprimé et supprime ce qu'elle a créé."
     },
     "tabs": {
@@ -1673,8 +1673,8 @@
     },
     "contactPoints": {
       "toggle": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
-      "toggleDetails": "Activé sauf si décoché. Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient, et les Flows de la cible peuvent écrire et envoyer des SMS à de vraies personnes. Le champ sur lequel l'écriture fait correspondre est gardé tel que lu.",
-      "toggleHint": "Écrit chaque e-mail sous .invalid et chaque numéro de téléphone comme un numéro fictif, pour que l'automatisation de la cible n'atteigne personne."
+      "toggleDetails": "Activé sauf si décoché. Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : ce que l'automatisation de l'org cible leur envoie n'atteint personne. Cela ne couvre ni les propriétaires des enregistrements, ni les enregistrements déjà dans l'org cible, ni une adresse que nomme une alerte. Décoché, ils sont copiés tels que la source les contient, et les Flows de la cible peuvent écrire et envoyer des SMS à de vraies personnes. Le champ sur lequel l'écriture fait correspondre est gardé tel que lu.",
+      "toggleHint": "Écrit chaque e-mail sous .invalid et chaque numéro de téléphone comme un numéro fictif, pour que ce que l'automatisation de la cible leur envoie n'atteigne personne."
     },
     "files": {
       "toggle": "Copier les fichiers de ces enregistrements",
@@ -4515,7 +4515,7 @@
       "piiFields": "Champs PII détectés",
       "anonymizedFields": "Champs à anonymiser",
       "contactPoints": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
-      "contactPointsHint": "Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient.",
+      "contactPointsHint": "Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : ce que l'automatisation de l'org cible leur envoie n'atteint personne. Cela ne couvre ni les propriétaires des enregistrements, ni les enregistrements déjà dans l'org cible, ni une adresse que nomme une alerte. Décoché, ils sont copiés tels que la source les contient.",
       "advancedCompliance": "Avancé : cadre de conformité",
       "noFrameworkHint": "Aucun cadre de conformité n'est choisi : les noms, les adresses et les autres champs personnels sont copiés tels que la source les contient. Choisissez-en un sous « {{advanced}} » pour anonymiser ceux qu'il couvre.",
       "description": "Vérifiez votre configuration avant de lancer l'autopilot.",
@@ -5426,7 +5426,7 @@
       "title": "E-mails et numéros de téléphone",
       "numbersExhausted_one": "{{count}} numéro de téléphone laissé vide : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
       "numbersExhausted_other": "{{count}} numéros de téléphone laissés vides : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
-      "neutralized": "Neutralisés avant l'écriture : {{values}} dans {{fields}}. Chaque adresse e-mail a été écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible n'a joint personne.",
+      "neutralized": "Neutralisés avant l'écriture : {{values}} dans {{fields}}. Chaque adresse e-mail a été écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : ce que l'automatisation de l'org cible leur a envoyé n'a atteint personne.",
       "none": "Neutralisés avant l'écriture : les enregistrements écrits ne contenaient ni adresse e-mail ni numéro de téléphone.",
       "kept": "Écrits tels que la source les contient, comme demandé : l'automatisation de l'org cible a pu écrire ou envoyer des SMS à de vraies personnes.",
       "neutralizedSimulated": "Un vrai run neutraliserait {{values}} dans {{fields}} : chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif.",
@@ -5436,7 +5436,7 @@
       "values_other": "{{count}} valeurs",
       "keep": "Conserver les e-mails et les numéros de téléphone tels quels",
       "keepWarning": "Les e-mails et les numéros de téléphone seront écrits tels que la source les contient : les Flows, les triggers et les alertes e-mail de l'org cible pourront alors écrire ou envoyer des SMS à de vraies personnes.",
-      "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne.",
+      "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : ce que l'automatisation de l'org cible leur envoie n'atteint personne. Cela ne couvre ni les propriétaires des enregistrements, ni les enregistrements déjà dans l'org cible, ni une adresse que nomme une alerte.",
       "neutralizedUnlessKept": "Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels."
     },
     "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués.",
@@ -5547,6 +5547,25 @@
       "differsNamed_other": "{{lead}} : relus sur {{read}}, {{held}}, là où {{said}} était prévu. L'automatisation de l'org cible pose le type d'enregistrement, parmi ce qui s'est encore exécuté sur {{object}} : {{names}}.",
       "noneFound_one": "{{lead}} : il est introuvable à la relecture.",
       "noneFound_other": "{{lead}} : aucun d'eux n'a été trouvé à la relecture."
+    },
+    "deliverability": {
+      "all": "{{org}} délivre tous les e-mails que ses automatisations envoient (Configuration > Délivrabilité : Tous les e-mails), et ce qui reste actif quand l'exécution écrit peut en envoyer : {{senders}}.",
+      "unread": "Impossible de lire si {{org}} délivre les e-mails que ses automatisations envoient ({{reason}}), et ce qui reste actif quand l'exécution écrit peut en envoyer : {{senders}}. En E-mail système uniquement ou Aucun accès (Configuration > Délivrabilité), aucun ne part.",
+      "withheld": "{{org}} ne délivre aucun des e-mails que ses Flows, processus, règles de workflow et Apex envoient (Configuration > Délivrabilité : E-mail système uniquement ou Aucun accès) : rien ne part de {{senders}} quand l'exécution écrit.",
+      "quiet": "Ce qui envoie des e-mails quand l'exécution écrit teste un contournement : rendu muet, il n'en envoie aucun, et rien n'est demandé à leur sujet.",
+      "addresses": "Ils partent aux adresses que nomment les enregistrements et les alertes, dont celles des propriétaires des enregistrements et des enregistrements déjà dans {{org}}.",
+      "readAgain": "L'exécution relit {{org}} juste avant d'écrire, et demande d'abord s'ils partiraient.",
+      "sender": {
+        "flow": "Flow « {{name}} » sur {{object}}",
+        "process": "Processus « {{name}} » sur {{object}}",
+        "workflowRule": "Règle de workflow « {{name}} » sur {{object}}",
+        "assignmentRule": "Règle d'attribution « {{name}} » sur {{object}}"
+      },
+      "notRead": "{{sender}} (sa définition n'a pas été lue)",
+      "assignment": "{{sender}} (appliquée : elle peut écrire au propriétaire qu'elle attribue)",
+      "unlisted": "ce qui n'a pas pu être lu de ses automatisations",
+      "moreSenders_one": "{{formatted}} autre",
+      "moreSenders_other": "{{formatted}} autres"
     }
   },
   "grappe": {
@@ -5943,11 +5962,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "Un Flow de l'org a échoué pendant la sauvegarde, et l'org a refusé l'enregistrement ; le message désigne le Flow. Une action Envoyer un e-mail échoue ainsi quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès.",
-      "action": "Corrigez le Flow, ou désactivez-le le temps de l'écriture, puis relancez. Ne réglez pas la délivrabilité sur Tous les e-mails pour passer outre : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements.",
+      "explanation": "Un Flow de l'org a échoué pendant la sauvegarde, et l'org a refusé l'enregistrement ; le message désigne le Flow. La délivrabilité des e-mails de l'org n'en est pas la cause : en E-mail système uniquement ou Aucun accès, une action Envoyer un e-mail est retenue sans erreur et l'enregistrement est sauvegardé. Au-delà des e-mails qui restent à l'org aujourd'hui, un Flow qui envoie échoue.",
+      "action": "Corrigez le Flow, ou désactivez-le le temps de l'écriture, puis relancez. Au-delà des e-mails du jour, un contournement qui fait taire le Flow, ou une exécution plus petite, l'évite.",
       "forge": {
-        "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. Une cause fréquente dans une sandbox est une action Envoyer un e-mail : quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès, l'action échoue dès qu'elle utilise un modèle d'e-mail ou consigne l'e-mail. Une sandbox nouvelle ou actualisée est réglée sur E-mail système uniquement.",
-        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Ne réglez pas la délivrabilité de l'org cible sur Tous les e-mails pour faire passer une action Envoyer un e-mail : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements clonés."
+        "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. La délivrabilité des e-mails de l'org n'en est pas la cause : en E-mail système uniquement ou Aucun accès, une action Envoyer un e-mail est retenue sans erreur et l'enregistrement est sauvegardé. Au-delà des e-mails qui restent à la cible aujourd'hui, un Flow qui envoie échoue.",
+        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Au-delà des e-mails du jour, un tel contournement, ou une exécution plus petite, l'évite."
       },
       "seed": {
         "action": "Corrigez le Flow, ou désactivez-le le temps du seed."
@@ -6181,6 +6200,14 @@
     "seedConfirmationUnavailable": {
       "explanation": "L'exécution a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
       "action": "Lancez-la depuis la page Seed, où vous pouvez la confirmer."
+    },
+    "emailsNotAccepted": {
+      "explanation": "L'exécution a été refusée avant d'écrire quoi que ce soit : ce qui reste actif des automatisations de l'org cible peut envoyer des e-mails, l'org les délivre ou ne dit pas si elle le fait, et personne ne les a acceptés.",
+      "action": "Rien n'a été écrit. Si les automatisations de la cible devaient être rendues muettes, il manquait un ensemble d'autorisations : décochez cette option pour être interrogé sur les e-mails, ou relancez une fois cet ensemble attribuable."
+    },
+    "emailsDelivered": {
+      "explanation": "Refusé avant d'écrire quoi que ce soit : ce qui reste actif des automatisations de l'org envoie des e-mails, l'org les délivre ou ne dit pas si elle le fait, et ils n'ont pas été acceptés.",
+      "action": "Rien n'a été écrit. Relancez et cochez la case qui laisse l'org les envoyer, ou désactivez ce qui les envoie."
     }
   },
   "moduleSummary": {
@@ -6590,11 +6617,7 @@
       "undoProgress": "Progression de l'annulation",
       "stop": "Arrêter le retour arrière",
       "stopUndo": "Arrêter l'annulation",
-      "stopping": "Arrêt avant son prochain appel à {{org}}…",
-      "emailsRefused": {
-        "rewind": "Sur cette page, le --accept-emails de la ligne de commande est la case « Laisser {{org}} envoyer ces e-mails » de l'aperçu : relancez le retour arrière pour la cocher.",
-        "undo": "Sur cette page, le --accept-emails de la ligne de commande est la case des e-mails de la confirmation de l'annulation : rouvrez-la pour la cocher."
-      }
+      "stopping": "Arrêt avant son prochain appel à {{org}}…"
     },
     "result": {
       "success": "{{org}} est revenue à « {{name}} ». Relue : rien ne diffère dans les objets et les champs qu'il contient.",

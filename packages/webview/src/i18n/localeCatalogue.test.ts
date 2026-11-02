@@ -1311,3 +1311,52 @@ describe('Checkpoint & Rewind names each thing with one word, in each language',
     expect(otherWord.test('1 prospecto se convirtió desde entonces')).toBe(true);
   });
 });
+
+describe('what the emails are said to do, as a real org answers', () => {
+  /** A language's way of saying a closed org holds a Send Email back and the record saves. */
+  const HELD_BACK: Readonly<Record<string, string>> = {
+    en: 'held back without an error and the record saves',
+    fr: "retenue sans erreur et l'enregistrement est sauvegardé",
+    de: 'ohne Fehler zurückgehalten',
+    es: 'se retiene sin error y el registro se guarda',
+    'pt-BR': 'é retida sem erro e o registro é salvo',
+    ja: 'エラーなしで保留され',
+  };
+
+  it.each(['en', ...NON_EN])(
+    '%s says a closed org lets a Send Email save, and no longer that it fails the record',
+    (locale) => {
+      const catalogue = load(locale);
+      for (const key of ['errors.flowFailed', 'errors.flowFailed.forge']) {
+        expect(lookup(catalogue, `${key}.explanation`)).toContain(HELD_BACK[locale]);
+      }
+    },
+  );
+
+  /** What neutralized addresses keep from the target's automation, in each language: what it sends to them. */
+  const SENT_TO_THEM: Readonly<Record<string, RegExp>> = {
+    en: /(?:sends|sent) to them/,
+    fr: /leur (?:envoie|a envoyé)/,
+    de: /an sie (?:sendet|gesendet)/,
+    es: /les env(?:ía|íe|ió)/,
+    'pt-BR': /lhes envi(?:a|ou)/,
+    ja: /それらに送信/,
+  };
+
+  it.each(['en', ...NON_EN])(
+    '%s says the addresses it neutralizes are what reach no one, not everyone the automation mails',
+    (locale) => {
+      const catalogue = load(locale);
+      for (const key of [
+        'sync.realtime.contactPointsHint',
+        'sync.contactPoints.toggleDetails',
+        'sync.contactPoints.toggleHint',
+        'autopilot.step4.contactPointsHint',
+        'runResults.contactPoints.neutralized',
+        'runResults.contactPoints.keepHint',
+      ]) {
+        expect(lookup(catalogue, key), key).toMatch(SENT_TO_THEM[locale]);
+      }
+    },
+  );
+});

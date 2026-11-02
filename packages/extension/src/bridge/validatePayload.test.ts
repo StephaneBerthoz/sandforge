@@ -1077,6 +1077,11 @@ describe('checkpoint:* payloads', () => {
         false,
       );
     }
+    // Said by the page or not said at all: only the words of a refusal hang on it.
+    expect(checkpointRewindPayloadSchema.parse({ ...rewind, fromPage: true }).fromPage).toBe(true);
+    expect(checkpointRewindPayloadSchema.safeParse({ ...rewind, fromPage: false }).success).toBe(
+      false,
+    );
     expect(
       checkpointUndoPayloadSchema.safeParse({
         checkpointId: CHECKPOINT,

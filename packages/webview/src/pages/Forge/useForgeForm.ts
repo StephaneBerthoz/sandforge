@@ -235,8 +235,8 @@ export function useForgeForm(): ForgeFormState {
   const [expandOrphanParents, setExpandOrphanParents] = useState(false);
   /**
    * Off, the default: every email address and phone number the run writes is
-   * neutralized, so the target's automation reaches no one. On, they go as
-   * the source holds them.
+   * neutralized, so what the target's automation sends to them reaches no
+   * one. On, they go as the source holds them.
    */
   const [keepContactPoints, setKeepContactPoints] = useState(false);
   /**

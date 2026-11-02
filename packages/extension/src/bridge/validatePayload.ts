@@ -1392,6 +1392,8 @@ export const checkpointRewindPayloadSchema = z.object({
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
   acceptUnseen: z.boolean(),
+  // Sent by the page alone: the command line replays this request and names its flags.
+  fromPage: z.literal(true).optional(),
 });
 // The plan of a selection is read from the preview's folder on this
 // machine, named by its id as a rewind names it.
@@ -1427,6 +1429,8 @@ export const checkpointUndoPayloadSchema = z.object({
   muteAutomation: z.boolean().optional(),
   // The emails the org delivers as the undo writes: never lifted by acceptAutomation.
   acceptEmails: z.boolean().optional(),
+  // Sent by the page alone: the command line replays this request and names its flags.
+  fromPage: z.literal(true).optional(),
 });
 export const checkpointDeletePayloadSchema = z.object({
   checkpointIds: z

@@ -32,8 +32,8 @@ export interface CloneConfig {
   /**
    * Write the email addresses and phone numbers as the source holds them.
    * Absent or false, every address goes in under `.invalid` and every phone
-   * number as a fictional one, as Forge, Sync and Autopilot write them: the
-   * target's flows and email alerts then reach no one.
+   * number as a fictional one, as Forge, Sync and Autopilot write them: what
+   * the target's flows and email alerts send to them then reaches no one.
    */
   keepContactPoints?: boolean;
   /**

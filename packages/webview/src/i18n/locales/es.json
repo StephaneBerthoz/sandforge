@@ -1472,7 +1472,7 @@
       },
       "eventCount_one": "{{count}} evento",
       "eventCount_other": "{{count}} eventos",
-      "contactPointsHint": "Cada dirección de correo que escribe un cambio pasa a .invalid y cada número de teléfono a uno ficticio, para que la automatización de la org de destino no llegue a nadie. Un objeto encontrado por la asignación de una sync guardada sigue la elección de esa configuración.",
+      "contactPointsHint": "Cada dirección de correo que escribe un cambio pasa a .invalid y cada número de teléfono a uno ficticio, para que lo que la automatización de la org de destino les envíe no llegue a nadie. Eso no cubre a los propietarios de los registros, los registros que ya están en la org de destino ni una dirección que nombre una alerta. Un objeto encontrado por la asignación de una sync guardada sigue la elección de esa configuración.",
       "kept": "Lo que una sesión escribe se conserva a medida que lo escribe: una vez detenida, Sesiones anteriores, más abajo, la lista, y quitarla devuelve lo que sobrescribió, recupera de la papelera lo que eliminó y borra lo que creó."
     },
     "tabs": {
@@ -1673,8 +1673,8 @@
     },
     "contactPoints": {
       "toggle": "Neutralizar los correos y los números de teléfono (recomendado)",
-      "toggleDetails": "Activado salvo que se desmarque. Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie. Desmarcado, se copian tal como los tiene el origen, y los flujos del destino pueden enviar correos y SMS a personas reales. El campo con el que la escritura empareja se conserva tal como se leyó.",
-      "toggleHint": "Escribe cada email bajo .invalid y cada número de teléfono como uno ficticio, para que la automatización del destino no llegue a nadie."
+      "toggleDetails": "Activado salvo que se desmarque. Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que lo que la automatización de la org de destino les envía no llega a nadie. Eso no cubre a los propietarios de los registros, los registros que ya están en la org de destino ni una dirección que nombre una alerta. Desmarcado, se copian tal como los tiene el origen, y los flujos del destino pueden enviar correos y SMS a personas reales. El campo con el que la escritura empareja se conserva tal como se leyó.",
+      "toggleHint": "Escribe cada email bajo .invalid y cada número de teléfono como uno ficticio, para que lo que la automatización del destino les envíe no llegue a nadie."
     },
     "files": {
       "toggle": "Copiar los archivos de estos registros",
@@ -4515,7 +4515,7 @@
       "piiFields": "Campos PII detectados",
       "anonymizedFields": "Campos a anonimizar",
       "contactPoints": "Neutralizar los correos y los números de teléfono (recomendado)",
-      "contactPointsHint": "Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie. Desmarcado, se copian tal como los tiene el origen.",
+      "contactPointsHint": "Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que lo que la automatización de la org de destino les envía no llega a nadie. Eso no cubre a los propietarios de los registros, los registros que ya están en la org de destino ni una dirección que nombre una alerta. Desmarcado, se copian tal como los tiene el origen.",
       "advancedCompliance": "Avanzado: marco de cumplimiento",
       "noFrameworkHint": "No se ha elegido ningún marco de cumplimiento: los nombres, las direcciones y los demás campos personales se copian tal como los tiene el origen. Elija uno en «{{advanced}}» para anonimizar los que cubre.",
       "description": "Revise su configuración antes de lanzar Autopilot.",
@@ -5426,7 +5426,7 @@
       "title": "Correos y números de teléfono",
       "numbersExhausted_one": "{{count}} número de teléfono dejado vacío: los 10.000 números ficticios del rango se dieron todos a otros números de la ejecución.",
       "numbersExhausted_other": "{{count}} números de teléfono dejados vacíos: los 10.000 números ficticios del rango se dieron todos a otros números de la ejecución.",
-      "neutralized": "Neutralizados antes de escribir: {{values}} en {{fields}}. Cada dirección de correo se escribió bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llegó a nadie.",
+      "neutralized": "Neutralizados antes de escribir: {{values}} en {{fields}}. Cada dirección de correo se escribió bajo .invalid y cada número de teléfono como uno ficticio, de modo que lo que la automatización de la org de destino les envió no llegó a nadie.",
       "none": "Neutralizados antes de escribir: los registros escritos no contenían ninguna dirección de correo ni ningún número de teléfono.",
       "kept": "Escritos tal como los tiene el origen, como se pidió: la automatización de la org de destino puede haber enviado correos o SMS a personas reales.",
       "neutralizedSimulated": "Una ejecución real neutralizaría {{values}} en {{fields}}: cada dirección de correo bajo .invalid y cada número de teléfono como un número ficticio.",
@@ -5436,7 +5436,7 @@
       "values_other": "{{count}} valores",
       "keep": "Mantener los correos y los números de teléfono tal como están",
       "keepWarning": "Los correos y los números de teléfono se escribirán tal como los tiene el origen: los Flows, los triggers y las alertas por correo de la org de destino podrán entonces enviar correos o SMS a personas reales.",
-      "keepHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie.",
+      "keepHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que lo que la automatización de la org de destino les envía no llega a nadie. Eso no cubre a los propietarios de los registros, los registros que ya están en la org de destino ni una dirección que nombre una alerta.",
       "neutralizedUnlessKept": "Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están."
     },
     "encryptedLeftOut": "{{fields}}: campos cifrados que el usuario con el que SandForge lee la org de origen ve enmascarados, al no tener el permiso View Encrypted Data. Se dejan fuera de cada registro escrito, en lugar de copiarse enmascarados.",
@@ -5547,6 +5547,25 @@
       "differsNamed_other": "{{lead}}: releídos en {{read}}, {{held}}, donde se predijo {{said}}. La automatización de la org de destino pone el tipo de registro, entre lo que aún se ejecutó en {{object}}: {{names}}.",
       "noneFound_one": "{{lead}}: no se encontró al volver a leerlo.",
       "noneFound_other": "{{lead}}: ninguno se encontró al volver a leerlos."
+    },
+    "deliverability": {
+      "all": "{{org}} entrega todos los correos que envían sus automatizaciones (Configuración > Capacidad de entrega: Todos los emails), y lo que sigue activo cuando la ejecución escribe puede enviar algunos: {{senders}}.",
+      "unread": "No se pudo leer si {{org}} entrega los correos que envían sus automatizaciones ({{reason}}), y lo que sigue activo cuando la ejecución escribe puede enviar algunos: {{senders}}. Con Solo email del sistema o Sin acceso (Configuración > Capacidad de entrega), no sale ninguno.",
+      "withheld": "{{org}} no entrega ninguno de los correos que envían sus flujos, procesos, reglas de flujo de trabajo y Apex (Configuración > Capacidad de entrega: Solo email del sistema o Sin acceso): no sale nada de {{senders}} cuando la ejecución escribe.",
+      "quiet": "Lo que envía correos cuando la ejecución escribe comprueba un bypass: silenciado, no envía ninguno y no se pregunta nada sobre ellos.",
+      "addresses": "Van a las direcciones que nombran los registros y las alertas, entre ellas las de los propietarios de los registros y las de los registros que ya están en {{org}}.",
+      "readAgain": "La ejecución vuelve a leer {{org}} justo antes de escribir, y pregunta primero si saldrían.",
+      "sender": {
+        "flow": "Flujo «{{name}}» en {{object}}",
+        "process": "Proceso «{{name}}» en {{object}}",
+        "workflowRule": "Regla de flujo de trabajo «{{name}}» en {{object}}",
+        "assignmentRule": "Regla de asignación «{{name}}» en {{object}}"
+      },
+      "notRead": "{{sender}} (no se leyó su definición)",
+      "assignment": "{{sender}} (aplicada: puede escribir al propietario que asigna)",
+      "unlisted": "lo que no se pudo leer de sus automatizaciones",
+      "moreSenders_one": "{{formatted}} más",
+      "moreSenders_other": "{{formatted}} más"
     }
   },
   "grappe": {
@@ -5943,11 +5962,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "Un Flow de la org falló al guardar el registro, y la org rechazó el registro; el mensaje nombra el Flow. Una acción Enviar email falla así cuando la capacidad de entrega de email de la org está en Sin acceso.",
-      "action": "Corrija el Flow, o desactívelo mientras escribe la ejecución, y vuelva a ejecutar. No ponga la capacidad de entrega en Todos los emails para evitarlo: el Flow podría entonces enviar emails a las personas de los registros.",
+      "explanation": "Un Flow de la org falló al guardar el registro, y la org rechazó el registro; el mensaje nombra el Flow. La capacidad de entrega de email de la org no es la causa: con Solo email del sistema o Sin acceso, una acción Enviar email se retiene sin error y el registro se guarda. Pasados los emails que le quedan hoy a la org, un Flow que envía falla.",
+      "action": "Corrija el Flow, o desactívelo mientras escribe la ejecución, y vuelva a ejecutar. Pasados los emails del día, lo evita un bypass que silencie el Flow o una ejecución más pequeña.",
       "forge": {
-        "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. Una causa frecuente en un sandbox es una acción Enviar email: con la capacidad de entrega de email de la org en Sin acceso, la acción falla en cuanto usa una plantilla de email o registra el email. Un sandbox nuevo o actualizado está en Solo email del sistema.",
-        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. No ponga la capacidad de entrega de la org de destino en Todos los emails para que pase una acción Enviar email: el Flow podría entonces enviar emails a las personas de los registros clonados."
+        "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. La capacidad de entrega de email de la org no es la causa: con Solo email del sistema o Sin acceso, una acción Enviar email se retiene sin error y el registro se guarda. Pasados los emails que le quedan hoy al destino, un Flow que envía falla.",
+        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. Pasados los emails del día, lo evita ese bypass o una ejecución más pequeña."
       },
       "seed": {
         "action": "Corrija el Flow, o desactívelo mientras hace el seed."
@@ -6181,6 +6200,14 @@
     "seedConfirmationUnavailable": {
       "explanation": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "action": "Ejecútela desde la página Seed, donde puede confirmarla."
+    },
+    "emailsNotAccepted": {
+      "explanation": "La ejecución se rechazó antes de escribir nada: lo que sigue activo de las automatizaciones de la org de destino puede enviar correos, la org los entrega o no dice si lo hace, y nadie los aceptó.",
+      "action": "No se escribió nada. Si las automatizaciones del destino debían silenciarse, faltó un conjunto de permisos: desmarque el silencio para que se le pregunte por los correos, o vuelva a ejecutarla cuando ese conjunto pueda asignarse."
+    },
+    "emailsDelivered": {
+      "explanation": "Se rechazó antes de escribir nada: lo que sigue activo de las automatizaciones de la org envía correos, la org los entrega o no dice si lo hace, y no se aceptaron.",
+      "action": "No se escribió nada. Vuelva a iniciarlo y marque la casilla que deja a la org enviarlos, o desactive lo que los envía."
     }
   },
   "moduleSummary": {
@@ -6590,11 +6617,7 @@
       "undoProgress": "Progreso de Deshacer",
       "stop": "Detener el retroceso",
       "stopUndo": "Detener Deshacer",
-      "stopping": "Deteniendo antes de su próxima llamada a {{org}}…",
-      "emailsRefused": {
-        "rewind": "En esta página, el --accept-emails de la línea de comandos es la casilla «Dejar que {{org}} envíe estos correos» de la vista previa: retroceda de nuevo para marcarla.",
-        "undo": "En esta página, el --accept-emails de la línea de comandos es la casilla de los correos de la confirmación del deshacer: ábrala de nuevo para marcarla."
-      }
+      "stopping": "Deteniendo antes de su próxima llamada a {{org}}…"
     },
     "result": {
       "success": "{{org}} ha vuelto a «{{name}}». Leída de nuevo: nada difiere en los objetos y campos que contiene.",

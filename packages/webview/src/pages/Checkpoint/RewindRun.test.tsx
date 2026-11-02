@@ -239,48 +239,49 @@ describe('RewindRun', () => {
     expect(onUndo).toHaveBeenCalledWith('rw-20261022-140100-c3d4', []);
   });
 
-  it('says beside a refusal of the emails, which names the command line’s flag, that here it is a box', () => {
+  it('hints under a refusal of the emails, in the interface’s words, the way past it, and offers the rewind again', () => {
     const refused: RunState = {
       ...RUNNING,
       loading: false,
       error:
-        'DEV-SB delivers every email its automation sends. Nothing was written. Add --accept-emails to rewind all the same.',
+        'DEV-SB delivers every email its automation sends. Nothing was written. Tick "Let DEV-SB send these emails" in the preview to rewind all the same.',
       errorCode: 'EMAILS_DELIVERED',
     };
     const { onRewindAgain } = renderRun(refused);
-    expect(screen.getByTestId('checkpoint-run-emails-refused').textContent).toBe(
-      "On this page, the command line's --accept-emails is the box “Let DEV-SB send these emails” of the preview: rewind again to tick it.",
+    expect(screen.getByTestId('error-hint').textContent).toContain(
+      'Start it again and tick the box that lets the org send them',
     );
+    expect(screen.getByTestId('checkpoint-run-error').textContent).not.toContain('--accept-emails');
     fireEvent.click(screen.getByTestId('checkpoint-run-rewind-again'));
     expect(onRewindAgain).toHaveBeenCalledOnce();
   });
 
-  it('says it of an undo too, whose confirmation is asked again', () => {
+  it('hints it of an undo too, whose confirmation is asked again', () => {
     const { onUndo } = renderRun(
       {
         ...RUNNING,
         loading: false,
         error:
-          'DEV-SB delivers every email its automation sends. Nothing was written. Add --accept-emails to undo all the same.',
+          "DEV-SB delivers every email its automation sends. Nothing was written. Tick the box for these emails in the undo's confirmation to undo all the same.",
         errorCode: 'EMAILS_DELIVERED',
       },
       UNDO,
     );
-    expect(screen.getByTestId('checkpoint-run-emails-refused').textContent).toBe(
-      "On this page, the command line's --accept-emails is the emails' box of the undo's confirmation: open it again to tick it.",
+    expect(screen.getByTestId('error-hint').textContent).toContain(
+      'Start it again and tick the box that lets the org send them',
     );
     fireEvent.click(screen.getByTestId('checkpoint-run-undo-again'));
     expect(onUndo).toHaveBeenCalledWith('rw-20261022-140100-c3d4', []);
   });
 
-  it('says nothing of the box beside any other refusal', () => {
+  it('says nothing of the box beside a refusal past the day’s emails, which no box lifts', () => {
     renderRun({
       ...RUNNING,
       loading: false,
       error: 'The rewind makes DEV-SB send more emails than it has left today.',
       errorCode: 'EMAILS',
     });
-    expect(screen.queryByTestId('checkpoint-run-emails-refused')).toBeNull();
+    expect(screen.queryByTestId('error-hint')).toBeNull();
   });
 
   it('says an undo stopped before it answered, and offers no Undo of its own', () => {

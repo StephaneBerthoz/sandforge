@@ -1472,7 +1472,7 @@
       },
       "eventCount_one": "{{count}} event",
       "eventCount_other": "{{count}} events",
-      "contactPointsHint": "Every email address a change writes goes in under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. An object found by the mapping of a saved Sync configuration follows that configuration's choice.",
+      "contactPointsHint": "Every email address a change writes goes in under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. An object found by the mapping of a saved Sync configuration follows that configuration's choice.",
       "kept": "What a session writes is kept as it writes it: once it has stopped, Earlier sessions, below, lists it, and its removal gives back what it wrote over, brings back from the recycle bin what it deleted, and deletes what it created."
     },
     "tabs": {
@@ -1673,8 +1673,8 @@
     },
     "contactPoints": {
       "toggle": "Neutralize emails and phone numbers (recommended)",
-      "toggleDetails": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read.",
-      "toggleHint": "Writes every email under .invalid and every phone number as a fictional one, so the target's automation reaches no one."
+      "toggleDetails": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read.",
+      "toggleHint": "Writes every email under .invalid and every phone number as a fictional one, so what the target's automation sends to them reaches no one."
     },
     "files": {
       "toggle": "Copy the files of these records",
@@ -4515,7 +4515,7 @@
       "piiFields": "PII fields detected",
       "anonymizedFields": "Fields to anonymize",
       "contactPoints": "Neutralize emails and phone numbers (recommended)",
-      "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them.",
+      "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names. Unticked, they are copied as the source holds them.",
       "advancedCompliance": "Advanced: compliance framework",
       "noFrameworkHint": "No compliance framework is picked: names, addresses and the other personal fields are copied as the source holds them. Pick one under \"{{advanced}}\" to anonymize those it covers.",
       "description": "Review your configuration before launching autopilot.",
@@ -5426,7 +5426,7 @@
       "title": "Emails and phone numbers",
       "numbersExhausted_one": "{{count}} phone number left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
       "numbersExhausted_other": "{{count}} phone numbers left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",
-      "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so the target org's automation reached no one.",
+      "neutralized": "Neutralized before writing: {{values}} in {{fields}}. Every email address went in under .invalid and every phone number as a fictional one, so what the target org's automation sent to them reached no one.",
       "none": "Neutralized before writing: the records written held no email address or phone number.",
       "kept": "Written as the source holds them, as the run was asked: the target org's automation may have emailed or texted real people.",
       "neutralizedSimulated": "A real run would neutralize {{values}} in {{fields}}: every email address under .invalid and every phone number as a fictional one.",
@@ -5436,7 +5436,7 @@
       "values_other": "{{count}} values",
       "keep": "Keep emails and phone numbers as they are",
       "keepWarning": "Emails and phone numbers will be written as the source holds them: the target org's flows, triggers and email alerts may then email or text real people.",
-      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one.",
+      "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one. That leaves out the records' owners, the records already in the target org and an address an alert names.",
       "neutralizedUnlessKept": "Emails and phone numbers are neutralized (.invalid, fictional numbers) unless you tick Keep emails and phone numbers as they are."
     },
     "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
@@ -5547,6 +5547,25 @@
       "differsNamed_other": "{{lead}}: read back on {{read}}, {{held}}, where {{said}} was predicted. The target org's automation sets the record type, among what still ran on {{object}}: {{names}}.",
       "noneFound_one": "{{lead}}: it was not found when read back.",
       "noneFound_other": "{{lead}}: none of them was found when read back."
+    },
+    "deliverability": {
+      "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the run writes may send some: {{senders}}.",
+      "unread": "Whether {{org}} delivers the emails its automation sends could not be read ({{reason}}), and what still runs as the run writes may send some: {{senders}}. On System email only or No access (Setup > Deliverability), none of them goes out.",
+      "withheld": "{{org}} delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of {{senders}} as the run writes.",
+      "quiet": "What sends emails as the run writes tests a bypass: muted, none of it sends, and nothing is asked of them.",
+      "addresses": "They go to the addresses the records and the alerts name, those of the records' owners and of the records already in {{org}} among them.",
+      "readAgain": "The run reads {{org}} again just before it writes, and asks first if they would go out.",
+      "sender": {
+        "flow": "Flow “{{name}}” on {{object}}",
+        "process": "Process “{{name}}” on {{object}}",
+        "workflowRule": "Workflow rule “{{name}}” on {{object}}",
+        "assignmentRule": "Assignment rule “{{name}}” on {{object}}"
+      },
+      "notRead": "{{sender}} (its definition was not read)",
+      "assignment": "{{sender}} (applied: it can mail the owner it assigns)",
+      "unlisted": "what of its automation could not be read",
+      "moreSenders_one": "{{formatted}} more",
+      "moreSenders_other": "{{formatted}} more"
     }
   },
   "grappe": {
@@ -5943,11 +5962,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "A Flow of the org failed as the record was saved, and the org refused the record; the message names the Flow. A Send Email action fails this way when the org's email deliverability is set to No access.",
-      "action": "Fix the Flow, or deactivate it while the run writes, then run again. Do not set deliverability to All email to get past it: the Flow could then email the people on the records.",
+      "explanation": "A Flow of the org failed as the record was saved, and the org refused the record; the message names the Flow. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the org has left today, a Flow that sends fails.",
+      "action": "Fix the Flow, or deactivate it while the run writes, then run again. Past the day's emails, a bypass that keeps the Flow quiet, or a smaller run, avoids it.",
       "forge": {
-        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. A cause a sandbox often meets is a Send Email action: with the org's email deliverability set to No access, the action fails as soon as it uses an email template or logs the email. A new or refreshed sandbox is set to System email only.",
-        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Do not set the target's deliverability to All email to get a Send Email action through: the Flow could then email the people on the cloned records."
+        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the target has left today, a Flow that sends fails.",
+        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Past the day's emails, such a bypass, or a smaller run, avoids it."
       },
       "seed": {
         "action": "Fix the Flow, or deactivate it while you seed."
@@ -6181,6 +6200,14 @@
     "seedConfirmationUnavailable": {
       "explanation": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "action": "Start it from the Seed page, where you can confirm it."
+    },
+    "emailsNotAccepted": {
+      "explanation": "The run was refused before it wrote anything: what still runs of the target org's automation may send emails, the org delivers them or would not say whether it does, and nobody accepted them.",
+      "action": "Nothing was written. If the target's automation was to be muted, a permission set it needed was not held: untick the mute to be asked about the emails, or run it again once that set can be assigned."
+    },
+    "emailsDelivered": {
+      "explanation": "It was refused before it wrote anything: what still runs of the org's automation sends emails, the org delivers them or would not say whether it does, and they were not accepted.",
+      "action": "Nothing was written. Start it again and tick the box that lets the org send them, or turn off what sends them."
     }
   },
   "moduleSummary": {
@@ -6590,11 +6617,7 @@
       "undoProgress": "Progress of the undo",
       "stop": "Stop the rewind",
       "stopUndo": "Stop the undo",
-      "stopping": "Stopping before its next call to {{org}}…",
-      "emailsRefused": {
-        "rewind": "On this page, the command line's --accept-emails is the box “Let {{org}} send these emails” of the preview: rewind again to tick it.",
-        "undo": "On this page, the command line's --accept-emails is the emails' box of the undo's confirmation: open it again to tick it."
-      }
+      "stopping": "Stopping before its next call to {{org}}…"
     },
     "result": {
       "success": "{{org}} is back at “{{name}}”. Read again: nothing differs among the objects and fields it holds.",

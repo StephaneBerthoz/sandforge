@@ -23,9 +23,6 @@ const PHASE_KEYS: Readonly<Record<Exclude<RewindPhase, 'check'>, string>> = {
 /** The code a run stopped before it answered with a result comes back with. */
 const CANCELLED = 'CANCELLED';
 
-/** The code of a run refused for the emails what still runs sends, which the org delivers. */
-const EMAILS_DELIVERED = 'EMAILS_DELIVERED';
-
 /**
  * A run the page started: a rewind, with the preview the user confirmed, or
  * the undo of the org's last rewind.
@@ -144,15 +141,6 @@ export const RewindRun: React.FC<RewindRunProps> = ({
             code={state.errorCode}
             data-testid="checkpoint-run-error"
           />
-        )}
-        {/* The refusal says who sends and what the org delivers, and names
-            the command line's flag: the page's way past it is a box. */}
-        {state.errorCode === EMAILS_DELIVERED && (
-          <p data-testid="checkpoint-run-emails-refused">
-            {kind === 'rewind'
-              ? t('checkpoint.run.emailsRefused.rewind', { org: orgName })
-              : t('checkpoint.run.emailsRefused.undo')}
-          </p>
         )}
         <div className="flex flex-wrap gap-2">
           {run.kind === 'rewind' && (

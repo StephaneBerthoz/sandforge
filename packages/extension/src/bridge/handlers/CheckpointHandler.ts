@@ -413,7 +413,7 @@ function wroteAny(result: RewindResult): boolean {
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview, rewind, undo, guard, archive, plan, bounds, beforeRun] =
+  const [store, take, preview, rewind, undo, guard, archive, plan, bounds, beforeRun, emails] =
     await Promise.all([
       import('../../modules/checkpoint/OrgCheckpointStore.js'),
       import('../../modules/checkpoint/takeCheckpoint.js'),
@@ -425,8 +425,10 @@ async function loadCheckpointModules() {
       import('../../modules/checkpoint/rewindPlan.js'),
       import('../../modules/checkpoint/rewindBounds.js'),
       import('../../modules/checkpoint/beforeRunCheckpoint.js'),
+      import('../../modules/checkpoint/rewindEmails.js'),
     ]);
   return {
+    pageEmailsRefusal: emails.pageEmailsRefusal,
     planSelection: plan.planSelection,
     snapshotRowsOf: plan.snapshotRowsOf,
     rewindWriters: plan.rewindWriters,
@@ -2697,9 +2699,14 @@ export class CheckpointHandler implements DomainHandler {
               acceptUnseen: parsed.acceptUnseen,
             },
           );
-          return outcome.rewound
-            ? writtenOutcome(outcome)
-            : { done: false, refusal: outcome.refusal };
+          if (outcome.rewound) return writtenOutcome(outcome);
+          return {
+            done: false,
+            refusal:
+              parsed.fromPage === true
+                ? m.pageEmailsRefusal(outcome.refusal, 'rewind', orgName)
+                : outcome.refusal,
+          };
         },
         (err) => err instanceof m.RewindStopped,
         { acceptEmails: parsed.acceptEmails === true },
@@ -2771,9 +2778,14 @@ export class CheckpointHandler implements DomainHandler {
               canMute: true,
             },
           );
-          return outcome.undone
-            ? writtenOutcome(outcome)
-            : { done: false, refusal: outcome.refusal };
+          if (outcome.undone) return writtenOutcome(outcome);
+          return {
+            done: false,
+            refusal:
+              parsed.fromPage === true
+                ? m.pageEmailsRefusal(outcome.refusal, 'undo', orgName)
+                : outcome.refusal,
+          };
         },
         (err) => err instanceof m.UndoStopped,
         { rewindId: parsed.rewindId, acceptEmails: parsed.acceptEmails === true },

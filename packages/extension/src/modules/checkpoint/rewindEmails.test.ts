@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ForgeTargetAutomation, ForgeTargetFlow, RewindDiffObject } from '@sandforge/shared';
+import type {
+  CheckpointRefusal,
+  ForgeTargetAutomation,
+  ForgeTargetFlow,
+  RewindDiffObject,
+} from '@sandforge/shared';
 
 import {
   actDeliverability,
@@ -10,6 +15,7 @@ import {
   checkpointEmailsUncounted,
   emailsRefusal,
   emailsUncountedWords,
+  pageEmailsRefusal,
   writtenByDiff,
   writtenByPlan,
   writtenByUndo,
@@ -577,6 +583,95 @@ describe('whether the org delivers the emails of what still runs', () => {
     it('lets it through once the emails were accepted, or where the org withholds them', () => {
       expect(after({ assigned: [], held: [] }, { accepted: true })).toBeUndefined();
       expect(after({ assigned: [], held: [] }, { reading: { level: 'withheld' } })).toBeUndefined();
+    });
+  });
+
+  describe('in the words of the page that asked', () => {
+    /** The gate's own refusal, as the host would send it, for an act on an org that reads as `reading`. */
+    const gateRefusal = (
+      act: 'rewind' | 'undo',
+      reading: { level: 'all' } | { unread: string },
+    ): CheckpointRefusal => {
+      const { refusal } = actEmailsGate({
+        ...input,
+        act,
+        mayMute: true,
+        automation: bypassed,
+        accepted: false,
+        senders: [SENDER],
+        reading,
+      });
+      if (!refusal) throw new Error('the gate refused nothing');
+      return refusal;
+    };
+    const leaseRefusal = (act: 'rewind' | 'undo'): CheckpointRefusal => {
+      const refusal = afterLeaseEmailsRefusal({
+        act,
+        orgName: 'DEV-ED',
+        automation: bypassed,
+        steps,
+        plan,
+        held: { assigned: [], held: [] },
+        planned: [],
+        accepted: false,
+      });
+      if (!refusal) throw new Error('the lease refused nothing');
+      return refusal;
+    };
+
+    it.each(['rewind', 'undo'] as const)(
+      'names no flag of the command line in any refusal of a %s, who sends kept',
+      (act) => {
+        for (const refused of [
+          gateRefusal(act, { level: 'all' }),
+          gateRefusal(act, { unread: 'the org would not say' }),
+          leaseRefusal(act),
+        ]) {
+          // Positive control: each comes from the gate with the flag in it.
+          expect(refused.message).toContain('--accept-emails');
+
+          const { message, code } = pageEmailsRefusal(refused, act, 'DEV-ED');
+
+          expect(code).toBe('EMAILS_DELIVERED');
+          expect(message).not.toContain('--accept-emails');
+          expect(message).not.toContain('--mute-automation');
+          expect(message).toContain('flow "Contact changed" on Contact');
+          expect(message).toContain('Nothing was written.');
+        }
+      },
+    );
+
+    it('points a rewind at the box of its preview, and an undo at its confirmation', () => {
+      expect(
+        pageEmailsRefusal(gateRefusal('rewind', { level: 'all' }), 'rewind', 'DEV-ED').message,
+      ).toContain('Tick "Let DEV-ED send these emails" in the preview to rewind all the same,');
+      expect(
+        pageEmailsRefusal(gateRefusal('undo', { level: 'all' }), 'undo', 'DEV-ED').message,
+      ).toContain("Tick the box for these emails in the undo's confirmation to undo all the same,");
+    });
+
+    it('says what the mute keeps quiet as the page names it', () => {
+      expect(
+        pageEmailsRefusal(gateRefusal('rewind', { level: 'all' }), 'rewind', 'DEV-ED').message,
+      ).toContain('Mute automation keeps quiet flow "Contact changed"');
+    });
+
+    it('sends a rewind its lease refused to the mute, which hides the preview’s box, and an undo to its own', () => {
+      expect(pageEmailsRefusal(leaseRefusal('rewind'), 'rewind', 'DEV-ED').message).toContain(
+        'Untick Mute automation to be asked about them and rewind all the same, or run it again once the lease can assign them.',
+      );
+      expect(pageEmailsRefusal(leaseRefusal('undo'), 'undo', 'DEV-ED').message).toContain(
+        "Tick the box for these emails in the undo's confirmation to undo all the same, or run it again once the lease can assign them.",
+      );
+    });
+
+    it('leaves any other refusal as it came', () => {
+      const other: CheckpointRefusal = {
+        code: 'EMAILS',
+        message: 'Add --accept-emails to rewind all the same.',
+      };
+
+      expect(pageEmailsRefusal(other, 'rewind', 'DEV-ED')).toBe(other);
     });
   });
 });

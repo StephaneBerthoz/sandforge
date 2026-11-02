@@ -108,7 +108,7 @@ describe('what a run prints of an object', () => {
       }),
     ).toEqual([
       'emails and phone numbers: 12 value(s) in 1 field(s) neutralized, addresses under ' +
-        ".invalid and numbers fictional, so the target's automation reaches no one",
+        ".invalid and numbers fictional, so what the target's automation sends to them reaches no one",
       '  Contact.Email  12',
     ]);
     expect(contactPointLines({ neutralized: false, fields: [], values: 0 })).toEqual([

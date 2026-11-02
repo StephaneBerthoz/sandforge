@@ -550,6 +550,24 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
       'errors.seedConfirmationUnavailable.action',
     ],
   },
+  // A run refused before its first write for the emails of what still runs,
+  // which nobody accepted. On a page it is the rare one: a lease that does not
+  // hold every set it was to assign, or a question that could not be put. The
+  // host says it with the command line's flag, which no page has.
+  EMAILS_NOT_ACCEPTED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.emailsNotAccepted.explanation', 'errors.emailsNotAccepted.action'],
+  },
+  // A rewind or an undo refused for the same emails. Its message stays, as it
+  // names who sends them, which a question never read for an undo does not;
+  // the hint says it in the interface language with the way past it.
+  EMAILS_DELIVERED: {
+    severity: 'error',
+    own: true,
+    keys: ['errors.emailsDelivered.explanation', 'errors.emailsDelivered.action'],
+  },
 };
 
 /**

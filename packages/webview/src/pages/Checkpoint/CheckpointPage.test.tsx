@@ -378,6 +378,7 @@ describe('CheckpointPage', () => {
       expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         previewId: 'pv-1',
         acceptAutomation: false,
@@ -427,6 +428,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         previewId: 'pv-1',
         objects: ['Contact'],
@@ -520,6 +522,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(box);
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-140100-c3d4',
         acceptAutomation: true,
@@ -555,6 +558,7 @@ describe('CheckpointPage', () => {
       expect(screen.queryByTestId('checkpoint-undo-cannot')).toBeNull();
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: false,
@@ -586,6 +590,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-undo-accept-automation'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: true,
@@ -610,6 +615,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-undo-accept-emails'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: false,
@@ -639,6 +645,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId('checkpoint-undo-mute-toggle'));
       confirmTyped();
       expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
         checkpointId: ID,
         rewindId: 'rw-20261022-100000-beef',
         acceptAutomation: false,

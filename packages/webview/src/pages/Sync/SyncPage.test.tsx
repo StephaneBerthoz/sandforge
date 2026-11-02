@@ -555,7 +555,7 @@ describe('SyncPage', () => {
       [
         'sync-contact-points-toggle',
         'sync-contact-points-details',
-        "Writes every email under .invalid and every phone number as a fictional one, so the target's automation reaches no one.",
+        "Writes every email under .invalid and every phone number as a fictional one, so what the target's automation sends to them reaches no one.",
         /flows can email and text real people/,
       ],
       [

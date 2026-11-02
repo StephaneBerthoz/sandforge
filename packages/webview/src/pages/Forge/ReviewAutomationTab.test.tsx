@@ -923,4 +923,151 @@ describe('ReviewAutomationTab', () => {
       expect(screen.getByTestId('automation-removal-none')).toBeDefined();
     });
   });
+
+  describe('whether the target delivers the emails of what still runs', () => {
+    const SENDS_EMAIL = flow({
+      messages: [{ kind: 'email', name: 'Notify customer', limit: 'SingleEmail' }],
+    });
+    const QUIET_BY_BYPASS = flow({
+      apiName: 'Contact_Welcome',
+      label: 'Contact welcome',
+      messages: [{ kind: 'email', name: 'Welcome', limit: 'SingleEmail' }],
+      permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+    });
+    const read = (overrides: Partial<ForgeTargetAutomation> = {}): ForgeTargetAutomation =>
+      automation({
+        objects: [
+          { objectApiName: 'Case', flows: [SENDS_EMAIL], triggers: [] },
+          { objectApiName: 'Contact', flows: [QUIET_BY_BYPASS], triggers: [] },
+        ],
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Skip_Set', label: 'Skip', grants: 1 }],
+          },
+        ],
+        deliverability: { level: 'all' },
+        ...overrides,
+      });
+    const tab = (
+      shown: ForgeTargetAutomation,
+      options: { leftOut?: ReadonlySet<string>; muted?: boolean } = {},
+    ) => (
+      <ReviewAutomationTab
+        automation={shown}
+        leftOut={options.leftOut ?? new Set<string>()}
+        mute={{
+          offer: forgeRunMuteOffer(shown, options.leftOut ?? new Set<string>()),
+          checked: options.muted === true,
+          onChange: vi.fn(),
+          org: 'TGT-DEV',
+        }}
+      />
+    );
+
+    it('says the target delivers them, names who sends, and that the run reads the org again', () => {
+      render(tab(read()));
+
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toBe(
+        'TGT-DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the run writes may send some: Flow “Case notify customer” on Case and Flow “Contact welcome” on Contact.',
+      );
+      expect(screen.getByTestId('automation-deliverability-read-again').textContent).toBe(
+        'The run reads TGT-DEV again just before it writes, and asks first if they would go out.',
+      );
+    });
+
+    it('says nothing goes out of a target that withholds them', () => {
+      render(tab(read({ deliverability: { level: 'withheld' } })));
+
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'TGT-DEV delivers none of the emails',
+      );
+      expect(screen.queryByTestId('automation-deliverability-addresses')).toBeNull();
+    });
+
+    it('says why a target would not say, as the host read it: a production org runs no Apex', () => {
+      render(tab(read({ deliverability: { unread: 'no Apex runs in a production org' } })));
+
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'could not be read (no Apex runs in a production org)',
+      );
+    });
+
+    it('takes what the ticked mute keeps quiet off who sends, and nothing while it is unticked', () => {
+      const { unmount } = render(tab(read(), { muted: true }));
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'may send some: Flow “Case notify customer” on Case.',
+      );
+      unmount();
+
+      render(tab(read()));
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'Flow “Contact welcome” on Contact',
+      );
+    });
+
+    it('says the mute leaves nothing to send when it keeps every sender quiet', () => {
+      render(tab(read(), { muted: true, leftOut: new Set(['Case']) }));
+
+      expect(screen.queryByTestId('automation-deliverability')).toBeNull();
+      expect(screen.getByTestId('automation-deliverability-quiet').textContent).toBe(
+        'What sends emails as the run writes tests a bypass: muted, none of it sends, and nothing is asked of them.',
+      );
+    });
+
+    it('says nothing of an object left out of the run, nor once no sender is left', () => {
+      render(tab(read(), { leftOut: new Set(['Case', 'Contact']) }));
+
+      expect(screen.queryByTestId('automation-deliverability')).toBeNull();
+      expect(screen.queryByTestId('automation-deliverability-quiet')).toBeNull();
+    });
+
+    it('says what could not be read of the flows may send some, with no sender listed', () => {
+      render(
+        tab(
+          automation({
+            objects: [],
+            unread: [{ part: 'flows', reason: 'INSUFFICIENT_ACCESS' }],
+            deliverability: { level: 'all' },
+          }),
+        ),
+      );
+
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'may send some: what of its automation could not be read.',
+      );
+    });
+
+    it('counts the assignment rules the run applies among who sends, and none it does not', () => {
+      const shown = read({
+        objects: [
+          {
+            objectApiName: 'Case',
+            flows: [SENDS_EMAIL],
+            triggers: [],
+            assignmentRules: [{ name: 'Route cases' }],
+          },
+        ],
+      });
+      const { unmount } = render(tab(shown));
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).not.toContain(
+        'Route cases',
+      );
+      unmount();
+
+      useForgeStore.setState({ config: { ...RUN, applyAssignmentRules: true } });
+      render(tab(shown));
+      expect(screen.getByTestId('automation-deliverability-reading').textContent).toContain(
+        'Assignment rule “Route cases” on Case (applied: it can mail the owner it assigns)',
+      );
+    });
+
+    it('says nothing when the read found nothing that sends, the deliverability unread', () => {
+      render(
+        tab(automation({ objects: [{ objectApiName: 'Case', flows: [flow()], triggers: [] }] })),
+      );
+
+      expect(screen.queryByTestId('automation-deliverability')).toBeNull();
+    });
+  });
 });

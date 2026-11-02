@@ -175,6 +175,11 @@ export interface CheckpointRewindRequest extends BaseMessage {
      * (`RewindDiff.unseen`). Without it, a rewind that would writes nothing.
      */
     acceptUnseen: boolean;
+    /**
+     * Set by the page, whose way past a refusal for the emails is a box. The
+     * command line replays this request, and a refusal then names its flags.
+     */
+    fromPage?: true;
   };
 }
 
@@ -207,6 +212,11 @@ export interface CheckpointUndoRequest extends BaseMessage {
      * asked about as ever.
      */
     muteAutomation?: boolean;
+    /**
+     * Set by the page, whose way past a refusal for the emails is a box. The
+     * command line replays this request, and a refusal then names its flags.
+     */
+    fromPage?: true;
   };
 }
 

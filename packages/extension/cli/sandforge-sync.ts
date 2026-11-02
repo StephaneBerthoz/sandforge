@@ -1379,8 +1379,8 @@ export function contactPointLines(report: ForgeContactPointsReport | undefined):
   }
   return [
     `emails and phone numbers: ${report.values} value(s) in ${report.fields.length} field(s) ` +
-      "neutralized, addresses under .invalid and numbers fictional, so the target's automation " +
-      'reaches no one',
+      "neutralized, addresses under .invalid and numbers fictional, so what the target's " +
+      'automation sends to them reaches no one',
     ...report.fields.map(
       ({ objectApiName, field, values }) => `  ${objectApiName}.${field}  ${values}`,
     ),

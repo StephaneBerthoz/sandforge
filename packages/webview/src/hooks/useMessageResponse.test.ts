@@ -7,7 +7,7 @@ import i18n from '../i18n';
 import fr from '../i18n/locales/fr.json';
 
 import { RUN_OUTLIVED_WAIT, useMessageResponse } from './useMessageResponse';
-import type { UseMessageResponseOptions } from './useMessageResponse';
+import type { MessageResponseHandler, UseMessageResponseOptions } from './useMessageResponse';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useOrgStore } from '../stores/useOrgStore';
@@ -858,6 +858,41 @@ describe('useMessageResponse', () => {
       }
       // A Forge run's error carries the code for any cancel.
       expect(stoppedOn('forge:execute:error')).toBe(said);
+    });
+
+    it('says a run its lease left senders running in the interface language, with no flag of a command line', async () => {
+      const said =
+        "The mute's lease does not hold every permission set it was to assign. Nothing was written. Add --accept-emails to sync all the same.";
+      const refusedOn = (errorType: string): MessageResponseHandler<unknown> => {
+        const { result } = renderHook(() =>
+          useMessageResponse<unknown>({ ...defaultOptions, errorType }),
+        );
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(errorType, { message: said, code: 'EMAILS_NOT_ACCEPTED' }, 'req-1');
+        });
+        return result.current;
+      };
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      vi.useRealTimers();
+      await i18n.changeLanguage('fr');
+      vi.useFakeTimers();
+      try {
+        for (const errorType of ['sync:error', 'autopilot:error', 'seed:error']) {
+          const refused = refusedOn(errorType);
+          expect(refused.error, errorType).toBe(
+            `${fr.errors.emailsNotAccepted.explanation} ${fr.errors.emailsNotAccepted.action}`,
+          );
+          expect(refused.error, errorType).not.toContain('--accept-emails');
+          // The page keeps the code, as it keeps any refusal's.
+          expect(refused.errorCode, errorType).toBe('EMAILS_NOT_ACCEPTED');
+        }
+      } finally {
+        await i18n.changeLanguage('en');
+      }
     });
 
     it('says a seed its emails stopped in the interface language, with the figures and the ways out', () => {

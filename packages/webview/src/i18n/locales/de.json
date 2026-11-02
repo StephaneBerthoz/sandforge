@@ -1472,7 +1472,7 @@
       },
       "eventCount_one": "{{count}} Ereignis",
       "eventCount_other": "{{count}} Ereignisse",
-      "contactPointsHint": "Jede E-Mail-Adresse, die eine Änderung schreibt, kommt unter .invalid und jede Telefonnummer als fiktive Nummer an, sodass die Automatisierung der Ziel-Org niemanden erreicht. Ein Objekt, das über die Zuordnung einer gespeicherten Sync gefunden wird, folgt der Wahl dieser Konfiguration.",
+      "contactPointsHint": "Jede E-Mail-Adresse, die eine Änderung schreibt, kommt unter .invalid und jede Telefonnummer als fiktive Nummer an, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht. Das gilt nicht für die Inhaber der Datensätze, die bereits in der Ziel-Org vorhandenen Datensätze und eine Adresse, die eine Benachrichtigung nennt. Ein Objekt, das über die Zuordnung einer gespeicherten Sync gefunden wird, folgt der Wahl dieser Konfiguration.",
       "kept": "Was eine Sitzung schreibt, wird beim Schreiben aufbewahrt: Sobald sie gestoppt ist, führt „Frühere Sitzungen“ weiter unten sie auf, und ihr Entfernen gibt zurück, was sie überschrieben hat, stellt aus dem Papierkorb wieder her, was sie gelöscht hat, und löscht, was sie erstellt hat."
     },
     "tabs": {
@@ -1673,8 +1673,8 @@
     },
     "contactPoints": {
       "toggle": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
-      "toggleDetails": "An, sofern nicht abgewählt. Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, und die Flows des Ziels können echten Personen E-Mails und SMS senden. Das Feld, auf das das Schreiben abgleicht, bleibt wie gelesen.",
-      "toggleHint": "Schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive, sodass die Automatisierung des Ziels niemanden erreicht."
+      "toggleDetails": "An, sofern nicht abgewählt. Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht. Das gilt nicht für die Inhaber der Datensätze, die bereits in der Ziel-Org vorhandenen Datensätze und eine Adresse, die eine Benachrichtigung nennt. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, und die Flows des Ziels können echten Personen E-Mails und SMS senden. Das Feld, auf das das Schreiben abgleicht, bleibt wie gelesen.",
+      "toggleHint": "Schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive, sodass das, was die Automatisierung des Ziels an sie sendet, niemanden erreicht."
     },
     "files": {
       "toggle": "Die Dateien dieser Datensätze kopieren",
@@ -4515,7 +4515,7 @@
       "piiFields": "PII-Felder erkannt",
       "anonymizedFields": "Zu anonymisierende Felder",
       "contactPoints": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
-      "contactPointsHint": "Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält.",
+      "contactPointsHint": "Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht. Das gilt nicht für die Inhaber der Datensätze, die bereits in der Ziel-Org vorhandenen Datensätze und eine Adresse, die eine Benachrichtigung nennt. Abgewählt werden sie so kopiert, wie die Quelle sie enthält.",
       "advancedCompliance": "Erweitert: Compliance-Framework",
       "noFrameworkHint": "Kein Compliance-Framework ausgewählt: Namen, Adressen und die übrigen personenbezogenen Felder werden so kopiert, wie die Quelle sie enthält. Wählen Sie unter „{{advanced}}“ eines aus, um die Felder zu anonymisieren, die es abdeckt.",
       "description": "Überprüfen Sie Ihre Konfiguration, bevor Sie den Autopilot starten.",
@@ -5426,7 +5426,7 @@
       "title": "E-Mails und Telefonnummern",
       "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
       "numbersExhausted_other": "{{count}} Telefonnummern leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
-      "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht hat.",
+      "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass das, was die Automatisierung der Ziel-Org an sie gesendet hat, niemanden erreicht hat.",
       "none": "Vor dem Schreiben neutralisiert: Die geschriebenen Datensätze enthielten weder E-Mail-Adressen noch Telefonnummern.",
       "kept": "So geschrieben, wie die Quelle sie enthält, wie für diesen Lauf gewünscht: Die Automatisierung der Ziel-Org kann echten Personen E-Mails oder SMS gesendet haben.",
       "neutralizedSimulated": "Ein echter Lauf würde {{values}} in {{fields}} neutralisieren: jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer.",
@@ -5436,7 +5436,7 @@
       "values_other": "{{count}} Werte",
       "keep": "E-Mails und Telefonnummern unverändert lassen",
       "keepWarning": "E-Mails und Telefonnummern werden so geschrieben, wie die Quelle sie enthält: Flows, Trigger und E-Mail-Benachrichtigungen der Ziel-Org können dann echten Personen E-Mails oder SMS senden.",
-      "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht.",
+      "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht. Das gilt nicht für die Inhaber der Datensätze, die bereits in der Ziel-Org vorhandenen Datensätze und eine Adresse, die eine Benachrichtigung nennt.",
       "neutralizedUnlessKept": "E-Mails und Telefonnummern werden neutralisiert (.invalid, fiktive Nummern), es sei denn, Sie aktivieren „E-Mails und Telefonnummern unverändert lassen“."
     },
     "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert.",
@@ -5547,6 +5547,25 @@
       "differsNamed_other": "{{lead}}: Zurückgelesen bei {{read}}: {{held}}, wo {{said}} vorhergesagt war. Die Automatisierung der Ziel-Org setzt den Datensatztyp, unter dem, was auf {{object}} noch lief: {{names}}.",
       "noneFound_one": "{{lead}}: Er wurde beim Zurücklesen nicht gefunden.",
       "noneFound_other": "{{lead}}: Keiner von ihnen wurde beim Zurücklesen gefunden."
+    },
+    "deliverability": {
+      "all": "{{org}} stellt jede E-Mail zu, die ihre Automatisierungen senden (Setup > Zustellbarkeit: Alle E-Mails), und was noch aktiv ist, wenn der Lauf schreibt, kann welche senden: {{senders}}.",
+      "unread": "Ob {{org}} die E-Mails zustellt, die ihre Automatisierungen senden, konnte nicht gelesen werden ({{reason}}), und was noch aktiv ist, wenn der Lauf schreibt, kann welche senden: {{senders}}. Bei „Nur System-E-Mails“ oder „Kein Zugriff“ (Setup > Zustellbarkeit) geht keine davon hinaus.",
+      "withheld": "{{org}} stellt keine der E-Mails zu, die ihre Flows, Prozesse, Workflow-Regeln und Apex senden (Setup > Zustellbarkeit: Nur System-E-Mails oder Kein Zugriff): Von {{senders}} geht nichts hinaus, wenn der Lauf schreibt.",
+      "quiet": "Was beim Schreiben des Laufs E-Mails sendet, prüft einen Bypass: Stummgeschaltet sendet es keine, und nichts wird dazu gefragt.",
+      "addresses": "Sie gehen an die Adressen, die die Datensätze und die Benachrichtigungen nennen, darunter die der Inhaber der Datensätze und der Datensätze, die bereits in {{org}} sind.",
+      "readAgain": "Der Lauf liest {{org}} unmittelbar vor dem Schreiben erneut und fragt zuerst, falls sie hinausgingen.",
+      "sender": {
+        "flow": "Flow „{{name}}“ auf {{object}}",
+        "process": "Prozess „{{name}}“ auf {{object}}",
+        "workflowRule": "Workflow-Regel „{{name}}“ auf {{object}}",
+        "assignmentRule": "Zuweisungsregel „{{name}}“ auf {{object}}"
+      },
+      "notRead": "{{sender}} (seine Definition wurde nicht gelesen)",
+      "assignment": "{{sender}} (angewendet: Sie kann dem zugewiesenen Inhaber schreiben)",
+      "unlisted": "was von ihren Automatisierungen nicht gelesen werden konnte",
+      "moreSenders_one": "{{formatted}} weiteres",
+      "moreSenders_other": "{{formatted}} weitere"
     }
   },
   "grappe": {
@@ -5943,11 +5962,11 @@
       }
     },
     "flowFailed": {
-      "explanation": "Ein Flow der Org ist beim Speichern des Datensatzes fehlgeschlagen, und die Org hat den Datensatz abgelehnt; die Meldung nennt den Flow. Eine Aktion „E-Mail senden“ schlägt so fehl, wenn die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“ steht.",
-      "action": "Beheben Sie den Flow, oder deaktivieren Sie ihn, solange der Lauf schreibt, und starten Sie dann erneut. Stellen Sie die Zustellbarkeit nicht auf „Alle E-Mails“, um daran vorbeizukommen: Der Flow könnte dann den Personen der Datensätze E-Mails senden.",
+      "explanation": "Ein Flow der Org ist beim Speichern des Datensatzes fehlgeschlagen, und die Org hat den Datensatz abgelehnt; die Meldung nennt den Flow. Die E-Mail-Zustellbarkeit der Org ist nicht der Grund: Bei „Nur System-E-Mail“ oder „Kein Zugriff“ wird eine Aktion „E-Mail senden“ ohne Fehler zurückgehalten, und der Datensatz wird gespeichert. Über die E-Mails hinaus, die der Org heute bleiben, schlägt ein sendender Flow fehl.",
+      "action": "Beheben Sie den Flow, oder deaktivieren Sie ihn, solange der Lauf schreibt, und starten Sie dann erneut. Über die E-Mails des Tages hinaus vermeidet es ein Bypass, der den Flow still hält, oder ein kleinerer Lauf.",
       "forge": {
-        "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Eine Ursache, der eine Sandbox oft begegnet, ist eine Aktion „E-Mail senden“: Steht die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“, schlägt die Aktion fehl, sobald sie eine E-Mail-Vorlage verwendet oder die E-Mail protokolliert. Eine neue oder aktualisierte Sandbox steht auf „Nur System-E-Mail“.",
-        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Stellen Sie die Zustellbarkeit der Ziel-Org nicht auf „Alle E-Mails“, um eine Aktion „E-Mail senden“ durchzulassen: Der Flow könnte dann den Personen der geklonten Datensätze E-Mails senden."
+        "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Die E-Mail-Zustellbarkeit der Org ist nicht der Grund: Bei „Nur System-E-Mail“ oder „Kein Zugriff“ wird eine Aktion „E-Mail senden“ ohne Fehler zurückgehalten, und der Datensatz wird gespeichert. Über die E-Mails hinaus, die dem Ziel heute bleiben, schlägt ein sendender Flow fehl.",
+        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Über die E-Mails des Tages hinaus vermeidet es ein solcher Bypass oder ein kleinerer Lauf."
       },
       "seed": {
         "action": "Korrigieren Sie den Flow oder deaktivieren Sie ihn während des Seeds."
@@ -6181,6 +6200,14 @@
     "seedConfirmationUnavailable": {
       "explanation": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "action": "Starten Sie ihn auf der Seed-Seite, wo Sie ihn bestätigen können."
+    },
+    "emailsNotAccepted": {
+      "explanation": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Was von der Automatisierung der Ziel-Org noch aktiv ist, kann E-Mails senden, die Org stellt sie zu oder sagt nicht, ob sie es tut, und niemand hat sie akzeptiert.",
+      "action": "Es wurde nichts geschrieben. Sollte die Automatisierung der Ziel-Org stummgeschaltet werden, fehlte ein Berechtigungssatz: Deaktivieren Sie die Stummschaltung, um zu den E-Mails gefragt zu werden, oder starten Sie erneut, sobald dieser Satz zugewiesen werden kann."
+    },
+    "emailsDelivered": {
+      "explanation": "Es wurde abgelehnt, bevor etwas geschrieben wurde: Was von der Automatisierung der Org noch aktiv ist, sendet E-Mails, die Org stellt sie zu oder sagt nicht, ob sie es tut, und sie wurden nicht akzeptiert.",
+      "action": "Es wurde nichts geschrieben. Starten Sie erneut und aktivieren Sie das Kästchen, das die Org sie senden lässt, oder schalten Sie ab, was sie sendet."
     }
   },
   "moduleSummary": {
@@ -6590,11 +6617,7 @@
       "undoProgress": "Fortschritt des Rückgängigmachens",
       "stop": "Zurücksetzen stoppen",
       "stopUndo": "Rückgängigmachen stoppen",
-      "stopping": "Wird vor seinem nächsten Aufruf an {{org}} gestoppt…",
-      "emailsRefused": {
-        "rewind": "Auf dieser Seite entspricht --accept-emails der Befehlszeile dem Kästchen „{{org}} diese E-Mails senden lassen“ der Vorschau: Setzen Sie erneut zurück, um es anzukreuzen.",
-        "undo": "Auf dieser Seite entspricht --accept-emails der Befehlszeile dem E-Mail-Kästchen der Bestätigung des Rückgängigmachens: Öffnen Sie sie erneut, um es anzukreuzen."
-      }
+      "stopping": "Wird vor seinem nächsten Aufruf an {{org}} gestoppt…"
     },
     "result": {
       "success": "{{org}} ist wieder auf „{{name}}“. Erneut gelesen: Bei den Objekten und Feldern, die er enthält, unterscheidet sich nichts.",

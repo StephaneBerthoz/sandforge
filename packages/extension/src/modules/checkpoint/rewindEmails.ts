@@ -73,6 +73,7 @@ import {
   type DeliverabilityRead,
   type RunDeliverabilityRead,
 } from '../forge/targetDeliverability.js';
+import { emailsRefusalWords } from '../forge/runEmailsSaid.js';
 import type { RewoundObject } from './rewindEstimate.js';
 import type { RewindPlanObject } from './rewindPlan.js';
 
@@ -470,4 +471,46 @@ export function afterLeaseEmailsRefusal(
     run: input.act,
   });
   return stop ? { code: 'EMAILS_DELIVERED', message: stop.message } : undefined;
+}
+
+// ─── What the page says of it ────────────────────────────────────────────────
+
+/** What a refusal after the lease says besides the accord: nothing else lifts it. */
+const ONCE_THE_LEASE_HOLDS = ', or run it again once the lease can assign them';
+
+/** How a refusal for the emails names the mute on the command line. */
+const MUTE_FLAG_QUIETS = '--mute-automation keeps quiet';
+
+/**
+ * A refusal for the emails in the words of the page that asked for the act.
+ * The gate's are the command line's, which replays the page's request through
+ * this same host (`panelHost.ts`), so nothing here can tell the two apart: the
+ * page says it asked (`fromPage`), and a request that does not say so keeps
+ * the flags.
+ *
+ * On the page, what lifts it is a box. An undo's is in its confirmation,
+ * always offered. A rewind's is in its preview, which offers none while the
+ * mute leaves nothing to ask about: refused after its lease, whose set did not
+ * hold what the preview took as quiet, it is the mute that hides the box.
+ * Any other refusal comes back as it was.
+ */
+export function pageEmailsRefusal(
+  refusal: CheckpointRefusal,
+  act: 'rewind' | 'undo',
+  orgName: string,
+): CheckpointRefusal {
+  if (refusal.code !== 'EMAILS_DELIVERED') return refusal;
+  const liftedBy =
+    act === 'undo'
+      ? "Tick the box for these emails in the undo's confirmation to undo all the same"
+      : refusal.message.includes(ONCE_THE_LEASE_HOLDS)
+        ? 'Untick Mute automation to be asked about them and rewind all the same'
+        : `Tick "Let ${orgName} send these emails" in the preview to rewind all the same`;
+  return {
+    ...refusal,
+    message: emailsRefusalWords(refusal.message, act, liftedBy).replace(
+      MUTE_FLAG_QUIETS,
+      'Mute automation keeps quiet',
+    ),
+  };
 }

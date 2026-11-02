@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import en from '../i18n/locales/en.json';
 import { runElapsedSeconds, settledPercent, useForgeStore } from './useForgeStore';
 import type {
   ForgeConfig,
@@ -1438,6 +1439,22 @@ describe('useForgeStore', () => {
         code: 'MUTE_PRODUCTION',
         stoppedRun: null,
       });
+    });
+
+    it('says a run refused for its emails after its lease in the catalogue’s words, with no flag of a command line', () => {
+      runOnScreen();
+      post('forge:execute:error', 'wv-run-1', {
+        message:
+          "The mute's lease does not hold every permission set it was to assign. Nothing was written. Add --accept-emails to clone all the same.",
+        code: 'EMAILS_NOT_ACCEPTED',
+        retryable: true,
+      });
+      expect(getState().runError).toEqual({
+        message: `${en.errors.emailsNotAccepted.explanation} ${en.errors.emailsNotAccepted.action}`,
+        code: 'EMAILS_NOT_ACCEPTED',
+        stoppedRun: null,
+      });
+      expect(getState().runError?.message).not.toContain('--accept-emails');
     });
 
     it('keeps what the org answered of a permission set it would not assign', () => {

@@ -286,14 +286,17 @@ describe('what the hints say, in English', () => {
     expect(errors.duplicateRule.explanation).toContain('set to Block');
   });
 
-  it('says a failed Flow may be a Send Email action the sandbox cannot send, and warns off opening every email', () => {
-    const { explanation, action } = errors.flowFailed.forge;
-    expect(explanation).toContain('No access');
-    expect(explanation).toContain('email template or logs the email');
-    expect(explanation).toContain('System email only');
-    expect(action).toContain('Deactivate that Flow');
-    expect(action).toContain('the people on the cloned records');
-    expect(errors.flowFailed.action).toContain('the people on the records');
+  it('does not give the org’s deliverability as why a Flow failed: rehearsed under both closed levels, a Send Email with a template saved', () => {
+    for (const { explanation, action } of [errors.flowFailed, errors.flowFailed.forge]) {
+      expect(explanation).toContain('deliverability is not why');
+      expect(explanation).toContain('held back without an error and the record saves');
+      expect(explanation).toContain('a Flow that sends fails');
+      expect(explanation).not.toContain('email template or logs the email');
+      expect(action).toContain('a smaller run');
+      expect(action).not.toContain('All email');
+    }
+    expect(errors.flowFailed.forge.action).toContain('Deactivate that Flow');
+    expect(errors.flowFailed.seed.action).not.toContain('deliverability');
   });
 
   it('sends an expired session to the Reconnect button the org card carries, not to a terminal', () => {
