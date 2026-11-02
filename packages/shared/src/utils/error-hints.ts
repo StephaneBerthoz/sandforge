@@ -328,10 +328,12 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     keys: ['errors.malformedId.explanation', 'errors.malformedId.action'],
     forge: ['errors.malformedId.forge.explanation', 'errors.malformedId.forge.action'],
   },
-  // A Flow of the org failing on save. One a sandbox often meets is a Send
-  // Email action: with the org's deliverability at No access, the action
-  // fails once it uses an email template or logs the email, and the save
-  // fails with it (Salesforce Help, Send Email action).
+  // A Flow of the org failing on save. The org's deliverability is not a
+  // cause, whatever Salesforce Help says of the Send Email action: rehearsed
+  // on a Developer Edition switched to System email only and to No access,
+  // a contact whose Flow sends with a template saved, its email held back
+  // without an error. Past the emails the org has left today, a Flow that
+  // sends does fail, and the record with it.
   CANNOT_EXECUTE_FLOW_TRIGGER: {
     severity: 'error',
     keys: ['errors.flowFailed.explanation', 'errors.flowFailed.action'],

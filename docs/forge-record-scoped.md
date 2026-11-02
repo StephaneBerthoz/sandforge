@@ -632,8 +632,10 @@ the source computed for it (its record type maps by API name as any does, or is
 excluded on the object to take the target's default), and a dry run counts its
 contact among the rows it would insert. So does a person account whose record
 type in the target is a business account's, in a target with person accounts:
-the one the mapping gives it, or the running user's default there when its
-`RecordTypeId` is not written, read once a run from `RecordType.IsPersonType`.
+the one the mapping gives it, or, when its `RecordTypeId` is not written, the
+one the target gives the running user, which the describe's default does not
+always name ([the rule](forge-reference.md#the-record-type-the-target-gives)),
+read once a run from `RecordType.IsPersonType`.
 Sent as a person account, without its name, the target refused it. It goes by
 its name, without the fields only a person account holds ("If the
 IsPersonAccount field has the value false, the following fields have a null
