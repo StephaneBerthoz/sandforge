@@ -1,11 +1,29 @@
+import { basename, dirname, join } from 'node:path';
 import * as z from 'zod';
 import type {
+  MigrationImportNote,
+  MigrationImportNoteCode,
+  MigrationImportRefusal,
   SyncConfig,
   SyncObjectConfig,
   FieldMapping,
   TransformRule,
   MappingType,
 } from '@sandforge/shared';
+import {
+  isSafeSoqlOrderBy,
+  isSafeSoqlWhere,
+  validateSoqlIdentifier,
+} from '../../core/common/soqlValidator.js';
+import { readSfdmuQuery } from './sfdmuQuery.js';
+import type { SfdmuQuery } from './sfdmuQuery.js';
+import {
+  FIELD_MAPPING_FILE,
+  VALUE_MAPPING_FILE,
+  readFieldMappingRows,
+  readValueMappingRows,
+} from './sfdmuMappingFiles.js';
+import type { FieldMappingRow, ValueMappingRow } from './sfdmuMappingFiles.js';
 
 // ── SFDMU Zod Schemas ─────────────────────────────────────
 
@@ -36,44 +54,70 @@ const sfdmuValuesMappingItemSchema = z.object({
   mappedValue: z.string(),
 });
 
-/** Schema for a single SFDMU ScriptObject */
-const sfdmuScriptObjectSchema = z.object({
-  query: z.string().min(1),
-  operation: z.enum([
-    'Insert',
-    'Update',
-    'Upsert',
-    'Delete',
-    'Readonly',
-    'DeleteSource',
-    'DeleteHierarchy',
-  ]),
+/**
+ * Schema for a `mockFields` entry. SFDMU writes an object, `name` the field and
+ * `pattern` the fake value it takes.
+ */
+const sfdmuMockFieldSchema = z.union([
+  z.string().min(1),
+  z.looseObject({ name: z.string().min(1) }),
+]);
+
+/**
+ * Schema for a single SFDMU ScriptObject, as SFDMU's own `export.schema.json`
+ * allows one: no key for the object, which comes from `query`, and any key this
+ * importer does not know kept for the import to name it. `objectName`, `where`,
+ * `orderBy`, `limit` and `valuesMapping` are no key of SFDMU's: files written
+ * for this importer carried them, and they are still read.
+ */
+const sfdmuScriptObjectSchema = z.looseObject({
+  query: z.string().optional(),
+  name: z.string().optional(),
+  objectName: z.string().optional(),
+  operation: z.string().optional(),
   externalId: z.string().optional().default('Id'),
-  objectName: z.string().min(1),
   master: z.boolean().optional().default(true),
+  excluded: z.boolean().optional(),
   excludedFields: z.array(z.string()).optional().default([]),
+  useFieldMapping: z.boolean().optional(),
   fieldMapping: z.array(sfdmuFieldMappingItemSchema).optional().default([]),
+  useValuesMapping: z.boolean().optional(),
   valuesMapping: z.array(sfdmuValuesMappingItemSchema).optional().default([]),
   deleteOldData: z.boolean().optional().default(false),
+  deleteFromSource: z.boolean().optional(),
+  deleteByHierarchy: z.boolean().optional(),
+  hardDelete: z.boolean().optional(),
   updateWithMockData: z.boolean().optional().default(false),
-  mockFields: z.array(z.string()).optional().default([]),
+  mockFields: z.array(sfdmuMockFieldSchema).optional().default([]),
   where: z.string().optional(),
   orderBy: z.string().optional(),
   limit: z.number().optional(),
 });
 
-/** Schema for the top-level SFDMU export.json */
-export const sfdmuExportSchema = z.object({
-  objects: z.array(sfdmuScriptObjectSchema).min(1),
-  excludeIdsFromCSVFiles: z.boolean().optional(),
-  apiVersion: z.string().optional(),
-  bulkApiVersion: z.string().optional(),
-  pollingIntervalMs: z.number().optional(),
-  bulkApiV1BatchSize: z.number().optional(),
-  allOrNone: z.boolean().optional(),
-  promptOnUpdateError: z.boolean().optional(),
-  promptOnMissingParentObjects: z.boolean().optional(),
-});
+/**
+ * Schema for the top-level SFDMU export.json. SFDMU asks for `objects` or
+ * `objectSets`, runs the first and then each set, and takes any other key.
+ */
+export const sfdmuExportSchema = z
+  .looseObject({
+    objects: z.array(sfdmuScriptObjectSchema).optional().default([]),
+    objectSets: z
+      .array(z.looseObject({ objects: z.array(sfdmuScriptObjectSchema).optional().default([]) }))
+      .optional(),
+    csvFileDelimiter: z.string().optional(),
+    csvReadFileDelimiter: z.string().optional(),
+  })
+  .refine((script) => allEntries(script).length > 0, {
+    message: 'An export lists its objects under objects or objectSets.',
+  });
+
+/** Every object of an export, `objects` first and then each set, as SFDMU runs them. */
+function allEntries<T>(script: {
+  objects: T[];
+  objectSets?: ReadonlyArray<{ objects: T[] }>;
+}): T[] {
+  return [...script.objects, ...(script.objectSets ?? []).flatMap((set) => set.objects)];
+}
 
 /** Inferred type for the SFDMU export format */
 export type SfdmuExport = z.infer<typeof sfdmuExportSchema>;
@@ -98,12 +142,40 @@ export interface DependencyEdge {
 
 // ── File reader interface ─────────────────────────────────
 
-/** Interface for reading files — allows easy mocking in tests */
+/**
+ * Interface for reading files — allows easy mocking in tests. A file that does
+ * not exist rejects with the code `ENOENT`, as `node:fs` does: the mapping
+ * files beside an export are optional.
+ */
 export interface FileReader {
   readFile(filePath: string): Promise<string>;
 }
 
-// ── Target object ─────────────────────────────────────────
+/** A converted export, and what it asked that the configuration does not do as SFDMU would. */
+export interface SfdmuImport {
+  config: SyncConfig;
+  notes: MigrationImportNote[];
+}
+
+// ── Refusals ──────────────────────────────────────────────
+
+/**
+ * An export nothing is imported from, with a code the page words in the
+ * reader's language. A file that was no export ended on Zod's issues as JSON,
+ * or on JavaScript's own `SyntaxError`, which named nothing of the file.
+ */
+export class SfdmuRefusal extends Error {
+  readonly code: MigrationImportRefusal;
+  /** What it is about: objects, or entries by their place in the file. */
+  readonly objects: readonly string[];
+
+  constructor(code: MigrationImportRefusal, message: string, objects: readonly string[] = []) {
+    super(message);
+    this.name = 'SfdmuRefusal';
+    this.code = code;
+    this.objects = objects;
+  }
+}
 
 /**
  * An export that sends an object to another object, which a Sync configuration
@@ -113,19 +185,300 @@ export interface FileReader {
  * so nothing of such an export is imported, and each object is named with
  * where it goes and its fields.
  */
-export class SfdmuTargetObjectError extends Error {
-  /** Each object refused, as `Account → Lead (Name → Company)`. */
-  readonly objects: readonly string[];
-
+export class SfdmuTargetObjectError extends SfdmuRefusal {
+  /** @param objects - Each object refused, as `Account → Lead (Name → Company)`. */
   constructor(objects: readonly string[]) {
     super(
+      'TARGET_OBJECT_MAPPED',
       'Nothing was imported: Sync writes an object to the same object in the target org, and ' +
         `this export sends one to another: ${objects.join('; ')}. Take out its targetObject ` +
         'entries, or those objects, then import it again.',
+      objects,
     );
     this.name = 'SfdmuTargetObjectError';
-    this.objects = objects;
   }
+}
+
+/** A place in the file, as `objects[2].fieldMapping[0]`. */
+function placeOf(path: ReadonlyArray<PropertyKey>): string {
+  return path.reduce<string>(
+    (place, key) =>
+      typeof key === 'number'
+        ? `${place}[${key}]`
+        : `${place}${place === '' ? '' : '.'}${String(key)}`,
+    '',
+  );
+}
+
+/**
+ * The export a file holds.
+ *
+ * @throws {SfdmuRefusal} For a file that is not JSON, that lists no object, or
+ *   that holds a value of a kind SFDMU's format does not hold there. A key it
+ *   does not know is none of these: SFDMU takes any key.
+ */
+function parseExport(content: string, fileName: string): SfdmuExport {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (err: unknown) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new SfdmuRefusal('NOT_JSON', `Nothing was imported: ${fileName} is not JSON (${why}).`);
+  }
+  const noObjects = new SfdmuRefusal(
+    'NO_OBJECTS',
+    `Nothing was imported: ${fileName} lists no object, under objects or objectSets.`,
+  );
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw noObjects;
+  const checked = sfdmuExportSchema.safeParse(parsed);
+  if (checked.success) return checked.data;
+  const places = [...new Set(checked.error.issues.map((issue) => placeOf(issue.path)))];
+  if (places.every((place) => place === '')) throw noObjects;
+  throw new SfdmuRefusal(
+    'INVALID_EXPORT',
+    `Nothing was imported: these entries of ${fileName} are not of the kind SFDMU's format ` +
+      `holds there: ${places.join(', ')}. Correct them, then import it again.`,
+    places,
+  );
+}
+
+// ── Reading an object ─────────────────────────────────────
+
+/** SFDMU's operations, which it reads whatever their case. */
+const SFDMU_OPERATIONS = [
+  'Insert',
+  'Update',
+  'Upsert',
+  'Readonly',
+  'Delete',
+  'DeleteSource',
+  'DeleteHierarchy',
+  'HardDelete',
+] as const;
+
+type SfdmuOperation = (typeof SFDMU_OPERATIONS)[number];
+
+/** The operations a Sync configuration has a way to carry. */
+type CarriedOperation = Exclude<SfdmuOperation, 'Readonly' | 'DeleteSource' | 'DeleteHierarchy'>;
+
+/** An entry of the export, read: what it selects from, and where the file holds it. */
+type ReadEntry = SfdmuScriptObject & {
+  place: string;
+  object: string;
+  read: SfdmuQuery;
+  /** Undefined: SFDMU has no operation of that name. */
+  sfdmuOperation: SfdmuOperation | undefined;
+  /** The keys it sets that the import does not act on. */
+  settingsLeft: string[];
+};
+
+/** An entry the configuration takes. */
+type TakenEntry = ReadEntry & { sfdmuOperation: CarriedOperation };
+
+/** An entry the configuration takes, with the mappings SFDMU would apply to it. */
+type KeptEntry = TakenEntry & {
+  /** The entries of its `fieldMapping` SFDMU ignores, with `useFieldMapping` off. */
+  fieldMappingsIgnored: number;
+  /** The fields SFDMU writes fake values into, which `excludedFields` now holds. */
+  mockedFields: string[];
+  /** Rows of `ValueMapping.csv` a Map Value rule cannot apply, as `Field (raw value)`. */
+  valueRowsLeft: string[];
+};
+
+/**
+ * The object an entry selects from. SFDMU blanks `name` as it loads a file and
+ * takes the FROM of the query: `name` and `objectName` count where none can be read.
+ */
+function objectNameOf(entry: SfdmuScriptObject): string | undefined {
+  return (
+    (entry.query ? readSfdmuQuery(entry.query).object : undefined) ??
+    [entry.name, entry.objectName].find((name) => name !== undefined && name.trim() !== '')
+  );
+}
+
+/** The operation of an entry: one that names none is `Readonly`, SFDMU's default. */
+function operationOf(entry: SfdmuScriptObject): SfdmuOperation | undefined {
+  const asked = (entry.operation ?? 'Readonly').trim().toLowerCase();
+  return SFDMU_OPERATIONS.find((operation) => operation.toLowerCase() === asked);
+}
+
+/**
+ * Every entry of an export, in the order SFDMU runs them.
+ *
+ * @throws {SfdmuRefusal} When one names no object.
+ */
+function readEntries(script: SfdmuExport): ReadEntry[] {
+  const placed = [
+    ...script.objects.map((entry, at) => ({ entry, place: `objects[${at}]` })),
+    ...(script.objectSets ?? []).flatMap((set, setAt) =>
+      set.objects.map((entry, at) => ({ entry, place: `objectSets[${setAt}].objects[${at}]` })),
+    ),
+  ];
+  const unnamed = placed
+    .filter(({ entry }) => objectNameOf(entry) === undefined)
+    .map(({ entry, place }) => (entry.query ? `${place} (${entry.query.slice(0, 80)})` : place));
+  if (unnamed.length > 0) {
+    throw new SfdmuRefusal(
+      'OBJECT_NOT_NAMED',
+      'Nothing was imported: no object can be read in these entries, neither in the FROM of a ' +
+        `query nor under name: ${unnamed.join('; ')}. Correct them, then import it again.`,
+      unnamed,
+    );
+  }
+  return placed.map(({ entry, place }) => ({
+    ...entry,
+    place,
+    object: objectNameOf(entry) ?? '',
+    read: readSfdmuQuery(entry.query ?? ''),
+    sfdmuOperation: operationOf(entry),
+    settingsLeft: settingsNotRead(entry, OBJECT_KEYS_READ),
+  }));
+}
+
+/** What SFDMU's `mockFields` calls every field of an object. */
+const MOCK_ALL_FIELDS = 'all';
+
+/** The fields SFDMU writes fake values into: none unless the object says so. */
+function mockedFieldsOf(entry: SfdmuScriptObject): string[] {
+  if (!entry.updateWithMockData) return [];
+  return [...new Set(entry.mockFields.map((f) => (typeof f === 'string' ? f : f.name)))];
+}
+
+/**
+ * Why an entry stays out of the configuration, or `undefined` when it goes in.
+ *
+ * Sync's delete goes to the target, so a `DeleteSource` converted to one, as
+ * it was, deleted in the org the export meant to leave alone. Sync has no fake
+ * data either, and an object faked whole has no field list to leave out: its
+ * real values would reach the target where the export hid them.
+ */
+function whyLeftOut(entry: ReadEntry): Pick<MigrationImportNote, 'code' | 'detail'> | undefined {
+  const operation = entry.sfdmuOperation;
+  if (entry.excluded) return { code: 'excluded' };
+  // SFDMU's loader drops such an entry: taken, it would copy an object SFDMU never read.
+  if (!entry.query?.trim()) return { code: 'noQuery' };
+  if (operation === undefined) return { code: 'unknownOperation', detail: entry.operation };
+  if (operation === 'Readonly') return { code: 'readonly' };
+  if (operation === 'DeleteSource' || operation === 'DeleteHierarchy') {
+    return { code: 'deletesElsewhere', detail: operation };
+  }
+  const deletes = operation === 'Delete' || operation === 'HardDelete';
+  if (deletes && entry.deleteFromSource) {
+    return { code: 'deletesElsewhere', detail: 'deleteFromSource' };
+  }
+  if (deletes && entry.deleteByHierarchy) {
+    return { code: 'deletesElsewhere', detail: 'deleteByHierarchy' };
+  }
+  if (!deletes && mockedFieldsOf(entry).includes(MOCK_ALL_FIELDS)) {
+    return { code: 'mockAllFields' };
+  }
+  return undefined;
+}
+
+/**
+ * Whether a Map Value rule can apply a row of `ValueMapping.csv`: it maps one
+ * exact value to another on a field. SFDMU's `/regex/` and `eval(…)` are code,
+ * and its `#N/A` writes null, which the rule would write as those four letters.
+ */
+function isExactValueRow(row: { field: string; rawValue: string; value: string }): boolean {
+  return (
+    validateSoqlIdentifier(row.field) &&
+    !/^\/.*\/$/.test(row.rawValue) &&
+    !/^eval[(].*[)]$/.test(row.value) &&
+    row.value !== '#N/A'
+  );
+}
+
+/** Whether a setting says anything: `false`, nothing and an empty list do not. */
+function isSet(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== false && value !== null && value !== undefined && value !== '';
+}
+
+/** The keys of an object the import acts on: any other is named in its notes. */
+const OBJECT_KEYS_READ: ReadonlySet<string> = new Set([
+  'query',
+  'name',
+  'objectName',
+  'operation',
+  'externalId',
+  'master',
+  'excluded',
+  'excludedFields',
+  'useFieldMapping',
+  'fieldMapping',
+  'useValuesMapping',
+  'valuesMapping',
+  'deleteOldData',
+  'deleteFromSource',
+  'deleteByHierarchy',
+  'hardDelete',
+  'updateWithMockData',
+  'mockFields',
+  'where',
+  'orderBy',
+  'limit',
+]);
+
+/**
+ * The keys of a file the import acts on, or need say nothing of: any other is
+ * named in its notes. `orgs` names orgs the page has the user pick.
+ */
+const SCRIPT_KEYS_READ: ReadonlySet<string> = new Set([
+  'objects',
+  'objectSets',
+  'orgs',
+  'csvFileDelimiter',
+  'csvReadFileDelimiter',
+]);
+
+/** The keys of `from` set to something the import does not act on, by name. */
+function settingsNotRead(from: Record<string, unknown>, read: ReadonlySet<string>): string[] {
+  return (
+    Object.entries(from)
+      // `$schema` and `$comment` speak of the file and ask nothing of a run.
+      .filter(([key, value]) => !read.has(key) && !key.startsWith('$') && isSet(value))
+      .map(([key]) => key)
+  );
+}
+
+/**
+ * What an object of the configuration does not do as SFDMU would. Those that
+ * read or write more than SFDMU matter most: Sync never runs the query, so a
+ * cap, or the narrowing of a slave object, would go with no word, and every
+ * record of the object be read.
+ */
+function notesOf(entry: KeptEntry): MigrationImportNote[] {
+  const notes: MigrationImportNote[] = [];
+  const add = (code: MigrationImportNoteCode, detail?: string): void => {
+    notes.push({ code, object: entry.object, ...(detail === undefined ? {} : { detail }) });
+  };
+  const { read, sfdmuOperation: operation, externalId: key } = entry;
+  const deletes = operation === 'Delete' || operation === 'HardDelete';
+
+  if (read.object === undefined) add('queryUnread');
+  const named = entry.name || entry.objectName;
+  if (named && named.toLowerCase() !== entry.object.toLowerCase()) add('nameDiffers', named);
+  if (deletes) add('delete', entry.hardDelete ? 'HardDelete' : operation);
+  if (operation === 'Update' && key !== 'Id') add('updateKey', key);
+  if (key !== 'Id' && !validateSoqlIdentifier(key)) add('unusableKey', key);
+  else if (operation === 'Upsert' && key !== 'Id' && !key.endsWith('__c')) add('upsertKey', key);
+  if (entry.fieldMappingsIgnored > 0) add('fieldMappingOff', String(entry.fieldMappingsIgnored));
+  if (entry.valueRowsLeft.length > 0) add('valueRows', entry.valueRowsLeft.join(', '));
+  if (entry.master === false) add('notMaster');
+  const limit = entry.limit ?? read.limit;
+  if (limit !== undefined) add('limit', String(limit));
+  const where = entry.where ?? read.where;
+  if (where !== undefined && !isSafeSoqlWhere(where)) add('whereRefused');
+  const orderBy = entry.orderBy ?? read.orderBy;
+  if (orderBy !== undefined && !isSafeSoqlOrderBy(orderBy)) {
+    add('queryClause', `ORDER BY ${orderBy}`);
+  }
+  for (const clause of read.otherClauses) add('queryClause', clause);
+  if (entry.deleteOldData && !deletes) add('deleteOldData');
+  if (entry.mockedFields.length > 0) add('mockFields', entry.mockedFields.join(', '));
+  if (entry.settingsLeft.length > 0) add('settings', entry.settingsLeft.join(', '));
+  return notes;
 }
 
 /** An entry of a `fieldMapping` that names a field, rather than a target object alone. */
@@ -136,27 +489,43 @@ function namesAField(
 }
 
 /**
+ * The fields a mapping sends elsewhere, each once. A field mapped twice goes
+ * where the last entry sends it, as in SFDMU, where the export's own entries
+ * come after those of `FieldMapping.csv`.
+ */
+function fieldPairsOf(mapping: readonly SfdmuFieldMappingItem[]) {
+  return [...new Map(mapping.filter(namesAField).map((m) => [m.sourceField, m])).values()];
+}
+
+/**
  * The objects of an export written to another object, as
  * {@link SfdmuTargetObjectError} names them. SFDMU takes the last target an
  * object's entries name, and an API name matches whatever its case, so a
- * target that names the object itself changes nothing. A `Readonly` object is
- * left out of the configuration, so nothing is written for it.
- *
- * SFDMU reads a mapping only under `useFieldMapping`, which the importer does
- * not read: an object's field mappings are converted either way, so a target
- * left under that flag switched off is refused too, or its fields would land
- * on the source object.
+ * target that names the object itself changes nothing. Only an object the
+ * configuration takes counts, by the mapping SFDMU would apply to it: with
+ * `useFieldMapping` off it applies none, so nothing goes anywhere else.
  */
-function objectsSentElsewhere(sfdmuExport: SfdmuExport): string[] {
-  return sfdmuExport.objects.flatMap((obj) => {
-    if (obj.operation === 'Readonly') return [];
-    const target = obj.fieldMapping.flatMap((item) => item.targetObject || []).at(-1);
-    if (target === undefined || target.toLowerCase() === obj.objectName.toLowerCase()) return [];
-    const fields = obj.fieldMapping
-      .filter(namesAField)
-      .map((item) => `${item.sourceField} → ${item.targetField}`);
-    return [`${obj.objectName} → ${target}${fields.length > 0 ? ` (${fields.join(', ')})` : ''}`];
+function objectsSentElsewhere(entries: readonly KeptEntry[]): string[] {
+  return entries.flatMap((entry) => {
+    const target = entry.fieldMapping.flatMap((item) => item.targetObject || []).at(-1);
+    if (target === undefined || target.toLowerCase() === entry.object.toLowerCase()) return [];
+    const fields = fieldPairsOf(entry.fieldMapping).map(
+      (item) => `${item.sourceField} → ${item.targetField}`,
+    );
+    return [`${entry.object} → ${target}${fields.length > 0 ? ` (${fields.join(', ')})` : ''}`];
   });
+}
+
+/** The delimiter of the CSV files beside an export, as SFDMU reads the two settings. */
+function csvDelimiterOf(script: SfdmuExport): string {
+  const asked = script.csvFileDelimiter ?? script.csvReadFileDelimiter ?? '';
+  const named = new Map([
+    ['comma', ','],
+    ['semicolon', ';'],
+    ['tab', '\t'],
+    ['\\t', '\t'],
+  ]);
+  return named.get(asked.trim().toLowerCase()) ?? (asked || ',');
 }
 
 // ── SfdmuImporter ─────────────────────────────────────────
@@ -166,12 +535,15 @@ function objectsSentElsewhere(sfdmuExport: SfdmuExport): string[] {
  * to the SandForge SyncConfig format.
  *
  * Maps:
- * - ScriptObject to SyncObjectConfig
+ * - ScriptObject to SyncObjectConfig, named by the FROM of its query
  * - externalId to SyncObjectConfig.externalIdField
- * - fieldMapping to FieldMapping[]
- * - valuesMapping to TransformRule[] (map_value)
+ * - the query's WHERE and ORDER BY to SyncObjectConfig.where and orderBy
+ * - fieldMapping and FieldMapping.csv to FieldMapping[], under useFieldMapping
+ * - ValueMapping.csv and valuesMapping to TransformRule[] (map_value)
  * - excludedFields to SyncObjectConfig.excludedFields
  * - master/child relationships to DependencyEdge[]
+ *
+ * What it cannot carry, it says, object by object, in the notes of the result.
  */
 export class SfdmuImporter {
   private readonly fileReader: FileReader;
@@ -183,16 +555,88 @@ export class SfdmuImporter {
   /**
    * Import an SFDMU export.json file and convert to SyncConfig.
    * @param filePath - Path to the SFDMU export.json file
-   * @returns Parsed and converted SyncConfig
+   * @returns The converted SyncConfig, and what it does not do as SFDMU would
    * @throws {SfdmuTargetObjectError} When it sends an object to another object.
+   * @throws {SfdmuRefusal} When it is no export, or an entry names no object.
    */
-  async import(filePath: string): Promise<SyncConfig> {
+  async import(filePath: string): Promise<SfdmuImport> {
     const content = await this.fileReader.readFile(filePath);
-    const parsed: unknown = JSON.parse(content);
-    const validated = sfdmuExportSchema.parse(parsed);
-    const refused = objectsSentElsewhere(validated);
+    const script = parseExport(content, basename(filePath));
+    const entries = readEntries(script);
+    const notes: MigrationImportNote[] = [];
+
+    const seen = new Set<string>();
+    const taken: TakenEntry[] = [];
+    for (const entry of entries) {
+      const left = whyLeftOut(entry);
+      if (left) {
+        notes.push({ ...left, object: entry.object });
+      } else if (seen.has(entry.object.toLowerCase())) {
+        // SFDMU runs each set apart. A configuration holds an object once, and
+        // the page and the run both tell its objects apart by name.
+        notes.push({ code: 'duplicate', object: entry.object, detail: entry.place });
+      } else {
+        seen.add(entry.object.toLowerCase());
+        taken.push(entry as TakenEntry);
+      }
+    }
+
+    const beside = await this.readMappingFiles(filePath, script, taken);
+    const kept = taken.map((entry) => withMappings(entry, beside));
+    const refused = objectsSentElsewhere(kept);
     if (refused.length > 0) throw new SfdmuTargetObjectError(refused);
-    return this.convert(validated);
+
+    const onTheFile: MigrationImportNote[] = [...beside.notes];
+    // SFDMU makes a set of `objects`, and runs each set apart.
+    const sets = (script.objects.length > 0 ? 1 : 0) + (script.objectSets?.length ?? 0);
+    if (sets > 1) onTheFile.push({ code: 'objectSets', detail: String(sets) });
+    if (kept.some((entry) => mapOperation(entry.sfdmuOperation) !== 'delete')) {
+      onTheFile.push({ code: 'everyField' });
+    }
+    const settings = settingsNotRead(script, SCRIPT_KEYS_READ);
+    if (settings.length > 0) onTheFile.push({ code: 'settings', detail: settings.join(', ') });
+
+    // Each object's notes together, in the order of the file.
+    const place = (note: MigrationImportNote): number =>
+      entries.findIndex((entry) => entry.object === note.object);
+    const onObjects = [...notes, ...kept.flatMap(notesOf)].sort((a, b) => place(a) - place(b));
+    return { config: this.convert(kept), notes: [...onTheFile, ...onObjects] };
+  }
+
+  /**
+   * The rows of the mapping files beside an export. SFDMU reads each for the
+   * objects that ask for it, and a file that is not there is no mapping.
+   */
+  private async readMappingFiles(
+    filePath: string,
+    script: SfdmuExport,
+    taken: readonly SfdmuScriptObject[],
+  ): Promise<MappingFiles> {
+    const delimiter = csvDelimiterOf(script);
+    const files: MappingFiles = { fieldRows: [], valueRows: [], notes: [] };
+    if (taken.some((entry) => entry.useFieldMapping)) {
+      const text = await this.readBeside(filePath, FIELD_MAPPING_FILE);
+      const rows = text === undefined ? [] : readFieldMappingRows(text, delimiter);
+      if (rows) files.fieldRows = rows;
+      else files.notes.push({ code: 'mappingFileUnread', detail: FIELD_MAPPING_FILE });
+    }
+    if (taken.some((entry) => entry.useValuesMapping)) {
+      const text = await this.readBeside(filePath, VALUE_MAPPING_FILE);
+      const rows = text === undefined ? [] : readValueMappingRows(text, delimiter);
+      if (rows) files.valueRows = rows;
+      else files.notes.push({ code: 'mappingFileUnread', detail: VALUE_MAPPING_FILE });
+    }
+    return files;
+  }
+
+  /** The content of `fileName` beside an export, or `undefined` when it has none. */
+  private async readBeside(filePath: string, fileName: string): Promise<string | undefined> {
+    try {
+      return await this.fileReader.readFile(join(dirname(filePath), fileName));
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined;
+      throw err;
+    }
   }
 
   /**
@@ -203,14 +647,15 @@ export class SfdmuImporter {
    */
   extractDependencies(sfdmuExport: SfdmuExport): DependencyEdge[] {
     const edges: DependencyEdge[] = [];
-    const objectNames = new Set(sfdmuExport.objects.map((o) => o.objectName));
+    const objectNames = new Set(sfdmuExport.objects.map(objectNameOf));
 
     for (const obj of sfdmuExport.objects) {
-      if (obj.master === false) {
+      const child = objectNameOf(obj);
+      if (obj.master === false || child === undefined) {
         continue;
       }
 
-      const fieldsFromQuery = extractFieldsFromQuery(obj.query);
+      const fieldsFromQuery = extractFieldsFromQuery(obj.query ?? '');
       for (const field of fieldsFromQuery) {
         if (field.includes('.')) {
           const parts = field.split('.');
@@ -219,7 +664,7 @@ export class SfdmuImporter {
           if (objectNames.has(parentObject)) {
             edges.push({
               parent: parentObject,
-              child: obj.objectName,
+              child,
               field: relationshipName,
             });
           }
@@ -231,15 +676,13 @@ export class SfdmuImporter {
   }
 
   /**
-   * Convert a validated SFDMU export to SyncConfig.
-   * @param sfdmuExport - Validated SFDMU export configuration
+   * Convert the entries an export keeps to SyncConfig.
+   * @param entries - The entries, read, with their mappings
    * @returns Converted SyncConfig
    */
-  private convert(sfdmuExport: SfdmuExport): SyncConfig {
+  private convert(entries: readonly KeptEntry[]): SyncConfig {
     const now = new Date().toISOString();
-    const objects: SyncObjectConfig[] = sfdmuExport.objects
-      .filter((obj) => obj.operation !== 'Readonly')
-      .map((obj, index) => this.convertObject(obj, index));
+    const objects: SyncObjectConfig[] = entries.map((obj, index) => this.convertObject(obj, index));
 
     return {
       id: generateId(),
@@ -259,26 +702,36 @@ export class SfdmuImporter {
 
   /**
    * Convert a single SFDMU ScriptObject to SyncObjectConfig.
-   * @param obj - SFDMU ScriptObject
+   *
+   * The filter and the order come from the query, where a real export holds
+   * them. A key that is no field name, an SFDMU composite or a parent's path,
+   * is not carried: Sync's boundary would refuse the whole configuration for
+   * it, and the object's row asks for one where it needs one.
+   *
+   * @param obj - The entry, read, with its mappings
    * @param index - Insertion order index
    * @returns Converted SyncObjectConfig
    */
-  private convertObject(obj: SfdmuScriptObject, index: number): SyncObjectConfig {
+  private convertObject(obj: KeptEntry, index: number): SyncObjectConfig {
     const fieldMappings = this.convertFieldMappings(obj.fieldMapping);
     const transformRules = this.convertValuesMapping(obj.valuesMapping, fieldMappings);
+    const orderBy = obj.orderBy ?? obj.read.orderBy;
 
     return {
-      objectApiName: obj.objectName,
-      externalIdField: obj.externalId === 'Id' ? undefined : obj.externalId,
-      operation: mapOperation(obj.operation),
+      objectApiName: obj.object,
+      externalIdField:
+        obj.externalId !== 'Id' && validateSoqlIdentifier(obj.externalId)
+          ? obj.externalId
+          : undefined,
+      operation: mapOperation(obj.sfdmuOperation),
       query: obj.query,
       fieldMappings,
       transformRules,
       excludedFields: obj.excludedFields,
       addOnFields: [],
       batchSize: 200,
-      orderBy: obj.orderBy,
-      where: obj.where,
+      orderBy: orderBy !== undefined && isSafeSoqlOrderBy(orderBy) ? orderBy : undefined,
+      where: obj.where ?? obj.read.where,
       insertOrder: index + 1,
     };
   }
@@ -290,7 +743,7 @@ export class SfdmuImporter {
    * @returns Converted FieldMapping array
    */
   private convertFieldMappings(mappings: SfdmuFieldMappingItem[]): FieldMapping[] {
-    return mappings.filter(namesAField).map((m) => {
+    return fieldPairsOf(mappings).map((m) => {
       const type: MappingType = m.sourceField === m.targetField ? 'direct' : 'rename';
       return {
         sourceField: m.sourceField,
@@ -342,23 +795,64 @@ export class SfdmuImporter {
   }
 }
 
+/** What the mapping files beside an export hold. */
+interface MappingFiles {
+  fieldRows: FieldMappingRow[];
+  valueRows: ValueMappingRow[];
+  notes: MigrationImportNote[];
+}
+
+/**
+ * An entry with the mappings SFDMU would apply to it, which it reads under
+ * `useFieldMapping` and `useValuesMapping` alone. A rename under the first
+ * switched off was applied here all the same, on a field SFDMU writes as read.
+ *
+ * Fields SFDMU writes fake values into join the fields left out: Sync has no
+ * fake data, and carried as read they would put real values in the target
+ * where the export hid them. The note says so, and the file can take them out.
+ */
+function withMappings(entry: TakenEntry, files: MappingFiles): KeptEntry {
+  const isItsRow = (row: { object: string }): boolean =>
+    row.object.toLowerCase() === entry.object.toLowerCase();
+
+  const fieldRows = entry.useFieldMapping ? files.fieldRows.filter(isItsRow) : [];
+  const fieldItems = fieldRows.map(({ field, target }) =>
+    field === '' ? { targetObject: target } : { sourceField: field, targetField: target },
+  );
+  const valueRows = entry.useValuesMapping ? files.valueRows.filter(isItsRow) : [];
+  const valueItems = valueRows
+    .filter(isExactValueRow)
+    .map(({ field, rawValue, value }) => ({ fieldName: field, rawValue, mappedValue: value }));
+
+  const deletes = mapOperation(entry.sfdmuOperation) === 'delete';
+  const mockedFields = deletes ? [] : mockedFieldsOf(entry);
+  return {
+    ...entry,
+    fieldMapping: entry.useFieldMapping ? [...fieldItems, ...entry.fieldMapping] : [],
+    fieldMappingsIgnored: entry.useFieldMapping ? 0 : entry.fieldMapping.length,
+    valuesMapping: [...valueItems, ...entry.valuesMapping],
+    excludedFields: [...new Set([...entry.excludedFields, ...mockedFields])],
+    mockedFields,
+    valueRowsLeft: valueRows
+      .filter((row) => !isExactValueRow(row))
+      .map((row) => `${row.field} (${row.rawValue})`),
+  };
+}
+
 /**
  * Map SFDMU operation to SandForge SyncOperation.
- * @param operation - SFDMU operation string
+ * @param operation - An SFDMU operation a configuration can carry
  * @returns SandForge SyncOperation
  */
-function mapOperation(
-  operation: SfdmuScriptObject['operation'],
-): 'insert' | 'update' | 'upsert' | 'delete' {
-  const mapping: Record<string, 'insert' | 'update' | 'upsert' | 'delete'> = {
+function mapOperation(operation: CarriedOperation): SyncObjectConfig['operation'] {
+  const mapping: Record<CarriedOperation, SyncObjectConfig['operation']> = {
     Insert: 'insert',
     Update: 'update',
     Upsert: 'upsert',
     Delete: 'delete',
-    DeleteSource: 'delete',
-    DeleteHierarchy: 'delete',
+    HardDelete: 'delete',
   };
-  return mapping[operation] ?? 'upsert';
+  return mapping[operation];
 }
 
 /**

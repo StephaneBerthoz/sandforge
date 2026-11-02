@@ -5632,9 +5632,15 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
         success: true,
         config: imported,
+        notes: [
+          { code: 'everyField' },
+          { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
+          { code: 'notMaster', object: 'Contact' },
+        ],
       });
       await page.getByTestId('migration-edit').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('object-entry-Contact')).toBeVisible();
+      await expect(page.getByTestId('migration-notes').getByRole('listitem')).toHaveCount(3);
       // Each column named above the rows, what an object carries under its row.
       await expect(page.getByTestId('object-detail-Account')).toHaveText(
         '0 field mappings · 0 transform rules · 1 excluded field',
@@ -5643,6 +5649,9 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(editable);
       expect(
         await contrastMeasuredIn(page, editable, '[data-testid="object-set-table"] thead'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, editable, '[data-testid="migration-notes"]'),
       ).toBeGreaterThan(0);
 
       // The contact left out, and offered back; the accounts upserted with no key.

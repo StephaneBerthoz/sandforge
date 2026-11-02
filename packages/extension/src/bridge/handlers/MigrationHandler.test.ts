@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { MigrationHandler } from './MigrationHandler';
@@ -324,6 +325,145 @@ describe('MigrationHandler', () => {
       expect(response.payload.error).toContain('50 MB');
       // The content is never loaded into memory.
       expect(readFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('from a real export.json to the configuration Sync reads', () => {
+    const published = (name: string): string =>
+      path.join(__dirname, '../../modules/migration/fixtures/published', name, 'export.json');
+
+    let store: ConfigStore;
+
+    beforeEach(() => {
+      store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      deps.services = {
+        getWorkspaceFolders: () => [path.join(__dirname, '../../modules/migration/fixtures')],
+      } as unknown as NonNullable<HandlerDeps['services']>;
+      // The disk's own calls, as the extension wires them: a file that is not there is ENOENT.
+      handler.setFileReader({
+        readFile: (filePath) => readFile(filePath, 'utf8'),
+        statSize: async (filePath) => (await stat(filePath)).size,
+      });
+    });
+
+    /** The last answer the handler posted, of the message just handled. */
+    const lastAnswer = () =>
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.lastCall?.[0];
+
+    async function importAndSave(name: string, edit = (config: Record<string, unknown>) => config) {
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath: published(name) }));
+      const imported = lastAnswer();
+      expect(imported.payload.success).toBe(true);
+      await handler.handle(
+        createMsg('migration:save-sync-config', {
+          name: `From ${name}`,
+          config: {
+            ...edit(imported.payload.config),
+            sourceOrgId: 'org-source',
+            targetOrgId: 'org-target',
+          },
+        }),
+      );
+      return imported.payload;
+    }
+
+    it('imports SFDMU’s published example, saves it, and Sync reads it with its filter', async () => {
+      const imported = await importAndSave('simple');
+
+      expect(lastAnswer().payload).toMatchObject({ success: true, name: 'From simple' });
+      const [saved] = new SyncConfigStore(store).list();
+      expect(saved.objects).toMatchObject([
+        { objectApiName: 'Contact', operation: 'upsert', externalIdField: 'LastName' },
+        { objectApiName: 'Account', operation: 'upsert', where: "Name = 'John Smith'" },
+      ]);
+      // What a run of it, or a schedule, is checked with.
+      expect(syncConfigPayloadSchema.safeParse(saved).success).toBe(true);
+      expect(imported.notes).toContainEqual({ code: 'notMaster', object: 'Contact' });
+    });
+
+    it('lists it where the Sync page offers its saved configurations', async () => {
+      await importAndSave('lookups');
+
+      await new SyncOpsHandler(deps).handle(
+        inboundRequest({ id: 'req-list', type: 'sync:config:list', timestamp: Date.now() }),
+      );
+
+      expect(lastAnswer()).toMatchObject({
+        type: 'sync:config:list:response',
+        payload: { configs: [expect.objectContaining({ name: 'From lookups', mode: 'full' })] },
+      });
+      expect(new SyncConfigStore(store).list()[0].objects).toHaveLength(4);
+    });
+
+    it('reads the mapping file beside the export through to the saved configuration', async () => {
+      await importAndSave('field-mapping-csv');
+
+      const [saved] = new SyncConfigStore(store).list();
+      expect(saved.objects[0].fieldMappings).toEqual([
+        { sourceField: 'ParentId', targetField: 'ParentTestObject__c', type: 'rename' },
+        { sourceField: 'ExternalID__c', targetField: 'External_ID__c', type: 'rename' },
+      ]);
+    });
+
+    it('leaves a composite key for the row to name: the save asks for none of Sync’s refusals', async () => {
+      // Carried, `Language__r.LangCode__c;…` would have been refused at the save
+      // for an insert that needs no key: "Invalid Salesforce API name".
+      await importAndSave('sfdmu-test-suite', (config) => ({
+        ...config,
+        objects: (config.objects as Array<Record<string, unknown>>).map((object) =>
+          object.operation === 'upsert' ? { ...object, externalIdField: 'Legacy_Key__c' } : object,
+        ),
+      }));
+
+      expect(lastAnswer().payload).toMatchObject({ success: true });
+      expect(new SyncConfigStore(store).list()[0].objects).toHaveLength(8);
+    });
+
+    it('holds a mapping file beside the export to the size an import takes', async () => {
+      handler.setFileReader({
+        readFile: (filePath) => readFile(filePath, 'utf8'),
+        statSize: async (filePath) =>
+          filePath.endsWith('.csv') ? 60 * 1024 * 1024 : (await stat(filePath)).size,
+      });
+
+      await handler.handle(
+        createMsg('migration:import-sfdmu', { filePath: published('field-mapping-csv') }),
+      );
+
+      expect(lastAnswer().payload).toMatchObject({
+        success: false,
+        error: expect.stringContaining('too large'),
+      });
+    });
+  });
+
+  describe('a file that is no export', () => {
+    it.each([
+      ['NOT_JSON', 'not json', []],
+      ['NO_OBJECTS', '{}', []],
+      ['OBJECT_NOT_NAMED', '{"objects":[{"query":"SELECT Id"}]}', ['objects[0] (SELECT Id)']],
+      ['INVALID_EXPORT', '{"objects":[{"query":1}]}', ['objects[0].query']],
+    ])('answers %s, by a code the page words', async (code, content, objects) => {
+      handler.setFileReader({
+        readFile: vi.fn().mockResolvedValue(content),
+        statSize: vi.fn().mockResolvedValue(100),
+      });
+
+      await handler.handle(
+        createMsg('migration:import-sfdmu', { filePath: path.join(os.homedir(), 'export.json') }),
+      );
+
+      const [[response]] = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls as [
+        [{ payload: Record<string, unknown> }],
+      ];
+      expect(response.payload).toEqual({
+        success: false,
+        code,
+        objects,
+        error: expect.stringMatching(/^Nothing was imported: /),
+      });
     });
   });
 

@@ -1,0 +1,4 @@
+ObjectName,FieldName,Target
+Account,ParentId,ParentTestObject__c
+Account,ExternalID__c,Overridden_By_The_Export__c
+Contact,LastName,Family_Name__c

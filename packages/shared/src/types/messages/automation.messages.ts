@@ -296,6 +296,71 @@ export interface MigrationImportSfdmuRequest extends BaseMessage {
   payload: { filePath: string };
 }
 
+/**
+ * Why an export.json was refused, as a code the page words in the reader's
+ * language. Nothing of a refused file is imported.
+ *
+ * - `TARGET_OBJECT_MAPPED`: it sends an object to another object, which a Sync
+ *   configuration cannot say.
+ * - `NOT_JSON`: the file is not JSON.
+ * - `NO_OBJECTS`: it lists no object, under `objects` or `objectSets`.
+ * - `OBJECT_NOT_NAMED`: an entry names no object, in its query or under `name`.
+ * - `INVALID_EXPORT`: a value is not of the kind SFDMU's format holds there.
+ */
+export type MigrationImportRefusal =
+  'TARGET_OBJECT_MAPPED' | 'NOT_JSON' | 'NO_OBJECTS' | 'OBJECT_NOT_NAMED' | 'INVALID_EXPORT';
+
+/**
+ * What an imported export.json asked that the Sync configuration does not do
+ * as SFDMU would, as a code the page words in the reader's language.
+ *
+ * An object left out of the configuration: `excluded`, `readonly`, `noQuery`,
+ * `unknownOperation`, `deletesElsewhere`, `mockAllFields`, `duplicate`.
+ *
+ * An object kept, doing less or more than SFDMU would: `delete`, `updateKey`,
+ * `upsertKey`, `unusableKey`, `fieldMappingOff`, `valueRows`, `notMaster`,
+ * `limit`, `queryClause`, `queryUnread`, `whereRefused`, `deleteOldData`,
+ * `mockFields`, `nameDiffers`, `settings`.
+ *
+ * The file as a whole: `everyField`, `objectSets`, `mappingFileUnread`, and
+ * `settings` when it names no object.
+ */
+export type MigrationImportNoteCode =
+  | 'excluded'
+  | 'readonly'
+  | 'noQuery'
+  | 'unknownOperation'
+  | 'deletesElsewhere'
+  | 'mockAllFields'
+  | 'duplicate'
+  | 'delete'
+  | 'updateKey'
+  | 'upsertKey'
+  | 'unusableKey'
+  | 'fieldMappingOff'
+  | 'valueRows'
+  | 'notMaster'
+  | 'limit'
+  | 'queryClause'
+  | 'queryUnread'
+  | 'whereRefused'
+  | 'deleteOldData'
+  | 'mockFields'
+  | 'nameDiffers'
+  | 'settings'
+  | 'everyField'
+  | 'objectSets'
+  | 'mappingFileUnread';
+
+/** One thing an import did not carry over as SFDMU would have done it. */
+export interface MigrationImportNote {
+  code: MigrationImportNoteCode;
+  /** The object it is about, by its API name. A note on the whole file names none. */
+  object?: string;
+  /** What it names, as the file spells it: fields, settings, a clause, a number. */
+  detail?: string;
+}
+
 /** Response after importing an SFDMU export.json with detected dependencies */
 export interface MigrationImportSfdmuResponse extends BaseMessage {
   type: 'migration:import-sfdmu:response';
@@ -303,14 +368,16 @@ export interface MigrationImportSfdmuResponse extends BaseMessage {
     success: boolean;
     config?: Record<string, unknown>;
     dependencies?: Array<{ from: string; to: string }>;
+    /** With a success: what the file asked that the configuration does not do as SFDMU would. */
+    notes?: MigrationImportNote[];
     error?: string;
+    /** Why it was refused, as a code the page words in the reader's language. */
+    code?: MigrationImportRefusal;
     /**
-     * Why it was refused, as a code the page words in the reader's language.
-     * `TARGET_OBJECT_MAPPED`: the export sends an object to another object,
-     * which a Sync configuration cannot say.
+     * With a refusal, what it is about: with `TARGET_OBJECT_MAPPED` each object,
+     * as `Account → Lead (Name → Company)`, and with `OBJECT_NOT_NAMED` and
+     * `INVALID_EXPORT` each entry, by its place in the file.
      */
-    code?: 'TARGET_OBJECT_MAPPED';
-    /** With `TARGET_OBJECT_MAPPED`: each object, as `Account → Lead (Name → Company)`. */
     objects?: string[];
   };
 }

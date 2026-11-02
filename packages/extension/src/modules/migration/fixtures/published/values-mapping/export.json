@@ -1,0 +1,11 @@
+{
+  "$comment": "An object with useValuesMapping as SFDMU's Values Mapping page describes it, its ValueMapping.csv beside it with that page's regular expression and eval rows: https://forcedotcom.github.io/SFDX-Data-Move-Utility/full-documentation/advanced-features/values-mapping (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "query": "SELECT Id, Name, TEST__c, Rating FROM Account",
+      "operation": "Upsert",
+      "externalId": "External_ID__c",
+      "useValuesMapping": true
+    }
+  ]
+}

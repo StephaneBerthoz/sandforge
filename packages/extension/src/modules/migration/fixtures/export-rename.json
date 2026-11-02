@@ -3,7 +3,7 @@
     {
       "query": "SELECT Id, Name, BillingCity, ShippingCity, Industry, NumberOfEmployees, Phone, Description FROM Account",
       "operation": "Insert",
-      "objectName": "Account",
+      "useFieldMapping": true,
       "fieldMapping": [{ "sourceField": "BillingCity", "targetField": "ShippingCity" }],
       "excludedFields": ["Phone"]
     }

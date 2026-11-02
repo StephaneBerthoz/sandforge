@@ -1,0 +1,31 @@
+{
+  "$comment": "The first example of SFDMU's ScriptObjectSet page, its comments taken out, as JSON has none: https://forcedotcom.github.io/SFDX-Data-Move-Utility/full-documentation/export-json-file-objects-specification/script-object-set-object/ (BSD 3-Clause license, salesforce.com, inc.)",
+  "objectSets": [
+    {
+      "objects": [
+        {
+          "query": "SELECT Id FROM Account WHERE Name LIKE '%Account To Delete%'",
+          "operation": "DeleteHierarchy"
+        },
+        {
+          "query": "SELECT Id, AccountId FROM Opportunity",
+          "operation": "DeleteHierarchy",
+          "master": false
+        }
+      ]
+    },
+    {
+      "objects": [
+        {
+          "query": "SELECT Id, Name, Phone FROM Account WHERE Name LIKE '%Account To Insert%'",
+          "operation": "Insert"
+        },
+        {
+          "query": "SELECT Id, Type, StageName, AccountId FROM Opportunity",
+          "operation": "Insert",
+          "master": false
+        }
+      ]
+    }
+  ]
+}

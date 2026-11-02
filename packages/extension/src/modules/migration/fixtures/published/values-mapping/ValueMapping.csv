@@ -1,0 +1,5 @@
+ObjectName,FieldName,RawValue,Value
+Account,Rating,Hot,Warm
+Account,Rating,Cold,#N/A
+Account,TEST__c,/\b(a|the) long[\w]*\b/,a short
+Account,TEST__c,DDMM,"eval(new Date().getDate() + '0' + (new Date().getMonth() + 1))"

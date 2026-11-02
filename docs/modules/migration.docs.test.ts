@@ -46,6 +46,60 @@ describe('docs/modules/migration.md', () => {
     expect(DOC).toContain('`excludedFields` are not written, renamed or not');
   });
 
+  it('says the object comes from the query, and a filter with it', () => {
+    // Positive control: the importer reads both from the query, where a real
+    // export holds them.
+    expect(SFDMU_IMPORTER).toContain('readSfdmuQuery(entry.query).object');
+    expect(SFDMU_IMPORTER).toContain('where: obj.where ?? obj.read.where,');
+
+    expect(DOC).toContain('Its name comes from the FROM of its `query`, as in SFDMU');
+    expect(DOC).toContain("the query's WHERE filter and ORDER BY are carried over");
+  });
+
+  it('says a mapping is read under the flag SFDMU reads it under, the two files with it', () => {
+    expect(SFDMU_IMPORTER).toContain(
+      'fieldMapping: entry.useFieldMapping ? [...fieldItems, ...entry.fieldMapping] : [],',
+    );
+    expect(SFDMU_IMPORTER).toContain('entry.useValuesMapping ? files.valueRows.filter(isItsRow)');
+
+    expect(DOC).toContain('With the flag off or absent SFDMU ignores them, and so does the import');
+    expect(DOC).toContain('Under `useValuesMapping`, the rows of `ValueMapping.csv`');
+  });
+
+  it('lists what is not carried, each row of it one the importer says', () => {
+    // Positive control: each note the table promises is one the importer emits.
+    for (const code of [
+      'excluded',
+      'readonly',
+      'noQuery',
+      'unknownOperation',
+      'deletesElsewhere',
+      'mockAllFields',
+      'duplicate',
+      'delete',
+      'updateKey',
+      'upsertKey',
+      'unusableKey',
+      'fieldMappingOff',
+      'valueRows',
+      'notMaster',
+      'limit',
+      'queryClause',
+      'whereRefused',
+      'deleteOldData',
+      'mockFields',
+      'settings',
+      'objectSets',
+    ]) {
+      expect(SFDMU_IMPORTER).toContain(`'${code}'`);
+    }
+
+    expect(DOC).toContain('## What the import does not carry');
+    expect(DOC).toContain('`DeleteSource`, `DeleteHierarchy`');
+    expect(DOC).toContain('the fields are left out of the write rather than copied');
+    expect(DOC).toContain('A key the import does not know never fails it');
+  });
+
   it('says the fields read are the describe’s, not the export query’s field list', () => {
     // Positive control: the read names its fields from the source's describe.
     expect(SYNC_HANDLER).toContain(

@@ -1,0 +1,20 @@
+{
+  "$comment": "The example of SFDMU's Data Anonymization page, under the objects key it shows: https://forcedotcom.github.io/SFDX-Data-Move-Utility/full-documentation/advanced-features/data-anonymization (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "query": "SELECT Id, Name FROM Account",
+      "operation": "Insert",
+      "externalId": "Name",
+      "mockFields": [
+        {
+          "name": "Name",
+          "pattern": "name",
+          "locale": "ru_RU",
+          "excludedRegex": "^DummyAccount$",
+          "includedRegex": "Account\\sTo\\sMask"
+        }
+      ],
+      "updateWithMockData": true
+    }
+  ]
+}

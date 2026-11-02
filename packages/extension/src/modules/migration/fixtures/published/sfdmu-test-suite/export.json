@@ -1,0 +1,116 @@
+{
+  "$comment": "The export of SFDMU's own test of its loader, script-loader.test.ts: https://github.com/forcedotcom/SFDX-Data-Move-Utility/blob/master/test/modules/script/script-loader.test.ts (BSD 3-Clause license, salesforce.com, inc.)",
+  "objects": [
+    {
+      "fieldMapping": [
+        {
+          "targetObject": "Account"
+        },
+        {
+          "sourceField": "Id",
+          "targetField": "ExternalID__c"
+        }
+      ],
+      "query": "SELECT Id, Name, OwnerId, ParentId, Phone, RecordTypeId, TEST__c, TestObject3__c FROM Account WHERE (Name LIKE 'ACC_%') OR (Name LIKE 'Rams%')",
+      "operation": "Upsert",
+      "deleteOldData": true,
+      "useCSVValuesMapping": true,
+      "useFieldMapping": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Account__c, Id, Name, TestObject5__c, TestObject__c FROM TestObject2__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "updateWithMockData": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Id, Name FROM Language__c",
+      "operation": "Upsert",
+      "externalId": "Name"
+    },
+    {
+      "mockFields": [
+        {
+          "name": "Name",
+          "pattern": "name",
+          "locale": "ru_RU",
+          "excludedRegex": "test"
+        },
+        {
+          "name": "an__c",
+          "pattern": "ids"
+        },
+        {
+          "name": "Date__c",
+          "pattern": "date()"
+        },
+        {
+          "name": "Test__c",
+          "pattern": "sentence"
+        }
+      ],
+      "query": "SELECT Date__c, Name, OwnerId, TestObject2__c, Test__c, an__c FROM TestObject3__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "updateWithMockData": true,
+      "externalId": "an__c"
+    },
+    {
+      "query": "SELECT Data__c, Language__c, Name, OwnerId, TestObject__c FROM TestObject_Description__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "externalId": "Language__r.LangCode__c;TestObject__r.Name"
+    },
+    {
+      "mockFields": [
+        {
+          "name": "Name",
+          "pattern": "c_seq_number('TestObject_',1,1)"
+        },
+        {
+          "name": "Name",
+          "pattern": "name"
+        }
+      ],
+      "query": "SELECT Account__c, Name, OwnerId, RecordTypeId, TestObject3__c FROM TestObject__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "updateWithMockData": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Account__c, Name, TEST__c, TestObject3__c, TestObject_Descr__c FROM TestObject4__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Id, Name, Status__c, TestObject4__c FROM TestObject5__c",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Body, ContentType, Description, IsPrivate, Name, ParentId FROM Attachment",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "excluded": true,
+      "externalId": "Name"
+    },
+    {
+      "query": "SELECT Body, IsPrivate, ParentId, Title FROM Note",
+      "operation": "Insert",
+      "deleteOldData": true,
+      "excluded": true,
+      "externalId": "Title"
+    }
+  ],
+  "allOrNone": true,
+  "promptOnMissingParentObjects": false,
+  "promptOnIssuesInCSVFiles": false,
+  "apiVersion": "47.0",
+  "allowFieldTruncation": true,
+  "bulkApiVersion": "1.0"
+}

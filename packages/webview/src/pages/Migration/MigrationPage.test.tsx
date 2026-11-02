@@ -231,6 +231,26 @@ describe('MigrationPage — the file to import', () => {
     expect(screen.queryByTestId('migration-save-sync-btn')).toBeNull();
   });
 
+  it.each([
+    ['NOT_JSON', [], /is not JSON/],
+    ['NO_OBJECTS', [], /lists no object/],
+    ['OBJECT_NOT_NAMED', ['objects[1] (SELECT Id)'], /objects\[1\] \(SELECT Id\)/],
+    ['INVALID_EXPORT', ['objects[0].query'], /objects\[0\]\.query/],
+  ])('says in the page’s words why %s imported nothing', (code, objects, said) => {
+    importState = mutationState({
+      success: false,
+      code,
+      objects,
+      error: 'The host’s words, not the page’s.',
+    });
+    render(<MigrationPage />);
+
+    const banner = screen.getByTestId('migration-error');
+    expect(banner.textContent).toMatch(said);
+    expect(banner.textContent).not.toContain('The host’s words');
+    expect(screen.queryByTestId('migration-result')).toBeNull();
+  });
+
   it('should display a bridge-level error', () => {
     importState = { ...mutationState(), error: 'Request timed out' };
     render(<MigrationPage />);
@@ -275,6 +295,76 @@ describe('MigrationPage — the imported config', () => {
       '0 field mappings · 2 transform rules · 0 excluded fields',
     );
     expect(screen.getByTestId('migration-raw-config')).toBeDefined();
+  });
+});
+
+describe('MigrationPage — what the import did not carry over', () => {
+  const imported = (notes?: unknown[]) => {
+    importState = mutationState({ success: true, config: sfdmuConfig, notes });
+    render(<MigrationPage />);
+  };
+
+  it('says each thing above the save, by object, a note on the whole file naming none', () => {
+    imported([
+      { code: 'everyField' },
+      { code: 'settings', detail: 'allOrNone, bulkApiVersion' },
+      { code: 'excluded', object: 'Attachment' },
+      { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
+      { code: 'limit', object: 'Contact', detail: '10' },
+    ]);
+
+    const items = within(screen.getByTestId('migration-notes')).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('every field'),
+      expect.stringContaining('allOrNone, bulkApiVersion'),
+      expect.stringMatching(/^Attachment:.*excluded/),
+      expect.stringMatching(/^Account:.*Name, Phone/),
+      expect.stringMatching(/^Contact:.*LIMIT 10/),
+    ]);
+    const notes = screen.getByTestId('migration-notes');
+    const forSync = screen.getByTestId('migration-for-sync');
+    expect(notes.compareDocumentPosition(forSync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['excluded', undefined],
+    ['readonly', undefined],
+    ['noQuery', undefined],
+    ['unknownOperation', 'Merge'],
+    ['deletesElsewhere', 'DeleteSource'],
+    ['mockAllFields', undefined],
+    ['duplicate', 'objectSets[0].objects[0]'],
+    ['delete', 'HardDelete'],
+    ['updateKey', 'Name'],
+    ['upsertKey', 'Name'],
+    ['unusableKey', 'Name;Phone'],
+    ['fieldMappingOff', '2'],
+    ['valueRows', 'Rating (Cold)'],
+    ['notMaster', undefined],
+    ['limit', '10'],
+    ['queryClause', 'OFFSET 5'],
+    ['queryUnread', undefined],
+    ['whereRefused', undefined],
+    ['deleteOldData', undefined],
+    ['mockFields', 'Name'],
+    ['nameDiffers', 'Lead'],
+    ['settings', 'allOrNone'],
+    ['everyField', undefined],
+    ['objectSets', '2'],
+    ['mappingFileUnread', 'FieldMapping.csv'],
+  ])('words the note %s, with what it names', (code, detail) => {
+    imported([{ code, object: 'Account', detail }]);
+
+    const text = screen.getByTestId('migration-notes').textContent ?? '';
+    expect(text).not.toContain('migration.notes');
+    if (detail !== undefined) expect(text).toContain(detail);
+  });
+
+  it('shows nothing of the kind when the import carried everything', () => {
+    imported([]);
+
+    expect(screen.queryByTestId('migration-notes')).toBeNull();
+    expect(screen.getByTestId('migration-for-sync')).toBeTruthy();
   });
 });
 

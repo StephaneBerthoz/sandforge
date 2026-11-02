@@ -188,7 +188,7 @@ describe('SyncOrchestrator — what a field mapping makes a run send', () => {
     // other field of every record was dropped, unsaid, and the target refused
     // both accounts for the Name they no longer carried.
     const reader = { readFile: async (path: string) => readFileSync(path, 'utf8') };
-    const imported = await new SfdmuImporter(reader).import(
+    const { config: imported } = await new SfdmuImporter(reader).import(
       join(__dirname, '..', 'migration', 'fixtures', 'export-rename.json'),
     );
     const config = throughTheBridge({
@@ -224,11 +224,55 @@ describe('SyncOrchestrator — what a field mapping makes a run send', () => {
     expect(target.held()).toEqual(target.sent);
   });
 
+  it('reads what the query of a real export filters: its WHERE reaches the read', async () => {
+    // Sync never runs an export's query, and its filter was read from a `where`
+    // key SFDMU does not have: the run read every account of the org.
+    const reader = { readFile: async (path: string) => readFileSync(path, 'utf8') };
+    const { config: imported } = await new SfdmuImporter(reader).import(
+      join(__dirname, '..', 'migration', 'fixtures', 'published', 'object-sets', 'export.json'),
+    );
+    const querySource = vi.fn(async (_org: string, _oc: SyncObjectConfig) =>
+      SOURCE.map((row) => ({ ...row })),
+    );
+
+    await orchestrator(new MemoryTarget(), querySource).execute(
+      throughTheBridge({
+        ...imported,
+        objects: imported.objects.slice(0, 1),
+        sourceOrgId: 'src-org',
+        targetOrgId: 'tgt-org',
+      }),
+    );
+
+    expect(querySource.mock.calls[0][1]).toMatchObject({
+      objectApiName: 'Account',
+      where: "Name LIKE '%Account To Insert%'",
+    });
+  });
+
+  it('sends none of the real values of a field a real export fakes, and the target says what it lacks', async () => {
+    // SFDMU writes a fake Name. Sync has none to write: copied as read, the
+    // account's real name would reach the target where the export hid it.
+    const reader = { readFile: async (path: string) => readFileSync(path, 'utf8') };
+    const { config: imported } = await new SfdmuImporter(reader).import(
+      join(__dirname, '..', 'migration', 'fixtures', 'published', 'mock-fields', 'export.json'),
+    );
+    const target = new MemoryTarget();
+
+    const result = await orchestrator(target).execute(
+      throughTheBridge({ ...imported, sourceOrgId: 'src-org', targetOrgId: 'tgt-org' }),
+    );
+
+    expect(target.sent.flatMap((record) => Object.keys(record))).not.toContain('Name');
+    expect(result.objectResults[0]).toMatchObject({ success: 0, failed: 2 });
+    expect(target.records.size).toBe(0);
+  });
+
   it("counts the export's records as the run writes them in the simulation, none refused", async () => {
     // Simulated, each record carried ShippingCity alone and was counted
     // refused for the Name the target requires.
     const reader = { readFile: async (path: string) => readFileSync(path, 'utf8') };
-    const imported = await new SfdmuImporter(reader).import(
+    const { config: imported } = await new SfdmuImporter(reader).import(
       join(__dirname, '..', 'migration', 'fixtures', 'export-rename.json'),
     );
     const target = new MemoryTarget();

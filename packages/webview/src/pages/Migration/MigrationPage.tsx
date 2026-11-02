@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import type {
+  MigrationImportNote,
   MigrationImportSfdmuResponse,
   MigrationPickFileResponse,
   MigrationSaveSyncConfigResponse,
@@ -105,10 +106,80 @@ function importFailureMessage(
   answer: MigrationImportResult,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
-  if (answer.code === 'TARGET_OBJECT_MAPPED') {
-    return t('migration.targetObjectMapped', { objects: (answer.objects ?? []).join('; ') });
+  const objects = (answer.objects ?? []).join('; ');
+  switch (answer.code) {
+    case 'TARGET_OBJECT_MAPPED':
+      return t('migration.targetObjectMapped', { objects });
+    case 'NOT_JSON':
+      return t('migration.refused.notJson');
+    case 'NO_OBJECTS':
+      return t('migration.refused.noObjects');
+    case 'OBJECT_NOT_NAMED':
+      return t('migration.refused.objectNotNamed', { objects });
+    case 'INVALID_EXPORT':
+      return t('migration.refused.invalidExport', { objects });
+    default:
+      return answer.error ?? t('migration.unknownError');
   }
-  return answer.error ?? t('migration.unknownError');
+}
+
+/** What an import did not carry over as SFDMU would, in the page's language. */
+function importNoteMessage(
+  { code, detail }: MigrationImportNote,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  switch (code) {
+    case 'excluded':
+      return t('migration.notes.excluded');
+    case 'readonly':
+      return t('migration.notes.readonly');
+    case 'noQuery':
+      return t('migration.notes.noQuery');
+    case 'unknownOperation':
+      return t('migration.notes.unknownOperation', { detail });
+    case 'deletesElsewhere':
+      return t('migration.notes.deletesElsewhere', { detail });
+    case 'mockAllFields':
+      return t('migration.notes.mockAllFields');
+    case 'duplicate':
+      return t('migration.notes.duplicate', { detail });
+    case 'delete':
+      return t('migration.notes.delete', { detail });
+    case 'updateKey':
+      return t('migration.notes.updateKey', { detail });
+    case 'upsertKey':
+      return t('migration.notes.upsertKey', { detail });
+    case 'unusableKey':
+      return t('migration.notes.unusableKey', { detail });
+    case 'fieldMappingOff':
+      return t('migration.notes.fieldMappingOff', { detail });
+    case 'valueRows':
+      return t('migration.notes.valueRows', { detail });
+    case 'notMaster':
+      return t('migration.notes.notMaster');
+    case 'limit':
+      return t('migration.notes.limit', { detail });
+    case 'queryClause':
+      return t('migration.notes.queryClause', { detail });
+    case 'queryUnread':
+      return t('migration.notes.queryUnread');
+    case 'whereRefused':
+      return t('migration.notes.whereRefused');
+    case 'deleteOldData':
+      return t('migration.notes.deleteOldData');
+    case 'mockFields':
+      return t('migration.notes.mockFields', { detail });
+    case 'nameDiffers':
+      return t('migration.notes.nameDiffers', { detail });
+    case 'settings':
+      return t('migration.notes.settings', { detail });
+    case 'everyField':
+      return t('migration.notes.everyField');
+    case 'objectSets':
+      return t('migration.notes.objectSets', { detail });
+    case 'mappingFileUnread':
+      return t('migration.notes.mappingFileUnread', { detail });
+  }
 }
 
 /** Why the host saved no Sync configuration, in the page's language. */
@@ -242,6 +313,7 @@ export const MigrationPage: React.FC = () => {
     workingConfig && typeof workingConfig.name === 'string' ? workingConfig.name : undefined;
   const workingObjects = workingConfig ? configObjects(workingConfig) : [];
   const problem = workingConfig ? editProblem(workingConfig) : null;
+  const importNotes = successResult?.notes ?? [];
 
   /** Replace the copy's objects, every other key of the config as imported. */
   const writeObjects = (objects: Array<Record<string, unknown>>): void => {
@@ -512,6 +584,29 @@ export const MigrationPage: React.FC = () => {
                   data-testid="migration-edit-problem"
                 >
                   {problemMessage}
+                </div>
+              )}
+              {/* Above the save: what the file asked and the run will not do. */}
+              {importNotes.length > 0 && (
+                <div
+                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-3"
+                  data-testid="migration-notes"
+                >
+                  <div className="text-sm font-semibold text-text-primary">
+                    {t('migration.notes.title')}
+                  </div>
+                  <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-text-secondary">
+                    {importNotes.map((note, i) => (
+                      <li key={`${note.code}-${note.object ?? ''}-${i}`}>
+                        {note.object !== undefined && (
+                          <span className="font-medium text-text-primary">
+                            {t('migration.notes.onObject', { object: note.object })}{' '}
+                          </span>
+                        )}
+                        {importNoteMessage(note, t)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               <div
