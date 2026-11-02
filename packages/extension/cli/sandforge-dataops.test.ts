@@ -23,6 +23,7 @@ import { loadOrg } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import {
   dryRunLines,
+  runWouldBeRefused,
   main,
   maskingInterruptedLine,
   missingFieldLine,
@@ -164,7 +165,7 @@ function personAccountOrg() {
   };
   const fieldsOf: Record<string, string[]> = {
     Account: ['Id', 'IsPersonAccount', 'Name', 'Phone', ...personFields],
-    Contact: CONTACT_FIELDS,
+    Contact: [...CONTACT_FIELDS, 'Birthdate'],
     Lead: ['Id', 'Email', 'Phone'],
   };
   const query = vi.fn(async (soql: string) => {
@@ -527,7 +528,8 @@ describe('sandforge-dataops', () => {
         '--json',
       );
 
-      expect(code).toBeUndefined();
+      // A run of these rules would be refused, and a dry run says so by its exit too.
+      expect(code).toBe(1);
       expect(update).not.toHaveBeenCalled();
       expect(rows).toEqual(before);
       const answer = JSON.parse(stdout) as {
@@ -1180,6 +1182,18 @@ describe('sandforge-dataops', () => {
       expect(lines).toContain(
         '    no field of it can be masked: a run is refused and masks nothing',
       );
+    });
+
+    it('tells a dry run whose run would be refused from one that would go', () => {
+      expect(runWouldBeRefused({ objects: [{}], fieldsNotFound: [] })).toBe(false);
+      expect(runWouldBeRefused({})).toBe(false);
+      expect(
+        runWouldBeRefused({
+          objects: [{}],
+          fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Nickname__c' }],
+        }),
+      ).toBe(true);
+      expect(runWouldBeRefused({ objects: [{ notCovered: true }], fieldsNotFound: [] })).toBe(true);
     });
 
     it("says in a dry run how a person account's fields the template does not name are masked", () => {

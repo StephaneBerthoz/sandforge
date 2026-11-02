@@ -1812,9 +1812,17 @@ export function previewLines(
     }
   }
   lines.push(...previewFilesLines(orgName, diff));
-  const notCompared = diff.objects.flatMap((o) =>
-    o.notCompared.map((f) => `${o.objectApiName}.${f}`),
-  );
+  // A field gone since is not compared either, and nobody chose that: the
+  // lines below name it, with what brings it back.
+  const notCompared = diff.objects.flatMap((o) => {
+    const drift = o.schemaDrift;
+    const gone = new Set([
+      ...(drift?.removed ?? []),
+      ...(drift?.hidden ?? []),
+      ...(drift?.uncertain?.fields ?? []),
+    ]);
+    return o.notCompared.filter((f) => !gone.has(f)).map((f) => `${o.objectApiName}.${f}`);
+  });
   if (notCompared.length > 0) {
     lines.push(`  not compared (you chose): ${someOf(notCompared)}`);
   }

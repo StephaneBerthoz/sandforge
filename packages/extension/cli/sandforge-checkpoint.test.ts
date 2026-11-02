@@ -850,6 +850,29 @@ describe('previewLines', () => {
   const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
   const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
 
+  it('says a field was left out by choice only when it was, not when the org lost it', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({
+          objectApiName: 'Lead',
+          notCompared: ['Gone__c', 'Hidden__c', 'Unsure__c', 'Last_Touched__c'],
+          schemaDrift: {
+            removed: ['Gone__c'],
+            added: [],
+            changed: [],
+            hidden: ['Hidden__c'],
+            uncertain: { fields: ['Unsure__c'] },
+          },
+        }),
+      ]),
+      estimate,
+    });
+    expect(lines).toContain('  not compared (you chose): Lead.Last_Touched__c');
+    expect(lines.join('\n')).toContain(
+      'fields deleted since: Lead.Gone__c — restore them from Deleted Fields, then rewind',
+    );
+  });
+
   it('counts beside the three numbers the records to make again with new Ids, and says what a new Id breaks', () => {
     const lines = previewLines('DEV-SB', checkpoint, {
       diff: diffOf([object({ objectApiName: 'Contact', toRecreate: 2 })]),

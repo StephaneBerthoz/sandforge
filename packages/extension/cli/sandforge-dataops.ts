@@ -131,7 +131,8 @@ process at once. A SIGTERM — a CI job cancelled or timed out — or a SIGHUP
 stops it the same way.
 
 Exit codes: 0 the run masked every record it counted, or the restore put back
-every value; 1 it could not start, was refused or failed; 2 a bad command line,
+every value; 1 it could not start, was refused or failed, or a --dry-run saw
+that a run would be refused; 2 a bad command line,
 or a question with no terminal to answer it (give --yes); 3 the run left
 records unmasked, their personal data still in the org (--resume masks what
 it left), or the restore left values as they are (rows the org refused, a
@@ -436,6 +437,18 @@ export function missingFieldLine(objectApiName: string, fieldApiName: string): s
     'hides it from this user — a run is refused and masks nothing (give the user read and ' +
     'edit access to it, or take it out of the template)'
   );
+}
+
+/**
+ * Whether the run a dry run stands for would be refused: a field the org does
+ * not show the user on an object that holds records, or such an object with no
+ * field left. A step that rehearses before it runs stops here, not at the run.
+ * Exported so it can be tested.
+ */
+export function runWouldBeRefused(preview: Record<string, unknown>): boolean {
+  const missing = (preview.fieldsNotFound as unknown[] | undefined) ?? [];
+  const objects = (preview.objects as Array<{ notCovered?: true }> | undefined) ?? [];
+  return missing.length > 0 || objects.some((o) => o.notCovered === true);
 }
 
 /**
@@ -860,6 +873,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const line of dryRunLines(template, coverage.payload ?? {}, preview.payload ?? {})) {
       log(line);
     }
+    if (runWouldBeRefused(preview.payload ?? {})) process.exitCode = FAILED_EXIT;
     return;
   }
 
