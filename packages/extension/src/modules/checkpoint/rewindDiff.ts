@@ -2321,7 +2321,14 @@ const OUT_OF_SIGHT_FIRST: ReadonlySet<string> = new Set(['Event', 'Task']);
  * - of an object Salesforce undeletes only with its parent, one whose parent
  *   stays is deleted on its own, and stays in the bin. So is one that comes
  *   back with its parent to be deleted again: it hangs from a record brought
- *   back, which the first pass never deletes.
+ *   back, which the first pass never deletes;
+ * - one that would go with its parent, but points through a lookup that
+ *   restricts the delete at a record that goes to the bin after it, or hangs
+ *   from one that does: an opportunity, with the price book deleted after its
+ *   account; a line, with its price entry. Salesforce no longer brings it back
+ *   with its parent, whichever order the undelete goes in (probed live), so it
+ *   is sent, as any record deleted before one it points at. What goes to the
+ *   bin with the same record goes in the same delete, and strands nothing.
  *
  * A line of the folder names its record, and why when it is not the first of
  * the reasons, `onlyWithParent`, as the diff's counts do.
@@ -2346,12 +2353,44 @@ async function withParentOf(
       }
     }
   }
+  const records = new Map(
+    told.flatMap(({ pending }) => pending.map((record) => [record.id.slice(0, 15), record])),
+  );
+  const goesWith = (record: PendingUndo): string | undefined =>
+    record.goesAlong ? record.parents.find((parent) => deleted.has(parent)) : undefined;
+  /** The record `key` goes to the bin with: itself, unless it goes with a parent. */
+  const rootOf = (key: string, seen: ReadonlySet<string> = new Set()): string => {
+    const record = records.get(key);
+    const parent = record && !seen.has(key) ? goesWith(record) : undefined;
+    return parent === undefined ? key : rootOf(parent, new Set([...seen, key]));
+  };
+  const stranded = new Map<string, boolean>();
+  /**
+   * Whether a record that goes with its parent would stay in the bin for good:
+   * it points, through a lookup that restricts the delete, at a record that
+   * goes to the bin after it, or hangs from one that does (see
+   * `withParentOf`'s comment).
+   */
+  const strandedOf = (key: string, record: PendingUndo): boolean => {
+    const known = stranded.get(key);
+    if (known !== undefined) return known;
+    stranded.set(key, false);
+    const root = rootOf(key);
+    const lost =
+      record.restricts.some((pointed) => deleted.has(pointed) && rootOf(pointed) !== root) ||
+      record.parents.some((parent) => {
+        const above = records.get(parent);
+        return above !== undefined && goesWith(above) !== undefined && strandedOf(parent, above);
+      });
+    stranded.set(key, lost);
+    return lost;
+  };
   const undoCannot: RewindDiff['undoCannot'] = [];
   const withParentDeleted: NonNullable<RewindDiff['withParentDeleted']> = [];
   for (const { diff, pending } of told) {
     const objectApiName = diff.objectApiName;
     const along = (record: PendingUndo): boolean =>
-      record.goesAlong && record.parents.some((parent) => deleted.has(parent));
+      goesWith(record) !== undefined && !strandedOf(record.id.slice(0, 15), record);
     const goes = pending.filter(along).length;
     if (goes > 0) withParentDeleted.push({ objectApiName, count: goes });
     const alone = pending.filter((record) => !along(record));

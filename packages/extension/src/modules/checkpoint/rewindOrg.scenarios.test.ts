@@ -654,6 +654,204 @@ describe('the journal and Undo (B3)', () => {
     expect(stateOf(t.org, CASE_OBJECTS, CASE_COMPARED)).toEqual(beforeRewind);
   });
 
+  describe('what goes with its parent, and points at a record deleted after it', () => {
+    const BOOK_CHILDREN = {
+      ...CHILDREN,
+      Pricebook2: [{ childSObject: 'Opportunity', field: 'Pricebook2Id', restrictedDelete: true }],
+    };
+    const BOOK_OBJECTS = [...PICKED, 'Pricebook2'];
+    const BOOK_FIELDS = { ...FIELDS, Pricebook2: [...STAMP_FIELDS, writable('Name')] };
+
+    async function madeUnderABookMadeToo(): Promise<Taken> {
+      const t = await taken(
+        baseRecords,
+        new RewindTestOrg({ fields: BOOK_FIELDS, children: BOOK_CHILDREN }),
+        BOOK_OBJECTS,
+      );
+      clock.now = SINCE;
+      t.org.add('Pricebook2', { Id: book(7), LastModifiedById: COLLEAGUE });
+      t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+      t.org.add('Contact', {
+        Id: contact(7),
+        LastName: 'Made since',
+        AccountId: account(7),
+        LastModifiedById: COLLEAGUE,
+      });
+      t.org.add('Opportunity', {
+        Id: opportunity(7),
+        Name: 'Made since',
+        AccountId: account(7),
+        Pricebook2Id: book(7),
+        LastModifiedById: COLLEAGUE,
+      });
+      t.org.add('OpportunityLineItem', {
+        Id: line(7),
+        Quantity: 1,
+        OpportunityId: opportunity(7),
+        LastModifiedById: COLLEAGUE,
+      });
+      return t;
+    }
+
+    it('says Undo cannot bring it back, sends it, and leaves what goes with the account along', async () => {
+      const t = await madeUnderABookMadeToo();
+
+      const diff = await previewed(t);
+
+      expect(diff.withParentDeleted).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+      expect(diff.undoCannot).toEqual(
+        expect.arrayContaining([
+          { objectApiName: 'Opportunity', count: 1, reason: 'deletedBeforeParent' },
+          { objectApiName: 'OpportunityLineItem', count: 1, reason: 'deletedBeforeParent' },
+        ]),
+      );
+      const result = resultOf(
+        await rewound(t, diff.previewId, { request: { acceptNoUndo: true } }),
+      );
+
+      expect(result.status).toBe('success');
+      expect(t.org.deletes.flatMap(({ ids }) => ids)).not.toContain(contact(7));
+      expect(t.org.deletes.flatMap(({ ids }) => ids)).toContain(opportunity(7));
+    });
+
+    it('has Undo name what the org will not bring back, and bring back the rest', async () => {
+      const t = await madeUnderABookMadeToo();
+      const diff = await previewed(t);
+      const result = resultOf(
+        await rewound(t, diff.previewId, { request: { acceptNoUndo: true } }),
+      );
+
+      const undo = await undone(t, result.rewindId);
+
+      expect(undo.status).toBe('partial');
+      const inBin = (object: string): unknown[] => t.org.inBin(object).map((row) => row.Id);
+      expect(inBin('Account')).toEqual([]);
+      expect(inBin('Contact')).toEqual([]);
+      expect(inBin('Pricebook2')).toEqual([]);
+      expect(inBin('Opportunity')).toEqual([opportunity(7)]);
+      expect(undo.undeleted.find((row) => row.objectApiName === 'Opportunity')).toMatchObject({
+        planned: 1,
+        undeleted: 0,
+        refused: 1,
+      });
+    });
+
+    it('keeps along what points at a record that goes in the same delete', async () => {
+      const t = await taken(
+        baseRecords,
+        new RewindTestOrg({
+          fields: {
+            ...FIELDS,
+            Opportunity: [
+              ...(FIELDS.Opportunity ?? []),
+              writable('Main_Contact__c', 'reference', { referenceTo: ['Contact'] }),
+            ],
+          },
+          children: {
+            ...CHILDREN,
+            Contact: [
+              { childSObject: 'Opportunity', field: 'Main_Contact__c', restrictedDelete: true },
+            ],
+          },
+        }),
+        PICKED,
+      );
+      clock.now = SINCE;
+      t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+      t.org.add('Contact', {
+        Id: contact(7),
+        LastName: 'Made since',
+        AccountId: account(7),
+        LastModifiedById: COLLEAGUE,
+      });
+      t.org.add('Opportunity', {
+        Id: opportunity(7),
+        Name: 'Made since',
+        AccountId: account(7),
+        Main_Contact__c: contact(7),
+        LastModifiedById: COLLEAGUE,
+      });
+
+      const diff = await previewed(t);
+
+      expect(diff.undoCannot).toEqual([]);
+      expect(diff.withParentDeleted).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ objectApiName: 'Opportunity', count: 1 }),
+        ]),
+      );
+    });
+  });
+
+  describe('an order activated since under an account it deletes', () => {
+    const ORDER_FIELDS = {
+      ...FIELDS,
+      Order: [
+        ...(FIELDS.Order ?? []),
+        writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+      ],
+    };
+    const ORDER_CHILDREN = {
+      ...CHILDREN,
+      Account: [
+        ...(CHILDREN.Account ?? []),
+        { childSObject: 'Order', field: 'AccountId', cascadeDelete: true },
+      ],
+    };
+    const ORDER_OBJECTS = [...PICKED, 'Order'];
+    const order = (n: number): string => id('801', n);
+
+    async function activatedUnderAccount(): Promise<Taken> {
+      const t = await taken(
+        (org) => {
+          baseRecords(org);
+          org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+          org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+        },
+        new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+        ORDER_OBJECTS,
+      );
+      clock.now = SINCE;
+      t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+      t.org.add('Order', {
+        Id: order(7),
+        Status: 'Activated',
+        AccountId: account(7),
+        LastModifiedById: COLLEAGUE,
+      });
+      return t;
+    }
+
+    it('sets it to Draft and sends it no delete: it goes with the account, which it would keep', async () => {
+      const t = await activatedUnderAccount();
+      const diff = await previewed(t);
+      expect(diff.withParentDeleted).toEqual([{ objectApiName: 'Order', count: 1 }]);
+
+      const result = resultOf(await rewound(t, diff.previewId));
+
+      expect(result.status).toBe('success');
+      expect(t.org.updates).toEqual([
+        { objectApiName: 'Order', records: [{ Id: order(7), Status: 'Draft' }] },
+      ]);
+      expect(t.org.deletes.flatMap(({ ids }) => ids)).toEqual([account(7)]);
+      expect(t.org.inBin('Order').map((row) => row.Id)).toEqual([order(7)]);
+    });
+
+    it('gives it its status back when the org refuses the account', async () => {
+      const t = await activatedUnderAccount();
+      t.org.refuse.set(account(7), 'Held by a rule of the org');
+      const diff = await previewed(t);
+
+      const result = resultOf(await rewound(t, diff.previewId));
+
+      expect(result.status).toBe('failure');
+      expect(t.org.updates).toEqual([
+        { objectApiName: 'Order', records: [{ Id: order(7), Status: 'Draft' }] },
+        { objectApiName: 'Order', records: [{ Id: order(7), Status: 'Activated' }] },
+      ]);
+    });
+  });
+
   it('sends no give-back whose values from before could not be kept, and names the records it left', async () => {
     const t = await taken();
     clock.now = SINCE;

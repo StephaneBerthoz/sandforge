@@ -630,6 +630,14 @@ export interface RunRemovalOptions {
    */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
   /**
+   * Records outside the plan that go with a parent of the plan and are set to
+   * Draft with its own, before any delete: an order past Draft keeps the
+   * account it hangs from from being deleted, which then refuses it whatever
+   * goes with it (a rewind of a clone, live). What the removal leaves of them
+   * gets its status back as its own do.
+   */
+  alongToDraft?: RunRecords;
+  /**
    * Read the run's records as the removal reads them before its first write —
    * what is still in the org, in its recycle bin or nowhere, what changed
    * since the run and who changed it, which objects the user may not delete —
@@ -1423,6 +1431,7 @@ export async function removeRunRecords(
     })),
     includeChanged: options.includeChanged,
     ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
+    ...(options.alongToDraft ? { alongToDraft: options.alongToDraft } : {}),
     ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
     ...(options.automationMade ? { automationMade: keysAsAsked(options.automationMade) } : {}),
   });
@@ -1555,6 +1564,18 @@ export async function removeRunRecords(
   );
   drafted = drafting.drafted;
   if (drafting.cancelled) return outcome(true);
+  if (options.alongToDraft) {
+    const along = await backToDraft(
+      session,
+      dependents,
+      options.alongToDraft.objects,
+      options.alongToDraft,
+      () => true,
+      stopped,
+    );
+    drafted = [...drafted, ...along.drafted];
+    if (along.cancelled) return outcome(true);
+  }
   let settled = 0;
   for (const { objectApiName, count } of order) {
     if (stopped()) return outcome(true);
@@ -3004,6 +3025,8 @@ interface DependentsContext {
   includeChanged: boolean;
   /** As {@link RunRemovalOptions.goesWithParent}. */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
+  /** As {@link RunRemovalOptions.alongToDraft}. */
+  alongToDraft?: RunRecords;
   /**
    * The key of the user the run wrote as, where the run kept it; absent, the
    * creator of the run's record a dependent hangs from stands for it.
@@ -3773,6 +3796,8 @@ class DependentsCheck {
     // hangs from, whatever its dates: the sweep deletes it anyway.
     if (this.context.automationMade?.has(key) === true) return false;
     if (this.context.goesWithParent?.(row, runEnd) === true) return false;
+    // Set to Draft by this removal, it holds that write's date, not a change.
+    if (this.context.alongToDraft?.has(key) === true) return false;
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     if (personContacts && row[PERSON_ACCOUNT_FLAG] === true) {
       // A date that cannot be read cannot show the contact was left alone.

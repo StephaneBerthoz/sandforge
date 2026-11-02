@@ -2629,6 +2629,7 @@ class Rewind {
         ...(this.carried.size + plan.carriers.size + plan.goesAlong.size > 0
           ? { goesWithParent }
           : {}),
+        ...(plan.alongToDraft.spool.count > 0 ? { alongToDraft: plan.alongToDraft } : {}),
         ...(plan.bringBack.count + plan.recreate.count + plan.giveBack.beforeDeletes.count > 0
           ? { sweep }
           : {}),
