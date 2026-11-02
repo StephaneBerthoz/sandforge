@@ -472,12 +472,11 @@ describe('SeedCsvHandler — an import that takes a checkpoint first', () => {
     expect(writer.insert).not.toHaveBeenCalled();
   });
 
-  it('reads no automation and asks nothing for an import not asked to take one', async () => {
+  it('scopes nothing and asks nothing for an import not asked to take one', async () => {
     target();
 
     await handler.handle(buildMsg({}));
 
-    expect(read).not.toHaveBeenCalled();
     expect(checkpoints.scope).not.toHaveBeenCalled();
     expect(steps).not.toContain('question');
     expect(writer.insert).toHaveBeenCalled();

@@ -82,6 +82,16 @@ describe('a CSV import of rows a duplicate rule refused in a Bulk API job', () =
       limitInfo: undefined,
     } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
     const handler = new SeedCsvHandler(deps);
+    handler.setTargetAutomation({
+      read: async (_orgId, objects) => ({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 1,
+      }),
+    });
     handler.setRunCreations(nodeSeedRunCreations(storage));
     await handler.handle(importOf(250));
     const response = vi

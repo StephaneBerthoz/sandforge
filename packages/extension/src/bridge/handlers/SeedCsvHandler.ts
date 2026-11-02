@@ -33,6 +33,7 @@ import {
   confirmationApiOf,
   confirmationStorageOf,
   countedStorageBytes,
+  deliverabilityPartOf,
   readApiBudget,
   readDataStorage,
   runRequestsEstimate,
@@ -40,6 +41,11 @@ import {
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../../modules/forge/targetDeliverability.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { BEFORE_RUN_DELETED_WORDS } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import type { BeforeRunCheckpoints } from '../../modules/checkpoint/beforeRunCheckpoint.js';
@@ -49,6 +55,7 @@ import { PIPELINE_SEED_REFUSAL } from './seedPipeline.js';
 import {
   SEED_WRITE_DECLINED,
   SeedCheckpointStopped,
+  emailsAuditDetails,
   scopeSeedCheckpoint,
   seedImportRunning,
   seedImportWrites,
@@ -501,33 +508,50 @@ export class SeedCsvHandler implements DomainHandler {
         settle(new Error(message));
       };
 
+      // What the target's automation does as the rows go in, read once for
+      // the emails and the checkpoint alike: no record read, nothing kept.
+      const reader = this.targetAutomation;
+      const writes = seedImportWrites([parsed.objectApiName], Boolean(parsed.externalIdField));
+      const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+        .withTimeout('csv automation', () => reader.read(parsed.orgId, [parsed.objectApiName]))
+        .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+      if (typeof read.unread === 'string') {
+        this.deps.log(
+          `[WARN] seed:csv:execute ${operationId}: what the org runs on ` +
+            `${parsed.objectApiName} could not be read (${read.unread}): it is asked about its ` +
+            'emails, and a checkpoint holds the object alone',
+        );
+      }
+      // Whether the target delivers the emails of what runs as the rows go
+      // in, read only when something may send one, and asked with the
+      // import's one question. No Apex runs in a production org. The file's
+      // rows go in as they are: their addresses are not put under `.invalid`.
+      const emailsOfRun = await runEmailsOf({
+        read,
+        writes,
+        readDeliverability: () =>
+          guardTierOf(targetOrg) === 'production'
+            ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+            : readEmailDeliverability(conn),
+        accepted: false,
+        target: targetName,
+        run: 'seed',
+        keepsAddresses: true,
+      });
+      const emailsAsked = emailsOfRun.gate.verdict === 'asks';
+
       // The checkpoint asked first, scoped from the object the import writes
-      // and what the target's automation creates as its rows go in, read
-      // for it alone: no record read, nothing kept. Refused, or unread, the
-      // import is refused before anything is asked or written.
+      // and what that automation creates. Refused, or unread, the import is
+      // refused before anything is asked or written.
       let checkpoint: SeedCheckpointPlanned | undefined;
       if (parsed.checkpointFirst !== undefined) {
-        const reader = this.targetAutomation;
-        const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-          .withTimeout('csv automation', () => reader.read(parsed.orgId, [parsed.objectApiName]))
-          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-        if (typeof read.unread === 'string') {
-          this.deps.log(
-            `[WARN] seed:csv:execute ${operationId}: what the org runs on ` +
-              `${parsed.objectApiName} could not be read (${read.unread}): the checkpoint holds ` +
-              'the object alone',
-          );
-        }
         try {
           checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, {
             module: 'seed',
             orgId: parsed.orgId,
             operationId,
             written: [parsed.objectApiName],
-            running: seedImportRunning(
-              read,
-              seedImportWrites([parsed.objectApiName], Boolean(parsed.externalIdField)),
-            ),
+            running: seedImportRunning(read, writes),
             request: parsed.checkpointFirst,
           });
         } catch (err: unknown) {
@@ -547,12 +571,14 @@ export class SeedCsvHandler implements DomainHandler {
       // integrations had used the day's requests stopped part way through.
       // An org that would not say is said in the log, and holds nothing back.
       // With a checkpoint asked, its requests among them, and the storage
-      // read from the same answer, for its question to say.
-      const limits: DataStorage | { unread: string } | undefined = checkpoint
-        ? await readDataStorage(conn).catch((err: unknown) => ({
-            unread: extractErrorMessage(err),
-          }))
-        : undefined;
+      // read from the same answer, for its question to say; so for the
+      // question about the emails.
+      const limits: DataStorage | { unread: string } | undefined =
+        checkpoint || emailsAsked
+          ? await readDataStorage(conn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }))
+          : undefined;
       const budget: ApiBudget | { unread: string } | undefined =
         limits !== undefined && !('unread' in limits)
           ? limits.dailyApiRequests
@@ -563,6 +589,7 @@ export class SeedCsvHandler implements DomainHandler {
         {
           run: runRequestsEstimate([{ rows: parsed.records.length, bulk: true }]),
           ...checkpointPartOf(checkpoint?.planned),
+          ...deliverabilityPartOf(emailsOfRun.ofRun),
         },
         budget,
       );
@@ -602,8 +629,11 @@ export class SeedCsvHandler implements DomainHandler {
 
       // A checkpoint asked first is asked about before anything is taken or
       // written, its cost that of the target's whole tables: declined, or
-      // with nobody to answer for it, the import writes nothing.
-      if (checkpoint) {
+      // with nobody to answer for it, the import writes nothing. So are the
+      // emails of a target that delivers them all or would not say: going on
+      // is the accord to send them.
+      let emailsAccepted = false;
+      if (checkpoint || emailsAsked) {
         const rows = parsed.records.length;
         const answer = await guard.confirmRun({
           stage: 'write',
@@ -619,20 +649,27 @@ export class SeedCsvHandler implements DomainHandler {
             ),
           ),
           ...confirmationApiOf(api),
-          checkpoint: checkpoint.planned,
+          ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
+          ...emailsOfRun.gate.confirmation,
         });
         if (answer !== 'confirmed') {
-          refuse(
-            answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
-            answer === 'declined'
-              ? 'The import was cancelled before it wrote anything. Nothing was written.'
-              : `The import needed an answer before it wrote — the checkpoint it takes first ` +
-                  `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
-                  'was written.',
-          );
+          const stop = emailsOfRun.gate.stop;
+          if (answer !== 'declined' && !checkpoint && stop) refuse(stop.code, stop.message);
+          else {
+            refuse(
+              answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
+              answer === 'declined'
+                ? 'The import was cancelled before it wrote anything. Nothing was written.'
+                : `The import needed an answer before it wrote — the checkpoint it takes first ` +
+                    `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
+                    'was written.',
+            );
+          }
           return;
         }
+        emailsAccepted = emailsAsked;
       }
+      run.details = emailsAuditDetails({ read: emailsOfRun, accepted: emailsAccepted }).details;
 
       sendOperationStarted(
         this.deps,

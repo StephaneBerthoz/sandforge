@@ -120,6 +120,16 @@ function posted(deps: HandlerDeps, type: string): Array<BaseMessage & { payload:
     .filter((msg) => msg.type === type);
 }
 
+/** A target nothing fires on as the rows go in: nothing is asked about emails. */
+const nothingFires = async (_orgId: string, objects: readonly string[]) => ({
+  objectsRead: [...objects],
+  objects: [],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 1,
+});
+
 describe('SeedCsvHandler', () => {
   let deps: HandlerDeps;
   let handler: SeedCsvHandler;
@@ -128,6 +138,7 @@ describe('SeedCsvHandler', () => {
     vi.clearAllMocks();
     deps = createMockDeps();
     handler = new SeedCsvHandler(deps);
+    handler.setTargetAutomation({ read: nothingFires });
 
     mockGetConn.mockResolvedValue({
       describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
@@ -691,6 +702,7 @@ describe('SeedCsvHandler', () => {
         throw new Error('bulk write exploded');
       });
       const failing = new SeedCsvHandler(deps);
+      failing.setTargetAutomation({ read: nothingFires });
       failing.setRunCreations(runs);
       await failing.handle(
         inboundRequest({
