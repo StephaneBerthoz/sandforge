@@ -63,7 +63,7 @@ describe('RunDeliverabilityLine', () => {
     renderLine({ level: 'withheld' });
 
     expect(screen.getByTestId('line-reading').textContent).toBe(
-      'TGT-DEV delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of Flow “Welcome email” on Contact as the run writes.',
+      'TGT-DEV delivers none of the emails its flows, processes, workflow rules and Apex send (Setup > Deliverability: System email only or No access), so nothing goes out of Flow “Welcome email” on Contact as the run writes. TGT-DEV still counts them against its daily email limits.',
     );
     expect(screen.queryByTestId('line-addresses')).toBeNull();
     expect(screen.getByTestId('line-read-again')).toBeDefined();
