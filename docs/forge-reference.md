@@ -302,7 +302,7 @@ A write the target never got — no connection, no address for its host, the org
 
 ## The record type the target gives
 
-A record the run creates without a record type gets the one the target gives the user the run writes as. It goes so when it is on Master in the source, when a decision sends it to the default, when the run does not write the field, or when the target lacks its type or keeps it from that user. The object's describe does not always say what it gets: an insert gave an opportunity the one other type open to the user, by Apex and by Bulk alike, while the describe named Master that user's default. The rule, read from the describe of the user the run writes as, a type being open when it is available to that user, active and not Master:
+A record the run creates without a record type gets the one the target gives the user the run writes as. It goes so when it is on Master in the source, when a decision sends it to the default, or when the run does not write the field. The object's describe does not always say what it gets: an insert gave an opportunity the one other type open to the user, by Apex and by Bulk alike, while the describe named Master that user's default. The rule, read from the describe of the user the run writes as, a type being open when it is available to that user, active and not Master:
 
 - the describe names a default that is not Master: that default;
 - it names Master, and no other type is open: Master;
