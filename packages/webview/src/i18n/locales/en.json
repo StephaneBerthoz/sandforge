@@ -2855,6 +2855,8 @@
       "mayHaveBeenWritten_other": "{{count}} may be in the target, their call unanswered",
       "lookupsLeftEmpty_one": "{{count}} kept a lookup empty, the run stopped",
       "lookupsLeftEmpty_other": "{{count}} kept a lookup empty, the run stopped",
+      "lookupsNotFilled_one": "{{count}} kept a lookup empty, filling it failed",
+      "lookupsNotFilled_other": "{{count}} kept a lookup empty, filling it failed",
       "statusesNotGivenBack_one": "{{count}} left a draft, the run stopped",
       "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped"
     },
@@ -4626,6 +4628,8 @@
       "refusals": "Why records were refused",
       "statusesApplied": "Statuses applied after their children",
       "statusRefusals": "Why a status was not applied",
+      "lookupsFilled": "Lookups filled after their wave",
+      "lookupRefusals": "Why a lookup stayed empty",
       "piiFieldCount_one": "{{count}} PII field",
       "piiFieldCount_other": "{{count}} PII fields",
       "stoppedLeftTitle": "Written, and left unfinished by the stop:",
@@ -4635,6 +4639,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source.",
       "stoppedEmailsHeld_one": "{{count}} email on a case was never sent: it waited for its task to be written, and the run stopped first.",
       "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first.",
+      "runPartial": "Partially complete: records were refused or keep a lookup empty. Each object's details say which and why.",
+      "runFailure": "Failed: the run wrote no record. Each object's details say why.",
+      "lookupsNotFilledTitle": "Written, and left without a lookup:",
+      "lookupNotFilled_one": "{{object}}: {{count}} record keeps {{fields}} empty ({{code}}).",
+      "lookupNotFilled_other": "{{object}}: {{count}} records keep {{fields}} empty ({{code}}).",
       "skipNamed": "Skip {{object}}"
     },
     "report": {
@@ -6065,11 +6074,19 @@
     },
     "parentRefused": {
       "explanation": "A record this one points to was refused in the same run, so this one was held back rather than written without it.",
-      "action": "Fix what refused that record — its reason is listed with its object — then run again."
+      "action": "Fix what refused that record — its reason is listed with its object — then run again.",
+      "keptEmpty": {
+        "explanation": "The record this lookup names was refused in the same run. This one, written before it, keeps the lookup empty.",
+        "action": "Fix what refused that record — its reason is listed with its object — then set the lookup in the target org."
+      }
     },
     "parentNotWritten": {
       "explanation": "A record this one points to belongs to an object this run was to write and did not, so this one was held back rather than written without it.",
       "action": "Write that object first — its node says why it was not written — then run again.",
+      "keptEmpty": {
+        "explanation": "The record this lookup names belongs to an object this run did not write. This one, written before it, keeps the lookup empty.",
+        "action": "Write that object — its node says why it was not written — then set the lookup in the target org."
+      },
       "skipped": {
         "explanation": "A record this one points to belongs to an object skipped in this run, so this one was held back rather than written without it.",
         "action": "Run again without skipping that object. To leave it out, skip the objects that point to it as well."

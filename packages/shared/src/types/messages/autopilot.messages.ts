@@ -5,12 +5,18 @@ import type {
   AutopilotObjectListing,
   ExecutionPlan,
   AnonymizationOverride,
-  AutopilotNodeStatus,
   AutopilotFitMode,
   AutopilotFitReport,
   AutopilotPlanWriteGate,
+  AutopilotRefusal,
+  AutopilotRunStatus,
 } from '../autopilot.types.js';
-import type { ComplianceFrameworkType } from '../common.types.js';
+import type {
+  ComplianceFrameworkType,
+  CurrencyReplaced,
+  PriceCurrencySettled,
+  RecordTypeGiven,
+} from '../common.types.js';
 import type { RunCheckpointInfo, RunCheckpointRequest } from '../checkpoint.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
 
@@ -160,17 +166,54 @@ export interface AutopilotExecuteRequest extends BaseMessage {
   };
 }
 
+/**
+ * What the host says of a node as it runs: `processing` for every node of the
+ * plan once it starts, then the status each settles on, as a node reaches it
+ * and once more when the run ends. `skipped` is Skip Node's, `stopped` a stop's.
+ */
+export type AutopilotNodeRunStatus = 'processing' | 'completed' | 'failed' | 'skipped' | 'stopped';
+
 /** Progress update for a node during execution */
 export interface AutopilotNodeProgress extends BaseMessage {
   type: 'autopilot:node-progress';
   payload: {
-    objectApiName: string;
-    status: AutopilotNodeStatus;
-    progress: number;
-    recordsProcessed: number;
-    recordsTotal: number;
-    apiCallsUsed: number;
-    elapsedMs: number;
+    nodeId: string;
+    objectName: string;
+    status: AutopilotNodeRunStatus;
+    /** The node's wave, 0-based. */
+    wave: number;
+    /** Records written. */
+    recordCount?: number;
+    /** Records refused. */
+    failureCount?: number;
+    /** Records the target already held, linked to instead of written. */
+    linkedCount?: number;
+    /** Why records were refused, by status code and fields. */
+    refusals?: AutopilotRefusal[];
+    /** Records born a draft given back their status after their children. */
+    statusesApplied?: number;
+    /** Why a status could not be given back. */
+    statusRefusals?: AutopilotRefusal[];
+    /** Records given, once what they point at was in, the lookups they went in without. */
+    lookupsFilled?: number;
+    /** Why a lookup stayed empty, by status code and the lookups it left. */
+    lookupRefusals?: AutopilotRefusal[];
+    /** Records read and never sent: the platform writes them, or what they hang from, itself. */
+    leftToThePlatform?: number;
+    /** Records a stopped run never sent, or those of an object skipped. */
+    notSent?: number;
+    /** Records written in another currency than they were read in, and their amounts. */
+    currenciesReplaced?: CurrencyReplaced[];
+    /** Prices read in a currency the target lacks, and how each went. */
+    pricesSettled?: PriceCurrencySettled[];
+    /** The record type the target gave the records created without one, read back once written. */
+    recordTypeGiven?: RecordTypeGiven;
+    /** Records read that came to name one the fit cut, held back with it. */
+    cutSinceFit?: number;
+    /** What the node failed on: the target's first refusal, or why its write threw. */
+    error?: string;
+    /** API calls this node cost, so the page can total them as the run goes. */
+    apiCallsUsed?: number;
   };
 }
 
@@ -204,10 +247,25 @@ export interface AutopilotStopLeftover {
   statusesNotGivenBack?: number;
 }
 
+/**
+ * What the run left empty in the records it wrote to one object: the lookups a
+ * second pass could not fill, its update refused, or the record they name
+ * never written.
+ */
+export interface AutopilotLookupsNotFilled {
+  objectApiName: string;
+  /** Records that keep a lookup empty, each counted once. */
+  records: number;
+  /** Why, by status code and the lookups it left. */
+  refusals: AutopilotRefusal[];
+}
+
 /** Autopilot execution completed, or stopped */
 export interface AutopilotCompleted extends BaseMessage {
   type: 'autopilot:completed';
   payload: {
+    /** How the run ended, as the audit trail and the command line say it. */
+    status: AutopilotRunStatus;
     totalRecords: number;
     totalSuccessCount: number;
     totalFailureCount: number;
@@ -252,6 +310,11 @@ export interface AutopilotCompleted extends BaseMessage {
      * that record. Absent when there were none.
      */
     cutSinceFit?: number;
+    /**
+     * Per object, in plan order, the records written that keep a lookup empty
+     * for good: the node of each says the same. Absent when there are none.
+     */
+    lookupsNotFilled?: AutopilotLookupsNotFilled[];
   };
 }
 

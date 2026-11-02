@@ -2,15 +2,14 @@ import type {
   AuditObjectCounts,
   AutopilotFitReport,
   AutopilotGraph,
+  AutopilotLookupsNotFilled,
+  AutopilotNodeProgress,
+  AutopilotNodeRunStatus,
   AutopilotPlanWriteGate,
   ExecutionPlan,
   ComplianceProfile,
   AutopilotAnonymizationRule,
-  AutopilotRefusal,
   AutopilotStopLeftover,
-  CurrencyReplaced,
-  PriceCurrencySettled,
-  RecordTypeGiven,
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -61,6 +60,7 @@ import {
 import { fitBudgetOf } from '../../modules/forge/fitBudget.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { autopilotAuditFitOf, planWriteGateOf } from '../../modules/autopilot/autopilotPlanGate.js';
+import { autopilotRunStatus } from '../../modules/autopilot/autopilotRunStatus.js';
 import {
   autopilotApiCheck,
   autopilotEmails,
@@ -1455,6 +1455,8 @@ export class AutopilotHandler implements DomainHandler {
       const leftByStop: AutopilotStopLeftover[] = [];
       /** The emails a stop kept from the target while they waited for their task. */
       let emailsHeldForTheirTask = 0;
+      /** What the second pass left empty in the records written, per object. */
+      const lookupsNotFilled: AutopilotLookupsNotFilled[] = [];
 
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
@@ -1465,6 +1467,7 @@ export class AutopilotHandler implements DomainHandler {
           // figures and its refusals with a clean "all written".
           const outcome = result.objectOutcomes?.[name];
           const statuses = result.statuses?.[name];
+          const lookups = result.lookups?.[name];
           // Read and never sent: the platform writes them itself, or they
           // hang from one it does. Neither written nor failed, so said apart.
           const leftToThePlatform = (outcome?.leftToThePlatform ?? []).reduce(
@@ -1494,6 +1497,7 @@ export class AutopilotHandler implements DomainHandler {
             ...(statuses
               ? { statusesApplied: statuses.applied, statusRefusals: statuses.refusals }
               : {}),
+            ...(lookups ? { lookupsFilled: lookups.filled, lookupRefusals: lookups.refusals } : {}),
           };
           if (completedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'completed', wave.order, {
@@ -1545,6 +1549,13 @@ export class AutopilotHandler implements DomainHandler {
               ...(notSent > 0 ? { notSent } : {}),
             });
           }
+          /** What the audit holds of the object: what it wrote, whatever settled it. */
+          const counted = (): AuditObjectCounts =>
+            written.get(name) ?? {
+              ...emptyCounts(name),
+              created: outcome?.written ?? 0,
+              failed: outcome?.failed ?? 0,
+            };
           // Written, and left unfinished by the stop: the audit counts them,
           // and the page says them with what the run did not write, so the
           // user knows what is left to fix. Neither was counted anywhere.
@@ -1556,14 +1567,18 @@ export class AutopilotHandler implements DomainHandler {
               ...(statusesNotGivenBack > 0 ? { statusesNotGivenBack } : {}),
             };
             leftByStop.push({ objectApiName: name, ...left });
-            written.set(name, {
-              ...(written.get(name) ?? {
-                ...emptyCounts(name),
-                created: outcome?.written ?? 0,
-                failed: outcome?.failed ?? 0,
-              }),
-              ...left,
+            written.set(name, { ...counted(), ...left });
+          }
+          // Written, and left without a lookup the run tried to fill: counted
+          // written and in no failure, those records read as whole on the
+          // page and in the audit, the command line alone naming them.
+          if (lookups?.leftEmpty !== undefined) {
+            lookupsNotFilled.push({
+              objectApiName: name,
+              records: lookups.leftEmpty,
+              refusals: lookups.refusals,
             });
+            written.set(name, { ...counted(), lookupsNotFilled: lookups.leftEmpty });
           }
         }
       }
@@ -1571,19 +1586,17 @@ export class AutopilotHandler implements DomainHandler {
       // Stopped by the user, the run is cancelled once it wrote a record or
       // had one refused, its counts saying which: it was recorded as partial,
       // as a run the org cut short is.
+      const status = autopilotRunStatus(result);
       recordRun(
         result.stopped
           ? result.totalSuccess + result.totalFailure > 0
             ? 'cancelled'
             : 'stopped'
-          : result.totalFailure === 0 && failedSet.size === 0
-            ? 'success'
-            : result.totalSuccess > 0
-              ? 'partial'
-              : 'failure',
+          : status,
       );
 
       const response = buildResponse(this.deps, msg, 'autopilot:completed', {
+        status,
         totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
         totalSuccessCount: result.totalSuccess,
         totalFailureCount: result.totalFailure,
@@ -1592,6 +1605,7 @@ export class AutopilotHandler implements DomainHandler {
         ...(mutedAutomation ? { mutedAutomation } : {}),
         ...(checkpoint ? { checkpoint } : {}),
         ...(result.cutSinceFit !== undefined ? { cutSinceFit: result.cutSinceFit } : {}),
+        ...(lookupsNotFilled.length > 0 ? { lookupsNotFilled } : {}),
         ...(result.stopped
           ? {
               stopped: true,
@@ -1897,35 +1911,9 @@ export class AutopilotHandler implements DomainHandler {
   private sendNodeProgress(
     requestMsg: InboundRequest,
     objectName: string,
-    status: 'processing' | 'completed' | 'failed' | 'skipped' | 'stopped',
+    status: AutopilotNodeRunStatus,
     wave: number,
-    extra?: {
-      recordCount?: number;
-      failureCount?: number;
-      /** Records the target already held, linked to instead of written. */
-      linkedCount?: number;
-      /** Why records were refused, by status code and fields. */
-      refusals?: AutopilotRefusal[];
-      /** Records born a draft given back their status after their children. */
-      statusesApplied?: number;
-      /** Why a status could not be given back. */
-      statusRefusals?: AutopilotRefusal[];
-      /** Records read and never sent: the platform writes them, or what they hang from, itself. */
-      leftToThePlatform?: number;
-      /** Records a stopped run never sent, or those of an object skipped. */
-      notSent?: number;
-      /** Records written in another currency than they were read in, and their amounts. */
-      currenciesReplaced?: CurrencyReplaced[];
-      /** Prices read in a currency the target lacks, and how each went. */
-      pricesSettled?: PriceCurrencySettled[];
-      /** The record type the target gave the records created without one, read back once written. */
-      recordTypeGiven?: RecordTypeGiven;
-      /** Records read that came to name one the fit cut, held back with it. */
-      cutSinceFit?: number;
-      error?: string;
-      /** API calls this node cost, so the page can total them as the run goes. */
-      apiCallsUsed?: number;
-    },
+    extra?: Omit<AutopilotNodeProgress['payload'], 'nodeId' | 'objectName' | 'status' | 'wave'>,
   ): void {
     const progressMsg = buildResponse(this.deps, requestMsg, 'autopilot:node-progress', {
       nodeId: objectName,
@@ -1933,7 +1921,7 @@ export class AutopilotHandler implements DomainHandler {
       status,
       wave,
       ...(extra ?? {}),
-    });
+    } satisfies AutopilotNodeProgress['payload']);
     this.deps.broker.postToWebview(progressMsg);
   }
 

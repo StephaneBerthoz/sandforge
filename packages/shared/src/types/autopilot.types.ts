@@ -26,6 +26,12 @@ export type AutopilotNodeStatus =
   | 'failed'
   | 'skipped';
 
+/**
+ * How a run ended: a failure when it died or wrote none of what it was sent;
+ * partial when it wrote some of it and not all it set out to do.
+ */
+export type AutopilotRunStatus = 'success' | 'partial' | 'failure';
+
 /** Relationship type between Salesforce objects */
 export type RelationshipType = 'lookup' | 'master_detail' | 'hierarchical' | 'polymorphic';
 
@@ -71,6 +77,13 @@ export interface AutopilotNode {
   statusesApplied?: number;
   /** Why a status could not be given back: those records stay drafts. */
   statusRefusals?: AutopilotRefusal[];
+  /** Records given, once what they point at was in, the lookups they went in without. */
+  lookupsFilled?: number;
+  /**
+   * Why the others were not: those records stand in the target without their
+   * link. Each entry's `fields` are the lookups they keep empty.
+   */
+  lookupRefusals?: AutopilotRefusal[];
   /**
    * Records read and never sent: the platform writes them itself and refuses
    * one from a copy — a tracked change — or they cannot go in without one it
@@ -523,7 +536,6 @@ export type AutopilotEventType =
   | 'node-progress'
   | 'node-completed'
   | 'node-failed'
-  | 'node-skipped'
   | 'wave-completed'
   | 'execution-completed'
   | 'execution-failed'

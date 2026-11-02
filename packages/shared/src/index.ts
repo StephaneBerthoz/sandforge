@@ -45,6 +45,7 @@ export {
   type AutopilotNodeCompletedEvent,
   type AutopilotNodeFailedEvent,
   type AutopilotRefusal,
+  type AutopilotRunStatus,
   type AnonymizationOverride,
   type PIICategory,
   type PIIFieldDetection,

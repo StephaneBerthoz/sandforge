@@ -119,6 +119,13 @@ export interface AuditObjectCounts {
    */
   lookupsLeftEmpty?: number;
   /**
+   * Of the records written, those left with a lookup empty that the run tried
+   * to fill: its update was refused, or the record the lookup names was refused
+   * or never written. They stand in the target without their link. Absent when
+   * there are none.
+   */
+  lookupsNotFilled?: number;
+  /**
    * Of the records written, those a stopped run wrote at a draft status and
    * never gave back the status they had in the source: they stay drafts.
    * Absent when there are none.

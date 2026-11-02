@@ -14,9 +14,9 @@ import { updateGraphNodeStatus, updateGraphNodeProgress } from '../utils/graphSt
 /**
  * What a node came to once it settled: the records the target refused and
  * why, the records it already held and linked to, the statuses given back to
- * records born a draft, and the records left out because the platform writes
- * them, or what they depend on, itself. A field the message did not carry is
- * left alone.
+ * records born a draft, the lookups filled once what they point at was in, and
+ * the records left out because the platform writes them, or what they depend
+ * on, itself. A field the message did not carry is left alone.
  */
 export type NodeOutcome = Partial<
   Pick<
@@ -26,6 +26,8 @@ export type NodeOutcome = Partial<
     | 'refusals'
     | 'statusesApplied'
     | 'statusRefusals'
+    | 'lookupsFilled'
+    | 'lookupRefusals'
     | 'leftToThePlatform'
     | 'currenciesReplaced'
     | 'pricesSettled'
@@ -373,6 +375,8 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       if (outcome.refusals !== undefined) carried.refusals = outcome.refusals;
       if (outcome.statusesApplied !== undefined) carried.statusesApplied = outcome.statusesApplied;
       if (outcome.statusRefusals !== undefined) carried.statusRefusals = outcome.statusRefusals;
+      if (outcome.lookupsFilled !== undefined) carried.lookupsFilled = outcome.lookupsFilled;
+      if (outcome.lookupRefusals !== undefined) carried.lookupRefusals = outcome.lookupRefusals;
       if (outcome.leftToThePlatform !== undefined) {
         carried.leftToThePlatform = outcome.leftToThePlatform;
       }

@@ -14,12 +14,7 @@ vi.mock('./sandforge-clone.js', async (importOriginal) => ({
 
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import {
-  autopilotInterruptedLine,
-  autopilotRunStatus,
-  main,
-  parseArgs,
-} from './sandforge-autopilot';
+import { autopilotInterruptedLine, main, parseArgs } from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
 
 /** What the target runs on the objects a plan writes. */
@@ -470,14 +465,5 @@ describe('sandforge-autopilot — what the command line refuses, and how a run e
     expect(process.exitCode).toBe(143);
     expect(process.listenerCount('SIGTERM')).toBe(0);
     expect(process.listenerCount('SIGINT')).toBe(0);
-  });
-
-  it('takes a run that died, or wrote nothing it was sent, for a failure, and one the target refused part of for partial', () => {
-    const run = { totalSuccess: 3, totalFailure: 0, failedObjects: [] };
-    expect(autopilotRunStatus(run)).toBe('success');
-    expect(autopilotRunStatus({ ...run, totalFailure: 1 })).toBe('partial');
-    expect(autopilotRunStatus({ ...run, totalSuccess: 0, totalFailure: 2 })).toBe('failure');
-    expect(autopilotRunStatus({ ...run, fatalError: 'INVALID_SESSION_ID' })).toBe('failure');
-    expect(autopilotRunStatus({ ...run, failedObjects: ['Lead'] })).toBe('partial');
   });
 });

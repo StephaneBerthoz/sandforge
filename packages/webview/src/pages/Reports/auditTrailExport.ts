@@ -19,6 +19,7 @@ const COUNT_COLUMNS = [
   'upserted',
   'writtenWithoutFields',
   'lookupsLeftEmpty',
+  'lookupsNotFilled',
   'statusesNotGivenBack',
   'deleted',
   'failed',

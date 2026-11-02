@@ -89,6 +89,17 @@ describe('ObjectNode', () => {
     expect(screen.getByTestId('object-node')).toBeDefined();
   });
 
+  it('tells a skipped node from a pending one by more than its colour', () => {
+    const { unmount } = renderObjectNode({ ...defaultData, status: 'pending', progress: 0 });
+    expect(screen.getByTestId('object-node').className).not.toContain('border-dashed');
+    expect(screen.queryByTestId('node-skipped')).toBeNull();
+    unmount();
+
+    renderObjectNode({ ...defaultData, status: 'skipped', progress: 0 });
+    expect(screen.getByTestId('object-node').className).toContain('border-dashed');
+    expect(screen.getByTestId('node-skipped').textContent).toBe('Skipped');
+  });
+
   it('should render with failed status', () => {
     renderObjectNode({ ...defaultData, status: 'failed', progress: 30 });
     expect(screen.getByTestId('object-node')).toBeDefined();

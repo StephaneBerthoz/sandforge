@@ -2,17 +2,17 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
+  AutopilotCompleted,
   AutopilotGraph as AutopilotGraphType,
+  AutopilotLookupsNotFilled,
+  AutopilotNodeProgress,
+  AutopilotNodeRunStatus,
   AutopilotNodeStatus,
-  AutopilotRefusal,
+  AutopilotRunStatus,
   AutopilotStopLeftover,
-  CurrencyReplaced,
-  PriceCurrencySettled,
   AutopilotPlanWriteGate,
   ExecutionPlan,
   MutedAutomation,
-  RunCheckpointInfo,
-  RecordTypeGiven,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../stores/useAutopilotStore';
@@ -97,6 +97,10 @@ export const AutopilotPage: React.FC = () => {
   const [mutedAutomation, setMutedAutomation] = useState<MutedAutomation | undefined>(undefined);
   /** Of a fitted plan's run, the records held back since the fit, once it ended. */
   const [cutSinceFit, setCutSinceFit] = useState<number | undefined>(undefined);
+  /** How the run ended, once it has. */
+  const [runStatus, setRunStatus] = useState<AutopilotRunStatus | undefined>(undefined);
+  /** Per object, the records the run wrote that keep a lookup empty, once it ended. */
+  const [lookupsNotFilled, setLookupsNotFilled] = useState<AutopilotLookupsNotFilled[]>([]);
   /** When the run was sent: an error carries no time of its own for it. */
   const runSentAt = useRef(0);
   /** Whether the review's option asked for a checkpoint: said of the run it sent. */
@@ -127,31 +131,9 @@ export const AutopilotPage: React.FC = () => {
     useAutopilotStore.getState().setStep('review');
   });
 
-  useMessageListener<
-    BaseMessage & {
-      payload: {
-        nodeId: string;
-        objectName: string;
-        status: string;
-        wave: number;
-        recordCount?: number;
-        failureCount?: number;
-        linkedCount?: number;
-        refusals?: AutopilotRefusal[];
-        statusesApplied?: number;
-        statusRefusals?: AutopilotRefusal[];
-        leftToThePlatform?: number;
-        currenciesReplaced?: CurrencyReplaced[];
-        pricesSettled?: PriceCurrencySettled[];
-        cutSinceFit?: number;
-        recordTypeGiven?: RecordTypeGiven;
-        apiCallsUsed?: number;
-        error?: string;
-      };
-    }
-  >('autopilot:node-progress', (msg) => {
+  useMessageListener<AutopilotNodeProgress>('autopilot:node-progress', (msg) => {
     const store = useAutopilotStore.getState();
-    const statusMap: Record<string, AutopilotNodeStatus> = {
+    const statusMap: Record<AutopilotNodeRunStatus, AutopilotNodeStatus> = {
       processing: 'extracting',
       completed: 'completed',
       failed: 'failed',
@@ -179,6 +161,8 @@ export const AutopilotPage: React.FC = () => {
       refusals: msg.payload.refusals,
       statusesApplied: msg.payload.statusesApplied,
       statusRefusals: msg.payload.statusRefusals,
+      lookupsFilled: msg.payload.lookupsFilled,
+      lookupRefusals: msg.payload.lookupRefusals,
       leftToThePlatform: msg.payload.leftToThePlatform,
       currenciesReplaced: msg.payload.currenciesReplaced,
       pricesSettled: msg.payload.pricesSettled,
@@ -213,24 +197,7 @@ export const AutopilotPage: React.FC = () => {
     });
   });
 
-  useMessageListener<
-    BaseMessage & {
-      payload: {
-        totalRecords: number;
-        totalSuccessCount: number;
-        totalFailureCount: number;
-        totalElapsedMs: number;
-        totalApiCalls: number;
-        stopped?: boolean;
-        notWritten?: string[];
-        leftByStop?: AutopilotStopLeftover[];
-        emailsHeldForTheirTask?: number;
-        mutedAutomation?: MutedAutomation;
-        checkpoint?: RunCheckpointInfo;
-        cutSinceFit?: number;
-      };
-    }
-  >('autopilot:completed', (msg) => {
+  useMessageListener<AutopilotCompleted>('autopilot:completed', (msg) => {
     const ended = useAutopilotStore.getState();
     if (ended.targetOrgId) {
       const checkpoint = runCheckpointOf(msg.payload.checkpoint);
@@ -244,6 +211,8 @@ export const AutopilotPage: React.FC = () => {
     }
     setMutedAutomation(msg.payload.mutedAutomation);
     setCutSinceFit(msg.payload.cutSinceFit);
+    setRunStatus(msg.payload.status);
+    setLookupsNotFilled(msg.payload.lookupsNotFilled ?? []);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
@@ -287,6 +256,8 @@ export const AutopilotPage: React.FC = () => {
     setEmailsHeldForTheirTask(0);
     setMutedAutomation(undefined);
     setCutSinceFit(undefined);
+    setRunStatus(undefined);
+    setLookupsNotFilled([]);
     runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
@@ -494,6 +465,8 @@ export const AutopilotPage: React.FC = () => {
               emailsHeldForTheirTask={emailsHeldForTheirTask}
               mutedAutomation={mutedAutomation}
               cutSinceFit={cutSinceFit}
+              runStatus={runStatus}
+              lookupsNotFilled={lookupsNotFilled}
             />
           </div>
         </div>

@@ -407,6 +407,7 @@ describe('Autopilot bridge flow', () => {
     expect(useAutopilotStore.getState().step).toBe('completed');
     expect(useAutopilotStore.getState().executionStatus).toBe('completed');
     expect(useAutopilotStore.getState().liveStats.recordsProcessed).toBe(178);
+    expect(screen.queryByTestId('control-run-status')).toBeNull();
 
     // ── Compliance report ──────────────────────────────────────────────
     fireEvent.click(screen.getByTestId('view-compliance-report'));
@@ -525,6 +526,63 @@ describe('Autopilot bridge flow', () => {
     expect(refusals.textContent).toContain('FIELD_INTEGRITY_EXCEPTION');
     expect(refusals.textContent).toContain('AccountId');
     expect(refusals.textContent).toContain('80 records');
+  });
+
+  it('says a run left partial by its second pass, on the result and on the node, as the host sends it', () => {
+    render(<AutopilotPage />);
+    driveToReview();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const executeRequest = lastRequestOfType('autopilot:execute');
+    const refusal = {
+      statusCode: 'PARENT_REFUSED',
+      fields: ['AccountId'],
+      count: 12,
+      message:
+        'the Account record its AccountId names was refused in this run, and this record, ' +
+        'written before it, keeps its AccountId empty.',
+    };
+
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'completed',
+        wave: 1,
+        recordCount: 80,
+        failureCount: 0,
+        lookupsFilled: 68,
+        lookupRefusals: [refusal],
+      },
+      executeRequest.id,
+    );
+    dispatchBridgeMessage(
+      'autopilot:completed',
+      {
+        status: 'partial',
+        totalRecords: 80,
+        totalSuccessCount: 80,
+        totalFailureCount: 0,
+        totalElapsedMs: 900,
+        totalApiCalls: 0,
+        lookupsNotFilled: [{ objectApiName: 'Contact', records: 12, refusals: [refusal] }],
+      },
+      executeRequest.id,
+    );
+
+    expect(screen.getByTestId('control-run-status').textContent).toBe(
+      en.autopilot.control.runPartial,
+    );
+    expect(screen.getByTestId('control-lookups-not-filled').textContent).toBe(
+      'Contact: 12 records keep AccountId empty (PARENT_REFUSED).',
+    );
+
+    act(() => {
+      useAutopilotStore.getState().selectNode('Contact');
+    });
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+    expect(screen.getByTestId('node-lookup-refusals').textContent).toContain('12 records');
+    expect(screen.getByTestId('node-lookups-filled').textContent).toContain('68');
   });
 
   it('stops the run by the id of its execute request, and says what the stop left unwritten', () => {

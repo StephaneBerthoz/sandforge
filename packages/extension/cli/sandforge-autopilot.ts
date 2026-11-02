@@ -42,7 +42,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
-import { endWith, runExitCode, type RunStatus } from './exitCodes.js';
+import { endWith, runExitCode } from './exitCodes.js';
 import {
   AutopilotOrchestrator,
   type AutopilotPlanFit,
@@ -66,6 +66,7 @@ import {
   type ExecutionResult,
 } from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
+import { autopilotRunStatus } from '../src/modules/autopilot/autopilotRunStatus.js';
 import type { FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
 import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import {
@@ -230,7 +231,8 @@ ${checkpointFirstHelp({
   --json                 emit the run summary as JSON, with the id
                          of every record the run created          (default: off)
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
-                         the target refused others                (default: off)
+                         the target refused others, or a record it wrote keeps
+                         a lookup it could not fill               (default: off)
   --help                 this text
 
 A selected object is copied whole, unless the plan is fitted. Of any other
@@ -249,8 +251,9 @@ A production target is refused before the scan: Autopilot writes to sandboxes
 and Developer Edition orgs only, and --plan-only, which only reads, runs
 against any org.
 
-Exit codes: 0 the run finished, some of its records refused included (read the
-summary for per-object failures); 1 the run could not be started or was
+Exit codes: 0 the run finished, some of its records refused or left without a
+lookup included (read the summary for per-object failures, and --json's
+result.status); 1 the run could not be started or was
 refused, among them emails not accepted (EMAILS_NOT_ACCEPTED) and a checkpoint
 asked first refused or not taken, or it died or produced only failures; 2 a bad
 command line; 3 the run was partial and --fail-on-partial was given; 130 Ctrl-C
@@ -1088,24 +1091,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   const elapsedMs = Date.now() - t0;
   const interrupted = stop.signal.aborted;
+  const status = autopilotRunStatus(result);
   // A run that died, or whose every record the target refused, exited 0 as
   // one that wrote them all: it only said so on a line of its summary.
   endWith(
-    interrupted
-      ? stopExitCode(stoppedBy ?? 'SIGINT')
-      : runExitCode(autopilotRunStatus(result), args.failOnPartial),
+    interrupted ? stopExitCode(stoppedBy ?? 'SIGINT') : runExitCode(status, args.failOnPartial),
   );
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), ...(fit ? { fit: autopilotFitJson(fit) } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result: { status, ...result }, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), ...(fit ? { fit: autopilotFitJson(fit) } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
     if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;
   }
 
+  log(`\nstatus:  ${status}`);
   log(
-    `\nwritten: ${result.totalSuccess}   linked: ${result.totalLinked ?? 0}   ` +
+    `written: ${result.totalSuccess}   linked: ${result.totalLinked ?? 0}   ` +
       `refused: ${result.totalFailure}   skipped: ${result.totalSkipped}`,
   );
   if (result.skippedObjects.length > 0) log(`  skipped: ${result.skippedObjects.join(', ')}`);
@@ -1120,20 +1123,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   log(`\ndone in ${elapsedMs}ms`);
-}
-
-/**
- * How a run ended, as its exit code reads it: a failure when it died or
- * produced only failures, partial when the target refused some of what it
- * wrote, or an object of it failed. Exported so it can be tested.
- */
-export function autopilotRunStatus(
-  result: Pick<ExecutionResult, 'fatalError' | 'totalSuccess' | 'totalFailure' | 'failedObjects'>,
-): RunStatus {
-  if (result.fatalError !== undefined) return 'failure';
-  const failed = result.totalFailure > 0 || result.failedObjects.length > 0;
-  if (!failed) return 'success';
-  return result.totalSuccess > 0 ? 'partial' : 'failure';
 }
 
 /**

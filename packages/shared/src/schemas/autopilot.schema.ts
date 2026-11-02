@@ -124,6 +124,8 @@ export const autopilotNodeSchema = z.object({
   refusals: z.array(autopilotRefusalSchema).optional(),
   statusesApplied: z.number().int().nonnegative().optional(),
   statusRefusals: z.array(autopilotRefusalSchema).optional(),
+  lookupsFilled: z.number().int().nonnegative().optional(),
+  lookupRefusals: z.array(autopilotRefusalSchema).optional(),
   leftToThePlatform: z.number().int().nonnegative().optional(),
 });
 
@@ -324,19 +326,12 @@ const nodeFailedEventSchema = autopilotEventBaseSchema.extend({
   refusals: z.array(autopilotRefusalSchema).optional(),
 });
 
-/** Zod schema for AutopilotNodeSkippedEvent */
-const nodeSkippedEventSchema = autopilotEventBaseSchema.extend({
-  type: z.literal('node-skipped'),
-  objectApiName: z.string().min(1),
-});
-
 /** Zod schema for AutopilotEvent — discriminated union on `type` */
 export const autopilotEventSchema = z.discriminatedUnion('type', [
   simpleEventSchema,
   nodeProgressEventSchema,
   nodeCompletedEventSchema,
   nodeFailedEventSchema,
-  nodeSkippedEventSchema,
 ]);
 
 // ─── Inferred Types ──────────────────────────────────────────────────────────

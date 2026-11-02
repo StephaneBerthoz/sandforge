@@ -2070,7 +2070,183 @@ describe('AutopilotExecutor — the second pass', () => {
             message: 'Le parent doit être actif',
           },
         ],
+        leftEmpty: 1,
       },
+    });
+  });
+
+  it('names the lookup a refused update left, when the target names no field', async () => {
+    // What an org answers an update of a lookup at a record the running user
+    // may not see: a code and no field. The line said why, and not what.
+    const update = vi.fn<UpdateFn>(async () => [
+      refused(
+        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+        'insufficient access rights on cross-reference id',
+      ),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']).toEqual({
+      filled: 0,
+      refusals: [
+        {
+          statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+          fields: ['ParentId'],
+          count: 1,
+          message: 'insufficient access rights on cross-reference id',
+        },
+      ],
+      leftEmpty: 1,
+    });
+    expect(result.totalSuccess).toBe(2);
+    expect(result.totalFailure).toBe(0);
+  });
+
+  it('names every lookup a refused update left, whichever field the target named', async () => {
+    // One update per record: refused on one field, it fills neither.
+    const two = {
+      Account: [
+        { Id: 'child', Name: 'Child', ParentId: 'parent', Partner__c: 'parent' },
+        { Id: 'parent', Name: 'Parent', ParentId: null, Partner__c: null },
+      ],
+    };
+    const update = vi.fn<UpdateFn>(async () => [
+      refused('FIELD_INTEGRITY_EXCEPTION', 'Parent Account: id value of incorrect type', [
+        'ParentId',
+      ]),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(two),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [
+        parentEdge,
+        makeEdge({
+          from: 'Account' as ApiName,
+          to: 'Account' as ApiName,
+          fieldApiName: 'Partner__c',
+          relationshipType: 'hierarchical',
+        }),
+      ],
+      [],
+      countsOf(two),
+    );
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(result.lookups?.['Account']?.refusals).toEqual([
+      expect.objectContaining({ fields: ['ParentId', 'Partner__c'], count: 1 }),
+    ]);
+    expect(result.lookups?.['Account']?.leftEmpty).toBe(1);
+  });
+
+  it('counts once a record the target refused for two reasons', async () => {
+    const twoReasons: SaveOutcome = {
+      id: '',
+      success: false,
+      errors: ['two'],
+      errorDetails: [
+        { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'Parent inactif', fields: [] },
+        {
+          statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+          message: 'invalid cross reference',
+          fields: [],
+        },
+      ],
+    };
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update: vi.fn<UpdateFn>(async () => [twoReasons]),
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']?.refusals).toHaveLength(2);
+    expect(result.lookups?.['Account']?.leftEmpty).toBe(1);
+  });
+
+  it('names the lookups of a batch whose update threw, every record of it refused', async () => {
+    const update = vi.fn<UpdateFn>(async () => {
+      throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record');
+    });
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups?.['Account']).toMatchObject({
+      filled: 0,
+      refusals: [expect.objectContaining({ fields: ['ParentId'], count: 1 })],
+      leftEmpty: 1,
+    });
+  });
+
+  it('keeps what a wave’s second pass refused when a stop comes before the next wave', async () => {
+    // The run returned from the stop without them: the refusal was said
+    // nowhere, on a run that had met the target's answer.
+    const controller = new AbortController();
+    const update = vi.fn<UpdateFn>(async () => {
+      controller.abort();
+      return [refused('FIELD_CUSTOM_VALIDATION_EXCEPTION', 'Le parent doit être actif')];
+    });
+    const later = { ...rows, Contact: [{ Id: 'con', LastName: 'Doe' }] };
+    const deps = makeDeps({
+      query: sourceOf(later),
+      insert: insertAs({ Account: '001T', Contact: '003T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Contact'),
+      [parentEdge],
+      [],
+      countsOf(later),
+      controller.signal,
+    );
+
+    expect(result.stopped).toBe(true);
+    expect(result.lookups?.['Account']).toMatchObject({
+      filled: 0,
+      refusals: [expect.objectContaining({ fields: ['ParentId'], count: 1 })],
+      leftEmpty: 1,
     });
   });
 
@@ -2154,6 +2330,7 @@ describe('AutopilotExecutor — the second pass', () => {
               'record, written before it, keeps its ParentId empty.',
           },
         ],
+        leftEmpty: 1,
       },
     });
   });

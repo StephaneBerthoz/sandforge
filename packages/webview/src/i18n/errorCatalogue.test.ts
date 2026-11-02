@@ -61,6 +61,8 @@ const MESSAGE_SAMPLES: readonly string[] = [
   'Object is not updateable on target org: the user the run writes as may not edit Case records there.',
   'PARENT_NOT_WRITTEN: the Account record its AccountId names was not written: Account was skipped in this run, and written without it this record would stand without its Account.',
   "PARENT_NOT_WRITTEN: the Opportunity record its OpportunityId names was not written: the run's write of Opportunity failed, and written without it this record would stand without its Opportunity.",
+  'PARENT_REFUSED: the Account record its ParentId names was refused in this run, and this record, written before it, keeps its ParentId empty.',
+  'PARENT_NOT_WRITTEN: the Account record its ParentId names was not written: Account was skipped in this run, and this record, written before it, keeps its ParentId empty.',
 ];
 
 /** Forge's refusals of a run, by their code. */

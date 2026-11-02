@@ -184,6 +184,24 @@ export const NodeDetail: React.FC = () => {
         />
       )}
 
+      {selectedNode.lookupsFilled !== undefined && (
+        <div className="flex flex-col gap-0.5 text-xs" data-testid="node-lookups-filled">
+          <span className="text-text-secondary">{t('autopilot.control.lookupsFilled')}</span>
+          <span className="font-medium text-text-primary">
+            {selectedNode.lookupsFilled.toLocaleString(uiLocale())}
+          </span>
+        </div>
+      )}
+
+      {/* Written and left without their link: counted written, and in no failure. */}
+      {selectedNode.lookupRefusals && selectedNode.lookupRefusals.length > 0 && (
+        <RefusalList
+          title={t('autopilot.control.lookupRefusals')}
+          refusals={selectedNode.lookupRefusals}
+          testId="node-lookup-refusals"
+        />
+      )}
+
       {/* The records written in another currency, said as Forge's results say them. */}
       {selectedNode.currenciesReplaced && selectedNode.currenciesReplaced.length > 0 && (
         <ForgeCurrenciesResult entries={selectedNode.currenciesReplaced} />

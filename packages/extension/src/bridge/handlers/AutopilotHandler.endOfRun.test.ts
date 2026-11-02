@@ -520,4 +520,126 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
     expect(settled['Contact']).toMatchObject({ status: 'stopped', recordCount: 1, notSent: 1 });
     expect(settled['Lead']).toMatchObject({ status: 'stopped', recordCount: 0, notSent: 2 });
   });
+
+  describe('a lookup the second pass could not fill', () => {
+    /** A child account read before the parent it names. */
+    const rows = {
+      Account: [
+        { Id: 'child', Name: 'Child', ParentId: 'parent' },
+        { Id: 'parent', Name: 'Parent', ParentId: null },
+      ],
+    };
+
+    /** What the run's end told the page. */
+    function completed(): Record<string, unknown> {
+      const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
+      const sent = postToWebview.mock.calls
+        .map(([message]) => message)
+        .find((message) => message.type === 'autopilot:completed');
+      return (sent as BaseMessage & { payload: Record<string, unknown> }).payload;
+    }
+
+    /** Run the two accounts, each written or refused as told, the update as told. */
+    async function runIt(
+      write: (record: Record<string, unknown>, index: number) => SaveOutcome,
+      update: (records: Record<string, unknown>[]) => SaveOutcome[],
+    ): Promise<ExecutionResult | undefined> {
+      const { running, result } = await startRun({
+        id: 'exec-lookups',
+        plan: planOf(['Account']),
+        rows,
+        edges: [lookup('Account', 'Account', 'ParentId')],
+        batchSize: 200,
+        query: sourceOf(rows),
+        insert: (_name, records) => records.map(write),
+        orgs: { update: async (_name, records) => update(records) },
+      });
+      await running;
+      return result();
+    }
+
+    const writeAll = (_record: Record<string, unknown>, index: number): SaveOutcome => ({
+      id: `001T${index}`,
+      success: true,
+      errors: [],
+    });
+
+    it('ends partial on the page and in the audit, every record written, saying what is left and why', async () => {
+      // Counted written and in no failure: the run ended a success, and neither
+      // the page nor the audit named the record standing without its parent.
+      const noAccess = refused(
+        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+        'insufficient access rights on cross-reference id',
+        [],
+      );
+      const result = await runIt(writeAll, () => [noAccess]);
+
+      expect(result).toMatchObject({ totalSuccess: 2, totalFailure: 0, failedObjects: [] });
+      const refusal = {
+        statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+        fields: ['ParentId'],
+        count: 1,
+        message: 'insufficient access rights on cross-reference id',
+      };
+      expect(lastStatusOf()['Account']).toMatchObject({
+        status: 'completed',
+        recordCount: 2,
+        failureCount: 0,
+        lookupsFilled: 0,
+        lookupRefusals: [refusal],
+      });
+      expect(completed()).toMatchObject({
+        status: 'partial',
+        lookupsNotFilled: [{ objectApiName: 'Account', records: 1, refusals: [refusal] }],
+      });
+      const [entry] = new AuditTrailStore(deps.configStore as ConfigStore).list().entries;
+      expect(entry?.outcome).toBe('partial');
+      expect(entry?.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Account',
+          created: 2,
+          failed: 0,
+          lookupsNotFilled: 1,
+        }),
+      ]);
+    });
+
+    it('says the child of a parent the target refused, written before it, under its parent’s refusal', async () => {
+      await runIt(
+        (record, index) =>
+          record['Name'] === 'Parent'
+            ? refused('REQUIRED_FIELD_MISSING', 'Required fields are missing: [Industry]', [
+                'Industry',
+              ])
+            : writeAll(record, index),
+        () => [],
+      );
+
+      const left = [
+        expect.objectContaining({ statusCode: 'PARENT_REFUSED', fields: ['ParentId'] }),
+      ];
+      expect(lastStatusOf()['Account']).toMatchObject({ lookupRefusals: left });
+      expect(completed()).toMatchObject({
+        status: 'partial',
+        lookupsNotFilled: [{ objectApiName: 'Account', records: 1, refusals: left }],
+      });
+      const [entry] = new AuditTrailStore(deps.configStore as ConfigStore).list().entries;
+      expect(entry?.objects).toEqual([
+        expect.objectContaining({ created: 1, failed: 1, lookupsNotFilled: 1 }),
+      ]);
+    });
+
+    it('ends a success, with nothing to say, when the pass filled them all', async () => {
+      await runIt(writeAll, (records) =>
+        records.map((record) => ({ id: String(record['Id']), success: true, errors: [] })),
+      );
+
+      expect(lastStatusOf()['Account']).toMatchObject({ lookupsFilled: 1, lookupRefusals: [] });
+      expect(completed()['status']).toBe('success');
+      expect(completed()).not.toHaveProperty('lookupsNotFilled');
+      const [entry] = new AuditTrailStore(deps.configStore as ConfigStore).list().entries;
+      expect(entry?.outcome).toBe('success');
+      expect(entry?.objects).toEqual([expect.not.objectContaining({ lookupsNotFilled: 1 })]);
+    });
+  });
 });

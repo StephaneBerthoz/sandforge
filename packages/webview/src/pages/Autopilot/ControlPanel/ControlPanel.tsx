@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AutopilotStopLeftover, MutedAutomation } from '@sandforge/shared';
+import type {
+  AutopilotLookupsNotFilled,
+  AutopilotRunStatus,
+  AutopilotStopLeftover,
+  MutedAutomation,
+} from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { useSendMessage } from '../../../hooks/useMessageBus';
 import { buildMessage } from '../../../bridge/messageHelpers';
@@ -45,6 +50,10 @@ export interface ControlPanelProps {
   mutedAutomation?: MutedAutomation;
   /** Of a fitted plan's run once it ended, the records held back since the fit. */
   cutSinceFit?: number;
+  /** How the run ended, once it has. */
+  runStatus?: AutopilotRunStatus;
+  /** Once the run ended, per object, the records it wrote that keep a lookup empty, and why. */
+  lookupsNotFilled?: readonly AutopilotLookupsNotFilled[];
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
@@ -55,6 +64,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   emailsHeldForTheirTask = 0,
   mutedAutomation,
   cutSinceFit,
+  runStatus,
+  lookupsNotFilled = [],
 }) => {
   const { t } = useTranslation();
   const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
@@ -224,6 +235,46 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </ul>
             </>
           )}
+        </div>
+      )}
+
+      {/* A run the target took part of ended with every node settled and no
+          word of it: the graph alone told it from one that wrote everything,
+          and a record left without its lookup not even there. A stopped run
+          says how it ended above. */}
+      {notWritten === undefined && (runStatus === 'partial' || runStatus === 'failure') && (
+        <p
+          className="px-4 py-2 text-xs text-text-primary border-b border-(--sf-border)"
+          role="status"
+          data-testid="control-run-status"
+        >
+          {t(
+            runStatus === 'partial'
+              ? 'autopilot.control.runPartial'
+              : 'autopilot.control.runFailure',
+          )}
+        </p>
+      )}
+
+      {/* Written, and left without a lookup, for good: unlike a stop's, no
+          run sends what they lack. Each object's detail says what to do. */}
+      {lookupsNotFilled.length > 0 && (
+        <div className="px-4 py-2 text-xs text-text-primary border-b border-(--sf-border)">
+          <p>{t('autopilot.control.lookupsNotFilledTitle')}</p>
+          <ul className="list-disc pl-4" data-testid="control-lookups-not-filled">
+            {lookupsNotFilled.flatMap((left) =>
+              left.refusals.map((refusal) => (
+                <li key={`${left.objectApiName}|${refusal.statusCode}|${refusal.fields.join(',')}`}>
+                  {t('autopilot.control.lookupNotFilled', {
+                    object: left.objectApiName,
+                    count: refusal.count,
+                    fields: refusal.fields.join(', '),
+                    code: refusal.statusCode,
+                  })}
+                </li>
+              )),
+            )}
+          </ul>
         </div>
       )}
 

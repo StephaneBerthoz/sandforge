@@ -598,6 +598,33 @@ const VARIANTS: ReadonlyArray<{
       ],
     },
   },
+  // Autopilot's own, on a lookup and not on a record: the record was written
+  // before the one it names, which never followed, and keeps the lookup
+  // empty. Read as a record held back, the hint denied what the line above it
+  // says. Before the two below, which match the same message.
+  {
+    code: 'PARENT_REFUSED',
+    match: /keeps its \S+ empty/,
+    says: 'PARENT_REFUSED',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: ['errors.parentRefused.keptEmpty.explanation', 'errors.parentRefused.keptEmpty.action'],
+    },
+  },
+  {
+    code: 'PARENT_NOT_WRITTEN',
+    match: /keeps its \S+ empty/,
+    says: 'PARENT_NOT_WRITTEN',
+    entry: {
+      severity: 'warning',
+      own: true,
+      keys: [
+        'errors.parentNotWritten.keptEmpty.explanation',
+        'errors.parentNotWritten.keptEmpty.action',
+      ],
+    },
+  },
   // Autopilot's own: a record held back under a parent's object the user
   // skipped, or whose write failed. Its message says which, in English; the
   // hint says it in the panel's language, with what to do about that one.

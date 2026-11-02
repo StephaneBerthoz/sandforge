@@ -332,8 +332,18 @@ export interface ObjectOutcome {
 export interface LookupOutcome {
   /** Records whose lookups were filled. */
   filled: number;
-  /** Why the others were not: those records keep the lookups empty. */
+  /**
+   * Why the others were not: those records keep the lookups empty. An entry's
+   * `fields` are those lookups, not what the target named: an update is one
+   * per record and a refusal leaves everything it carried empty, and most
+   * refusals name no field at all.
+   */
   refusals: AutopilotRefusal[];
+  /**
+   * Records left with a lookup empty, each counted once whatever it owed and
+   * however many reasons the target gave. Absent when there are none.
+   */
+  leftEmpty?: number;
 }
 
 /** The statuses set aside for records born a draft, as the end of the run applied them. */
@@ -906,6 +916,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * reaching, by target id: those that keep a lookup empty, those left a draft.
    */
   private readonly leftByStop = new Map<string, { lookups: Set<string>; statuses: Set<string> }>();
+  /**
+   * Per object, the records that stand without a lookup the run tried to
+   * fill, by target id: one record may owe several, or be refused for several
+   * reasons, and is one record left without its link.
+   */
+  private readonly lookupsLeftEmpty = new Map<string, Set<string>>();
   /**
    * The records the run set out to write and did not — the target refused
    * them, or the run held them back — by the first fifteen characters of
@@ -1643,6 +1659,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.stoppedObjects = stoppedObjects;
         this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
+        // The waves before the stop had their second pass: what it filled and
+        // what the target refused it stays said.
+        if (Object.keys(lookups).length > 0) result.lookups = lookups;
         // What it created before the stop is in: the lease given back, the
         // record types the target gave them read back.
         await this.afterTheWrites(objectOutcomes);
@@ -1825,14 +1844,39 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
         const part = records.slice(i, i + this.batchSize);
         const results = await updateEach(update, objectApiName, part);
-        part.forEach((_, index) => {
+        part.forEach((patch, index) => {
           const outcome = results[index];
-          if (outcome?.success) filled++;
-          else refusals.add(detailsOf(outcome));
+          if (outcome?.success) {
+            filled++;
+            return;
+          }
+          const lookups = Object.keys(patch).filter((field) => field !== 'Id');
+          refusals.add(detailsOf(outcome).map((detail) => ({ ...detail, fields: lookups })));
+          this.noteLookupLeftEmpty(objectApiName, String(patch['Id']));
         });
       }
-      outcomes[objectApiName] = { filled, refusals: refusals.list() };
+      outcomes[objectApiName] = this.lookupOutcome(objectApiName, filled, refusals);
     }
+  }
+
+  /** Note a record, by target id, that stands without a lookup the run tried to fill. */
+  private noteLookupLeftEmpty(objectApiName: string, recordId: string): void {
+    let left = this.lookupsLeftEmpty.get(objectApiName);
+    if (!left) {
+      left = new Set();
+      this.lookupsLeftEmpty.set(objectApiName, left);
+    }
+    left.add(recordId);
+  }
+
+  /** What the second pass came to on one object so far. */
+  private lookupOutcome(
+    objectApiName: string,
+    filled: number,
+    refusals: RefusalTally,
+  ): LookupOutcome {
+    const leftEmpty = this.lookupsLeftEmpty.get(objectApiName)?.size ?? 0;
+    return { filled, refusals: refusals.list(), ...(leftEmpty > 0 ? { leftEmpty } : {}) };
   }
 
   /**
@@ -1863,12 +1907,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         left.set(lookup.objectApiName, tally);
       }
       tally.add([{ ...said, fields: [lookup.fieldApiName] }]);
+      this.noteLookupLeftEmpty(lookup.objectApiName, lookup.recordId);
     }
     for (const [objectApiName, tally] of left) {
-      outcomes[objectApiName] = {
-        filled: outcomes[objectApiName]?.filled ?? 0,
-        refusals: tally.list(),
-      };
+      const filled = outcomes[objectApiName]?.filled ?? 0;
+      outcomes[objectApiName] = this.lookupOutcome(objectApiName, filled, tally);
     }
   }
 

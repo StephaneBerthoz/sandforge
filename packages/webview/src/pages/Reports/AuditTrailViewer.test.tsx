@@ -269,6 +269,31 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('says the records of a run that kept a lookup it could not fill', () => {
+    const run: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-autopilot-lookups',
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Account',
+          created: 8,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          lookupsNotFilled: 3,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[run]} />);
+
+    expect(screen.getByTestId('audit-aud-autopilot-lookups').querySelector('li')?.textContent).toBe(
+      'Account 8 created · 3 kept a lookup empty, filling it failed',
+    );
+  });
+
   it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
     // Nothing created, nothing failed: what the cancel kept from the target
     // is all there is to say of the object, and the entry says why it stopped.

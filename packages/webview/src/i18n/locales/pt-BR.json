@@ -2855,6 +2855,8 @@
       "mayHaveBeenWritten_other": "{{count}} talvez no destino, sua chamada sem resposta",
       "lookupsLeftEmpty_one": "{{count}} com um vínculo vazio, execução parada",
       "lookupsLeftEmpty_other": "{{count}} com um vínculo vazio, execução parada",
+      "lookupsNotFilled_one": "{{count}} com um vínculo vazio, não foi possível preenchê-lo",
+      "lookupsNotFilled_other": "{{count}} com um vínculo vazio, não foi possível preenchê-lo",
       "statusesNotGivenBack_one": "{{count}} ficou como rascunho, execução parada",
       "statusesNotGivenBack_other": "{{count}} ficaram como rascunhos, execução parada"
     },
@@ -4626,6 +4628,8 @@
       "refusals": "Por que registros foram recusados",
       "statusesApplied": "Status aplicados após seus registros filhos",
       "statusRefusals": "Por que um status não foi aplicado",
+      "lookupsFilled": "Vínculos preenchidos depois da sua onda",
+      "lookupRefusals": "Por que um vínculo ficou vazio",
       "piiFieldCount_one": "{{count}} campo PII",
       "piiFieldCount_other": "{{count}} campos PII",
       "stoppedLeftTitle": "Gravados, e deixados inacabados pela parada:",
@@ -4635,6 +4639,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros continuam como rascunhos, sem o status que tinham na origem.",
       "stoppedEmailsHeld_one": "{{count}} e-mail de um caso nunca foi enviado: aguardava a gravação da sua tarefa, e a execução parou antes.",
       "stoppedEmailsHeld_other": "{{count}} e-mails de casos nunca foram enviados: aguardavam a gravação da sua tarefa, e a execução parou antes.",
+      "runPartial": "Parcialmente concluída: registros foram recusados ou mantêm um vínculo vazio. Os detalhes de cada objeto dizem quais e por quê.",
+      "runFailure": "Falhou: a execução não gravou nenhum registro. Os detalhes de cada objeto dizem por quê.",
+      "lookupsNotFilledTitle": "Gravados, e sem um vínculo:",
+      "lookupNotFilled_one": "{{object}}: {{count}} registro mantém {{fields}} vazio ({{code}}).",
+      "lookupNotFilled_other": "{{object}}: {{count}} registros mantêm {{fields}} vazio ({{code}}).",
       "skipNamed": "Ignorar {{object}}"
     },
     "report": {
@@ -6065,11 +6074,19 @@
     },
     "parentRefused": {
       "explanation": "Um registro para o qual este aponta foi recusado na mesma execução, então este foi retido em vez de ser gravado sem ele.",
-      "action": "Corrija o que recusou esse registro — o motivo aparece junto com o objeto dele — e execute de novo."
+      "action": "Corrija o que recusou esse registro — o motivo aparece junto com o objeto dele — e execute de novo.",
+      "keptEmpty": {
+        "explanation": "O registro para o qual este vínculo aponta foi recusado na mesma execução. Este, gravado antes, mantém o vínculo vazio.",
+        "action": "Corrija o que recusou esse registro — o motivo aparece junto com o objeto dele — e preencha o vínculo na org de destino."
+      }
     },
     "parentNotWritten": {
       "explanation": "Um registro para o qual este aponta pertence a um objeto que esta execução devia gravar e não gravou, então este foi retido em vez de ser gravado sem ele.",
       "action": "Grave esse objeto primeiro — o nó dele diz por que não foi gravado — e execute de novo.",
+      "keptEmpty": {
+        "explanation": "O registro para o qual este vínculo aponta pertence a um objeto que esta execução não gravou. Este, gravado antes, mantém o vínculo vazio.",
+        "action": "Grave esse objeto — o nó dele diz por que não foi gravado — e preencha o vínculo na org de destino."
+      },
       "skipped": {
         "explanation": "Um registro para o qual este aponta pertence a um objeto ignorado nesta execução, então este foi retido em vez de ser gravado sem ele.",
         "action": "Execute de novo sem ignorar esse objeto. Para deixá-lo de fora, ignore também os objetos que apontam para ele."

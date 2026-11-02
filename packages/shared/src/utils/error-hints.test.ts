@@ -526,6 +526,31 @@ describe('translateError in every other module', () => {
     }
   });
 
+  it('says a record written before the parent it names keeps the lookup empty, not that it was held back', () => {
+    // The second pass's words, on a record that is in the target: read as one
+    // held back, the hint denied the line above it.
+    const refusedParent = translateError(
+      'PARENT_REFUSED: the Account record its ParentId names was refused in this run, and this ' +
+        'record, written before it, keeps its ParentId empty.',
+    );
+    const skippedParent = translateError(
+      'PARENT_NOT_WRITTEN: the Account record its ParentId names was not written: Account was ' +
+        'skipped in this run, and this record, written before it, keeps its ParentId empty.',
+    );
+    expect(refusedParent).toMatchObject({
+      code: 'PARENT_REFUSED',
+      explanationKey: 'errors.parentRefused.keptEmpty.explanation',
+      actionKey: 'errors.parentRefused.keptEmpty.action',
+      severity: 'warning',
+    });
+    expect(skippedParent).toMatchObject({
+      code: 'PARENT_NOT_WRITTEN',
+      explanationKey: 'errors.parentNotWritten.keptEmpty.explanation',
+      actionKey: 'errors.parentNotWritten.keptEmpty.action',
+    });
+    expect([refusedParent?.docUrl, skippedParent?.docUrl]).toEqual([undefined, undefined]);
+  });
+
   it('says why the parent of a record held back was not written, as Autopilot said it', () => {
     // The message names the parent's object and why in English; the hint
     // says which of the two in the panel's language, and what to do.

@@ -33,7 +33,8 @@ export type ObjectNodeData = {
 /**
  * Map of node statuses to their corresponding Tailwind color classes. A phase
  * of the run has an identity hue, an outcome its severity, and a node that is
- * waiting or skipped the neutral foregrounds.
+ * waiting or skipped the neutral foregrounds: a skipped node is then told from
+ * one waiting by its dashed border and its word, not by a shade of grey.
  */
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-text-secondary',
@@ -88,6 +89,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
   // 1 and 0.9. The pulse says nothing the status colour does not.
   const reduceMotion = useReducedMotion();
   const isActive = ACTIVE_STATUSES.has(data.status) && !reduceMotion;
+  const skipped = data.status === 'skipped';
 
   const barColor = useMemo(
     () => STATUS_COLORS[data.status] ?? STATUS_COLORS['pending'],
@@ -108,6 +110,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
         'rounded-lg border-2 bg-(--sf-bg-primary) shadow-md',
         'min-w-[180px] px-3 py-2',
         borderColor,
+        skipped && 'border-dashed',
         data.isSelected && 'ring-2 ring-(--sf-accent)',
       )}
     >
@@ -147,7 +150,11 @@ export const ObjectNode: React.FC<NodeProps<ObjectFlowNode>> = ({ data }) => {
         <span data-testid="record-count">
           {data.successCount} / {data.recordCount}
         </span>
-        <span data-testid="elapsed-time">{formatDuration(data.elapsedMs)}</span>
+        {skipped ? (
+          <span data-testid="node-skipped">{t('autopilot.graph.skipped')}</span>
+        ) : (
+          <span data-testid="elapsed-time">{formatDuration(data.elapsedMs)}</span>
+        )}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="bg-text-muted!" />

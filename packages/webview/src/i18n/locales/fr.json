@@ -2855,6 +2855,8 @@
       "mayHaveBeenWritten_other": "{{count}} peut-être dans la cible, leur appel sans réponse",
       "lookupsLeftEmpty_one": "{{count}} avec un lien resté vide, l'exécution arrêtée",
       "lookupsLeftEmpty_other": "{{count}} avec un lien resté vide, l'exécution arrêtée",
+      "lookupsNotFilled_one": "{{count}} avec un lien resté vide, son remplissage a échoué",
+      "lookupsNotFilled_other": "{{count}} avec un lien resté vide, son remplissage a échoué",
       "statusesNotGivenBack_one": "{{count}} resté en brouillon, l'exécution arrêtée",
       "statusesNotGivenBack_other": "{{count}} restés en brouillon, l'exécution arrêtée"
     },
@@ -4626,6 +4628,8 @@
       "refusals": "Pourquoi des enregistrements ont été refusés",
       "statusesApplied": "Statuts appliqués après leurs enregistrements enfants",
       "statusRefusals": "Pourquoi un statut n'a pas été appliqué",
+      "lookupsFilled": "Liens remplis après leur vague",
+      "lookupRefusals": "Pourquoi un lien est resté vide",
       "piiFieldCount_one": "{{count}} champ PII",
       "piiFieldCount_other": "{{count}} champs PII",
       "stoppedLeftTitle": "Écrits, et laissés inachevés par l'arrêt :",
@@ -4635,6 +4639,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source.",
       "stoppedEmailsHeld_one": "{{count}} e-mail d'une requête n'a jamais été envoyé : il attendait que sa tâche soit écrite, et l'exécution s'est arrêtée avant.",
       "stoppedEmailsHeld_other": "{{count}} e-mails de requêtes n'ont jamais été envoyés : ils attendaient que leur tâche soit écrite, et l'exécution s'est arrêtée avant.",
+      "runPartial": "Partiellement terminé : des enregistrements ont été refusés ou gardent un lien vide. Le détail de chaque objet dit lesquels et pourquoi.",
+      "runFailure": "Échec : l'exécution n'a écrit aucun enregistrement. Le détail de chaque objet dit pourquoi.",
+      "lookupsNotFilledTitle": "Écrits, et restés sans un lien :",
+      "lookupNotFilled_one": "{{object}} : {{count}} enregistrement garde {{fields}} vide ({{code}}).",
+      "lookupNotFilled_other": "{{object}} : {{count}} enregistrements gardent {{fields}} vide ({{code}}).",
       "skipNamed": "Ignorer {{object}}"
     },
     "report": {
@@ -6065,11 +6074,19 @@
     },
     "parentRefused": {
       "explanation": "Un enregistrement vers lequel celui-ci pointe a été refusé dans la même exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
-      "action": "Corrigez ce qui a refusé cet enregistrement — sa raison figure avec son objet — puis relancez."
+      "action": "Corrigez ce qui a refusé cet enregistrement — sa raison figure avec son objet — puis relancez.",
+      "keptEmpty": {
+        "explanation": "L'enregistrement que ce lien désigne a été refusé dans la même exécution. Celui-ci, écrit avant lui, garde le lien vide.",
+        "action": "Corrigez ce qui a refusé cet enregistrement — sa raison figure avec son objet — puis renseignez le lien dans l'org cible."
+      }
     },
     "parentNotWritten": {
       "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet que cette exécution devait écrire et n'a pas écrit : celui-ci a été retenu plutôt qu'écrit sans lui.",
       "action": "Écrivez d'abord cet objet — son nœud dit pourquoi il ne l'a pas été — puis relancez.",
+      "keptEmpty": {
+        "explanation": "L'enregistrement que ce lien désigne appartient à un objet que cette exécution n'a pas écrit. Celui-ci, écrit avant lui, garde le lien vide.",
+        "action": "Écrivez cet objet — son nœud dit pourquoi il ne l'a pas été — puis renseignez le lien dans l'org cible."
+      },
       "skipped": {
         "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet ignoré dans cette exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
         "action": "Relancez sans ignorer cet objet. Pour le laisser de côté, ignorez aussi les objets qui pointent vers lui."

@@ -376,6 +376,73 @@ describe('ControlPanel', () => {
     });
   });
 
+  describe('how the run ended', () => {
+    it('says a run that ended partial, which no node said on the stats tab', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runStatus="partial" />);
+
+      expect(screen.getByTestId('control-run-status').textContent).toBe(
+        en.autopilot.control.runPartial,
+      );
+      expect(screen.getByTestId('control-run-status').getAttribute('role')).toBe('status');
+    });
+
+    it('says a run that wrote nothing', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(<ControlPanel runStatus="failure" />);
+
+      expect(screen.getByTestId('control-run-status').textContent).toBe(
+        en.autopilot.control.runFailure,
+      );
+    });
+
+    it('adds nothing to a run that did all it set out to, or to a stopped one, which says its own end', () => {
+      mockStoreState.executionStatus = 'completed';
+      const { unmount } = render(<ControlPanel runStatus="success" />);
+      expect(screen.queryByTestId('control-run-status')).toBeNull();
+      unmount();
+
+      render(<ControlPanel runStatus="partial" notWritten={['Contact']} />);
+      expect(screen.queryByTestId('control-run-status')).toBeNull();
+    });
+
+    it('says, object by object, how many records stayed without which lookup and why', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(
+        <ControlPanel
+          runStatus="partial"
+          lookupsNotFilled={[
+            {
+              objectApiName: 'Account',
+              records: 3,
+              refusals: [
+                {
+                  statusCode: 'PARENT_REFUSED',
+                  fields: ['ParentId'],
+                  count: 2,
+                  message: 'the Account record its ParentId names was refused in this run',
+                },
+                {
+                  statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+                  fields: ['ParentId', 'Partner__c'],
+                  count: 1,
+                  message: 'insufficient access rights on cross-reference id',
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+
+      const items = [...screen.getByTestId('control-lookups-not-filled').querySelectorAll('li')];
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Account: 2 records keep ParentId empty (PARENT_REFUSED).',
+        'Account: 1 record keeps ParentId, Partner__c empty ' +
+          '(INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY).',
+      ]);
+    });
+  });
+
   describe('its tabs, for the keyboard and a screen reader', () => {
     it('are tabs with the open one selected, one stop in the Tab order, its panel named after it', () => {
       // Plain buttons, the open one told by its underline alone.

@@ -119,7 +119,7 @@ interface ModuleBootOptions {
   /** Leave the module's how-to open, as on a first visit; hidden otherwise. */
   readonly howTo?: boolean;
   /** The host theme the panel is painted in. */
-  readonly theme: ScannedTheme;
+  readonly theme: StateTheme;
 }
 
 /**
@@ -1886,11 +1886,7 @@ async function autopilotNodesUnderItsOverlays(page: Page): Promise<Record<string
 }
 
 /** The Autopilot run of the two objects of its mock graph, under way: its execute left unanswered. */
-async function startAutopilotRun(
-  bridge: MockBridge,
-  page: Page,
-  theme: ScannedTheme,
-): Promise<void> {
+async function startAutopilotRun(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
   await page.getByTestId('source-org-org-src-1').click();
   await page.getByTestId('target-org-org-tgt-1').click();
@@ -12161,6 +12157,17 @@ for (const theme of STATE_THEMES) {
                 message: 'Cannot activate a record without its products',
               },
             ],
+            lookupsFilled: 40,
+            lookupRefusals: [
+              {
+                statusCode: 'PARENT_REFUSED',
+                fields: ['ReportsToId'],
+                count: 3,
+                message:
+                  'the Contact record its ReportsToId names was refused in this run, and this ' +
+                  'record, written before it, keeps its ReportsToId empty.',
+              },
+            ],
           },
         },
       ]);
@@ -12171,11 +12178,83 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('control-tab-node').click();
       await page.getByTestId('node-status-refusals').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('node-lookup-refusals').waitFor({ state: 'visible', timeout: 10_000 });
       await page
         .getByTestId('node-left-to-the-platform')
         .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
+    });
+
+    test('Autopilot result of a run left partial, a node skipped on the graph and in its legend', async ({
+      page,
+    }) => {
+      // Skipped drew as Pending in a shade of grey, the legend did not name
+      // it, and nothing said a run that left records without their lookup.
+      await startAutopilotRun(bridge, page, theme);
+      await bridge.stream([
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Account',
+            objectName: 'Account',
+            status: 'completed',
+            wave: 0,
+            recordCount: 500,
+            failureCount: 0,
+          },
+        },
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Contact',
+            objectName: 'Contact',
+            status: 'skipped',
+            wave: 1,
+            recordCount: 0,
+            failureCount: 0,
+            notSent: 1200,
+          },
+        },
+      ]);
+      await sendExtensionMessage(page, {
+        type: 'autopilot:completed',
+        id: 'autopilot-run-end',
+        timestamp: Date.now(),
+        payload: {
+          status: 'partial',
+          totalRecords: 1700,
+          totalSuccessCount: 500,
+          totalFailureCount: 0,
+          totalElapsedMs: 4000,
+          totalApiCalls: 0,
+          lookupsNotFilled: [
+            {
+              objectApiName: 'Account',
+              records: 3,
+              refusals: [
+                {
+                  statusCode: 'PARENT_REFUSED',
+                  fields: ['ParentId'],
+                  count: 3,
+                  message: 'the Account record its ParentId names was refused in this run',
+                },
+              ],
+            },
+          ],
+        },
+      });
+      await page.getByTestId('control-run-status').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('control-lookups-not-filled').waitFor({ state: 'visible' });
+      await page.getByTestId('node-skipped').waitFor({ state: 'visible' });
+      await expect(page.getByTestId('graph-legend')).toContainText('Skipped');
+      // What the graph is fitted clear of, as the legend comes to draw.
+      expect((await page.getByTestId('graph-legend').boundingBox())?.height).toBe(198);
+
+      await expectReadable(page, theme);
+      expect(await autopilotNodesUnderItsOverlays(page)).toEqual(
+        Object.fromEntries(AUTOPILOT_GRAPH_OVERLAYS.map((overlay) => [overlay, []])),
+      );
     });
 
     test('Seed execute step of a run that skipped configure, with its rules and a relation', async ({

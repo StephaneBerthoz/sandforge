@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 interface LegendItem {
   /** Translation key for the label */
   labelKey: string;
-  /** Tailwind background color class */
+  /** Tailwind classes that paint the swatch */
   colorClass: string;
   /** Optional dash style for edge entries */
   dashed?: boolean;
@@ -19,6 +19,11 @@ const NODE_STATUSES: LegendItem[] = [
   { labelKey: 'autopilot.graph.loading', colorClass: 'bg-hue-green' },
   { labelKey: 'autopilot.graph.completed', colorClass: 'bg-status-success' },
   { labelKey: 'autopilot.graph.failed', colorClass: 'bg-status-error' },
+  // Hollow and dashed, as ObjectNode draws a skipped node: not told by its colour alone.
+  {
+    labelKey: 'autopilot.graph.skipped',
+    colorClass: 'border-2 border-dashed border-text-muted',
+  },
 ];
 
 /** Edge type legend entries: the tokens RelationEdge strokes with. */
@@ -31,10 +36,10 @@ const EDGE_TYPES: LegendItem[] = [
 
 /**
  * The legend's height in pixels, which its content sets: two headings and
- * five rows of 16px text, their gaps, its padding and its border. The graph
+ * six rows of 16px text, their gaps, its padding and its border. The graph
  * is fitted clear of it (`AutopilotGraph`): a row more needs this raised.
  */
-export const LEGEND_HEIGHT = 178;
+export const LEGEND_HEIGHT = 198;
 
 /**
  * GraphLegend — Displays a small overlay legend for the AutopilotGraph

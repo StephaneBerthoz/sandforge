@@ -2855,6 +2855,8 @@
       "mayHaveBeenWritten_other": "{{count}} vielleicht im Ziel, ihr Aufruf ohne Antwort",
       "lookupsLeftEmpty_one": "{{count}} mit leer gebliebener Verknüpfung, Lauf gestoppt",
       "lookupsLeftEmpty_other": "{{count}} mit leer gebliebener Verknüpfung, Lauf gestoppt",
+      "lookupsNotFilled_one": "{{count}} mit leer gebliebener Verknüpfung, Füllen fehlgeschlagen",
+      "lookupsNotFilled_other": "{{count}} mit leer gebliebener Verknüpfung, Füllen fehlgeschlagen",
       "statusesNotGivenBack_one": "{{count}} als Entwurf geblieben, Lauf gestoppt",
       "statusesNotGivenBack_other": "{{count}} als Entwürfe geblieben, Lauf gestoppt"
     },
@@ -4626,6 +4628,8 @@
       "refusals": "Warum Datensätze abgelehnt wurden",
       "statusesApplied": "Nach den untergeordneten Datensätzen gesetzte Status",
       "statusRefusals": "Warum ein Status nicht gesetzt wurde",
+      "lookupsFilled": "Nach ihrer Welle gefüllte Verknüpfungen",
+      "lookupRefusals": "Warum eine Verknüpfung leer blieb",
       "piiFieldCount_one": "{{count}} PII-Feld",
       "piiFieldCount_other": "{{count}} PII-Felder",
       "stoppedLeftTitle": "Geschrieben und durch den Stopp unvollendet gelassen:",
@@ -4635,6 +4639,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} Datensätze bleiben Entwürfe, ohne den Status, den sie in der Quelle hatten.",
       "stoppedEmailsHeld_one": "{{count}} E-Mail zu einem Kundenvorgang wurde nie gesendet: Sie wartete darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
       "stoppedEmailsHeld_other": "{{count}} E-Mails zu Kundenvorgängen wurden nie gesendet: Sie warteten darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
+      "runPartial": "Teilweise abgeschlossen: Datensätze wurden abgelehnt oder behalten eine leere Verknüpfung. Die Details jedes Objekts nennen welche und warum.",
+      "runFailure": "Fehlgeschlagen: Der Lauf hat keinen Datensatz geschrieben. Die Details jedes Objekts nennen den Grund.",
+      "lookupsNotFilledTitle": "Geschrieben und ohne Verknüpfung geblieben:",
+      "lookupNotFilled_one": "{{object}}: {{count}} Datensatz behält {{fields}} leer ({{code}}).",
+      "lookupNotFilled_other": "{{object}}: {{count}} Datensätze behalten {{fields}} leer ({{code}}).",
       "skipNamed": "{{object}} überspringen"
     },
     "report": {
@@ -6065,11 +6074,19 @@
     },
     "parentRefused": {
       "explanation": "Ein Datensatz, auf den dieser verweist, wurde im selben Lauf abgelehnt, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
-      "action": "Beheben Sie, was diesen Datensatz abgelehnt hat — der Grund steht bei seinem Objekt —, und starten Sie dann erneut."
+      "action": "Beheben Sie, was diesen Datensatz abgelehnt hat — der Grund steht bei seinem Objekt —, und starten Sie dann erneut.",
+      "keptEmpty": {
+        "explanation": "Der Datensatz, auf den diese Verknüpfung zeigt, wurde im selben Lauf abgelehnt. Dieser hier wurde vorher geschrieben und behält die Verknüpfung leer.",
+        "action": "Beheben Sie, was diesen Datensatz abgelehnt hat — der Grund steht bei seinem Objekt —, und setzen Sie dann die Verknüpfung in der Ziel-Org."
+      }
     },
     "parentNotWritten": {
       "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, das dieser Lauf schreiben sollte und nicht geschrieben hat, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
       "action": "Schreiben Sie zuerst dieses Objekt — sein Knoten nennt den Grund, warum es nicht geschrieben wurde —, und starten Sie dann erneut.",
+      "keptEmpty": {
+        "explanation": "Der Datensatz, auf den diese Verknüpfung zeigt, gehört zu einem Objekt, das dieser Lauf nicht geschrieben hat. Dieser hier wurde vorher geschrieben und behält die Verknüpfung leer.",
+        "action": "Schreiben Sie dieses Objekt — sein Knoten nennt den Grund, warum es nicht geschrieben wurde —, und setzen Sie dann die Verknüpfung in der Ziel-Org."
+      },
       "skipped": {
         "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, das in diesem Lauf übersprungen wurde, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
         "action": "Starten Sie erneut, ohne dieses Objekt zu überspringen. Um es auszulassen, überspringen Sie auch die Objekte, die auf es verweisen."
