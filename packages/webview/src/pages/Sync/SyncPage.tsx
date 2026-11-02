@@ -64,6 +64,7 @@ import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
+import { stillRanOf } from '../shared/RecordTypeGivenLine';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption';
@@ -1234,6 +1235,7 @@ export const SyncPage: React.FC = () => {
                       checkpoint={result.checkpoint}
                       orgId={targetOrgId}
                       beside="run"
+                      muted={result.mutedAutomation !== undefined}
                       testId="sync-result-checkpoint"
                     />
                     {/* The emails and phone numbers it wrote, said once for the
@@ -1286,6 +1288,7 @@ export const SyncPage: React.FC = () => {
                             <SyncWrittenLines
                               result={obj}
                               testId={`sync-result-written-${obj.objectApiName}`}
+                              stillRan={stillRanOf(result.mutedAutomation)}
                             />
                             <RecordErrorGroups
                               objectApiName={obj.objectApiName}

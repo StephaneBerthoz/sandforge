@@ -30,6 +30,7 @@ export type NodeOutcome = Partial<
     | 'currenciesReplaced'
     | 'pricesSettled'
     | 'cutSinceFit'
+    | 'recordTypeGiven'
   >
 >;
 
@@ -380,6 +381,7 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       }
       if (outcome.pricesSettled !== undefined) carried.pricesSettled = outcome.pricesSettled;
       if (outcome.cutSinceFit !== undefined) carried.cutSinceFit = outcome.cutSinceFit;
+      if (outcome.recordTypeGiven !== undefined) carried.recordTypeGiven = outcome.recordTypeGiven;
       return {
         graph: {
           ...state.graph,

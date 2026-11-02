@@ -1103,6 +1103,38 @@ describe('ForgeResults', () => {
       });
     });
 
+    it('opens the preview of a rewind to it with its mute ticked once the run muted', () => {
+      mockResult = {
+        ...makeMockResult(),
+        checkpoint: {
+          state: 'taken',
+          checkpointId: 'ck-20260214-170000-a1b2',
+          name: 'Before Forge run 2026-02-14 17:00 UTC',
+          objects: ['Account'],
+          records: 38,
+          keepDays: 7,
+          added: [],
+          notHeld: [],
+        },
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Data_Load'],
+          held: [],
+          permissions: ['Load_Data'],
+          silenced: [],
+          stillRan: [],
+          released: true,
+        },
+      } as typeof mockResult;
+      mockConfig = { ...RUN_CONFIG, targetOrgId: 'org-tgt' };
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-results-checkpoint-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual(
+        expect.objectContaining({ previewMuted: true }),
+      );
+    });
+
     it('says a run that wrote nothing deleted it', () => {
       mockResult = {
         ...makeMockResult(),

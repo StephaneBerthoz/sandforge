@@ -14,6 +14,7 @@ import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
 import { SyncRunRemoval } from '../syncRemovalParts';
 import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
+import { stillRanOf } from '../../shared/RecordTypeGivenLine';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
 import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
@@ -144,6 +145,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           checkpoint={result.checkpoint}
           orgId={targetOrgId}
           beside="run"
+          muted={result.mutedAutomation !== undefined}
           testId="quick-sync-result-checkpoint"
         />
         {/* The emails and phone numbers it wrote, said once for the run. */}
@@ -167,6 +169,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                 <SyncWrittenLines
                   result={obj}
                   testId={`quick-sync-result-written-${obj.objectApiName}`}
+                  stillRan={stillRanOf(result.mutedAutomation)}
                 />
                 <RecordErrorGroups
                   objectApiName={obj.objectApiName}

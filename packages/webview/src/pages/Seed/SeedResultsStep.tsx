@@ -231,6 +231,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             checkpoint={executionResult.checkpoint}
             orgId={orgId}
             beside="run"
+            muted={executionResult.mutedAutomation !== undefined}
             testId="seed-result-checkpoint"
           />
 

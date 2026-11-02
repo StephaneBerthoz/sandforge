@@ -12,6 +12,7 @@ import type {
   ExecutionPlan,
   MutedAutomation,
   RunCheckpointInfo,
+  RecordTypeGiven,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../stores/useAutopilotStore';
@@ -143,6 +144,7 @@ export const AutopilotPage: React.FC = () => {
         currenciesReplaced?: CurrencyReplaced[];
         pricesSettled?: PriceCurrencySettled[];
         cutSinceFit?: number;
+        recordTypeGiven?: RecordTypeGiven;
         apiCallsUsed?: number;
         error?: string;
       };
@@ -181,6 +183,7 @@ export const AutopilotPage: React.FC = () => {
       currenciesReplaced: msg.payload.currenciesReplaced,
       pricesSettled: msg.payload.pricesSettled,
       cutSinceFit: msg.payload.cutSinceFit,
+      recordTypeGiven: msg.payload.recordTypeGiven,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);

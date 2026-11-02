@@ -9,6 +9,7 @@ import { uiLocale } from '../../../utils/formatters';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { AutopilotNodeFit } from '../AutopilotWizard/AutopilotFitPanel';
+import { RecordTypeGivenLine } from '../../shared/RecordTypeGivenLine';
 
 /**
  * What a refusal means and what to do about it, from the error catalogue: the
@@ -131,6 +132,13 @@ export const NodeDetail: React.FC = () => {
         {...(selectedNode.cutSinceFit !== undefined
           ? { cutSinceFit: selectedNode.cutSinceFit }
           : {})}
+      />
+
+      <RecordTypeGivenLine
+        entry={selectedNode.recordTypeGiven}
+        stage="written"
+        testId="node-record-type"
+        className="text-xs text-text-secondary"
       />
 
       {(selectedNode.linkedCount ?? 0) > 0 && (

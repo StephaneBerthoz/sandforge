@@ -379,6 +379,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 checkpoint={quickSeed.executionResult.checkpoint}
                 orgId={quickSeed.selectedOrgId}
                 beside="run"
+                muted={quickSeed.executionResult.mutedAutomation !== undefined}
                 testId="quick-seed-result-checkpoint"
               />
 

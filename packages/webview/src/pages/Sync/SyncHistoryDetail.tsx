@@ -278,6 +278,7 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
         orgId={configSnapshot.targetOrgId}
         beside="run"
         compact
+        muted={result.mutedAutomation !== undefined}
         testId="history-checkpoint"
       />
 

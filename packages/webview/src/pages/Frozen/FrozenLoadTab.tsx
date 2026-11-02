@@ -1120,6 +1120,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 checkpoint={loadReport.checkpoint}
                 orgId={loadReport.orgId}
                 beside="load"
+                muted={loadReport.mutedAutomation !== undefined}
                 testId="frozen-load-report-checkpoint"
               />
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

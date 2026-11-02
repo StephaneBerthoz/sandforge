@@ -474,6 +474,54 @@ describe('QuickSyncPreviewStep', () => {
     expect(onOpenHistory).toHaveBeenCalledWith('op-1');
   });
 
+  it('names what still ran of its mute where the records hold another record type', () => {
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{
+          ...mockResult,
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Bypass_Automation'],
+            held: [],
+            permissions: ['Bypass_Flows'],
+            silenced: [],
+            stillRan: [
+              { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome', why: 'noBypass' },
+            ],
+            released: true,
+          },
+          objectResults: [
+            {
+              objectApiName: 'Contact',
+              operation: 'insert' as const,
+              processed: 2,
+              success: 2,
+              failed: 0,
+              skipped: 0,
+              conflictCount: 0,
+              errors: [],
+              recordTypeGiven: {
+                objectApiName: 'Contact',
+                rows: 2,
+                why: { masterInSource: 2 },
+                predicted: { developerName: 'Retail', label: 'Retail', basis: 'userDefault' },
+                readBack: {
+                  read: 2,
+                  types: [{ developerName: 'Partner', label: 'Partner', rows: 2 }],
+                },
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-sync-result-written-Contact').textContent).toContain(
+      'Contact Welcome',
+    );
+  });
+
   it('says what the run did with emails and phone numbers, and the rows linked or written without a lookup, with no refusal listed', () => {
     const contacts = {
       objectApiName: 'Contact',

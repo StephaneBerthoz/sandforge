@@ -1641,6 +1641,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           orgId={targetOrgId}
           beside="run"
           leftByRemoval={(result?.undo?.kept ?? 0) + (result?.undo?.refused ?? 0) > 0}
+          muted={result?.mutedAutomation !== undefined}
           testId="forge-results-checkpoint"
         />
       )}

@@ -430,6 +430,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
             checkpoint={result.checkpoint}
             orgId={scenario.orgId}
             beside="run"
+            muted={result.mutedAutomation !== undefined}
             testId="scenario-result-checkpoint"
           />
 
