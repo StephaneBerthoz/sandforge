@@ -66,7 +66,10 @@ export interface PipelineMaskingOutcome {
   result: MaskingResult;
 }
 
-/** The codes a pipeline's masking is refused with before it writes, beside the page's. */
+/**
+ * The codes a pipeline's masking is refused with before it writes, beside the
+ * page's. The last two are a page's run's too: neither run leaves a value in clear.
+ */
 export const PIPELINE_MASKING_REFUSAL = {
   /** The org is not one SandForge knows. */
   orgUnknown: 'ORG_NOT_FOUND',

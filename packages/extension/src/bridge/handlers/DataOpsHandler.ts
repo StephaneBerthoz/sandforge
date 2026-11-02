@@ -498,6 +498,33 @@ function personRulesOfObject(
     : [];
 }
 
+/** What a masking run asks of the org for what it masks: the fields of an object's describe. */
+interface MaskingDescribes {
+  describe(objectApiName: string): Promise<{ fields: MaskableField[] }>;
+}
+
+/**
+ * A connection's describes, each object asked once however often it is read.
+ * A masking run read an object's describe for its coverage, twice to check the
+ * user's access, for its snapshot and again when it reached the object: five
+ * requests for one answer, and a sixth of Account to plan its person accounts.
+ * And what a run checked is then what it masks: a field hidden while it waits
+ * on Production Guard's question is still read by name, which the org refuses
+ * aloud, where a later describe left it out of the run without a word.
+ */
+function describedOnce(conn: Pick<Connection, 'describe'>): {
+  describe: (objectApiName: string) => ReturnType<Connection['describe']>;
+} {
+  const asked = new Map<string, ReturnType<Connection['describe']>>();
+  return {
+    describe: (objectApiName) => {
+      const answer = asked.get(objectApiName) ?? conn.describe(objectApiName);
+      asked.set(objectApiName, answer);
+      return answer;
+    },
+  };
+}
+
 /** Whether a template has anything to mask on an object: a rule of its own, or one for person accounts. */
 function masksObject(template: ListedAnonymizationTemplate, objectName: string): boolean {
   return (
@@ -668,12 +695,26 @@ interface MaskingReplies {
   refused(err: unknown, options: { code?: string; extraPayload?: Record<string, unknown> }): void;
   /** Given the run's result once it ended: the page's `dataops:anonymize:response`. */
   ended(result: MaskingResult): void;
-  /**
-   * The pipeline a pipeline's run is a step of, which Live Operations names.
-   * Such a run is refused before the guard is asked for a field the org does
-   * not show, or for rules that mask nothing (`maskingNotCovered`).
-   */
+  /** The pipeline a pipeline's run is a step of, which Live Operations names. */
   pipeline?: { name: string };
+}
+
+/**
+ * What a masking run could not cover, as a refusal hands it to the page, which
+ * words it in the interface language.
+ */
+interface MaskingGaps {
+  /** The fields its template names that their object's describe does not list. */
+  fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
+  /** The objects with rows of which it could mask no field at all. */
+  objectsNotCovered: string[];
+}
+
+/** Why a masking run is refused before it writes: its code, its English and what it could not cover. */
+interface MaskingNotCovered {
+  code: string;
+  message: string;
+  gaps: MaskingGaps;
 }
 
 /** What a masking run said when it was refused, stopped or failed (`MaskingReplies.refused`). */
@@ -821,24 +862,6 @@ function maskingAuditOutcome(
   return recordsProcessed + recordsFailed > 0
     ? { outcome: 'cancelled' }
     : { outcome: 'stopped', code: RUN_CANCELLED };
-}
-
-/**
- * What a run says of the fields its template names that their object's
- * describe does not list. A describe lists only the fields the connected user
- * can read: field-level security that hides `Contact.Birthdate` from that user
- * leaves it out as an org without it would. The run said the org had no such
- * field, as if no data were at risk, and recorded itself as a success.
- */
-function unseenFieldsSentence(
-  fields: ReadonlyArray<{ objectApiName: string; fieldApiName: string }>,
-): string {
-  return (
-    `The values of ${fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
-    'were NOT masked: the org has no such field, or field-level security hides it from the ' +
-    'user SandForge connects as. Give that user read and edit access to it, or connect as an ' +
-    'administrator.'
-  );
 }
 
 /** Per object, the rows a run left holding their original values: `Contact 500, Lead 450`. */
@@ -1440,7 +1463,7 @@ export class DataOpsHandler implements DomainHandler {
    * @param personRules - The rules the template derives for its person accounts.
    */
   private async maskedFields(
-    conn: { describe: (objectApiName: string) => Promise<{ fields: MaskableField[] }> },
+    conn: MaskingDescribes,
     objectApiName: string,
     rules: readonly DataOpsAnonymizationRule[],
     personRules: readonly DataOpsAnonymizationRule[] = [],
@@ -3407,7 +3430,7 @@ export class DataOpsHandler implements DomainHandler {
    *   run must not write, and whether trying again may help.
    */
   private async snapshotBeforeMasking(
-    conn: Connection,
+    conn: MaskingDescribes,
     operationId: string,
     orgId: string,
     work: readonly MaskingWork[],
@@ -3471,63 +3494,77 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * Why a pipeline's masking run would leave values it was asked to mask, or
-   * undefined when it masks every field its template names on the rows it
-   * reads: no rule of the template names an object of the run; a field it
-   * names is not one the object's describe lists — the org has none, or
-   * field-level security hides it from the user SandForge connects as, which
-   * a describe does not tell apart; or an object with rows has rules that
-   * mask none of its fields. An object with no row holds nothing to mask, and
-   * is not described.
+   * Why a masking run would leave values it was asked to mask, or undefined
+   * when it masks every field its template names on the rows it reads: no rule
+   * of the template names an object of the run; a field it names is not one
+   * the object's describe lists — the org has none, or field-level security
+   * hides it from the user SandForge connects as, which a describe does not
+   * tell apart; or an object with rows has rules that mask none of its fields.
+   * An object with no row holds nothing to mask, and is not described.
+   *
+   * The page's run went on and masked the rest, ending partial: a person who
+   * saw the masked fields took the org for anonymized, with every birthdate
+   * still in it, and a command line ended 0 on it. Whether a page is watching
+   * changes nothing: a run masks all it was asked to, or nothing.
    *
    * @param planned - The objects the run addresses.
    * @param work - The run's objects with a rule, counted.
    */
   private async maskingNotCovered(
-    conn: Connection,
+    conn: MaskingDescribes,
     template: ListedAnonymizationTemplate,
     planned: readonly string[],
     work: readonly MaskingWork[],
-  ): Promise<{ code: string; message: string } | undefined> {
+  ): Promise<MaskingNotCovered | undefined> {
     if (work.length === 0) {
       return {
         code: PIPELINE_MASKING_REFUSAL.masksNothing,
         message:
-          `The template "${template.name}" has no rule for ${planned.join(', ')}: the step ` +
+          `The template "${template.name}" has no rule for ${planned.join(', ')}: the run ` +
           'would mask nothing. Choose an object its rules name, or another template. Nothing ' +
           'was masked.',
+        gaps: { fieldsNotFound: [], objectsNotCovered: [...planned] },
       };
     }
-    const unseen: string[] = [];
-    const maskedNothing: string[] = [];
+    const fieldsNotFound: MaskingGaps['fieldsNotFound'] = [];
+    const objectsNotCovered: string[] = [];
     for (const w of work) {
       if (w.tally.total === 0) continue;
+      const { objectApiName } = w.tally;
       const { rules, missing } = await this.maskedFields(
         conn,
-        w.tally.objectApiName,
+        objectApiName,
         this.maskingRules(w.objectName, w.objectRules),
         this.maskingRules(w.objectName, w.personRules),
       );
-      unseen.push(...missing.map((field) => `${w.tally.objectApiName}.${field}`));
-      if (rules.length === 0 && missing.length === 0) maskedNothing.push(w.tally.objectApiName);
+      fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
+      if (rules.length === 0) objectsNotCovered.push(objectApiName);
     }
-    if (unseen.length > 0) {
+    const gaps = { fieldsNotFound, objectsNotCovered };
+    if (fieldsNotFound.length > 0) {
+      const named = fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ');
       return {
         code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
         message:
-          `The template "${template.name}" masks ${unseen.join(', ')}, which the org does not ` +
-          'show the user SandForge connects as: it has no such field, or field-level security ' +
-          'hides it. A pipeline masks every field its template names, or nothing: give that ' +
-          'user read and edit access, or take the rule out of the template. Nothing was masked.',
+          `The template "${template.name}" masks ${named}, which the org does not show the ` +
+          'user SandForge connects as: it has no such field, or field-level security hides it. ' +
+          (objectsNotCovered.length > 0
+            ? `No field of ${objectsNotCovered.join(', ')} can be masked. `
+            : '') +
+          'A run masks every field its template names, or nothing: give that user read and ' +
+          'edit access to the field, or take the field out of the template. Nothing was masked.',
+        gaps,
       };
     }
-    if (maskedNothing.length > 0) {
+    if (objectsNotCovered.length > 0) {
       return {
         code: PIPELINE_MASKING_REFUSAL.masksNothing,
         message:
-          `The template "${template.name}" masks no field of ${maskedNothing.join(', ')} in ` +
-          'this org: the step would write nothing over its records. Choose an object its rules ' +
-          'name, or another template. Nothing was masked.',
+          `The template "${template.name}" masks no field of ${objectsNotCovered.join(', ')} ` +
+          'in this org: the run would write nothing over its records. Give the user SandForge ' +
+          'connects as read and edit access to the fields it names, or choose another template. ' +
+          'Nothing was masked.',
+        gaps,
       };
     }
     return undefined;
@@ -3653,9 +3690,8 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
         // The page shows a run's end through this notification and nothing
-        // else: a run that left records unmasked, for whatever reason, says so,
-        // as does one whose template named a field the org does not have.
-        if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+        // else: a run that left records unmasked, for whatever reason, says so.
+        if (result.recordsNotMasked > 0) {
           sendNotification(
             this.deps,
             result.status === 'failure' ? 'error' : 'warning',
@@ -3669,8 +3705,9 @@ export class DataOpsHandler implements DomainHandler {
 
   /**
    * Mask an org as the template says, the DataOps page's run and a
-   * pipeline's alike: every object counted, the user's access to each field
-   * it writes checked, Production Guard consulted, the snapshot taken when
+   * pipeline's alike: every object counted, every field its template names
+   * found (`maskingNotCovered`), the user's access to each field it writes
+   * checked, Production Guard consulted, the snapshot taken when
    * asked, then the rows masked page by page, two hundred an update, with
    * where the run got kept for a resume when it stops short. Each refusal and
    * the run's end are recorded in the audit trail here, and said through
@@ -3936,7 +3973,9 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      if (withPersons && (await orgHasPersonAccounts(conn, this.deps.log))) {
+      // One answer per object for the whole run, whatever asks: see `describedOnce`.
+      const described = describedOnce(conn);
+      if (withPersons && (await orgHasPersonAccounts(described, this.deps.log))) {
         plannedObjects = withPersons;
         fingerprint = fingerprints[1];
       }
@@ -4024,26 +4063,25 @@ export class DataOpsHandler implements DomainHandler {
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
-      // A pipeline's run masks every field its template names on the rows it
-      // reads, or nothing: what the page's run ends partial on once it has
-      // masked the rest, nobody would see in a run nobody watches. Before the
-      // guard is asked and before anything is written.
-      if (replies.pipeline) {
-        const uncovered = await this.maskingNotCovered(conn, template, plannedObjects, work);
-        if (uncovered) {
-          recordWriteRun(this.deps, {
-            ...run,
-            outcome: 'stopped',
-            source: undefined,
-            code: uncovered.code,
-          });
-          replies.refused(new Error(uncovered.message), { code: uncovered.code });
-          sendOperationFailed(this.deps, operationId, uncovered.message, false, {
-            context: failure,
-            authored: true,
-          });
-          return;
-        }
+      // A run masks every field its template names on the rows it reads, or
+      // nothing. Before the guard is asked and before anything is written.
+      const uncovered = await this.maskingNotCovered(described, template, plannedObjects, work);
+      if (uncovered) {
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: uncovered.code,
+        });
+        replies.refused(new Error(uncovered.message), {
+          code: uncovered.code,
+          extraPayload: { ...uncovered.gaps },
+        });
+        sendOperationFailed(this.deps, operationId, uncovered.message, false, {
+          context: failure,
+          authored: true,
+        });
+        return;
       }
 
       // Whether the user may write every object and field the run masks,
@@ -4051,7 +4089,7 @@ export class DataOpsHandler implements DomainHandler {
       // run reached each one, a refusal stopped it after the objects before
       // it were masked, and named only the first object it could not write.
       const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
-        const desc = await conn.describe(objectApiName);
+        const desc = await described.describe(objectApiName);
         return describeToObjectDescribe(desc);
       });
       const denials = await crudFlsGuard.deniedOf(
@@ -4140,7 +4178,7 @@ export class DataOpsHandler implements DomainHandler {
       // A snapshot of what the run is about to write over, when asked: after
       // the guard, which may stop the run, and before the first write.
       if (payload.snapshot === true) {
-        const kept = await this.snapshotBeforeMasking(conn, operationId, payload.orgId, work, {
+        const kept = await this.snapshotBeforeMasking(described, operationId, payload.orgId, work, {
           origin: replies.origin,
           stop: stop.signal,
         });
@@ -4209,8 +4247,6 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
-      /** The fields the template's rules name that their object does not have. */
-      const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
 
@@ -4244,27 +4280,12 @@ export class DataOpsHandler implements DomainHandler {
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
 
-        const templateRules = this.maskingRules(objectName, objectRules);
-        const {
-          select: fields,
-          missing,
-          rulesOf,
-        } = await this.maskedFields(
-          conn,
+        const { select: fields, rulesOf } = await this.maskedFields(
+          described,
           safeObj,
-          templateRules,
+          this.maskingRules(objectName, objectRules),
           this.maskingRules(objectName, personRules),
         );
-        if (missing.length > 0) {
-          fieldsNotFound.push(
-            ...missing.map((fieldApiName) => ({ objectApiName: safeObj, fieldApiName })),
-          );
-          this.deps.log(
-            `[WARN] dataops:anonymize ${operationId}: ${safeObj} lists no field ` +
-              `${missing.join(', ')} to this user (the org has none, or field-level security ` +
-              "hides it) — the template's rule masks nothing there.",
-          );
-        }
         failure.batchSize = MASKING_BATCH_SIZE;
 
         /**
@@ -4516,10 +4537,7 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const limitHit = usageAtStop();
-      // A field the template names and the run could not mask leaves its
-      // values in every record: the run did not do all it was asked.
-      const byRows = maskingStatus(tallies, cancelled);
-      const status = byRows === 'success' && fieldsNotFound.length > 0 ? 'partial' : byRows;
+      const status = maskingStatus(tallies, cancelled);
       const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
       const left = leftByObject(tallies);
       unrecorded = false;
@@ -4579,10 +4597,7 @@ export class DataOpsHandler implements DomainHandler {
       // that left nothing.
       const resumeHint =
         resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
-      const message =
-        (fieldsNotFound.length > 0
-          ? `${ranMessage} ${unseenFieldsSentence(fieldsNotFound)}`
-          : ranMessage) + resumeHint;
+      const message = ranMessage + resumeHint;
       replies.ended({
         templateId: payload.templateId,
         status,
@@ -4592,7 +4607,6 @@ export class DataOpsHandler implements DomainHandler {
         objects: maskingResultObjects(tallies),
         message,
         errors: maskErrors,
-        fieldsNotFound,
         ...(cancelled ? { cancelled: true } : {}),
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
         ...(snapshot ? { snapshot } : {}),
@@ -4813,6 +4827,10 @@ export class DataOpsHandler implements DomainHandler {
    * not describe or read is listed with what it said rather than failing the
    * answer. Asked with the objects and the filter a run would be given, it
    * shows the first rows that run would mask.
+   *
+   * It says what Apply would be refused for (`maskingNotCovered`), and nothing
+   * Apply would not: a hidden field of an object with no row stops no run, so
+   * it is not named.
    */
   private async handleAnonymizePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -4849,7 +4867,6 @@ export class DataOpsHandler implements DomainHandler {
             this.maskingRules(objectName, rulesOfObject(template, objectName)),
             this.maskingRules(objectName, personRulesOfObject(template, objectName)),
           );
-          fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
           const page = await maskingPage(
             conn,
             objectApiName,
@@ -4859,6 +4876,12 @@ export class DataOpsHandler implements DomainHandler {
             whereOfObject(parsed, template, objectName),
           );
           checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
+          const holdsRows = page.records.length > 0;
+          if (holdsRows) {
+            fieldsNotFound.push(
+              ...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })),
+            );
+          }
           // Each row by the rules its kind of account can hold, as Apply masks it.
           const rulesOfEach = page.records.map(rulesOf);
           const masked = page.records.map(
@@ -4870,6 +4893,7 @@ export class DataOpsHandler implements DomainHandler {
           objects.push({
             objectApiName,
             fields,
+            ...(holdsRows && rules.length === 0 ? { notCovered: true as const } : {}),
             methods: Object.fromEntries(rules.map((r) => [r.fieldApiName, r.method])),
             rows: page.records.slice(0, PREVIEW_ROWS).map((original, index) => {
               const before: Record<string, AnonymizePreviewValue> = {};

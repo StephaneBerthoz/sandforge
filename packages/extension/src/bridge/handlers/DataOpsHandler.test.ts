@@ -22,6 +22,19 @@ import {
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
+/**
+ * The fields the GDPR template names on `object`, or on every object: a
+ * describe that lists fewer gets its run refused, as an org that hid them would.
+ */
+function gdprFields(object?: string): string[] {
+  const [gdpr] = ANONYMIZATION_TEMPLATES;
+  const fields = gdpr.rules
+    .map((rule) => rule.fieldPattern.split('.') as [string, string])
+    .filter(([ruleObject]) => object === undefined || ruleObject === object)
+    .map(([, field]) => field);
+  return [...new Set(fields)];
+}
+
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
    ever was. Each test sets the behaviour it needs on getJsforceConnection. */
@@ -249,7 +262,15 @@ describe('DataOpsHandler', () => {
           updateable: true,
           deletable: true,
           queryable: true,
-          fields: [{ name: 'Id', type: 'id', createable: false, updateable: false }],
+          fields: [
+            { name: 'Id', type: 'id', createable: false, updateable: false },
+            ...gdprFields().map((name) => ({
+              name,
+              type: 'string',
+              createable: true,
+              updateable: true,
+            })),
+          ],
         }),
         sobject,
       };
@@ -2335,7 +2356,7 @@ describe('DataOpsHandler', () => {
         updateable: true,
         deletable: true,
         queryable: true,
-        fields: ['Id', 'FirstName', 'Email', 'Description', 'CreatedDate'].map((name) => ({
+        fields: ['Id', ...gdprFields('Contact'), 'Description', 'CreatedDate'].map((name) => ({
           name,
           label: name,
           type: 'string',
@@ -2369,7 +2390,7 @@ describe('DataOpsHandler', () => {
       // the object has: nothing else of the record crosses the wire.
       expect(conn.query.mock.calls.map(([soql]) => soql)).toEqual([
         'SELECT COUNT() FROM Contact',
-        'SELECT Id, FirstName, Email FROM Contact ORDER BY Id LIMIT 2000',
+        `SELECT Id, ${gdprFields('Contact').join(', ')} FROM Contact ORDER BY Id LIMIT 2000`,
       ]);
       expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
     });
@@ -2398,14 +2419,14 @@ describe('DataOpsHandler', () => {
           createable: false,
           updateable: false,
         },
-        {
-          name: 'FirstName',
-          label: 'First Name',
+        ...gdprFields().map((name) => ({
+          name,
+          label: name,
           type: 'string',
           createable: true,
           updateable: true,
           permissionable: true,
-        },
+        })),
       ],
       recordTypeInfos: [],
       childRelationships: [],
@@ -4085,55 +4106,24 @@ describe('DataOpsHandler — templates the user saves', () => {
     });
   });
 
-  it('names, in the run’s result and its log, a field the template names that the org does not have', async () => {
-    // A rule naming a field the object lacks masked nothing, without a word,
-    // and the run said it had completed.
+  it('matches a field whatever its case, as Salesforce matches it, and refuses none for it', async () => {
     await send('dataops:anonymization-template:save', {
-      name: 'Loyalty desk',
+      name: 'Names',
       rules: [
         { fieldPattern: 'Contact.FirstName', ruleType: 'nullify' },
-        { fieldPattern: 'Contact.Loyalty_Code__c', ruleType: 'nullify' },
-        // Matched whatever its case, as Salesforce matches it.
         { fieldPattern: 'Contact.lastname', ruleType: 'nullify' },
       ],
     });
     const templateId = (
       last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
     ).id;
-
     const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
     const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
     vi.mocked(getJsforceConnection).mockResolvedValue({
       query: vi.fn(async () =>
         answer([{ Id: '003000000000001', FirstName: 'Ada', LastName: 'Lovelace' }]),
       ),
-      describe: vi.fn().mockResolvedValue({
-        name: 'Contact',
-        label: 'Contact',
-        createable: true,
-        updateable: true,
-        deletable: true,
-        queryable: true,
-        fields: [
-          { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
-          {
-            name: 'FirstName',
-            label: 'First Name',
-            type: 'string',
-            createable: true,
-            updateable: true,
-          },
-          {
-            name: 'LastName',
-            label: 'Last Name',
-            type: 'string',
-            createable: true,
-            updateable: true,
-          },
-        ],
-        recordTypeInfos: [],
-        childRelationships: [],
-      }),
+      describe: vi.fn().mockResolvedValue(describeOf('Contact', ['FirstName', 'LastName'])),
       sobject: vi.fn(() => ({ update })),
     } as never);
     (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
@@ -4142,23 +4132,7 @@ describe('DataOpsHandler — templates the user saves', () => {
 
     const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
     expect(record).toEqual({ Id: '003000000000001', FirstName: null, LastName: null });
-    const result = last('dataops:anonymize:response')?.payload;
-    expect(result?.fieldsNotFound).toEqual([
-      { objectApiName: 'Contact', fieldApiName: 'Loyalty_Code__c' },
-    ]);
-    expect(String(result?.message)).toContain(
-      'The values of Contact.Loyalty_Code__c were NOT masked: the org has no such field, or ' +
-        'field-level security hides it from the user SandForge connects as.',
-    );
-    expect(
-      vi
-        .mocked(deps.log)
-        .mock.calls.some(([line]) =>
-          String(line).includes('Contact lists no field Loyalty_Code__c'),
-        ),
-    ).toBe(true);
-    // The page shows a run's end through a notification alone.
-    expect(String(last('notification')?.payload.message)).toContain('Contact.Loyalty_Code__c');
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({ status: 'success' });
   });
 
   /** A describe of `name` listing `fields`, each writable unless `readOnly` names it. */
@@ -4188,48 +4162,6 @@ describe('DataOpsHandler — templates the user saves', () => {
       childRelationships: [],
     };
   }
-
-  it('records a run as partial when field-level security hides a field it masks, saying its values were not masked and what to do', async () => {
-    // A describe lists only the fields the connected user can read: a profile
-    // that hides Birthdate leaves it out as an org without it would. The run
-    // said "the org has no such field", as if no data were at risk, and was
-    // recorded as a success.
-    await send('dataops:anonymization-template:save', {
-      name: 'Birthdays',
-      rules: [
-        { fieldPattern: 'Contact.FirstName', ruleType: 'nullify' },
-        { fieldPattern: 'Contact.Birthdate', ruleType: 'nullify' },
-      ],
-    });
-    const templateId = (
-      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
-    ).id;
-    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
-    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
-    vi.mocked(getJsforceConnection).mockResolvedValue({
-      query: vi.fn(async () =>
-        answer([{ Id: '003000000000001', FirstName: 'Ada', Birthdate: '1815-12-10' }]),
-      ),
-      describe: vi.fn().mockResolvedValue(describeOf('Contact', ['FirstName'])),
-      sobject: vi.fn(() => ({ update })),
-    } as never);
-    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
-
-    await send('dataops:anonymize', { orgId: 'org-1', templateId });
-
-    const result = last('dataops:anonymize:response')?.payload;
-    expect(result?.status).toBe('partial');
-    expect(String(result?.message)).toMatch(/^Anonymization partial: 1 records processed\./);
-    expect(String(result?.message)).toContain(
-      'The values of Contact.Birthdate were NOT masked: the org has no such field, or ' +
-        'field-level security hides it from the user SandForge connects as. Give that user ' +
-        'read and edit access to it, or connect as an administrator.',
-    );
-    expect(last('operation:completed')?.payload).toMatchObject({ result: { status: 'partial' } });
-    expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
-      expect.objectContaining({ action: 'anonymize_execute', outcome: 'partial' }),
-    ]);
-  });
 
   it('refuses a masking run once, naming every object and field the user may not update, before anything is asked, started or written', async () => {
     // Checked object by object as the run reached each one, the run masked

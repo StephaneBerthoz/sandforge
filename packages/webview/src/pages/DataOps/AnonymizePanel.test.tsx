@@ -157,9 +157,9 @@ describe('AnonymizePanel', () => {
       );
     });
 
-    it('says a field Apply cannot mask may be hidden by field-level security, with what to do, in the preview and again in the confirmation', () => {
-      // It said only "the org has no such field": a standard field the
-      // user's profile hid read as if no data were at risk.
+    it('says before the click that Apply will be refused for a field, what may hide it and what to do, in the preview and again in the confirmation', () => {
+      // It said only that Apply masked nothing in that field, which read as if
+      // the rest could go ahead; the run then masked the rest and ended partial.
       render(
         <AnonymizePanel
           orgName="dev1"
@@ -171,15 +171,75 @@ describe('AnonymizePanel', () => {
         />,
       );
       const said =
-        'Apply masks nothing in Contact.Loyalty__c, and their values stay as they are: the org ' +
-        'has no such field, or field-level security hides it from the user SandForge connects ' +
-        'as. Give that user read and edit access to it, or connect as an administrator.';
+        'Apply will be refused, and will mask nothing. This template masks Contact.Loyalty__c, ' +
+        'which the org does not show the user SandForge connects as: the org has no such field, ' +
+        'or field-level security hides it. A run masks every field its template names, or ' +
+        'nothing: give that user read and edit access to the field, or take the field out of ' +
+        'the template.';
       expect(screen.getByTestId('preview-fields-not-found').textContent).toBe(said);
       expect(screen.queryByTestId('confirm-fields-not-found')).toBeNull();
 
       fireEvent.click(screen.getByTestId('apply-btn'));
 
       expect(screen.getByTestId('confirm-fields-not-found').textContent).toBe(said);
+    });
+
+    it('says of an object with rows and no field left that Apply is refused for it, never that it holds no records', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          preview={{
+            templateId: 'tpl-1',
+            objects: [
+              {
+                objectApiName: 'Lead',
+                fields: [],
+                notCovered: true,
+                rows: [{ id: '00Q000000000001', before: {}, after: {} }],
+              },
+            ],
+            fieldsNotFound: [{ objectApiName: 'Lead', fieldApiName: 'Email' }],
+          }}
+        />,
+      );
+      expect(screen.getByTestId('preview-fields-not-found').textContent).toContain(
+        'No field of Lead can be masked.',
+      );
+      const lead = screen.getByTestId('preview-object-Lead').textContent;
+      expect(lead).toContain('No field of Lead can be masked.');
+      expect(lead).not.toContain('No records to mask.');
+    });
+
+    it('says what Apply is refused for when its rules mask nothing and no field is hidden', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          preview={{
+            templateId: 'tpl-1',
+            objects: [{ objectApiName: 'Account', fields: [], notCovered: true, rows: [] }],
+            fieldsNotFound: [],
+          }}
+        />,
+      );
+      expect(screen.getByTestId('preview-fields-not-found').textContent).toContain(
+        'Apply will be refused, and will mask nothing. This template masks no field of Account',
+      );
+    });
+
+    it('says nothing of a refusal for a preview that found nothing to refuse', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          preview={{ ...preview, fieldsNotFound: [] }}
+        />,
+      );
+      expect(screen.queryByTestId('preview-fields-not-found')).toBeNull();
     });
 
     it('shows no preview taken for another template', () => {

@@ -11534,10 +11534,10 @@ for (const theme of STATE_THEMES) {
 
       await expectReadable(page, theme);
 
-      // Said again where Apply is confirmed.
+      // Said again where Apply is confirmed: the run is refused, and masks nothing.
       await page.getByTestId('apply-btn').click();
       await expect(page.getByTestId('confirm-fields-not-found')).toContainText(
-        'field-level security',
+        'Apply will be refused',
       );
       await expectReadable(page, theme);
     });

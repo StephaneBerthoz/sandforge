@@ -57,6 +57,10 @@
       "guardBlocked": "Production Guard hat diesen Vorgang abgelehnt, und in der Org wurde nichts geändert. Begründung: {{reason}}",
       "guardDeclined": "Bei der Bestätigung von Production Guard abgebrochen: In der Org wurde nichts geändert.",
       "templateNotFound": "Die Maskierungsvorlage wurde nicht gefunden: Sie wurde vielleicht gelöscht. Wählen Sie eine andere Vorlage.",
+      "maskingFieldsUnseen": "Diese Vorlage maskiert {{fields}}, was die Org dem Benutzer, als der sich SandForge verbindet, nicht zeigt: Die Org hat kein solches Feld, oder die Feldebenensicherheit verbirgt es. Ein Lauf maskiert jedes Feld, das seine Vorlage nennt, oder nichts: Geben Sie diesem Benutzer Lese- und Bearbeitungszugriff auf das Feld, oder nehmen Sie das Feld aus der Vorlage.",
+      "maskingObjectNotCovered": "Kein Feld von {{objects}} kann maskiert werden.",
+      "maskingMasksNothing": "Diese Vorlage maskiert in dieser Org kein Feld von {{objects}}. Geben Sie dem Benutzer, als der sich SandForge verbindet, Lese- und Bearbeitungszugriff auf die genannten Felder, oder wählen Sie eine andere Vorlage.",
+      "maskingNothingMasked": "Es wurde nichts maskiert.",
       "guardMissing": "Production Guard war in diesem Fenster nicht bereit, und ohne ihn wird nichts geschrieben: In der Org wurde nichts geändert. Laden Sie das Fenster neu (Developer: Reload Window) und versuchen Sie es dann erneut.",
       "autopilotNotReady": "Autopilot ist in diesem Fenster noch nicht geladen, und in der Org wurde nichts geändert. Warten Sie einige Sekunden und versuchen Sie es dann erneut; bleibt es so, laden Sie das Fenster neu (Developer: Reload Window).",
       "autopilotStorageExceeded": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist. Grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in der Ziel-Org frei.",
@@ -2281,7 +2285,7 @@
       "empty": "(leer)",
       "notRead": "Nicht gelesen: {{error}}",
       "noRecords": "Keine Datensätze zu maskieren.",
-      "fieldsNotFound": "Anwenden maskiert nichts in {{fields}}, ihre Werte bleiben unverändert: Die Org hat kein solches Feld, oder die Feldebenensicherheit verbirgt es vor dem Benutzer, als der sich SandForge verbindet. Geben Sie diesem Benutzer Lese- und Bearbeitungszugriff darauf, oder verbinden Sie sich als Administrator."
+      "applyRefused": "Anwenden wird abgelehnt und maskiert nichts."
     },
     "backupDelete": "Löschen",
     "backupDeleteConfirm": "Diese Sicherung löschen? Die Werte der Datensätze, die sie im Klartext auf diesem Rechner enthält, sind endgültig weg, und sie lässt sich nicht mehr wiederherstellen.",

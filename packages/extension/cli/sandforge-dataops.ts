@@ -396,9 +396,8 @@ function shown(value: unknown): string {
 /**
  * The lines a run's answer comes to, as the panel shows it: the message its
  * notification carries, then each object's records — counted, masked, refused,
- * still holding their original values — the first refusal, the fields the org
- * does not have, and the snapshot with the line that puts it back. Exported so
- * it can be tested.
+ * still holding their original values — the first refusal, and the snapshot
+ * with the line that puts it back. Exported so it can be tested.
  */
 export function resultLines(
   payload: Record<string, unknown>,
@@ -427,21 +426,23 @@ export function resultLines(
 
 /**
  * What a dry run says of a field the template names and the org does not
- * show the user: a run would mask nothing there. Exported for the
- * environments, which refuse a mask resource in these words.
+ * show the user, on an object that holds records: a run is refused for it, and
+ * masks nothing. Exported for the environments, which refuse a mask resource
+ * in these words.
  */
 export function missingFieldLine(objectApiName: string, fieldApiName: string): string {
   return (
     `${objectApiName}.${fieldApiName}: the org has no such field, or field-level security ` +
-    'hides it from this user — masks nothing (give the user read and edit access to it, or ' +
-    'connect as an administrator)'
+    'hides it from this user — a run is refused and masks nothing (give the user read and ' +
+    'edit access to it, or take it out of the template)'
   );
 }
 
 /**
  * The lines a dry run comes to: per object, the records a run would mask
  * under its filter, each field with its method, the fields the org lacks, and
- * the first records masked as a run masks them — their new values only. A
+ * the first records masked as a run masks them — their new values only. An
+ * object of which a run could mask no field is said, as it refuses that run. A
  * stopped run that a resume would carry on is said. Exported so it can be tested.
  */
 export function dryRunLines(
@@ -456,6 +457,7 @@ export function dryRunLines(
     (preview.objects as Array<{
       objectApiName: string;
       fields: string[];
+      notCovered?: true;
       methods?: Record<string, string>;
       rows: Array<{ id: string; after: Record<string, unknown> }>;
       error?: string;
@@ -489,6 +491,9 @@ export function dryRunLines(
     );
     for (const m of missing.filter((m) => m.objectApiName === o.objectApiName)) {
       lines.push(`    ${missingFieldLine(m.objectApiName, m.fieldApiName)}`);
+    }
+    if (shownObject?.notCovered) {
+      lines.push('    no field of it can be masked: a run is refused and masks nothing');
     }
     const sample = shownObject?.rows ?? [];
     if (sample.length > 0) {

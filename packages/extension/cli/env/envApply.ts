@@ -969,9 +969,9 @@ async function runMaskStep(
 
 /**
  * How a masking ended: applied once it went through every record and left
- * no value as it was; partial when it left some — refused by the org, or of
- * a field the org does not show the user, which the script ends 0 with —;
- * as every run ends otherwise.
+ * no value as it was; partial when it left some, refused by the org; as every
+ * run ends otherwise, a field the org does not show the user among them, which
+ * the script refuses before it writes.
  */
 function maskEnd(code: number, masking: MaskRunCount | undefined): ReturnType<typeof runEnd> {
   const ended = runEnd(code, undefined, undefined);

@@ -57,6 +57,10 @@
       "guardBlocked": "Production Guard a refusé cette opération, et rien n'a été modifié dans l'org. Sa raison : {{reason}}",
       "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
       "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle.",
+      "maskingFieldsUnseen": "Ce modèle masque {{fields}}, que l'org ne montre pas à l'utilisateur sous lequel SandForge se connecte : l'org n'a pas ce champ, ou la sécurité au niveau du champ le cache. Une exécution masque tous les champs que nomme son modèle, ou rien : donnez à cet utilisateur l'accès en lecture et en modification au champ, ou retirez le champ du modèle.",
+      "maskingObjectNotCovered": "Aucun champ de {{objects}} ne peut être masqué.",
+      "maskingMasksNothing": "Ce modèle ne masque aucun champ de {{objects}} dans cette org. Donnez à l'utilisateur sous lequel SandForge se connecte l'accès en lecture et en modification aux champs qu'il nomme, ou choisissez un autre modèle.",
+      "maskingNothingMasked": "Rien n'a été masqué.",
       "guardMissing": "Production Guard n'était pas prêt dans cette fenêtre, et rien ne s'écrit sans lui : rien n'a été modifié dans l'org. Rechargez la fenêtre (Developer: Reload Window), puis réessayez.",
       "autopilotNotReady": "Autopilot n'est pas encore chargé dans cette fenêtre, et rien n'a été modifié dans l'org. Attendez quelques secondes, puis réessayez ; si cela persiste, rechargez la fenêtre (Developer: Reload Window).",
       "autopilotStorageExceeded": "L'exécution Autopilot a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste dans l'org cible. Réduisez la sélection, ou libérez du stockage de données dans l'org cible.",
@@ -2281,7 +2285,7 @@
       "empty": "(vide)",
       "notRead": "Non lu : {{error}}",
       "noRecords": "Aucun enregistrement à masquer.",
-      "fieldsNotFound": "Appliquer ne masque rien dans {{fields}}, dont les valeurs restent telles quelles : l'org n'a pas ce champ, ou la sécurité au niveau du champ le cache à l'utilisateur sous lequel SandForge se connecte. Donnez à cet utilisateur l'accès en lecture et en modification, ou connectez-vous en administrateur."
+      "applyRefused": "Appliquer sera refusé et ne masquera rien."
     },
     "backupDelete": "Supprimer",
     "backupDeleteConfirm": "Supprimer cette sauvegarde ? Les valeurs des enregistrements qu'elle conserve en clair sur cette machine disparaissent définitivement, et elle ne peut plus être restaurée.",

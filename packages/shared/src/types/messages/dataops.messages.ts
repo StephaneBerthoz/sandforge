@@ -305,6 +305,11 @@ export interface AnonymizePreviewObject {
   /** The fields the template masks that the object has, as the org names them. */
   fields: string[];
   /**
+   * Present when the object holds rows and its rules mask no field of it,
+   * every one hidden or absent: Apply is refused for it, and masks nothing.
+   */
+  notCovered?: true;
+  /**
    * How each of them is masked, by field: the template's method, or, on the
    * fields of a person account the template does not name, the method a
    * contact's rule or an erasure gives it.
@@ -333,7 +338,8 @@ export interface DataOpsAnonymizePreviewResponse extends BaseMessage {
     /**
      * The fields the template's rules name that their object's describe does
      * not list — the org has none, or field-level security hides them from
-     * the connected user: Apply masks nothing there.
+     * the connected user — on the objects that hold a row: Apply is refused
+     * for them, as it is for an object marked `notCovered`, and masks nothing.
      */
     fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
   };
@@ -499,13 +505,6 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     message: string;
     /** Why the org refused them, per object. */
     errors: Array<{ objectApiName: string; message: string }>;
-    /**
-     * The fields the template's rules name that their object's describe does
-     * not list in this org — it has none, or field-level security hides them
-     * from the connected user — among the objects the run read: their rules
-     * masked nothing, and the run is partial.
-     */
-    fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
     /** Present when a cancel stopped the run before every record was masked. */
     cancelled?: true;
     /**

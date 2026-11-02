@@ -201,6 +201,19 @@ your own:
   in Restore** opens the Restore tab on it. Unticked, the confirmation names
   instead the records a restore of the latest backup can never bring back. A
   resume takes no backup: the run it resumes took one
+- **Every field of the template, or nothing.** Once the records are counted,
+  and before Production Guard is asked, a run looks up every field its
+  template names on the objects that hold records. A describe lists only what
+  the connected user may read, so a field the org lacks and a field
+  field-level security hides look alike: the run is refused, `MASKING_FIELDS_UNSEEN`,
+  it names them and what may hide them, and it masks nothing. Give that user
+  read and edit access to the field, or take the field out of the template; a
+  template that ships is not edited, and **Create Template** starts from its
+  rules. An object of which no field can be masked is named too, and an object
+  whose rules mask nothing in this org refuses the run under
+  `MASKING_MASKS_NOTHING`. A resume is held to the same check, and
+  `sandforge-dataops anonymize` ends on exit code 1. An object with no record
+  holds nothing to mask, and refuses nothing
 - **A run that stops before the end says what it left.** A cancel -- the
   Anonymize tab's **Cancel run** while the run masks, or Live Operations',
   where it is listed -- honoured between two batches, or before the first
@@ -265,8 +278,9 @@ your own:
   and shows each masked field as the org holds it beside the value Apply
   would write, masked in this window as Apply masks it. It writes nothing,
   so it asks no confirmation. An empty field stays empty, as Apply leaves it;
-  an object the org will not read is listed with what the org said, and a
-  field the org does not have is named. A made-up name is the one Apply
+  an object the org will not read is listed with what the org said. What Apply
+  would be refused for is said first, in the words of the refusal, and again
+  in its confirmation. A made-up name is the one Apply
   writes on the first object; on the next ones Apply may draw another for a
   record whose name an earlier record of the run took first. Apply cannot be
   undone unless it keeps the values first (see above) or a backup holds them.

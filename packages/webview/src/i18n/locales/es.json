@@ -57,6 +57,10 @@
       "guardBlocked": "Production Guard rechazó esta operación y no se cambió nada en la org. Su motivo: {{reason}}",
       "guardDeclined": "Cancelado en la confirmación de Production Guard: no se cambió nada en la org.",
       "templateNotFound": "No se encontró la plantilla de enmascaramiento: puede que se haya eliminado. Elija otra plantilla.",
+      "maskingFieldsUnseen": "Esta plantilla enmascara {{fields}}, que la org no muestra al usuario con el que se conecta SandForge: la org no tiene ese campo, o la seguridad a nivel de campo lo oculta. Una ejecución enmascara todos los campos que nombra su plantilla, o nada: dé a ese usuario acceso de lectura y edición al campo, o quite el campo de la plantilla.",
+      "maskingObjectNotCovered": "No se puede enmascarar ningún campo de {{objects}}.",
+      "maskingMasksNothing": "Esta plantilla no enmascara ningún campo de {{objects}} en esta org. Dé al usuario con el que se conecta SandForge acceso de lectura y edición a los campos que nombra, o elija otra plantilla.",
+      "maskingNothingMasked": "No se enmascaró nada.",
       "guardMissing": "Production Guard no estaba listo en esta ventana, y sin él no se escribe nada: no se cambió nada en la org. Recargue la ventana (Developer: Reload Window) y vuelva a intentarlo.",
       "autopilotNotReady": "Autopilot aún no está cargado en esta ventana, y no se cambió nada en la org. Espere unos segundos y vuelva a intentarlo; si sigue así, recargue la ventana (Developer: Reload Window).",
       "autopilotStorageExceeded": "La ejecución de Autopilot se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino. Reduzca la selección o libere almacenamiento de datos en la org de destino.",
@@ -2281,7 +2285,7 @@
       "empty": "(vacío)",
       "notRead": "No leído: {{error}}",
       "noRecords": "No hay registros que enmascarar.",
-      "fieldsNotFound": "Aplicar no enmascara nada en {{fields}}, cuyos valores quedan como están: la org no tiene ese campo, o la seguridad a nivel de campo lo oculta al usuario con el que se conecta SandForge. Dé a ese usuario acceso de lectura y edición, o conéctese como administrador."
+      "applyRefused": "Aplicar se rechazará y no enmascarará nada."
     },
     "backupDelete": "Eliminar",
     "backupDeleteConfirm": "¿Eliminar este respaldo? Los valores de los registros que guarda en claro en este equipo desaparecen para siempre, y ya no se podrá restaurar.",

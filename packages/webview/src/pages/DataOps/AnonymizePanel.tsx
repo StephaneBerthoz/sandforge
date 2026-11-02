@@ -7,6 +7,7 @@ import type {
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
+import { maskingGapWords, type MaskingGaps } from '../../utils/maskingRefusal';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -93,24 +94,27 @@ type PreviewLine = {
   after: AnonymizePreviewValue;
 };
 
+/** What a preview found Apply would be refused for, or `undefined` when it would not be. */
+function refusedFor(preview: AnonymizePreview): MaskingGaps | undefined {
+  const objectsNotCovered = preview.objects.filter((o) => o.notCovered).map((o) => o.objectApiName);
+  return preview.fieldsNotFound.length > 0 || objectsNotCovered.length > 0
+    ? { fieldsNotFound: preview.fieldsNotFound, objectsNotCovered }
+    : undefined;
+}
+
 /**
- * The fields a template names that Apply masks nothing in, with why and what
- * to do: the org lacks them, or field-level security hides them from the user
- * SandForge connects as.
+ * What Apply would be refused for, before the click, in the words the refusal
+ * uses: the fields the org lacks or field-level security hides from the user
+ * SandForge connects as, the objects left with no field, and what to do.
  */
-const FieldsNotMasked: React.FC<{
-  fields: AnonymizePreview['fieldsNotFound'];
-  testId: string;
-}> = ({ fields, testId }) => {
+const ApplyRefusedFor: React.FC<{ gaps: MaskingGaps; testId: string }> = ({ gaps, testId }) => {
   const { t } = useTranslation();
   return (
     <p
       className="rounded border border-status-warning p-2 text-xs text-text-primary"
       data-testid={testId}
     >
-      {t('dataops.preview.fieldsNotFound', {
-        fields: fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', '),
-      })}
+      {`${t('dataops.preview.applyRefused')} ${maskingGapWords(gaps, t)}`}
     </p>
   );
 };
@@ -124,6 +128,7 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
   const { t } = useTranslation();
   const shown = (value: AnonymizePreviewValue): string =>
     value === null || value === '' ? t('dataops.preview.empty') : String(value);
+  const gaps = refusedFor(preview);
   return (
     <div data-testid="preview-data">
       <Card>
@@ -137,9 +142,7 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
                 one field-level security hides from the user: said with what
                 to do, as a line the eye stops at — it read as if no data were
                 at risk, and Contact.Birthdate stayed as it was. */}
-            {preview.fieldsNotFound.length > 0 && (
-              <FieldsNotMasked fields={preview.fieldsNotFound} testId="preview-fields-not-found" />
-            )}
+            {gaps && <ApplyRefusedFor gaps={gaps} testId="preview-fields-not-found" />}
             {preview.objects.map((object) => {
               const lines: PreviewLine[] = object.rows.flatMap((row) =>
                 object.fields.map((field) => ({
@@ -165,7 +168,13 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
                     </span>
                   ) : lines.length === 0 ? (
                     <span className="text-xs text-text-secondary">
-                      {t('dataops.preview.noRecords')}
+                      {/* Its rows are read and none of its fields is masked:
+                          "No records" read as if it held nothing to mask. */}
+                      {object.notCovered
+                        ? t('common.refusal.maskingObjectNotCovered', {
+                            objects: object.objectApiName,
+                          })
+                        : t('dataops.preview.noRecords')}
                     </span>
                   ) : (
                     <DataTable<PreviewLine>
@@ -351,6 +360,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   // Nor is a preview of another template this one's.
   const selectedPreview =
     preview && selectedTemplate && preview.templateId === selectedTemplate.id ? preview : null;
+  const refusal = selectedPreview ? refusedFor(selectedPreview) : undefined;
 
   // The editor closes when a save it sent lands, and stays open, with what was
   // typed, when the host refuses it.
@@ -636,14 +646,10 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                   </p>
                 </div>
               )}
-              {/* What the preview found Apply cannot mask, said again where
-                the user confirms it. */}
-              {selectedPreview && selectedPreview.fieldsNotFound.length > 0 && (
-                <FieldsNotMasked
-                  fields={selectedPreview.fieldsNotFound}
-                  testId="confirm-fields-not-found"
-                />
-              )}
+              {/* What the preview found Apply would be refused for, said again
+                where the user confirms it. The host decides: a preview can
+                be out of date once the user has given the access it asks for. */}
+              {refusal && <ApplyRefusedFor gaps={refusal} testId="confirm-fields-not-found" />}
               {/* What a restore cannot bring back, unless the run keeps the
                 values first: then it writes nothing unless it keeps them all. */}
               {lost.length > 0 && !(confirming === 'apply' && keepValues) && (

@@ -7,6 +7,7 @@ import i18n from 'i18next';
 import { TRANSFORM_RULE_NO_FIELD, type BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
+import { maskingRefusalWords } from '../utils/maskingRefusal';
 import { muteRefusalWords } from '../utils/muteRefusal';
 import { panelRefusalWords } from '../utils/runCheckpoint';
 
@@ -180,6 +181,10 @@ function guardRefusal(
   if (code === 'GUARD_DECLINED') return i18n.t('common.refusal.guardDeclined');
   // Not the guard's, but worded in English the same way and shown as it came.
   if (code === 'TEMPLATE_NOT_FOUND') return i18n.t('common.refusal.templateNotFound');
+  // A masking run that would leave values in clear, refused before it wrote:
+  // the fields and the objects the host named, and what to do about them.
+  const masking = maskingRefusalWords(code, payload, (key, options) => i18n.t(key, options));
+  if (masking !== undefined) return masking;
   // Autopilot asked before its module reached the host: the host's line is English.
   if (code === 'AUTOPILOT_NOT_READY') return i18n.t('common.refusal.autopilotNotReady');
   // An Autopilot run its write gate stopped before the first write: with the

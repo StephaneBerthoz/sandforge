@@ -323,13 +323,44 @@ for (const theme of THEMES) {
           objects: [],
           message: 'Anonymization completed: 42 records processed.',
           errors: [],
-          fieldsNotFound: [],
           snapshot: { operationId: `${String(ran.id)}-snapshot`, totalRecords: 42 },
         },
       });
       await expect(page.getByTestId('anonymize-snapshot-taken')).toContainText(
         'kept in a backup of 42 records',
       );
+      await passesAxe(page);
+    });
+
+    test('a masking run refused for a field the org hides names it and what to do, keeps Apply offered, and passes axe', async ({
+      page,
+    }) => {
+      await openDataOps(page, theme);
+      await pickTemplate(page);
+      await page.getByTestId('apply-btn').click();
+      await page.getByTestId('danger-input').fill('DevSandbox');
+      await page.getByTestId('danger-confirm-btn').click();
+      const [refused] = await outgoing(page, 'dataops:anonymize');
+      await sendExtensionMessage(page, {
+        type: 'dataops:error',
+        id: 'err-hidden',
+        correlationId: String(refused.id),
+        payload: {
+          message: 'The template "GDPR" masks Contact.Birthdate: the English of the host.',
+          code: 'MASKING_FIELDS_UNSEEN',
+          fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Birthdate' }],
+          objectsNotCovered: [],
+        },
+      });
+
+      const banner = page.getByTestId('dataops-error');
+      await expect(banner).toContainText('This template masks Contact.Birthdate', {
+        timeout: 10_000,
+      });
+      await expect(banner).toContainText('take the field out of the template');
+      await expect(banner).toContainText('Nothing was masked.');
+      await expect(page.getByTestId('anonymize-stop')).toHaveCount(0);
+      await expect(page.getByTestId('apply-btn')).toBeEnabled();
       await passesAxe(page);
     });
 

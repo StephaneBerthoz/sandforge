@@ -178,7 +178,7 @@ function orgOf(rows: Array<Record<string, unknown>>, options: OrgOptions = {}) {
     soap: { undelete: vi.fn(async () => []) },
   };
   vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
-  return { statements, query, update, upsert };
+  return { conn, statements, query, update, upsert };
 }
 
 /** Backup files kept in memory, behind the store the handler writes them through. */
@@ -461,7 +461,7 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
       ]);
     });
 
-    it('masks the same org once the field is shown, as the page masks the hidden one partly', async () => {
+    it('masks the same org once the field is shown, the page refusing what the step refuses', async () => {
       const hidden = describeOf(
         'Contact',
         CONTACT_FIELDS.filter((f) => f !== 'Email'),
@@ -475,15 +475,23 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
           payload: { orgId: 'org-dev', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
         }),
       );
-      // The page's run writes the other fields and ends partial on Email.
-      expect(posted('dataops:anonymize:response')[0]?.payload).toMatchObject({
-        status: 'partial',
+      expect(posted('dataops:error')[0]?.payload).toMatchObject({
+        code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
         fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Email' }],
       });
-      expect(update).toHaveBeenCalledTimes(1);
+      expect(posted('dataops:anonymize:response')).toEqual([]);
+      expect(update).not.toHaveBeenCalled();
 
       orgOf(contactsOf(3));
-      expect((await mask()).result).toMatchObject({ status: 'success', fieldsNotFound: [] });
+      expect((await mask()).result).toMatchObject({ status: 'success', recordsNotMasked: 0 });
+    });
+
+    it('asks the org for each object once, whatever reads its describe', async () => {
+      const { conn } = orgOf(contactsOf(3));
+
+      expect((await mask()).result.status).toBe('success');
+
+      expect(conn.describe.mock.calls.map(([name]) => name)).toEqual(['Contact']);
     });
 
     it('refuses an object the template has no rule for, and masks one it has', async () => {

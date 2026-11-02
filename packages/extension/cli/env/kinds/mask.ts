@@ -508,7 +508,11 @@ export interface MaskRunCount {
   snapshotId?: string;
   /** What refused or stopped it, in the handler's words. */
   refusal?: string;
-  /** Why a run that ended 0 still left values as they were: fields the org lacks. */
+  /**
+   * Why a run that ended 0 still left values as they were: fields the org
+   * lacks, in the answer a journal kept of a run from before such a run was
+   * refused.
+   */
   short?: string;
 }
 

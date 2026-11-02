@@ -1237,7 +1237,6 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       recordsFailed: result.recordsFailed,
       recordsNotMasked: result.recordsNotMasked,
       objects: result.objects,
-      ...(result.fieldsNotFound.length > 0 ? { fieldsNotFound: result.fieldsNotFound } : {}),
       ...(result.snapshot ? { snapshot: result.snapshot } : {}),
     };
     if (result.cancelled) {
@@ -1249,13 +1248,10 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
     // Rows the org refused, or left unreached, still hold what the template
     // masks: the steps after it would go on as if the org were masked.
     const left = result.objects.filter((entry) => entry.notMasked > 0);
-    if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+    if (result.recordsNotMasked > 0) {
       const unmasked =
-        left.length > 0
-          ? `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
-            'still hold their values'
-          : `${result.fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
-            'masked nothing';
+        `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
+        'still hold their values';
       return failed(
         step,
         startTime,

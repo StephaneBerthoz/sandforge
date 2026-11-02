@@ -57,6 +57,10 @@
       "guardBlocked": "Production Guard refused this operation, and nothing was changed in the org. Its reason: {{reason}}",
       "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
       "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template.",
+      "maskingFieldsUnseen": "This template masks {{fields}}, which the org does not show the user SandForge connects as: the org has no such field, or field-level security hides it. A run masks every field its template names, or nothing: give that user read and edit access to the field, or take the field out of the template.",
+      "maskingObjectNotCovered": "No field of {{objects}} can be masked.",
+      "maskingMasksNothing": "This template masks no field of {{objects}} in this org. Give the user SandForge connects as read and edit access to the fields it names, or choose another template.",
+      "maskingNothingMasked": "Nothing was masked.",
       "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again.",
       "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window).",
       "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
@@ -2281,7 +2285,7 @@
       "empty": "(empty)",
       "notRead": "Not read: {{error}}",
       "noRecords": "No records to mask.",
-      "fieldsNotFound": "Apply masks nothing in {{fields}}, and their values stay as they are: the org has no such field, or field-level security hides it from the user SandForge connects as. Give that user read and edit access to it, or connect as an administrator."
+      "applyRefused": "Apply will be refused, and will mask nothing."
     },
     "backupDelete": "Delete",
     "backupDeleteConfirm": "Delete this backup? The records' values it holds unencrypted on this machine are gone for good, and it can no longer be restored.",

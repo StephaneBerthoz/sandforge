@@ -790,6 +790,48 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it('says a masking run refused for a field the org hides in the interface language, the field named and what to do', () => {
+      const said = 'The template "People" masks Contact.Birthdate: the English of the host.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: said,
+            code: 'MASKING_FIELDS_UNSEEN',
+            fieldsNotFound: [{ objectApiName: 'Contact', fieldApiName: 'Birthdate' }],
+            objectsNotCovered: [],
+          },
+          'req-1',
+        );
+      });
+
+      expect(result.current.errorCode).toBe('MASKING_FIELDS_UNSEEN');
+      expect(result.current.error).toBe(
+        `${i18n.t('common.refusal.maskingFieldsUnseen', { fields: 'Contact.Birthdate' })} ` +
+          i18n.t('common.refusal.maskingNothingMasked'),
+      );
+      expect(result.current.error).not.toBe(said);
+    });
+
+    it('keeps the host’s words for a masking refusal that came with nothing to name', () => {
+      const said = 'The template "People" would mask nothing.';
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse('org:error', { message: said, code: 'MASKING_MASKS_NOTHING' }, 'req-1');
+      });
+
+      expect(result.current.error).toBe(said);
+    });
+
     it.each([
       ['MUTE_PRODUCTION', 'common.refusal.muteProduction', false],
       ['MUTE_NO_RIGHT', 'common.refusal.muteNoRight', false],

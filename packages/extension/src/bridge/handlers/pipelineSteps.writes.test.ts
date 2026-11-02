@@ -94,7 +94,6 @@ function maskingResult(overrides: Partial<MaskingResult> = {}): MaskingResult {
     objects: [{ objectApiName: 'Contact', total: 6, processed: 6, failed: 0, notMasked: 0 }],
     message: 'Masked',
     errors: [],
-    fieldsNotFound: [],
     snapshot: { operationId: 'snap-1', totalRecords: 6 },
     ...overrides,
   };

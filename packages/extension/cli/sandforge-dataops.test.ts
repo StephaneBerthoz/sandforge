@@ -554,6 +554,44 @@ describe('sandforge-dataops', () => {
       expect(stderr).toContain(`    ${missingFieldLine('Contact', 'Nickname__c')}`);
     });
 
+    it('refuses a run whose rules name a field the org does not show, exit 1, nothing written and no snapshot', async () => {
+      // A field hidden from the user: the run masked the rest and ended 0, and
+      // a script that masks after a refresh went on with the field in clear.
+      orgIs('Developer Edition');
+      const rows = contactsOf(3, 3);
+      const before = rows.map((r) => ({ ...r }));
+      const { update } = orgOf(rows);
+      const file = join(store, 'rules.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          name: 'contact-points',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+            { fieldPattern: 'Contact.Nickname__c', ruleType: 'fake' },
+          ],
+        }),
+      );
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--rules',
+        file,
+        '--yes',
+      );
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      expect(stdout).toContain('masks Contact.Nickname__c, which the org does not show');
+      expect(stdout).toContain('take the field out of the template. Nothing was masked.');
+      expect(stdout).not.toContain('snapshot ');
+    });
+
     it('names a masking’s snapshot so that its store lists it and the retention removes it past its age', async () => {
       // Named after a request id holding a colon, the snapshot read as one
       // object's records: never listed, never removed past its age, the
@@ -1124,10 +1162,24 @@ describe('sandforge-dataops', () => {
       expect(lines).toContain('    fields: Email (hash)');
       expect(lines).toContain(
         '    Contact.Nickname__c: the org has no such field, or field-level security hides it ' +
-          'from this user — masks nothing (give the user read and edit access to it, or connect ' +
-          'as an administrator)',
+          'from this user — a run is refused and masks nothing (give the user read and edit ' +
+          'access to it, or take it out of the template)',
       );
       expect(lines.at(-1)).toContain('--resume masks only what it left');
+    });
+
+    it('says in a dry run an object of which a run could mask no field', () => {
+      const lines = dryRunLines(
+        { id: 't', name: 'T', rules: [{ fieldPattern: 'Lead.Email', ruleType: 'hash' }] },
+        { objects: [{ objectApiName: 'Lead', count: 2 }] },
+        {
+          objects: [{ objectApiName: 'Lead', fields: [], notCovered: true, rows: [] }],
+          fieldsNotFound: [{ objectApiName: 'Lead', fieldApiName: 'Email' }],
+        },
+      );
+      expect(lines).toContain(
+        '    no field of it can be masked: a run is refused and masks nothing',
+      );
     });
 
     it("says in a dry run how a person account's fields the template does not name are masked", () => {
