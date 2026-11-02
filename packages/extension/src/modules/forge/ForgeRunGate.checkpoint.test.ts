@@ -77,6 +77,25 @@ describe('the parts of a Forge run’s API requests at its write gate', () => {
     expect(forgeRequestPartsOf({ plan, readBack: 0 })).toEqual({ run: 3 });
     expect(checkpointPartOf(undefined)).toEqual({});
   });
+
+  it('counts what the read of the target’s deliverability sent, a part of its own, and nothing when it sent none', () => {
+    expect(forgeRequestPartsOf({ plan, deliverability: 2 })).toEqual({ run: 3, deliverability: 2 });
+    expect(forgeRequestPartsOf({ plan, deliverability: 0 })).toEqual({ run: 3 });
+  });
+
+  it('refuses a run the read of its deliverability takes past what the target has left, naming the part', () => {
+    const stop = forgeWriteBudgetOf({
+      plan,
+      deliverability: 2,
+      budget: { max: 500, remaining: 4 },
+      target: 'TGT',
+    });
+
+    expect(stop.api).toMatchObject({ verdict: 'exceeds', estimate: 5 });
+    expect(stop.stop?.message).toContain(
+      '2 of them to read whether the target delivers its emails',
+    );
+  });
 });
 
 describe('forgeWriteBudgetOf', () => {

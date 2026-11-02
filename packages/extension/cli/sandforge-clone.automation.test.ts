@@ -30,6 +30,7 @@ import {
   type BeforeRunTake,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { CHECKPOINT_STOPPED_WORDS } from '../src/modules/forge/ForgeRunGate.js';
+import { EMAIL_NOT_PERMITTED } from '../src/modules/forge/targetDeliverability.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
   memoryPermissionOrg,
@@ -148,7 +149,17 @@ function fakeOrg({
   duplicateActions = {},
   flowActions = [],
   describes = DESCRIBES,
+  deliverability = 'closed',
+  unbypassed = [],
 }: {
+  /** The flow versions whose start condition tests no permission: no bypass keeps them quiet. */
+  unbypassed?: string[];
+  /**
+   * What its anonymous Apex answers of its emails: All email, a closed org,
+   * or any other exception, in its words. Closed unless told: what fires
+   * sends nothing out, and only the tests of the gate hear of it.
+   */
+  deliverability?: 'all' | 'closed' | (string & {});
   /** The formula of each validation rule, as its metadata gives it. */
   ruleFormula?: string;
   /** The custom permissions every set of `permissionSets` grants beside `Load_Data`. */
@@ -176,6 +187,8 @@ function fakeOrg({
   /** What the read retrieved by id, `<object>/<id>`. */
   const retrieved: string[] = [];
   const written: string[] = [];
+  /** Every line of anonymous Apex it was asked to run. */
+  const anonymous: string[] = [];
   const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   /** What a flow version's metadata holds: a start a permission keeps quiet, and its actions. */
@@ -304,7 +317,9 @@ function fakeOrg({
                   httpStatusCode: 200,
                   body: {
                     Id: version,
-                    Metadata: flowMetadata,
+                    Metadata: unbypassed.includes(version)
+                      ? { ...flowMetadata, start: {} }
+                      : flowMetadata,
                   },
                 };
               }
@@ -318,6 +333,17 @@ function fakeOrg({
             }),
           ),
         };
+      }
+      if (url?.startsWith('/tooling/executeAnonymous')) {
+        anonymous.push(url);
+        return deliverability === 'all'
+          ? { compiled: true, success: true }
+          : deliverability === 'closed'
+            ? { compiled: true, success: false, exceptionMessage: EMAIL_NOT_PERMITTED }
+            : { compiled: true, success: false, exceptionMessage: deliverability };
+      }
+      if (url?.includes('UserPermissionAccess')) {
+        return { records: [{ PermissionsEmailSingle: true }] };
       }
       return url === '/limits' ? limits : {};
     },
@@ -333,6 +359,7 @@ function fakeOrg({
     composites,
     retrieved,
     written,
+    anonymous,
     headers,
   };
 }
@@ -1047,6 +1074,7 @@ describe('sandforge-clone target automation', () => {
   function mutableTarget(
     setup: MemoryPermissionOrgSetup = {},
     describes: Record<string, DescribeSObjectResult> = DESCRIBES,
+    more: Parameters<typeof fakeOrg>[0] = {},
   ) {
     const events: string[] = [];
     const perms = memoryPermissionOrg({
@@ -1056,7 +1084,11 @@ describe('sandforge-clone target automation', () => {
       },
       ...setup,
     });
-    const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }], describes });
+    const target = fakeOrg({
+      permissionSets: [{ name: 'Data_Load', grants: 1 }],
+      describes,
+      ...more,
+    });
     const base = target.conn as unknown as {
       query: (soql: string) => Promise<unknown>;
       sobject: (name: string) => Record<string, unknown> & {
@@ -1669,6 +1701,288 @@ describe('sandforge-clone target automation', () => {
           '--checkpoint-first',
         ]),
       ).toThrow(ExitCalled);
+    });
+  });
+
+  describe('--accept-emails', () => {
+    /** The welcome flow's alert, which emails each contact created. */
+    const ALERT = [{ name: 'Welcome_Alert', label: 'Welcome alert', actionType: 'emailAlert' }];
+    const LIMITS = {
+      DataStorageMB: { Max: 200, Remaining: 150 },
+      DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+      SingleEmail: { Max: 15, Remaining: 15 },
+      DailyWorkflowEmails: { Max: 500, Remaining: 500 },
+    };
+    /** A target whose welcome flow emails each contact, and whose Apex answers as `deliverability`. */
+    const sending = (deliverability: 'all' | 'closed' | (string & {}) = 'all') =>
+      fakeOrg({ flowActions: ALERT, limits: LIMITS, deliverability });
+
+    it('refuses a run on All email with --accept-automation alone, exit 1, nothing written, and the read sends nothing else', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(orgs.TGT.written).toEqual([]);
+      expect(orgs.TGT.anonymous).toEqual([
+        '/tooling/executeAnonymous?anonymousBody=' +
+          encodeURIComponent('Messaging.reserveSingleEmailCapacity(1);'),
+      ]);
+      expect(stderr).toBe(
+        'TGT delivers every email its automation sends (Setup > Deliverability: All email), and ' +
+          'what still runs as this clone writes its records sends some: flow "Contact welcome" on ' +
+          'Contact. They go to the addresses the records and the alerts name: those this clone ' +
+          "writes are under .invalid, but not the records' owners, the records already in TGT, " +
+          'nor an address an alert names. Nothing was written. Add --accept-emails to clone all ' +
+          "the same, set the org's deliverability to System email only, or turn off what sends " +
+          'them.\n',
+      );
+      // Said with the rest of what fires, before a row is read.
+      const line = printed.indexOf(
+        '  deliverability: All email — the emails of what still runs go out (read with one line ' +
+          'of anonymous Apex that sends nothing)',
+      );
+      expect(line).toBeGreaterThan(-1);
+      expect(printed.indexOf('record-type mapping…')).toBe(-1);
+    });
+
+    it('writes once given --accept-emails', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--accept-emails')),
+      ).toBeUndefined();
+
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+    });
+
+    it('never takes --accept-emails for --accept-automation: both refusals said at once', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-emails'))).toBe(1);
+
+      expect(orgs.TGT.written).toEqual([]);
+      expect(stderr).toContain('Add --accept-automation to clone all the same');
+      expect(stderr).not.toContain('Add --accept-emails');
+
+      withOrgs(sending());
+      stderr = '';
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+      expect(stderr).toContain('Add --accept-emails to clone all the same');
+      expect(stderr.split('\n').filter((line) => line !== '')).toHaveLength(2);
+    });
+
+    it('asks nothing of an org on System email only or No access, and says why in a line', async () => {
+      withOrgs(sending('closed'));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+      expect(printed).toContain(
+        '  deliverability: System email only or No access — none of the emails its flows, ' +
+          'processes, workflow rules and Apex send goes out (read with one line of anonymous Apex ' +
+          'that sends nothing)',
+      );
+    });
+
+    it('refuses on any other answer of the org, its words in the refusal', async () => {
+      withOrgs(sending('System.LimitException: Too many'));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain(
+        'Whether TGT delivers the emails its automation sends could not be read (the org ' +
+          'answered: System.LimitException: Too many)',
+      );
+      expect(stderr).toContain('check Setup > Deliverability');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('says where they go by --keep-contact-points', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--accept-automation', '--keep-contact-points')),
+      ).toBe(1);
+
+      expect(stderr).toContain('those of the records this clone writes, as they hold them');
+      expect(stderr).not.toContain('.invalid');
+    });
+
+    it('names --mute-automation for what a bypass a permission set holds keeps quiet', async () => {
+      withOrgs(
+        fakeOrg({
+          flowActions: ALERT,
+          limits: LIMITS,
+          permissionSets: [{ name: 'Data_Load', grants: 1 }],
+          deliverability: 'all',
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain(
+        '--mute-automation keeps quiet flow "Contact welcome" on Contact, which tests a bypass a ' +
+          'permission set of TGT holds.',
+      );
+    });
+
+    it('says on a dry run what a real run would be refused for, and gives the reading with --json', async () => {
+      withOrgs(sending());
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--accept-automation', '--json')),
+      ).toBeUndefined();
+
+      const summary = JSON.parse(stdout) as {
+        wouldBeRefused: string[];
+        targetAutomation: { deliverability?: unknown };
+      };
+      expect(summary.wouldBeRefused).toContainEqual(
+        expect.stringContaining('Add --accept-emails to clone all the same'),
+      );
+      expect(summary.targetAutomation.deliverability).toEqual({ level: 'all' });
+      expect(errored).toContainEqual(
+        expect.stringContaining('  a real run would be refused: TGT delivers every email'),
+      );
+    });
+
+    it('runs no Apex in a production org a dry run reads, and says it was not read', async () => {
+      const prod = sending();
+      const answer = prod.conn.query.bind(prod.conn);
+      (prod.conn as unknown as { query: (soql: string) => Promise<unknown> }).query = async (
+        soql: string,
+      ) =>
+        soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1'
+          ? { totalSize: 1, done: true, records: [{ Id: '00D000000000002AAA', IsSandbox: false }] }
+          : soql === 'SELECT OrganizationType FROM Organization LIMIT 1'
+            ? { totalSize: 1, done: true, records: [{ OrganizationType: 'Enterprise Edition' }] }
+            : answer(soql);
+      withOrgs(prod);
+
+      expect(
+        await run(argv('--skip-preflight', '--dry-run', '--accept-automation', '--json')),
+      ).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(JSON.parse(stdout).targetAutomation.deliverability).toEqual({
+        unread: 'SandForge runs no Apex in a production org',
+      });
+    });
+
+    it('reads nothing of the org when nothing that fires sends an email', async () => {
+      withOrgs(fakeOrg({ limits: LIMITS }));
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(printed.some((line) => line.includes('deliverability:'))).toBe(false);
+    });
+
+    it('counts what the read sent among the run’s requests, named in the line of the requests', async () => {
+      withOrgs(
+        fakeOrg({
+          flowActions: ALERT,
+          limits: { ...LIMITS, DailyApiRequests: { Max: 15_000, Remaining: 3 } },
+          deliverability: 'closed',
+        }),
+      );
+
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain('2 of them to read whether the target delivers its emails');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('reads nothing, and asks nothing of the emails, when the mute keeps every sender quiet', async () => {
+      const { target, events } = mutableTarget({}, DESCRIBES, {
+        flowActions: ALERT,
+        limits: LIMITS,
+      });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation'))).toBeUndefined();
+
+      expect(orgs.TGT.anonymous).toEqual([]);
+      expect(events).toEqual([
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+      ]);
+    });
+
+    it('keeps the order of the write path: the read before the lease, the lease before the writes', async () => {
+      const { target, events } = mutableTarget({}, DESCRIBES, {
+        flowActions: ALERT,
+        limits: LIMITS,
+        deliverability: 'all',
+        // A flow that emails each contact too, and that no bypass keeps quiet.
+        moreFlows: [
+          {
+            ...SYNC_FLOW,
+            ApiName: 'Contact_Notice',
+            Label: 'Contact notice',
+            RecordTriggerType: 'Create',
+          },
+        ],
+        unbypassed: [String(SYNC_FLOW.ActiveVersionId)],
+      });
+      const request = target.conn.request.bind(target.conn);
+      (target.conn as unknown as { request: (r: unknown) => Promise<unknown> }).request = async (
+        r: unknown,
+      ) => {
+        const url = (r as { url?: string }).url ?? '';
+        if (url.startsWith('/tooling/executeAnonymous')) events.push('deliverability read');
+        return request(r as never);
+      };
+      withOrgs(target);
+
+      expect(
+        await run(
+          argv('--skip-preflight', '--mute-automation', '--accept-automation', '--accept-emails'),
+        ),
+      ).toBeUndefined();
+
+      const steps = events.map((event): WritePathStep => {
+        if (event === 'deliverability read') return 'deliverabilityRead';
+        if (event === 'assignment insert') return 'leaseAcquire';
+        if (event === 'assignment delete') return 'leaseRelease';
+        return 'write';
+      });
+      expect(events).toEqual([
+        'deliverability read',
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+      ]);
+      // The flags stand for the question a command line is never asked.
+      expect(
+        writePathOrderDefects([
+          'reads',
+          'leasePlan',
+          'stillRunning',
+          ...steps.slice(0, 1),
+          'question',
+          ...steps.slice(1),
+          'result',
+        ]),
+      ).toEqual([]);
+    });
+
+    it('reads the flag apart from --accept-automation, and says it in --help', async () => {
+      expect(parseArgs(argv('--accept-emails'))).toMatchObject({
+        acceptEmails: true,
+        acceptAutomation: false,
+      });
+      expect(parseArgs(argv('--accept-automation'))).toMatchObject({
+        acceptEmails: false,
+        acceptAutomation: true,
+      });
+      expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+      expect(stdout).toMatch(/--accept-emails\s+write although the target delivers every email/);
+      expect(stdout).toContain('--accept-automation never stands for');
+      expect(stdout).toContain('(EMAILS_NOT_ACCEPTED)');
     });
   });
 });

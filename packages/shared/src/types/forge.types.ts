@@ -2389,6 +2389,12 @@ export interface EmailSender {
 export interface RunDeliverability {
   reading: EmailDeliverability;
   senders: EmailSender[];
+  /**
+   * Why what may send could not all be listed: a part of the target's
+   * automation that sends emails, refused whole. Set, it is what a page says
+   * when `senders` is empty and the run asks all the same.
+   */
+  sendersUnread?: string;
 }
 
 /**

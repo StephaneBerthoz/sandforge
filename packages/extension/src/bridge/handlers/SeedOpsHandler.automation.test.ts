@@ -113,7 +113,7 @@ describe('SeedOpsHandler — the org automation and the emails', () => {
     read.mockImplementation(async (_orgId, objects) => contactAutomation(objects));
     executed = [];
     let n = 0;
-    const guard = new ProductionGuard();
+    const guard = new ProductionGuard({ requestRunConfirmation: async () => true });
     guardChecks = vi.spyOn(guard, 'check');
     deps = {
       log: vi.fn(),

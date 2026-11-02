@@ -96,7 +96,7 @@ import {
   runFileOf,
 } from './sandforge-sync.js';
 import { loadOrg, makeConn } from './sfSession.js';
-import { refuseProductionTarget, typeTarget } from './targetKind.js';
+import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
@@ -138,6 +138,7 @@ import { STORAGE_RECOUNT_SECONDS } from '../src/modules/forge/fitBudget.js';
 import {
   CHECKPOINT_REFUSED,
   bypassesToAssign,
+  deliverabilityPartOf,
   emailCheckLines,
   formatMB,
   readEmailLimits,
@@ -147,6 +148,11 @@ import {
   type EmailLimit,
   type StorageCheck,
 } from '../src/modules/forge/ForgeRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../src/modules/forge/targetDeliverability.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
   readSeedAutomation,
@@ -281,6 +287,20 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --dry-run, says what would be muted and
                          assigns nothing                   (default: off)
+  --accept-emails        write although the target delivers every email of
+                         what still runs as the records go in, or would not
+                         say whether it does: EMAILS_NOT_ACCEPTED, exit 1,
+                         nothing written, without it. Asked only when what
+                         still runs sends one: flows, processes and workflow
+                         rules with an email action, and those whose
+                         definition was not read, whatever --mute-automation
+                         leaves. Whether the org delivers them is read with
+                         one line of anonymous Apex that sends nothing
+                         (Messaging.reserveSingleEmailCapacity(1)), as the
+                         user the run writes as, never in a production org; on
+                         System email only or No access, none of them goes
+                         out and nothing is asked. What an Apex trigger sends
+                         is read nowhere                   (default: off)
   --fit share            seed the largest share of every count that fits
                          the data storage the target has left: each object
                          about that share of its records, at least one, a
@@ -538,6 +558,11 @@ interface CliArgs {
   target: string;
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation?: boolean;
+  /**
+   * Write although the target delivers every email what still runs sends, or
+   * would not say whether it does (`--accept-emails`).
+   */
+  acceptEmails?: boolean;
   templateId?: string;
   /** A seed template in a JSON file, read and checked before any org is reached. */
   templateFile?: string;
@@ -795,6 +820,7 @@ const RUN_FLAGS: CommandFlags = {
     '--existing',
     '--fail-on-partial',
     '--mute-automation',
+    '--accept-emails',
     ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
@@ -1075,6 +1101,7 @@ export function parseArgs(argv: string[]): CliArgs {
     json: args.includes('--json'),
     failOnPartial: args.includes('--fail-on-partial'),
     muteAutomation: args.includes('--mute-automation'),
+    acceptEmails: args.includes('--accept-emails'),
     ...(seed !== undefined ? { seed } : {}),
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
@@ -2032,7 +2059,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   // What still runs of it once the mute's plan holds, nothing assigned, and
   // the room what it creates takes under the records: what a fit keeps.
-  const room = seedRoomOf(read, mute?.plan, seedWritesOf(template, scenario !== undefined));
+  const writes = seedWritesOf(template, scenario !== undefined);
+  const room = seedRoomOf(read, mute?.plan, writes);
   const fitWords = {
     ...(room.unread !== undefined ? { roomUnread: room.unread } : {}),
     muted: (mute?.plan?.assign.length ?? 0) > 0,
@@ -2082,6 +2110,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
   }
 
+  // Whether the target delivers the emails of what still runs, read once the
+  // mute's plan says what does and only when something may send one, as the
+  // user the run writes as, before the gates count its requests. A seed
+  // writes the addresses its template holds, those the faker draws on
+  // reserved domains, none under .invalid. No Apex runs in a production org,
+  // which a dry run reads: it is typed for it here.
+  const emails = await runEmailsOf({
+    read,
+    ...(mute?.plan ? { plan: mute.plan } : {}),
+    writes,
+    readDeliverability: async () =>
+      isProductionTarget(typedTarget ?? (await typeTarget(conn)))
+        ? NO_APEX_IN_PRODUCTION
+        : readEmailDeliverability(conn),
+    accepted: args.acceptEmails === true,
+    target: args.target,
+    run: 'seed',
+    keepsAddresses: true,
+    mayMute: args.muteAutomation !== true,
+  });
+  const deliverabilityRequests = deliverabilityPartOf(emails.ofRun);
+
   // The data storage the records take against what the target has left,
   // before the first write, as the panel holds a seed: a dry run says what a
   // real run would meet, and a real run past it writes nothing.
@@ -2091,6 +2141,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     personObjects,
     args.target,
     checkpointPlanned?.estimate,
+    deliverabilityRequests,
   );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
   let fit: { applied: boolean; fit: SeedFit } | undefined;
@@ -2133,6 +2184,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           personObjects,
           args.target,
           checkpointPlanned?.estimate,
+          deliverabilityRequests,
         );
       }
     }
@@ -2180,9 +2232,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readLimits: () => readEmailLimits(conn),
   });
   for (const line of automation.lines) log(line);
+  if (emails.gate.line !== undefined) log(`  ${emails.gate.line}`);
   if (automation.gate.refusal) {
     if (!args.dryRun) throw new Error(automation.gate.refusal);
     log(`  a real run would be refused: ${automation.gate.refusal}`);
+  }
+  // The flag the answer a question would have had; `--accept-automation`,
+  // which a seed's line does not take, never stands for it.
+  const emailsStop = emails.gate.stop;
+  if (emailsStop) {
+    if (!args.dryRun) throw new Error(emailsStop.message);
+    log(`  a real run would be refused: ${emailsStop.message}`);
   }
   log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
 
@@ -2389,6 +2449,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // ends, written, failed, stopped or thrown alike.
     const held = !args.dryRun && mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
     if (held) mutedAutomation = held.outcome;
+    // A set the lease does not hold leaves running what it was to keep quiet:
+    // a sender of it the run was not refused for refuses it now, the lease
+    // given back and nothing written.
+    const relit = held ? emails.afterLease(held.outcome, args.acceptEmails === true) : undefined;
+    if (held && relit) {
+      mutedAutomation = await held.release();
+      for (const line of muteLines(mutedAutomation, args.target)) log(line);
+      throw new Error(relit.message);
+    }
     result = await orchestrator.execute(template, args.target, runId).finally(async () => {
       if (held) {
         mutedAutomation = await held.release();
@@ -2465,6 +2534,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   /** The checkpoint as the summary gives it: the dry run's estimate, the run's checkpoint. */
   const checkpointSaid = args.dryRun ? checkpointPlanned?.estimate : checkpointInfo;
+  /** What a real run's records would be refused for, for their emails: past the day's, or delivered. */
+  const emailRefusalSaid = automation.gate.refusal ?? emailsStop?.message;
+  /** What a dry run says a real run would be refused for, as an environment's plan reads it. */
+  const wouldBeRefused = [...checkpointRefusals, ...(emailsStop ? [emailsStop.message] : [])];
 
   if (args.json) {
     process.stdout.write(
@@ -2482,8 +2555,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // a dry run's refusal is said here too.
           emails: {
             checks: automation.gate.checks,
-            ...(automation.gate.refusal ? { refusal: automation.gate.refusal } : {}),
+            ...(emailRefusalSaid !== undefined ? { refusal: emailRefusalSaid } : {}),
             ...(automation.gate.unknown ? { unknown: automation.gate.unknown } : {}),
+            // What still runs that may send them, and whether the org
+            // delivers them: read only when something may.
+            ...(emails.gate.deliverability ? { deliverability: emails.gate.deliverability } : {}),
           },
           // What a dry run's gates counted, for whoever sums them across
           // runs: an environment holds several seeds to one day's storage
@@ -2500,7 +2576,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // (--checkpoint-first): kept, or deleted once it wrote nothing; of
           // a dry run, what a real run's would hold and cost, and its refusal.
           ...(checkpointSaid ? { checkpoint: checkpointSaid } : {}),
-          ...(checkpointRefusals.length > 0 ? { wouldBeRefused: checkpointRefusals } : {}),
+          ...(wouldBeRefused.length > 0 ? { wouldBeRefused } : {}),
           result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),

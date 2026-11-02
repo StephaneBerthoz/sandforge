@@ -57,7 +57,8 @@ describe('SeedOpsHandler — storage and locale', () => {
     built = [];
     executed = [];
     let n = 0;
-    const guard = new ProductionGuard();
+    // What a bare connection leaves unread of the org's automation is asked.
+    const guard = new ProductionGuard({ requestRunConfirmation: async () => true });
     guardChecks = vi.spyOn(guard, 'check');
     deps = {
       log: vi.fn(),

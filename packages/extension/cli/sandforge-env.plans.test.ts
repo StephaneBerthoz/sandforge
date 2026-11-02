@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ForgeTargetAutomation } from '@sandforge/shared';
 import {
   envOutputSchema,
   envPlanSchema,
@@ -337,22 +338,71 @@ describe('plan --accept-no-state and --accept-automation', () => {
 });
 
 describe('plan --accept-emails', () => {
-  /**
-   * The memory org's scripts as they run, and what each line asked: the seed
-   * of this host reads no such flag, what it was handed is what counts here.
-   */
+  /** The memory org's scripts as they run, each handed its line whole, and what each line asked. */
   function handed(lines: string[][]): Partial<EnvCliDeps> {
     return {
       runner: (script, args, signal) => {
         lines.push([...args]);
-        return world.runner(
-          script,
-          args.filter((arg) => arg !== '--accept-emails'),
-          signal,
-        );
+        return world.runner(script, args, signal);
       },
     };
   }
+
+  /**
+   * What the org runs as contacts go in: a flow that emails each one, which
+   * no bypass keeps quiet. The memory org answers no anonymous Apex, so
+   * whether it delivers them is not read, and a seed asks as it does for an
+   * org that delivers them all.
+   */
+  const SENDING: ForgeTargetAutomation = {
+    objectsRead: ['Account', 'Contact'],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Contact_Welcome',
+            label: 'Contact welcome',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [],
+            messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 1,
+  };
+
+  it('plans, then applies, the seeds of an org that may deliver their emails once given it, and blocks them without', async () => {
+    world.automation = SENDING;
+
+    const blocked = await run(['plan', '--org', 'TGT', '--json', '--accept-no-state']);
+    expect(JSON.stringify(blocked.answer)).toContain('Add --accept-emails to seed all the same');
+
+    const planned = await run([
+      'plan',
+      '--org',
+      'TGT',
+      '--json',
+      '--out',
+      planFile,
+      '--accept-no-state',
+      '--accept-emails',
+    ]);
+    expect(planned.code, planned.said).toBe(0);
+    expect(JSON.stringify(planned.answer)).not.toContain('Add --accept-emails');
+
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--plan', planFile]);
+    expect(applied.code, applied.said).toBe(0);
+    expect(world.records('Account')).toHaveLength(2);
+    expect(world.records('Contact')).toHaveLength(2);
+  });
 
   it('hands it to the dry runs, keeps it with the plan, and applies the plan with it', async () => {
     const asked: string[][] = [];

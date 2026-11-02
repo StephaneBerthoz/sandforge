@@ -317,14 +317,29 @@ describe('sandforge-clone --audit', () => {
     });
   });
 
-  it('records what --accept-automation let through as confirmed', async () => {
+  it('records what --accept-automation and --accept-emails let through as confirmed, and what was read of the emails', async () => {
     withOrgs(fakeOrg(TARGET_ORG, true, [ACCOUNT_WELCOME]));
 
-    expect(await run(argv('--audit', auditPath, '--accept-automation'))).toBeUndefined();
+    expect(
+      await run(argv('--audit', auditPath, '--accept-automation', '--accept-emails')),
+    ).toBeUndefined();
 
     expect(entries()[0]).toMatchObject({
       outcome: 'success',
-      context: { confirmed: ['automation'] },
+      context: { confirmed: ['automation', 'emails'], deliverability: 'unread' },
+    });
+  });
+
+  it('records a clone stopped for the emails it does not accept under its code, what was read beside it', async () => {
+    withOrgs(fakeOrg(TARGET_ORG, true, [ACCOUNT_WELCOME]));
+
+    expect(await run(argv('--audit', auditPath, '--accept-automation'))).toBe(1);
+
+    expect(orgs.TGT.written).toEqual([]);
+    expect(entries()[0]).toMatchObject({
+      outcome: 'stopped',
+      details: { code: 'EMAILS_NOT_ACCEPTED' },
+      context: { confirmed: ['automation'], deliverability: 'unread' },
     });
   });
 

@@ -21,6 +21,7 @@ import type {
   ForgeEmailLimit,
   ForgeTargetAutomation,
   ForgeTargetObjectAutomation,
+  RunDeliverability,
   SeedAutomationEntry,
   SeedAutomationObject,
   SeedAutomationPreview,
@@ -40,6 +41,9 @@ import {
 /** The writes a seed makes of its records, as its run's mute plans for them. */
 const SEED_WRITES = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
   write === 'insert' || write === 'update';
+/** The write a seed makes of every object it names: what a read ahead of it counts the senders of. */
+const SEED_INSERTS = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
+  write === 'insert';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   alertsCountAsSingle,
@@ -48,6 +52,7 @@ import {
   type EmailCheck,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
+import { runEmailsOf, type DeliverabilityRead } from '../forge/targetDeliverability.js';
 
 /** What `/limits` said of an org's daily email limits, or why it said nothing. */
 export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
@@ -95,11 +100,14 @@ function sortedOnce(names: readonly string[]): string[] {
  * @param org - The target, as the panel or the command line names it.
  * @param limits - What its `/limits` said; `{}` when they were not read, no
  *   record sending any.
+ * @param deliverability - What may send and whether the org delivers it;
+ *   absent when nothing sends, or it was not asked for.
  */
 export function seedAutomationPreview(
   automation: ForgeTargetAutomation,
   org: string,
   limits: EmailLimits,
+  deliverability?: RunDeliverability,
 ): SeedAutomationPreview {
   const objects = automation.objects.flatMap((object): SeedAutomationObject[] => {
     const entries = entriesOnInsert(object);
@@ -148,6 +156,7 @@ export function seedAutomationPreview(
     unread: automation.unread.map(({ part, reason }) => ({ part, reason })),
     blinded: blindedBy(automation.unread),
     conditionsNotRead: automation.conditionsNotRead,
+    ...(deliverability ? { deliverability } : {}),
   };
 }
 
@@ -161,12 +170,19 @@ export type SeedAutomationRead = { preview: SeedAutomationPreview } | { error: s
  *
  * @param input.readAutomation - What the target runs on the given objects.
  * @param input.readLimits - The target's daily email limits, as `/limits` say them.
+ * @param input.deliverability - What a run's gate read of what may send and
+ *   whether the org delivers it, said as it is.
+ * @param input.readDeliverability - For a read made ahead of a run: reads
+ *   whether the org delivers what may send, only when something does. A run
+ *   reads it again, an admin can change it at any time.
  */
 export async function readSeedAutomation(input: {
   org: string;
   objects: readonly string[];
   readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
   readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+  deliverability?: RunDeliverability;
+  readDeliverability?: () => Promise<DeliverabilityRead>;
 }): Promise<SeedAutomationRead> {
   let automation: ForgeTargetAutomation;
   try {
@@ -174,13 +190,27 @@ export async function readSeedAutomation(input: {
   } catch (err: unknown) {
     return { error: extractErrorMessage(err) };
   }
+  const deliverability =
+    input.deliverability ??
+    (input.readDeliverability
+      ? (
+          await runEmailsOf({
+            read: automation,
+            writes: SEED_INSERTS,
+            readDeliverability: input.readDeliverability,
+            accepted: false,
+            target: input.org,
+            run: 'seed',
+          })
+        ).gate.deliverability
+      : undefined);
   if (emailsPerInsertOf(automation).length === 0) {
-    return { preview: seedAutomationPreview(automation, input.org, {}) };
+    return { preview: seedAutomationPreview(automation, input.org, {}, deliverability) };
   }
   const limits: EmailLimits = await input
     .readLimits()
     .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-  return { preview: seedAutomationPreview(automation, input.org, limits) };
+  return { preview: seedAutomationPreview(automation, input.org, limits, deliverability) };
 }
 
 /** How each daily limit is said. */

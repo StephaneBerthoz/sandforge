@@ -26,6 +26,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { EMAIL_NOT_PERMITTED } from '../../modules/forge/targetDeliverability.js';
 import {
   nodeSeedRunCreations,
   type SeedRunCreations,
@@ -194,6 +195,7 @@ const AS_STEP: Readonly<Record<string, WritePathStep>> = {
   'lease plan': 'leasePlan',
   'still running': 'stillRunning',
   'checkpoint scope': 'stillRunning',
+  'deliverability read': 'deliverabilityRead',
   question: 'question',
   'checkpoint take': 'checkpointTake',
   assign: 'leaseAcquire',
@@ -231,7 +233,16 @@ describe('SeedOpsHandler — a seed that takes a checkpoint first', () => {
     storage = { Max: 5, Remaining: 5 },
   ) {
     vi.mocked(getJsforceConnection).mockResolvedValue({
-      request: vi.fn(async () => {
+      request: vi.fn(async ({ url }: { url: string }) => {
+        // An org on System email only: what still runs sends nothing out,
+        // and asks nothing of a seed that is not asked a question otherwise.
+        if (url.includes('executeAnonymous')) {
+          steps.push('deliverability read');
+          return { compiled: true, success: false, exceptionMessage: EMAIL_NOT_PERMITTED };
+        }
+        if (url.includes('UserPermissionAccess')) {
+          return { records: [{ PermissionsEmailSingle: true }] };
+        }
         steps.push('limits read');
         return {
           DataStorageMB: storage,

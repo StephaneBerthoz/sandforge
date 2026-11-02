@@ -62,7 +62,8 @@ function createMockDeps(): HandlerDeps {
     // A seed refuses to write without a Production Guard, and the extension
     // always injects one.
     infraServices: {
-      productionGuard: new ProductionGuard(),
+      // What a bare connection leaves unread of the org's automation is asked.
+      productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
     } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };

@@ -9,6 +9,7 @@ import type {
   ForgeContactPointsReport,
   ForgeTargetAutomation,
   RunCheckpointTaken,
+  RunDeliverability,
 } from '@sandforge/shared';
 import { recordWriteHeaders, guardTierOf } from '@sandforge/shared';
 import type {
@@ -86,6 +87,7 @@ import {
   confirmationApiOf,
   confirmationStorageOf,
   countedStorageBytes,
+  deliverabilityPartOf,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
@@ -95,6 +97,11 @@ import {
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
 import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../../modules/forge/targetDeliverability.js';
+import {
   BEFORE_RUN_DELETED_WORDS,
   type BeforeRunCheckpoints,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
@@ -102,6 +109,7 @@ import { PIPELINE_SEED_REFUSAL } from './seedPipeline.js';
 import {
   SEED_WRITE_DECLINED,
   SeedCheckpointStopped,
+  emailsAuditDetails,
   scopeSeedCheckpoint,
   seedImportRunning,
   seedImportWrites,
@@ -286,8 +294,8 @@ export class SeedCloneHandler implements DomainHandler {
    * @param written - The records the clone sends, per object, as its preview counted them.
    * @param org - The target, as the panel names it.
    * @param given - What was read of the target's automation already, or why
-   *   it could not be: a clone that takes a checkpoint first reads it once,
-   *   for its scope and its emails alike.
+   *   it could not be: a clone reads it once, for its scope and its emails alike.
+   * @param deliverability - What the clone's gate read of the emails, said as it is.
    */
   private async emailGate(
     targetOrgId: string,
@@ -295,6 +303,7 @@ export class SeedCloneHandler implements DomainHandler {
     written: ReadonlyArray<{ objectApiName: string; recordCount: number }>,
     org: string,
     given?: ForgeTargetAutomation | { unread: string },
+    deliverability?: RunDeliverability,
   ): Promise<SeedEmailGate | undefined> {
     const sent = written.filter((object) => object.recordCount > 0);
     if (sent.length === 0) return undefined;
@@ -308,6 +317,7 @@ export class SeedCloneHandler implements DomainHandler {
             ? Promise.reject(new Error(given.unread))
             : Promise.resolve(given as ForgeTargetAutomation),
       readLimits: () => readEmailLimits(transport),
+      ...(deliverability ? { deliverability } : {}),
     });
     return seedEmailGate(read, sent, org);
   }
@@ -944,14 +954,34 @@ export class SeedCloneHandler implements DomainHandler {
       // emails alike: no record read, nothing kept. Refused, or unread, the
       // clone is refused before anything is asked or written.
       let checkpoint: SeedCheckpointPlanned | undefined;
-      let automationRead: ForgeTargetAutomation | { unread: string } | undefined;
+      const automationRead: ForgeTargetAutomation | { unread: string } =
+        sentNames.length > 0
+          ? await this.readTargetAutomation(parsed.targetOrgId, sentNames).catch(
+              (err: unknown) => ({ unread: extractErrorMessage(err) }),
+            )
+          : { unread: 'the clone sends no record' };
+      // Whether the target delivers the emails of what runs as the records go
+      // in and as the second pass writes them again, read only when something
+      // may send one, and asked with the clone's one question. No Apex runs
+      // in a production org, which this path writes to once a person answered
+      // the guard above. A clone that sends no record sends no email.
+      const emailsOfRun =
+        sentNames.length > 0
+          ? await runEmailsOf({
+              read: automationRead,
+              writes: seedImportWrites(sentNames, true),
+              readDeliverability: () =>
+                guardTierOf(targetOrg) === 'production'
+                  ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+                  : readEmailDeliverability(targetConn),
+              accepted: false,
+              target: targetName,
+              run: 'clone',
+              keepsAddresses: parsed.keepContactPoints === true,
+            })
+          : undefined;
+      const emailsAsked = emailsOfRun?.gate.verdict === 'asks';
       if (parsed.checkpointFirst !== undefined) {
-        automationRead =
-          sentNames.length > 0
-            ? await this.readTargetAutomation(parsed.targetOrgId, sentNames).catch(
-                (err: unknown) => ({ unread: extractErrorMessage(err) }),
-              )
-            : { unread: 'the clone sends no record' };
         try {
           checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, {
             module: 'seed',
@@ -979,6 +1009,7 @@ export class SeedCloneHandler implements DomainHandler {
         counted,
         targetName,
         automationRead,
+        emailsOfRun?.gate.deliverability,
       );
       for (const line of emails?.unknown ?? []) {
         this.deps.log(`[WARN] seed:clone:execute ${operationId}: ${line}`);
@@ -1005,11 +1036,12 @@ export class SeedCloneHandler implements DomainHandler {
       // say is said in the log, and holds nothing back. With a checkpoint
       // asked, its requests among them, and the storage read from the same
       // answer, for its question to say.
-      const limits: DataStorage | { unread: string } | undefined = checkpoint
-        ? await readDataStorage(targetConn).catch((err: unknown) => ({
-            unread: extractErrorMessage(err),
-          }))
-        : undefined;
+      const limits: DataStorage | { unread: string } | undefined =
+        checkpoint || emailsAsked
+          ? await readDataStorage(targetConn).catch((err: unknown) => ({
+              unread: extractErrorMessage(err),
+            }))
+          : undefined;
       const budget: ApiBudget | { unread: string } | undefined =
         limits !== undefined && !('unread' in limits)
           ? limits.dailyApiRequests
@@ -1020,6 +1052,7 @@ export class SeedCloneHandler implements DomainHandler {
         {
           run: runRequestsEstimate(counted.map((o) => ({ rows: o.recordCount }))),
           ...checkpointPartOf(checkpoint?.planned),
+          ...deliverabilityPartOf(emailsOfRun?.ofRun),
         },
         budget,
       );
@@ -1048,8 +1081,11 @@ export class SeedCloneHandler implements DomainHandler {
 
       // A checkpoint asked first is asked about before anything is taken or
       // written, its cost that of the target's whole tables: declined, or
-      // with nobody to answer for it, the clone writes nothing.
-      if (checkpoint) {
+      // with nobody to answer for it, the clone writes nothing. So are the
+      // emails of a target that delivers them all or would not say: going on
+      // is the accord to send them.
+      let emailsAccepted = false;
+      if (checkpoint || emailsAsked) {
         const objects = counted
           .filter((o) => o.recordCount > 0)
           .map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount }))
@@ -1074,20 +1110,29 @@ export class SeedCloneHandler implements DomainHandler {
           ),
           counted: true,
           ...confirmationApiOf(api),
-          checkpoint: checkpoint.planned,
+          ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
+          ...emailsOfRun?.gate.confirmation,
         });
         if (answer !== 'confirmed') {
-          refuse(
-            answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
-            answer === 'declined'
-              ? 'The clone was cancelled before it wrote anything. Nothing was written.'
-              : `The clone needed an answer before it wrote — the checkpoint it takes first ` +
-                  `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
-                  'was written.',
-          );
+          const stop = emailsOfRun?.gate.stop;
+          if (answer !== 'declined' && !checkpoint && stop) refuse(stop.code, stop.message);
+          else {
+            refuse(
+              answer === 'declined' ? SEED_WRITE_DECLINED : PIPELINE_SEED_REFUSAL.unanswered,
+              answer === 'declined'
+                ? 'The clone was cancelled before it wrote anything. Nothing was written.'
+                : `The clone needed an answer before it wrote — the checkpoint it takes first ` +
+                    `reads whole tables of ${targetName} — and there was no one to ask. Nothing ` +
+                    'was written.',
+            );
+          }
           return;
         }
+        emailsAccepted = emailsAsked;
       }
+      run.details = emailsAuditDetails(
+        emailsOfRun ? { read: emailsOfRun, accepted: emailsAccepted } : undefined,
+      ).details;
 
       sendOperationStarted(
         this.deps,
@@ -2036,7 +2081,8 @@ function cloneRun(
 ): WriteRun {
   return {
     ...run,
-    ...contactPointsAudit(contactPoints),
+    // Beside what the run's gate said of its emails.
+    details: { ...run.details, ...contactPointsAudit(contactPoints).details },
     outcome,
     objects: objectResults.map((result) => ({
       ...emptyCounts(result.objectApiName),

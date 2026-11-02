@@ -762,7 +762,9 @@ export async function takeCheckpointFirst(
  * - `checkpoint`: the take of the checkpoint it takes first, as its scope
  *   estimates it;
  * - `readBack`: the reads of the record types the target gave the records
- *   created without one (`ForgeWriteBoundary.readBack`), at most.
+ *   created without one (`ForgeWriteBoundary.readBack`), at most;
+ * - `deliverability`: what the read of whether the target delivers its emails
+ *   sent, when something that still runs sends one.
  *
  * Its reads are past by then, and of the source: the target's budget never
  * paid for them.
@@ -773,6 +775,8 @@ export function forgeRequestPartsOf(input: {
   updatedAfterInsert?: readonly string[];
   readBack?: number;
   checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+  /** What the read of whether the target delivers its emails sent (`deliverabilityPartOf`). */
+  deliverability?: number;
 }): RunRequestParts {
   const updated = new Set(input.updatedAfterInsert ?? []);
   const writes = input.plan.objects.map(({ rows }) => ({ rows }));
@@ -783,6 +787,9 @@ export function forgeRequestPartsOf(input: {
     run: runRequestsEstimate([...writes, ...updates]),
     ...checkpointPartOf(input.checkpoint),
     ...(input.readBack !== undefined && input.readBack > 0 ? { readBack: input.readBack } : {}),
+    ...(input.deliverability !== undefined && input.deliverability > 0
+      ? { deliverability: input.deliverability }
+      : {}),
   };
 }
 
@@ -834,6 +841,7 @@ export function forgeWriteBudgetOf(input: {
   updatedAfterInsert?: readonly string[];
   readBack?: number;
   checkpoint?: RunCheckpointEstimate;
+  deliverability?: number;
   budget: ApiBudget | { unread: string } | undefined;
   target: string;
 }): ForgeWriteBudget {
@@ -1622,7 +1630,11 @@ export function deliverabilityGate(input: DeliverabilityGateInput): Deliverabili
     return { verdict: 'nothingSends', confirmation: {} };
   }
   const reading: EmailDeliverability = input.reading ?? { unread: 'the run did not read it' };
-  const deliverability: RunDeliverability = { reading, senders: [...input.senders] };
+  const deliverability: RunDeliverability = {
+    reading,
+    senders: [...input.senders],
+    ...(input.sendersUnread !== undefined ? { sendersUnread: input.sendersUnread } : {}),
+  };
   const line = deliverabilityLineOf(reading);
   if (isWithheld(reading)) {
     return { verdict: 'withheld', deliverability, confirmation: {}, line, audit: 'withheld' };

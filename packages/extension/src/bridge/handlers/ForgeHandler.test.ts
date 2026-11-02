@@ -62,6 +62,18 @@ import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
 const mockGetConn = vi.mocked(getJsforceConnection);
 const mockQueryFallback = vi.mocked(queryWithFieldsFallback);
 
+/** A target that runs nothing on what a run writes: nothing it does is asked about, and no read is sent for it. */
+const QUIET_TARGET = {
+  readForGraph: vi.fn(async () => ({
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 0,
+  })),
+} as unknown as TargetAutomationReader;
+
 function createMockGraph(): ForgeGraph {
   return {
     nodes: [
@@ -542,6 +554,7 @@ describe('ForgeHandler', () => {
     it('runs untranslated when the record type lookup never answers', async () => {
       vi.useFakeTimers();
       try {
+        handler.setForgeOrchestrator(orchestrator, { targetAutomation: QUIET_TARGET });
         mockGetConn.mockImplementation(() => new Promise(() => {}));
 
         const executePromise = handler.handle(
@@ -610,6 +623,7 @@ describe('ForgeHandler', () => {
     }
 
     it('counts the record types read from both orgs among the calls the run made', async () => {
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: QUIET_TARGET });
       // Each org answers on two pages: a query, and the page after it.
       recordTypesOn(2);
       vi.mocked(orchestrator.execute).mockResolvedValue(createMockResult({ apiCalls: 40 }));
@@ -2253,7 +2267,10 @@ describe('ForgeHandler', () => {
       );
       /** What the executor's deps have sent this session: a run counts from where it starts. */
       let sent = 30;
-      handler.setForgeOrchestrator(orchestrator, { requestsSent: () => sent });
+      handler.setForgeOrchestrator(orchestrator, {
+        requestsSent: () => sent,
+        targetAutomation: QUIET_TARGET,
+      });
       let listener: ProgressListener | undefined;
       vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
         listener = l as ProgressListener;
@@ -4195,6 +4212,7 @@ describe('ForgeHandler', () => {
     });
 
     it('counts the calls a stopped run made up to its stop, the record types read before it among them', async () => {
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: QUIET_TARGET });
       const store = historyStore();
       // Each org answers the record types in one query.
       mockGetConn.mockImplementation(
@@ -4324,6 +4342,7 @@ describe('ForgeHandler', () => {
     });
 
     it('records a run aborted while record types are read as stopped before it wrote, not as failed', async () => {
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: QUIET_TARGET });
       mockGetConn.mockImplementation(() => new Promise(() => {}));
 
       const executePromise = handler.handle(
@@ -4355,6 +4374,7 @@ describe('ForgeHandler', () => {
     });
 
     it('refuses the run as soon as Abort is pressed during a record type lookup that hangs', async () => {
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: QUIET_TARGET });
       mockGetConn.mockImplementation(() => new Promise(() => {}));
 
       const executePromise = handler.handle(

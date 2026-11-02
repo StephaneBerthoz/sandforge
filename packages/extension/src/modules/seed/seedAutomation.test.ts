@@ -249,6 +249,81 @@ describe('readSeedAutomation', () => {
     expect('preview' in sending && sending.preview.limits).toEqual(DE_LIMITS);
   });
 
+  it('says what may send and whether the org delivers it, read only when something may', async () => {
+    const readDeliverability = vi.fn(async () => ({
+      reading: { level: 'all' as const },
+      requests: 1,
+    }));
+    const quiet = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Account'],
+      readAutomation: async () => ({ ...trapAutomation(), objects: [] }),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability,
+    });
+    expect(readDeliverability).not.toHaveBeenCalled();
+    expect('preview' in quiet && quiet.preview).not.toHaveProperty('deliverability');
+
+    const sending = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => trapAutomation(),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability,
+    });
+    expect(readDeliverability).toHaveBeenCalledOnce();
+    expect('preview' in sending && sending.preview.deliverability).toMatchObject({
+      reading: { level: 'all' },
+      senders: expect.arrayContaining([
+        expect.objectContaining({ objectApiName: 'Contact', name: 'Welcome Email', why: 'email' }),
+      ]),
+    });
+  });
+
+  it('counts the senders of what its inserts fire, not of what fires on an update it does not make', async () => {
+    const onUpdate = trapAutomation();
+    const contact = onUpdate.objects[0];
+    if (contact === undefined) throw new Error('the trap automation has a Contact');
+    const sending = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => ({
+        ...onUpdate,
+        objects: [
+          {
+            ...contact,
+            flows: contact.flows.map((flow) => ({ ...flow, startsOn: 'update' as const })),
+            workflowRules: [],
+          },
+        ],
+      }),
+      readLimits: async () => DE_LIMITS,
+      readDeliverability: async () => ({ reading: { level: 'all' }, requests: 1 }),
+    });
+
+    expect('preview' in sending && sending.preview).not.toHaveProperty('deliverability');
+  });
+
+  it('says what a run’s gate read as it is, reading nothing of its own', async () => {
+    const readDeliverability = vi.fn(async () => ({
+      reading: { level: 'all' as const },
+      requests: 1,
+    }));
+    const said = { reading: { level: 'withheld' as const }, senders: [] };
+
+    const read = await readSeedAutomation({
+      org: 'my-dev-org',
+      objects: ['Contact'],
+      readAutomation: async () => trapAutomation(),
+      readLimits: async () => DE_LIMITS,
+      deliverability: said,
+      readDeliverability,
+    });
+
+    expect(readDeliverability).not.toHaveBeenCalled();
+    expect('preview' in read && read.preview.deliverability).toEqual(said);
+  });
+
   it('says why when the automation or the limits could not be read, and never throws', async () => {
     expect(
       await readSeedAutomation({

@@ -107,6 +107,8 @@ export interface SeedStorageGate {
  * @param target - The org, as the refusal names it.
  * @param checkpoint - What the checkpoint the seed takes first would hold and
  *   cost, as the port of the checkpoints scoped it; absent when not asked.
+ * @param deliverability - The requests its read of whether the target
+ *   delivers its emails sent (`deliverabilityPartOf`), counted with the seed's.
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
@@ -114,6 +116,7 @@ export async function seedStorageGate(
   personObjects: readonly string[],
   target: string,
   checkpoint?: RunCheckpointEstimate,
+  deliverability: Pick<RunRequestParts, 'deliverability'> = {},
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
   let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
@@ -133,7 +136,7 @@ export async function seedStorageGate(
         }))
       : storage.dailyApiRequests;
   const api = apiBudgetCheckOf(
-    { run: seedRequestsEstimate(template), ...checkpointPartOf(checkpoint) },
+    { run: seedRequestsEstimate(template), ...checkpointPartOf(checkpoint), ...deliverability },
     budget,
   );
   const refused = checkpointScopeStop(checkpoint);

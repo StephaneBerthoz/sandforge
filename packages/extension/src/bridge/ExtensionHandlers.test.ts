@@ -215,9 +215,11 @@ describe('ExtensionHandlers', () => {
 
     handlers = new ExtensionHandlers(deps);
     // As the composition root does before routing: every write path refuses
-    // without the Production Guard.
+    // without the Production Guard. A run's question is answered as a person
+    // going on would: what a bare connection leaves unread of the target's
+    // automation is asked about.
     handlers.setInfraServices({
-      productionGuard: new ProductionGuard(),
+      productionGuard: new ProductionGuard({ requestRunConfirmation: async () => true }),
     } as unknown as InfraServices);
     handlers.registerAll(router);
   });

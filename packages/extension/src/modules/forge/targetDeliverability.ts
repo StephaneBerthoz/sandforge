@@ -46,12 +46,21 @@ import type {
   EmailSender,
   ForgeAutomationWrite,
   ForgeTargetAutomation,
+  MutedAutomation,
+  MutePlan,
   StillRunning,
 } from '@sandforge/shared';
 import { emailSendersOf, mutePlanOf, stillRunningOf } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { TimeoutError, TimeoutManager } from '../../core/engine/TimeoutManager.js';
-import { sendersUnreadOf, type LimitsTransport } from './ForgeRunGate.js';
+import {
+  deliverabilityAfterLeaseStop,
+  deliverabilityGate,
+  sendersUnreadOf,
+  type DeliverabilityGate,
+  type DeliverabilityRun,
+  type LimitsTransport,
+} from './ForgeRunGate.js';
 
 /**
  * The one line of anonymous Apex the read runs: it asks the org to reserve
@@ -102,6 +111,17 @@ export interface DeliverabilityRead {
    */
   requests: number;
 }
+
+/**
+ * What stands for the read in a production org, where the line of Apex is
+ * never run, whatever it costs: Seed's panel writes to one once a person
+ * answered Production Guard, and a dry run reads one. A run that sends asks,
+ * as it does for any org that would not say, and no request was sent.
+ */
+export const NO_APEX_IN_PRODUCTION: DeliverabilityRead = {
+  reading: { unread: 'SandForge runs no Apex in a production org' },
+  requests: 0,
+};
 
 /** A time, as the reason of a read that waited for it says it. */
 function waitWords(ms: number): string {
@@ -276,4 +296,124 @@ export function sendersTheMuteQuiets(
     ).map(key),
   );
   return unmuted.filter((sender) => !muted.has(key(sender)));
+}
+
+/**
+ * The sets of a mute's plan its lease holds once read back: those it
+ * assigned and those the user held already. One it holds neither way leaves
+ * running what it was to keep quiet.
+ */
+export function heldPlanOf(
+  plan: Pick<MutePlan, 'assign'>,
+  held: Pick<MutedAutomation, 'assigned' | 'held'>,
+): Pick<MutePlan, 'assign'> {
+  const holds = new Set([...held.assigned, ...held.held]);
+  return { assign: plan.assign.filter((set) => holds.has(set.permissionSet)) };
+}
+
+/** The parts of the target's automation that send emails, as a read that failed whole leaves them. */
+const SENDING_PARTS = ['flows', 'processes', 'workflowRules'] as const;
+
+/** What a run's emails are judged on, up to its question. */
+export interface RunEmailsInput {
+  /** What the target runs, read before the mute's plan; or why it could not be read, which asks. */
+  read: ForgeTargetAutomation | { unread: string };
+  /** The mute's plan, nothing assigned; absent for a run that does not mute. */
+  plan?: Pick<MutePlan, 'assign'>;
+  /** The writes the run makes, per object. */
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean;
+  /** Whether its writes apply the target's assignment rules, which can mail who they assign. */
+  applyAssignmentRules?: boolean;
+  /** The read of the org's deliverability, as the user the run writes as; made only when something sends. */
+  readDeliverability: () => Promise<DeliverabilityRead>;
+  /** Whether the run came with the accord: `--accept-emails`. A question's answer comes after this gate. */
+  accepted: boolean;
+  /** The org, as the refusal names it. */
+  target: string;
+  run: DeliverabilityRun;
+  /** Whether the records it writes keep their addresses (`DeliverabilityGateInput.keepsAddresses`). */
+  keepsAddresses?: boolean;
+  /** Whether the run's way of being started can mute: its refusal then names `--mute-automation`. */
+  mayMute?: boolean;
+}
+
+/** What a run's emails came to at its gate. */
+export interface RunEmails {
+  /** What may send, and what was read of the org. */
+  ofRun: RunDeliverabilityRead;
+  gate: DeliverabilityGate;
+  /**
+   * Step 8 of the write path for its emails: what the gate was not told of,
+   * once the lease is read back — what a set it does not hold was to keep
+   * quiet — refuses the run before its first write, unless the emails were
+   * accepted or the org withholds them. Nothing without a plan.
+   *
+   * @param held - What the lease holds, read back (`HeldMute.outcome`).
+   * @param accepted - Whether the emails were accepted by then: the flag, or the question's answer.
+   */
+  afterLease(
+    held: Pick<MutedAutomation, 'assigned' | 'held'>,
+    accepted: boolean,
+  ): ReturnType<typeof deliverabilityAfterLeaseStop>;
+}
+
+/**
+ * A run's emails, steps 3 to 5 of its write path: what may send once the
+ * mute's plan holds, the org's deliverability read only when something may
+ * ({@link deliverabilityOfRun}), and what the gate makes of them
+ * (`deliverabilityGate`), for Forge's and Seed's hosts and command lines
+ * alike. A read of the automation that failed lists no sender and leaves
+ * every part that sends unread: the run reads the org and asks, as it does
+ * for a part refused whole.
+ */
+export async function runEmailsOf(input: RunEmailsInput): Promise<RunEmails> {
+  const { plan, writes, applyAssignmentRules, read, target, run } = input;
+  const known = typeof read.unread === 'string' ? undefined : (read as ForgeTargetAutomation);
+  const named = applyAssignmentRules === true ? { applyAssignmentRules } : {};
+  const ofRun = await deliverabilityOfRun({
+    running: known
+      ? stillRunningOf(known, plan, writes)
+      : {
+          automation: {
+            objects: [],
+            unread: SENDING_PARTS.map((part) => ({ part, reason: String(read.unread) })),
+          },
+          firing: [],
+        },
+    ...named,
+    writes,
+    read: input.readDeliverability,
+  });
+  const muteQuiets =
+    input.mayMute === true && plan === undefined && known !== undefined && ofRun.senders.length > 0
+      ? sendersTheMuteQuiets(known, { ...named, writes })
+      : [];
+  const reading = ofRun.read?.reading;
+  return {
+    ofRun,
+    gate: deliverabilityGate({
+      senders: ofRun.senders,
+      ...(ofRun.sendersUnread !== undefined ? { sendersUnread: ofRun.sendersUnread } : {}),
+      ...(reading !== undefined ? { reading } : {}),
+      accepted: input.accepted,
+      target,
+      run,
+      muteQuiets,
+      keepsAddresses: input.keepsAddresses === true,
+    }),
+    afterLease: (held, accepted) => {
+      if (plan === undefined || known === undefined) return undefined;
+      return deliverabilityAfterLeaseStop({
+        planned: ofRun.senders,
+        held: emailSendersOf(stillRunningOf(known, heldPlanOf(plan, held), writes), {
+          ...named,
+          writes,
+        }),
+        ...(reading !== undefined ? { reading } : {}),
+        accepted,
+        target,
+        run,
+      });
+    },
+  };
 }

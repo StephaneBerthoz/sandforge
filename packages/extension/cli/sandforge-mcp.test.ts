@@ -962,6 +962,60 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('hands acceptEmails to a seed and a clone as --accept-emails, never from acceptAutomation, and names it where they are refused for the emails', async () => {
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email). ' +
+      'Nothing was written. Add --accept-emails to seed all the same.';
+    const { run, ran } = scripts(() => ({ code: 1, stderr: `${refusal}\n` }));
+    const c = client(run);
+    await c.initialized();
+
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+    });
+    await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+      acceptEmails: true,
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      acceptAutomation: true,
+    });
+    await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      acceptEmails: true,
+    });
+
+    const named =
+      "--accept-emails, named above, is this tool's acceptEmails: true. Give it only once the " +
+      'person using you has accepted what it lets through.';
+    expect(textOf(seeded)).toContain(named);
+    expect(textOf(cloned)).toContain(named);
+    expect(ran.map((line) => line.args.includes('--accept-emails'))).toEqual([
+      false,
+      true,
+      false,
+      true,
+    ]);
+    expect(ran[2]?.args).toContain('--accept-automation');
+    expect(ran[3]?.args).not.toContain('--accept-automation');
+    await c.close();
+  });
+
   it('says how to take a seed or a clone back, from the run file or the journal its answer names', async () => {
     const { run } = scripts((script) => ({
       stdout: JSON.stringify(

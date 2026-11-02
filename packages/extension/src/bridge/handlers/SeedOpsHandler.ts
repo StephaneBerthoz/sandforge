@@ -8,6 +8,7 @@ import type {
   RunCheckpointInfo,
   RunCheckpointRequest,
   RunCheckpointTaken,
+  RunDeliverability,
   ScenarioCompileOptions,
   ScenarioPack,
   SeedTemplate,
@@ -126,10 +127,18 @@ import {
   CHECKPOINT_REFUSED,
   confirmationApiOf,
   confirmationStorageOf,
+  deliverabilityPartOf,
+  EMAILS_NOT_ACCEPTED,
   formatMB,
   readEmailLimits,
   takeCheckpointFirst,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+  type RunEmails,
+} from '../../modules/forge/targetDeliverability.js';
 import {
   BEFORE_RUN_DELETED_WORDS,
   beforeRunFailedWords,
@@ -180,6 +189,12 @@ interface SeedRunPayload {
   mute?: RunMute;
   /** The fit its counts were taken from, as the audit trail says it. */
   fit?: AuditFit;
+  /**
+   * The emails of what still runs, as its gate judged them, and whether they
+   * were accepted: the lease is checked against them, and the audit trail
+   * says them.
+   */
+  emails?: SeedEmails;
 }
 
 /**
@@ -194,6 +209,29 @@ interface SeedRefusal {
   extraPayload?: Record<string, unknown>;
   /** Set when `operation:failed` follows: whether SandForge worded the refusal (`authored`). */
   failed?: { authored: boolean };
+}
+
+/** A run's emails as its gate judged them, and whether its question's answer accepted them. */
+export interface SeedEmails {
+  read: RunEmails;
+  accepted: boolean;
+}
+
+/**
+ * What the audit trail says of a run's emails: what was read of the org,
+ * and that they were accepted. Nothing when nothing that ran sends one.
+ */
+export function emailsAuditDetails(
+  emails: SeedEmails | undefined,
+): { details: Record<string, string> } | Record<string, never> {
+  const read = emails?.read.gate.audit;
+  if (read === undefined) return {};
+  return {
+    details: {
+      deliverability: read,
+      ...(emails?.accepted === true ? { confirmed: 'emails' } : {}),
+    },
+  };
 }
 
 /**
@@ -218,6 +256,8 @@ export interface SeedCheckpointPlanned {
  * checkpoint it takes first: its scope unread, its take refused, failed, or
  * stopped by its Stop while it read. Nothing was written, and its lease
  * assigned nothing. `refusal` is the take's own, by its code, when it gave one.
+ * So does one whose lease, read back, left running a sender of emails no
+ * question named (`EMAILS_NOT_ACCEPTED`): the lease is given back first.
  */
 export class SeedCheckpointStopped extends Error {
   constructor(
@@ -373,6 +413,28 @@ interface SeedCleared {
   warnings: string[];
   /** The checkpoint the seed takes first, as its question showed it; absent when not asked. */
   checkpoint?: SeedCheckpointPlanned;
+}
+
+/** Why a seed's emails were not accepted, nobody being there to answer: said on the page's channels or as the step's failure. */
+function emailsUnanswered(
+  emails: RunEmails,
+  org: string,
+  unanswered: SeedQuestions['unanswered'],
+): { code: string; message: string } {
+  if (unanswered === 'refuse') {
+    return {
+      code: PIPELINE_SEED_REFUSAL.unanswered,
+      message:
+        `The seed needed an answer before it wrote — ${org} delivers the emails what still ` +
+        'runs sends, or would not say whether it does — and no Approval step before it ' +
+        'approved the run: put one before it. Nothing was written.',
+    };
+  }
+  return {
+    code: EMAILS_NOT_ACCEPTED,
+    message:
+      emails.gate.stop?.message ?? 'The seed was refused for its emails. Nothing was written.',
+  };
 }
 
 /** A seed as the page asks for one: the pipeline's, with what only the page asks. */
@@ -640,6 +702,7 @@ export class SeedOpsHandler implements DomainHandler {
    * @param given - What was read of the org already, or why it could not be:
    *   a run's gate reads it once, before its storage, and a run that mutes
    *   hands what still runs, what its mute keeps quiet held quiet.
+   * @param deliverability - What that gate read of the emails, said as it is.
    */
   private readAutomation(
     orgId: string,
@@ -647,6 +710,7 @@ export class SeedOpsHandler implements DomainHandler {
     objects: readonly string[],
     org: string,
     given?: ForgeTargetAutomation | { unread: string },
+    deliverability?: RunDeliverability,
   ): Promise<SeedAutomationRead> {
     const reader = this.targetAutomation;
     return readSeedAutomation({
@@ -661,6 +725,16 @@ export class SeedOpsHandler implements DomainHandler {
             ? Promise.reject(new Error(given.unread))
             : Promise.resolve(given as ForgeTargetAutomation),
       readLimits: () => readEmailLimits(transport),
+      ...(deliverability ? { deliverability } : {}),
+      // The page's read, ahead of a run, says whether the emails go out too.
+      ...(given === undefined
+        ? {
+            readDeliverability: () =>
+              guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production'
+                ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+                : readEmailDeliverability(transport),
+          }
+        : {}),
     });
   }
 
@@ -1662,7 +1736,31 @@ export class SeedOpsHandler implements DomainHandler {
     if (auditFit) payload.fit = auditFit;
     // What still runs of it once the mute's plan holds, nothing assigned, and
     // the room what it creates takes under the records: what a fit keeps.
-    const stillRunning = seedRoomOf(read, mute?.plan, seedWritesOf(kinds.template, publishes));
+    const writes = seedWritesOf(kinds.template, publishes);
+    const stillRunning = seedRoomOf(read, mute?.plan, writes);
+    // Whether the org delivers the emails of what still runs, read once the
+    // plan says what does and only when something may send one, before the
+    // gates count its requests; asked below, with the seed's one question. A
+    // seed writes the addresses its template holds, and those the faker draws
+    // are on reserved domains, not under .invalid. No Apex runs in a
+    // production org, which this path writes to once a person answered the
+    // guard.
+    const emailsOfRun = await runEmailsOf({
+      read,
+      ...(mute?.plan ? { plan: mute.plan } : {}),
+      writes,
+      readDeliverability: () =>
+        guardTierOf(org) === 'production'
+          ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+          : readEmailDeliverability(conn),
+      accepted: false,
+      target: orgName,
+      run: 'seed',
+      keepsAddresses: true,
+    });
+    const emailsSeen: SeedEmails = { read: emailsOfRun, accepted: false };
+    payload.emails = emailsSeen;
+    const emailsAsked = emailsOfRun.gate.verdict === 'asks';
 
     // The checkpoint asked first, scoped from the objects the seed creates
     // and what still runs as it creates them, the mute's plan holding, so it
@@ -1712,6 +1810,7 @@ export class SeedOpsHandler implements DomainHandler {
       kinds.personObjects,
       org?.alias ?? payload.orgId,
       checkpoint?.planned,
+      deliverabilityPartOf(emailsOfRun.ofRun),
     );
     if (storage.check.verdict === 'unread') {
       warn(
@@ -1785,6 +1884,7 @@ export class SeedOpsHandler implements DomainHandler {
       written.map((o) => o.objectApiName),
       orgName,
       mute?.automation ?? read,
+      emailsOfRun.gate.deliverability,
     );
     const emails = seedEmailGate(automation, written, orgName);
     for (const line of emails.unknown ?? []) warn(line);
@@ -1869,11 +1969,14 @@ export class SeedOpsHandler implements DomainHandler {
     // the page's seed goes on, said in the log as before; a pipeline's is
     // refused, nobody having approved it. A checkpoint asked first is always
     // asked about, its cost that of the target's whole tables, and with
-    // nobody to answer for it the seed is refused, nothing taken.
+    // nobody to answer for it the seed is refused, nothing taken. So are the
+    // emails of an org that delivers them all or would not say: going on is
+    // the accord to send them, and nobody's silence is one.
     if (
       storage.check.verdict === 'unread' ||
       storage.api.verdict === 'near' ||
-      checkpoint !== undefined
+      checkpoint !== undefined ||
+      emailsAsked
     ) {
       const answer = await questions.ask(guard, {
         stage: 'write',
@@ -1888,7 +1991,9 @@ export class SeedOpsHandler implements DomainHandler {
         counted: true,
         ...confirmationApiOf(storage.api),
         ...(checkpoint ? { checkpoint: checkpoint.planned } : {}),
+        ...emailsOfRun.gate.confirmation,
       });
+      if (answer === 'confirmed' && emailsAsked) emailsSeen.accepted = true;
       if (answer === 'declined') {
         recordWriteRun(this.deps, {
           action: 'seed_execute',
@@ -1898,6 +2003,7 @@ export class SeedOpsHandler implements DomainHandler {
           outcome: 'stopped',
           guard: decision,
           code: SEED_WRITE_DECLINED,
+          ...emailsAuditDetails(emailsSeen),
         });
         return {
           refusal: {
@@ -1906,6 +2012,20 @@ export class SeedOpsHandler implements DomainHandler {
             failed: { authored: true },
           },
         };
+      }
+      if (answer === 'unavailable' && emailsAsked) {
+        const refused = emailsUnanswered(emailsOfRun, orgName, questions.unanswered);
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: decision,
+          code: refused.code,
+          ...emailsAuditDetails(emailsSeen),
+        });
+        return { refusal: { ...refused, failed: { authored: true } } };
       }
       if (answer === 'unavailable' && checkpoint !== undefined) {
         recordWriteRun(this.deps, {
@@ -2417,6 +2537,17 @@ export class SeedOpsHandler implements DomainHandler {
         // seed ends, written, failed, stopped or thrown alike.
         const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
         if (held) mutedAutomation = held.outcome;
+        // A set the lease does not hold leaves running what it was to keep
+        // quiet: a sender of it no question named refuses the seed, the lease
+        // given back and nothing written.
+        const relit =
+          held && payload.emails
+            ? payload.emails.read.afterLease(held.outcome, payload.emails.accepted)
+            : undefined;
+        if (held && relit) {
+          mutedAutomation = await held.release();
+          throw new SeedCheckpointStopped(relit.code, relit.message);
+        }
         result = await orchestrator.execute(template, payload.orgId, runId).finally(async () => {
           if (held) mutedAutomation = await held.release();
         });
@@ -2518,6 +2649,7 @@ export class SeedOpsHandler implements DomainHandler {
           ? { checkpointId: result.checkpoint.checkpointId }
           : {}),
         ...(payload.fit ? { fit: payload.fit } : {}),
+        ...emailsAuditDetails(payload.emails),
       });
 
       const response = buildResponse(
@@ -2549,18 +2681,20 @@ export class SeedOpsHandler implements DomainHandler {
           ? `${extractErrorMessage(err)} ${BEFORE_RUN_DELETED_WORDS}`
           : undefined;
       const failed = said !== undefined ? new Error(said) : err;
-      // Stopped for its checkpoint before its first write: nothing was
-      // written and nothing assigned, recorded as stopped under its code, the
-      // take's own beside it, which the page words. Its Stop during the take
-      // ends it as a stopped seed ends.
+      // Stopped for its checkpoint, or by what the lease did not hold, before
+      // its first write: nothing was written and nothing stays assigned,
+      // recorded as stopped under its code, the take's own beside it, which
+      // the page words. Its Stop during the take ends it as a stopped seed
+      // ends.
       if (err instanceof SeedCheckpointStopped) {
         if (err.code === RUN_CANCELLED) {
           this.registry?.abort(operationId);
           sendOperationCompleted(this.deps, operationId, { aborted: true, totalRecords: 0 });
           this.liveTracker?.cancel(operationId);
         } else {
-          this.liveTracker?.fail(operationId, err.message);
-          sendOperationFailed(this.deps, operationId, err.message, false, {
+          const message = extractErrorMessage(failed);
+          this.liveTracker?.fail(operationId, message);
+          sendOperationFailed(this.deps, operationId, message, false, {
             context: failure,
             authored: true,
           });
@@ -2574,9 +2708,16 @@ export class SeedOpsHandler implements DomainHandler {
           outcome: 'stopped',
           guard: guardDecision,
           code: err.code,
-          ...(takeRefusal !== undefined ? { details: { checkpointRefusal: takeRefusal } } : {}),
+          ...(takeRefusal !== undefined || payload.emails?.read.gate.audit !== undefined
+            ? {
+                details: {
+                  ...emailsAuditDetails(payload.emails).details,
+                  ...(takeRefusal !== undefined ? { checkpointRefusal: takeRefusal } : {}),
+                },
+              }
+            : {}),
         });
-        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, failed, {
           code: err.code,
           retryable: false,
           ...(takeRefusal !== undefined
@@ -2600,6 +2741,7 @@ export class SeedOpsHandler implements DomainHandler {
         source,
         ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
         ...(payload.fit ? { fit: payload.fit } : {}),
+        ...emailsAuditDetails(payload.emails),
       });
       // Dual channel, single display (see handleExecute): seed:error settles
       // the in-flight webview mutation, operation:failed carries the

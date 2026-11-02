@@ -68,6 +68,7 @@ import {
 } from '../forge/ForgeRunGate.js';
 import {
   deliverabilityOfRun,
+  heldPlanOf,
   sendersTheMuteQuiets,
   type DeliverabilityRead,
   type RunDeliverabilityRead,
@@ -434,19 +435,6 @@ export async function actDeliverability(
       ...(ofRun.read !== undefined ? { reading: ofRun.read.reading } : {}),
     }),
   };
-}
-
-/**
- * The sets of a mute's plan its lease holds once read back: those it
- * assigned and those the user held already. One it holds neither way leaves
- * running what it was to keep quiet.
- */
-export function heldPlanOf(
-  plan: Pick<MutePlan, 'assign'>,
-  held: Pick<MutedAutomation, 'assigned' | 'held'>,
-): Pick<MutePlan, 'assign'> {
-  const holds = new Set([...held.assigned, ...held.held]);
-  return { assign: plan.assign.filter((set) => holds.has(set.permissionSet)) };
 }
 
 /**

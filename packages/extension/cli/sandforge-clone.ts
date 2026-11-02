@@ -244,6 +244,8 @@ import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
   automationRefusal,
+  deliverabilityPartOf,
+  EMAILS_NOT_ACCEPTED,
   bypassesToAssign,
   countedEmailChecksOf,
   emailCheckLines,
@@ -315,6 +317,11 @@ import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFinge
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { auditMutedOf, stillRunningOf, type MutedAutomation } from '@sandforge/shared';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+} from '../src/modules/forge/targetDeliverability.js';
 import type {
   RunCheckpointEstimate,
   RunCheckpointInfo,
@@ -402,6 +409,12 @@ export interface CliArgs {
    * records, or could not say what it runs (`--accept-automation`).
    */
   acceptAutomation: boolean;
+  /**
+   * Write although the target delivers every email what still runs sends, or
+   * would not say whether it does (`--accept-emails`). `--accept-automation`
+   * never stands for it: it is the flag a CI script passes on every run.
+   */
+  acceptEmails: boolean;
   /**
    * Mute the target's automation for the run through its own bypass
    * (`--mute-automation`): the permission sets holding it assigned to the
@@ -617,6 +630,21 @@ Options:
                          triggers as the clone inserts, or as it updates the
                          records it inserted, or could not say what it runs
                                                                 (default: off)
+  --accept-emails        write although the target delivers every email of
+                         what still runs as the clone writes, or would not say
+                         whether it does; --accept-automation never stands for
+                         it. Asked only when what still runs sends one: flows,
+                         processes and workflow rules with an email action,
+                         those whose definition was not read, and the
+                         assignment rules --apply-assignment-rules applies,
+                         whatever --mute-automation leaves. Whether the org
+                         delivers them is read with one line of anonymous Apex
+                         that sends nothing,
+                         Messaging.reserveSingleEmailCapacity(1), as the user
+                         the run writes as, never in a production org; on
+                         System email only or No access, none of them goes
+                         out and nothing is asked. What an Apex trigger sends
+                         is read nowhere                        (default: off)
   --mute-automation      mute the target's automation for the run through its
                          own bypass: assign the user the run writes as, for the
                          run alone, the permission sets holding the custom
@@ -891,7 +919,9 @@ Exit codes:
      or its files were refused; the target is a production org; the target
      runs automation on insert or on the updates the clone makes after its
      inserts, or the removal's deletes fire automation, and
-     --accept-automation was not given; the run would write more than
+     --accept-automation was not given; the target delivers the emails of
+     what still runs, or would not say whether it does, and --accept-emails
+     was not given (EMAILS_NOT_ACCEPTED); the run would write more than
      --max-total records, or more than the target's data storage has left
      (nothing is written or deleted then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
@@ -1247,6 +1277,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--dry-run',
     '--rehearse',
     '--accept-automation',
+    '--accept-emails',
     '--mute-automation',
     '--upsert',
     '--expand-orphans',
@@ -1675,6 +1706,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     remapCsv: remapCsvArg(args),
     files,
     acceptAutomation: has('--accept-automation'),
+    acceptEmails: has('--accept-emails'),
     muteAutomation: has('--mute-automation'),
     ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     maxTotal,
@@ -6595,27 +6627,64 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   });
   runAudit().automationRead({ automation: gated }, updated);
   if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
+  // Whether the target delivers the emails of what still runs, read once the
+  // mute's plan says what does, and only when something may send one, as the
+  // user the run writes as. A rehearsal is left out: its emails never leave
+  // the call that fails on purpose. No Apex runs in a production org, which a
+  // dry run reads: it is typed for it here, the one read a run with nothing
+  // to send does not pay for.
+  const emails = args.rehearse
+    ? undefined
+    : await runEmailsOf({
+        read: targetAutomation,
+        ...(mute?.plan ? { plan: mute.plan } : {}),
+        writes: runWrites,
+        applyAssignmentRules: args.applyAssignmentRules,
+        readDeliverability: async () => {
+          const org = conns.get(args.target)!;
+          const typed = typedTarget ?? (await typeOrg(org));
+          return productionRefusal(args.target, typed, 'clone') !== undefined
+            ? NO_APEX_IN_PRODUCTION
+            : readEmailDeliverability(org);
+        },
+        accepted: args.acceptEmails,
+        target: args.target,
+        run: 'clone',
+        keepsAddresses: args.keepContactPoints,
+        mayMute: !muteAutomation,
+      });
+  if (emails?.gate.line !== undefined) say(`  ${emails.gate.line}`);
+  runAudit().emailsRead(emails?.gate.audit);
+  if (emails?.gate.verdict === 'asks' && args.acceptEmails) runAudit().confirm('emails');
+  const emailsStop = emails?.gate.stop;
   /**
    * What a dry run says a real run would be refused for, each in its own
    * words: given with --json under `wouldBeRefused`, where a pipeline reads
    * it, as the lines say it on stderr.
    */
   const dryRunRefusals: string[] = muteRefused !== undefined ? [muteRefused] : [];
-  if (automationStop && !args.acceptAutomation) {
-    if (!args.dryRun) {
-      recordClone({
-        outcome: 'stopped',
-        code: 'AUTOMATION_NOT_ACCEPTED',
-        context: runAudit().context(),
-      });
-      process.stderr.write(`${automationStop}\n`);
-      process.exit(1);
-    }
+  const notAccepted = automationStop !== undefined && !args.acceptAutomation;
+  if ((notAccepted || emailsStop) && !args.dryRun) {
+    recordClone({
+      outcome: 'stopped',
+      code: notAccepted ? 'AUTOMATION_NOT_ACCEPTED' : EMAILS_NOT_ACCEPTED,
+      context: runAudit().context(),
+    });
+    // Both at once: a CI job told of one, then of the other, runs twice.
+    if (notAccepted) process.stderr.write(`${automationStop}\n`);
+    if (emailsStop) process.stderr.write(`${emailsStop.message}\n`);
+    process.exit(1);
+  }
+  if (notAccepted) {
     dryRunRefusals.push(automationStop);
     say(
       '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
         'and updates, or could not be read, above',
     );
+  }
+  if (emailsStop) {
+    dryRunRefusals.push(emailsStop.message);
+    say(`  a real run would be refused: ${emailsStop.message}`);
   }
   await stopIfInterrupted();
 
@@ -7008,6 +7077,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       updatedAfterInsert: [...updatedNames],
       ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
       ...(checkpointPlanned ? { checkpoint: checkpointPlanned.estimate } : {}),
+      ...deliverabilityPartOf(emails?.ofRun),
       budget,
       target: args.target,
     });
@@ -7140,8 +7210,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // run: flows, triggers, processes and workflow rules per object, what of
     // them sends messages or runs after commit, the assignment and duplicate
     // rules, the custom permissions that keep a flow quiet and whether the
-    // user the run writes as holds them, and what could not be read.
-    targetAutomation,
+    // user the run writes as holds them, and what could not be read; and
+    // whether it delivers the emails of what still runs, read only when
+    // something may send one.
+    targetAutomation: emails?.ofRun.read
+      ? { ...targetAutomation, deliverability: emails.ofRun.read.reading }
+      : targetAutomation,
     // What the run muted of it, asked with --mute-automation: the permission
     // sets assigned to its user for the run, what they silenced, what still
     // ran, what they lifted beside, and whether they were taken back. Of a
@@ -7339,6 +7413,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
     held = lease;
     mutedAutomation = lease.outcome;
+    // A set the lease does not hold leaves running what it was to keep quiet:
+    // a sender of it the run was not refused for refuses it now, and the
+    // run's end gives the lease back, nothing written.
+    const relit = emails?.afterLease(lease.outcome, args.acceptEmails);
+    if (relit) throw new ForgeRunGateError(relit.code, relit.message);
     return {
       lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
     };

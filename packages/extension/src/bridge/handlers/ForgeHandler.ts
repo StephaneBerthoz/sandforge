@@ -125,6 +125,7 @@ import {
   largeVolumeThreshold,
 } from '../../core/precheck/ProductionGuard.js';
 import type {
+  AutomationConfirmation,
   OperationRequest,
   ProductionGuard,
   SafetyTier,
@@ -139,6 +140,7 @@ import {
   confirmationStorageOf,
   confirmationSimulatedOf,
   countedEmailChecksOf,
+  deliverabilityPartOf,
   emailsUncountedOf,
   firedOnInsertOf,
   firedOnUpdateOf,
@@ -170,6 +172,14 @@ import {
   type SimulatedWrite,
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
+import {
+  DELIVERABILITY_TIMEOUT_MS,
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+  type DeliverabilityRead,
+  type RunEmails,
+} from '../../modules/forge/targetDeliverability.js';
 import { recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
@@ -2357,6 +2367,10 @@ export class ForgeHandler implements DomainHandler {
     let checkpointTaken: RunCheckpointTaken | undefined;
     /** Of a simulation asked for one, what the checkpoint would hold and cost. */
     let checkpointEstimate: RunCheckpointEstimate | undefined;
+    /** The emails of what still runs, as the run's automation question judged them; absent on a simulation. */
+    let emails: RunEmails | undefined;
+    /** Whether a person answered that question, with the emails in it, by going on. */
+    let emailsAccepted = false;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2466,14 +2480,46 @@ export class ForgeHandler implements DomainHandler {
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
         }
         audit.automationRead(automation, updated);
+        // Whether the target delivers the emails of what still runs, read
+        // once the plan says what does and only when something may send one,
+        // and judged at the question that follows, before the rows are read:
+        // refused only then, a run read for ten minutes first. Read on every
+        // run, never kept: an admin can change it at any time.
+        emails = await runEmailsOf({
+          read: 'automation' in read ? read.automation : read,
+          ...(mutePlan ? { plan: mutePlan } : {}),
+          writes,
+          applyAssignmentRules: config.applyAssignmentRules === true,
+          readDeliverability: () =>
+            this.readDeliverability(config.targetOrgId, runController.signal),
+          accepted: false,
+          target: targetName,
+          run: 'clone',
+          keepsAddresses: config.keepContactPoints === true,
+        });
+        lookup.requests += emails.ofRun.read?.requests ?? 0;
+        if (runController.signal.aborted) {
+          stoppedBeforeStart = true;
+          throw new Error(ABORTED_BEFORE_START_MESSAGE);
+        }
+        audit.emailsRead(emails.gate.audit);
         const automationAnswer = await this.confirmAutomation(
           guard,
           { orgId: config.targetOrgId, org: targetName, orgTier, username: targetOrg?.username },
           automation,
           updated,
           reviewSkipped === true,
+          emails.gate.confirmation,
         );
-        if (automationAnswer === 'confirmed') audit.confirm('automation');
+        if (automationAnswer === 'confirmed') {
+          audit.confirm('automation');
+          // The question held the emails: going on is the accord to send
+          // them, which nothing else gives.
+          if (emails.gate.verdict === 'asks') {
+            emailsAccepted = true;
+            audit.confirm('emails');
+          }
+        }
         guardDecision = strongerDecision(guardDecision, automationAnswer);
         // The tables the run reads with no cap past the most rows of one
         // object it reads, put to the user before the first is read: a run of
@@ -2640,6 +2686,7 @@ export class ForgeHandler implements DomainHandler {
         lookup,
         emailsPerInsert,
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
+        ...deliverabilityPartOf(emails?.ofRun),
         mayBeInTarget,
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         updatedAfterInsert: [...updatedNames],
@@ -2712,6 +2759,11 @@ export class ForgeHandler implements DomainHandler {
             const lease = await mute.acquire(operationId);
             held = lease;
             mutedAutomation = lease.outcome;
+            // A set the lease does not hold leaves running what it was to keep
+            // quiet: a sender of it no question named refuses the run, and
+            // the end of the run gives the lease back, nothing written.
+            const relit = emails?.afterLease(lease.outcome, emailsAccepted);
+            if (relit) throw new ForgeRunGateError(relit.code, relit.message);
             return {
               lease: { assigned: lease.outcome.assigned.length, giveBack: () => lease.release() },
             };
@@ -3446,6 +3498,10 @@ export class ForgeHandler implements DomainHandler {
    * @param target - The org's id, the org as the user knows it, its tier, and
    *   the user the run writes as, whom a bypass's command assigns it to.
    * @param reviewSkipped - Whether the run was started with Clone directly.
+   * @param emails - What the question says of the emails when the target
+   *   delivers them all or would not say: asked whatever else fires, and
+   *   going on is the accord to send them. Empty when nothing sends, or the
+   *   target sends none of them.
    * @returns The decision recorded with the run: `confirmed` once a person
    *   answered, `allowed` when nothing was asked.
    * @throws ForgeRunGateError when the user declines, or nobody can be asked.
@@ -3456,6 +3512,7 @@ export class ForgeHandler implements DomainHandler {
     read: { automation: ForgeTargetAutomation; reused: boolean } | { unread: string },
     updated: readonly UpdatedAfterInsert[],
     reviewSkipped: boolean,
+    emails: Pick<AutomationConfirmation, 'deliverability'> = {},
   ): Promise<GuardDecision> {
     const known = 'automation' in read ? read.automation : undefined;
     const updatedNames = updated.map((object) => object.objectApiName);
@@ -3473,7 +3530,8 @@ export class ForgeHandler implements DomainHandler {
     });
     const quiet = fired.length === 0 && firedOnUpdate.length === 0 && unread.length === 0;
     const removal = known ? removalRisksOf(known) : [];
-    if (quiet && !(reviewSkipped && removal.length > 0)) return 'allowed';
+    const sends = emails.deliverability !== undefined;
+    if (quiet && !sends && !(reviewSkipped && removal.length > 0)) return 'allowed';
     // Asked for the removal alone, the question holds its lines alone: no
     // bypass to name, and no command to copy for a flow that does not fire.
     const bypass = known && !quiet ? runBypassesOf(known, updatedNames) : [];
@@ -3500,13 +3558,14 @@ export class ForgeHandler implements DomainHandler {
           : [],
       // What may refuse taking the run back, said where the user decides on it.
       ...(removal.length > 0 ? { removal } : {}),
+      ...emails,
     });
     if (answer === 'confirmed') return 'confirmed';
     this.readAutomationAgain(target.orgId);
     throw answer === 'declined'
       ? new ForgeRunGateError(
           'AUTOMATION_DECLINED',
-          quiet
+          quiet && !sends
             ? 'Forge execution was cancelled at the confirmation of what may refuse a removal ' +
                 'of the records it creates. Nothing was read or written.'
             : 'Forge execution was cancelled at the confirmation of what the target org runs as ' +
@@ -3705,6 +3764,8 @@ export class ForgeHandler implements DomainHandler {
     updatedAfterInsert?: readonly string[];
     /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
     checkpoint?: WriteGateCheckpoint;
+    /** What the read of whether the target delivers its emails sent: counted with the run's. */
+    deliverability?: number;
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<void> {
     const first = run.checkpoint;
@@ -3801,6 +3862,7 @@ export class ForgeHandler implements DomainHandler {
         ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
         ...(boundary.readBack !== undefined ? { readBack: boundary.readBack } : {}),
         ...(estimate ? { checkpoint: estimate } : {}),
+        ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
         budget,
         target: run.org,
       });
@@ -6813,7 +6875,7 @@ export class ForgeHandler implements DomainHandler {
         this.targetAutomation!.readForGraph(targetOrgId, graph),
       );
       this.keepAutomationRead(targetOrgId, graph, read);
-      const automation = await read;
+      const automation = await this.withDeliverability(targetOrgId, graph, await read);
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:automation:response', { automation }),
       );
@@ -6839,6 +6901,73 @@ export class ForgeHandler implements DomainHandler {
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
+  }
+
+  /**
+   * Whether the target delivers its emails, as the user the run writes as:
+   * within the read's time, the connection's wait among it, and until the
+   * run's Stop, which reaches a run still at its gate.
+   */
+  private async readDeliverability(
+    targetOrgId: string,
+    signal?: AbortSignal,
+  ): Promise<DeliverabilityRead> {
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error(ABORTED_BEFORE_START_MESSAGE));
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([
+        new TimeoutManager(DELIVERABILITY_TIMEOUT_MS).withTimeout(
+          'forge:deliverability',
+          async () =>
+            readEmailDeliverability(
+              await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager),
+            ),
+        ),
+        aborted,
+      ]);
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  /**
+   * What Review says of `automation`: with it, whether the target delivers
+   * the emails of what fires, read only when something may send one. The read
+   * kept for the run does not hold it: the run reads the org again. No Apex
+   * runs in a production org, which Review may be asked to read.
+   */
+  private async withDeliverability(
+    targetOrgId: string,
+    graph: ForgeGraph,
+    automation: ForgeTargetAutomation,
+  ): Promise<ForgeTargetAutomation> {
+    const org = this.deps.orgManager.getOrg(targetOrgId);
+    const updated = objectsUpdatedAfterInsert(graph, {
+      leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+    });
+    const updatedNames = new Set(updated.map((object) => object.objectApiName));
+    const { ofRun } = await runEmailsOf({
+      read: automation,
+      writes: (objectApiName, write) =>
+        write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
+      readDeliverability: () =>
+        guardTierOf(org) === 'production'
+          ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+          : this.readDeliverability(targetOrgId),
+      accepted: false,
+      target: org?.alias ?? targetOrgId,
+      run: 'clone',
+    });
+    return ofRun.read
+      ? {
+          ...automation,
+          deliverability: ofRun.read.reading,
+          requests: automation.requests + ofRun.read.requests,
+        }
+      : automation;
   }
 
   /**

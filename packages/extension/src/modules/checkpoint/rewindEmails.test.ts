@@ -10,11 +10,11 @@ import {
   checkpointEmailsUncounted,
   emailsRefusal,
   emailsUncountedWords,
-  heldPlanOf,
   writtenByDiff,
   writtenByPlan,
   writtenByUndo,
 } from './rewindEmails.js';
+import { heldPlanOf } from '../forge/targetDeliverability.js';
 
 /** A flow that sends `emails` on the writes it starts on. */
 function flow(

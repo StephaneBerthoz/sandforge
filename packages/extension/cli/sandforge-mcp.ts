@@ -407,7 +407,9 @@ export const TOOLS: readonly ServedTool[] = [
       'seeds them, the largest share of every count that fits, and fitWithinMB holds the run to ' +
       'fewer MB still. checkpointFirst takes a checkpoint of what the run writes before its ' +
       'first write, and a dry run says what it would hold and cost. dryRun: false writes, a ' +
-      'production org refused, and needs confirm. The answer names the run file, which ' +
+      'production org refused, and needs confirm. acceptEmails lets it write although the org ' +
+      'delivers every email what still runs sends, or would not say whether it does. The ' +
+      'answer names the run file, which ' +
       'run_remove with module "seed" takes the run back from, and the checkpoint it took, which ' +
       'checkpoint_rewind returns the org to.',
     readOnly: false,
@@ -454,6 +456,11 @@ export const TOOLS: readonly ServedTool[] = [
           .optional()
           .describe('With fit: take no more than this many MB, whatever the org has left.'),
         checkpointFirst: checkpointFirst('the seed'),
+        acceptEmails: acceptance(
+          'Write although the org delivers every email of what still runs as the records go ' +
+            'in, or would not say whether it does: only once the person using you has accepted ' +
+            'that these emails go out.',
+        ),
         confirm: confirmOf('org').optional(),
       })
       .refine((args) => args.fitWithinMB === undefined || args.fit !== undefined, {
@@ -463,6 +470,7 @@ export const TOOLS: readonly ServedTool[] = [
     writesTo: (args) => (args.dryRun ? undefined : args.org),
     writes: 'creates the records of the seed in it',
     readFirst: 'a dry run of the same seed says what it would write and meet',
+    flags: { '--accept-emails': 'acceptEmails' },
     after: (args, answer) =>
       args.dryRun ? [] : [...removalHint('seed', answer), ...rewindHint(answer)],
     run: (args) => ({
@@ -475,6 +483,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.dryRun ? ['--dry-run'] : []),
         ...(args.fit !== undefined ? ['--fit', args.fit] : []),
         ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],
@@ -490,7 +499,9 @@ export const TOOLS: readonly ServedTool[] = [
       "stop a real run — the target's automation, its data storage, the emails its flows send — " +
       'and writes nothing. dryRun: false writes into target, a sandbox or a Developer Edition ' +
       'only, and needs confirm, the alias of target. acceptAutomation lets it write although the ' +
-      'target runs automation as the records go in. checkpointFirst takes a checkpoint of what ' +
+      'target runs automation as the records go in; acceptEmails, although the target delivers ' +
+      'every email what still runs sends, or would not say whether it does, which ' +
+      'acceptAutomation never stands for. checkpointFirst takes a checkpoint of what ' +
       'the clone writes before its first write, and a dry run says what it would hold and cost. ' +
       'The answer names the run journal, which run_remove with module "forge" takes the run back ' +
       'from, and the checkpoint it took, which checkpoint_rewind returns the org to.',
@@ -526,12 +537,17 @@ export const TOOLS: readonly ServedTool[] = [
           'records go in, or would not say what it runs: only once the person using you has ' +
           'accepted what the dry run named.',
       ),
+      acceptEmails: acceptance(
+        'Write although the target delivers every email of what still runs as the records go ' +
+          'in, or would not say whether it does. acceptAutomation never stands for it. Only ' +
+          'once the person using you has accepted that these emails go out.',
+      ),
       checkpointFirst: checkpointFirst('the clone'),
     }),
     writesTo: (args) => (args.dryRun ? undefined : args.target),
     writes: 'creates the records of the clone in it',
     readFirst: 'a dry run of the same clone says what it would write and meet',
-    flags: { '--accept-automation': 'acceptAutomation' },
+    flags: { '--accept-automation': 'acceptAutomation', '--accept-emails': 'acceptEmails' },
     after: (args, answer) =>
       args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)],
     run: (args) => ({
@@ -551,6 +567,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.maxNodes !== undefined ? ['--max-nodes', String(args.maxNodes)] : []),
         ...(args.dryRun ? ['--dry-run'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         ...checkpointFirstLine(args.checkpointFirst),
         '--json',
       ],

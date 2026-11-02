@@ -13,8 +13,10 @@ import { deliverabilityAfterLeaseStop, deliverabilityGate } from './ForgeRunGate
 import {
   DELIVERABILITY_APEX,
   EMAIL_NOT_PERMITTED,
+  NO_APEX_IN_PRODUCTION,
   deliverabilityOfRun,
   readEmailDeliverability,
+  runEmailsOf,
   sendersTheMuteQuiets,
   type DeliverabilityRead,
 } from './targetDeliverability.js';
@@ -537,5 +539,185 @@ describe('the deliverability read on a run’s write path', () => {
     expect(stop).toContain('flow "Welcome email"');
     expect(events).toContain('leaseRelease');
     expect(writePathOrderDefects(events)).toEqual([]);
+  });
+});
+
+describe('runEmailsOf', () => {
+  /** What a run hands the gate, the org's read counted. */
+  const input = (org: ReturnType<typeof orgAnswering>) => {
+    const { counter, read } = countedRead(org);
+    return {
+      counter,
+      asked: {
+        read: TRAP,
+        writes: inserts,
+        readDeliverability: read,
+        accepted: false,
+        target: 'TGT',
+        run: 'clone' as const,
+      },
+    };
+  };
+
+  it('says nothing and reads nothing when the mute’s plan keeps every sender quiet', async () => {
+    const { counter, asked } = input(orgAnswering(OPEN));
+
+    const emails = await runEmailsOf({ ...asked, plan: mutePlanOf(TRAP, inserts) });
+
+    expect(counter.reads).toBe(0);
+    expect(emails.gate).toEqual({ verdict: 'nothingSends', confirmation: {} });
+    expect(emails.ofRun).toEqual({ senders: [] });
+  });
+
+  it('refuses a run that does not mute on All email, naming the mute for what it can quiet', async () => {
+    const { asked } = input(orgAnswering(OPEN));
+
+    const emails = await runEmailsOf({ ...asked, mayMute: true });
+
+    expect(emails.gate.verdict).toBe('asks');
+    expect(emails.gate.audit).toBe('all');
+    expect(emails.gate.stop?.message).toContain(
+      '--mute-automation keeps quiet workflow rule "Welcome rule" and flow "Welcome email" on Contact',
+    );
+  });
+
+  it('never names the mute for a run that cannot be given it, nor for one that mutes', async () => {
+    const withoutIt = await runEmailsOf(input(orgAnswering(OPEN)).asked);
+    expect(withoutIt.gate.stop?.message).not.toContain('--mute-automation');
+
+    const running = automation([
+      { objectApiName: 'Contact', flows: [flow({ messages: SEND_WELCOME })], triggers: [] },
+    ]);
+    const muting = await runEmailsOf({
+      ...input(orgAnswering(OPEN)).asked,
+      read: running,
+      plan: { assign: [] },
+      mayMute: true,
+    });
+    expect(muting.gate.verdict).toBe('asks');
+    expect(muting.gate.stop?.message).not.toContain('--mute-automation');
+  });
+
+  it('says where the emails go by whether the run keeps the addresses it writes', async () => {
+    const neutralized = await runEmailsOf(input(orgAnswering(OPEN)).asked);
+    expect(neutralized.gate.stop?.message).toContain('those this clone writes are under .invalid');
+
+    const kept = await runEmailsOf({ ...input(orgAnswering(OPEN)).asked, keepsAddresses: true });
+    expect(kept.gate.stop?.message).toContain(
+      'those of the records this clone writes, as they hold them',
+    );
+    expect(kept.gate.stop?.message).not.toContain('.invalid');
+  });
+
+  it('counts the assignment rules a run applies, and only then', async () => {
+    const rules = automation([
+      {
+        objectApiName: 'Case',
+        flows: [],
+        triggers: [],
+        assignmentRules: [{ name: 'Route cases' }],
+      },
+    ]);
+    const { asked, counter } = input(orgAnswering(OPEN));
+
+    const left = await runEmailsOf({ ...asked, read: rules });
+    expect(left.gate.verdict).toBe('nothingSends');
+    expect(counter.reads).toBe(0);
+
+    const applied = await runEmailsOf({ ...asked, read: rules, applyAssignmentRules: true });
+    expect(applied.ofRun.senders).toEqual([
+      { objectApiName: 'Case', kind: 'assignmentRule', name: 'Route cases', why: 'assignment' },
+    ]);
+    expect(counter.reads).toBe(1);
+  });
+
+  it('reads the org and asks when the automation could not be read at all, which lists no sender', async () => {
+    const { asked, counter } = input(orgAnswering(OPEN));
+
+    const emails = await runEmailsOf({ ...asked, read: { unread: 'the org did not answer' } });
+
+    expect(counter.reads).toBe(1);
+    expect(emails.ofRun.senders).toEqual([]);
+    expect(emails.gate.verdict).toBe('asks');
+    expect(emails.gate.deliverability?.sendersUnread).toContain(
+      "the target's flows: the org did not answer",
+    );
+    expect(emails.gate.stop?.code).toBe('EMAILS_NOT_ACCEPTED');
+  });
+
+  it('asks of an org it was told not to read, sending nothing: no Apex runs in a production org', async () => {
+    const org = orgAnswering(OPEN);
+    const emails = await runEmailsOf({
+      ...input(org).asked,
+      readDeliverability: () => Promise.resolve(NO_APEX_IN_PRODUCTION),
+    });
+
+    expect(org.urls).toEqual([]);
+    expect(emails.gate.verdict).toBe('asks');
+    expect(emails.gate.deliverability?.reading).toEqual({
+      unread: 'SandForge runs no Apex in a production org',
+    });
+    expect(emails.ofRun.read?.requests).toBe(0);
+  });
+
+  describe('after the lease', () => {
+    const plan = mutePlanOf(TRAP, inserts);
+    const set = plan.assign[0]?.permissionSet ?? '';
+    const held = { assigned: [set], held: [] };
+
+    it('has nothing to say of a lease that holds its plan, or of a run with no plan', async () => {
+      const { asked } = input(orgAnswering(OPEN));
+      const muted = await runEmailsOf({ ...asked, plan });
+      expect(muted.afterLease(held, false)).toBeUndefined();
+
+      const unmuted = await runEmailsOf({ ...asked, accepted: true });
+      expect(unmuted.afterLease({ assigned: [], held: [] }, false)).toBeUndefined();
+    });
+
+    it('refuses a sender a set not held left running, unless the emails were accepted', async () => {
+      const { asked } = input(orgAnswering(OPEN));
+      const muted = await runEmailsOf({ ...asked, plan });
+
+      const stop = muted.afterLease({ assigned: [], held: [] }, false);
+
+      expect(stop?.code).toBe('EMAILS_NOT_ACCEPTED');
+      expect(stop?.relit.map((sender) => sender.name)).toEqual(['Welcome rule', 'Welcome email']);
+      expect(muted.afterLease({ assigned: [], held: [] }, true)).toBeUndefined();
+    });
+
+    it('takes a set the user held already for held', async () => {
+      const { asked } = input(orgAnswering(OPEN));
+      const muted = await runEmailsOf({ ...asked, plan });
+
+      expect(muted.afterLease({ assigned: [], held: [set] }, false)).toBeUndefined();
+    });
+
+    it('lets a closed org through: none of what the lease left running goes out', async () => {
+      const sending = automation(
+        [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              bypassed({
+                label: 'Welcome email',
+                apiName: 'Welcome_Email',
+                messages: SEND_WELCOME,
+              }),
+              flow({ apiName: 'Left', label: 'Left running', messages: SEND_WELCOME }),
+            ],
+            triggers: [],
+          },
+        ],
+        { bypassGrants: TRAP.bypassGrants ?? [] },
+      );
+      const emails = await runEmailsOf({
+        ...input(orgAnswering(CLOSED)).asked,
+        read: sending,
+        plan: mutePlanOf(sending, inserts),
+      });
+
+      expect(emails.gate.verdict).toBe('withheld');
+      expect(emails.afterLease({ assigned: [], held: [] }, false)).toBeUndefined();
+    });
   });
 });

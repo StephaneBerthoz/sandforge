@@ -50,6 +50,14 @@ describe('seedStorageBytes', () => {
 });
 
 describe('seedStorageGate', () => {
+  it('counts what the read of the target’s deliverability sent with the seed’s requests, a part of its own', async () => {
+    const gate = await seedStorageGate(limits(5, 5), CRM_STARTER, [], 'my-dev-org', undefined, {
+      deliverability: 2,
+    });
+
+    expect(gate.api).toMatchObject({ parts: { deliverability: 2 } });
+  });
+
   it('refuses a seed past the storage the org has left, naming both, before anything is written', async () => {
     // The gallery's first template took about 15 MB of a Developer Edition's 5.
     const gate = await seedStorageGate(limits(5, 5), SALES_CLOUD_STARTER, [], 'my-dev-org');
