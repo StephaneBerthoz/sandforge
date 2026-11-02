@@ -90,6 +90,12 @@ export interface AutopilotNode {
    */
   pricesSettled?: PriceCurrencySettled[];
   /**
+   * Of a plan fitted to the target's storage, the records read that had come
+   * to name a record the fit cut, since it chose them: held back with that
+   * record, neither written nor refused.
+   */
+  cutSinceFit?: number;
+  /**
    * The record type the target gives the records of the object the run
    * creates without one: predicted in the plan, read back once written.
    * Absent when there is nothing to say.
@@ -331,14 +337,42 @@ export interface AutopilotFitObject {
 /**
  * A lookup a fit leaves empty on records it keeps, and why: `selfReference`,
  * the record it names in its own object was cut (`ParentId`); `owed`, the
- * lookup of a cycle filled in after its wave, whose record was cut.
+ * lookup of a cycle filled in after its wave, whose record was cut;
+ * `onParent`, a lookup of a record read by id, which the kept records name,
+ * at a record of a selected object that was cut.
  */
 export interface AutopilotFitEmptied {
   readonly objectApiName: ApiName;
   readonly field: string;
   readonly count: number;
-  readonly why: 'selfReference' | 'owed';
+  readonly why: 'selfReference' | 'owed' | 'onParent';
 }
+
+/**
+ * What held a fit: what the target has left of its storage, the bound asked
+ * of the fit (`withinMB`), the day's API requests, the most records the run
+ * may write (`--max-total`), the caps asked; `whole` when nothing was cut.
+ */
+export type AutopilotFitHeldBy =
+  'storage' | 'within' | 'apiRequests' | 'maxTotal' | 'caps' | 'whole';
+
+/** The bound the least a plan can be cut to, or its caps, stay past: what it takes, and what fits. */
+export type AutopilotFitOver =
+  | { readonly bound: 'storage'; readonly takesMB: number; readonly fitsMB: number }
+  | { readonly bound: 'apiRequests'; readonly requests: number; readonly allowed: number }
+  | { readonly bound: 'maxTotal'; readonly records: number; readonly allowed: number };
+
+/**
+ * Why a fit proposes nothing, in the figures it measured, for a page to word:
+ * `sourceChanged`, the source holds what the plan did not; `capNotSelected`,
+ * a cap names an object the plan does not select; `caps`, the plan stays past
+ * a bound with the caps asked; `least`, past it however far it is cut;
+ * `rounds`, the parents its records name came back over it at every walk.
+ */
+export type AutopilotCannotFit =
+  | { readonly why: 'sourceChanged' | 'rounds' }
+  | { readonly why: 'capNotSelected'; readonly object: ApiName }
+  | { readonly why: 'caps' | 'least'; readonly over: AutopilotFitOver };
 
 /**
  * What fitting a plan to the target's storage came to: the budget and what
@@ -348,6 +382,8 @@ export interface AutopilotFitEmptied {
  */
 export interface AutopilotFitReport {
   readonly mode: AutopilotFitMode;
+  /** What held the fit. */
+  readonly heldBy: AutopilotFitHeldBy;
   readonly budget: StorageFitBudget;
   /** The share kept, 0 < share ≤ 1; absent when caps alone fitted it. */
   readonly share?: number;
@@ -360,6 +396,14 @@ export interface AutopilotFitReport {
   readonly estimateMB: number;
   /** Requests the fit sent the source to choose the records. */
   readonly requestsRead: number;
+  /** Why no room was kept for the target's automation: it could not be read. */
+  readonly automationUnread?: string;
+  /** Set when the fit counted the run's mute: no room is kept for what it keeps quiet. */
+  readonly countedMuted?: true;
+  /** The most records the run may write that the fit was held to (`--max-total`); absent when none was. */
+  readonly maxTotal?: number;
+  /** Why nothing is proposed; absent when the plan was fitted, or fits as it stands. */
+  readonly cannotFit?: AutopilotCannotFit;
 }
 
 /**
@@ -375,6 +419,17 @@ export interface AutopilotPlanWriteGate {
   readonly verdict: 'fits' | 'near' | 'exceeds' | 'unread';
   /** Why the target did not say what it has left. */
   readonly unread?: string;
+  /**
+   * The plan's API requests against what the target has left of the day's,
+   * read with its storage: refused past them, asked about near them. Absent
+   * when the target did not say.
+   */
+  readonly apiRequests?: {
+    readonly estimate: number;
+    readonly remaining: number;
+    readonly max: number;
+    readonly verdict: 'fits' | 'near' | 'exceeds';
+  };
 }
 
 /** What a plan says of the currencies the target does not hold active. */

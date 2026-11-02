@@ -411,4 +411,57 @@ describe('useAutopilotStore', () => {
     expect(getState().checkpointFirst).toBe(false);
     expect(getState().runEnd).toBeNull();
   });
+
+  it('keeps what the plan comes to against the target until another plan or a reset says otherwise', () => {
+    const gate = {
+      records: 180,
+      estimateMB: 64.5,
+      remainingMB: 22,
+      maxMB: 200,
+      verdict: 'exceeds' as const,
+    };
+    getState().setWriteGate(gate);
+    expect(getState().writeGate).toBe(gate);
+
+    getState().reset();
+    expect(getState().writeGate).toBeNull();
+  });
+
+  it('carries on the node the records held back since the fit', () => {
+    getState().setGraph({
+      nodes: [
+        {
+          objectApiName: 'Contact',
+          recordCount: 40,
+          estimatedApiCalls: 1,
+          piiFields: [],
+          anonymizationRules: [],
+          status: 'completed',
+          progress: 100,
+          insertOrder: 0,
+          level: 0,
+          successCount: 38,
+          failureCount: 0,
+          errors: [],
+          elapsedMs: 0,
+          apiCallsUsed: 0,
+        },
+      ],
+      edges: [],
+      cycles: [],
+      stats: {
+        totalObjects: 1,
+        totalRelationships: 0,
+        cycleCount: 0,
+        maxDepth: 0,
+        totalRecords: 40,
+        totalEstimatedApiCalls: 1,
+      },
+    });
+
+    getState().updateNodeOutcome('Contact', { cutSinceFit: 2 });
+    getState().updateNodeOutcome('Contact', { cutSinceFit: undefined, failureCount: 0 });
+
+    expect(getState().graph?.nodes[0]?.cutSinceFit).toBe(2);
+  });
 });

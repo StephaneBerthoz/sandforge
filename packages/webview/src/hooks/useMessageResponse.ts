@@ -81,6 +81,16 @@ const STOPPED_DURING_THE_TAKE: ReadonlySet<string> = new Set([
   'seed:csv:error',
 ]);
 
+/**
+ * Megabytes as the host says them — rounded up, two decimals under 10 MB —
+ * written in the interface language.
+ */
+function megabytes(value: number): string {
+  const factor = value < 10 ? 100 : 10;
+  const rounded = value <= 0 ? 0 : Math.ceil(value * factor - 1e-9) / factor;
+  return new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language ?? 'en').format(rounded);
+}
+
 /** What every write path writes before the reason Production Guard gave. */
 const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
 
@@ -172,10 +182,35 @@ function guardRefusal(
   if (code === 'TEMPLATE_NOT_FOUND') return i18n.t('common.refusal.templateNotFound');
   // Autopilot asked before its module reached the host: the host's line is English.
   if (code === 'AUTOPILOT_NOT_READY') return i18n.t('common.refusal.autopilotNotReady');
-  // An Autopilot run its write gate stopped before the first write.
+  // An Autopilot run its write gate stopped before the first write: with the
+  // figures it was refused on, when the host sent them.
   if (code === 'AUTOPILOT_STORAGE_EXCEEDED') {
-    return i18n.t('common.refusal.autopilotStorageExceeded');
+    const { estimateMB, remainingMB, maxMB, org } = payload;
+    return typeof estimateMB === 'number' &&
+      typeof remainingMB === 'number' &&
+      typeof maxMB === 'number' &&
+      typeof org === 'string'
+      ? i18n.t('common.refusal.autopilotStorageExceededFigures', {
+          estimate: megabytes(estimateMB),
+          remaining: megabytes(remainingMB),
+          max: megabytes(maxMB),
+          org,
+        })
+      : i18n.t('common.refusal.autopilotStorageExceeded');
   }
+  // A fit of an Autopilot plan the host could not make: the plan under
+  // review stays as it was, and the host's reason is kept as it said it.
+  if (code === 'AUTOPILOT_FIT_STORAGE_UNREAD' || code === 'AUTOPILOT_FIT_READ_REFUSED') {
+    const reason = typeof payload.reason === 'string' ? payload.reason : (message ?? '');
+    return i18n.t(
+      code === 'AUTOPILOT_FIT_READ_REFUSED'
+        ? 'common.refusal.autopilotFitReadRefused'
+        : 'common.refusal.autopilotFitStorageUnread',
+      { reason },
+    );
+  }
+  if (code === 'AUTOPILOT_FIT_STALE') return i18n.t('common.refusal.autopilotFitStale');
+  if (code === 'AUTOPILOT_NO_PLAN') return i18n.t('common.refusal.autopilotNoPlan');
   if (code === 'AUTOPILOT_WRITE_DECLINED') return i18n.t('common.refusal.autopilotWriteDeclined');
   // A second run asked for while one writes to the same target.
   if (code === 'AUTOPILOT_RUNNING') return i18n.t('common.refusal.autopilotRunning');

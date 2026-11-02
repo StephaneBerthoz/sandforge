@@ -8,6 +8,7 @@ import type {
   AutopilotStopLeftover,
   CurrencyReplaced,
   PriceCurrencySettled,
+  AutopilotPlanWriteGate,
   ExecutionPlan,
   MutedAutomation,
   RunCheckpointInfo,
@@ -29,6 +30,7 @@ import { PartBoundary } from '../../components/ui/PartBoundary';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { withEnglish } from '../../i18n/englishNamespaces';
 import { runCheckpointOf } from '../../utils/runCheckpoint';
+import { isAutopilotPlanWriteGate } from './AutopilotWizard/AutopilotFitPanel';
 
 /**
  * The run's graph, in a chunk of its own fetched once the run starts: React
@@ -92,6 +94,8 @@ export const AutopilotPage: React.FC = () => {
   const [emailsHeldForTheirTask, setEmailsHeldForTheirTask] = useState(0);
   /** What the run muted of the target's automation, said once it ended. */
   const [mutedAutomation, setMutedAutomation] = useState<MutedAutomation | undefined>(undefined);
+  /** Of a fitted plan's run, the records held back since the fit, once it ended. */
+  const [cutSinceFit, setCutSinceFit] = useState<number | undefined>(undefined);
   /** When the run was sent: an error carries no time of its own for it. */
   const runSentAt = useRef(0);
   /** Whether the review's option asked for a checkpoint: said of the run it sent. */
@@ -105,14 +109,22 @@ export const AutopilotPage: React.FC = () => {
     },
   );
 
-  useMessageListener<BaseMessage & { payload: { plan: ExecutionPlan; graph: AutopilotGraphType } }>(
-    'autopilot:plan-ready',
-    (msg) => {
-      useAutopilotStore.getState().setPlan(msg.payload.plan);
-      useAutopilotStore.getState().setGraph(msg.payload.graph);
-      useAutopilotStore.getState().setStep('review');
-    },
-  );
+  // The plan made, fitted or given back by Undo fit, and what it comes to
+  // against the target.
+  useMessageListener<
+    BaseMessage & {
+      payload: {
+        plan: ExecutionPlan;
+        graph: AutopilotGraphType;
+        writeGate?: AutopilotPlanWriteGate;
+      };
+    }
+  >('autopilot:plan-ready', (msg) => {
+    useAutopilotStore.getState().setPlan(msg.payload.plan);
+    useAutopilotStore.getState().setGraph(msg.payload.graph);
+    useAutopilotStore.getState().setWriteGate(msg.payload.writeGate ?? null);
+    useAutopilotStore.getState().setStep('review');
+  });
 
   useMessageListener<
     BaseMessage & {
@@ -130,6 +142,7 @@ export const AutopilotPage: React.FC = () => {
         leftToThePlatform?: number;
         currenciesReplaced?: CurrencyReplaced[];
         pricesSettled?: PriceCurrencySettled[];
+        cutSinceFit?: number;
         apiCallsUsed?: number;
         error?: string;
       };
@@ -167,6 +180,7 @@ export const AutopilotPage: React.FC = () => {
       leftToThePlatform: msg.payload.leftToThePlatform,
       currenciesReplaced: msg.payload.currenciesReplaced,
       pricesSettled: msg.payload.pricesSettled,
+      cutSinceFit: msg.payload.cutSinceFit,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);
@@ -210,6 +224,7 @@ export const AutopilotPage: React.FC = () => {
         emailsHeldForTheirTask?: number;
         mutedAutomation?: MutedAutomation;
         checkpoint?: RunCheckpointInfo;
+        cutSinceFit?: number;
       };
     }
   >('autopilot:completed', (msg) => {
@@ -225,6 +240,7 @@ export const AutopilotPage: React.FC = () => {
       });
     }
     setMutedAutomation(msg.payload.mutedAutomation);
+    setCutSinceFit(msg.payload.cutSinceFit);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
@@ -267,6 +283,7 @@ export const AutopilotPage: React.FC = () => {
     setLeftByStop([]);
     setEmailsHeldForTheirTask(0);
     setMutedAutomation(undefined);
+    setCutSinceFit(undefined);
     runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
@@ -298,10 +315,15 @@ export const AutopilotPage: React.FC = () => {
   // beside its error: deleted, as it wrote nothing — its mute refused —, or
   // kept for what it wrote, the one way back of a run with no removal. The
   // mutation keeps the words and the code alone; the review says it.
-  useMessageListener<BaseMessage & { payload: { checkpoint?: unknown } }>(
+  useMessageListener<BaseMessage & { payload: { checkpoint?: unknown; writeGate?: unknown } }>(
     'autopilot:error',
     (msg) => {
       if (msg.correlationId !== executeMutation.requestId) return;
+      // A run refused for what its target has left says it in figures, read
+      // again as it was refused: the review shows them, and Fit to storage.
+      if (isAutopilotPlanWriteGate(msg.payload.writeGate)) {
+        useAutopilotStore.getState().setWriteGate(msg.payload.writeGate);
+      }
       const checkpoint = runCheckpointOf(msg.payload.checkpoint);
       const ended = useAutopilotStore.getState();
       if (!checkpoint || !ended.targetOrgId) return;
@@ -468,6 +490,7 @@ export const AutopilotPage: React.FC = () => {
               leftByStop={leftByStop}
               emailsHeldForTheirTask={emailsHeldForTheirTask}
               mutedAutomation={mutedAutomation}
+              cutSinceFit={cutSinceFit}
             />
           </div>
         </div>

@@ -692,6 +692,7 @@ describe('sandforge-autopilot --fit', () => {
 describe('what a run says of a fit', () => {
   const report: AutopilotFitReport = {
     mode: { share: true },
+    heldBy: 'storage',
     budget: {
       budgetMB: 16.4,
       remainingMB: 21,

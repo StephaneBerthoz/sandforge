@@ -50,9 +50,12 @@ import {
   PRICEBOOK_OBJECT,
   stillRunningOf,
   type ApiName,
+  type AutopilotCannotFit,
   type AutopilotFitEmptied,
+  type AutopilotFitHeldBy,
   type AutopilotFitMode,
   type AutopilotFitObject,
+  type AutopilotFitOver,
   type AutopilotFitReport,
   type ForgeAutomationWrite,
   type ForgeTargetAutomation,
@@ -160,9 +163,7 @@ export function runFitOf(
   };
 }
 
-/** What held the plan: the bound asked, the org's, the run's, or nothing cut. */
-export type AutopilotFitHeldBy =
-  'storage' | 'within' | 'apiRequests' | 'maxTotal' | 'caps' | 'whole';
+export type { AutopilotFitHeldBy };
 
 /** What a fit is given to choose from: see {@link chooseFitRecords}. */
 export interface FitRecordsInput {
@@ -628,6 +629,19 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
   /** What holds `m` past its bounds. */
   const overBy = (m: FitMeasure): AutopilotFitHeldBy =>
     !inStorage(m) ? budget.terms.limitedBy : !inRequests(m) ? 'apiRequests' : 'maxTotal';
+  /** Why `m` is past its bounds, in figures. */
+  const overOf = (m: FitMeasure): AutopilotFitOver => {
+    if (!inStorage(m)) {
+      return {
+        bound: 'storage',
+        takesMB: (m.bytes + m.roomBytes) / BYTES_PER_MB,
+        fitsMB: budget.bytes / BYTES_PER_MB,
+      };
+    }
+    return inRequests(m)
+      ? { bound: 'maxTotal', records: m.records, allowed: maxRecords ?? 0 }
+      : { bound: 'apiRequests', requests: m.requests, allowed: budget.runRequests ?? 0 };
+  };
   /** Why `m` is past its bounds, in words. */
   const overWords = (m: FitMeasure): string => {
     if (!inStorage(m)) {
@@ -663,7 +677,7 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
     measure: FitMeasure,
     heldBy: AutopilotFitHeldBy,
     walk: FitWalk | undefined,
-    cannotFit?: string,
+    refused?: { words: string; said: AutopilotCannotFit },
   ): FitRecordsChosen => {
     const objects: AutopilotFitObject[] = tables.map((table) => {
       const cut = choice.cut.get(table.name) ?? new Map<number, FitLink>();
@@ -700,15 +714,17 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
     // owes it a record that never comes.
     for (const naming of walk?.namingSelected ?? []) {
       if (naming.required || choice.ids.get(naming.target)?.has(naming.id)) continue;
-      left(naming.objectApiName, naming.field, 'owed');
+      left(naming.objectApiName, naming.field, 'onParent');
     }
     return {
       heldBy,
-      ...(cannotFit !== undefined ? { cannotFit } : {}),
+      ...(refused ? { cannotFit: refused.words } : {}),
       kept: rowsKept(choice),
       ...(walk ? { walk } : {}),
       report: {
         mode,
+        heldBy,
+        ...(refused ? { cannotFit: refused.said } : {}),
         budget: {
           ...storageFitBudgetOf(budget, measure.roomBytes, room),
           ...(heldBy === 'apiRequests' ? { limitedBy: 'apiRequests' as const } : {}),
@@ -731,6 +747,12 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
     };
   };
 
+  const sourceChanged = { words: SOURCE_CHANGED, said: { why: 'sourceChanged' as const } };
+  /** With the caps asked, the plan stays past a bound. */
+  const overCaps = (m: FitMeasure): { words: string; said: AutopilotCannotFit } => ({
+    words: `with these caps the plan takes ${overWords(m)}: lower them, or fit by share`,
+    said: { why: 'caps', over: overOf(m) },
+  });
   const unknownCap = Object.keys(mode.caps ?? {}).find(
     (name) => !tables.some((table) => table.name === name),
   );
@@ -741,14 +763,10 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
   const wholeChoice = chooseAt(1);
   const wholeMeasure = measureOf(wholeChoice, parentsEstimated(wholeChoice));
   if (unknownCap !== undefined) {
-    return outcomeOf(
-      undefined,
-      wholeChoice,
-      wholeMeasure,
-      'caps',
-      undefined,
-      `the plan selects no ${unknownCap}: a cap holds an object it selects`,
-    );
+    return outcomeOf(undefined, wholeChoice, wholeMeasure, 'caps', undefined, {
+      words: `the plan selects no ${unknownCap}: a cap holds an object it selects`,
+      said: { why: 'capNotSelected', object: unknownCap },
+    });
   }
   if (tables.some((table) => table.rows.length > (input.planned.get(table.name) ?? 0))) {
     return outcomeOf(
@@ -757,7 +775,7 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
       wholeMeasure,
       budget.terms.limitedBy,
       undefined,
-      SOURCE_CHANGED,
+      sourceChanged,
     );
   }
   const capped = mode.all !== undefined || Object.keys(mode.caps ?? {}).length > 0;
@@ -781,7 +799,7 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
       wholeMeasure,
       budget.terms.limitedBy,
       undefined,
-      SOURCE_CHANGED,
+      sourceChanged,
     );
   }
   let k = top;
@@ -793,22 +811,19 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
         wholeMeasure,
         overBy(wholeMeasure),
         undefined,
-        `with these caps the plan takes ${overWords(wholeMeasure)}: lower them, or fit by share`,
+        overCaps(wholeMeasure),
       );
     }
     k = largestFitting(top, (n) => fits(estimateAt(n)));
     if (k === 0) {
       const least = chooseAt(1 / top);
       const measure = measureOf(least, parentsEstimated(least));
-      return outcomeOf(
-        1 / top,
-        least,
-        measure,
-        overBy(measure),
-        undefined,
-        `the least it can be cut to — one record of each object with none to follow, and what ` +
-          `follows them, ${recordsWords(measure.records)} — takes ${overWords(measure)}`,
-      );
+      return outcomeOf(1 / top, least, measure, overBy(measure), undefined, {
+        words:
+          `the least it can be cut to — one record of each object with none to follow, and ` +
+          `what follows them, ${recordsWords(measure.records)} — takes ${overWords(measure)}`,
+        said: { why: 'least', over: overOf(measure) },
+      });
     }
   }
   /** What held the share: what the next root would go past, or the caps when no root was cut. */
@@ -826,7 +841,7 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
     const walk = await input.walk(rowsKept(choice));
     if (!withinThePlan(walk, parents)) {
       const measure = measureOf(choice, parentsWalked(walk));
-      return outcomeOf(shareAt(k), choice, measure, heldBy, undefined, SOURCE_CHANGED);
+      return outcomeOf(shareAt(k), choice, measure, heldBy, undefined, sourceChanged);
     }
     // A record read by id that cannot be written without a selected one
     // brings it back, and what holds it: the parent would be refused, and
@@ -850,25 +865,15 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
     if (fits(measure)) return outcomeOf(shareAt(k), choice, measure, heldBy, walk);
     heldBy = overBy(measure);
     if (!byShare) {
-      return outcomeOf(
-        undefined,
-        choice,
-        measure,
-        heldBy,
-        walk,
-        `with these caps the plan takes ${overWords(measure)}: lower them, or fit by share`,
-      );
+      return outcomeOf(undefined, choice, measure, heldBy, walk, overCaps(measure));
     }
     if (k === 1) {
-      return outcomeOf(
-        shareAt(k),
-        choice,
-        measure,
-        heldBy,
-        walk,
-        'the least it can be cut to, with the parents its records name, takes ' +
+      return outcomeOf(shareAt(k), choice, measure, heldBy, walk, {
+        words:
+          'the least it can be cut to, with the parents its records name, takes ' +
           overWords(measure),
-      );
+        said: { why: 'least', over: overOf(measure) },
+      });
     }
     // Down by what the walk came back over, and always by a root.
     const over = Math.max(
@@ -880,14 +885,10 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
   }
   const last = chooseAt(k / top);
   const measure = measureOf(last, parentsEstimated(last));
-  return outcomeOf(
-    shareAt(k),
-    last,
-    measure,
-    heldBy,
-    undefined,
-    `could not fit in ${FIT_WALKS} rounds: fit by caps`,
-  );
+  return outcomeOf(shareAt(k), last, measure, heldBy, undefined, {
+    words: `could not fit in ${FIT_WALKS} rounds: fit by caps`,
+    said: { why: 'rounds' },
+  });
 }
 
 /**

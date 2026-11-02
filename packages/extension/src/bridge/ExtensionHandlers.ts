@@ -1194,6 +1194,8 @@ export class ExtensionHandlers {
         'autopilot:count-objects',
         'autopilot:scan-schema',
         'autopilot:generate-plan',
+        'autopilot:fit-plan',
+        'autopilot:fit-undo',
         'autopilot:execute',
         'autopilot:pause',
         'autopilot:resume',

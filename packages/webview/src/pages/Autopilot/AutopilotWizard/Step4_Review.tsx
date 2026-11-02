@@ -18,6 +18,7 @@ import { OrgBadge } from '../../../components/ui/OrgBadge';
 import { Icon } from '../../../components/ui/Icon';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { AutopilotFitSection, type AutopilotFitSectionProps } from './AutopilotFitPanel';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -62,6 +63,12 @@ export interface Step4ReviewProps {
   readonly scope?: AutopilotPlanScope;
   /** The person objects whose names, emails or phones no rule anonymizes. */
   readonly notCovered?: AnonymizationSummary['notCovered'];
+  /**
+   * What the plan comes to against the target, and its fit to storage: the
+   * section's props but the target and the objects, which the review knows.
+   * No section without.
+   */
+  readonly fit?: Omit<AutopilotFitSectionProps, 'org' | 'selectedObjects' | 'disabled'>;
   /** Callback to start execution */
   readonly onExecute: () => void;
 }
@@ -91,6 +98,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   error,
   scope,
   notCovered,
+  fit,
   onExecute,
 }) => {
   const { t } = useTranslation();
@@ -128,9 +136,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   /** Format numbers with locale separators. */
   const fmt = (n: number): string => n.toLocaleString(uiLocale());
 
-  /** The selected objects copied whole: those no bound cut short. */
-  const cutNames = new Set((scope?.cutShort ?? []).map((cut) => cut.objectApiName));
+  /**
+   * The selected objects copied whole: those no bound cut short, and none of
+   * a plan fitted to the target's storage, which reads them by the ids kept.
+   */
+  const cutNames = new Set([
+    ...(scope?.cutShort ?? []).map((cut) => cut.objectApiName),
+    ...(scope?.fitted?.objects ?? []).map((object) => object.objectApiName),
+  ]);
   const wholeTables = (scope?.selected ?? []).filter((name) => !cutNames.has(name));
+  /** Whether the fit asked or undone is still being answered: Run waits for the plan. */
+  const fitPending = fit !== undefined && (fit.fitting || fit.undoing);
 
   /**
    * The name of a compliance framework: the regulations by their acronyms,
@@ -297,6 +313,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         />
       </div>
 
+      {/* What the plan comes to against the target, said before Run, and
+          the way to fit it when it does not fit. */}
+      {fit && (
+        <AutopilotFitSection
+          {...fit}
+          org={targetName}
+          selectedObjects={scope?.selected ?? selectedObjects}
+          disabled={isExecuting || planning}
+        />
+      )}
+
       {(notCovered ?? []).length > 0 && (
         <div role="alert" className="flex flex-col gap-1 text-xs" data-testid="step4-not-covered">
           {(notCovered ?? []).map((object) => (
@@ -454,7 +481,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           size="md"
           onClick={onExecute}
           loading={isExecuting}
-          disabled={isExecuting || planning}
+          disabled={isExecuting || planning || fitPending}
           aria-describedby="step4-no-way-back"
           data-testid="execute-button"
         >

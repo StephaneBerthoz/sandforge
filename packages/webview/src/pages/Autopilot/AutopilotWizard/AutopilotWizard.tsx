@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AutopilotFitMode,
+  AutopilotFitReport,
   AutopilotGraph,
   AutopilotObjectListing,
+  AutopilotPlanWriteGate,
   ComplianceFrameworkType,
   ExecutionPlan,
 } from '@sandforge/shared';
@@ -61,7 +64,17 @@ interface SchemaResultPayload {
 interface PlanReadyPayload {
   readonly plan: ExecutionPlan;
   readonly graph: AutopilotGraph;
+  readonly writeGate?: AutopilotPlanWriteGate;
+  /** What a fit came to when it fitted nothing. */
+  readonly fitNotApplied?: AutopilotFitReport;
 }
+
+/**
+ * How long a fit may take: it reads every selected object's lookups, two
+ * thousand records a request, then the parents of those kept. A client
+ * sandbox's 33 000 accounts and contacts took some twenty requests.
+ */
+const FIT_TIMEOUT_MS = 600_000;
 
 /** Available object info for selection. */
 export interface AutopilotObjectInfo {
@@ -125,6 +138,8 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   const complianceFramework = useAutopilotStore((s) => s.complianceFramework);
   const neutralizeContactPoints = useAutopilotStore((s) => s.neutralizeContactPoints);
   const muteAutomation = useAutopilotStore((s) => s.muteAutomation);
+  const checkpointFirst = useAutopilotStore((s) => s.checkpointFirst);
+  const writeGate = useAutopilotStore((s) => s.writeGate);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const graph = useAutopilotStore((s) => s.graph);
   const plan = useAutopilotStore((s) => s.plan);
@@ -147,6 +162,18 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     timeoutMs: 120_000,
   });
   const planMutation = useBridgeMutation<PlanReadyPayload>('autopilot:generate-plan', {
+    responseType: 'autopilot:plan-ready',
+    errorType: 'autopilot:error',
+    timeoutMs: 60_000,
+  });
+  // Fit to storage, and Undo fit: each answered by the plan the review then
+  // holds, which the page's listener keeps.
+  const fitMutation = useBridgeMutation<PlanReadyPayload>('autopilot:fit-plan', {
+    responseType: 'autopilot:plan-ready',
+    errorType: 'autopilot:error',
+    timeoutMs: FIT_TIMEOUT_MS,
+  });
+  const undoMutation = useBridgeMutation<PlanReadyPayload>('autopilot:fit-undo', {
     responseType: 'autopilot:plan-ready',
     errorType: 'autopilot:error',
     timeoutMs: 60_000,
@@ -234,6 +261,33 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     requestPlan(store.complianceFramework);
   }, [scanMutation.data, plannedScan, requestPlan]);
 
+  /**
+   * Fit the plan to what the target has left, as asked: the run's mute and
+   * its checkpoint as the review sets them count in what fits.
+   */
+  const askFit = fitMutation.mutate;
+  const handleFit = useCallback(
+    (mode: AutopilotFitMode) =>
+      askFit({
+        mode,
+        ...(muteAutomation ? { muteAutomation: true } : {}),
+        ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+      }),
+    [askFit, muteAutomation, checkpointFirst],
+  );
+  const askUndo = undoMutation.mutate;
+  const forgetFit = fitMutation.reset;
+  const forgetUndo = undoMutation.reset;
+  /** What the last fit or undo answered is no longer said. */
+  const resetFit = useCallback(() => {
+    forgetFit();
+    forgetUndo();
+  }, [forgetFit, forgetUndo]);
+  const handleUndo = useCallback(() => {
+    resetFit();
+    askUndo();
+  }, [askUndo, resetFit]);
+
   /** Another framework on the review: the plan is built again for it. */
   const handleFrameworkChange = useCallback(
     (framework: ComplianceFrameworkType) => {
@@ -317,8 +371,9 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     [currentStep, sourceOrgId, targetOrgId, listMutation, scanMutation],
   );
 
+  const fitPending = fitMutation.loading || undoMutation.loading;
   const isPending =
-    listMutation.loading || scanMutation.loading || planMutation.loading || planOwed;
+    listMutation.loading || scanMutation.loading || planMutation.loading || planOwed || fitPending;
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
@@ -466,6 +521,18 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             error={planMutation.error ?? lastError}
             scope={plan?.scope}
             notCovered={plan?.anonymizationSummary.notCovered}
+            fit={{
+              writeGate,
+              ...(plan?.scope?.fitted ? { fitted: plan.scope.fitted } : {}),
+              notApplied: fitMutation.data?.fitNotApplied ?? null,
+              muted: muteAutomation,
+              fitting: fitMutation.loading,
+              undoing: undoMutation.loading,
+              error: fitMutation.error ?? undoMutation.error,
+              onFit: handleFit,
+              onUndo: handleUndo,
+              onOpen: resetFit,
+            }}
             onExecute={onExecute}
           />
         )}

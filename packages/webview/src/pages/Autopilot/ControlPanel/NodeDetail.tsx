@@ -8,6 +8,7 @@ import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { uiLocale } from '../../../utils/formatters';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
+import { AutopilotNodeFit } from '../AutopilotWizard/AutopilotFitPanel';
 
 /**
  * What a refusal means and what to do about it, from the error catalogue: the
@@ -70,6 +71,7 @@ export const NodeDetail: React.FC = () => {
   const { t } = useTranslation();
   const selectedNode = useAutopilotStore((s) => s.selectedNode());
   const rules = useAutopilotStore((s) => s.rules);
+  const fitted = useAutopilotStore((s) => s.plan?.scope?.fitted);
 
   if (!selectedNode) {
     return (
@@ -121,6 +123,15 @@ export const NodeDetail: React.FC = () => {
           <span className="font-medium text-status-error">{selectedNode.failureCount ?? 0}</span>
         </div>
       </div>
+
+      {/* What the fit kept of it, and what was held back since the fit. */}
+      <AutopilotNodeFit
+        objectApiName={selectedNode.objectApiName}
+        {...(fitted ? { report: fitted } : {})}
+        {...(selectedNode.cutSinceFit !== undefined
+          ? { cutSinceFit: selectedNode.cutSinceFit }
+          : {})}
+      />
 
       {(selectedNode.linkedCount ?? 0) > 0 && (
         <div className="flex flex-col gap-0.5 text-xs" data-testid="node-linked">

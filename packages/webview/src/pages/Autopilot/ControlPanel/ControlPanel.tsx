@@ -14,6 +14,7 @@ import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../../components/ui/RewoundMark';
 import { useRewoundMarks } from '../../../hooks/useRewoundMarks';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { AutopilotFitResultLine } from '../AutopilotWizard/AutopilotFitPanel';
 
 /** Tab identifiers for the control panel. */
 type ControlTab = 'stats' | 'node' | 'anonymization' | 'compliance';
@@ -42,6 +43,8 @@ export interface ControlPanelProps {
    * was asked to: said above the tabs, as a stopped run's leftovers are.
    */
   mutedAutomation?: MutedAutomation;
+  /** Of a fitted plan's run once it ended, the records held back since the fit. */
+  cutSinceFit?: number;
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
@@ -51,11 +54,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   leftByStop = [],
   emailsHeldForTheirTask = 0,
   mutedAutomation,
+  cutSinceFit,
 }) => {
   const { t } = useTranslation();
   const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
   const target = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId));
   const runEnd = useAutopilotStore((s) => s.runEnd);
+  const fitted = useAutopilotStore((s) => s.plan?.scope?.fitted);
   // A run has no history to carry the mark of the rewind that took it back:
   // its result does, for as long as the page keeps it.
   const markOf = useRewoundMarks(runEnd === null);
@@ -219,6 +224,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </ul>
             </>
           )}
+        </div>
+      )}
+
+      {/* The plan the run copied was fitted to the target's storage: what it
+          kept of the source, and what was held back since. */}
+      {fitted && (
+        <div className="px-4 py-2 border-b border-(--sf-border)">
+          <AutopilotFitResultLine
+            report={fitted}
+            org={target?.alias || target?.username || (targetOrgId ?? '')}
+            {...(cutSinceFit !== undefined ? { cutSinceFit } : {})}
+            testId="control-fit"
+          />
         </div>
       )}
 

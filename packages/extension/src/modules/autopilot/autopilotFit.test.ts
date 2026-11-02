@@ -632,7 +632,7 @@ describe('parents read by id', () => {
 
     expect(keptOf(chosen, 'Account')).toEqual([Account[1].Id]);
     expect(chosen.report.emptied).toEqual([
-      { objectApiName: 'Territory__c', field: 'Manager__c', count: 1, why: 'owed' },
+      { objectApiName: 'Territory__c', field: 'Manager__c', count: 1, why: 'onParent' },
     ]);
   });
 });

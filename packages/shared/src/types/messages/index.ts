@@ -344,6 +344,7 @@ import type {
   AutopilotScanSchemaRequest,
   AutopilotGeneratePlanRequest,
   AutopilotFitPlanRequest,
+  AutopilotFitUndoRequest,
   AutopilotExecuteRequest,
   AutopilotPauseRequest,
   AutopilotResumeRequest,
@@ -753,6 +754,7 @@ export type WebViewToExtensionMessage =
   | AutopilotScanSchemaRequest
   | AutopilotGeneratePlanRequest
   | AutopilotFitPlanRequest
+  | AutopilotFitUndoRequest
   | AutopilotExecuteRequest
   | AutopilotPauseRequest
   | AutopilotResumeRequest

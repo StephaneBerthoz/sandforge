@@ -427,8 +427,14 @@ export class AutopilotOrchestrator {
       walk: (kept) => schemaScanner.walkFrom(counted, scan, kept, onProgress),
     });
 
-    const report: AutopilotFitReport = { ...chosen.report, requestsRead };
     const unread = room.unread !== undefined ? { automationUnread: room.unread } : {};
+    const report: AutopilotFitReport = {
+      ...chosen.report,
+      requestsRead,
+      ...unread,
+      ...(ask.mutePlan ? { countedMuted: true as const } : {}),
+      ...(maxRecords !== undefined ? { maxTotal: maxRecords } : {}),
+    };
     const keptIds = new Map(
       [...chosen.kept].map(([name, kept]) => [name, kept.map((row) => row.Id)] as const),
     );

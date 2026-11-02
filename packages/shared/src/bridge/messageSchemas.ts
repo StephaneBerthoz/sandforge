@@ -397,6 +397,8 @@ const AutomationMessages = [
   msg('autopilot:plan-ready'),
   // Fit the plan under review to the target's storage: answered by a plan-ready of the fitted plan.
   msg('autopilot:fit-plan'),
+  // Back to the plan a fit started from: answered by a plan-ready of that plan.
+  msg('autopilot:fit-undo'),
   msg('autopilot:execute'),
   msg('autopilot:node-progress'),
   msg('autopilot:pause'),

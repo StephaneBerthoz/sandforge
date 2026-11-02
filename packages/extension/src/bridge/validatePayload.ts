@@ -1527,7 +1527,8 @@ export const autopilotExecutePayloadSchema = z.object({
  * `autopilot:fit-plan`: how to fit the plan under review to the target's
  * storage (`AutopilotFitMode`), as a person asked: by share, by caps per
  * object or for every one, within so many MB. A fit asks for one of share
- * and caps at least: a bound alone fits nothing.
+ * and caps at least: a bound alone fits nothing. With it, what the run is set
+ * to do, which counts in what fits.
  */
 export const autopilotFitPlanPayloadSchema = z.object({
   mode: z
@@ -1545,6 +1546,8 @@ export const autopilotFitPlanPayloadSchema = z.object({
       (mode) => mode.share === true || mode.caps !== undefined || mode.all !== undefined,
       'Fit by share, by caps, or both',
     ),
+  muteAutomation: z.boolean().optional(),
+  checkpointFirst: checkpointFirstPayloadSchema.optional(),
 });
 
 export const autopilotSkipNodePayloadSchema = z.object({

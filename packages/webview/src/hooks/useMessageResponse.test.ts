@@ -680,6 +680,81 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toMatch(/circuit/i);
     });
 
+    it('says an Autopilot run its data storage stopped with the figures it was refused on', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message:
+              'The records to write take about 64.5 MB of data storage. Nothing was written.',
+            code: 'AUTOPILOT_STORAGE_EXCEEDED',
+            estimateMB: 64.512,
+            remainingMB: 22,
+            maxMB: 200,
+            org: 'QASandbox',
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toBe(
+        i18n.t('common.refusal.autopilotStorageExceededFigures', {
+          estimate: '64.6',
+          remaining: '22',
+          max: '200',
+          org: 'QASandbox',
+        }),
+      );
+      expect(result.current.error).toContain('about 64.6 MB of data storage');
+      expect(result.current.error).toContain('Fit the plan to storage');
+    });
+
+    it('says an Autopilot run its storage stopped without figures as it did, when the host sent none', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          { message: 'Too big.', code: 'AUTOPILOT_STORAGE_EXCEEDED' },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toBe(i18n.t('common.refusal.autopilotStorageExceeded'));
+    });
+
+    it.each([
+      ['AUTOPILOT_FIT_STORAGE_UNREAD', 'common.refusal.autopilotFitStorageUnread', true],
+      ['AUTOPILOT_FIT_READ_REFUSED', 'common.refusal.autopilotFitReadRefused', true],
+      ['AUTOPILOT_FIT_STALE', 'common.refusal.autopilotFitStale', false],
+      ['AUTOPILOT_NO_PLAN', 'common.refusal.autopilotNoPlan', false],
+    ] as const)(
+      'says a fit of an Autopilot plan refused as %s in the interface language, the reason as the host said it',
+      (code, key, keepsReason) => {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(
+            'org:error',
+            { message: 'The plan could not be fitted.', code, reason: 'REQUEST_LIMIT_EXCEEDED' },
+            'req-1',
+          );
+        });
+        expect(result.current.error).toBe(
+          keepsReason ? i18n.t(key, { reason: 'REQUEST_LIMIT_EXCEEDED' }) : i18n.t(key),
+        );
+      },
+    );
+
     it('says a seed its data storage stopped in the interface language, with the figures', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
       act(() => {

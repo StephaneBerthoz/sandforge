@@ -3,6 +3,7 @@ import type {
   AutopilotGraph,
   AutopilotNode,
   AutopilotObjectListing,
+  AutopilotPlanWriteGate,
   ExecutionPlan,
   ComplianceFrameworkType,
   AutopilotAnonymizationRule,
@@ -28,6 +29,7 @@ export type NodeOutcome = Partial<
     | 'leftToThePlatform'
     | 'currenciesReplaced'
     | 'pricesSettled'
+    | 'cutSinceFit'
   >
 >;
 
@@ -111,6 +113,7 @@ const INITIAL_STATE = {
   runEnd: null as AutopilotRunEnd | null,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
+  writeGate: null as AutopilotPlanWriteGate | null,
   rules: [] as AutopilotAnonymizationRule[],
   executionStatus: 'idle' as ExecutionStatus,
   selectedNodeName: null as string | null,
@@ -161,6 +164,12 @@ export interface AutopilotState {
   graph: AutopilotGraph | null;
   /** Execution plan derived from the graph */
   plan: ExecutionPlan | null;
+  /**
+   * What the plan under review comes to against the target's data storage
+   * and API requests, as its `/limits` said them with the plan or with a
+   * run's refusal; null before.
+   */
+  writeGate: AutopilotPlanWriteGate | null;
   /** Anonymization rules to apply */
   rules: AutopilotAnonymizationRule[];
   /** Current execution status */
@@ -202,6 +211,8 @@ export interface AutopilotState {
   setGraph: (graph: AutopilotGraph | null) => void;
   /** Set the execution plan */
   setPlan: (plan: ExecutionPlan | null) => void;
+  /** Keep what the plan comes to against the target, as last said. */
+  setWriteGate: (writeGate: AutopilotPlanWriteGate | null) => void;
   /** Set anonymization rules */
   setRules: (rules: AutopilotAnonymizationRule[]) => void;
   /** Set the execution status */
@@ -306,6 +317,10 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
     set({ plan });
   },
 
+  setWriteGate(writeGate: AutopilotPlanWriteGate | null): void {
+    set({ writeGate });
+  },
+
   setRules(rules: AutopilotAnonymizationRule[]): void {
     set({ rules });
   },
@@ -364,6 +379,7 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
         carried.currenciesReplaced = outcome.currenciesReplaced;
       }
       if (outcome.pricesSettled !== undefined) carried.pricesSettled = outcome.pricesSettled;
+      if (outcome.cutSinceFit !== undefined) carried.cutSinceFit = outcome.cutSinceFit;
       return {
         graph: {
           ...state.graph,

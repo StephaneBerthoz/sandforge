@@ -1,6 +1,8 @@
 import type {
   AuditObjectCounts,
+  AutopilotFitReport,
   AutopilotGraph,
+  AutopilotPlanWriteGate,
   ExecutionPlan,
   ComplianceProfile,
   AutopilotAnonymizationRule,
@@ -27,11 +29,15 @@ import {
   autopilotScanSchemaPayloadSchema,
   autopilotGeneratePlanPayloadSchema,
   autopilotExecutePayloadSchema,
+  autopilotFitPlanPayloadSchema,
   autopilotSkipNodePayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import type { AutopilotOrchestrator } from '../../modules/autopilot/AutopilotOrchestrator.js';
+import type {
+  AutopilotOrchestrator,
+  AutopilotPlanFit,
+} from '../../modules/autopilot/AutopilotOrchestrator.js';
 import type {
   AutopilotConnection,
   SchemaScanResult,
@@ -39,17 +45,24 @@ import type {
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { describedLookups } from '../../core/metadata/describedLookups.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  checkpointPartOf,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
+  storageCheckOf,
   type ApiBudget,
   type DataStorage,
+  type StorageCheck,
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
+import { fitBudgetOf } from '../../modules/forge/fitBudget.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { autopilotAuditFitOf, planWriteGateOf } from '../../modules/autopilot/autopilotPlanGate.js';
 import {
+  autopilotApiCheck,
   autopilotEmails,
   autopilotWritePlan,
   gateAutopilotWrite,
@@ -91,6 +104,8 @@ const AUTOPILOT_TYPES = new Set([
   'autopilot:count-objects',
   'autopilot:scan-schema',
   'autopilot:generate-plan',
+  'autopilot:fit-plan',
+  'autopilot:fit-undo',
   'autopilot:execute',
   'autopilot:pause',
   'autopilot:resume',
@@ -122,6 +137,21 @@ export const AUTOPILOT_GATE_CODES = {
   CHECKPOINT_REFUSED: 'CHECKPOINT_REFUSED',
   // The run's Stop while it took the checkpoint first: a cancel, nothing written.
   RUN_CANCELLED: 'RUN_CANCELLED',
+} as const;
+
+/**
+ * The codes of a fit that could not be made, each worded by the page in the
+ * interface language: the plan under review stays as it was.
+ */
+export const AUTOPILOT_FIT_CODES = {
+  /** No plan to fit: the window was reloaded since it was made. */
+  NO_PLAN: 'AUTOPILOT_NO_PLAN',
+  /** The target would not say what it has left of its storage. */
+  STORAGE_UNREAD: 'AUTOPILOT_FIT_STORAGE_UNREAD',
+  /** The source refused a read of the records to choose from. */
+  READ_REFUSED: 'AUTOPILOT_FIT_READ_REFUSED',
+  /** The plan changed, or a run started, while the fit read. */
+  STALE: 'AUTOPILOT_FIT_STALE',
 } as const;
 
 /**
@@ -202,7 +232,16 @@ interface AutopilotOperation {
   rules?: AutopilotAnonymizationRule[];
   /** Execution plan generated from the graph. */
   plan?: ExecutionPlan;
+  /**
+   * The plan fitted to the target's storage, while it is the one under
+   * review. `scanResult`, `graph` and `plan` stay the plan it was fitted from:
+   * every fit starts from them, and Undo goes back to them.
+   */
+  fit?: OperationFit;
 }
+
+/** A plan fitted to the target's storage, what it runs with and what its fit came to. */
+type OperationFit = NonNullable<AutopilotPlanFit['fitted']> & { report: AutopilotFitReport };
 
 /**
  * Domain handler for autopilot-related webview-to-extension messages.
@@ -331,6 +370,12 @@ export class AutopilotHandler implements DomainHandler {
         return true;
       case 'autopilot:generate-plan':
         await this.handleGeneratePlan(msg);
+        return true;
+      case 'autopilot:fit-plan':
+        await this.handleFitPlan(msg);
+        return true;
+      case 'autopilot:fit-undo':
+        await this.handleFitUndo(msg);
         return true;
       case 'autopilot:execute':
         await this.handleExecute(msg);
@@ -593,11 +638,19 @@ export class AutopilotHandler implements DomainHandler {
         operation.scanResult?.scope,
       );
       operation.plan = plan;
-      const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', {
-        plan,
-        graph: operation.graph,
-      });
-      this.deps.broker.postToWebview(response);
+      // A fit in place stays: the same records, planned under this framework.
+      if (operation.fit) {
+        operation.fit = {
+          ...operation.fit,
+          plan: this.orchestrator.generatePlan(
+            operation.fit.graph,
+            payload.complianceFramework,
+            rules,
+            operation.fit.scan.scope,
+          ),
+        };
+      }
+      await this.sendPlanReady(msg, operation);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:generate-plan', 'autopilot:error', msg, err);
       sendNotification(
@@ -606,6 +659,258 @@ export class AutopilotHandler implements DomainHandler {
         'Autopilot',
         `Plan generation failed: ${extractErrorMessage(err)}`,
       );
+    }
+  }
+
+  /**
+   * Answer a request with the plan under review, and what it comes to against
+   * the target. A plan made since answers its own request: this one is
+   * dropped, or the page would show a plan the run no longer holds.
+   *
+   * @param storage - The target's `/limits`, when the request has just read them.
+   * @param fitNotApplied - What a fit came to when it fitted nothing.
+   */
+  private async sendPlanReady(
+    msg: InboundRequest,
+    operation: AutopilotOperation,
+    storage?: DataStorage | { unread: string },
+    fitNotApplied?: AutopilotFitReport,
+  ): Promise<void> {
+    const { plan, graph } = operation.fit ?? operation;
+    const scanResult = operation.fit?.scan ?? operation.scanResult;
+    if (!plan || !graph) return;
+    // What the plan comes to is said beside it, never in its place: a plan
+    // whose figures could not be told is shown without them.
+    let writeGate: AutopilotPlanWriteGate | undefined;
+    try {
+      writeGate = scanResult
+        ? await this.planWriteGate(
+            operation.targetOrgId,
+            autopilotWritePlan(plan, scanResult.recordCounts, scanResult.personAccounts),
+            storage ?? (await this.readTargetDataStorage(operation.targetOrgId)),
+          )
+        : undefined;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] ${msg.type}: what the plan comes to against the target could not be told ` +
+          `(${extractErrorMessage(err)})`,
+      );
+    }
+    if ((operation.fit ?? operation).plan !== plan) return;
+    const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', {
+      plan,
+      graph,
+      ...(writeGate ? { writeGate } : {}),
+      ...(fitNotApplied ? { fitNotApplied } : {}),
+    });
+    this.deps.broker.postToWebview(response);
+  }
+
+  /**
+   * What a plan comes to against the target's storage and API requests, as
+   * its gate would judge them; a checkpoint taken first counts with the run's
+   * requests, as it does there. Never refuses a plan: what the target would
+   * not say is said.
+   */
+  private async planWriteGate(
+    targetOrgId: string,
+    writePlan: WritePlan,
+    storage: DataStorage | { unread: string },
+    checkpoint?: AutopilotCheckpointFirst['estimate'],
+  ): Promise<AutopilotPlanWriteGate> {
+    const api = await autopilotApiCheck(
+      writePlan,
+      storage,
+      () => this.readTargetApiBudget(targetOrgId),
+      checkpoint,
+    );
+    return planWriteGateOf(writePlan, storageCheckOf(writePlan, storage), api);
+  }
+
+  /** Refuse a fit: the plan under review stays as it was. */
+  private refuseFit(
+    msg: InboundRequest,
+    code: string,
+    words: string,
+    extraPayload?: Record<string, unknown>,
+  ): void {
+    sendHandlerError(this.deps, msg.type, 'autopilot:error', msg, new Error(words), {
+      code,
+      ...(extraPayload ? { extraPayload } : {}),
+    });
+  }
+
+  /**
+   * Fit the plan under review to what its target has left, as a person asked:
+   * always from the plan as it was made, never from a fit of it. Nothing is
+   * written and nothing assigned or taken: what still runs is computed from
+   * the mute's plan, and the run's gate meets the plan fitted as any plan,
+   * `/limits` read again. A read the source refuses is said, and leaves the
+   * plan as it was: nothing is chosen from what was not read.
+   */
+  private async handleFitPlan(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const { orchestrator } = this;
+    if (!orchestrator) {
+      this.refuseNotReady(msg);
+      return;
+    }
+    const parsed = validatePayload(
+      autopilotFitPlanPayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const operation = this.resolveCurrentOperation();
+    const { plan, graph, rules, scanResult } = operation ?? {};
+    if (!operation || !plan || !graph || !rules || !scanResult) {
+      this.refuseFit(
+        msg,
+        AUTOPILOT_FIT_CODES.NO_PLAN,
+        'No execution plan available. Run generate-plan first.',
+      );
+      return;
+    }
+    const { targetOrgId } = operation;
+    if (this.writingTargets.has(targetOrgId)) {
+      this.refuseFit(msg, AUTOPILOT_RUNNING.code, AUTOPILOT_RUNNING.message);
+      return;
+    }
+    try {
+      // The read the run's gate makes, and the mute's plan from it, nothing
+      // assigned. A mute the run will be refused says so at Run: here, what
+      // it would have kept quiet is counted.
+      const read = await this.readTargetAutomation(targetOrgId, plan);
+      const mute =
+        parsed.muteAutomation === true
+          ? await this.planMute(targetOrgId, read).catch((err: unknown) => {
+              if (isMuteRefusedError(err)) return undefined;
+              throw err;
+            })
+          : undefined;
+      const storage = await this.readTargetDataStorage(targetOrgId);
+      // The checkpoint the run takes first spends requests a fit leaves room
+      // for, or the plan fitted would meet the gate's refusal again. One that
+      // cannot be scoped refuses the run at Run, whatever is fitted.
+      const scoped =
+        parsed.checkpointFirst !== undefined
+          ? await this.checkpointFirstOf(
+              msg,
+              targetOrgId,
+              plan,
+              parsed.checkpointFirst,
+              { read, ...(mute ? { mute } : {}) },
+              new AbortController().signal,
+            )
+          : undefined;
+      const budget = fitBudgetOf({
+        storage,
+        ...(parsed.mode.withinMB !== undefined ? { withinMB: parsed.mode.withinMB } : {}),
+        ...('unread' in storage
+          ? {}
+          : {
+              api: storage.dailyApiRequests ?? { unread: "the target's /limits did not list them" },
+            }),
+        otherRequests: checkpointPartOf(
+          scoped && 'estimate' in scoped ? scoped.estimate : undefined,
+        ),
+      });
+      if ('unread' in budget) {
+        this.refuseFit(
+          msg,
+          AUTOPILOT_FIT_CODES.STORAGE_UNREAD,
+          `The plan cannot be fitted: the target's data storage left could not be read (${budget.unread}).`,
+          { reason: budget.unread },
+        );
+        return;
+      }
+      const sourceConn = (await getJsforceConnection(
+        operation.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
+      const targetConn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      let answer: AutopilotPlanFit;
+      try {
+        answer = await orchestrator.fitPlan(sourceConn, {
+          scan: scanResult,
+          graph,
+          plan,
+          rules,
+          mode: parsed.mode,
+          budget,
+          automation: read,
+          ...(mute?.plan ? { mutePlan: mute.plan } : {}),
+          describeLookups: async (objectApiName) =>
+            describedLookups((await targetConn.describe(objectApiName)).fields),
+        });
+      } catch (err: unknown) {
+        const reason = extractErrorMessage(err);
+        this.refuseFit(
+          msg,
+          AUTOPILOT_FIT_CODES.READ_REFUSED,
+          `The plan could not be fitted: the source refused a read of it (${reason}).`,
+          { reason },
+        );
+        return;
+      }
+      // What was read may no longer be what is under review: a plan made for
+      // another framework, another scan, or a run started meanwhile.
+      if (
+        operation.plan !== plan ||
+        this.currentOperationId !== operation.id ||
+        this.writingTargets.has(targetOrgId)
+      ) {
+        this.refuseFit(
+          msg,
+          AUTOPILOT_FIT_CODES.STALE,
+          'The plan changed while it was fitted: fit it again.',
+        );
+        return;
+      }
+      if (answer.fitted) {
+        operation.fit = { ...answer.fitted, report: answer.report };
+        await this.sendPlanReady(msg, operation, storage);
+        return;
+      }
+      // Fitting as it stands, the plan needs no fit: an earlier one is undone.
+      if (answer.report.cannotFit === undefined) operation.fit = undefined;
+      await this.sendPlanReady(msg, operation, storage, answer.report);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'autopilot:fit-plan', 'autopilot:error', msg, err);
+    }
+  }
+
+  /** Back to the plan a fit started from, which the operation kept. */
+  private async handleFitUndo(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      this.refuseNotReady(msg);
+      return;
+    }
+    const operation = this.resolveCurrentOperation();
+    if (!operation?.plan) {
+      this.refuseFit(
+        msg,
+        AUTOPILOT_FIT_CODES.NO_PLAN,
+        'No execution plan available. Run generate-plan first.',
+      );
+      return;
+    }
+    if (this.writingTargets.has(operation.targetOrgId)) {
+      this.refuseFit(msg, AUTOPILOT_RUNNING.code, AUTOPILOT_RUNNING.message);
+      return;
+    }
+    operation.fit = undefined;
+    try {
+      await this.sendPlanReady(msg, operation);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'autopilot:fit-undo', 'autopilot:error', msg, err);
     }
   }
 
@@ -635,8 +940,12 @@ export class AutopilotHandler implements DomainHandler {
     const payload = parsed;
 
     // Capture per-operation state in locals: a concurrent scan/plan request
-    // must not be able to swap this operation's data while executePlan is awaited.
-    const { plan, graph, rules, scanResult } = operation;
+    // must not be able to swap this operation's data while executePlan is
+    // awaited. The plan under review is what runs: the one fitted, if any.
+    const { rules, fit } = operation;
+    const plan = fit?.plan ?? operation.plan;
+    const graph = fit?.graph ?? operation.graph;
+    const scanResult = fit?.scan ?? operation.scanResult;
 
     // Production guard check on the target org — same policy as sync/seed
     // runs. The guard instance comes from backgroundComposition and reaches
@@ -682,7 +991,13 @@ export class AutopilotHandler implements DomainHandler {
     this.writingTargets.set(operation.targetOrgId, msg.id);
     this.runningRequests.add(msg.id);
     try {
-      await this.executeRun(msg, operation, { plan, graph, rules, scanResult }, payload, guard);
+      await this.executeRun(
+        msg,
+        operation,
+        { plan, graph, rules, scanResult, ...(fit ? { fit } : {}) },
+        payload,
+        guard,
+      );
     } finally {
       this.writingTargets.delete(operation.targetOrgId);
       this.runningRequests.delete(msg.id);
@@ -698,11 +1013,13 @@ export class AutopilotHandler implements DomainHandler {
       graph,
       rules,
       scanResult,
+      fit,
     }: {
       plan: ExecutionPlan;
       graph: AutopilotGraph;
       rules: AutopilotAnonymizationRule[];
       scanResult: SchemaScanResult;
+      fit?: OperationFit;
     },
     payload: {
       grappeThreshold?: number;
@@ -714,6 +1031,14 @@ export class AutopilotHandler implements DomainHandler {
   ): Promise<void> {
     if (!this.orchestrator) return;
     const totalRecords = Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0);
+    /** What the audit trail keeps of the fit the plan came from, when it was fitted. */
+    const auditFit = fit
+      ? autopilotAuditFitOf(
+          fit.report,
+          totalRecords,
+          [...(operation.scanResult?.recordCounts.values() ?? [])].reduce((s, c) => s + c, 0),
+        )
+      : undefined;
 
     // The run's stop. `execution:abort` with this request's id reaches it
     // through the registry: the page's Stop sends it, and Live Operations'
@@ -749,6 +1074,7 @@ export class AutopilotHandler implements DomainHandler {
         orgId: operation.targetOrgId,
         outcome: 'stopped',
         guard: decision,
+        ...(auditFit ? { fit: auditFit } : {}),
       });
     }
     // Each with the code every write path is stopped with: the page says it
@@ -800,6 +1126,7 @@ export class AutopilotHandler implements DomainHandler {
           orgId: operation.targetOrgId,
           outcome: 'stopped',
           guard: guardDecision,
+          ...(auditFit ? { fit: auditFit } : {}),
           code: err.code,
         });
         sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err, {
@@ -833,6 +1160,7 @@ export class AutopilotHandler implements DomainHandler {
           orgId: operation.targetOrgId,
           outcome: 'stopped',
           guard: guardDecision,
+          ...(auditFit ? { fit: auditFit } : {}),
           code: AUTOPILOT_GATE_CODES.CHECKPOINT_REFUSED,
         });
         const stop = new Error(scoped.refused);
@@ -870,11 +1198,13 @@ export class AutopilotHandler implements DomainHandler {
         orgId: operation.targetOrgId,
         outcome: 'stopped',
         guard: guardDecision,
+        ...(auditFit ? { fit: auditFit } : {}),
         code: gate.code,
       });
       const stop = new Error(gate.message);
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
         code: AUTOPILOT_GATE_CODES[gate.code],
+        ...(await this.fitOffer(operation, gate, writePlan, checkpointFirst)),
       });
       settle(stop);
       return;
@@ -913,6 +1243,7 @@ export class AutopilotHandler implements DomainHandler {
         ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
         ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         ...(checkpoint?.state === 'taken' ? { checkpointId: checkpoint.checkpointId } : {}),
+        ...(auditFit ? { fit: auditFit } : {}),
       });
     };
     try {
@@ -1011,6 +1342,8 @@ export class AutopilotHandler implements DomainHandler {
                 lease: { assigned: held.outcome.assigned.length, giveBack: () => held.release() },
               }
             : {}),
+          // A record read that came to name one the fit cut stays out with it.
+          ...(fit ? { fit: fit.run } : {}),
         },
       );
       const result = await ran.finally(async () => {
@@ -1064,6 +1397,9 @@ export class AutopilotHandler implements DomainHandler {
                   ...(outcome.pricesSettled ? { pricesSettled: outcome.pricesSettled } : {}),
                   // The type the target gave the records created without one.
                   ...(outcome.recordTypeGiven ? { recordTypeGiven: outcome.recordTypeGiven } : {}),
+                  ...(outcome.cutSinceFit !== undefined
+                    ? { cutSinceFit: outcome.cutSinceFit }
+                    : {}),
                 }
               : {}),
             ...(statuses
@@ -1166,6 +1502,7 @@ export class AutopilotHandler implements DomainHandler {
         totalApiCalls: 0,
         ...(mutedAutomation ? { mutedAutomation } : {}),
         ...(checkpoint ? { checkpoint } : {}),
+        ...(result.cutSinceFit !== undefined ? { cutSinceFit: result.cutSinceFit } : {}),
         ...(result.stopped
           ? {
               stopped: true,
@@ -1255,7 +1592,15 @@ export class AutopilotHandler implements DomainHandler {
     plan: Pick<ExecutionPlan, 'waves'>,
   ): Promise<{ mute: RunMute; read: ForgeTargetAutomation | { unread: string } }> {
     const read = await this.readTargetAutomation(targetOrgId, plan);
-    const mute = await muteForRun(
+    return { mute: await this.planMute(targetOrgId, read), read };
+  }
+
+  /** The mute planned from what was read of the target, nothing assigned. */
+  private planMute(
+    targetOrgId: string,
+    read: ForgeTargetAutomation | { unread: string },
+  ): Promise<RunMute> {
+    return muteForRun(
       async () =>
         muteOrgOf(
           await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager),
@@ -1263,7 +1608,6 @@ export class AutopilotHandler implements DomainHandler {
       read,
       { ...this.muteLeases, writes: AUTOPILOT_WRITES },
     );
-    return { mute, read };
   }
 
   /** What the target runs on the objects the plan writes, or why it could not be read. */
@@ -1346,6 +1690,45 @@ export class AutopilotHandler implements DomainHandler {
           `as it could not be settled (${extractErrorMessage(err)})`,
       );
       return taken;
+    }
+  }
+
+  /**
+   * What a run refused for what its target has left carries to the page: the
+   * figures of its refusal, and the plan against what the target says now,
+   * which opens the way to fit it. Any other stop carries nothing.
+   */
+  private async fitOffer(
+    operation: AutopilotOperation,
+    gate: { code: string; check: StorageCheck },
+    writePlan: WritePlan,
+    checkpointFirst?: AutopilotCheckpointFirst,
+  ): Promise<{ extraPayload: Record<string, unknown> } | Record<string, never>> {
+    if (gate.code !== 'STORAGE_EXCEEDED' && gate.code !== 'API_BUDGET_EXCEEDED') return {};
+    const { targetOrgId } = operation;
+    const { check } = gate;
+    const org = this.deps.orgManager.getOrg(targetOrgId);
+    const figures = {
+      org: org?.alias ?? targetOrgId,
+      estimateMB: check.estimateMB,
+      ...(check.verdict === 'unread' ? {} : { remainingMB: check.remainingMB, maxMB: check.maxMB }),
+    };
+    // The refusal is said whatever its figures come to: without this, a read
+    // that threw would leave the page waiting on a run that wrote nothing.
+    try {
+      const writeGate = await this.planWriteGate(
+        targetOrgId,
+        writePlan,
+        await this.readTargetDataStorage(targetOrgId),
+        checkpointFirst?.estimate,
+      );
+      return { extraPayload: { ...figures, writeGate } };
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] autopilot:execute: what the plan comes to could not be read again ` +
+          `(${extractErrorMessage(err)})`,
+      );
+      return { extraPayload: figures };
     }
   }
 
@@ -1448,6 +1831,8 @@ export class AutopilotHandler implements DomainHandler {
       pricesSettled?: PriceCurrencySettled[];
       /** The record type the target gave the records created without one, read back once written. */
       recordTypeGiven?: RecordTypeGiven;
+      /** Records read that came to name one the fit cut, held back with it. */
+      cutSinceFit?: number;
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;
@@ -1563,13 +1948,15 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
     try {
+      // Of a fitted plan, the records it set out to copy: those the fit kept.
+      const scanned = operation.fit?.scan ?? operation.scanResult;
       const report = this.orchestrator.generateReport(
         operation.profile,
         operation.rules,
-        operation.scanResult.recordCounts,
+        scanned.recordCounts,
         '',
         '',
-        operation.scanResult.totalObjectsScanned,
+        scanned.totalObjectsScanned,
       );
       const response = buildResponse(this.deps, msg, 'autopilot:compliance-report', { report });
       this.deps.broker.postToWebview(response);

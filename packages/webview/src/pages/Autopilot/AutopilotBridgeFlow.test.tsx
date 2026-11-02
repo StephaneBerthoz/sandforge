@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type {
+  AutopilotFitReport,
   AutopilotGraph,
   AutopilotObjectListing,
+  AutopilotPlanWriteGate,
   ComplianceReport,
   ExecutionPlan,
 } from '@sandforge/shared';
@@ -813,5 +815,228 @@ describe('Autopilot bridge flow', () => {
 
     expect(screen.getByTestId('step4-review')).toBeDefined();
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+/** What the plan of the accounts and contacts comes to against a target with 22 MB left. */
+const REFUSED_GATE: AutopilotPlanWriteGate = {
+  records: 180,
+  estimateMB: 64.5,
+  remainingMB: 22,
+  maxMB: 200,
+  verdict: 'exceeds',
+  apiRequests: { estimate: 4, remaining: 14_000, max: 15_000, verdict: 'fits' },
+};
+
+/** What the extension's fit of that plan kept: half the accounts, the contacts that follow them. */
+const FIT_REPORT: AutopilotFitReport = {
+  mode: { share: true },
+  heldBy: 'storage',
+  budget: {
+    budgetMB: 16.4,
+    remainingMB: 22,
+    maxMB: 200,
+    share: 0.8,
+    roundingMB: 0.5,
+    limitedBy: 'storage',
+    automationMB: 0,
+  },
+  share: 0.5,
+  objects: [
+    { objectApiName: 'Account', inSource: 100, kept: 50, cutSpread: 50, cutWithParent: [] },
+    {
+      objectApiName: 'Contact',
+      inSource: 80,
+      kept: 40,
+      cutSpread: 0,
+      cutWithParent: [{ field: 'AccountId', parent: 'Account', count: 40 }],
+    },
+  ],
+  emptied: [],
+  parents: [],
+  records: 90,
+  estimateMB: 16.2,
+  requestsRead: 2,
+};
+
+/** The plan the fit answers: the same waves, the records kept, read by id. */
+const FITTED_PLAN: ExecutionPlan = {
+  ...PLAN,
+  totalRecords: 90,
+  scope: {
+    maxDepth: 5,
+    maxObjects: 50,
+    selected: ['Account', 'Contact'],
+    parents: [],
+    leftEmpty: [],
+    standardNeeded: [],
+    fitted: FIT_REPORT,
+  },
+};
+
+describe('Autopilot bridge flow, the fit to storage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAutopilotStore.getState().reset();
+  });
+
+  /** From connect to the review, the plan answered with what it comes to against the target. */
+  const reviewOfARefusedPlan = (): void => {
+    fireEvent.click(screen.getByTestId('source-org-org-1'));
+    fireEvent.click(screen.getByTestId('target-org-org-2'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    respondTo('autopilot:list-objects', 'autopilot:objects-listed', { objects: LISTING });
+    fireEvent.click(screen.getByTestId('object-Account'));
+    fireEvent.click(screen.getByTestId('object-Contact'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    respondTo('autopilot:scan-schema', 'autopilot:schema-result', { graph: GRAPH });
+    respondTo('autopilot:generate-plan', 'autopilot:plan-ready', {
+      plan: PLAN,
+      graph: GRAPH,
+      writeGate: REFUSED_GATE,
+    });
+  };
+
+  it('says before Run that the plan would be refused, fits it with what the run is set to do, and undoes the fit', () => {
+    render(<AutopilotPage />);
+    reviewOfARefusedPlan();
+
+    expect(screen.getByTestId('step4-fit-plan-storage').textContent).toBe(
+      '64.5 MB to write, and QASandbox has 22 MB left of 200 MB: a run would be refused.',
+    );
+    fireEvent.click(screen.getByTestId('step4-mute-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit to storage…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit the plan' }));
+
+    const fit = lastRequestOfType('autopilot:fit-plan');
+    expect(fit.payload).toEqual({ mode: { share: true }, muteAutomation: true });
+    // Run waits for the plan the fit answers.
+    expect(screen.getByTestId('execute-button').hasAttribute('disabled')).toBe(true);
+
+    respondTo('autopilot:fit-plan', 'autopilot:plan-ready', {
+      plan: FITTED_PLAN,
+      graph: GRAPH,
+      writeGate: { ...REFUSED_GATE, records: 90, estimateMB: 16.2, verdict: 'near' },
+    });
+
+    expect(screen.getByRole('region', { name: 'Fitted to QASandbox' })).toBeDefined();
+    expect(screen.getByTestId('stat-records').textContent).toContain('90');
+    expect(screen.getByTestId('step4-fit-plan-storage').textContent).toContain(
+      'a run asks before it writes',
+    );
+    expect(screen.getByTestId('execute-button').hasAttribute('disabled')).toBe(false);
+    // The fitted objects are read by the ids kept: none is said to be copied whole.
+    expect(screen.getByTestId('step4-scope').textContent).not.toContain('Copied whole');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo fit' }));
+    expect(lastRequestOfType('autopilot:fit-undo')).toBeDefined();
+    respondTo('autopilot:fit-undo', 'autopilot:plan-ready', {
+      plan: PLAN,
+      graph: GRAPH,
+      writeGate: REFUSED_GATE,
+    });
+
+    expect(screen.queryByRole('region', { name: 'Fitted to QASandbox' })).toBeNull();
+    expect(screen.getByTestId('stat-records').textContent).toContain('180');
+  });
+
+  it('says a fit the source refused a read of, and keeps the plan under review', () => {
+    render(<AutopilotPage />);
+    reviewOfARefusedPlan();
+    fireEvent.click(screen.getByRole('button', { name: 'Fit to storage…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit the plan' }));
+
+    dispatchBridgeMessage(
+      'autopilot:error',
+      {
+        message: 'The plan could not be fitted: the source refused a read of it (x).',
+        code: 'AUTOPILOT_FIT_READ_REFUSED',
+        retryable: false,
+        reason: 'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+      },
+      lastRequestOfType('autopilot:fit-plan').id,
+    );
+
+    expect(screen.getByTestId('step4-fit-error').textContent).toBe(
+      'The plan was not fitted: the source org refused a read of its records (REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.). Nothing was chosen from what was not read, and the plan under review is unchanged.',
+    );
+    expect(useAutopilotStore.getState().plan).toBe(PLAN);
+  });
+
+  it('says a run refused for its storage in figures, and offers the fit from there', () => {
+    render(<AutopilotPage />);
+    reviewOfARefusedPlan();
+    fireEvent.click(screen.getByTestId('execute-button'));
+
+    dispatchBridgeMessage(
+      'autopilot:error',
+      {
+        message: 'The records to write take about 64.5 MB of data storage…',
+        code: 'AUTOPILOT_STORAGE_EXCEEDED',
+        retryable: false,
+        org: 'QASandbox',
+        estimateMB: 64.5,
+        remainingMB: 21,
+        maxMB: 200,
+        writeGate: { ...REFUSED_GATE, remainingMB: 21 },
+      },
+      lastRequestOfType('autopilot:execute').id,
+    );
+
+    expect(useAutopilotStore.getState().step).toBe('review');
+    expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
+      'its records take about 64.5 MB of data storage, and QASandbox has 21 MB left of 200 MB. Fit the plan to storage',
+    );
+    // What the target says now, read as the run was refused.
+    expect(screen.getByTestId('step4-fit-plan-storage').textContent).toContain('21 MB left');
+    expect(screen.getByRole('button', { name: 'Fit to storage…' })).toBeDefined();
+  });
+
+  it('says on the result and on each node what the fit kept, and what was held back since', () => {
+    render(<AutopilotPage />);
+    reviewOfARefusedPlan();
+    fireEvent.click(screen.getByRole('button', { name: 'Fit to storage…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit the plan' }));
+    respondTo('autopilot:fit-plan', 'autopilot:plan-ready', { plan: FITTED_PLAN, graph: GRAPH });
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const run = lastRequestOfType('autopilot:execute').id;
+
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'completed',
+        wave: 1,
+        recordCount: 38,
+        cutSinceFit: 2,
+      },
+      run,
+    );
+    dispatchBridgeMessage(
+      'autopilot:completed',
+      {
+        totalRecords: 88,
+        totalSuccessCount: 88,
+        totalFailureCount: 0,
+        totalElapsedMs: 1000,
+        totalApiCalls: 3,
+        cutSinceFit: 2,
+      },
+      run,
+    );
+
+    expect(screen.getByTestId('control-fit').textContent).toContain(
+      'Plan fitted to the data storage of QASandbox: 90 of the 180 records of the selected objects kept, 50% of each.',
+    );
+    expect(screen.getByTestId('control-fit-cut-since').textContent).toContain(': 2');
+
+    act(() => {
+      useAutopilotStore.getState().selectNode('Contact');
+    });
+    expect(screen.getByTestId('node-fit-kept').textContent).toBe(
+      '40 of the 80 records in the source kept',
+    );
+    expect(screen.getByTestId('node-fit-cut-since').textContent).toContain(': 2');
   });
 });

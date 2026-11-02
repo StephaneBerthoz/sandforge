@@ -7,6 +7,7 @@ import type {
   AnonymizationOverride,
   AutopilotNodeStatus,
   AutopilotFitMode,
+  AutopilotFitReport,
   AutopilotPlanWriteGate,
 } from '../autopilot.types.js';
 import type { ComplianceFrameworkType } from '../common.types.js';
@@ -97,6 +98,12 @@ export interface AutopilotPlanReady extends BaseMessage {
      * would take. Absent when it was not read.
      */
     writeGate?: AutopilotPlanWriteGate;
+    /**
+     * What an `autopilot:fit-plan` came to when it fitted nothing: the plan
+     * fits as it stands (`heldBy: 'whole'`), or `cannotFit` says why nothing
+     * is proposed. The plan answered is then the one under review.
+     */
+    fitNotApplied?: AutopilotFitReport;
   };
 }
 
@@ -106,10 +113,26 @@ export interface AutopilotPlanReady extends BaseMessage {
  * an `autopilot:plan-ready` of the fitted plan, its report in
  * `plan.scope.fitted`, the plan it was fitted from kept to go back to.
  * Nothing is written; the gate is met again by the fitted plan at Run.
+ *
+ * What the run is set to do counts in what fits, as the review stands: what
+ * its mute keeps quiet creates no record to keep room for, and the checkpoint
+ * it takes first spends some of the day's API requests.
  */
 export interface AutopilotFitPlanRequest extends BaseMessage {
   type: 'autopilot:fit-plan';
-  payload: { mode: AutopilotFitMode };
+  payload: {
+    mode: AutopilotFitMode;
+    muteAutomation?: boolean;
+    checkpointFirst?: RunCheckpointRequest;
+  };
+}
+
+/**
+ * `autopilot:fit-undo`. WebView -> Extension. Back to the plan a fit started
+ * from: answered by an `autopilot:plan-ready` of that plan.
+ */
+export interface AutopilotFitUndoRequest extends BaseMessage {
+  type: 'autopilot:fit-undo';
 }
 
 /** Request to start autopilot execution */
@@ -223,6 +246,12 @@ export interface AutopilotCompleted extends BaseMessage {
      * back. Absent when it was not asked.
      */
     checkpoint?: RunCheckpointInfo;
+    /**
+     * Of a plan fitted to the target's storage, the records read that had
+     * come to name a record the fit cut, since it chose them: held back with
+     * that record. Absent when there were none.
+     */
+    cutSinceFit?: number;
   };
 }
 
