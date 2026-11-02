@@ -219,7 +219,7 @@ import {
   muteOrgOf,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
-import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
+import { removalStepsWithSweep, removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
 import {
   SWEEP_CLASS_FLAGS,
@@ -384,9 +384,10 @@ Remove what a run created:
                          triggers, processes or workflow rules as the removal
                          brings records back from the recycle bin, gives them
                          their values back, sets them back to Draft or
-                         deletes them, or could not say what it runs. Each is
-                         named before anything is written; without the flag
-                         the removal then writes nothing, exit 1 (default: off)
+                         deletes them, those --sweep deletes included, or
+                         could not say what it runs. Each is named before
+                         anything is written; without the flag the removal
+                         then writes nothing, exit 1            (default: off)
   --mute-automation      mute the target's automation for the removal through
                          its own bypass, as for a run; what no bypass keeps
                          quiet still needs --accept-automation (default: off)
@@ -3134,6 +3135,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweep?: ForgeSweepResult,
     restored?: SyncRestoreObjectResult[],
     undeleted?: SyncUndeleteObjectResult[],
+    mutedAutomation?: MutedAutomation,
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -3153,6 +3155,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(sweepListing ? { sweepListing } : {}),
               ...(restored ? { restored } : {}),
               ...(undeleted ? { undeleted } : {}),
+              ...(mutedAutomation ? { mutedAutomation } : {}),
             },
             elapsedMs: Date.now() - t0,
           },
@@ -3376,60 +3379,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         "run's user, tied to its records — run with --sweep-list to see what",
     );
   }
-  // What the target runs as the removal takes the run back, said before it
-  // writes and asked about as the clone's removal asks, step by step as it
-  // writes: the triggers that run after an undelete as it brings back what
-  // the run deleted, what fires as it gives back what the run wrote over and
-  // as it sets an activated order back to Draft, then before and after each
-  // delete. The panel listed it before the org's name was typed; the command
-  // read it for the sweep alone, and said nothing of it.
-  const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
-    ...new Set(objects.map(({ objectApiName }) => objectApiName)),
-  ];
-  const steps: ForgeRemovalSteps = {
-    bringBack: names(bringBack),
-    giveBack: names(kept.kept),
-    setToDraft: setBackToDraftOf(names(plan)),
-    delete: names(plan),
-  };
-  const written = [...new Set(Object.values(steps).flat())];
-  /** The removal's mute, asked with --mute-automation, held while it writes. */
-  let removalMute: RunMute | undefined;
-  if (written.length > 0) {
-    const read = await targetAutomationReader(conn).read(args.target, written, {
-      undeletes: true,
-    });
-    say('');
-    for (const line of removalStepsAutomationLines(read, args.target, steps)) say(line);
-    // Asked to mute, the removal plans it from what it read, and asks only
-    // for what still runs; refused, it writes nothing.
-    if (args.muteAutomation) {
-      try {
-        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
-          writes: removalStepsWrites(steps),
-        });
-        for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
-      } catch (err: unknown) {
-        if (!isMuteRefusedError(err)) throw err;
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
-      }
-    }
-    const automation = removalMute?.automation ?? read;
-    const automationStop = removalStepsAutomationRefusal(automation, args.target, {
-      steps,
-      assign: bypassesToAssign(
-        automation,
-        removalStepsBypassesOf(automation, steps),
-        session.username ? { alias: args.target, username: session.username } : undefined,
-      ),
-    });
-    if (automationStop && !args.acceptAutomation) {
-      process.stderr.write(`${automationStop}\n`);
-      process.exit(1);
-    }
-  }
-
   // Ctrl-C stops the removal before its next call to the org, as Cancel does
   // in the panel; a SIGTERM or a SIGHUP does too.
   const stop = new AbortController();
@@ -3471,6 +3420,67 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweepListing = unsaid;
     say('');
     for (const line of sweepListingLines(unsaid, args.target, args)) say(line);
+  }
+  // What the target runs as the removal takes the run back, said before it
+  // writes and asked about as the clone's removal asks, step by step as it
+  // writes: the triggers that run after an undelete as it brings back what
+  // the run deleted, what fires as it gives back what the run wrote over and
+  // as it sets an activated order back to Draft, then before and after each
+  // delete, what the sweep deletes among them: read before it, a Flow on an
+  // asset the run never wrote refused the sweep's delete after the removal had
+  // said that nothing fired. The panel listed it before the org's name was
+  // typed; the command read it for the sweep alone, and said nothing of it. A
+  // stop while the sweep read asks nothing: the removal stops at its next call.
+  const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
+    ...new Set(objects.map(({ objectApiName }) => objectApiName)),
+  ];
+  const steps: ForgeRemovalSteps = removalStepsWithSweep(
+    {
+      bringBack: names(bringBack),
+      giveBack: names(kept.kept),
+      setToDraft: setBackToDraftOf(names(plan)),
+      delete: names(plan),
+    },
+    parts?.takes ?? [],
+  );
+  const written = [...new Set(Object.values(steps).flat())];
+  /** The removal's mute, asked with --mute-automation, held while it writes. */
+  let removalMute: RunMute | undefined;
+  if (written.length > 0 && !stop.signal.aborted) {
+    const read = await targetAutomationReader(conn).read(args.target, written, {
+      undeletes: true,
+    });
+    say('');
+    for (const line of removalStepsAutomationLines(read, args.target, steps)) say(line);
+    // Asked to mute, the removal plans it from what it read, and asks only
+    // for what still runs; refused, it writes nothing.
+    if (args.muteAutomation) {
+      try {
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          writes: removalStepsWrites(steps),
+        });
+        for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        releaseStop();
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+    }
+    const automation = removalMute?.automation ?? read;
+    const automationStop = removalStepsAutomationRefusal(automation, args.target, {
+      steps,
+      assign: bypassesToAssign(
+        automation,
+        removalStepsBypassesOf(automation, steps),
+        session.username ? { alias: args.target, username: session.username } : undefined,
+      ),
+    });
+    if (automationStop && !args.acceptAutomation) {
+      releaseStop();
+      process.stderr.write(`${automationStop}\n`);
+      process.exit(1);
+    }
   }
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
   // The lease is taken before the removal's first write and given back as it
@@ -3568,6 +3578,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweep,
     outcome.result.restored,
     outcome.result.undeleted,
+    mutedAutomation,
   );
   if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
     process.exit(RECORDS_LEFT_EXIT);

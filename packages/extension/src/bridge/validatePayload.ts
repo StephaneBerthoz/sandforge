@@ -93,6 +93,12 @@ export const sfApiNameSchema = z
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Invalid Salesforce API name')
   .max(80);
 
+/**
+ * The objects a confirmation's sweep deletes records of, as its list reads
+ * them, for the read of what they fire: a sweep looks at 300 objects at most.
+ */
+export const sweptObjectsSchema = z.array(sfApiNameSchema).max(300);
+
 /** Bounded opaque identifier (operation ids, template ids, alert ids, config ids). */
 export const opaqueIdSchema = z.string().min(1).max(200);
 
@@ -553,6 +559,8 @@ export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
 export const syncRemoveAutomationPayloadSchema = z.object({
   runId: opaqueIdSchema,
   again: z.boolean().optional(),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
 });
 // ── seed:removal:info / seed:remove payload schemas ─────────────────────────
 // The run is named, never its records: what is removed is what the run kept.

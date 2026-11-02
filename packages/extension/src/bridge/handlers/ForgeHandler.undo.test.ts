@@ -2038,6 +2038,43 @@ describe('forge:undo-automation', () => {
     ).toEqual([[], ['Order']]);
   });
 
+  it('reads what a sweep ticked with the removal deletes too, setting none of it back to Draft', async () => {
+    await handler.handle(
+      buildMsg('forge:undo-automation:request', {
+        forgeId: 'forge-1',
+        sweptObjects: ['Asset', 'Account', 'Order__c'],
+      }),
+    );
+
+    const objects = reader.read.mock.calls[0]?.[1];
+    expect([...(objects ?? [])].sort()).toEqual([
+      'Account',
+      'Asset',
+      'Contact',
+      'Order',
+      'Order__c',
+    ]);
+    const [response] = posted<BaseMessage & { payload: { drafted: string[] } }>(
+      'forge:undo-automation:response',
+    );
+    expect(response?.payload.drafted).toEqual(['Order']);
+  });
+
+  it('refuses what is no API name among what a sweep deletes, and reads nothing', async () => {
+    await handler.handle(
+      buildMsg('forge:undo-automation:request', {
+        forgeId: 'forge-1',
+        sweptObjects: ["Asset' OR Id != null"],
+      }),
+    );
+
+    expect(reader.read).not.toHaveBeenCalled();
+    expect(
+      posted<BaseMessage & { payload: { code: string } }>('forge:undo-automation:error')[0]?.payload
+        .code,
+    ).toBe('INVALID_PAYLOAD');
+  });
+
   it('refuses a run the history no longer holds, and reads nothing', async () => {
     await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'gone' }));
 

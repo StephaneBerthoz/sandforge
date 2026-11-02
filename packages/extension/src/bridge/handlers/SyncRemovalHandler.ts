@@ -8,6 +8,7 @@ import type {
 import {
   auditMutedOf,
   guardTierOf,
+  removalStepsWithSweep,
   removalStepsWrites,
   sanitizeSoqlObjectName,
   type MutedAutomation,
@@ -823,7 +824,12 @@ export class SyncRemovalHandler implements DomainHandler {
         );
         return;
       }
-      const steps = this.removalStepsOf(run, parsed.again === true);
+      // What a sweep ticked in the confirmation deletes too: the page names
+      // its objects, as the list it shows reads them.
+      const steps = removalStepsWithSweep(
+        this.removalStepsOf(run, parsed.again === true),
+        parsed.sweptObjects ?? [],
+      );
       const objects = [...new Set(Object.values(steps).flat())];
       const reader = this.targetAutomation;
       const automation = await new TimeoutManager(REMOVAL_AUTOMATION_TIMEOUT_MS).withTimeout(
@@ -1189,12 +1195,21 @@ export class SyncRemovalHandler implements DomainHandler {
           })
         : undefined;
       const sweepParts = sweeping;
-      // Asked to mute, the removal reads what its writes fire, plans the mute
-      // from it, and takes the lease before its first write; it is given back
-      // as the removal ends, whatever it ended on. Refused, nothing is written.
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease and before the removal writes: a person answering holds no
+      // permission set assigned, and what an undelete or a value given back
+      // makes the target do is not read as the run's. It deletes at its turn.
+      await sweepParts?.ask();
+      // Asked to mute, the removal reads what its writes fire, what the sweep
+      // deletes among them, plans the mute from it, and takes the lease before
+      // its first write; it is given back as the removal ends, whatever it
+      // ended on. Refused, nothing is written.
       let removalMute: RunMute | undefined;
       if (asked.muteAutomation === true) {
-        const steps = this.removalStepsOf(run, again);
+        const steps = removalStepsWithSweep(
+          this.removalStepsOf(run, again),
+          sweepParts?.takes ?? [],
+        );
         const objects = [...new Set(Object.values(steps).flat())];
         const reader = this.targetAutomation;
         const read = await new TimeoutManager(REMOVAL_AUTOMATION_TIMEOUT_MS)
@@ -1207,11 +1222,6 @@ export class SyncRemovalHandler implements DomainHandler {
           writes: removalStepsWrites(steps),
         });
       }
-      // The sweep reads what it takes and asks Production Guard here, before
-      // the lease and before the removal writes: a person answering holds no
-      // permission set assigned, and what an undelete or a value given back
-      // makes the target do is not read as the run's. It deletes at its turn.
-      await sweepParts?.ask();
       const held =
         removalMute?.prepared && !abortController.signal.aborted
           ? await removalMute.prepared.acquire(operationId)

@@ -330,8 +330,12 @@ export interface ForgeAutomationRequest extends BaseMessage {
  */
 export interface ForgeUndoAutomationRequest extends BaseMessage {
   type: 'forge:undo-automation:request';
-  /** `again`: on the objects of every record the run created, as `forge:undo` takes them `again`. */
-  payload: { forgeId: string; again?: boolean };
+  /**
+   * `again`: on the objects of every record the run created, as `forge:undo`
+   * takes them `again`. `sweptObjects`: on those a sweep asked with the
+   * removal deletes records of too, as its list reads (`sweepTakenObjects`).
+   */
+  payload: { forgeId: string; again?: boolean; sweptObjects?: string[] };
 }
 
 /**

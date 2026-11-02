@@ -5177,7 +5177,13 @@
       "staysOverBound": "Mais de 10.000 registros de um objeto: o objeto é nomeado, e nenhum é varrido.",
       "staysOtherMachines": "O que outra máquina ou uma CI gravou na mesma janela: uma varredura não vê essas execuções.",
       "resultAfterRemoval_one": "{{formatted}} deles depois que os registros da execução que apontam para ele saíram",
-      "resultAfterRemoval_other": "{{formatted}} deles depois que os registros da execução que apontam para eles saíram"
+      "resultAfterRemoval_other": "{{formatted}} deles depois que os registros da execução que apontam para eles saíram",
+      "resultSuccessLeft": "O que a varredura pegou saiu de {{org}}; o que ela deixou continua lá, como dito abaixo.",
+      "leftLate_one": "{{formatted}} registro que chegou tarde ficou ({{objects}}).",
+      "leftLate_other": "{{formatted}} registros que chegaram tarde ficaram ({{objects}}).",
+      "leftUntied_one": "{{formatted}} registro sem vínculo com a execução ficou ({{objects}}).",
+      "leftUntied_other": "{{formatted}} registros sem vínculo com a execução ficaram ({{objects}}).",
+      "leftTick": "Uma caixa sob a lista da varredura os inclui."
     },
     "automation": {
       "title": "O que {{org}} executa quando estes registros saem",

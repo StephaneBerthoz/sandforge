@@ -540,6 +540,85 @@ describe('ForgeRunSweepResult', () => {
     );
   });
 
+  it('says what it found and left, by class, and what takes it: a success that leaves records says so first', () => {
+    render(
+      <ForgeRunSweepResult
+        result={{
+          status: 'success',
+          objects: [],
+          unread: [],
+          handWork: [],
+          left: [
+            {
+              class: 'late',
+              objects: [{ objectApiName: 'Task', count: 1 }],
+              option: '--sweep-late',
+            },
+            {
+              class: 'untied',
+              objects: [
+                { objectApiName: 'Task', count: 5 },
+                { objectApiName: 'Note', count: 2 },
+              ],
+              option: '--sweep-untied',
+            },
+          ],
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByRole('heading').textContent).toBe(
+      'What the sweep took is gone from DEV-SANDBOX; what it left stays, as said below.',
+    );
+    expect(screen.getByTestId('forge-sweep-left-late').textContent).toBe(
+      "1 record that came late stays (Task (1)).A tick under the sweep's list takes them.",
+    );
+    expect(screen.getByTestId('forge-sweep-left-untied').textContent).toBe(
+      "7 records tied to nothing of the run stay (Task (5), Note (2)).A tick under the sweep's list takes them.",
+    );
+  });
+
+  it('says why what is tied to nothing cannot be asked for, when it cannot', () => {
+    render(
+      <ForgeRunSweepResult
+        result={{
+          status: 'success',
+          objects: [],
+          unread: [],
+          handWork: [],
+          left: [
+            {
+              class: 'untied',
+              objects: [{ objectApiName: 'Task', count: 1 }],
+              option: '--sweep-untied',
+              refusal: 'Hand work, likely.',
+            },
+          ],
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-sweep-left-untied').textContent).toBe(
+      '1 record tied to nothing of the run stays (Task (1)).This cannot be asked for: Hand work, likely.',
+    );
+  });
+
+  it('says nothing the sweep found is left only when nothing is', () => {
+    render(
+      <ForgeRunSweepResult
+        result={{ status: 'success', objects: [], unread: [], handWork: [] }}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByRole('heading').textContent).toBe(
+      'Nothing the sweep found is left in DEV-SANDBOX.',
+    );
+    expect(screen.queryByTestId('forge-sweep-left-untied')).toBeNull();
+  });
+
   it('says of what it deleted what waited for the records of the run that point at it', () => {
     render(
       <ForgeRunSweepResult

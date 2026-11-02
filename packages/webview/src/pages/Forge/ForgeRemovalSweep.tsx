@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import type {
   ForgeRemovalLeftCount,
   ForgeSweepClasses,
+  ForgeSweepLeftClass,
   ForgeSweepListing,
   ForgeSweepMark,
   ForgeSweepObjectResult,
@@ -43,6 +44,12 @@ interface SweepAnswer {
   forgeId: string;
   listing: ForgeSweepListing;
 }
+
+/** What a sweep's result says of what it found and left, by class. */
+const LEFT_KEYS: Record<ForgeSweepLeftClass['class'], string> = {
+  late: 'runRemoval.sweep.leftLate',
+  untied: 'runRemoval.sweep.leftUntied',
+};
 
 /** What a sweep's result says first, by how it ended. */
 const RESULT_TITLE_KEYS: Record<ForgeSweepResult['status'], string> = {
@@ -441,6 +448,8 @@ export interface ForgeRemovalSweepProps {
   /** The ticks under the list: what it keeps, taken too. */
   ticks?: SweepTicks;
   onTicksChange?: (ticks: SweepTicks) => void;
+  /** Told what it read, null until it has: what the confirmation reads the automation of. */
+  onListing?: (listing: ForgeSweepListing | null) => void;
 }
 
 /**
@@ -458,6 +467,7 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
   org,
   ticks,
   onTicksChange,
+  onListing,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -471,6 +481,11 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
     if (forgeId) mutate({ forgeId });
     else reset();
   }, [forgeId, mutate, reset]);
+  const listing = read.data?.forgeId === forgeId ? (read.data?.listing ?? null) : null;
+  useEffect(() => {
+    onListing?.(listing);
+  }, [listing, onListing]);
+  useEffect(() => () => onListing?.(null), [onListing]);
 
   if (!forgeId) return null;
   let body: React.ReactNode;
@@ -480,7 +495,7 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
         {t('runRemoval.sweep.error', { org, reason: read.error })}
       </p>
     );
-  } else if (!read.data || read.data.forgeId !== forgeId) {
+  } else if (!listing) {
     body = (
       <p data-testid="forge-sweep-loading" className="text-text-secondary">
         {t('runRemoval.sweep.loading', { org })}
@@ -489,7 +504,7 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({
   } else {
     body = (
       <ForgeSweepListingView
-        listing={read.data.listing}
+        listing={listing}
         {...(ticks ? { ticks } : {})}
         {...(onTicksChange ? { onTicksChange } : {})}
       />
@@ -533,11 +548,19 @@ export interface ForgeRunSweepResultProps {
  * What a sweep did around the run's records: how it ended, per object what
  * became of the records it found — deleted, those of them that waited for the
  * run's own, already gone, kept as changed since the run, refused with the
- * org's words — and what it could not look at, or why it was refused.
+ * org's words —, what it found and left, by class, and what it could not look
+ * at, or why it was refused. A sweep that took all it was asked to and left
+ * what came late or is tied to nothing is a success: its first line no longer
+ * says that nothing it found is left.
  */
 export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result, org }) => {
   const { t } = useTranslation();
   const headingId = useId();
+  const left = result.left ?? [];
+  const title =
+    result.status === 'success' && left.length > 0
+      ? 'runRemoval.sweep.resultSuccessLeft'
+      : RESULT_TITLE_KEYS[result.status];
   return (
     <section
       aria-labelledby={headingId}
@@ -548,7 +571,7 @@ export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result
         id={headingId}
         className={cn('text-[11px] font-semibold', RESULT_TITLE_CLASSES[result.status])}
       >
-        {t(RESULT_TITLE_KEYS[result.status], { org })}
+        {t(title, { org })}
       </h4>
       <ul className="flex flex-col gap-1">
         {result.objects.map((object) => (
@@ -570,6 +593,20 @@ export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result
           </li>
         ))}
       </ul>
+      {left.map(({ class: kept, objects, refusal }) => (
+        <div
+          key={kept}
+          data-testid={`forge-sweep-left-${kept}`}
+          className="flex flex-col gap-0.5 wrap-break-word text-status-warning"
+        >
+          <p>{counted(t, LEFT_KEYS[kept], totalOf(objects), { objects: perObject(objects) })}</p>
+          <p>
+            {refusal !== undefined
+              ? t('runRemoval.sweep.untiedRefused', { reason: refusal })
+              : t('runRemoval.sweep.leftTick')}
+          </p>
+        </div>
+      ))}
       <SweepNotes notes={result} />
     </section>
   );

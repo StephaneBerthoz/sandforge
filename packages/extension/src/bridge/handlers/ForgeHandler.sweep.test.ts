@@ -922,6 +922,103 @@ describe('a sweep asked with a removal', () => {
       expect(permissions.assignments()).toEqual([]);
     });
 
+    describe('of what a Flow fires on the asset the sweep deletes', () => {
+      /** What the org runs: a Flow on the asset alone, as the real reader says only what it is asked. */
+      const onAsset = async (_org: string, objects: readonly string[]) =>
+        ({
+          ...ON_DELETE,
+          objectsRead: [...objects],
+          objects: objects.includes('Asset')
+            ? [{ ...ON_DELETE.objects[0], objectApiName: 'Asset' }]
+            : [],
+        }) as ForgeTargetAutomation;
+
+      beforeEach(() => {
+        reader.read.mockImplementation(onAsset);
+        // The Flow refuses the asset's delete, unless the user holds the bypass.
+        mockGetConn.mockResolvedValue({
+          ...org.conn,
+          sobject: (object: string) => {
+            const records = org.conn.sobject(object);
+            if (object !== 'Asset') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? records.destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'An asset cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+      });
+
+      it('plans the mute on it once the sweep has read, and the lease lets the delete through', async () => {
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(org.ids('Asset')).toEqual([]);
+        expect(answer()?.sweep?.status).toBe('success');
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'Asset' })],
+        });
+        const planned = reader.read.mock.calls.at(-1)?.[1];
+        expect(planned).toEqual(expect.arrayContaining(['Account', 'Contact', 'Case', 'Asset']));
+        expect(permissions.assignments()).toEqual([]);
+      });
+
+      it('mutes a sweep that goes alone, nothing of the run left, and names the mute in its entry', async () => {
+        // The run's records go; the org refuses the asset, found made for the run.
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+        expect(org.ids('Case')).toEqual([]);
+        expect(org.ids('Asset')).toEqual([ASSET]);
+        org.events.length = 0;
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(org.ids('Asset')).toEqual([]);
+        expect(answer()?.objects).toEqual([]);
+        expect(answer()?.mutedAutomation).toMatchObject({ state: 'muted' });
+        expect(reader.read.mock.calls.at(-1)?.[1]).toEqual(['Asset']);
+        const events = steps();
+        expect(events.indexOf('leaseAcquire')).toBeLessThan(events.indexOf('write'));
+        expect(events.at(-1)).toBe('leaseRelease');
+        expect(permissions.assignments()).toEqual([]);
+        expect(trail().find((entry) => entry.operationId?.endsWith('-sweep'))?.muted).toBeDefined();
+      });
+
+      it('assigns nothing when the sweep takes nothing and nothing of the run is left', async () => {
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+        org.events.length = 0;
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        reader.read.mockClear();
+
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(steps()).not.toContain('leaseAcquire');
+        expect(answer()).not.toHaveProperty('mutedAutomation');
+      });
+    });
+
     it('asks the sweep’s question before the lease, and holds none while it waits', async () => {
       const guard = deps.infraServices?.productionGuard as ProductionGuard;
       const check = guard.check.bind(guard);

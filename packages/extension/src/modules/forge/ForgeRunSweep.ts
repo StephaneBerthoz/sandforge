@@ -57,6 +57,7 @@ import type {
   ForgeSweepAutomationGaps,
   ForgeSweepClasses,
   ForgeSweepFound,
+  ForgeSweepLeftClass,
   ForgeSweepListing,
   ForgeSweepObjectResult,
   ForgeSweepMark,
@@ -1429,6 +1430,33 @@ export interface SweepOptions {
   approve?: (listing: ForgeSweepListing) => Promise<string | undefined>;
 }
 
+/**
+ * What a sweep keeps of what it found, as it was asked, by class: what came
+ * late without `sweepLate`, and what is tied to nothing without `sweepUntied`
+ * or while that is refused. Said with its result: a `--sweep` ended a success
+ * with five tasks left, which its line before the first delete alone had named.
+ */
+function sweepLeftOf(
+  listing: ForgeSweepListing,
+  options: Pick<SweepOptions, 'sweepLate' | 'sweepUntied'>,
+): ForgeSweepLeftClass[] {
+  const left: ForgeSweepLeftClass[] = [];
+  const late = listing.late ?? [];
+  if (late.length > 0 && options.sweepLate !== true) {
+    left.push({ class: 'late', objects: late, option: '--sweep-late' });
+  }
+  const { objects: untied = [], refusal } = listing.untied ?? {};
+  if (untied.length > 0 && (options.sweepUntied !== true || refusal !== undefined)) {
+    left.push({
+      class: 'untied',
+      objects: untied,
+      option: '--sweep-untied',
+      ...(refusal !== undefined ? { refusal } : {}),
+    });
+  }
+  return left;
+}
+
 /** Where a sweep stands with one object's records. */
 interface ObjectSweep {
   result: ForgeSweepObjectResult;
@@ -1459,6 +1487,14 @@ export interface SweepParts {
    * and for a sweep stopped before it had read the run's user.
    */
   readonly listing: ForgeSweepListing | undefined;
+  /**
+   * The objects the sweep deletes records of, once `ask` has read them and
+   * nothing refused it: what the removal adds to the objects it reads the
+   * target's automation on, plans its mute from and asks about. On a real org,
+   * a Flow on an asset the run never wrote refused the sweep's delete, after
+   * the removal had said that nothing fired and that there was nothing to mute.
+   */
+  readonly takes: readonly string[];
   /**
    * Delete what goes before the run's records — what neither goes along with
    * one of them nor waits for one — once `ask` found it and nothing refused
@@ -1603,6 +1639,8 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
           return;
         }
       }
+      const left = sweepLeftOf(listing, options);
+      if (left.length > 0) base = { ...base, left };
       state = 'asked';
     })();
     return asking;
@@ -1614,6 +1652,10 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
 
     get listing() {
       return found && !found.stopped ? found.listing : undefined;
+    },
+
+    get takes() {
+      return state === 'asked' ? [...taking.keys()] : [];
     },
 
     ask,

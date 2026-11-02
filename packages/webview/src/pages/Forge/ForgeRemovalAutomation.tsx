@@ -20,6 +20,9 @@ import { BypassAssistant, ReadAgainButton } from './BypassAssistant';
 /** How long the read may take: the read before a run gives up after 60 seconds. */
 const READ_TIMEOUT_MS = 90_000;
 
+/** No sweep ticked: the same list on every render. */
+const NO_OBJECTS: readonly string[] = [];
+
 /** What `forge:undo-automation:request` answers. */
 interface RemovalAutomationAnswer {
   forgeId: string;
@@ -246,6 +249,11 @@ export interface ForgeRemovalAutomationProps {
   /** The removal takes every record the run created (`again`): read on the objects of each. */
   again?: boolean;
   /**
+   * The objects a sweep ticked with the removal deletes records of: read with
+   * the run's, whose deletes they join, and read again as the ticks change them.
+   */
+  sweptObjects?: readonly string[];
+  /**
    * The box that mutes what the removal fires, drawn by the confirmation from
    * the offer planned of this read (null before it answers); no box without.
    */
@@ -262,7 +270,9 @@ export interface ForgeRemovalAutomationProps {
  *
  * A removal deletes, and the target's automation runs on each delete as it
  * runs on each insert: the removal's confirmation named the records it takes
- * and nothing of what they would set off.
+ * and nothing of what they would set off. What a sweep ticked with it deletes
+ * counts too: an asset's Flow refused the sweep's delete on a real org, and the
+ * box that would have kept it quiet was never offered.
  *
  * The target is read again when the user asks, as Review's Automation tab
  * reads it: the confirmation showed what it read as it opened, and a bypass
@@ -274,6 +284,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   org,
   targetOrgId,
   again = false,
+  sweptObjects = NO_OBJECTS,
   muteBox,
 }) => {
   const read = useBridgeMutation<RemovalAutomationAnswer>('forge:undo-automation:request', {
@@ -286,18 +297,27 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   // shown while the read asked for again is on its way — never once the
   // confirmation closed or turned to another run.
   const [lastRead, setLastRead] = useState<RemovalAutomationAnswer | null>(null);
+  // By value: a new list of the same objects reads nothing again.
+  const swept = sweptObjects.join(',');
+  const readAgain = useCallback(() => {
+    if (!forgeId) return;
+    mutate({
+      forgeId,
+      ...(again ? { again: true } : {}),
+      ...(swept !== '' ? { sweptObjects: swept.split(',') } : {}),
+    });
+  }, [forgeId, again, swept, mutate]);
   useEffect(() => {
     setLastRead(null);
-    if (forgeId) mutate({ forgeId, ...(again ? { again: true } : {}) });
-    else reset();
-  }, [forgeId, again, mutate, reset]);
+    if (!forgeId) reset();
+  }, [forgeId, again, reset]);
+  useEffect(() => {
+    readAgain();
+  }, [readAgain]);
   useEffect(() => {
     if (read.data) setLastRead(read.data);
   }, [read.data]);
   const answer = read.data ?? lastRead;
-  const readAgain = useCallback(() => {
-    if (forgeId) mutate({ forgeId, ...(again ? { again: true } : {}) });
-  }, [forgeId, again, mutate]);
 
   if (!forgeId) return null;
   const shown =

@@ -929,6 +929,65 @@ describe('a sweep asked with the removal of a Sync run', () => {
         expect(permissions.assignments()).toEqual([]);
       });
 
+      it('plans the mute on the asset the sweep deletes, read once it has read, or the org refuses it', async () => {
+        // What the org runs: a Flow on the asset alone, as the real reader
+        // says only what it is asked of.
+        read.mockImplementation(
+          async (_orgId, objects) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('Asset')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'Asset' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        const leased = await vi.mocked(getJsforceConnection).getMockImplementation()?.(
+          '' as never,
+          undefined as never,
+          undefined as never,
+        );
+        const conn = (leased ?? {}) as typeof tied.conn;
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          sobject: (object: string) => {
+            const records = conn.sobject(object);
+            if (object !== 'Asset') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? records.destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'An asset cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+
+        await handler.handle(
+          buildMsg('sync:remove', { runId: 'run-cases', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Asset')).toEqual([]);
+        expect(answer()?.sweep?.status).toBe('success');
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'Asset' })],
+        });
+        expect(read.mock.calls.at(-1)?.[1]).toContain('Asset');
+        expect(permissions.assignments()).toEqual([]);
+      });
+
       it('assigns nothing once a stop came while the sweep asked', async () => {
         const registry = new BackgroundOperationRegistry();
         handler.setRegistry(registry);

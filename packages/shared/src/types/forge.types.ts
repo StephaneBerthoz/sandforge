@@ -940,6 +940,23 @@ export interface ForgeSweepListing {
   muted?: Pick<MutedAutomation, 'silenced' | 'stillRan'>;
 }
 
+/**
+ * What a sweep found and left, of one class it keeps unless asked: the records
+ * it found per object, and what takes them. A sweep that took all it was asked
+ * to ends a success with these still in the org: said with its result, a
+ * `success` no longer reads as nothing left.
+ */
+export interface ForgeSweepLeftClass {
+  /** Tied to the run but made late, or tied to nothing of it (`ForgeSweepClasses`). */
+  class: 'late' | 'untied';
+  /** Per object, the records it left. */
+  objects: ForgeRemovalLeftCount[];
+  /** The command line's option that takes them; a removal's confirmation has a tick for each. */
+  option: '--sweep-late' | '--sweep-untied';
+  /** Why that option takes nothing here, when it does not (`ForgeSweepListing.untied.refusal`). */
+  refusal?: string;
+}
+
 /** What a sweep did to one object's records. */
 export interface ForgeSweepObjectResult {
   objectApiName: string;
@@ -975,6 +992,8 @@ export interface ForgeSweepResult {
   unread: ForgeSweepUnread[];
   automationGaps?: ForgeSweepAutomationGaps;
   handWork: ForgeRemovalLeftCount[];
+  /** What it found and left, by class, once it was through its question; absent when nothing was. */
+  left?: ForgeSweepLeftClass[];
 }
 
 /** What a history entry remembers of the sweeps run with its removals. */

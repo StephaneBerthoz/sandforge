@@ -4897,7 +4897,11 @@
       "staysLeftTheOrg": "組織の外に出たもの — メール、アウトバウンドメッセージ、外部呼び出し、他所で読まれたイベント: 何も取り戻せません。",
       "staysOverBound": "1 つのオブジェクトで 10,000 件を超えるレコード: オブジェクトの名前を示し、どれも一掃しません。",
       "staysOtherMachines": "別のマシンや CI が同じ期間に書き込んだもの: 一掃はそれらの実行を確認できません。",
-      "resultAfterRemoval_other": "うち {{formatted}} 件は、それを指す実行のレコードがなくなった後に削除"
+      "resultAfterRemoval_other": "うち {{formatted}} 件は、それを指す実行のレコードがなくなった後に削除",
+      "resultSuccessLeft": "一掃が対象としたものは {{org}} からなくなりました。残したものは下記のとおり残っています。",
+      "leftLate_other": "遅れて作成された {{formatted}} 件のレコードが残っています ({{objects}})。",
+      "leftUntied_other": "実行と結び付かない {{formatted}} 件のレコードが残っています ({{objects}})。",
+      "leftTick": "一掃の一覧の下のチェックで削除できます。"
     },
     "automation": {
       "title": "これらのレコードを削除するときに {{org}} が実行するもの",

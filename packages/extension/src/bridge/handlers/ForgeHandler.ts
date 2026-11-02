@@ -64,7 +64,11 @@ import {
   PRODUCTION_GUARD_MISSING,
   undeletableAsker,
 } from './HandlerTypes.js';
-import { checkpointFirstPayloadSchema, validatePayload } from '../validatePayload.js';
+import {
+  checkpointFirstPayloadSchema,
+  sweptObjectsSchema,
+  validatePayload,
+} from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -427,6 +431,8 @@ const undoPayloadSchema = z.object({
 const undoAutomationPayloadSchema = z.object({
   forgeId: z.string().min(1).max(200),
   again: z.boolean().optional(),
+  // As the sweep's list reads them: its objects, for this read alone.
+  sweptObjects: sweptObjectsSchema.optional(),
 });
 // The run alone, as for its removal: what a sweep looks at is read from the history.
 const undoSweepPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) });
@@ -3417,13 +3423,20 @@ export class ForgeHandler implements DomainHandler {
   /**
    * The mute of a removal that asked for one, planned from what the target
    * runs as it deletes the records of `objects` and sets those past Draft back
-   * to Draft first: as the removal's question reads it.
+   * to Draft first, and as its sweep deletes those of `swept`, none of which it
+   * sets back: as the removal's question reads it.
    */
-  private async removalMute(targetOrgId: string, objects: readonly string[]): Promise<RunMute> {
+  private async removalMute(
+    targetOrgId: string,
+    objects: readonly string[],
+    swept: readonly string[],
+  ): Promise<RunMute> {
     const reader = this.targetAutomation;
     const read: ForgeTargetAutomation | { unread: string } = reader
       ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
-          .withTimeout('forge:undo-automation', () => reader.read(targetOrgId, [...objects]))
+          .withTimeout('forge:undo-automation', () =>
+            reader.read(targetOrgId, [...new Set([...objects, ...swept])]),
+          )
           .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
       : { unread: "no reader of the target org's automation is set up" };
     const drafted = new Set(setBackToDraftOf(objects));
@@ -5542,28 +5555,6 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    // Asked to mute, the removal reads what its deletes fire and plans the
-    // mute from it before it deletes anything: refused on a production org or
-    // for a user who cannot assign, it deletes nothing.
-    let removalMute: RunMute | undefined;
-    if (asked.muteAutomation === true && total > 0) {
-      try {
-        removalMute = await this.removalMute(targetOrgId, objectsIn(plan));
-      } catch (err: unknown) {
-        if (!isMuteRefusedError(err)) throw err;
-        recordWriteRun(this.deps, {
-          action: 'cleanup_delete',
-          module: 'forge',
-          operationId: msg.id,
-          orgId: targetOrgId,
-          outcome: 'stopped',
-          guard: decision,
-          code: err.code,
-        });
-        refuse(err.message, err.code);
-        return;
-      }
-    }
 
     const operationId = msg.id;
     const description =
@@ -5580,6 +5571,8 @@ export class ForgeHandler implements DomainHandler {
     let parts: OtherParts | undefined;
     /** The sweep asked with the removal, in its parts around the run's records; see `sweepOfRemoval`. */
     let sweeping: RemovalSweep | undefined;
+    /** What the removal muted of what it fires, when asked. */
+    let mutedAutomation: MutedAutomation | undefined;
 
     try {
       const conn = await getJsforceConnection(
@@ -5641,14 +5634,10 @@ export class ForgeHandler implements DomainHandler {
           guard,
           orgTier,
           operationId,
+          muted: () => (total === 0 ? mutedAutomation : undefined),
         });
       }
-      // Nothing of the run to remove: the sweep alone, and no record of the run goes.
       const sweepParts = sweeping;
-      if (total === 0 && sweepParts) {
-        await sweepParts.first();
-        await sweepParts.afterRemoval();
-      }
       // The run's other parts, removed apart from this one: what this
       // removal's deletes restamp of their records is kept on each.
       if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
@@ -5656,17 +5645,34 @@ export class ForgeHandler implements DomainHandler {
       // the lease: a person answering holds no permission set assigned. It
       // deletes at its turn, once the removal has read the run's records.
       await sweepParts?.ask();
+      // Asked to mute, the removal reads what its deletes fire, what the sweep
+      // deletes among them, and plans the mute from it before it deletes
+      // anything: refused on a production org or for a user who cannot assign,
+      // it deletes nothing. Planned before the sweep had read, an asset's Flow
+      // that refused its delete was left out of a mute that said it had
+      // nothing to do. A sweep that goes alone mutes too.
+      const sweptObjects = sweepParts?.takes ?? [];
+      const removalMute: RunMute | undefined =
+        asked.muteAutomation === true && (total > 0 || sweptObjects.length > 0)
+          ? await this.removalMute(targetOrgId, objectsIn(plan), sweptObjects)
+          : undefined;
       // The lease is taken before the first delete, and given back once the
       // removal ends, whatever it ended on.
       const held =
         removalMute?.prepared && !stop.signal.aborted
           ? await removalMute.prepared.acquire(operationId)
           : undefined;
-      let mutedAutomation = held?.outcome ?? removalMute?.muted;
-      const outcome: RunRemovalOutcome =
+      mutedAutomation = held?.outcome ?? removalMute?.muted;
+      // Nothing of the run to remove: the sweep alone, and no record of the run goes.
+      const sweepAlone = async (): Promise<RunRemovalOutcome> => {
+        await sweepParts?.first();
+        await sweepParts?.afterRemoval();
+        return NOTHING_REMOVED;
+      };
+      const outcome: RunRemovalOutcome = await (
         total === 0
-          ? NOTHING_REMOVED
-          : await removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
+          ? sweepAlone()
+          : removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
               ...(span
                 ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
@@ -5696,9 +5702,10 @@ export class ForgeHandler implements DomainHandler {
                 }
                 this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
               },
-            }).finally(async () => {
-              if (held) mutedAutomation = await held.release();
-            });
+            })
+      ).finally(async () => {
+        if (held) mutedAutomation = await held.release();
+      });
       if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
       // What the sweep did, in all its parts: recorded beside the removal,
       // and what it found made for the run kept for the next one.
@@ -5851,7 +5858,8 @@ export class ForgeHandler implements DomainHandler {
       await sweeping?.settle().catch((err: unknown) => {
         logger.warn(`Forge sweep not recorded: ${extractErrorMessage(err)}`);
       });
-      // A lease that could not be taken stopped the removal before its first delete.
+      // A mute refused, or a lease that could not be taken, stopped the
+      // removal before its first delete.
       const muteRefused = isMuteRefusedError(error) ? error : undefined;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
@@ -6145,6 +6153,8 @@ export class ForgeHandler implements DomainHandler {
     guard: ProductionGuard;
     orgTier: SafetyTier;
     operationId: string;
+    /** What a sweep alone muted, which no entry of the removal's records. */
+    muted: () => MutedAutomation | undefined;
   }): Promise<RemovalSweep> {
     const { conn, entry } = context;
     const targetOrgId = entry.targetOrgId ?? '';
@@ -6167,7 +6177,8 @@ export class ForgeHandler implements DomainHandler {
         operation: 'delete',
         module: 'forge',
       },
-      onGuardDecision: (result, guard) =>
+      onGuardDecision: (result, guard) => {
+        const muted = context.muted();
         recordWriteRun(this.deps, {
           action: 'cleanup_delete',
           module: 'forge',
@@ -6178,7 +6189,9 @@ export class ForgeHandler implements DomainHandler {
           ...(result.status === 'refused' ? { code: sweepRefusalCode(guard) } : {}),
           objects: sweepAuditObjects(result),
           details: sweepAuditDetails(result, entry.forgeId),
-        }),
+          ...(muted ? { muted: auditMutedOf(muted) } : {}),
+        });
+      },
       keepMade: async (made) => {
         await this.removalPlans?.keepMade(entry.forgeId, made).catch((err: unknown) => {
           logger.warn(`Forge sweep finds not kept: ${extractErrorMessage(err)}`);
@@ -7014,9 +7027,12 @@ export class ForgeHandler implements DomainHandler {
     ).map((object) => object.objectApiName);
     const targetOrgId = entry.targetOrgId;
     try {
+      // What a sweep ticked in the confirmation deletes too, and sets nothing
+      // back to Draft: the page names its objects, as the list it shows reads them.
+      const read = [...new Set([...objects, ...(parsed.sweptObjects ?? [])])];
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
         'forge:undo-automation',
-        () => reader.read(targetOrgId, objects),
+        () => reader.read(targetOrgId, read),
       );
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'forge:undo-automation:response', {

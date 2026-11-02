@@ -119,6 +119,12 @@ export interface RemovalSweep {
    * set assigned. `first` makes it when nobody has.
    */
   ask(): Promise<void>;
+  /**
+   * The objects it deletes records of, once `ask` has read them: what the
+   * removal adds to the objects it plans its mute from. Nothing for a sweep
+   * refused, declined, or that could not read.
+   */
+  readonly takes: readonly string[];
   /** Delete what goes before the run's records; whether it deleted anything. */
   first(): Promise<boolean>;
   /** Once the run's records are deleted, what waited for them; whether it deleted anything. */
@@ -213,6 +219,9 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
         await sweep.ask();
         return false;
       });
+    },
+    get takes() {
+      return stopped ? [] : (parts?.takes ?? []);
     },
     first: () => part((sweep) => sweep.first()),
     afterRemoval: () => part((sweep) => sweep.afterRemoval()),

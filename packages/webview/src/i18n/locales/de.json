@@ -5177,7 +5177,13 @@
       "staysOverBound": "Mehr als 10.000 Datensätze eines Objekts: Das Objekt wird genannt, und keiner wird aufgeräumt.",
       "staysOtherMachines": "Was ein anderer Rechner oder eine CI im selben Zeitfenster geschrieben hat: Das Aufräumen sieht diese Durchläufe nicht.",
       "resultAfterRemoval_one": "{{formatted}} davon, nachdem die Datensätze des Durchlaufs, die darauf verweisen, weg waren",
-      "resultAfterRemoval_other": "{{formatted}} davon, nachdem die Datensätze des Durchlaufs, die darauf verweisen, weg waren"
+      "resultAfterRemoval_other": "{{formatted}} davon, nachdem die Datensätze des Durchlaufs, die darauf verweisen, weg waren",
+      "resultSuccessLeft": "Was das Aufräumen genommen hat, ist nicht mehr in {{org}}; was es gelassen hat, bleibt, wie unten angegeben.",
+      "leftLate_one": "{{formatted}} spät gekommener Datensatz bleibt ({{objects}}).",
+      "leftLate_other": "{{formatted}} spät gekommene Datensätze bleiben ({{objects}}).",
+      "leftUntied_one": "{{formatted}} Datensatz ohne Verbindung zum Durchlauf bleibt ({{objects}}).",
+      "leftUntied_other": "{{formatted}} Datensätze ohne Verbindung zum Durchlauf bleiben ({{objects}}).",
+      "leftTick": "Ein Häkchen unter der Liste des Aufräumens nimmt sie mit."
     },
     "automation": {
       "title": "Was {{org}} ausführt, wenn diese Datensätze entfernt werden",

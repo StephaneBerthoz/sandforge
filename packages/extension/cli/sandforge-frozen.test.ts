@@ -1072,7 +1072,9 @@ describe('messageLines', () => {
       },
     });
 
-    expect(lines).toContain('it would delete 3 record(s), children first:');
+    expect(lines).toContain(
+      'it found 3 record(s) and would delete 3 of them, children first; per object, all it found:',
+    );
     expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
   });
 

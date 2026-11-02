@@ -1,4 +1,4 @@
-import React, { useId, useMemo } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Square } from 'lucide-react';
@@ -6,6 +6,7 @@ import type {
   ForgeExecutionResult,
   ForgeFileObject,
   ForgeRemovalPlan,
+  ForgeSweepListing,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoResult,
@@ -16,6 +17,7 @@ import {
   forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunLinkedKeptCount,
+  sweepTakenObjects,
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
@@ -407,6 +409,16 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
   const sweepOffered =
     onSweepChange !== undefined && run !== null && !isKeptPlan(run) && run.forgeId !== undefined;
+  // What the sweep's list says it deletes: what fires as those records go is
+  // read with the run's, and the box that mutes it offered with them.
+  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
+  const sweptObjects = useMemo(
+    () =>
+      sweepOffered && sweep && sweepListing
+        ? sweepTakenObjects(sweepListing, sweepTicks ?? {})
+        : [],
+    [sweepOffered, sweep, sweepListing, sweepTicks],
+  );
   return (
     <DangerConfirm
       open={run !== null}
@@ -437,6 +449,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
         org={org}
         targetOrgId={run?.targetOrgId}
         again={again}
+        sweptObjects={sweptObjects}
         {...(onMuteAutomationChange
           ? {
               muteBox: (offer) => (
@@ -477,6 +490,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
               org={org}
               {...(sweepTicks ? { ticks: sweepTicks } : {})}
               {...(onSweepTicksChange ? { onTicksChange: onSweepTicksChange } : {})}
+              onListing={setSweepListing}
             />
           )}
         </>

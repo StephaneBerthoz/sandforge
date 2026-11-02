@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { sweepTakenObjects } from '@sandforge/shared';
 import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 
+import { sweepOrgOf } from '../../bridge/handlers/removalSweep.js';
+import { tiedTargetOrg } from '../../test/tiedTargetOrg.js';
 import { compositeReader, type CompositeQueryConnection } from '../checkpoint/compositeQueries.js';
 import { writePathOrderDefects, type WritePathStep } from '../checkpoint/beforeRunCheckpoint.js';
 import {
@@ -21,6 +24,7 @@ import {
   sweepRunRecords,
   sweepWindowOf,
   type SweepInput,
+  type SweepOptions,
   type SweepOrg as CountingOrg,
   type SweepTies,
 } from './ForgeRunSweep.js';
@@ -213,6 +217,128 @@ describe('sweepAutomationOf', () => {
       creates: [],
       gaps: { flowsNotRead: 0, triggers: 0, error: 'REQUEST_LIMIT_EXCEEDED' },
     });
+  });
+});
+
+describe('sweepParts, what it takes and what it leaves', () => {
+  const USER_ID = '005000000000001AAA';
+  const CONTACT = '003000000000001AAA';
+  const FIRST = '2026-09-20T10:00:00.000Z';
+  const LAST = '2026-09-20T10:05:00.000Z';
+  const made = (recordId: string, created: string, lookups: Record<string, string> = {}) => ({
+    Id: recordId,
+    Name: recordId,
+    CreatedById: USER_ID,
+    CreatedDate: created,
+    LastModifiedDate: created,
+    LastModifiedById: USER_ID,
+    SystemModstamp: created,
+    ...lookups,
+  });
+  const IN_THE_RUN = '2026-09-20T10:04:59.000+0000';
+  const JUST_AFTER = '2026-09-20T10:05:00.000+0000';
+  const LATER = '2026-09-20T10:10:00.000+0000';
+
+  /** A contact of the run, and around it a task made for it, an event made late, a task tied to nothing. */
+  function orgOfTheRun() {
+    const org = tiedTargetOrg(USER_ID);
+    org.shape('Contact', {
+      children: [
+        { childSObject: 'Task', field: 'WhoId' },
+        { childSObject: 'Event', field: 'WhoId' },
+      ],
+    });
+    org.shape('Task', { references: { WhoId: ['Contact'] } });
+    org.shape('Event', { references: { WhoId: ['Contact'] } });
+    org.add('Contact', made(CONTACT, IN_THE_RUN));
+    org.add('Task', made('00T000000000001AAA', JUST_AFTER, { WhoId: CONTACT }));
+    org.add('Event', made('00U000000000001AAA', LATER, { WhoId: CONTACT }));
+    org.add('Task', made('00T000000000002AAA', JUST_AFTER));
+    return org;
+  }
+  const run = (): SweepInput => ({
+    writtenBetween: { first: FIRST, last: LAST },
+    created: [{ objectApiName: 'Contact', ids: [CONTACT] }],
+    remap: new Set([CONTACT.slice(0, 15)]),
+    automation: { creates: [] },
+    runUserId: USER_ID,
+    ties: {},
+  });
+  const partsOf = (org: ReturnType<typeof orgOfTheRun>, options: Partial<SweepOptions> = {}) =>
+    sweepParts(sweepOrgOf(org.conn as never, 'test'), run(), {
+      includeChanged: false,
+      removalSpans: [],
+      ...options,
+    });
+
+  it('says the objects it deletes records of once it has read, what the listing’s classes say', async () => {
+    const plain = partsOf(orgOfTheRun());
+    expect(plain.takes).toEqual([]);
+    await plain.ask();
+    expect(plain.takes).toEqual(['Task']);
+    expect(plain.takes).toEqual(sweepTakenObjects(plain.listing!, {}));
+
+    const late = partsOf(orgOfTheRun(), { sweepLate: true });
+    await late.ask();
+    expect([...late.takes].sort()).toEqual(['Event', 'Task']);
+    expect([...late.takes].sort()).toEqual(
+      [...sweepTakenObjects(late.listing!, { sweepLate: true })].sort(),
+    );
+  });
+
+  it('takes nothing of what a refused question would have taken', async () => {
+    const parts = partsOf(orgOfTheRun(), { approve: async () => 'Declined.' });
+    await parts.ask();
+
+    expect(parts.takes).toEqual([]);
+    expect(parts.result().left).toBeUndefined();
+  });
+
+  it('says with its result what it left, by class, its status unchanged', async () => {
+    const org = orgOfTheRun();
+    const parts = partsOf(org);
+    await parts.first();
+    await parts.afterRemoval();
+
+    const result = parts.result();
+    expect(result.status).toBe('success');
+    expect(result.left).toEqual([
+      { class: 'late', objects: [{ objectApiName: 'Event', count: 1 }], option: '--sweep-late' },
+      {
+        class: 'untied',
+        objects: [{ objectApiName: 'Task', count: 1 }],
+        option: '--sweep-untied',
+      },
+    ]);
+  });
+
+  it('leaves out of what it left the class it was asked to take', async () => {
+    const parts = partsOf(orgOfTheRun(), { sweepLate: true, sweepUntied: true });
+    await parts.first();
+    await parts.afterRemoval();
+
+    expect(parts.result().left).toBeUndefined();
+  });
+
+  it('says what is tied to nothing left, and why, when taking it is refused', async () => {
+    const org = orgOfTheRun();
+    const input = { ...run(), ties: { otherRuns: [{ ids: ['001000000000009AAA'] }] } };
+    const parts = sweepParts(sweepOrgOf(org.conn as never, 'test'), input, {
+      includeChanged: false,
+      removalSpans: [],
+      sweepUntied: true,
+    });
+    await parts.first();
+    await parts.afterRemoval();
+
+    expect(parts.result().left).toEqual([
+      expect.objectContaining({ class: 'late' }),
+      expect.objectContaining({
+        class: 'untied',
+        option: '--sweep-untied',
+        refusal: expect.stringContaining('Another run of this machine'),
+      }),
+    ]);
   });
 });
 

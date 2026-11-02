@@ -690,6 +690,67 @@ describe('a sweep asked with the removal of a Seed run', () => {
       }
     });
 
+    it('plans the mute on the task the sweep deletes, read once it has read, or the org refuses it', async () => {
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-leases-task-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        // What the org runs: a Flow on the task alone, as the real reader says
+        // only what it is asked of.
+        const read = vi.fn(
+          async (_orgId: string, objects: readonly string[]) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('Task')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'Task' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        handler.setTargetAutomation({ read });
+        const { conn, permissions } = leasedConnection(tied, USER);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          sobject: (object: string) => {
+            const records = conn.sobject(object);
+            if (object !== 'Task') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? (records as ReturnType<typeof tied.conn.sobject>).destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'A task cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Task')).toEqual([LOOSE]);
+        expect(answer()?.sweep?.status).toBe('success');
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'Task' })],
+        });
+        expect(read.mock.calls.at(-1)?.[1]).toContain('Task');
+        expect(permissions.assignments()).toEqual([]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
     it('asks the sweep’s question before the lease, and holds none while it waits', async () => {
       const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-leases-'));
       try {

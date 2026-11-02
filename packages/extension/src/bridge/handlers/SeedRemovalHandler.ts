@@ -7,6 +7,7 @@ import type {
 import {
   auditMutedOf,
   guardTierOf,
+  removalStepsWithSweep,
   removalStepsWrites,
   type MutedAutomation,
 } from '@sandforge/shared';
@@ -944,26 +945,32 @@ export class SeedRemovalHandler implements DomainHandler {
           })
         : undefined;
       const sweepParts = sweeping;
-      // Asked to mute, the removal reads what its deletes fire, plans the mute
-      // from it, and takes the lease before its first delete; it is given
-      // back as the removal ends, whatever it ended on. Refused, nothing goes.
+      // The sweep reads what it takes and asks Production Guard here, before
+      // the lease: a person answering holds no permission set assigned. It
+      // deletes at its turn, once the removal has read the run's records.
+      await sweepParts?.ask();
+      // Asked to mute, the removal reads what its deletes fire, what the sweep
+      // deletes among them, plans the mute from it, and takes the lease before
+      // its first delete; it is given back as the removal ends, whatever it
+      // ended on. Refused, nothing goes. The confirmation reads none of this:
+      // what a mute silences is read here alone.
       let removalMute: RunMute | undefined;
       if (asked.muteAutomation === true) {
         const removed = [...new Set(plan.map((object) => object.objectApiName))];
-        const steps = { setToDraft: setBackToDraftOf(removed), delete: removed };
+        const steps = removalStepsWithSweep(
+          { setToDraft: setBackToDraftOf(removed), delete: removed },
+          sweepParts?.takes ?? [],
+        );
+        const objects = steps.delete ?? [];
         const reader = this.targetAutomation;
         const read = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS)
-          .withTimeout('seed:remove automation', () => reader.read(run.targetOrgId, removed))
+          .withTimeout('seed:remove automation', () => reader.read(run.targetOrgId, objects))
           .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
         removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
           ...this.muteLeases,
           writes: removalStepsWrites(steps),
         });
       }
-      // The sweep reads what it takes and asks Production Guard here, before
-      // the lease: a person answering holds no permission set assigned. It
-      // deletes at its turn, once the removal has read the run's records.
-      await sweepParts?.ask();
       const held =
         removalMute?.prepared && !abortController.signal.aborted
           ? await removalMute.prepared.acquire(operationId)

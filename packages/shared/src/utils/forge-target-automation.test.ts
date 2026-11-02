@@ -19,6 +19,9 @@ import {
   removalBypassesOf,
   removalRisksOf,
   removalStepsBypassesOf,
+  removalStepsWithSweep,
+  removalStepsWrites,
+  sweepTakenObjects,
 } from './forge-target-automation.js';
 import { mutePlanOf, stillRunningOf } from './automation-mute.js';
 
@@ -780,6 +783,83 @@ describe('firedOnRemovalStepsOf', () => {
     expect(steps.map(({ step: _step, ...fired }) => fired)).toEqual(
       firedOnRemovalOf(automation, ['Order']),
     );
+  });
+});
+
+describe('removalStepsWithSweep', () => {
+  it('counts what a sweep deletes among the removal’s deletes, and in no other step', () => {
+    const steps = removalStepsWithSweep(
+      { bringBack: ['Case'], setToDraft: ['Order'], delete: ['Order', 'Account'] },
+      ['Asset', 'Account'],
+    );
+
+    expect(steps).toEqual({
+      bringBack: ['Case'],
+      setToDraft: ['Order'],
+      delete: ['Order', 'Account', 'Asset'],
+    });
+    expect(removalStepsWrites(steps)('Asset', 'delete')).toBe(true);
+    expect(removalStepsWrites(steps)('Asset', 'update')).toBe(false);
+  });
+
+  it('gives a removal that deletes nothing of the run the sweep’s deletes', () => {
+    expect(removalStepsWithSweep({ giveBack: ['Contact'] }, ['Task']).delete).toEqual(['Task']);
+  });
+
+  it('leaves the steps as they are without a sweep', () => {
+    const steps = { delete: ['Account'] };
+    expect(removalStepsWithSweep(steps, [])).toBe(steps);
+  });
+});
+
+describe('sweepTakenObjects', () => {
+  const FOUND = {
+    found: [
+      {
+        objectApiName: 'Task',
+        count: 2,
+        names: [],
+        classes: { made: 1, madeOver: 0, late: 1, untied: 0 },
+      },
+      {
+        objectApiName: 'Asset',
+        count: 1,
+        names: [],
+        classes: { made: 0, madeOver: 1, late: 0, untied: 0 },
+      },
+      {
+        objectApiName: 'Event',
+        count: 1,
+        names: [],
+        classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+      },
+      {
+        objectApiName: 'Note',
+        count: 1,
+        names: [],
+        classes: { made: 0, madeOver: 0, late: 0, untied: 1 },
+      },
+      { objectApiName: 'FeedItem', count: 10_000, names: [], overBound: true },
+    ],
+    untied: { objects: [{ objectApiName: 'Note', count: 1 }] },
+  };
+
+  it('names what it ties to the run, and no object past the bound', () => {
+    expect(sweepTakenObjects(FOUND, {})).toEqual(['Task', 'Asset']);
+  });
+
+  it('adds what came late, and what is tied to nothing, each when asked', () => {
+    expect(sweepTakenObjects(FOUND, { sweepLate: true })).toEqual(['Task', 'Asset', 'Event']);
+    expect(sweepTakenObjects(FOUND, { sweepUntied: true })).toEqual(['Task', 'Asset', 'Note']);
+  });
+
+  it('leaves out what is tied to nothing while that is refused, and everything of a sweep refused', () => {
+    const untied = { objects: FOUND.untied.objects, refusal: 'Hand work, likely.' };
+    expect(sweepTakenObjects({ ...FOUND, untied }, { sweepUntied: true })).toEqual([
+      'Task',
+      'Asset',
+    ]);
+    expect(sweepTakenObjects({ ...FOUND, refusal: 'No window.' }, {})).toEqual([]);
   });
 });
 

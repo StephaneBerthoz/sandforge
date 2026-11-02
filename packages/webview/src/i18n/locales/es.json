@@ -5177,7 +5177,13 @@
       "staysOverBound": "Más de 10.000 registros de un objeto: el objeto se nombra, y ninguno se barre.",
       "staysOtherMachines": "Lo que otra máquina o una CI escribió en la misma ventana: un barrido no ve esas ejecuciones.",
       "resultAfterRemoval_one": "{{formatted}} de ellos una vez idos los registros de la ejecución que lo señalan",
-      "resultAfterRemoval_other": "{{formatted}} de ellos una vez idos los registros de la ejecución que los señalan"
+      "resultAfterRemoval_other": "{{formatted}} de ellos una vez idos los registros de la ejecución que los señalan",
+      "resultSuccessLeft": "Lo que tomó el barrido ya no está en {{org}}; lo que dejó sigue ahí, como se indica abajo.",
+      "leftLate_one": "Queda {{formatted}} registro que llegó tarde ({{objects}}).",
+      "leftLate_other": "Quedan {{formatted}} registros que llegaron tarde ({{objects}}).",
+      "leftUntied_one": "Queda {{formatted}} registro sin vínculo con la ejecución ({{objects}}).",
+      "leftUntied_other": "Quedan {{formatted}} registros sin vínculo con la ejecución ({{objects}}).",
+      "leftTick": "Una casilla bajo la lista del barrido los toma."
     },
     "automation": {
       "title": "Lo que {{org}} ejecuta cuando se van estos registros",

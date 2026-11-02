@@ -65,6 +65,7 @@ function partsAnswering(
     made: new Set<string>(),
     ask: vi.fn(async () => undefined),
     listing: undefined,
+    takes: [],
     first: vi.fn(async () => {
       first(input, options);
       return result.objects.some((object) => object.deleted > 0);
@@ -551,7 +552,7 @@ describe('sandforge-sync --remove with a sweep', () => {
 
       await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
 
-      expect(stdout).toContain('it would delete none of what it found:');
+      expect(stdout).toContain('and would delete none of them; per object, all it found:');
       expect(stdout).toContain('Task: 2');
       expect(stdout).toContain('kept, made late');
       expect(stdout).toContain('(--sweep-late takes them)');
@@ -579,7 +580,9 @@ describe('sandforge-sync --remove with a sweep', () => {
 
       await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
 
-      expect(stdout.split('it would delete none of what it found:')).toHaveLength(2);
+      expect(stdout.split('and would delete none of them; per object, all it found:')).toHaveLength(
+        2,
+      );
 
       stdout = '';
       vi.mocked(sweepParts).mockReset();

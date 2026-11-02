@@ -3,6 +3,7 @@ import type {
   ForgeEmailLimit,
   ForgePermissionSetGrant,
   ForgeRemovalRisk,
+  ForgeSweepListing,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetFlow,
@@ -510,6 +511,47 @@ export function firedOnRemovalStepsOf(
       step,
     }));
   });
+}
+
+/**
+ * A removal's steps with what its sweep deletes among its deletes: what the
+ * target runs as those records go fires as it does on the run's own. On a real
+ * org, a Flow on an object the sweep alone touched refused the delete of its
+ * record, and neither the removal's list of what fires nor its mute had read
+ * that object. The sweep sets nothing back to Draft: its objects join that one
+ * step.
+ *
+ * @param swept - The objects it deletes records of ({@link sweepTakenObjects}).
+ */
+export function removalStepsWithSweep(
+  steps: ForgeRemovalSteps,
+  swept: readonly string[],
+): ForgeRemovalSteps {
+  if (swept.length === 0) return steps;
+  return { ...steps, delete: [...new Set([...(steps.delete ?? []), ...swept])] };
+}
+
+/**
+ * The objects a sweep deletes records of, from what it found and what it is
+ * asked to take beside what is tied to the run: none for a sweep refused, none
+ * of an object past the bound, which has no class and none of whose records
+ * goes, and none for what is tied to nothing while that is refused.
+ */
+export function sweepTakenObjects(
+  listing: Pick<ForgeSweepListing, 'found' | 'refusal' | 'untied'>,
+  take: { sweepLate?: boolean; sweepUntied?: boolean },
+): string[] {
+  if (listing.refusal !== undefined) return [];
+  const untied = take.sweepUntied === true && listing.untied?.refusal === undefined;
+  return listing.found
+    .filter(
+      ({ classes }) =>
+        classes !== undefined &&
+        (classes.made + classes.madeOver > 0 ||
+          (take.sweepLate === true && classes.late > 0) ||
+          (untied && classes.untied > 0)),
+    )
+    .map((object) => object.objectApiName);
 }
 
 /**

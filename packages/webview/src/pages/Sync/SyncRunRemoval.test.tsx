@@ -979,6 +979,51 @@ describe('SyncRunRemoval', () => {
       expect(sentAll('sync:remove')).toEqual([]);
     });
 
+    it('reads what fires on what the sweep’s list takes, and on the run’s objects alone once it is unticked', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+      answer('sync:remove:sweep', 'sync:remove:sweep:response', {
+        runId: 'run-1',
+        listing: {
+          looked: ['Account', 'Asset', 'Task'],
+          found: [
+            {
+              objectApiName: 'Asset',
+              count: 1,
+              names: [],
+              classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+            },
+            {
+              objectApiName: 'Task',
+              count: 1,
+              names: [],
+              classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+            },
+          ],
+          unread: [],
+          handWork: [],
+          late: [{ objectApiName: 'Task', count: 1 }],
+          untied: { objects: [] },
+        },
+      });
+
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({
+        runId: 'run-1',
+        sweptObjects: ['Asset'],
+      });
+
+      fireEvent.click(screen.getByTestId('forge-sweep-late-tick'));
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({
+        runId: 'run-1',
+        sweptObjects: ['Asset', 'Task'],
+      });
+
+      fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({ runId: 'run-1' });
+    });
+
     /** The same read, the contact's flow quiet for a user holding a bypass a set of the target holds. */
     const MUTABLE: ForgeTargetAutomation = {
       ...AUTOMATION,

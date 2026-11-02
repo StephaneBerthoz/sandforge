@@ -421,12 +421,18 @@ export interface SyncRemoveSweepErrorResponse extends BaseMessage {
  * `sync:remove:automation`. WebView -> Extension. What the target runs as the
  * removal of a run takes it back, read only, for the confirmation to list.
  * The run is named, never its objects: the extension reads them from what
- * the run kept, as the removal does.
+ * the run kept, as the removal does. A sweep's are named, read from the
+ * listing the confirmation shows, for this read alone: the removal's mute
+ * plans from what its own sweep reads.
  */
 export interface SyncRemoveAutomationRequest extends BaseMessage {
   type: 'sync:remove:automation';
-  /** `again`: on the objects of every record the run created, as `sync:remove` takes them `again`. */
-  payload: { runId: string; again?: boolean };
+  /**
+   * `again`: on the objects of every record the run created, as `sync:remove`
+   * takes them `again`. `sweptObjects`: on those a sweep asked with the removal
+   * deletes records of too (`sweepTakenObjects`).
+   */
+  payload: { runId: string; again?: boolean; sweptObjects?: string[] };
 }
 
 /**

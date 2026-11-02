@@ -78,6 +78,7 @@ import type {
   ForgeRemovalSpan,
   ForgeRunObjectRecords,
   ForgeSweepClasses,
+  ForgeSweepLeftClass,
   ForgeSweepListing,
   ForgeSweepMark,
   ForgeSweepResult,
@@ -801,16 +802,18 @@ Remove what a run created:
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
   --accept-automation    delete although the target runs flows, Apex triggers,
-                         processes or workflow rules as the records go —
-                         before or after a delete, or as an activated order
-                         is set back to Draft for its delete — or could not
-                         say what it runs                       (default: off)
+                         processes or workflow rules as the records go, those
+                         --sweep deletes included — before or after a delete,
+                         or as an activated order is set back to Draft for
+                         its delete — or could not say what it runs
+                                                                (default: off)
   --mute-automation      mute the target's automation for the removal through
                          its own bypass, as for a run: the permission sets
-                         holding the bypasses of what fires as the records go
-                         assigned to the user it deletes as, for the removal
-                         alone, and taken back as it ends; what no bypass keeps
-                         quiet still needs --accept-automation (default: off)
+                         holding the bypasses of what fires as the records go,
+                         those --sweep deletes included, assigned to the user
+                         it deletes as, for the removal alone, and taken back
+                         as it ends; what no bypass keeps quiet still needs
+                         --accept-automation                    (default: off)
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
@@ -4205,6 +4208,10 @@ export function sweepListingLines(
   take?: SweepClassArgs,
 ): string[] {
   const found = takenOf(listing, take ?? {});
+  // The counts under it are of what it found: 4 tasks listed under "it would
+  // delete 2 record(s)" read as 4 going, when 2 were late and stayed.
+  const all = listing.found.reduce((sum, object) => sum + object.count, 0);
+  const atLeast = listing.found.some((object) => object.overBound) ? ' or more' : '';
   return [
     listing.window
       ? `a sweep looks in ${target} for what the run's user created from ${listing.window.from} ` +
@@ -4212,9 +4219,9 @@ export function sweepListingLines(
       : `a sweep of ${target} cannot tell the window the run wrote in`,
     ...(listing.found.length > 0
       ? [
-          found > 0
-            ? `it would delete ${found} record(s), children first:`
-            : 'it would delete none of what it found:',
+          `it found ${all}${atLeast} record(s) and would delete ` +
+            (found > 0 ? `${found} of them, children first` : 'none of them') +
+            '; per object, all it found:',
           ...listing.found.map(
             (object) =>
               `  ${object.objectApiName}: ${object.count}` +
@@ -4282,11 +4289,32 @@ export function automationHeldLines(
   ];
 }
 
+/** What a sweep's result calls each class of what it left. */
+const SWEEP_LEFT_WORDS: Readonly<Record<ForgeSweepLeftClass['class'], string>> = {
+  late: 'made late',
+  untied: 'tied to nothing of the run',
+};
+
+/**
+ * What a sweep found and left, by class, with the option that takes each or
+ * why that option takes nothing: its status stays what it did to what it was
+ * asked to take, and a `success` with five tasks left said so only in the line
+ * before the first delete.
+ */
+function sweepLeftLines(left: readonly ForgeSweepLeftClass[]): string[] {
+  return left.map(({ class: kept, objects, option, refusal }) => {
+    const what = `  left, ${SWEEP_LEFT_WORDS[kept]}: ${countsOfObjects(objects)}`;
+    return refusal !== undefined
+      ? `${what} — ${option} is refused: ${refusal}`
+      : `${what} (${option} takes them)`;
+  });
+}
+
 /**
  * What a sweep did: how it ended, per object what became of the records it
  * found — deleted, already gone, kept as changed since the run, refused with
- * the org's words — what it could not look at, and why it was refused when it
- * was. Exported so it can be tested.
+ * the org's words — what it found and left, by class, what it could not look
+ * at, and why it was refused when it was. Exported so it can be tested.
  */
 export function sweepLines(result: ForgeSweepResult): string[] {
   return [
@@ -4311,6 +4339,7 @@ export function sweepLines(result: ForgeSweepResult): string[] {
         ...object.reasons.map((reason) => `      ${reason}`),
       ];
     }),
+    ...sweepLeftLines(result.left ?? []),
     ...sweepGapLines(result),
     ...sweepNoteLines(result),
     ...(result.refusal ? [`  ${result.refusal}`] : []),
@@ -4928,6 +4957,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let removedEarlier = 0;
   /** What the sweep found, said before its first delete: what it took, and what it listed and kept. */
   let sweepListing: ForgeSweepListing | undefined;
+  /** What the removal muted of the target's automation, asked with --mute-automation. */
+  let mutedAutomation: MutedAutomation | undefined;
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -4959,6 +4990,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(removedEarlier > 0 ? { removedEarlier } : {}),
               ...(sweep ? { sweep } : {}),
               ...(sweepListing ? { sweepListing } : {}),
+              ...(mutedAutomation ? { mutedAutomation } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
@@ -5041,9 +5073,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /** The removal's entry in the audit trail, with --audit; one operation id for the process. */
   const audited = new Map([[org.id, { alias: args.target, username: session.username }]]);
   const operationId = `sandforge-clone-${randomUUID()}`;
-  /** What the removal muted of the target's automation, asked with --mute-automation. */
+  /** The removal's mute, planned from what it read; its lease is taken before the first delete. */
   let removalMute: RunMute | undefined;
-  let mutedAutomation: MutedAutomation | undefined;
   const recordRemoval = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) =>
     recordCliRun(args.audit, audited, {
       action: 'cleanup_delete',
@@ -5132,10 +5163,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // outright left it a draft. A SIGTERM or a SIGHUP stops it the same way.
   const stop = new AbortController();
   const interrupt = (): void => stop.abort();
-  // The removal is said and its automation asked about before anything is
-  // deleted, the sweep's records included.
+  // The removal is said first; what the target runs as its records go is
+  // asked about once the sweep has read what it takes, below.
   if (plan.length > 0) {
-    await checkThePlan();
+    sayThePlan();
   } else {
     say('nothing left of the run to remove');
   }
@@ -5188,8 +5219,18 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
 
+  // What the target runs as the records go is read on what the removal and
+  // the sweep delete together, before the first delete and before the lease.
+  // Read before the sweep, a Flow on an asset the run never wrote refused the
+  // sweep's delete after the removal had said that nothing fired. A sweep that
+  // goes alone asks too; a Ctrl-C during its read asks nothing.
+  const sweptObjects = parts?.takes ?? [];
+  if ((plan.length > 0 || sweptObjects.length > 0) && !stop.signal.aborted) {
+    await checkTheAutomation(sweptObjects);
+  }
+
   // A Ctrl-C during the sweep stops the removal too; with nothing of the run
-  // left, the sweep goes alone.
+  // left, the sweep goes alone, under the lease as the removal's would.
   let outcome: RunRemovalOutcome | undefined;
   if (plan.length > 0) {
     outcome = await removeThePlan();
@@ -5197,12 +5238,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // named above, and nothing was removed.
     if (outcome.stoppedForUndeletable) process.exit(1);
   } else if (parts) {
+    const held = await takeTheLease();
     const releaseStop = onStopSignal(interrupt);
     try {
       await parts.first();
       await parts.afterRemoval();
     } finally {
       releaseStop();
+      if (held) {
+        mutedAutomation = await held.release();
+        for (const line of muteLines(mutedAutomation, args.target)) say(line);
+      }
     }
   }
   const sweep = parts?.result();
@@ -5216,18 +5262,40 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...(sweep.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
       objects: sweepAuditObjects(sweep),
       details: sweepAuditDetails(sweep, run),
+      // A sweep alone has no entry of the removal's to name its mute.
+      ...(plan.length === 0 && mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
     });
   }
 
-  /** What the run would remove said, and what the target runs as its records go asked about. */
-  async function checkThePlan(): Promise<void> {
+  /** What the run would remove said, and what earlier removals left that it does not read as a change. */
+  function sayThePlan(): void {
     for (const line of removalPlanLines(summary, plan, args)) say(line);
-    // What the target runs as the records go, said before the first delete,
-    // and asked as the clone asks about what fires as it inserts: a removal
-    // deletes, and what runs before or after a delete runs then, with what
-    // fires as an activated order is set back to Draft for its delete.
-    const removed = plan.map((object) => object.objectApiName);
-    const drafted = setBackToDraftOf(removed);
+    if (earlier) {
+      say(
+        `what earlier removals of this summary left on the run's records, read from ` +
+          `${removalsFile}, is not a change since the run`,
+      );
+    } else if (otherRun) {
+      say(
+        `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
+          'the records, if anything, takes its place',
+      );
+    }
+  }
+
+  /**
+   * What the target runs as the records go, said before the first delete, and
+   * asked as the clone asks about what fires as it inserts: a removal deletes,
+   * and what runs before or after a delete runs then, with what fires as an
+   * activated order is set back to Draft for its delete.
+   *
+   * @param swept - The objects the sweep deletes records of, read with the
+   *   run's own; it sets none of them back to Draft.
+   */
+  async function checkTheAutomation(swept: readonly string[]): Promise<void> {
+    const ofTheRun = plan.map((object) => object.objectApiName);
+    const removed = [...new Set([...ofTheRun, ...swept])];
+    const drafted = setBackToDraftOf(ofTheRun);
     const read = await targetAutomationReader(conn).read(args.target, removed);
     say('');
     for (const line of removalAutomationLines(read, args.target, removed.length, drafted)) {
@@ -5265,23 +5333,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       process.stderr.write(`${automationStop}\n`);
       process.exit(1);
     }
-    if (earlier) {
-      say(
-        `what earlier removals of this summary left on the run's records, read from ` +
-          `${removalsFile}, is not a change since the run`,
-      );
-    } else if (otherRun) {
-      say(
-        `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
-          'the records, if anything, takes its place',
-      );
-    }
   }
 
-  /** The removal of what is left of the run, its sweep first, recorded as it always was. */
-  async function removeThePlan(): Promise<RunRemovalOutcome> {
-    // The lease is taken before the first delete, and given back as the
-    // removal ends, whatever it ended on.
+  /**
+   * The mute's lease, taken before the first delete and given back as the
+   * removal ends, whatever it ended on; none once a stop came, or for a
+   * removal that mutes nothing. Refused, nothing is deleted.
+   */
+  async function takeTheLease() {
     const held =
       removalMute?.prepared && !stop.signal.aborted
         ? await removalMute.prepared
@@ -5294,6 +5353,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             })
         : undefined;
     if (held) mutedAutomation = held.outcome;
+    return held;
+  }
+
+  /** The removal of what is left of the run, its sweep first, recorded as it always was. */
+  async function removeThePlan(): Promise<RunRemovalOutcome> {
+    const held = await takeTheLease();
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
     let removal: RunRemovalOutcome;

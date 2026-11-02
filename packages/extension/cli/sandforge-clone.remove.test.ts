@@ -232,6 +232,7 @@ function partsAnswering(
       if (listing && !takesNothing) await options.approve?.(listing);
     }),
     listing,
+    takes: [],
     first: vi.fn(async () => true),
     afterRemoval: vi.fn(async () => false),
     result: () => (typeof result === 'function' ? result() : result),
@@ -1124,7 +1125,9 @@ describe('sandforge-clone --remove', () => {
 
       expect(removeRunRecords).not.toHaveBeenCalled();
       expect(sweepParts).not.toHaveBeenCalled();
-      expect(printed).toContain('it would delete 2 record(s), children first:');
+      expect(printed).toContain(
+        'it found 2 record(s) and would delete 2 of them, children first; per object, all it found:',
+      );
       expect(printed).toContain('  Task: 1 — 1 made for the run (Welcome call)');
       expect(printed).toContain('  Asset: 1 — 1 made for the run (Insured risk)');
       expect(existsSync(removalsPath(path))).toBe(false);
@@ -1175,7 +1178,9 @@ describe('sandforge-clone --remove', () => {
       }
       // No removal of the run ran before it.
       expect(options).toMatchObject({ includeChanged: false, removalSpans: [] });
-      expect(stderr).toContain('it would delete 2 record(s), children first:');
+      expect(stderr).toContain(
+        'it found 2 record(s) and would delete 2 of them, children first; per object, all it found:',
+      );
       expect(JSON.parse(stdout.join(''))).toMatchObject({
         result: {
           status: 'success',
@@ -1190,7 +1195,7 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
-    it('asks about what the target runs as the records go before the sweep deletes anything', async () => {
+    it('asks about what the target runs as the records go once the sweep has read, before it deletes anything', async () => {
       targetTriggers = [
         {
           Name: 'ContactCleanup',
@@ -1207,10 +1212,22 @@ describe('sandforge-clone --remove', () => {
         },
       ];
 
+      const parts = partsAnswering(SWEPT, LISTING);
+      const made: SweepParts[] = [];
+      vi.mocked(sweepParts).mockImplementation((org, input, options) => {
+        made.push(parts(org, input, options));
+        return made[0];
+      });
+
       expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep'])).toBe(1);
 
-      expect(sweepParts).not.toHaveBeenCalled();
+      expect(made[0].ask).toHaveBeenCalledTimes(1);
+      expect(made[0].first).not.toHaveBeenCalled();
       expect(removeRunRecords).not.toHaveBeenCalled();
+      // Said in that order: the run's plan, what the sweep found, what fires.
+      const said = printed.join('\n');
+      expect(said.indexOf('a removal deletes the')).toBeLessThan(said.indexOf('a sweep looks in'));
+      expect(said.indexOf('a sweep looks in')).toBeLessThan(said.indexOf('removal automation:'));
     });
 
     it('removes none of the run’s records once a Ctrl-C stopped the sweep', async () => {
@@ -1328,7 +1345,9 @@ describe('sandforge-clone --remove', () => {
           await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep']),
         ).toBeUndefined();
 
-        expect(printed).toContain('it would delete none of what it found:');
+        expect(printed).toContain(
+          'it found 2 record(s) and would delete none of them; per object, all it found:',
+        );
         const said = printed.join('\n');
         expect(said).toContain('kept, made late');
         expect(said).toContain('(--sweep-untied takes them)');

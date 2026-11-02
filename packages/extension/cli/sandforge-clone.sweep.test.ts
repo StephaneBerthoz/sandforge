@@ -499,10 +499,12 @@ describe('sweepUnsaid', () => {
 });
 
 describe('sweepListingLines', () => {
-  it('counts what it takes, says each object’s classes, and what it lists and keeps with the flag that takes it', () => {
+  it('counts what it found and what it takes, says each object’s classes, and what it lists and keeps with the flag that takes it', () => {
     const lines = sweepListingLines(TIED, 'TGT');
 
-    expect(lines).toContain('it would delete 3 record(s), children first:');
+    expect(lines).toContain(
+      'it found 5 record(s) and would delete 3 of them, children first; per object, all it found:',
+    );
     expect(lines).toContain(
       '  Task: 4 — 2 made for the run (1 in the same save), 1 late, 1 tied to nothing of the run (Case follow-up, Loose task, …)',
     );
@@ -519,7 +521,9 @@ describe('sweepListingLines', () => {
   it('takes what came late and what is tied to nothing when asked, and says no more that they are kept', () => {
     const lines = sweepListingLines(TIED, 'TGT', { sweepLate: true, sweepUntied: true });
 
-    expect(lines).toContain('it would delete 5 record(s), children first:');
+    expect(lines).toContain(
+      'it found 5 record(s) and would delete 5 of them, children first; per object, all it found:',
+    );
     expect(lines.join('\n')).not.toContain('kept, ');
   });
 
@@ -544,7 +548,9 @@ describe('sweepListingLines', () => {
       { sweepUntied: true },
     );
 
-    expect(lines).toContain('it would delete 3 record(s), children first:');
+    expect(lines).toContain(
+      'it found 5 record(s) and would delete 3 of them, children first; per object, all it found:',
+    );
     expect(lines).toContain(
       `kept, tied to nothing of the run: Task: 1 — --sweep-untied is refused: ${refusal}`,
     );
@@ -592,7 +598,9 @@ describe('sweepListingLines', () => {
       },
       'TGT',
     );
-    expect(lines).toContain('it would delete 2 record(s), children first:');
+    expect(lines).toContain(
+      'it found 10002 or more record(s) and would delete 2 of them, children first; per object, all it found:',
+    );
     expect(lines).toContain('  FeedItem: 10000 or more (over the bound: none would be deleted)');
   });
 
@@ -617,12 +625,62 @@ describe('sweepListingLines', () => {
       'TGT',
       {},
     );
-    expect(lines).toContain('it would delete none of what it found:');
-    expect(lines).not.toContain('it would delete 0 record(s), children first:');
+    expect(lines).toContain(
+      'it found 1 record(s) and would delete none of them; per object, all it found:',
+    );
+    expect(lines.join('\n')).not.toContain('delete 0 ');
   });
 });
 
 describe('sweepLines', () => {
+  it('says what the sweep found and left, by class, with the option that takes each, its status unchanged', () => {
+    const lines = sweepLines({
+      status: 'success',
+      objects: [],
+      unread: [],
+      handWork: [],
+      left: [
+        { class: 'late', objects: [{ objectApiName: 'Task', count: 1 }], option: '--sweep-late' },
+        {
+          class: 'untied',
+          objects: [
+            { objectApiName: 'Task', count: 5 },
+            { objectApiName: 'Note', count: 2 },
+          ],
+          option: '--sweep-untied',
+        },
+      ],
+    });
+
+    expect(lines).toEqual([
+      'sweep: SUCCESS',
+      '  left, made late: Task: 1 (--sweep-late takes them)',
+      '  left, tied to nothing of the run: Task: 5, Note: 2 (--sweep-untied takes them)',
+    ]);
+  });
+
+  it('says why the option takes nothing, when it is refused', () => {
+    const refusal = 'Another run of this machine wrote to the target in this run’s window.';
+    const lines = sweepLines({
+      status: 'success',
+      objects: [],
+      unread: [],
+      handWork: [],
+      left: [
+        {
+          class: 'untied',
+          objects: [{ objectApiName: 'Task', count: 3 }],
+          option: '--sweep-untied',
+          refusal,
+        },
+      ],
+    });
+
+    expect(lines).toContain(
+      `  left, tied to nothing of the run: Task: 3 — --sweep-untied is refused: ${refusal}`,
+    );
+  });
+
   it('says what went once the records of the run that point at it were gone', () => {
     expect(
       sweepLines({

@@ -117,6 +117,37 @@ describe('removalSweepOf', () => {
     expect([...request.kept[0]]).toEqual([TASK]);
   });
 
+  it('says the objects it deletes records of once it has read, and none of a sweep refused', async () => {
+    const org = orgAfterRun();
+    const sweep = await removalSweepOf(requestOf(org));
+
+    expect(sweep.takes).toEqual([]);
+    await sweep.ask();
+    expect(sweep.takes).toEqual(['Task']);
+
+    const declined = await removalSweepOf(
+      requestOf(orgAfterRun(), {
+        guard: {
+          check: () => ({
+            allowed: true,
+            requiresConfirmation: true,
+            warnings: [],
+            impactSummary: '',
+          }),
+          confirmIfNeeded: async () => false,
+        } as never,
+      }),
+    );
+    await declined.ask();
+    expect(declined.takes).toEqual([]);
+
+    const unread = await removalSweepOf(
+      requestOf(orgAfterRun(), { input: async () => ({ refused: 'The journal is gone.' }) }),
+    );
+    await unread.ask();
+    expect(unread.takes).toEqual([]);
+  });
+
   it('reads and asks at `ask`, deleting nothing, and its first part deletes without asking again', async () => {
     const org = orgAfterRun();
     const confirmIfNeeded = vi.fn(async () => true);

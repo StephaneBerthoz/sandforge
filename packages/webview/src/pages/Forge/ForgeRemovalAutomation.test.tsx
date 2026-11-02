@@ -15,6 +15,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
+import { ForgeRunRemovalConfirm } from './ForgeRunRemovalView';
 import { useOrgStore } from '../../stores/useOrgStore';
 
 /** The sandbox the run wrote to, as the org store knows it. */
@@ -98,6 +99,97 @@ const AUTOMATION: ForgeTargetAutomation = {
   requests: 7,
 };
 
+describe('ForgeRunRemovalConfirm', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  const RUN = {
+    forgeId: 'forge-1',
+    targetOrgId: DEV.id,
+    idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+    idRemapExisting: [],
+    idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+    idRemapWithTheirRecord: [],
+    removalLeft: undefined,
+    undo: undefined,
+  };
+
+  /** What the sweep's list reads: an asset made for the run, a task late, a note tied to nothing. */
+  const LISTING = {
+    looked: ['Account', 'Asset', 'Task', 'Note'],
+    found: [
+      {
+        objectApiName: 'Asset',
+        count: 1,
+        names: [],
+        classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+      },
+      {
+        objectApiName: 'Task',
+        count: 1,
+        names: [],
+        classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+      },
+    ],
+    unread: [],
+    handWork: [],
+    late: [{ objectApiName: 'Task', count: 1 }],
+    untied: { objects: [] },
+  };
+
+  const swept = (): unknown[] =>
+    sentAll('forge:undo-automation:request').map((m) => m.payload['sweptObjects']);
+
+  function answerSweep(): void {
+    const request = sentAll('forge:undo-sweep:request').pop();
+    if (!request) throw new Error('no read of the sweep was asked for');
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'resp-sweep',
+            type: 'forge:undo-sweep:response',
+            timestamp: Date.now(),
+            correlationId: request.id,
+            payload: { forgeId: 'forge-1', listing: LISTING },
+          },
+        }),
+      );
+    });
+  }
+
+  it('reads what fires on what the sweep’s list takes, as ticked, and on the run’s objects alone once it is unticked', () => {
+    const shown = (sweep: boolean, sweepTicks: { sweepLate?: true } = {}) => (
+      <ForgeRunRemovalConfirm
+        run={RUN as never}
+        org="DEV-SANDBOX"
+        includeChanged={false}
+        onIncludeChangedChange={() => undefined}
+        sweep={sweep}
+        onSweepChange={() => undefined}
+        sweepTicks={sweepTicks}
+        onSweepTicksChange={() => undefined}
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+      />
+    );
+    const { rerender } = render(shown(false));
+    expect(swept()).toEqual([undefined]);
+
+    rerender(shown(true));
+    answerSweep();
+    expect(swept()).toEqual([undefined, ['Asset']]);
+
+    rerender(shown(true, { sweepLate: true }));
+    expect(swept()).toEqual([undefined, ['Asset'], ['Asset', 'Task']]);
+
+    rerender(shown(false));
+    expect(swept()).toEqual([undefined, ['Asset'], ['Asset', 'Task'], undefined]);
+  });
+});
+
 describe('ForgeRemovalAutomation', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
@@ -113,6 +205,43 @@ describe('ForgeRemovalAutomation', () => {
     expect(screen.getByTestId('forge-removal-automation-loading').textContent).toBe(
       'Reading what DEV-SANDBOX runs as these records are deleted…',
     );
+  });
+
+  it('reads what a sweep deletes with the run’s objects, again as they change, the last read shown meanwhile', () => {
+    const shown = (sweptObjects: readonly string[]) => (
+      <ForgeRemovalAutomation
+        forgeId="forge-1"
+        org="DEV-SANDBOX"
+        targetOrgId={DEV.id}
+        sweptObjects={sweptObjects}
+      />
+    );
+    const { rerender } = render(shown([]));
+    answer('forge:undo-automation:response', {
+      forgeId: 'forge-1',
+      automation: AUTOMATION,
+      drafted: ['Order'],
+    });
+
+    rerender(shown(['Asset', 'Task']));
+    // A new list of the same objects reads nothing again.
+    rerender(shown(['Asset', 'Task']));
+
+    expect(sentAll('forge:undo-automation:request').map((m) => m.payload)).toEqual([
+      { forgeId: 'forge-1' },
+      { forgeId: 'forge-1', sweptObjects: ['Asset', 'Task'] },
+    ]);
+    expect(screen.queryByTestId('forge-removal-automation-loading')).toBeNull();
+    expect(screen.getByTestId('forge-removal-automation-delete-Account')).toBeDefined();
+
+    rerender(shown([]));
+    expect(
+      sentAll('forge:undo-automation:request')
+        .map((m) => m.payload)
+        .at(-1),
+    ).toEqual({
+      forgeId: 'forge-1',
+    });
   });
 
   it('lists what fires on each delete, before or after, and as an order is set back to Draft', () => {

@@ -5177,7 +5177,13 @@
       "staysOverBound": "Plus de 10 000 enregistrements d'un objet : l'objet est nommé, et aucun n'est balayé.",
       "staysOtherMachines": "Ce qu'une autre machine ou une CI a écrit dans la même fenêtre : un balayage ne voit pas ces exécutions.",
       "resultAfterRemoval_one": "{{formatted}} d'entre eux une fois partis les enregistrements de l'exécution qui le désignent",
-      "resultAfterRemoval_other": "{{formatted}} d'entre eux une fois partis les enregistrements de l'exécution qui les désignent"
+      "resultAfterRemoval_other": "{{formatted}} d'entre eux une fois partis les enregistrements de l'exécution qui les désignent",
+      "resultSuccessLeft": "Ce que le balayage a pris a quitté {{org}} ; ce qu'il a laissé reste, comme dit ci-dessous.",
+      "leftLate_one": "{{formatted}} enregistrement arrivé tard reste ({{objects}}).",
+      "leftLate_other": "{{formatted}} enregistrements arrivés tard restent ({{objects}}).",
+      "leftUntied_one": "{{formatted}} enregistrement sans lien avec l'exécution reste ({{objects}}).",
+      "leftUntied_other": "{{formatted}} enregistrements sans lien avec l'exécution restent ({{objects}}).",
+      "leftTick": "Une case sous la liste du balayage les prend."
     },
     "automation": {
       "title": "Ce que {{org}} exécute quand ces enregistrements partent",
