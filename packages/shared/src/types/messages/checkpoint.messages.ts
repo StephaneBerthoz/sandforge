@@ -119,6 +119,12 @@ export interface CheckpointPreviewRequest extends BaseMessage {
      * object.
      */
     objects?: string[];
+    /**
+     * Whether the rewind is to mute the org's automation: the emails, whether
+     * the org delivers them and the refusal it would meet are then those of
+     * what still runs. `automation` stays as read, and nothing is assigned.
+     */
+    muteAutomation?: boolean;
   };
 }
 

@@ -445,6 +445,15 @@ describe('AutopilotHandler — what each node came to', () => {
       statusesApplied: 3,
       statusRefusals: [refusedStatus],
     });
+    // The run ends on it, the object named: it read as a success, a draft left in the target.
+    const postToWebview = vi.mocked(deps.broker.postToWebview);
+    const completed = postToWebview.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.type === 'autopilot:completed');
+    expect((completed as { payload?: unknown } | undefined)?.payload).toMatchObject({
+      status: 'partial',
+      statusesNotApplied: [{ objectApiName: 'Account', records: 1, refusals: [refusedStatus] }],
+    });
   });
 
   it('ends a node on the records it left to the platform, which it neither wrote nor failed', async () => {

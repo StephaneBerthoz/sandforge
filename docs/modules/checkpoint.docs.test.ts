@@ -643,7 +643,7 @@ describe('docs/modules/checkpoint.md', () => {
   it('says the emails of what could not be read are named as not counted, covered by the box of the automation, and refuse no rewind', () => {
     // Anchor: the preview names them; the rewind and the undo ask for the
     // automation's acceptance when they are said, and say them in its refusal.
-    expect(PREVIEW).toContain('checkpointEmailsUncounted(records, automation)');
+    expect(PREVIEW).toContain('checkpointEmailsUncounted(records, running)');
     for (const act of [REWIND, UNDO]) {
       expect(act).toContain('uncounted !== undefined)');
       expect(act).toContain('automationRefusal(orgName, automation, steps, uncounted)');

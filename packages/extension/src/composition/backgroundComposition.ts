@@ -850,7 +850,7 @@ function writeQuestion(question: WriteConfirmation): string[] {
     );
   }
   // The objects the target takes none of: confirmed, the sync leaves them out.
-  for (const { objectApiName, rows, why } of question.unwritable ?? []) {
+  for (const { objectApiName, rows, why, key } of question.unwritable ?? []) {
     lines.push(
       why === 'notInTarget'
         ? vscode.l10n.t(
@@ -873,12 +873,20 @@ function writeQuestion(question: WriteConfirmation): string[] {
                 rows,
                 question.org,
               )
-            : vscode.l10n.t(
-                'Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.',
-                objectApiName,
-                rows,
-                question.org,
-              ),
+            : why === 'notAKey'
+              ? vscode.l10n.t(
+                  'Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.',
+                  objectApiName,
+                  rows,
+                  key ?? '',
+                  question.org,
+                )
+              : vscode.l10n.t(
+                  'Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.',
+                  objectApiName,
+                  rows,
+                  question.org,
+                ),
     );
   }
   for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {

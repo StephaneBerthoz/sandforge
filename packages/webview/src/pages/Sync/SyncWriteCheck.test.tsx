@@ -120,6 +120,32 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('counts what a simulation found the run would write, and says what of the count it would not', () => {
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, total: 4, notWritten: 3 }} />);
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toContain(
+      '1 record to write',
+    );
+    expect(screen.getByTestId('sync-write-check-not-written').textContent).toBe(
+      'Of the 4 a run counts from the source, 3 would not be written: held back or refused, as each object says. What follows is measured on all of them.',
+    );
+  });
+
+  it('names the field of an upsert the target matches none on', () => {
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-unwritable-Account').textContent).toContain(
+      'its upsert matches on Name, neither an External ID nor an idLookup field',
+    );
+  });
+
   it('says the API requests the run takes against what the target has left today', () => {
     // Only Forge's Review compared them.
     render(

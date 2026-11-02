@@ -576,13 +576,15 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   }
   // The lookups at an object the run writes after this one, in a cycle: a
   // row it creates leaves them out, unless the target requires one.
-  const later = run && creates ? (run.later ?? new Set<string>()) : new Set<string>();
+  const later = new Set(
+    [...(run && creates ? (run.later ?? []) : [])].map((name) => name.toLowerCase()),
+  );
   const waitsForLater = new Set(
     later.size === 0
       ? []
       : (target?.fields ?? []).flatMap((field) =>
           field.isReference &&
-          (field.referenceTo ?? []).some((object) => later.has(object)) &&
+          (field.referenceTo ?? []).some((object) => later.has(object.toLowerCase())) &&
           !(field.nillable === false && field.defaultedOnCreate !== true)
             ? [field.name]
             : [],

@@ -116,6 +116,7 @@ import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeChec
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
+import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 
@@ -379,7 +380,9 @@ JSON (--json), one value on stdout:
                      outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
                      numbers, differs and estimate are then the rewind's of those objects,
                      diff the whole diff
-  rewind --dry-run   as preview
+  rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] when a rewind
+                     with these flags would be refused; asked to mute, emails and deliverability
+                     are of what still runs, with mutedAutomation and mutePlan
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
                       reason, count}], carriers?: [{object, count}], undo?: {until, cannot:
@@ -1631,11 +1634,10 @@ function emailLines(orgName: string, emails: readonly CheckpointEmails[]): strin
 function automationLines(orgName: string, automation: ForgeTargetAutomation): string[] {
   const lines: string[] = [];
   for (const object of automation.objects) {
-    const flows = [
-      ...object.flows,
-      ...(object.processes ?? []),
-      ...(object.workflowRules ?? []),
-    ].map((flow) => `'${flow.label}'`);
+    // What a bypass the user holds, or the mute would hold, keeps quiet does not run.
+    const flows = [...object.flows, ...(object.processes ?? []), ...(object.workflowRules ?? [])]
+      .filter((flow) => !flow.permissions.some(({ bypass, held }) => bypass && held === true))
+      .map((flow) => `'${flow.label}'`);
     const triggers = object.triggers.map((trigger) => trigger.name);
     const parts = [
       ...(flows.length > 0 ? [`${flows.length} flow(s) or rule(s): ${someOf(flows, 4)}`] : []),
@@ -1887,7 +1889,11 @@ export function previewLines(
   }
   lines.push(...deliverabilityLines(orgName, answer));
   lines.push(estimateLine(answer.estimate));
-  if (answer.refusal) lines.push(`  a rewind now would be refused: ${answer.refusal.message}`);
+  if (answer.refusal) {
+    lines.push(
+      `  a rewind now would be refused (${answer.refusal.code}): ${answer.refusal.message}`,
+    );
+  }
   return lines;
 }
 
@@ -3432,7 +3438,11 @@ async function rewind(
   sameOrgOrStop(org, entry, checkpoint, args.org, 'rewind');
   const previewed = await host.request({
     type: 'checkpoint:preview',
-    payload: { checkpointId: entry.checkpointId, ...(objects ? { objects } : {}) },
+    payload: {
+      checkpointId: entry.checkpointId,
+      ...(objects ? { objects } : {}),
+      ...(args.muteAutomation ? { muteAutomation: true } : {}),
+    },
     timeoutMs: PREVIEW_TIMEOUT_MS,
   });
   if (previewed.outcome !== 'answered') throw new Stop(refusalOfAnswer(previewed, 'The preview'));
@@ -3443,17 +3453,19 @@ async function rewind(
     ? await selectionOf(host, whole.diff, objects, args.acceptOutside)
     : undefined;
   const shown = selection ? { ...whole, diff: selection.diff } : whole;
-  for (const line of previewLines(args.org, checkpoint, shown, org.username)) say(line);
-  for (const line of selection ? selectionLines(selection.plan) : []) say(line);
   // Asked to mute, what it would assign and what still runs is said before
-  // the question, and the gate asks only for what still runs; the extension
-  // assigns as the rewind starts, and a dry run assigns nothing.
+  // the question, and the lines and the gate read what still runs: a preview
+  // that named the flows and emails its mute keeps quiet contradicted the
+  // mute's own lines. The extension assigns as the rewind starts, and a dry
+  // run assigns nothing.
   const muted =
     args.muteAutomation && shown.automation
       ? planMute(shown.automation, removalStepsWrites(rewindStepsOf(shown.diff)))
       : undefined;
-  for (const line of muted ? muteLines(muted.planned, args.org) : []) say(`  ${line}`);
   const preview = muted ? { ...shown, automation: muted.automation } : shown;
+  for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
+  for (const line of selection ? selectionLines(selection.plan) : []) say(line);
+  for (const line of muted ? muteLines(muted.planned, args.org) : []) say(`  ${line}`);
   const writes = objectsWrittenBy(preview.diff).length > 0;
   // What stands in for reading the preview in a cron job or a CI step: the
   // bounds the flags give, then the acceptances it needs, as a pipeline's
@@ -3481,12 +3493,19 @@ async function rewind(
     );
   }
   if (args.dryRun) {
-    if (gate && !preview.refusal) say(`  a rewind now would be refused: ${gate.message}`);
+    if (gate && !preview.refusal) {
+      say(`  a rewind now would be refused (${gate.code}): ${gate.message}`);
+    }
+    // Said in the summary as in the lines: a script read what a rewind's flags
+    // would be refused for from no key, its code from nowhere. Not under
+    // `refusal`, the preview's own: `reset` stops on that before its question.
+    const refused = preview.refusal ?? gate;
     // What a rewind's mute would assign, silence, leave running and lift
     // beside, in the summary as in the lines.
     answerJson({
       ...previewJson(args.org, checkpoint, whole, selection),
       ...(muted ? { mutedAutomation: muted.planned, mutePlan: muted.plan } : {}),
+      ...(refused ? { wouldBeRefused: [refusedLine(refused)] } : {}),
     });
     return;
   }

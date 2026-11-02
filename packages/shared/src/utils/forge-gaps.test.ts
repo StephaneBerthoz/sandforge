@@ -3,6 +3,7 @@ import type { ForgeGap } from '../types/forge.types.js';
 import {
   forgeGapId,
   forgeGapParts,
+  ignoredGapEntry,
   gapAssignEntry,
   gapAssignments,
   mergeGaps,
@@ -58,6 +59,27 @@ describe('forgeGapParts', () => {
     expect(forgeGapParts('Contact')).toBeNull();
     expect(forgeGapParts('|Contact|||x')).toBeNull();
     expect(forgeGapParts('kind||||x')).toBeNull();
+  });
+});
+
+describe('ignoredGapEntry', () => {
+  const id = forgeGapId('picklist_value_absent', 'Case', 'Status', 'ns__Support', 'Open');
+  const before = forgeGapId('picklist_value_absent', 'Case', 'Status', 'Support', 'Open');
+
+  it('takes the id itself', () => {
+    expect(ignoredGapEntry([id], id)).toBe(id);
+  });
+
+  it('takes the id a gap of a package’s record type had before its namespace, and says which it found', () => {
+    expect(ignoredGapEntry([before], id)).toBe(before);
+    expect(ignoredGapEntry(new Set([before]), id)).toBe(before);
+  });
+
+  it('takes no other gap of the record type, and none of an unpackaged one for a packaged one', () => {
+    const other = forgeGapId('picklist_value_absent', 'Case', 'Status', 'Support', 'Closed');
+    expect(ignoredGapEntry([other], id)).toBeUndefined();
+    expect(ignoredGapEntry([id], before)).toBeUndefined();
+    expect(ignoredGapEntry(undefined, id)).toBeUndefined();
   });
 });
 

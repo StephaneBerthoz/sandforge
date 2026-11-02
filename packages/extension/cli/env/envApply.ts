@@ -234,13 +234,26 @@ function runObjects(count: EnvRunCount | undefined): EnvStepObject[] {
   }));
 }
 
+/**
+ * Whether `--json` answered that the run's gate refused it (`refusedSummary`):
+ * no run to read, which is no misreading. Its reason is its last line on stderr.
+ */
+function isRefusedSummary(stdout: string): boolean {
+  try {
+    const answer = JSON.parse(stdout) as { refused?: { code?: unknown } } | null;
+    return typeof answer?.refused?.code === 'string';
+  } catch {
+    return false;
+  }
+}
+
 /** What a script printed on stdout read with `read`, or undefined, the reason said. */
 function answerOf<T>(
   read: (stdout: string) => T,
   stdout: string,
   say: (line: string) => void,
 ): T | undefined {
-  if (stdout.trim() === '') return undefined;
+  if (stdout.trim() === '' || isRefusedSummary(stdout)) return undefined;
   try {
     return read(stdout);
   } catch (err: unknown) {

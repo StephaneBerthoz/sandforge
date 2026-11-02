@@ -159,6 +159,7 @@
   "Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.": "Omitido: {0}, {1} registros: {2} no tiene ese objeto, o el usuario con el que escribe la sincronización no puede verlo.",
   "Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.": "Omitido: {0}, {1} registros: el usuario con el que escribe la sincronización no puede crear sus registros en {2}.",
   "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "Omitido: {0}, {1} registros: el usuario con el que escribe la sincronización no puede editar sus registros en {2}.",
+  "Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.": "Omitido: {0}, {1} registros: su upsert coincide por {2}, que no es un ID externo ni un campo idLookup en {3}.",
   "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "Omitido: {0}, {1} registros: {2} no lo describió, así que no se sabe qué acepta.",
   "Remove the rest": "Quitar el resto",
   "SandForge: some records of the run cannot be removed": "SandForge: algunos registros de la ejecución no se pueden quitar",

@@ -1434,9 +1434,9 @@ describe('docs/environments.md: checkpoints, reset, destroy --rewind and real da
     );
     expect(real).toContain('It is met before a record of the source is read');
     expect(FORGE_KIND).toContain(
-      "? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'",
+      "? ' Its anonymize sets a method for no category of personal field, so it does not count.'",
     );
-    expect(real).toContain('One that sets no method anonymizes nothing, and is said so');
+    expect(real).toContain('One that sets no method does not count');
     // The clone's own words for what it does to contact points.
     expect(CLONE).toContain(
       "'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)'",

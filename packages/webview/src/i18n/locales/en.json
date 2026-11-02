@@ -1617,11 +1617,14 @@
       "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
       "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",
       "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back.",
+      "notWritten_one": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
+      "notWritten_other": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} records): the target org has no such object, or the user the run writes as cannot see it. None of its records can be written.",
         "notCreateable": "{{object}} ({{rows}} records): the user the run writes as may not create its records in the target org. None of them can be written.",
         "notUpdateable": "{{object}} ({{rows}} records): the user the run writes as may not edit its records in the target org. None of them can be written.",
         "unread": "{{object}} ({{rows}} records): the target org did not describe it, so none of its records would be sent.",
+        "notAKey": "{{object}} ({{rows}} records): its upsert matches on {{key}}, neither an External ID nor an idLookup field in the target org. None of them can be written.",
         "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused."
       },
       "apiRequests": {
@@ -2676,6 +2679,7 @@
     "stepConfigRewindRefuseWhenActive": "Refuse while people are at work in the org",
     "rewindRefuseWhenActiveNote": "Refused when someone else changed records of the checkpoint's objects in the hour before. People who share the user SandForge connects as are not told apart.",
     "rewindAccept": {
+      "muteAutomation": "Mute the org's automation for this rewind, through its own bypass: what no bypass keeps quiet still runs",
       "acceptAutomation": "Run even if triggers, flows or workflow rules fire on the records it writes",
       "acceptNoUndo": "Allow deletions that Undo of this rewind cannot bring back",
       "acceptRecreate": "Recreate, with new Ids, records already emptied from the Recycle Bin",
@@ -4674,8 +4678,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source.",
       "stoppedEmailsHeld_one": "{{count}} email on a case was never sent: it waited for its task to be written, and the run stopped first.",
       "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first.",
-      "runPartial": "Partially complete: records were refused or keep a lookup empty. Each object's details say which and why.",
+      "runPartial": "Partially complete: records were refused, keep a lookup empty or stay drafts. Each object's details say which and why.",
       "runFailure": "Failed: the run wrote no record. Each object's details say why.",
+      "statusesNotAppliedTitle": "Written, and left a draft:",
+      "statusNotApplied_one": "{{object}}: {{count}} record stays a draft: its status was refused ({{code}}).",
+      "statusNotApplied_other": "{{object}}: {{count}} records stay drafts: their status was refused ({{code}}).",
       "lookupsNotFilledTitle": "Written, and left without a lookup:",
       "lookupNotFilled_one": "{{object}}: {{count}} record keeps {{fields}} empty ({{code}}).",
       "lookupNotFilled_other": "{{object}}: {{count}} records keep {{fields}} empty ({{code}}).",

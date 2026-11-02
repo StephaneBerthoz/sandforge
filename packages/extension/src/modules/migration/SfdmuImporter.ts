@@ -647,7 +647,13 @@ export class SfdmuImporter {
    */
   extractDependencies(sfdmuExport: SfdmuExport): DependencyEdge[] {
     const edges: DependencyEdge[] = [];
-    const objectNames = new Set(sfdmuExport.objects.map(objectNameOf));
+    // By lower case: `from account` keeps the case it was written in.
+    const objectNames = new Map(
+      sfdmuExport.objects.flatMap((obj) => {
+        const name = objectNameOf(obj);
+        return name === undefined ? [] : [[name.toLowerCase(), name] as const];
+      }),
+    );
 
     for (const obj of sfdmuExport.objects) {
       const child = objectNameOf(obj);
@@ -660,10 +666,12 @@ export class SfdmuImporter {
         if (field.includes('.')) {
           const parts = field.split('.');
           const relationshipName = parts[0];
-          const parentObject = resolveRelationshipToObject(relationshipName);
-          if (objectNames.has(parentObject)) {
+          const parent = objectNames.get(
+            resolveRelationshipToObject(relationshipName).toLowerCase(),
+          );
+          if (parent !== undefined) {
             edges.push({
-              parent: parentObject,
+              parent,
               child,
               field: relationshipName,
             });

@@ -140,6 +140,53 @@ describe('targetAccessOf', () => {
     expect(await targetAccessOf(described({}), 'Case', 'upsert')).not.toHaveProperty('refused');
   });
 
+  it('reads the fields an upsert may match on from what the describe says of each, in lower case', () => {
+    const { upsertKeys } = targetWriteFieldsOf({
+      fields: [
+        { name: 'Id', idLookup: true, externalId: false },
+        { name: 'Name', idLookup: false, externalId: false },
+        { name: 'Legacy_Key__c', idLookup: true, externalId: true },
+      ],
+    });
+
+    expect([...(upsertKeys ?? [])].sort()).toEqual(['id', 'legacy_key__c']);
+    expect(targetWriteFieldsOf({ fields: [{ name: 'Name' }] })).not.toHaveProperty('upsertKeys');
+  });
+
+  it('reads the key of an upsert in any case, and no key as the Id, as the org does', async () => {
+    const keyed = async () =>
+      targetWriteFieldsOf({
+        fields: [
+          { name: 'Id', idLookup: true },
+          { name: 'Legacy_Key__c', externalId: true, idLookup: true },
+        ],
+      });
+
+    for (const key of ['legacy_key__C', 'Legacy_Key__c', 'ID', undefined, '  ']) {
+      expect(await targetAccessOf(keyed, 'Case', 'upsert', key)).not.toHaveProperty('refused');
+    }
+  });
+
+  it('refuses an upsert on a field the target matches none on, once it may write the object at all', async () => {
+    const keyed = async () =>
+      targetWriteFieldsOf({
+        createable: false,
+        fields: [{ name: 'Name', idLookup: false }],
+      });
+
+    expect(await targetAccessOf(keyed, 'Case', 'upsert', 'Name')).toMatchObject({
+      refused: { why: 'notCreateable' },
+    });
+    expect(
+      await targetAccessOf(
+        async () => ({ ...(await keyed()), objectCreateable: true }),
+        'Case',
+        'upsert',
+        'Name',
+      ),
+    ).toMatchObject({ refused: { why: 'notAKey', key: 'Name' } });
+  });
+
   it('tells an object the target has not, or hides, from a describe that failed for another reason', async () => {
     const notFound = Object.assign(new Error('The requested resource does not exist'), {
       errorCode: 'NOT_FOUND',

@@ -737,6 +737,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
           { objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' },
           { objectApiName: 'Asset', rows: 3, why: 'notUpdateable' },
           { objectApiName: 'Order', rows: 2, why: 'unread' },
+          { objectApiName: 'Lead', rows: 4, why: 'notAKey', key: 'Company' },
         ],
       }).split('\n'),
     ).toEqual([
@@ -747,6 +748,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'Left out: Invoice__c, 8 records: DEV has no such object, or the user the sync writes as cannot see it.',
       'Left out: Asset, 3 records: the user the sync writes as may not edit its records in DEV.',
       'Left out: Order, 2 records: DEV did not describe it, so what it takes could not be told.',
+      'Left out: Lead, 4 records: its upsert matches on Company, neither an External ID nor an idLookup field in DEV.',
       'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
       'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been counted, and nothing has been read or written yet.',

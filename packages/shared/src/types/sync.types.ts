@@ -850,10 +850,12 @@ export interface SyncEncryptedFieldsMasked {
  * Why a target takes no record of an object as a run writes it: it has not
  * the object, or the user the run writes as cannot see it (its describe
  * answers NOT_FOUND alike); that user may not create its records, for an
- * insert or an upsert, or edit them, for an update or an upsert; or its
- * describe failed.
+ * insert or an upsert, or edit them, for an update or an upsert; its
+ * describe failed; or the field an upsert matches on is neither an External
+ * ID nor one its describe marks `idLookup`, which every record is refused for.
  */
-export type SyncUnwritableReason = 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+export type SyncUnwritableReason =
+  'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread' | 'notAKey';
 
 /**
  * What a run is held to before its first write, as the run and a simulation
@@ -877,6 +879,13 @@ export interface SyncWriteCheck {
   overwrites?: number;
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
+  /**
+   * Of a simulation, of `total`: what the run counts from the source that the
+   * simulation found it would not write, held back or refused, as each
+   * object's line says. A run is measured by `total`, so a simulation is too:
+   * what it writes is the difference. Absent when none, and of a run.
+   */
+  notWritten?: number;
   /** The data storage the records it creates take, against what the target has left. */
   storage: {
     verdict: 'fits' | 'near' | 'exceeds' | 'unread';
@@ -915,7 +924,13 @@ export interface SyncWriteCheck {
    * describe it. Not counted in `objects`. A run asks whether to leave them
    * out; one nobody watches, and the command line, are refused. Absent when none.
    */
-  unwritable?: Array<{ objectApiName: ApiName; rows: number; why: SyncUnwritableReason }>;
+  unwritable?: Array<{
+    objectApiName: ApiName;
+    rows: number;
+    why: SyncUnwritableReason;
+    /** Of `notAKey`: the field the upsert matches on. */
+    key?: ApiName;
+  }>;
   /**
    * The API requests the run takes of the target, roughly, against the daily
    * requests it has left: `near` when the run would leave it under a tenth of

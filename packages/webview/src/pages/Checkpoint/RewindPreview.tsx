@@ -259,7 +259,7 @@ export interface RewindPreviewProps {
    * that starts the rewind (`AutomationMuteBox`) from the offer this preview
    * plans of its read: whether it is ticked, and its toggle. Without it, no
    * box is offered, and the rewind is not asked to mute: the Automation
-   * page's Rewind step shows this preview, and runs no mute.
+   * page's Rewind step that does not mute shows this preview so.
    */
   muteBox?: MuteBoxOf;
   /**

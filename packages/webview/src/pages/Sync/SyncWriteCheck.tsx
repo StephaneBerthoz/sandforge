@@ -90,7 +90,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
           {check && (
             <>
               <p data-testid="sync-write-check-records">
-                {t('sync.writeCheck.records', { count: check.total })}
+                {t('sync.writeCheck.records', { count: check.total - (check.notWritten ?? 0) })}
                 {check.objects.length > 0 &&
                   ` (${check.objects
                     .map(({ objectApiName, rows }) => `${objectApiName} ${formatNumber(rows)}`)
@@ -170,7 +170,15 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {check.checkpointUnread}
                 </p>
               )}
-              {(check.unwritable ?? []).map(({ objectApiName, rows, why }) => (
+              {(check.notWritten ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-not-written">
+                  {t('sync.writeCheck.notWritten', {
+                    count: check.notWritten,
+                    total: formatNumber(check.total),
+                  })}
+                </p>
+              )}
+              {(check.unwritable ?? []).map(({ objectApiName, rows, why, key }) => (
                 <p
                   key={objectApiName}
                   className="text-status-warning"
@@ -179,6 +187,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t(`sync.writeCheck.unwritable.${why}`, {
                     object: objectApiName,
                     rows: formatNumber(rows),
+                    key,
                   })}
                 </p>
               ))}

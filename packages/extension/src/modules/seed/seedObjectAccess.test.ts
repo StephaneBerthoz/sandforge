@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { seedObjectAccess, type ObjectAccessConnection } from './seedObjectAccess';
+import type { SeedObjectConfig, SeedTemplate } from '@sandforge/shared';
+import {
+  seedObjectAccess,
+  templateTheOrgTakes,
+  type ObjectAccessConnection,
+} from './seedObjectAccess';
 
 const USER = '005000000000001AAA';
 
@@ -20,6 +25,56 @@ function org(options: { marketingUser?: boolean; campaignCreateable?: boolean } 
   } satisfies ObjectAccessConnection;
   return conn;
 }
+
+describe('templateTheOrgTakes', () => {
+  const object = (objectApiName: string, optional?: true) =>
+    ({
+      objectApiName,
+      recordCount: 100,
+      fieldRules: [],
+      ...(optional ? { optional } : {}),
+    }) as unknown as SeedObjectConfig;
+  const template = {
+    objects: [object('Account'), object('Knowledge__kav', true), object('Campaign', true)],
+    relations: [
+      { childObject: 'Case', parentObject: 'Account' },
+      { childObject: 'CaseArticle', parentObject: 'Knowledge__kav' },
+    ],
+  } as unknown as Pick<SeedTemplate, 'objects' | 'relations'>;
+
+  it('leaves out an optional object the org does not have, and what hangs from it', async () => {
+    const taken = await templateTheOrgTakes(template, seedObjectAccess(org()));
+
+    expect(taken.objects.map((o) => o.objectApiName)).toEqual(['Account', 'Campaign']);
+    expect(taken.relations?.map((r) => r.childObject)).toEqual(['Case']);
+  });
+
+  it('leaves out one the user may not create, and keeps an object the template requires', async () => {
+    const taken = await templateTheOrgTakes(
+      {
+        objects: [object('Knowledge__kav'), object('Campaign', true)],
+      } as unknown as Pick<SeedTemplate, 'objects' | 'relations'>,
+      seedObjectAccess(org({ marketingUser: false })),
+    );
+
+    expect(taken.objects.map((o) => o.objectApiName)).toEqual(['Knowledge__kav']);
+  });
+
+  it('reads nothing of a template with no optional object, and counts one a read could not tell', async () => {
+    const access = vi.fn(async () => {
+      throw new Error('REQUEST_LIMIT_EXCEEDED');
+    });
+
+    const plain = { objects: [object('Account')] } as unknown as Pick<
+      SeedTemplate,
+      'objects' | 'relations'
+    >;
+    expect(await templateTheOrgTakes(plain, access)).toBe(plain);
+    expect(access).not.toHaveBeenCalled();
+
+    expect(await templateTheOrgTakes(template, access)).toBe(template);
+  });
+});
 
 describe('seedObjectAccess', () => {
   it('says an org without Knowledge has no article object, and names the feature', async () => {

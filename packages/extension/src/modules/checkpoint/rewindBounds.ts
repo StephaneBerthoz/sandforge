@@ -260,7 +260,7 @@ export interface BoundWords {
   /**
    * Whether the rewind could mute the org's automation (`--mute-automation`):
    * a refusal for its emails then names what the mute keeps quiet. A
-   * pipeline's Rewind step mutes nothing.
+   * pipeline's Rewind step says its own setting, in what lifts its automation.
    */
   mutes: boolean;
 }
@@ -274,7 +274,8 @@ export const REWIND_STEP_WORDS: BoundWords = {
   mutes: false,
   lift: {
     acceptAutomation:
-      'turn on acceptAutomation in the step and confirm it again to rewind all the same',
+      'turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to ' +
+      'let it run, and confirm it again to rewind all the same',
     acceptEmails: 'turn on acceptEmails in the step and confirm it again to rewind all the same',
     acceptNoUndo: 'turn on acceptNoUndo in the step and confirm it again to rewind all the same',
     acceptRecreate:

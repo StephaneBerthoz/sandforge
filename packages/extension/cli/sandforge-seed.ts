@@ -100,6 +100,7 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import { refusedLine, refusedSummary } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import {
   SeedOrchestrator,
@@ -119,7 +120,7 @@ import {
 import { describedFieldsOf } from '../src/modules/seed/describedFields.js';
 import { seedTemplatePayloadSchema } from '../src/bridge/validatePayload.js';
 import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/seedRecordTypes.js';
-import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
+import { seedObjectAccess, templateTheOrgTakes } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
 import {
   seedFitBudgetOf,
@@ -2054,12 +2055,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // emails, which then leave out what the mute keeps quiet. Refused on a
   // production org or for a user who cannot assign, a real run writes
   // nothing; a dry run says so, and assigns nothing.
+  const writes = seedWritesOf(template, scenario !== undefined);
   let mute: RunMute | undefined;
   if (args.muteAutomation) {
     try {
-      mute = await muteForRun(async () => muteOrgOf(conn), read, {
-        writes: (_objectApiName, write) => write === 'insert' || write === 'update',
-      });
+      mute = await muteForRun(async () => muteOrgOf(conn), read, { writes });
       for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
     } catch (err: unknown) {
       if (!isMuteRefusedError(err) || !args.dryRun) throw err;
@@ -2068,7 +2068,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   // What still runs of it once the mute's plan holds, nothing assigned, and
   // the room what it creates takes under the records: what a fit keeps.
-  const writes = seedWritesOf(template, scenario !== undefined);
   const room = seedRoomOf(read, mute?.plan, writes);
   const fitWords = {
     ...(room.unread !== undefined ? { roomUnread: room.unread } : {}),
@@ -2144,9 +2143,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The data storage the records take against what the target has left,
   // before the first write, as the panel holds a seed: a dry run says what a
   // real run would meet, and a real run past it writes nothing.
+  const objectAccess = seedObjectAccess(conn);
+  // What it counts: an optional object the org does not take is skipped by the run.
+  const taken = await templateTheOrgTakes(template, objectAccess);
   let storage = await seedStorageGate(
     conn,
-    template,
+    taken,
     personObjects,
     args.target,
     checkpointPlanned?.estimate,
@@ -2166,7 +2168,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(`  a real run would be refused: ${refusal}`);
     } else {
       const fitted = fitSeedTemplate({
-        template,
+        template: taken,
         personObjects,
         budget,
         room: room.room,
@@ -2189,7 +2191,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         template = fittedTemplate(template, fitted.proposal);
         storage = await seedStorageGate(
           conn,
-          template,
+          fittedTemplate(taken, fitted.proposal),
           personObjects,
           args.target,
           checkpointPlanned?.estimate,
@@ -2216,7 +2218,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.fit) {
       const budget = seedFitBudgetOf(storage);
       if (!('unread' in budget)) {
-        const proposed = fitSeedTemplate({ template, personObjects, budget, room: room.room });
+        const proposed = fitSeedTemplate({
+          template: taken,
+          personObjects,
+          budget,
+          room: room.room,
+        });
         fit = { applied: false, fit: proposed };
         for (const line of seedFitLines(proposed, args.target, { applied: false, ...fitWords })) {
           log(`  ${line}`);
@@ -2250,7 +2257,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // which a seed's line does not take, never stands for it.
   const emailsStop = emails.gate.stop;
   if (emailsStop) {
-    if (!args.dryRun) throw new Error(emailsStop.message);
+    if (!args.dryRun) {
+      if (args.json) {
+        process.stdout.write(
+          refusedSummary(
+            { tool: 'sandforge-seed', target: args.target, elapsedMs: Date.now() - t0 },
+            emailsStop,
+          ),
+        );
+      }
+      throw new Error(refusedLine(emailsStop));
+    }
     log(`  a real run would be refused: ${emailsStop.message}`);
   }
   log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
@@ -2373,7 +2390,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             personObjects.includes(objectApiName) ? 'person' : 'business',
           ),
       ),
-    objectAccess: seedObjectAccess(conn),
+    objectAccess,
     insert,
     seed,
     locale,

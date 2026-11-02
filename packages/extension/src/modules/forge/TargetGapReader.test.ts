@@ -1635,6 +1635,13 @@ describe('gapAnsweredBy', () => {
 
   it('answers a gap the user ignored, or of an object the run leaves out, whatever it is', () => {
     expect(gapAnsweredBy(required, { ignoredGaps: [required.id] })).toBe('left as it is');
+    // A template keeps the id a gap of a package's record type had before its namespace.
+    expect(
+      gapAnsweredBy(
+        { ...required, id: forgeGapId('record_type_unavailable', 'Case', 'Status', 'ns__Support') },
+        { ignoredGaps: [forgeGapId('record_type_unavailable', 'Case', 'Status', 'Support')] },
+      ),
+    ).toBe('left as it is');
     expect(gapAnsweredBy(required, { excludedObjects: ['Account'] })).toBe(
       'Account left out of the run',
     );

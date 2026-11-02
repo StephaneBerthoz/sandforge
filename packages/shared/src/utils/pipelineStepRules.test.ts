@@ -166,6 +166,7 @@ describe('pipelineRewindStepConfigSchema', () => {
       maxRecords: 500,
       acceptAutomation: false,
       acceptEmails: false,
+      muteAutomation: false,
       acceptNoUndo: false,
       acceptRecreate: false,
       acceptOutside: false,
@@ -379,6 +380,35 @@ describe('rewindGrantDigest', () => {
     expect(
       refusalOf(pipelineRewindStepConfigSchema, rewindConfig({ acceptEmails: 'yes' })),
     ).toMatch(/^acceptEmails/);
+  });
+
+  it('keeps a confirmation given before the mute was asked for a step that does not mute, and asks a new one of a step that does', () => {
+    const config = read();
+    expect(config.muteAutomation).toBe(false);
+    // The digest a step's confirmation was kept with before it could mute: a
+    // pipeline scheduled for tonight does not stop for a box it never ticked.
+    const confirmedBefore = `sha256:${sha256Hex(
+      JSON.stringify({
+        binding: 'sandforge-rewind-grant/2',
+        orgId: config.orgId,
+        checkpointId: config.checkpointId,
+        objects: config.objects === undefined ? null : [...config.objects].sort(),
+        acceptAutomation: config.acceptAutomation,
+        acceptEmails: config.acceptEmails,
+        acceptNoUndo: config.acceptNoUndo,
+        acceptRecreate: config.acceptRecreate,
+        acceptOutside: config.acceptOutside,
+        acceptUnseen: config.acceptUnseen,
+        maxRecords: config.maxRecords,
+        refuseWhenActive: config.refuseWhenActive,
+      }),
+    )}`;
+    expect(rewindGrantDigest(config)).toBe(confirmedBefore);
+    expect(digest({ muteAutomation: false })).toBe(confirmedBefore);
+    expect(digest({ muteAutomation: true })).not.toBe(confirmedBefore);
+    expect(
+      refusalOf(pipelineRewindStepConfigSchema, rewindConfig({ muteAutomation: 'yes' })),
+    ).toMatch(/^muteAutomation/);
   });
 
   it('is unchanged by what the step is called, described as, or a key the configuration does not define', () => {

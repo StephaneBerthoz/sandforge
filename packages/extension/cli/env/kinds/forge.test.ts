@@ -441,7 +441,7 @@ describe('a forge resource whose source is a production org', () => {
         edition: 'Enterprise Edition',
       }),
     ).toContain(
-      'Its anonymize sets a method for no category of personal field, so it anonymizes nothing.',
+      'Its anonymize sets a method for no category of personal field, so it does not count.',
     );
     // A template entry that anonymizes brings its anonymization with it.
     const fromEntry = converted({

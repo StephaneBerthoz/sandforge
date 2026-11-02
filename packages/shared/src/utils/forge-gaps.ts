@@ -44,6 +44,34 @@ export function forgeGapParts(id: string): ForgeGapParts | null {
   };
 }
 
+/** A record type of a package, `ns__Type`: a developer name holds no two underscores in a row. */
+const PACKAGED_NAME = /^[A-Za-z][A-Za-z0-9]*__(.+)$/;
+
+/**
+ * The entry of `ignored` that says to leave the gap `id` as it is, or undefined
+ * when none does: the id itself, or the one it had before a package's record
+ * type was named with its namespace. A template and a saved run keep the old
+ * one, `…|Type|…` for `…|ns__Type|…`, and the decision taken was asked again.
+ */
+export function ignoredGapEntry(
+  ignored: Iterable<string> | undefined,
+  id: string,
+): string | undefined {
+  const entries = new Set(ignored ?? []);
+  if (entries.has(id)) return id;
+  const parts = forgeGapParts(id);
+  const bare = PACKAGED_NAME.exec(parts?.recordType ?? '')?.[1];
+  if (parts === null || bare === undefined) return undefined;
+  const before = forgeGapId(
+    parts.kind as ForgeGapKind,
+    parts.objectApiName,
+    parts.field,
+    bare,
+    parts.value,
+  );
+  return entries.has(before) ? before : undefined;
+}
+
 const SEVERITY_RANK: Readonly<Record<ForgeGapSeverity, number>> = {
   info: 0,
   warning: 1,

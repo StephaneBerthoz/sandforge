@@ -56,6 +56,7 @@
 
 import {
   BYTES_PER_MB,
+  removalStepsWrites,
   type CheckpointEmails,
   type CheckpointEstimate,
   type CheckpointRefusal,
@@ -68,6 +69,7 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
+import { planMute } from '../forge/AutomationMuteLease.js';
 import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
 import {
   FILE_LINK_OBJECT,
@@ -153,6 +155,14 @@ export interface PreviewRequest {
    * again, is priced with that read.
    */
   reusesPreview?: boolean;
+  /**
+   * Whether the rewind that follows is asked to mute the org's automation:
+   * the emails it counts, those it could not count, whether the org delivers
+   * them and the refusal it would meet are then those of what still runs, as
+   * the rewind's own gate judges them. `automation` stays the org's as read,
+   * which the mute is planned from. Nothing is assigned.
+   */
+  muteAutomation?: boolean;
 }
 
 /** How a preview ended, when it was not stopped and did not fail. */
@@ -361,14 +371,20 @@ export async function previewCheckpoint(
   // them to be accepted, and the rewind reads it again before it writes.
   let deliverability: RunDeliverability | undefined;
   let deliverabilityRequests = 0;
+  const steps = rewindStepsOf(plan ? selectionDiff(diff, plan) : selected);
+  const muted =
+    automation && request.muteAutomation === true
+      ? planMute(automation, removalStepsWrites(steps))
+      : undefined;
   if (automation) {
     const emails = await actDeliverability({
       act: 'rewind',
       orgName,
       automation,
-      steps: rewindStepsOf(plan ? selectionDiff(diff, plan) : selected),
+      steps,
+      ...(muted ? { plan: muted.plan } : {}),
       accepted: false,
-      mayMute: true,
+      mayMute: muted === undefined,
       read: () => readEmailDeliverability(org),
     });
     deliverability = emails.gate.deliverability;
@@ -405,8 +421,11 @@ export async function previewCheckpoint(
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
   const records = writtenByDiff(selected.objects);
-  const emails = automation ? checkpointEmails(records, automation, budget.emails) : [];
-  const emailsUncounted = automation ? checkpointEmailsUncounted(records, automation) : undefined;
+  // What still runs: a rewind that mutes sends nothing of what its bypasses
+  // keep quiet, which neither counts against the day's emails nor refuses it.
+  const running = muted?.automation ?? automation;
+  const emails = running ? checkpointEmails(records, running, budget.emails) : [];
+  const emailsUncounted = running ? checkpointEmailsUncounted(records, running) : undefined;
 
   const holder = deps.store.heldBy(checkpoint.org.organizationId);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;

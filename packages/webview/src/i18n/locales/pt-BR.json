@@ -1617,11 +1617,14 @@
       "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados.",
       "overwrites_one": "Deles, {{count}} pode sobrescrever um registro que a org de destino contém: o que ele contém é lido e guardado antes, e remover a execução o restaura.",
       "overwrites_other": "Deles, até {{count}} podem sobrescrever registros que a org de destino contém: o que eles contêm é lido e guardado antes, e remover a execução o restaura.",
+      "notWritten_one": "Dos {{total}} que uma execução conta na origem, {{count}} não seria gravado: retido ou recusado, como cada objeto diz. O que segue é medido sobre todos.",
+      "notWritten_other": "Dos {{total}} que uma execução conta na origem, {{count}} não seriam gravados: retidos ou recusados, como cada objeto diz. O que segue é medido sobre todos.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} registros): a org de destino não tem esse objeto, ou o usuário com que a execução grava não pode vê-lo. Nenhum de seus registros pode ser gravado.",
         "notCreateable": "{{object}} ({{rows}} registros): o usuário com que a execução grava não pode criar seus registros na org de destino. Nenhum pode ser gravado.",
         "notUpdateable": "{{object}} ({{rows}} registros): o usuário com que a execução grava não pode editar seus registros na org de destino. Nenhum pode ser gravado.",
         "unread": "{{object}} ({{rows}} registros): a org de destino não o descreveu, então nenhum de seus registros seria enviado.",
+        "notAKey": "{{object}} ({{rows}} registros): o upsert dele corresponde por {{key}}, que não é um ID externo nem um campo idLookup na org de destino. Nenhum deles pode ser gravado.",
         "hint": "Iniciada pela página, a execução pergunta se deve deixar esses objetos de fora e grava o resto; uma execução agendada e a linha de comando são recusadas."
       },
       "apiRequests": {
@@ -2676,6 +2679,7 @@
     "stepConfigRewindRefuseWhenActive": "Recusar enquanto houver pessoas trabalhando na org",
     "rewindRefuseWhenActiveNote": "Recusado quando outra pessoa alterou registros dos objetos do ponto de verificação na hora anterior. As pessoas que compartilham o usuário com o qual o SandForge se conecta não são distinguidas.",
     "rewindAccept": {
+      "muteAutomation": "Silenciar as automações da org neste retrocesso, pelo próprio bypass dela: o que nenhum bypass silencia é executado mesmo assim",
       "acceptAutomation": "Executar mesmo que triggers, fluxos ou regras de fluxo de trabalho disparem nos registros que ele grava",
       "acceptNoUndo": "Permitir exclusões que Desfazer este retrocesso não conseguirá recuperar",
       "acceptRecreate": "Recriar, com Ids novos, os registros já esvaziados da lixeira",
@@ -4674,8 +4678,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros continuam como rascunhos, sem o status que tinham na origem.",
       "stoppedEmailsHeld_one": "{{count}} e-mail de um caso nunca foi enviado: aguardava a gravação da sua tarefa, e a execução parou antes.",
       "stoppedEmailsHeld_other": "{{count}} e-mails de casos nunca foram enviados: aguardavam a gravação da sua tarefa, e a execução parou antes.",
-      "runPartial": "Parcialmente concluída: registros foram recusados ou mantêm um vínculo vazio. Os detalhes de cada objeto dizem quais e por quê.",
+      "runPartial": "Parcialmente concluída: registros foram recusados, mantêm um vínculo vazio ou continuam como rascunhos. Os detalhes de cada objeto dizem quais e por quê.",
       "runFailure": "Falhou: a execução não gravou nenhum registro. Os detalhes de cada objeto dizem por quê.",
+      "statusesNotAppliedTitle": "Gravados, e em estado de rascunho:",
+      "statusNotApplied_one": "{{object}}: {{count}} registro continua como rascunho: o status dele foi recusado ({{code}}).",
+      "statusNotApplied_other": "{{object}}: {{count}} registros continuam como rascunhos: o status deles foi recusado ({{code}}).",
       "lookupsNotFilledTitle": "Gravados, e sem um vínculo:",
       "lookupNotFilled_one": "{{object}}: {{count}} registro mantém {{fields}} vazio ({{code}}).",
       "lookupNotFilled_other": "{{object}}: {{count}} registros mantêm {{fields}} vazio ({{code}}).",

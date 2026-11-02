@@ -406,6 +406,37 @@ describe('ControlPanel', () => {
       expect(screen.queryByTestId('control-run-status')).toBeNull();
     });
 
+    it('says, object by object, how many records stayed drafts and why', () => {
+      mockStoreState.executionStatus = 'completed';
+      render(
+        <ControlPanel
+          runStatus="partial"
+          statusesNotApplied={[
+            {
+              objectApiName: 'Order',
+              records: 2,
+              refusals: [
+                {
+                  statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+                  fields: ['Status'],
+                  count: 2,
+                  message: 'An order needs a product',
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+
+      expect(
+        [...screen.getByTestId('control-statuses-not-applied').querySelectorAll('li')].map(
+          (item) => item.textContent,
+        ),
+      ).toEqual([
+        'Order: 2 records stay drafts: their status was refused (FIELD_INTEGRITY_EXCEPTION).',
+      ]);
+    });
+
     it('says, object by object, how many records stayed without which lookup and why', () => {
       mockStoreState.executionStatus = 'completed';
       render(

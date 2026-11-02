@@ -33,6 +33,7 @@ import {
 import * as z from 'zod';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { grantRefusalWords, type GrantRefusal } from '../../modules/automation/RewindGrants.js';
+import { muteLines } from '../../modules/forge/AutomationMuteLease.js';
 import {
   StepCancelledError,
   type StepCheck,
@@ -1538,10 +1539,17 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       residual: left,
       ...(result.undo ? { undoUntil: result.undo.until } : {}),
       apiRequests: result.apiRequests.used,
+      ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
+    // What it assigned, silenced and left running, and whether it was taken back.
+    const mutedSaid = result.mutedAutomation
+      ? ` ${muteLines(result.mutedAutomation, org)
+          .map((line) => line.trim())
+          .join('; ')}.`
+      : '';
     if (result.status === 'cancelled') {
       throw new StepCancelledError(
-        `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.`,
+        `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.${mutedSaid}`,
       );
     }
     if (result.status !== 'success') {
@@ -1554,7 +1562,7 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
           (result.unread && result.unread.length > 0
             ? `, and ${result.unread.map((unread) => unread.objectApiName).join(', ')} could not be read`
             : '') +
-          `; ${undoWords(result)}.`,
+          `; ${undoWords(result)}.${mutedSaid}`,
       );
     }
     return completed(
@@ -1562,7 +1570,7 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       startTime,
       output,
       `Rewound ${org} to the checkpoint ${outcome.checkpointId}: ${rewoundWords(result)}, with ` +
-        `${counted(result.apiRequests.used, 'API request')}; ${undoWords(result)}.`,
+        `${counted(result.apiRequests.used, 'API request')}; ${undoWords(result)}.${mutedSaid}`,
     );
   };
 }

@@ -1391,6 +1391,8 @@ export const checkpointTakePayloadSchema = z
 export const checkpointPreviewPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
   objects: checkpointObjectsSchema.optional(),
+  // Asked to mute: what it says of the emails is of what still runs.
+  muteAutomation: z.boolean().optional(),
 });
 // Each acceptance is said, never assumed: a rewind that deletes what Undo
 // couldn't bring back, makes records again with new Ids, fires the org's

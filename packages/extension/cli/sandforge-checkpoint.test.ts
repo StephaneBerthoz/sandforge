@@ -942,7 +942,7 @@ describe('previewLines', () => {
     );
     expect(lines).toContain('  about 3 s · about 12 API requests of the 14,900 left today');
     expect(lines.at(-1)).toBe(
-      '  a rewind now would be refused: This rewind takes about 500 API requests.',
+      '  a rewind now would be refused (API_BUDGET): This rewind takes about 500 API requests.',
     );
   });
 

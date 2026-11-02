@@ -1617,11 +1617,14 @@
       "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être.",
       "overwrites_one": "Parmi eux, {{count}} peut écraser un enregistrement que l'org cible détient : ce qu'il contient est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
       "overwrites_other": "Parmi eux, jusqu'à {{count}} peuvent écraser des enregistrements que l'org cible détient : ce qu'ils contiennent est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
+      "notWritten_one": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne serait pas écrit : retenu ou refusé, comme chaque objet le dit. La suite est mesurée sur tous.",
+      "notWritten_other": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne seraient pas écrits : retenus ou refusés, comme chaque objet le dit. La suite est mesurée sur tous.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} enregistrements) : l'org cible n'a pas cet objet, ou l'utilisateur avec lequel l'exécution écrit ne le voit pas. Aucun de ses enregistrements ne peut être écrit.",
         "notCreateable": "{{object}} ({{rows}} enregistrements) : l'utilisateur avec lequel l'exécution écrit ne peut pas en créer dans l'org cible. Aucun ne peut être écrit.",
         "notUpdateable": "{{object}} ({{rows}} enregistrements) : l'utilisateur avec lequel l'exécution écrit ne peut pas les modifier dans l'org cible. Aucun ne peut être écrit.",
         "unread": "{{object}} ({{rows}} enregistrements) : l'org cible ne l'a pas décrit, donc aucun de ses enregistrements ne serait envoyé.",
+        "notAKey": "{{object}} ({{rows}} enregistrements) : son upsert s'appuie sur {{key}}, qui n'est ni un ID externe ni un champ idLookup dans l'org cible. Aucun ne peut être écrit.",
         "hint": "Lancée depuis la page, l'exécution demande s'il faut laisser ces objets de côté et écrit le reste ; une exécution planifiée et la ligne de commande sont refusées."
       },
       "apiRequests": {
@@ -2676,6 +2679,7 @@
     "stepConfigRewindRefuseWhenActive": "Refuser tant que des utilisateurs travaillent dans l'org",
     "rewindRefuseWhenActiveNote": "Refusé quand quelqu'un d'autre a modifié des enregistrements des objets du point de contrôle dans l'heure précédente. Les personnes qui partagent l'utilisateur avec lequel SandForge se connecte ne sont pas distinguées.",
     "rewindAccept": {
+      "muteAutomation": "Rendre muettes les automatisations de l'org pour ce retour arrière, par son propre contournement : ce qu'aucun contournement ne fait taire s'exécute quand même",
       "acceptAutomation": "Lancer même si des triggers, des Flows ou des règles de workflow se déclenchent sur les enregistrements qu'il écrit",
       "acceptNoUndo": "Autoriser des suppressions que l'annulation de ce retour arrière ne pourra pas rétablir",
       "acceptRecreate": "Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille",
@@ -4674,8 +4678,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source.",
       "stoppedEmailsHeld_one": "{{count}} e-mail d'une requête n'a jamais été envoyé : il attendait que sa tâche soit écrite, et l'exécution s'est arrêtée avant.",
       "stoppedEmailsHeld_other": "{{count}} e-mails de requêtes n'ont jamais été envoyés : ils attendaient que leur tâche soit écrite, et l'exécution s'est arrêtée avant.",
-      "runPartial": "Partiellement terminé : des enregistrements ont été refusés ou gardent un lien vide. Le détail de chaque objet dit lesquels et pourquoi.",
+      "runPartial": "Partiellement terminé : des enregistrements ont été refusés, gardent un lien vide ou restent des brouillons. Le détail de chaque objet dit lesquels et pourquoi.",
       "runFailure": "Échec : l'exécution n'a écrit aucun enregistrement. Le détail de chaque objet dit pourquoi.",
+      "statusesNotAppliedTitle": "Écrits, et restés à l'état de brouillon :",
+      "statusNotApplied_one": "{{object}} : {{count}} enregistrement reste un brouillon : son statut a été refusé ({{code}}).",
+      "statusNotApplied_other": "{{object}} : {{count}} enregistrements restent des brouillons : leur statut a été refusé ({{code}}).",
       "lookupsNotFilledTitle": "Écrits, et restés sans un lien :",
       "lookupNotFilled_one": "{{object}} : {{count}} enregistrement garde {{fields}} vide ({{code}}).",
       "lookupNotFilled_other": "{{object}} : {{count}} enregistrements gardent {{fields}} vide ({{code}}).",

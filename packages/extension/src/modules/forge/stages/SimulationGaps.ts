@@ -15,7 +15,7 @@ import type {
   ForgeGapKind,
   ForgeGapSeverity,
 } from '@sandforge/shared';
-import { forgeGapId, mergeGaps } from '@sandforge/shared';
+import { forgeGapId, ignoredGapEntry, mergeGaps } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { allowsControllingValue } from '../describeBounds.js';
 import { isPersonAccountRow } from '../../../core/common/platformRecords.js';
@@ -106,7 +106,9 @@ export class SimulationGaps {
    */
   list(ignored: ReadonlySet<string>): ForgeGap[] {
     const gaps = [...this.gaps.values()].map((gap) =>
-      ignored.has(gap.id) ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } } : gap,
+      ignoredGapEntry(ignored, gap.id) !== undefined
+        ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } }
+        : gap,
     );
     return mergeGaps(gaps);
   }

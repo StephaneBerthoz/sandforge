@@ -845,6 +845,47 @@ describe('what a dry run prints', () => {
 });
 
 describe('what a run says before its first write', () => {
+  it('says what a simulation found it would write, and what of the count it would not', () => {
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'Contact', rows: 4 }],
+        total: 4,
+        notWritten: 2,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 2 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  of the 4 a run counts from the source, 2 would not be written: held back or refused, as ' +
+        'each object says; what follows is measured on all of them',
+    );
+  });
+
+  it('names the key of an upsert the target matches none on', () => {
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [{ objectApiName: 'Account', rows: 1, why: 'notAKey', key: 'Name' }],
+      },
+      'TGT',
+    );
+
+    expect(lines).toContain(
+      '  Account: 1 record(s) TGT takes none of — its upsert matches on a field that is neither ' +
+        'an External ID nor an idLookup field (Name)',
+    );
+  });
+
   it('lists the records per object, those left as an earlier run copied them, the storage and the emails', () => {
     expect(
       writeCheckLines(

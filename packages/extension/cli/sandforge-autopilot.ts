@@ -43,6 +43,7 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import { refusedLine, refusedSummary } from './runRefused.js';
 import {
   AutopilotOrchestrator,
   type AutopilotPlanFit,
@@ -992,7 +993,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   if (refusals.length > 0) {
-    throw new Error(`${refusals.join(' ')} Nothing was written.`);
+    const said = `${refusals.join(' ')} Nothing was written.`;
+    const stop = emailsGate?.stop;
+    if (!stop) throw new Error(said);
+    // What else the gate refused is said with it: nothing is held back for a second run.
+    const refused = { code: stop.code, message: said };
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-autopilot',
+            source: args.source,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
+    throw new Error(refusedLine(refused));
   }
 
   log('\nexecuting… (REAL)');

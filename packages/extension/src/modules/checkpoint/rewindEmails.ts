@@ -344,7 +344,8 @@ export interface ActEmailsInput {
   /**
    * Whether the act could mute the org's automation and was not asked to
    * (`--mute-automation`, the page's box): its refusal then names what the
-   * mute would keep quiet. A pipeline's Rewind step mutes nothing.
+   * mute would keep quiet. A pipeline's Rewind step says its own setting
+   * instead (`REWIND_STEP_WORDS`).
    */
   mayMute: boolean;
 }

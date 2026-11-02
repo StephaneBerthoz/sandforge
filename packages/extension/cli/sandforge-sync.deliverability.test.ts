@@ -131,7 +131,12 @@ const DESCRIBED = {
  * `events`, and each read of its deliverability as `deliverability read`; a
  * production org when `production` says.
  */
-function orgs(events: string[], level: DeliverabilityLevel, production = false): void {
+function orgs(
+  events: string[],
+  level: DeliverabilityLevel,
+  production = false,
+  described: { fields: unknown[] } = DESCRIBED,
+): void {
   const page = (records: unknown[]) => ({ records, totalSize: records.length, done: true });
   const asked: string[] = [];
   const conn = (side: 'source' | 'target') => ({
@@ -148,7 +153,7 @@ function orgs(events: string[], level: DeliverabilityLevel, production = false):
     },
     queryMore: async () => page([]),
     sobject: () => ({
-      describe: async () => DESCRIBED,
+      describe: async () => described,
       create: async (records: unknown[]) => {
         events.push('write');
         return records.map((_, i) => ({
@@ -158,7 +163,7 @@ function orgs(events: string[], level: DeliverabilityLevel, production = false):
         }));
       },
     }),
-    describe: async () => DESCRIBED,
+    describe: async () => described,
     tooling: { query: async () => page([]), queryMore: async () => page([]) },
     request: async (request: string | { url: string }) => {
       const before = asked.length;
@@ -378,6 +383,45 @@ describe('sandforge-sync --accept-emails', () => {
     out.length = 0;
     expect(await exitOf(argv('--dry-run', '--json', '--accept-emails'))).toBe(0);
     expect(JSON.parse(out.join('')).wouldBeRefused).toBeUndefined();
+  });
+
+  it('says an upsert on a field the target matches none on before it writes: counted refused, under wouldBeRefused, and refused in a run', async () => {
+    const onName = [
+      'node',
+      'sandforge-sync.ts',
+      '--source',
+      'SRC',
+      '--target',
+      'TGT',
+      '--object',
+      'Account:Name',
+    ];
+    const events: string[] = [];
+    // As the org's describe says them: Account.Name is no key of an upsert.
+    orgs(events, 'withheld', false, {
+      ...DESCRIBED,
+      fields: [
+        field('Id', 'id', { createable: false, updateable: false, idLookup: true }),
+        field('Name', 'string', { idLookup: false, externalId: false }),
+      ],
+    });
+
+    expect(await exitOf([...onName, '--dry-run', '--json'])).toBe(0);
+
+    const printed = JSON.parse(out.join('')) as {
+      simulation: SyncSimulationResult;
+      wouldBeRefused?: string[];
+    };
+    expect(printed.simulation.objects[0]).toMatchObject({ insert: 0, refused: ACCOUNTS.length });
+    expect(printed.simulation.writeCheck?.unwritable).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', why: 'notAKey', key: 'Name' }),
+    ]);
+    expect(printed.wouldBeRefused).toEqual([
+      expect.stringContaining('its upsert matches on Name, neither an External ID nor an idLookup'),
+    ]);
+
+    expect(await exitOf(onName)).toBe(1);
+    expect(events).toEqual([]);
   });
 
   it('runs no Apex in a production org a dry run reads, and takes it for one that would not say', async () => {

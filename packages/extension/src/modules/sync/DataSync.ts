@@ -274,6 +274,7 @@ export class DataSync {
         this.deps.describeTargetFields,
         config.objectApiName,
         config.operation,
+        config.externalIdField,
       );
       if ('refused' in access) {
         const refused = sourceRecords.map((): OperationOutcome => ({

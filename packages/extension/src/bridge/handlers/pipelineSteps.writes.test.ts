@@ -700,6 +700,49 @@ describe('the templates and steps the page checks against', () => {
     ]);
   });
 
+  it('says what a step that muted assigned, silenced and took back, and hands the rewind its configuration', async () => {
+    const flows = runners({
+      rewind: vi.fn(async () => ({
+        operationId: 'op-rewind',
+        checkpointId: CHECKPOINT_ID,
+        result: rewindResult({
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Skip_Account_Set'],
+            held: [],
+            permissions: ['Skip_Account'],
+            silenced: [
+              {
+                objectApiName: 'Account',
+                kind: 'flow',
+                name: 'Account changed',
+                permission: 'Skip_Account',
+              },
+            ],
+            stillRan: [],
+            released: true,
+          },
+        }),
+        notes: [],
+        estimate: {} as never,
+      })),
+    });
+
+    const result = await executorWith(flows).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(vi.mocked(flows.rewind!).mock.calls[0][0].config.muteAutomation).toBe(true);
+    expect(result.status).toBe('completed');
+    expect(result.output).toMatchObject({ mutedAutomation: { state: 'muted' } });
+    expect(result.summary).toContain(
+      'mute: assigned Skip_Account_Set to the user the run writes as in dev, for the run alone; ' +
+        'silenced: Account: flow "Account changed" (bypass Skip_Account); taken back: ' +
+        'Skip_Account_Set, as the run ended.',
+    );
+  });
+
   it('describes a Rewind step with its checkpoint and its confirmation', () => {
     const flows = runners();
     expect(

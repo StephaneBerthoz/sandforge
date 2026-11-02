@@ -1728,7 +1728,8 @@ describe('sandforge-clone target automation', () => {
           encodeURIComponent('Messaging.reserveSingleEmailCapacity(1);'),
       ]);
       expect(stderr).toBe(
-        'TGT delivers every email its automation sends (Setup > Deliverability: All email), and ' +
+        'refused (EMAILS_NOT_ACCEPTED): TGT delivers every email its automation sends (Setup > ' +
+          'Deliverability: All email), and ' +
           'what still runs as this clone writes its records sends some: flow "Contact welcome" on ' +
           'Contact. They go to the addresses the records and the alerts name: those this clone ' +
           "writes are under .invalid, but not the records' owners, the records already in TGT, " +
@@ -1743,6 +1744,29 @@ describe('sandforge-clone target automation', () => {
       );
       expect(line).toBeGreaterThan(-1);
       expect(printed.indexOf('record-type mapping…')).toBe(-1);
+    });
+
+    it('answers --json with the code of what refused it, each of both at once', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-clone',
+        target: 'TGT',
+        dryRun: false,
+        refused: { code: 'EMAILS_NOT_ACCEPTED' },
+      });
+      expect(JSON.parse(stdout)).not.toHaveProperty('alsoRefused');
+
+      withOrgs(sending());
+      stdout = '';
+      expect(await run(argv('--skip-preflight', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({
+        refused: { code: 'AUTOMATION_NOT_ACCEPTED' },
+        alsoRefused: [{ code: 'EMAILS_NOT_ACCEPTED' }],
+      });
     });
 
     it('writes once given --accept-emails', async () => {

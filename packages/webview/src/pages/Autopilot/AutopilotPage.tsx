@@ -5,6 +5,7 @@ import type {
   AutopilotCompleted,
   AutopilotGraph as AutopilotGraphType,
   AutopilotLookupsNotFilled,
+  AutopilotStatusesNotApplied,
   AutopilotNodeProgress,
   AutopilotNodeRunStatus,
   AutopilotNodeStatus,
@@ -101,6 +102,8 @@ export const AutopilotPage: React.FC = () => {
   const [runStatus, setRunStatus] = useState<AutopilotRunStatus | undefined>(undefined);
   /** Per object, the records the run wrote that keep a lookup empty, once it ended. */
   const [lookupsNotFilled, setLookupsNotFilled] = useState<AutopilotLookupsNotFilled[]>([]);
+  /** Per object, the records the run wrote that stay drafts, once it ended. */
+  const [statusesNotApplied, setStatusesNotApplied] = useState<AutopilotStatusesNotApplied[]>([]);
   /** When the run was sent: an error carries no time of its own for it. */
   const runSentAt = useRef(0);
   /** Whether the review's option asked for a checkpoint: said of the run it sent. */
@@ -150,7 +153,14 @@ export const AutopilotPage: React.FC = () => {
       store.recordNodeFinish(msg.payload.objectName, mappedStatus, msg.timestamp);
     }
     if (msg.payload.recordCount !== undefined) {
-      store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
+      // A node a skip or a stop cut short did not go through: a recordCount
+      // alone drew a skipped node's bar full. Its bar says what it wrote of
+      // what it had to.
+      const written = msg.payload.recordCount;
+      const toWrite = written + (msg.payload.notSent ?? 0);
+      const went =
+        mappedStatus !== 'skipped' ? 100 : toWrite > 0 ? Math.round((100 * written) / toWrite) : 0;
+      store.updateNodeProgress(msg.payload.objectName, went, written);
     }
     // Why records were refused, by code and fields, what the target already
     // held, and what was left to the platform: what the node detail shows
@@ -213,6 +223,7 @@ export const AutopilotPage: React.FC = () => {
     setCutSinceFit(msg.payload.cutSinceFit);
     setRunStatus(msg.payload.status);
     setLookupsNotFilled(msg.payload.lookupsNotFilled ?? []);
+    setStatusesNotApplied(msg.payload.statusesNotApplied ?? []);
     setNotWritten(msg.payload.stopped ? (msg.payload.notWritten ?? []) : undefined);
     setLeftByStop(msg.payload.stopped ? (msg.payload.leftByStop ?? []) : []);
     setEmailsHeldForTheirTask(msg.payload.stopped ? (msg.payload.emailsHeldForTheirTask ?? 0) : 0);
@@ -258,6 +269,7 @@ export const AutopilotPage: React.FC = () => {
     setCutSinceFit(undefined);
     setRunStatus(undefined);
     setLookupsNotFilled([]);
+    setStatusesNotApplied([]);
     runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
@@ -467,6 +479,7 @@ export const AutopilotPage: React.FC = () => {
               cutSinceFit={cutSinceFit}
               runStatus={runStatus}
               lookupsNotFilled={lookupsNotFilled}
+              statusesNotApplied={statusesNotApplied}
             />
           </div>
         </div>

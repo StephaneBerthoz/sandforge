@@ -1617,11 +1617,14 @@
       "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar.",
       "overwrites_one": "De ellos, {{count}} puede sobrescribir un registro que la org de destino contiene: lo que contiene se lee y se conserva antes, y eliminar la ejecución lo restablece.",
       "overwrites_other": "De ellos, hasta {{count}} pueden sobrescribir registros que la org de destino contiene: lo que contienen se lee y se conserva antes, y eliminar la ejecución lo restablece.",
+      "notWritten_one": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribiría: retenido o rechazado, como dice cada objeto. Lo que sigue se mide sobre todos.",
+      "notWritten_other": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribirían: retenidos o rechazados, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} registros): la org de destino no tiene ese objeto, o el usuario con el que escribe la ejecución no puede verlo. No se puede escribir ninguno de sus registros.",
         "notCreateable": "{{object}} ({{rows}} registros): el usuario con el que escribe la ejecución no puede crear sus registros en la org de destino. No se puede escribir ninguno.",
         "notUpdateable": "{{object}} ({{rows}} registros): el usuario con el que escribe la ejecución no puede editar sus registros en la org de destino. No se puede escribir ninguno.",
         "unread": "{{object}} ({{rows}} registros): la org de destino no lo describió, así que no se enviaría ninguno de sus registros.",
+        "notAKey": "{{object}} ({{rows}} registros): su upsert coincide por {{key}}, que no es un ID externo ni un campo idLookup en la org de destino. No se puede escribir ninguno.",
         "hint": "Iniciada desde la página, la ejecución pregunta si dejar fuera estos objetos y escribe el resto; una ejecución programada y la línea de comandos se rechazan."
       },
       "apiRequests": {
@@ -2676,6 +2679,7 @@
     "stepConfigRewindRefuseWhenActive": "Rechazar mientras haya gente trabajando en la org",
     "rewindRefuseWhenActiveNote": "Se rechaza cuando otra persona cambió registros de los objetos del punto de control en la hora anterior. Las personas que comparten el usuario con el que se conecta SandForge no se distinguen.",
     "rewindAccept": {
+      "muteAutomation": "Silenciar las automatizaciones de la org en este retroceso, mediante su propio bypass: lo que ningún bypass silencia se ejecuta igualmente",
       "acceptAutomation": "Ejecutar aunque se activen triggers, flujos o reglas de flujo de trabajo en los registros que escribe",
       "acceptNoUndo": "Permitir eliminaciones que Deshacer este retroceso no podrá recuperar",
       "acceptRecreate": "Volver a crear, con Id nuevos, los registros ya vaciados de la papelera",
@@ -4674,8 +4678,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} registros siguen como borradores, sin el estado que tenían en el origen.",
       "stoppedEmailsHeld_one": "{{count}} correo electrónico de un caso nunca se envió: esperaba a que se escribiera su tarea, y la ejecución se detuvo antes.",
       "stoppedEmailsHeld_other": "{{count}} correos electrónicos de casos nunca se enviaron: esperaban a que se escribiera su tarea, y la ejecución se detuvo antes.",
-      "runPartial": "Parcialmente completada: se rechazaron registros o mantienen un vínculo vacío. Los detalles de cada objeto indican cuáles y por qué.",
+      "runPartial": "Parcialmente completada: se rechazaron registros, mantienen un vínculo vacío o siguen siendo borradores. Los detalles de cada objeto indican cuáles y por qué.",
       "runFailure": "Fallida: la ejecución no escribió ningún registro. Los detalles de cada objeto indican por qué.",
+      "statusesNotAppliedTitle": "Escritos, y en estado de borrador:",
+      "statusNotApplied_one": "{{object}}: {{count}} registro sigue siendo un borrador: su estado fue rechazado ({{code}}).",
+      "statusNotApplied_other": "{{object}}: {{count}} registros siguen siendo borradores: su estado fue rechazado ({{code}}).",
       "lookupsNotFilledTitle": "Escritos, y sin un vínculo:",
       "lookupNotFilled_one": "{{object}}: {{count}} registro mantiene {{fields}} vacío ({{code}}).",
       "lookupNotFilled_other": "{{object}}: {{count}} registros mantienen {{fields}} vacío ({{code}}).",

@@ -1703,13 +1703,14 @@ export class SeedOpsHandler implements DomainHandler {
     // objects it creates; refused on a production org or for a user who
     // cannot assign, it writes nothing. The lease is taken before its first
     // write, below.
+    const writes = seedWritesOf(kinds.template, publishes);
     let mute: RunMute | undefined;
     // The panel's request may ask it; a pipeline's Seed step never does.
     if ('muteAutomation' in asked && asked.muteAutomation === true) {
       try {
         mute = await muteForRun(async () => muteOrgOf(conn), read, {
           ...this.muteLeases,
-          writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+          writes,
         });
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
@@ -1736,7 +1737,6 @@ export class SeedOpsHandler implements DomainHandler {
     if (auditFit) payload.fit = auditFit;
     // What still runs of it once the mute's plan holds, nothing assigned, and
     // the room what it creates takes under the records: what a fit keeps.
-    const writes = seedWritesOf(kinds.template, publishes);
     const stillRunning = seedRoomOf(read, mute?.plan, writes);
     // Whether the org delivers the emails of what still runs, read once the
     // plan says what does and only when something may send one, before the
@@ -1804,9 +1804,13 @@ export class SeedOpsHandler implements DomainHandler {
     // The storage the records take against what the org has left, before the
     // guard is asked and before anything is written: a template three times
     // a Developer Edition's 5 MB filled the org part way through its run.
+    const { seedObjectAccess, templateTheOrgTakes } =
+      await import('../../modules/seed/seedObjectAccess.js');
+    // What it counts: an optional object the org does not take is skipped by the run.
+    const taken = await templateTheOrgTakes(kinds.template, seedObjectAccess(conn));
     const storage = await seedStorageGate(
       conn,
-      kinds.template,
+      taken,
       kinds.personObjects,
       org?.alias ?? payload.orgId,
       checkpoint?.planned,
@@ -1848,7 +1852,7 @@ export class SeedOpsHandler implements DomainHandler {
         ? undefined
         : seedFitProposalOf(
             seedFitBudgetOf(storage),
-            kinds.template,
+            taken,
             kinds.personObjects,
             stillRunning.room,
           );

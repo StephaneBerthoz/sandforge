@@ -117,6 +117,11 @@ export interface AutomationMuteBoxProps {
   /** Test id of the box; its checkbox takes `-toggle`, its lists `-silenced` and `-still-runs`. */
   testId: string;
   className?: string;
+  /**
+   * Shown and not changed here: a Rewind step's mute is its configuration's,
+   * which its confirmation is bound to. Off unless given.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -138,6 +143,7 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   org,
   testId,
   className,
+  readOnly = false,
 }) => {
   const { t } = useTranslation();
   const detailsId = useId();
@@ -157,6 +163,7 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
         <input
           type="checkbox"
           checked={checked}
+          disabled={readOnly}
           onChange={(event) => onChange(event.target.checked)}
           aria-describedby={detailsId}
           data-testid={`${testId}-toggle`}

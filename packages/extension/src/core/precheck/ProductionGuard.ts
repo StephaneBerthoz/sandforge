@@ -299,7 +299,8 @@ export interface WriteConfirmation {
   unwritable?: Array<{
     objectApiName: string;
     rows: number;
-    why: 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+    why: 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread' | 'notAKey';
+    key?: string;
   }>;
   /**
    * The API requests the run takes, when it would leave the org under a

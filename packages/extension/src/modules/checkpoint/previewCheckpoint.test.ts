@@ -559,6 +559,61 @@ describe('previewCheckpoint', () => {
     expect(without.refusal).toBeUndefined();
   });
 
+  it('asked to mute, counts only what still runs: no email, no refusal, no read of the deliverability, the automation left as read (a dry run said the emails its mute kept quiet)', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    t.org.anonymousApex = { compiled: true, success: true };
+    // The only sender, kept quiet for whoever holds the set the org grants its bypass in.
+    const mutable: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Account',
+          permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 1 } };
+    const unmuted = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: mutable },
+      request(t),
+    );
+    t.org.anonymousAsked.length = 0;
+
+    const muted = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: mutable },
+      { ...request(t), muteAutomation: true },
+    );
+
+    if (!unmuted.previewed || !muted.previewed) throw new Error('refused');
+    expect(unmuted.emails).toHaveLength(1);
+    expect(unmuted.deliverability).toMatchObject({ reading: { level: 'all' } });
+    expect(unmuted.refusal).toMatchObject({ code: 'EMAILS' });
+    expect(muted.emails).toBeUndefined();
+    expect(muted.deliverability).toBeUndefined();
+    expect(muted.refusal).toBeUndefined();
+    expect(t.org.anonymousAsked).toEqual([]);
+    // The mute is planned from the read: a read of what it holds held plans nothing.
+    expect(muted.automation?.objects[0]?.flows[0]?.permissions[0]?.held).toBe(false);
+  });
+
   describe('whether the org delivers the emails of what fires as it writes', () => {
     /** A flow that emails an account's owner as it is updated. */
     const sending: PreviewDeps['readAutomation'] = async (objects) => ({

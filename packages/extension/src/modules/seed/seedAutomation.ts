@@ -38,9 +38,15 @@ import {
   type ForgeAutomationWrite,
 } from '@sandforge/shared';
 
-/** The writes a seed makes of its records, as its run's mute plans for them. */
-const SEED_WRITES = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
-  write === 'insert' || write === 'update';
+/**
+ * The writes a seed may make of its records, as what it would mute is planned
+ * ahead of a run, which does not say whether it publishes: it inserts, and
+ * writes again only the article versions a scenario publishes (`seedWritesOf`).
+ * A flow that starts on the update of a contact does not run for a seed: it
+ * was listed under `still runs`, and could assign a set for nothing.
+ */
+const SEED_WRITES = (objectApiName: string, write: ForgeAutomationWrite): boolean =>
+  write === 'insert' || (write === 'update' && objectApiName === ARTICLE_VERSION_OBJECT);
 /** The write a seed makes of every object it names: what a read ahead of it counts the senders of. */
 const SEED_INSERTS = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
   write === 'insert';
@@ -53,6 +59,7 @@ import {
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
 import { runEmailsOf, type DeliverabilityRead } from '../forge/targetDeliverability.js';
+import { ARTICLE_VERSION_OBJECT } from './seedKnowledge.js';
 
 /** What `/limits` said of an org's daily email limits, or why it said nothing. */
 export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };

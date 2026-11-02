@@ -36,6 +36,7 @@ import {
   isDevelopmentOrg,
   pipelineCheckpointStepConfigSchema,
   pipelineRewindStepConfigSchema,
+  removalStepsWrites,
   rewindGrantDigest,
 } from '@sandforge/shared';
 import type {
@@ -84,6 +85,7 @@ import type { TargetAutomationReader } from '../../modules/forge/TargetAutomatio
 import {
   muteForRun,
   muteOrgOf,
+  planMute,
   type MuteLeaseOptions,
 } from '../../modules/forge/AutomationMuteLease.js';
 import type { MuteOfWrites } from '../../modules/checkpoint/rewindOrg.js';
@@ -434,6 +436,7 @@ async function loadCheckpointModules() {
     rewindWriters: plan.rewindWriters,
     boundsRefusal: bounds.boundsRefusal,
     selectionDiff: bounds.selectionDiff,
+    rewindStepsOf: bounds.rewindStepsOf,
     notConfirmedRefusal: bounds.notConfirmedRefusal,
     undeletableUnattendedRefusal: bounds.undeletableUnattendedRefusal,
     REWIND_STEP_WORDS: bounds.REWIND_STEP_WORDS,
@@ -1296,6 +1299,7 @@ export class CheckpointHandler implements DomainHandler {
             ...(objects !== undefined ? { objects } : {}),
             // The rewind acts on this preview as read: priced so.
             reusesPreview: true,
+            ...(config.muteAutomation ? { muteAutomation: true } : {}),
           },
         );
       } catch (err: unknown) {
@@ -1321,11 +1325,16 @@ export class CheckpointHandler implements DomainHandler {
               }),
             )
           : preview.diff;
+      // A step that mutes is held to what still runs, as its rewind's own gate is.
+      const running =
+        config.muteAutomation && preview.automation
+          ? planMute(preview.automation, removalStepsWrites(m.rewindStepsOf(acted))).automation
+          : preview.automation;
       const bound = await m.boundsRefusal({
         orgName,
         preview: {
           diff: acted,
-          ...(preview.automation ? { automation: preview.automation } : {}),
+          ...(running ? { automation: running } : {}),
           ...(preview.emails ? { emails: preview.emails } : {}),
           ...(preview.emailsUncounted !== undefined
             ? { emailsUncounted: preview.emailsUncounted }
@@ -1374,6 +1383,7 @@ export class CheckpointHandler implements DomainHandler {
               },
               onProgress: ({ percentage, step }) => onProgress(percentage, step),
               signal: stop,
+              ...(config.muteAutomation ? { mute: this.muteOf(conn) } : {}),
             },
             {
               checkpoint,
@@ -2550,6 +2560,7 @@ export class CheckpointHandler implements DomainHandler {
           // Priced as the rewind that follows it: from this preview as read,
           // on a host that rewinds so; from a fresh read, the panel's.
           ...(this.previewsAnswered !== undefined ? { reusesPreview: true } : {}),
+          ...(parsed.muteAutomation === true ? { muteAutomation: true } : {}),
         },
       );
       if (!outcome.previewed) throw this.refusalOf(outcome.refusal);

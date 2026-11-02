@@ -18,6 +18,7 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { acquireOrgLock } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
+import { refusedLine, refusedSummary } from '../runRefused.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
 import {
@@ -485,22 +486,30 @@ describe('how a step ends, and what the apply then does', () => {
   });
 
   it('stops at a seed refused for the emails the org delivers, exit 1, its words in the step and nothing written', async () => {
-    const said =
+    const message =
       'TGT delivers every email its automation sends (Setup > Deliverability: All email). ' +
       'Nothing was written. Add --accept-emails to seed all the same.';
+    const refused = { code: 'EMAILS_NOT_ACCEPTED', message };
+    const line = refusedLine(refused);
     const from = world.calls.length;
     const refusing: CommandRunner = async (script, args, signal) =>
       args.includes('--dry-run') || args.includes('--remove')
         ? world.runner(script, args, signal)
-        : { code: 1, stdout: '', stderr: `${said}\n` };
+        : {
+            code: 1,
+            stdout: refusedSummary({ tool: script, target: 'TGT', elapsedMs: 1 }, refused),
+            stderr: `${line}\n`,
+          };
 
     const outcome = await apply(resolvedOf(), {}, { runner: refusing });
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.result.status).toBe('failure');
     expect(outcome.result.steps).toEqual([
-      expect.objectContaining({ resource: 'assets', status: 'failed', refusal: said }),
+      expect.objectContaining({ resource: 'assets', status: 'failed', refusal: line }),
     ]);
+    // A refusal is no summary misread: nothing is said of one that could not be read.
+    expect(said.filter((each) => each.includes('sandforge-seed'))).toEqual([]);
     expect(runsSince(from)).toEqual([]);
     expect(world.records('Asset')).toEqual([]);
   });

@@ -54,6 +54,7 @@ import type {
   MutedAutomationAlsoLifted,
 } from '@sandforge/shared';
 import {
+  ignoredGapEntry,
   assignPermsetCommand,
   forgeGapId,
   gapAssignEntry,
@@ -1372,7 +1373,7 @@ const RECORD_TYPE_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
  * applied the default to every row.
  */
 export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | undefined {
-  if (decisions.ignoredGaps?.includes(gap.id)) return 'left as it is';
+  if (ignoredGapEntry(decisions.ignoredGaps, gap.id) !== undefined) return 'left as it is';
   const object = gap.objectApiName;
   if (decisions.excludedObjects?.includes(object)) return `${object} left out of the run`;
   const offers = new Set(gap.decisions);

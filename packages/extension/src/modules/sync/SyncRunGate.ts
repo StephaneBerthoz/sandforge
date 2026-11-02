@@ -99,6 +99,8 @@ export interface SyncCountedObject {
 /** An object of a run the target will take no record of as the run writes it, and why. */
 export interface SyncUnwritableObject extends SyncCountedObject {
   why: SyncUnwritableReason;
+  /** Of `notAKey`: the field the upsert matches on. */
+  key?: string;
 }
 
 /** What a run writes, as counted before its first write. */
@@ -386,7 +388,8 @@ export async function measureSyncWrite(
   );
   const threshold = measures.confirmAboveRecords;
   const aboveRecords = threshold > 0 && total > threshold ? threshold : undefined;
-  const unwritable = (counted.unwritable ?? []).map(({ objectApiName, rows, why }) => ({
+  const unwritable = (counted.unwritable ?? []).map(({ objectApiName, rows, why, key }) => ({
+    ...(key !== undefined ? { key } : {}),
     objectApiName,
     rows,
     why,
@@ -662,11 +665,13 @@ export async function gateSyncWrite(
 }
 
 /** Why the target takes none of an object's records, in a sentence of the refusal. */
-const UNWRITABLE_WHY: Record<SyncUnwritableReason, (org: string) => string> = {
+const UNWRITABLE_WHY: Record<SyncUnwritableReason, (org: string, key?: string) => string> = {
   notInTarget: (org) => `${org} has no such object, or the user the run writes as cannot see it`,
   notCreateable: (org) => `the user the run writes as may not create its records in ${org}`,
   notUpdateable: (org) => `the user the run writes as may not edit its records in ${org}`,
   unread: (org) => `${org} did not describe it, so what it takes could not be told`,
+  notAKey: (org, key) =>
+    `its upsert matches on ${key ?? 'a field'}, neither an External ID nor an idLookup field in ${org}`,
 };
 
 /**
@@ -675,19 +680,28 @@ const UNWRITABLE_WHY: Record<SyncUnwritableReason, (org: string) => string> = {
  * the objects before them, then had every record of theirs refused.
  */
 export function unwritableRefusal(
-  unwritable: ReadonlyArray<{ objectApiName: string; rows: number; why: SyncUnwritableReason }>,
+  unwritable: ReadonlyArray<{
+    objectApiName: string;
+    rows: number;
+    why: SyncUnwritableReason;
+    key?: string;
+  }>,
   org: string,
 ): string {
   const named = unwritable
     .map(
-      ({ objectApiName, rows, why }) =>
-        `${objectApiName} (${rows} records): ${UNWRITABLE_WHY[why](org)}`,
+      ({ objectApiName, rows, why, key }) =>
+        `${objectApiName} (${rows} records): ${UNWRITABLE_WHY[why](org, key)}`,
     )
     .join('; ');
+  const pronoun = unwritable.length === 1 ? 'it' : 'them';
+  // No access lifts a key the target does not match on.
+  const way = unwritable.some(({ why }) => why !== 'notAKey')
+    ? `give the user SandForge writes as access to ${pronoun} in ${org}`
+    : `match on an External ID field of ${org}`;
   return (
     `${org} would take no record of ${unwritable.length === 1 ? 'one object' : `${unwritable.length} objects`} ` +
-    `the sync writes — ${named}. Leave ${unwritable.length === 1 ? 'it' : 'them'} out of the run, or give ` +
-    `the user SandForge writes as access to ${unwritable.length === 1 ? 'it' : 'them'} in ${org}. Nothing was written.`
+    `the sync writes — ${named}. Leave ${pronoun} out of the run, or ${way}. Nothing was written.`
   );
 }
 

@@ -27,6 +27,7 @@ import {
   writePathOrderDefects,
   type WritePathStep,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
+import { muteForRun } from '../../modules/forge/AutomationMuteLease.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -392,6 +393,10 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     await execute(CRM_STARTER, { muteAutomation: true });
     await vi.waitFor(() => expect(steps).toContain('result'));
 
+    // Planned from the writes a seed makes: a flow on an update is not its to mute.
+    const writes = vi.mocked(muteForRun).mock.lastCall?.[2]?.writes;
+    expect(writes?.('Account', 'insert')).toBe(true);
+    expect(writes?.('Account', 'update')).toBe(false);
     expect(steps).toEqual([
       'automation read',
       'lease plan',

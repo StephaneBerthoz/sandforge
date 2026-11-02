@@ -1065,6 +1065,30 @@ describe('SfdmuImporter', () => {
       expect(accountContactEdge?.field).toBe('Account');
     });
 
+    it('finds a parent whatever the case its query writes it in', () => {
+      const exportData: SfdmuExport = {
+        objects: [
+          {
+            query: 'select Id, Name from account',
+            operation: 'Upsert',
+            externalId: 'Name',
+            master: true,
+          },
+          {
+            query: 'SELECT Id, Account.Name FROM Contact',
+            operation: 'Upsert',
+            externalId: 'Email',
+            master: true,
+          },
+        ],
+      } as unknown as SfdmuExport;
+      const importer = new SfdmuImporter(createMockFileReader(''));
+
+      expect(importer.extractDependencies(exportData)).toEqual([
+        { parent: 'account', child: 'Contact', field: 'Account' },
+      ]);
+    });
+
     it('should skip non-master objects', () => {
       const exportData: SfdmuExport = {
         objects: [

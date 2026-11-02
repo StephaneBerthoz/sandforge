@@ -55,6 +55,7 @@ import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import {
   MEMORY_ORG_USER,
   type MemoryChild,
@@ -3141,7 +3142,7 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
     expect(refused.code).toBe('AUTOMATION');
     expect(refused.message).toMatch(
-      /Rewind refused; turn on acceptAutomation in the step and confirm it again to rewind all the same\. No record was written\.$/,
+      /Rewind refused; turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to let it run, and confirm it again to rewind all the same\. No record was written\.$/,
     );
     expect(writesOf(h.org)).toEqual(before);
 
@@ -3150,6 +3151,131 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
       rewindStep(checkpointId, { acceptAutomation: true }),
     );
     expect(rewound.result.status).toBe('success');
+  });
+
+  describe('a Rewind step that mutes', () => {
+    /** What the org runs as accounts are updated: a flow a bypass keeps quiet that emails the owner, and what is said beside. */
+    const quietable = (
+      rest: ForgeTargetAutomation['objects'][number]['flows'] = [],
+    ): { read: (orgId: string, objects: readonly string[]) => Promise<ForgeTargetAutomation> } => ({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+                ...rest,
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+          bypassGrants: [
+            {
+              permission: 'Skip_Account',
+              permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+            },
+          ],
+        } satisfies ForgeTargetAutomation),
+    });
+
+    /** The org's permission sets, reached through the connection its records are read by. */
+    function withPermissionSets(h: Harness): ReturnType<typeof memoryPermissionOrg> {
+      const permissions = memoryPermissionOrg({
+        organizationId: ORG_ID,
+        userId: MEMORY_ORG_USER,
+        sets: [{ id: '0PS000000000001AAA', name: 'Skip_Account_Set' }],
+      });
+      const base = connectionOf(h.org);
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async () =>
+          ({
+            ...base,
+            identity: () => permissions.connection.identity(),
+            query: (soql: string, options?: { scanAll?: boolean }) =>
+              /PermissionSet|PermissionsAssign/.test(soql)
+                ? permissions.connection.query(soql)
+                : base.query(soql, options),
+            sobject: (objectApiName: string) =>
+              objectApiName === 'PermissionSetAssignment'
+                ? permissions.connection.sobject(objectApiName)
+                : base.sobject(objectApiName),
+          }) as never,
+      );
+      h.handler.setMuteLeases({ dir: dirs[dirs.length - 1] ?? tmpdir(), renewEveryMs: 0 });
+      return permissions;
+    }
+
+    it('rewinds through the bypass, with neither acceptance, what it would have sent left unsent, the set assigned for the rewind and taken back', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(quietable());
+      // An org on All email, with one email left today: the flow would be refused twice.
+      h.org.anonymousApex = { compiled: true, success: true };
+      h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+      const permissions = withPermissionSets(h);
+
+      const without = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+      expect(without.code).toBe('EMAILS');
+      expect(permissions.writes).toEqual([]);
+
+      h.org.ticking = true;
+      const rewound = await h.handler.rewindForPipeline(
+        rewindStep(checkpointId, { muteAutomation: true }),
+      );
+
+      expect(rewound.result.status).toBe('success');
+      expect(rewound.result.mutedAutomation).toMatchObject({
+        state: 'muted',
+        assigned: ['Skip_Account_Set'],
+        released: true,
+      });
+      expect(permissions.writes.map((write) => write.kind)).toEqual(['insert', 'delete']);
+    });
+
+    it('is still refused for what no bypass keeps quiet, naming the setting, nothing assigned', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(
+        quietable([
+          {
+            apiName: 'Account_noted',
+            label: 'Account noted',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+          },
+        ]),
+      );
+      const permissions = withPermissionSets(h);
+      const before = writesOf(h.org);
+
+      const refused = await stepRefusal(
+        h.handler.rewindForPipeline(rewindStep(checkpointId, { muteAutomation: true })),
+      );
+
+      expect(refused.code).toBe('AUTOMATION');
+      expect(refused.message).toContain('1 flow(s), trigger(s) or rule(s) of Account run');
+      expect(refused.message).toContain('turn on muteAutomation in the step');
+      expect(permissions.writes).toEqual([]);
+      expect(writesOf(h.org)).toEqual(before);
+    });
   });
 
   it('refuses a rewind whose writes would send more emails than the org has left today, whatever it accepts', async () => {

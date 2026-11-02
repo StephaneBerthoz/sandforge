@@ -463,9 +463,11 @@ const CheckField: React.FC<CheckFieldProps> = ({ label, testId, checked, onChang
  * the command line's flags. The emails what still runs sends, which an org on
  * All email delivers, are their own: the automation's never stands for them,
  * and a step confirmed before cannot send them, its confirmation bound to
- * what it accepted.
+ * what it accepted. Muting the automation sits among them: it assigns the
+ * org's bypass with nobody there to read what that lifts.
  */
 const REWIND_ACCEPTANCES = [
+  'muteAutomation',
   'acceptAutomation',
   'acceptEmails',
   'acceptNoUndo',

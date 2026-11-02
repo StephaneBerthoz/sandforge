@@ -149,6 +149,7 @@ import {
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import { refusedLine } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -208,6 +209,7 @@ import {
   mutingSyncWriteGate,
   syncRunWrites,
   takeSyncCheckpoint,
+  unwritableRefusal,
   type SyncGateAnswer,
   type SyncWriteGate,
   type SyncWriteMeasures,
@@ -1018,6 +1020,7 @@ const UNWRITABLE_WORDS: Readonly<
   notCreateable: 'the user the run writes as may not create its records',
   notUpdateable: 'the user the run writes as may not edit its records',
   unread: 'it did not describe the object',
+  notAKey: 'its upsert matches on a field that is neither an External ID nor an idLookup field',
 };
 
 /**
@@ -1027,12 +1030,19 @@ const UNWRITABLE_WORDS: Readonly<
  * automation sends for them, against what the target has left.
  */
 export function writeCheckLines(check: SyncWriteCheck, target: string): string[] {
+  const notWritten = check.notWritten ?? 0;
   const lines = [
-    `write gate: ${check.total} record(s) to write to ${target}, about ` +
+    `write gate: ${check.total - notWritten} record(s) to write to ${target}, about ` +
       `${formatMB(check.storage.estimateMB)} MB of data storage`,
   ];
   for (const object of check.objects) {
     lines.push(`  ${object.objectApiName.padEnd(42)}${String(object.rows).padStart(8)}`);
+  }
+  if (notWritten > 0) {
+    lines.push(
+      `  of the ${check.total} a run counts from the source, ${notWritten} would not be written: ` +
+        'held back or refused, as each object says; what follows is measured on all of them',
+    );
   }
   if (check.alreadyCopied > 0) {
     lines.push(
@@ -1102,7 +1112,8 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   // The objects the target takes none of, as the run writes them.
   for (const object of check.unwritable ?? []) {
     lines.push(
-      `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ${UNWRITABLE_WORDS[object.why]}`,
+      `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ` +
+        `${UNWRITABLE_WORDS[object.why]}${object.key !== undefined ? ` (${object.key})` : ''}`,
     );
   }
   if (check.aboveRecords !== undefined) {
@@ -2200,9 +2211,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const checkpointRefused =
       checkpointFailed ??
       (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
-    const wouldBeRefused = [muteRefused, checkpointRefused, emailsRefused].filter(
-      (reason): reason is string => reason !== undefined,
-    );
+    const unwritable = simulation.writeCheck?.unwritable ?? [];
+    const wouldBeRefused = [
+      muteRefused,
+      checkpointRefused,
+      emailsRefused,
+      unwritable.length > 0 ? unwritableRefusal(unwritable, args.target) : undefined,
+    ].filter((reason): reason is string => reason !== undefined);
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
@@ -2307,7 +2322,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      log(stopped ? `\n${err.message}` : `\nrefused (${err.code}): ${err.message}`);
+      log(stopped ? `\n${err.message}` : `\n${refusedLine(err)}`);
     }
     process.exit(stopped ? stopExitCode(interrupted ?? 'SIGINT') : 1);
   } finally {

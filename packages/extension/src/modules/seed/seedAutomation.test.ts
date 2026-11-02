@@ -304,6 +304,51 @@ describe('readSeedAutomation', () => {
     expect('preview' in sending && sending.preview).not.toHaveProperty('deliverability');
   });
 
+  it('plans no mute for a flow that starts on an update a seed does not make, and one for the article versions a scenario publishes', async () => {
+    /** One flow a bypass keeps quiet, on an update of `objectApiName`. */
+    const onUpdateOf = (objectApiName: string) => ({
+      objectsRead: [objectApiName],
+      objects: [
+        {
+          objectApiName,
+          flows: [
+            {
+              apiName: 'On_update',
+              label: 'On update',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip_Flows_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    });
+    const planOf = async (objectApiName: string) => {
+      const read = await readSeedAutomation({
+        org: 'my-dev-org',
+        objects: [objectApiName],
+        readAutomation: async () => onUpdateOf(objectApiName),
+        readLimits: async () => DE_LIMITS,
+      });
+      return 'preview' in read ? read.preview.mute : undefined;
+    };
+
+    expect(await planOf('Contact')).toBeUndefined();
+    expect((await planOf('Knowledge__kav'))?.assign).toHaveLength(1);
+  });
+
   it('says what a run’s gate read as it is, reading nothing of its own', async () => {
     const readDeliverability = vi.fn(async () => ({
       reading: { level: 'all' as const },

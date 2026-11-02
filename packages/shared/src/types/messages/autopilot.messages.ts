@@ -315,7 +315,24 @@ export interface AutopilotCompleted extends BaseMessage {
      * for good: the node of each says the same. Absent when there are none.
      */
     lookupsNotFilled?: AutopilotLookupsNotFilled[];
+    /**
+     * Per object, in plan order, the records written that stay drafts for
+     * good: the node of each says the same. Absent when there are none.
+     */
+    statusesNotApplied?: AutopilotStatusesNotApplied[];
   };
+}
+
+/**
+ * What the run left a draft in the records it wrote to one object: the status
+ * they had in the source, given back after their children, was refused.
+ */
+export interface AutopilotStatusesNotApplied {
+  objectApiName: string;
+  /** Records that stay at the status they were born with. */
+  records: number;
+  /** Why, by status code. */
+  refusals: AutopilotRefusal[];
 }
 
 /** Compliance report ready after execution */

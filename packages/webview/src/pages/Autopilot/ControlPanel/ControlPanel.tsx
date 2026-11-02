@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   AutopilotLookupsNotFilled,
   AutopilotRunStatus,
+  AutopilotStatusesNotApplied,
   AutopilotStopLeftover,
   MutedAutomation,
 } from '@sandforge/shared';
@@ -54,6 +55,8 @@ export interface ControlPanelProps {
   runStatus?: AutopilotRunStatus;
   /** Once the run ended, per object, the records it wrote that keep a lookup empty, and why. */
   lookupsNotFilled?: readonly AutopilotLookupsNotFilled[];
+  /** Once the run ended, per object, the records it wrote that stay drafts, and why. */
+  statusesNotApplied?: readonly AutopilotStatusesNotApplied[];
 }
 
 /** Tesla-style side panel with live stats, node detail, anonymization preview, and compliance. */
@@ -66,6 +69,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   cutSinceFit,
   runStatus,
   lookupsNotFilled = [],
+  statusesNotApplied = [],
 }) => {
   const { t } = useTranslation();
   const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
@@ -269,6 +273,26 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     object: left.objectApiName,
                     count: refusal.count,
                     fields: refusal.fields.join(', '),
+                    code: refusal.statusCode,
+                  })}
+                </li>
+              )),
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* Written, and left at the status they were born with, for good. */}
+      {statusesNotApplied.length > 0 && (
+        <div className="px-4 py-2 text-xs text-text-primary border-b border-(--sf-border)">
+          <p>{t('autopilot.control.statusesNotAppliedTitle')}</p>
+          <ul className="list-disc pl-4" data-testid="control-statuses-not-applied">
+            {statusesNotApplied.flatMap((left) =>
+              left.refusals.map((refusal) => (
+                <li key={`${left.objectApiName}|${refusal.statusCode}`}>
+                  {t('autopilot.control.statusNotApplied', {
+                    object: left.objectApiName,
+                    count: refusal.count,
                     code: refusal.statusCode,
                   })}
                 </li>

@@ -5,6 +5,9 @@
  * seed, and the order a run keeps from its reads to its result.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
@@ -385,6 +388,64 @@ describe('a seed fitted from the command line', () => {
     await expect(main(argv(2_000))).rejects.toThrow(/^The records to write take about/);
     expect(stdout.join('')).toMatch(/\n {2}--fit share would seed: share [\d.]+ %/);
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+  });
+
+  it('counts no optional object the org does not have: the fit neither cuts for it nor names it', async () => {
+    fakeOrg();
+    const dir = mkdtempSync(join(tmpdir(), 'seed-optional-'));
+    const object = (objectApiName: string, recordCount: number, optional: boolean) => ({
+      objectApiName,
+      recordCount,
+      ...(optional ? { optional } : {}),
+      fieldRules: [
+        {
+          fieldApiName: 'Name',
+          fieldType: 'string',
+          ruleType: 'static',
+          config: { staticValue: 'x' },
+        },
+      ],
+      excludedFields: [],
+      insertOrder: 0,
+    });
+    const file = join(dir, 'template.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        name: 'With articles',
+        description: '',
+        strategy: 'faker',
+        objects: [object('Account', 2_000, false), object('Knowledge__kav', 2_000, true)],
+        tags: [],
+      }),
+    );
+
+    try {
+      await main([
+        'node',
+        'sandforge-seed.ts',
+        '--target',
+        'TGT',
+        '--template-file',
+        file,
+        '--seed',
+        '7',
+        '--locale',
+        'en_US',
+        '--fit',
+        'share',
+        '--dry-run',
+        '--json',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    const { fit } = summary();
+    // Each account and the task its flow creates, in 3.6 MB: no room is left to articles,
+    // which would have cut the accounts by half more.
+    expect(fit?.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+    expect(fit?.objects[0]?.after).toBeGreaterThan(800);
   });
 
   it('refuses a seed its caps leave past what fits, and writes nothing', async () => {

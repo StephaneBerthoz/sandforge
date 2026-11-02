@@ -265,6 +265,7 @@ export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-cost
 export {
   forgeGapId,
   forgeGapParts,
+  ignoredGapEntry,
   gapAssignEntry,
   gapAssignments,
   mergeGaps,

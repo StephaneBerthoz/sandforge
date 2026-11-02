@@ -185,6 +185,16 @@ describe('each decision, written and taken back', () => {
     const ignored = withGapDecision(CONFIG, RULE, { kind: 'ignore' });
     expect(ignored.ignoredGaps).toEqual([RULE.id]);
     expect(withoutGapDecision(ignored, RULE)).toEqual(CONFIG);
+
+    // A template keeps the id a gap of a package's record type had before its
+    // namespace: the gap reads answered, and Undo takes that entry out.
+    const packaged = { ...RULE, id: 'record_type_unavailable|Case||ns__Support|' };
+    const kept = { ...CONFIG, ignoredGaps: ['record_type_unavailable|Case||Support|'] };
+    expect(decisionOf(kept, packaged)).toEqual({
+      kind: 'ignored',
+      gapId: 'record_type_unavailable|Case||Support|',
+    });
+    expect(decisionsAnsweringNoGap(kept, [packaged])).toEqual([]);
   });
 
   it('holds back the rows of a value by the gap’s id, and takes that back', () => {

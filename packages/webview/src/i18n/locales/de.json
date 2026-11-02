@@ -1617,11 +1617,14 @@
       "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können.",
       "overwrites_one": "Davon kann {{count}} einen Datensatz überschreiben, den die Ziel-Org enthält: Sein Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
       "overwrites_other": "Davon können bis zu {{count}} Datensätze überschreiben, die die Ziel-Org enthält: Ihr Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
+      "notWritten_one": "Von den {{total}}, die ein Lauf in der Quelle zählt, würde {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
+      "notWritten_other": "Von den {{total}}, die ein Lauf in der Quelle zählt, würden {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
       "unwritable": {
         "notInTarget": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat kein solches Objekt, oder der Benutzer, mit dem der Lauf schreibt, kann es nicht sehen. Keiner seiner Datensätze kann geschrieben werden.",
         "notCreateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf in der Ziel-Org keine Datensätze davon erstellen. Keiner kann geschrieben werden.",
         "notUpdateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf seine Datensätze in der Ziel-Org nicht bearbeiten. Keiner kann geschrieben werden.",
         "unread": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat es nicht beschrieben, daher würde keiner seiner Datensätze gesendet.",
+        "notAKey": "{{object}} ({{rows}} Datensätze): Sein Upsert gleicht über {{key}} ab, weder eine externe ID noch ein idLookup-Feld in der Ziel-Org. Keiner davon kann geschrieben werden.",
         "hint": "Von der Seite gestartet, fragt der Lauf, ob diese Objekte ausgelassen werden sollen, und schreibt den Rest; ein geplanter Lauf und die Befehlszeile werden abgelehnt."
       },
       "apiRequests": {
@@ -2676,6 +2679,7 @@
     "stepConfigRewindRefuseWhenActive": "Ablehnen, solange in der Org gearbeitet wird",
     "rewindRefuseWhenActiveNote": "Abgelehnt, wenn jemand anderes in der Stunde davor Datensätze der Objekte des Prüfpunkts geändert hat. Personen, die den Benutzer teilen, mit dem SandForge sich verbindet, werden nicht unterschieden.",
     "rewindAccept": {
+      "muteAutomation": "Automatisierungen der Org für dieses Zurücksetzen stummschalten – über ihren eigenen Bypass: Was kein Bypass stummschaltet, läuft trotzdem",
       "acceptAutomation": "Ausführen, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es schreibt",
       "acceptNoUndo": "Löschungen erlauben, die das Rückgängigmachen dieses Zurücksetzens nicht zurückholen kann",
       "acceptRecreate": "Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen",
@@ -4674,8 +4678,11 @@
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} Datensätze bleiben Entwürfe, ohne den Status, den sie in der Quelle hatten.",
       "stoppedEmailsHeld_one": "{{count}} E-Mail zu einem Kundenvorgang wurde nie gesendet: Sie wartete darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
       "stoppedEmailsHeld_other": "{{count}} E-Mails zu Kundenvorgängen wurden nie gesendet: Sie warteten darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
-      "runPartial": "Teilweise abgeschlossen: Datensätze wurden abgelehnt oder behalten eine leere Verknüpfung. Die Details jedes Objekts nennen welche und warum.",
+      "runPartial": "Teilweise abgeschlossen: Datensätze wurden abgelehnt, behalten eine leere Verknüpfung oder bleiben Entwürfe. Die Details jedes Objekts nennen welche und warum.",
       "runFailure": "Fehlgeschlagen: Der Lauf hat keinen Datensatz geschrieben. Die Details jedes Objekts nennen den Grund.",
+      "statusesNotAppliedTitle": "Geschrieben und als Entwurf geblieben:",
+      "statusNotApplied_one": "{{object}}: {{count}} Datensatz bleibt ein Entwurf: Sein Status wurde abgelehnt ({{code}}).",
+      "statusNotApplied_other": "{{object}}: {{count}} Datensätze bleiben Entwürfe: Ihr Status wurde abgelehnt ({{code}}).",
       "lookupsNotFilledTitle": "Geschrieben und ohne Verknüpfung geblieben:",
       "lookupNotFilled_one": "{{object}}: {{count}} Datensatz behält {{fields}} leer ({{code}}).",
       "lookupNotFilled_other": "{{object}}: {{count}} Datensätze behalten {{fields}} leer ({{code}}).",

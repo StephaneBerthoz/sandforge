@@ -669,7 +669,9 @@ function countedWriteOf(
   // are not written, and the gate asks whether to leave it out.
   const unwritable = measured.flatMap((object) => {
     const refusal = refused.get(object.objectApiName);
-    return refusal ? [{ ...object, why: refusal.why }] : [];
+    return refusal
+      ? [{ ...object, why: refusal.why, ...(refusal.key ? { key: refusal.key } : {}) }]
+      : [];
   });
   const written = measured.filter((object) => !refused.has(object.objectApiName));
   const reads = written.filter(
@@ -1911,6 +1913,7 @@ export class SyncOrchestrator {
         describe,
         objectConfig.objectApiName,
         objectConfig.operation,
+        objectConfig.externalIdField,
       );
       if ('refused' in access) refused.set(objectConfig.objectApiName, access.refused);
       if ('target' in access && access.target) {
@@ -2074,6 +2077,22 @@ export class SyncOrchestrator {
           failedObject: objectConfig.objectApiName,
         });
       }
+    }
+    // A run's gate counts the source's rows before it reads one, so a
+    // simulation measures what a run is measured by; it also knows what of
+    // them the run holds back or the target refuses: "4 records to write"
+    // said of a run that writes 2.
+    if (writeCheck) {
+      const measured = new Set(writeCheck.objects.map((object) => object.objectApiName));
+      const written = objects
+        .filter((object) => measured.has(object.objectApiName))
+        .reduce(
+          (sum, object) =>
+            sum + (object.operation === 'delete' ? object.delete : object.insert + object.update),
+          0,
+        );
+      const notWritten = writeCheck.total - written;
+      if (notWritten > 0) writeCheck = { ...writeCheck, notWritten };
     }
     return answer();
   }

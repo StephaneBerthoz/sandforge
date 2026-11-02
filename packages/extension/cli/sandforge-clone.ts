@@ -330,6 +330,7 @@ import type {
   RunCheckpointRequest,
   RunCheckpointTaken,
 } from '@sandforge/shared';
+import { refusedLine, refusedSummary } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -6736,7 +6737,25 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     });
     // Both at once: a CI job told of one, then of the other, runs twice.
     if (notAccepted) process.stderr.write(`${automationStop}\n`);
-    if (emailsStop) process.stderr.write(`${emailsStop.message}\n`);
+    if (emailsStop) process.stderr.write(`${refusedLine(emailsStop)}\n`);
+    const [refused, ...also] = [
+      ...(notAccepted ? [{ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop }] : []),
+      ...(emailsStop ? [emailsStop] : []),
+    ];
+    if (args.json && refused) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+          also,
+        ),
+      );
+    }
     process.exit(1);
   }
   if (notAccepted) {

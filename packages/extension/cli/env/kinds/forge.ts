@@ -286,7 +286,8 @@ export type EnvSourceRead =
 /**
  * Whether what a forge resource clones is anonymized: its template
  * anonymizes, with a method for at least one category of personal field. An
- * anonymization that names none anonymizes nothing.
+ * anonymization that names none does not count: a run would fall on Forge's
+ * defaults, and the file would say nothing of what is done to the data.
  */
 export function forgeAnonymizes(run: Pick<EnvForgeRun, 'template'>): boolean {
   const rules = run.template.anonymization?.rules ?? {};
@@ -316,7 +317,7 @@ export function realDataRefusal(
   if (run.acceptRealData || forgeAnonymizes(run)) return undefined;
   const empty =
     run.template.config.anonymizePII === true
-      ? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'
+      ? ' Its anonymize sets a method for no category of personal field, so it does not count.'
       : '';
   return (
     `its source, ${what}, is a production org (${productionEvidence(typed)}): what it clones ` +

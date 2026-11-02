@@ -79,6 +79,13 @@ interface PostedEnvelope {
 }
 
 /** Return the inner message of the last posted request of the given type. */
+/** A node of the graph, as the store holds it. */
+function nodeOf(name: string): { progress: number } | undefined {
+  return useAutopilotStore
+    .getState()
+    .graph?.nodes.find((node) => String(node.objectApiName) === name);
+}
+
 function lastRequestOfType(type: string): PostedEnvelope['payload'] {
   const envelopes = mockPostMessage.mock.calls.map((c) => c[0] as PostedEnvelope);
   const match = envelopes.filter((e) => e.payload.type === type).pop();
@@ -361,6 +368,34 @@ describe('Autopilot bridge flow', () => {
     );
     expect(useAutopilotStore.getState().liveStats.recordsProcessed).toBe(150);
     expect(useAutopilotStore.getState().liveStats.apiCallsUsed).toBe(3);
+
+    // A node a skip left never went through: its bar stays empty, and one a
+    // stop cut short says what it wrote of what it had to.
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Contact', objectName: 'Contact', status: 'skipped', wave: 1, recordCount: 0 },
+      executeRequest.id,
+    );
+    expect(nodeOf('Contact')?.progress).toBe(0);
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'stopped',
+        wave: 1,
+        recordCount: 30,
+        notSent: 10,
+      },
+      executeRequest.id,
+    );
+    expect(nodeOf('Contact')?.progress).toBe(75);
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Contact', objectName: 'Contact', status: 'completed', wave: 1, recordCount: 50 },
+      executeRequest.id,
+    );
+    expect(nodeOf('Contact')?.progress).toBe(100);
 
     // Reconciled at the end of a run, every node is sent its terminal status a
     // second time — summing the nodes rather than accumulating is what keeps

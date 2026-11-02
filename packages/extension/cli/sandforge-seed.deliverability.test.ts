@@ -185,9 +185,13 @@ function fakeOrg(apex: unknown = ALL_EMAIL, requests = 15_000, production = fals
 
 /** A mute planned from what the target runs, whose lease holds `assigned` once read back: the plan's set, unless told. */
 function muteOf(assigned: string[] = ['Org_Bypass_Set']): void {
-  vi.mocked(muteForRun).mockImplementation((async (_org: unknown, read: ForgeTargetAutomation) => {
+  vi.mocked(muteForRun).mockImplementation((async (
+    _org: unknown,
+    read: ForgeTargetAutomation,
+    options: { writes: Parameters<typeof mutePlanOf>[1] },
+  ) => {
     steps.push('lease plan');
-    const plan = mutePlanOf(read, (_object, write) => write === 'insert' || write === 'update');
+    const plan = mutePlanOf(read, options.writes);
     const held: MutedAutomation = {
       state: 'muted',
       assigned,
@@ -309,6 +313,25 @@ describe('sandforge-seed --accept-emails', () => {
     expect(steps.filter((step) => step === 'deliverability read')).toHaveLength(1);
   });
 
+  it('names its code in the line, and answers --json with it: a CI job read an empty stdout', async () => {
+    fakeOrg();
+
+    await expect(main(argv('--json'))).rejects.toThrow(
+      /^refused \(EMAILS_NOT_ACCEPTED\): TGT delivers every email/,
+    );
+
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      tool: 'sandforge-seed',
+      target: 'TGT',
+      dryRun: false,
+      refused: {
+        code: 'EMAILS_NOT_ACCEPTED',
+        message: expect.stringContaining('TGT delivers every email') as string,
+      },
+    });
+    expect(writes()).toEqual([]);
+  });
+
   it('writes with it, the read before the first write', async () => {
     fakeOrg();
 
@@ -340,7 +363,7 @@ describe('sandforge-seed --accept-emails', () => {
     fakeOrg({ compiled: false, success: false, compileProblem: 'Unexpected token' });
 
     await expect(main(argv())).rejects.toThrow(
-      /^Whether TGT delivers the emails its automation sends could not be read \(it did not compile: Unexpected token\)/,
+      /^refused \(EMAILS_NOT_ACCEPTED\): Whether TGT delivers the emails its automation sends could not be read \(it did not compile: Unexpected token\)/,
     );
     expect(writes()).toEqual([]);
   });
@@ -434,6 +457,18 @@ describe('sandforge-seed --accept-emails', () => {
 
     expect(steps.indexOf('deliverability read')).toBeLessThan(steps.indexOf('lease'));
     expect(writePathOrderDefects(steps.flatMap(asStep))).toEqual([]);
+  });
+
+  it('plans its mute from the writes it makes: an insert, never an update of what it creates', async () => {
+    fakeOrg();
+    automationOf = welcomingAll;
+    muteOf();
+
+    await main(argv('--mute-automation', '--accept-emails', '--json'));
+
+    const writes = vi.mocked(muteForRun).mock.calls[0]?.[2]?.writes;
+    expect(writes?.('Contact', 'insert')).toBe(true);
+    expect(writes?.('Contact', 'update')).toBe(false);
   });
 
   it('reads the flag apart from --accept-automation, which a seed’s line does not take, and says it in --help', () => {

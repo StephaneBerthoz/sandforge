@@ -243,7 +243,10 @@ describe('boundsRefusal — the acceptances and the emails', () => {
         preview: { diff: FOUR, automation },
       });
       expect(refused?.code).toBe('AUTOMATION');
-      expect(refused?.message).toContain('turn on acceptAutomation in the step');
+      expect(refused?.message).toContain(
+        'turn on muteAutomation in the step for what a bypass keeps quiet, or acceptAutomation to ' +
+          'let it run, and confirm it again',
+      );
       expect(
         await boundsRefusal({
           ...check(FOUR, bounds, { accepted: { ...NOTHING_ACCEPTED, acceptAutomation: true } }),

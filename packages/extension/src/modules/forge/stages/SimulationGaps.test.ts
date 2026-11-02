@@ -51,6 +51,23 @@ function check(
   return gaps.list(new Set());
 }
 
+describe('the id of a gap of a package’s record type, before its namespace', () => {
+  it('marks the gap ignored all the same', () => {
+    const gaps = new SimulationGaps();
+    gaps.add({
+      kind: 'record_type_unavailable',
+      severity: 'blocking',
+      objectApiName: 'Case',
+      recordType: 'ns__Support',
+      rows: 1,
+      decisions: ['ignore'],
+    } as Parameters<SimulationGaps['add']>[0]);
+    const before = forgeGapId('record_type_unavailable', 'Case', undefined, 'Support');
+
+    expect(gaps.list(new Set([before])).map((gap) => gap.detail?.['ignored'])).toEqual([true]);
+  });
+});
+
 describe('SimulationGaps', () => {
   it('counts a gap once however many rows find it, adding up its rows and keeping the longest length', () => {
     const gaps = new SimulationGaps();

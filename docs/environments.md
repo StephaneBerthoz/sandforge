@@ -120,7 +120,7 @@ A forge resource is cloned by [`sandforge-clone`](forge-reference.md#the-command
 
 Every script reads a production org: only writing to one is refused. An org built for tests is often reached by more people, pipelines and integrations than the org it was filled from, so a forge resource whose source types as a production org -- by the rule every guard reads, its Organization record saying `IsSandbox` false and an edition other than Developer Edition -- is blocked, and the apply with it, unless it says what is done to the data:
 
-- **`anonymize`**, Forge's anonymization, a method for at least one category of personal field. One that sets no method anonymizes nothing, and is said so;
+- **`anonymize`**, Forge's anonymization, a method for at least one category of personal field. One that sets no method does not count, the file saying nothing of what is done to the data, and is said so;
 - **or `accept: { realData: true }`**, reviewed in the file: what it clones is written as read.
 
 ```yaml

@@ -827,6 +827,45 @@ describe('SyncRunLinks', () => {
   });
 });
 
+describe('prepareSyncRows — lookups at an object written later in a cycle, in the case it is written', () => {
+  it('holds a lookup at a later object an export names in lower case', () => {
+    const target = targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        {
+          name: 'Primary__c',
+          createable: true,
+          type: 'reference',
+          referenceTo: ['Contact'],
+          nillable: true,
+        },
+      ],
+    });
+    const rows = [
+      { Id: '001000000000001AAA', Name: 'Northwind', Primary__c: '003000000000001AAA' },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: {
+        objectApiName: 'Account',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 0,
+      },
+      records: rows,
+      target,
+      run: { links: new SyncRunLinks(), sources: rows, later: new Set(['contact']) },
+    });
+
+    expect(prepared.payloads[0]).not.toHaveProperty('Primary__c');
+  });
+});
+
 describe('prepareSyncRows — lookups at an object written later in a cycle', () => {
   /** The target's Account, with a lookup at its primary contact. */
   const accountTarget = (required = false) =>

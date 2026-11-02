@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OrgCheckpoint } from '@sandforge/shared';
+import type { ForgeTargetAutomation, OrgCheckpoint } from '@sandforge/shared';
 
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring, PanelRequest } from './panelHost.js';
@@ -234,6 +234,8 @@ function harness(
     production?: boolean;
     /** What a request becomes on its way to the handler: one another window answers first. */
     sending?: (request: PanelRequest) => PanelRequest;
+    /** What the org runs as a rewind writes, in place of a Tooling API that answers nothing. */
+    automation?: ForgeTargetAutomation;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-cli-'));
@@ -260,6 +262,16 @@ function harness(
       compose: (built) => {
         hostOptions.compose?.(built);
         wiring = built;
+        const { automation } = options;
+        if (automation) {
+          (
+            built.handlers as unknown as {
+              checkpointHandler: {
+                setTargetAutomation: (reader: { read: () => Promise<unknown> }) => void;
+              };
+            }
+          ).checkpointHandler.setTargetAutomation({ read: () => Promise.resolve(automation) });
+        }
       },
     });
     return {
@@ -1039,7 +1051,16 @@ describe('sandforge-checkpoint rewind', () => {
         deliverability: { reading: { level: 'all' }, senders: [] },
       });
       expect(stderr).toContain('deliverability: All email');
-      expect(stderr).toContain('a rewind now would be refused: DEV-SB delivers every email');
+      expect(stderr).toContain(
+        'a rewind now would be refused (EMAILS_DELIVERED): DEV-SB delivers every email',
+      );
+      // A script reads the code and the reason, as a dry run of Sync or a clone gives them.
+      const answer = JSON.parse(stdout) as { refusal?: unknown; wouldBeRefused: string[] };
+      expect(answer.wouldBeRefused).toEqual([
+        expect.stringMatching(/^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email/),
+      ]);
+      // Not the preview's own refusal, which `reset` stops on before its question.
+      expect(answer).not.toHaveProperty('refusal');
     });
 
     it('asks nothing of an org that withholds them, and says so', async () => {
@@ -1143,7 +1164,7 @@ describe('sandforge-checkpoint rewind', () => {
     );
     expect(dryRun.code).toBe(0);
     expect(dryRun.stdout).toContain(
-      '  a rewind now would be refused: The rewind of DEV-SB would rewind 4 records',
+      '  a rewind now would be refused (TOO_MANY_TO_REWIND): The rewind of DEV-SB would rewind 4 records',
     );
 
     const atLimit = await rewind('--max-records', '4');
@@ -1217,7 +1238,7 @@ describe('sandforge-checkpoint rewind', () => {
     });
     // What a rewind now would meet, said beside the preview.
     expect(stderr).toContain(
-      'a rewind now would be refused: DEV-SB: what runs as the rewind writes',
+      'a rewind now would be refused (AUTOMATION): DEV-SB: what runs as the rewind writes',
     );
     expect(stateOf(h.org)).toEqual(before);
     expect(JSON.parse(stdout)).not.toHaveProperty('mutePlan');
@@ -1242,6 +1263,101 @@ describe('sandforge-checkpoint rewind', () => {
       stillRuns: expect.any(Array),
     });
     expect(stateOf(h.org)).toEqual(before);
+  });
+
+  describe('--dry-run --mute-automation', () => {
+    /** A flow a bypass keeps quiet, that emails the owner, and one nothing keeps quiet, that sends nothing. */
+    const AUTOMATION: ForgeTargetAutomation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Welcome',
+              label: 'Welcome',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+            {
+              apiName: 'Follow_up',
+              label: 'Follow up',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Skip_Flows_Set', label: 'Skip', grants: 1 }],
+        },
+      ],
+    };
+    const LINE = ['rewind', '--org', 'DEV-SB', '--dry-run', '--accept-automation'] as const;
+
+    it('says of its emails what its mute says: the sender silenced is not announced, in the lines as in the JSON, and the org is not asked whether it delivers them', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = { compiled: true, success: true };
+
+      const unmuted = await h.run(...LINE, '--json');
+      expect(unmuted.stderr).toContain("flow(s) or rule(s): 'Welcome', 'Follow up'");
+      expect(unmuted.stderr).toContain('(Welcome)');
+      expect(unmuted.stderr).toContain('deliverability: All email');
+      expect(JSON.parse(unmuted.stdout)).toMatchObject({
+        emails: [{ limit: 'SingleEmail' }],
+        deliverability: { reading: { level: 'all' } },
+      });
+      h.org.anonymousAsked.length = 0;
+
+      const muted = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(muted.code, muted.stderr).toBe(0);
+      expect(muted.stderr).toContain('mute: planned, the permission set(s) holding Skip_Flows');
+      expect(muted.stderr).toContain('silenced: Account: flow "Welcome" (bypass Skip_Flows)');
+      expect(muted.stderr).toContain('still runs: Account: flow "Follow up" (no bypass');
+      // The lines of what runs and of the emails name no flow the mute keeps quiet.
+      expect(muted.stderr).toContain("1 flow(s) or rule(s): 'Follow up'");
+      expect(muted.stderr).not.toContain("'Welcome'");
+      expect(muted.stderr).not.toContain('emails:');
+      expect(muted.stderr).not.toContain('deliverability:');
+      const answer = JSON.parse(muted.stdout) as Record<string, unknown>;
+      expect(answer).not.toHaveProperty('emails');
+      expect(answer).not.toHaveProperty('deliverability');
+      expect(answer).toMatchObject({ mutedAutomation: { state: 'planned' } });
+      expect(h.org.anonymousAsked).toEqual([]);
+    });
+
+    it('keeps saying the emails of what the mute leaves running', async () => {
+      const [object] = AUTOMATION.objects;
+      if (!object) throw new Error('no object');
+      const noBypass = object.flows.map((flow) => ({ ...flow, permissions: [] }));
+      const h = harness({
+        automation: { ...AUTOMATION, objects: [{ ...object, flows: noBypass }] },
+      });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      h.org.anonymousApex = { compiled: true, success: true };
+
+      const { stderr, stdout } = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(stderr).toContain('(Welcome)');
+      expect(stderr).toContain('deliverability: All email');
+      expect(JSON.parse(stdout)).toMatchObject({ emails: [{ limit: 'SingleEmail' }] });
+    });
   });
 
   it('stops comparing a field with --ignore-field from now on, kept in the checkpoint: a difference only there leaves nothing to rewind', async () => {

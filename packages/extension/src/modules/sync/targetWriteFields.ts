@@ -51,6 +51,15 @@ export interface TargetWriteFields {
    * when the describe did not say.
    */
   fields?: readonly FieldInfo[];
+  /**
+   * The fields an upsert may match on, in lower case: an External ID, or one
+   * the describe marks `idLookup`, as `Id` is on every object, `Contact.Email`
+   * and `Opportunity.Name`. A field that is merely indexed is none of them,
+   * whatever the org's refusal says: `Field name provided, Name does not
+   * match an External ID, Salesforce Id, or indexed field for Account`.
+   * Absent when the describe did not say.
+   */
+  upsertKeys?: ReadonlySet<string>;
 }
 
 /** One field of a describe, as jsforce returns it, reduced to what is read here. */
@@ -68,6 +77,8 @@ interface DescribedField {
   digits?: number;
   unique?: boolean;
   referenceTo?: readonly string[] | null;
+  externalId?: boolean;
+  idLookup?: boolean;
 }
 
 /** A count the describe gives, when it gives a positive one. */
@@ -115,6 +126,7 @@ export function targetWriteFieldsOf(described: {
   recordTypeInfos?: unknown;
 }): TargetWriteFields {
   const writable = described.fields.filter((f) => f.createable === true);
+  const saysKeys = described.fields.some((f) => typeof f.idLookup === 'boolean');
   return {
     creatable: new Set(writable.map((f) => f.name)),
     references: new Set(writable.filter((f) => f.type === 'reference').map((f) => f.name)),
@@ -129,6 +141,15 @@ export function targetWriteFieldsOf(described: {
       ? { personAccounts: described.fields.some((f) => f.name === PERSON_CONTACT_FIELD) }
       : {}),
     fields: described.fields.map(fieldInfoOf),
+    ...(saysKeys
+      ? {
+          upsertKeys: new Set(
+            described.fields
+              .filter((f) => f.externalId === true || f.idLookup === true)
+              .map((f) => f.name.toLowerCase()),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -139,6 +160,8 @@ export type TargetRefusalReason = SyncUnwritableReason;
 export interface TargetRefusal {
   why: TargetRefusalReason;
   message: string;
+  /** Of `notAKey`: the field the upsert matches on. */
+  key?: string;
 }
 
 /**
@@ -172,6 +195,12 @@ export function targetRefusalMessage(
         `The target org did not describe ${objectApiName}${detail ? ` (${detail})` : ''}, so ` +
         'what it takes could not be told and none of its records were sent.'
       );
+    case 'notAKey':
+      return (
+        `The upsert of ${objectApiName} matches on ${detail ?? 'a field'}, which the target org ` +
+        'does not match an upsert on: it takes an External ID field, the Id, or a field its ' +
+        'describe marks idLookup. None of its records were sent.'
+      );
   }
 }
 
@@ -180,17 +209,22 @@ export function targetRefusalMessage(
  * its describe: an object it has not — or that the running user cannot see,
  * which its describe answers alike, NOT_FOUND — one that user may not create
  * for an insert or an upsert, or may not edit for an update or an upsert, is
- * refused whole, as is one it would not describe.
+ * refused whole, as is one it would not describe, and an upsert on a field
+ * the target matches no upsert on: a simulation counted such records written,
+ * and the run had every one refused.
  *
  * A run read a failed describe as "could not say", and sent every row as it
  * was read, every field of it: the target then refused each record, after
  * the objects before it were written, and a simulation counted them written.
  * A delete is not refused here: it sends ids alone.
+ *
+ * @param externalIdField - The field an upsert matches on; absent or blank, the Id.
  */
 export async function targetAccessOf(
   describe: (objectApiName: string) => Promise<TargetWriteFields>,
   objectApiName: string,
   operation: SyncOperation,
+  externalIdField?: string,
 ): Promise<
   | { target: TargetWriteFields }
   | { refused: TargetRefusal; target?: TargetWriteFields }
@@ -217,7 +251,17 @@ export async function targetAccessOf(
       : edits && target.objectUpdateable === false
         ? 'notUpdateable'
         : undefined;
-  return why
-    ? { refused: { why, message: targetRefusalMessage(objectApiName, why) }, target }
-    : { target };
+  if (why) return { refused: { why, message: targetRefusalMessage(objectApiName, why) }, target };
+  const key = externalIdField?.trim() || 'Id';
+  if (operation === 'upsert' && target.upsertKeys && !target.upsertKeys.has(key.toLowerCase())) {
+    return {
+      refused: {
+        why: 'notAKey',
+        message: targetRefusalMessage(objectApiName, 'notAKey', key),
+        key,
+      },
+      target,
+    };
+  }
+  return { target };
 }

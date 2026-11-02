@@ -159,6 +159,7 @@
   "Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.": "除外: {0} の {1} 件のレコード。{2} にこのオブジェクトがないか、同期で書き込むユーザーから参照できません。",
   "Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.": "除外: {0} の {1} 件のレコード。同期で書き込むユーザーは {2} でそのレコードを作成できません。",
   "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "除外: {0} の {1} 件のレコード。同期で書き込むユーザーは {2} でそのレコードを編集できません。",
+  "Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.": "除外: {0} の {1} 件のレコード。upsert の照合項目 {2} は、{3} の外部 ID でも idLookup 項目でもありません。",
   "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "除外: {0} の {1} 件のレコード。{2} が記述を返さなかったため、受け付ける内容がわかりません。",
   "Remove the rest": "残りを削除",
   "SandForge: some records of the run cannot be removed": "SandForge: 実行のレコードの一部は削除できません",

@@ -267,6 +267,22 @@ describe('sandforge-autopilot --accept-emails', () => {
     );
   });
 
+  it('names its code in the line, and answers --json with it', async () => {
+    orgs([], 'all');
+
+    await expect(main(argv('--json'))).rejects.toThrow(
+      /^refused \(EMAILS_NOT_ACCEPTED\): .*TGT delivers every email/,
+    );
+
+    const said = out.join('');
+    expect(JSON.parse(said.slice(said.lastIndexOf('\n{\n') + 1))).toMatchObject({
+      tool: 'sandforge-autopilot',
+      target: 'TGT',
+      dryRun: false,
+      refused: { code: 'EMAILS_NOT_ACCEPTED' },
+    });
+  });
+
   it('says the emails reach the addresses the records keep, under --keep-contact-points', async () => {
     orgs([], 'all');
 

@@ -27,6 +27,32 @@ describe('autopilotRunStatus', () => {
     ).toBe('partial');
   });
 
+  it('takes a run that left a record a draft, its status refused, for partial, naming no failure', () => {
+    const refusedStatus = {
+      statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+      fields: ['Status'],
+      count: 1,
+      message: 'An order needs a product',
+    };
+
+    expect(
+      autopilotRunStatus({
+        ...run,
+        statuses: { Order: { applied: 2, refusals: [refusedStatus] } },
+      }),
+    ).toBe('partial');
+    expect(autopilotRunStatus({ ...run, statuses: { Order: { applied: 3, refusals: [] } } })).toBe(
+      'success',
+    );
+  });
+
+  it('counts the records it linked to: a refusal beside them is partial, and a failure without', () => {
+    const refused = { ...run, totalSuccess: 0, totalFailure: 1 };
+
+    expect(autopilotRunStatus({ ...refused, totalLinked: 2 })).toBe('partial');
+    expect(autopilotRunStatus({ ...refused, totalLinked: 0 })).toBe('failure');
+  });
+
   it('takes a run whose second pass filled every lookup for a success', () => {
     expect(autopilotRunStatus({ ...run, lookups: { Account: { filled: 3, refusals: [] } } })).toBe(
       'success',

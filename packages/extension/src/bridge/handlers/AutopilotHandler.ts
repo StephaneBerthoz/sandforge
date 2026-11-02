@@ -3,6 +3,7 @@ import type {
   AutopilotFitReport,
   AutopilotGraph,
   AutopilotLookupsNotFilled,
+  AutopilotStatusesNotApplied,
   AutopilotNodeProgress,
   AutopilotNodeRunStatus,
   AutopilotPlanWriteGate,
@@ -1457,6 +1458,8 @@ export class AutopilotHandler implements DomainHandler {
       let emailsHeldForTheirTask = 0;
       /** What the second pass left empty in the records written, per object. */
       const lookupsNotFilled: AutopilotLookupsNotFilled[] = [];
+      /** What the end of the run left a draft in the records written, per object. */
+      const statusesNotApplied: AutopilotStatusesNotApplied[] = [];
 
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
@@ -1580,6 +1583,23 @@ export class AutopilotHandler implements DomainHandler {
             });
             written.set(name, { ...counted(), lookupsNotFilled: lookups.leftEmpty });
           }
+          // Written, and left a draft: as above, the page and the audit named
+          // neither, an order standing at Draft in a run called a success.
+          const statusesRefused = (statuses?.refusals ?? []).reduce(
+            (sum, refusal) => sum + refusal.count,
+            0,
+          );
+          if (statuses && statusesRefused > 0) {
+            statusesNotApplied.push({
+              objectApiName: name,
+              records: statusesRefused,
+              refusals: statuses.refusals,
+            });
+            written.set(name, {
+              ...counted(),
+              statusesNotGivenBack: statusesNotGivenBack + statusesRefused,
+            });
+          }
         }
       }
 
@@ -1606,6 +1626,7 @@ export class AutopilotHandler implements DomainHandler {
         ...(checkpoint ? { checkpoint } : {}),
         ...(result.cutSinceFit !== undefined ? { cutSinceFit: result.cutSinceFit } : {}),
         ...(lookupsNotFilled.length > 0 ? { lookupsNotFilled } : {}),
+        ...(statusesNotApplied.length > 0 ? { statusesNotApplied } : {}),
         ...(result.stopped
           ? {
               stopped: true,

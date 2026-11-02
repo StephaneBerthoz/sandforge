@@ -20,7 +20,7 @@ import type {
   ForgeRecordTypeMapping,
   ForgeSkippedRows,
 } from '@sandforge/shared';
-import { mergeGaps } from '@sandforge/shared';
+import { ignoredGapEntry, mergeGaps } from '@sandforge/shared';
 
 /** A decision on one gap, with what it needs to be written. */
 export type ForgeGapChoice =
@@ -188,7 +188,10 @@ function sameField(a: ForgeFieldRef, b: ForgeFieldRef): boolean {
  */
 export function decisionOf(config: ForgeConfig | null, gap: ForgeGap): ForgeKeptDecision | null {
   if (!config) return null;
-  if (config.ignoredGaps?.includes(gap.id)) return { kind: 'ignored', gapId: gap.id };
+  // The entry the config holds, which may be the id before a package's namespace:
+  // the one Undo takes out.
+  const ignored = ignoredGapEntry(config.ignoredGaps, gap.id);
+  if (ignored !== undefined) return { kind: 'ignored', gapId: ignored };
   if (config.excludedObjects?.includes(gap.objectApiName)) {
     return { kind: 'object_excluded', object: gap.objectApiName };
   }
