@@ -847,13 +847,16 @@ export interface RewindSchemaDrift {
  * - `onlyWithParent`: of an object Salesforce undeletes only with its parent
  *   (an opportunity's products), deleted on their own under a parent that
  *   stays;
- * - `deletedBeforeParent`: deleted on their own before a record they point at,
- *   which the rewind deletes next — through a lookup that restricts that
- *   record's delete, or one whose delete would take them along but does not
- *   here (made while the checkpoint was taken, brought back since, changed as
- *   the rewind began). Salesforce keeps such a record in the recycle bin for
- *   good once that record is deleted after it: its undelete answers that it is
- *   not there, with that record, after it or before it.
+ * - `deletedBeforeParent`: deleted before a record they point at, which the
+ *   rewind deletes next — through a lookup that restricts that record's
+ *   delete, or one whose delete would take them along but does not here (made
+ *   while the checkpoint was taken, brought back since, changed as the rewind
+ *   began). Salesforce keeps such a record in the recycle bin for good once
+ *   that record is deleted after it: its undelete answers that it is not
+ *   there, with that record, after it or before it. It holds as well of a
+ *   record that goes with its own parent, and of what hangs from it: an
+ *   opportunity whose price book the rewind deletes after its account, with
+ *   its lines.
  */
 export type RewindUndoCannotReason = 'onlyWithParent' | 'deletedBeforeParent';
 
