@@ -347,6 +347,28 @@ function extractJson(raw: string): string {
 }
 
 /**
+ * What to say of an `sf org list --json` that ended without an error and
+ * printed nothing, which a CLI never does: the `sf` that answered is what to
+ * look at, in the words of the terminal the user can check it from. Seen on
+ * two Windows laptops, where "No JSON found in output (0 chars)" said neither.
+ *
+ * @param stderr - What the run wrote there: its first line is quoted.
+ */
+function emptyOrgListMessage(stderr: string): string {
+  const said = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const which = process.platform === 'win32' ? 'where sf' : 'which sf';
+  return (
+    `sf org list --json ended without an error and printed nothing${
+      said ? ` (it said: ${said.slice(0, 200)})` : ''
+    }, so there are no orgs to read. In a terminal of this window, run it, and ${which} to see ` +
+    'which sf answers.'
+  );
+}
+
+/**
  * One org entry of `sf org list --json`, as the CLI writes it, or what
  * `sf org display --json` says of one org ({@link SfdxBridge.findOrg}).
  *
@@ -772,9 +794,11 @@ export class SfdxBridge {
   /** Every org entry of `sf org list --json`, from every bucket, before any dedupe. */
   private async readOrgEntries(): Promise<SfdxOrgEntry[]> {
     let stdout: string;
+    let stderr = '';
     try {
       const result = await execAsync('sf org list --json', { timeout: 30_000 });
       stdout = result.stdout;
+      stderr = result.stderr;
     } catch (err: unknown) {
       // SF CLI returns non-zero exit code on some errors but still outputs JSON
       const execErr = err as ExecError;
@@ -783,6 +807,7 @@ export class SfdxBridge {
         throw new Error(`SF CLI failed with no output: ${execErr.message}`);
       }
     }
+    if (stdout.trim() === '') throw new Error(emptyOrgListMessage(stderr));
 
     const jsonStr = extractJson(stdout);
     let parsed: {

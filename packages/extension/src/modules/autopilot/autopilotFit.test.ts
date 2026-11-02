@@ -318,6 +318,43 @@ describe('caps', () => {
     expect(chosen.report).not.toHaveProperty('share');
   });
 
+  it('counts within a cap the contact of a person account it keeps, which the org makes with it', async () => {
+    const Account = accounts(4, (i) => ({ Id: '', IsPersonAccount: i < 2 }));
+    const Contact = idsOf('003', 12).map((Id, i) => ({
+      Id,
+      AccountId: Account[i % 4].Id,
+      IsPersonAccount: i < 2,
+    }));
+
+    const chosen = await choose(
+      ['Account', 'Contact'],
+      { Account, Contact },
+      { mode: { caps: { Contact: 5 } } },
+    );
+
+    const kept = keptOf(chosen, 'Contact');
+    expect(kept).toHaveLength(5);
+    expect(kept).toEqual(expect.arrayContaining([Contact[0].Id, Contact[1].Id]));
+    expect(reportOf(chosen, 'Contact')).toMatchObject({ kept: 5 });
+  });
+
+  it('keeps every person contact of the accounts it keeps, past a cap smaller than they are', async () => {
+    const Account = accounts(3, () => ({ Id: '', IsPersonAccount: true }));
+    const Contact = Account.map((account, i) => ({
+      Id: idsOf('003', 3)[i],
+      AccountId: account.Id,
+      IsPersonAccount: true,
+    }));
+
+    const chosen = await choose(
+      ['Account', 'Contact'],
+      { Account, Contact },
+      { mode: { caps: { Contact: 1 } } },
+    );
+
+    expect(keptOf(chosen, 'Contact')).toHaveLength(3);
+  });
+
   it('caps every object with one number, an object named keeping its own', async () => {
     const Account = accounts(10);
     const Contact = idsOf('003', 10).map((Id) => ({ Id }));

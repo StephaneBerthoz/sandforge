@@ -312,6 +312,23 @@ describe('SfdxBridge', () => {
       expect(results[0].org.orgId).toBe('00D1');
     });
 
+    it('says which command printed nothing, and how to see which sf answered', async () => {
+      mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
+
+      await expect(bridge.listOrgs()).rejects.toThrow(
+        /sf org list --json ended without an error and printed nothing, so there are no orgs to read\..*(where|which) sf/,
+      );
+    });
+
+    it('quotes what an sf that printed nothing wrote on stderr', async () => {
+      mockExec.mockResolvedValueOnce({
+        stdout: ' \r\n',
+        stderr: '\nBlocked by policy\nmore',
+      } as never);
+
+      await expect(bridge.listOrgs()).rejects.toThrow('(it said: Blocked by policy)');
+    });
+
     it('should throw meaningful error when stdout contains no JSON', async () => {
       mockExec.mockResolvedValueOnce({
         stdout: 'Error: something went wrong\nNo JSON here',

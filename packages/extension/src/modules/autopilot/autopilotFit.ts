@@ -471,10 +471,21 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
         else chosen.push(index);
       }
       chosen.sort((a, b) => a - b);
-      const left = cap === undefined ? chosen.length : Math.max(0, cap - need.size);
+      // The org makes a person account's contact with its account: cut here,
+      // it would be in the target all the same, past the cap and the plan.
+      const madeWithAccount =
+        table.name === CONTACT ? chosen.filter((index) => table.persons.has(index)) : [];
+      const thinnable =
+        madeWithAccount.length > 0 ? chosen.filter((index) => !table.persons.has(index)) : chosen;
+      const left =
+        cap === undefined
+          ? thinnable.length
+          : Math.max(0, cap - need.size - madeWithAccount.length);
       const thinned =
-        chosen.length > left ? evenlyKept(chosen.length, left).map((at) => chosen[at]) : chosen;
-      const kept = new Set([...need, ...thinned]);
+        thinnable.length > left
+          ? evenlyKept(thinnable.length, left).map((at) => thinnable[at])
+          : thinnable;
+      const kept = new Set([...need, ...madeWithAccount, ...thinned]);
       choice.kept.set(table.name, kept);
       choice.ids.set(table.name, new Set([...kept].map((index) => table.rows[index].Id)));
       choice.cut.set(table.name, cut);

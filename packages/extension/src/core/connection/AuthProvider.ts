@@ -2,6 +2,14 @@ import type { AuthMethod, ConnectionConfig } from '@sandforge/shared';
 import { DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { SfdxBridge } from './SfdxBridge';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
+import { withDeadline } from './ConnectionHelper.js';
+
+/**
+ * Longest a username and password sign-in may wait for Salesforce: jsforce has
+ * no bound of its own, and a proxy that holds the connection left the page to
+ * say, at 180 s, only that SandForge had not answered.
+ */
+const PASSWORD_LOGIN_TIMEOUT_MS = 60_000;
 
 /** Authentication result */
 export interface AuthResult {
@@ -169,9 +177,11 @@ export class AuthProvider {
       // Lazy boundary — see jsforceEntry.ts.
       const { jsforce } = await import('./jsforceEntry.js');
       const conn = new jsforce.Connection({ loginUrl: credentials.loginUrl });
-      const userInfo = await conn.login(
-        credentials.username,
-        credentials.password + (credentials.securityToken ?? ''),
+      const userInfo = await withDeadline(
+        conn.login(credentials.username, credentials.password + (credentials.securityToken ?? '')),
+        PASSWORD_LOGIN_TIMEOUT_MS,
+        `${new URL(credentials.loginUrl).host} did not answer within ${PASSWORD_LOGIN_TIMEOUT_MS / 1000} s: ` +
+          'check that this machine reaches it, through its proxy if it has one',
       );
 
       return {

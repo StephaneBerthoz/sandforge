@@ -152,6 +152,29 @@ describe('AuthProvider', () => {
       expect(result.error).toContain('INVALID_LOGIN');
     });
 
+    it('ends a sign-in Salesforce never answers, naming the host', async () => {
+      vi.useFakeTimers();
+      try {
+        __mockLogin.mockReturnValueOnce(new Promise(() => undefined));
+
+        const pending = provider.authenticate(
+          createCredentials({
+            method: 'usernamePassword',
+            username: 'admin@test.com',
+            password: 'secret',
+            loginUrl: 'https://test.salesforce.com',
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(60_000);
+        const result = await pending;
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('test.salesforce.com did not answer within 60 s');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should return error for sfdx_import without bridge', async () => {
       const result = await provider.authenticate(createCredentials({ method: 'sfdx_import' }));
 
