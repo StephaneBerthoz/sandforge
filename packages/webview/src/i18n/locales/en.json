@@ -1886,6 +1886,7 @@
     "successTitle": "Import completed",
     "successDescription": "Converted configuration",
     "unknownError": "Import failed for an unknown reason.",
+    "targetObjectMapped": "Nothing was imported: Sync writes an object to the same object in the target org, and this export sends one to another: {{objects}}. Take out its targetObject entries, or those objects, then import it again.",
     "objectSummary": {
       "mappings_one": "{{count}} field mapping",
       "mappings_other": "{{count}} field mappings",

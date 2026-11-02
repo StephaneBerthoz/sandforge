@@ -327,6 +327,49 @@ describe('MigrationHandler', () => {
     });
   });
 
+  describe('an export that sends an object to another', () => {
+    it('imports nothing of it, and says which by a code the page words', async () => {
+      handler.setFileReader({
+        readFile: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            objects: [
+              {
+                query: 'SELECT Id, Name FROM Account',
+                operation: 'Upsert',
+                externalId: 'Name',
+                objectName: 'Account',
+                useFieldMapping: true,
+                fieldMapping: [
+                  { targetObject: 'Lead' },
+                  { sourceField: 'Name', targetField: 'Company' },
+                ],
+              },
+            ],
+          }),
+        ),
+        statSize: vi.fn().mockResolvedValue(100),
+      });
+
+      await handler.handle(
+        createMsg('migration:import-sfdmu', { filePath: path.join(os.homedir(), 'export.json') }),
+      );
+
+      const [[response]] = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls as [
+        [{ type: string; payload: unknown }],
+      ];
+      expect(response.type).toBe('migration:import-sfdmu:response');
+      expect(response.payload).toEqual({
+        success: false,
+        code: 'TARGET_OBJECT_MAPPED',
+        objects: ['Account → Lead (Name → Company)'],
+        error: expect.stringContaining('Account → Lead (Name → Company)'),
+      });
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining('[ERR] migration:import-sfdmu: Nothing was imported'),
+      );
+    });
+  });
+
   describe('migration:save-sync-config', () => {
     /** A migration as the page sends it: the import as edited, with the orgs picked. */
     function migration(objects: Array<Record<string, unknown>> = []): Record<string, unknown> {

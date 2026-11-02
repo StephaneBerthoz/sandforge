@@ -796,6 +796,54 @@ describe('previewTotals and orgDiffers', () => {
     expect(orgDiffers(diff)).toBe(false);
     expect(previewExitCode(diff, true)).toBe(0);
   });
+
+  const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
+  const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+
+  it.each([
+    ['deleted', { removed: ['Old__c'], added: [], changed: [] }],
+    ['hidden by field-level security', { removed: [], added: [], changed: [], hidden: ['Rating'] }],
+    [
+      'gone, the org not saying which of the two',
+      { removed: [], added: [], changed: [], uncertain: { fields: ['Tier__c'] } },
+    ],
+  ])(
+    'says the org differs for a field %s since, with no record to write, and not that it is as it was',
+    (_label, schemaDrift) => {
+      const diff = diffOf([object({ schemaDrift })]);
+      expect(previewTotals(diff)).toEqual({
+        toDelete: 0,
+        toGiveBack: 0,
+        toBringBack: 0,
+        toRecreate: 0,
+      });
+
+      expect(orgDiffers(diff)).toBe(true);
+      expect(previewExitCode(diff, true)).toBe(3);
+      expect(previewExitCode(diff, false)).toBe(0);
+      expect(
+        previewJson('DEV-SB', { ...checkpoint, checkpointId: 'cp-1' }, { diff, estimate }).differs,
+      ).toBe(true);
+      expect(previewLines('DEV-SB', checkpoint, { diff, estimate }).join('\n')).not.toContain(
+        'is as it was',
+      );
+    },
+  );
+
+  it('says an org is as it was with a field added since, or one whose type changed, as the panel’s preview does', () => {
+    const diff = diffOf([
+      object({ schemaDrift: { removed: [], added: ['New__c'], changed: ['Score__c'] } }),
+    ]);
+
+    expect(orgDiffers(diff)).toBe(false);
+    expect(previewExitCode(diff, true)).toBe(0);
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate });
+    expect(lines).toContain(
+      "  DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
+    );
+    expect(lines).toContain('  fields added since, their values left alone: Account.New__c');
+    expect(lines).toContain('  fields changed since, tried one by one: Account.Score__c');
+  });
 });
 
 describe('previewLines', () => {

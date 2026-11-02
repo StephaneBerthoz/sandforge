@@ -1886,6 +1886,7 @@
     "successTitle": "Import abgeschlossen",
     "successDescription": "Konvertierte Konfiguration",
     "unknownError": "Der Import ist aus unbekanntem Grund fehlgeschlagen.",
+    "targetObjectMapped": "Es wurde nichts importiert: Sync schreibt ein Objekt in dasselbe Objekt der Ziel-Org, und dieser Export sendet eines an ein anderes: {{objects}}. Entfernen Sie seine targetObject-Einträge oder diese Objekte und importieren Sie ihn erneut.",
     "objectSummary": {
       "mappings_one": "{{count}} Feldzuordnung",
       "mappings_other": "{{count}} Feldzuordnungen",

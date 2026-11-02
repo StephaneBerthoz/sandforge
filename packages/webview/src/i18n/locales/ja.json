@@ -1769,6 +1769,7 @@
     "successTitle": "インポートが完了しました",
     "successDescription": "変換された設定",
     "unknownError": "不明な理由によりインポートに失敗しました。",
+    "targetObjectMapped": "何もインポートされていません。Sync はオブジェクトをターゲット組織の同じオブジェクトに書き込みますが、このエクスポートは別のオブジェクトに送っています: {{objects}}。targetObject のエントリ、またはこれらのオブジェクトを取り除いてから、もう一度インポートしてください。",
     "objectSummary": {
       "mappings_other": "項目マッピング {{count}} 件",
       "rules_other": "変換ルール {{count}} 件",

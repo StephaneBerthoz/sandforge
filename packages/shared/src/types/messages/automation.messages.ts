@@ -304,6 +304,14 @@ export interface MigrationImportSfdmuResponse extends BaseMessage {
     config?: Record<string, unknown>;
     dependencies?: Array<{ from: string; to: string }>;
     error?: string;
+    /**
+     * Why it was refused, as a code the page words in the reader's language.
+     * `TARGET_OBJECT_MAPPED`: the export sends an object to another object,
+     * which a Sync configuration cannot say.
+     */
+    code?: 'TARGET_OBJECT_MAPPED';
+    /** With `TARGET_OBJECT_MAPPED`: each object, as `Account → Lead (Name → Company)`. */
+    objects?: string[];
   };
 }
 

@@ -1886,6 +1886,7 @@
     "successTitle": "Importação concluída",
     "successDescription": "Configuração convertida",
     "unknownError": "A importação falhou por um motivo desconhecido.",
+    "targetObjectMapped": "Nada foi importado: o Sync grava um objeto no mesmo objeto da org de destino, e esta exportação envia um para outro: {{objects}}. Remova as entradas targetObject dela, ou esses objetos, e importe-a novamente.",
     "objectSummary": {
       "mappings_one": "{{count}} mapeamento de campo",
       "mappings_other": "{{count}} mapeamentos de campos",

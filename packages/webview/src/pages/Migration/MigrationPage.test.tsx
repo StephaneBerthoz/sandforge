@@ -215,6 +215,22 @@ describe('MigrationPage — the file to import', () => {
     );
   });
 
+  it('says which objects an export sends to another object, in the page’s words, and offers nothing to save', () => {
+    importState = mutationState({
+      success: false,
+      code: 'TARGET_OBJECT_MAPPED',
+      objects: ['Account → Lead (Name → Company)', 'Contact → Staff__c'],
+      error: 'The English the host logs.',
+    });
+    render(<MigrationPage />);
+
+    const text = screen.getByTestId('migration-error').textContent ?? '';
+    expect(text).toContain('Nothing was imported');
+    expect(text).toContain('Account → Lead (Name → Company); Contact → Staff__c');
+    expect(text).not.toContain('The English the host logs.');
+    expect(screen.queryByTestId('migration-save-sync-btn')).toBeNull();
+  });
+
   it('should display a bridge-level error', () => {
     importState = { ...mutationState(), error: 'Request timed out' };
     render(<MigrationPage />);

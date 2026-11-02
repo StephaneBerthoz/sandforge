@@ -314,14 +314,28 @@ export class MigrationHandler implements DomainHandler {
         this.getAllowedBaseDirs(),
       );
       await assertImportFileSize(fileReader, safePath);
-      const { SfdmuImporter } = await import('../../modules/migration/SfdmuImporter.js');
+      const { SfdmuImporter, SfdmuTargetObjectError } =
+        await import('../../modules/migration/SfdmuImporter.js');
       const importer = new SfdmuImporter(fileReader);
-      const config = await importer.import(safePath);
-      const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
-        success: true,
-        config: config as unknown as Record<string, unknown>,
-      });
-      this.deps.broker.postToWebview(response);
+      try {
+        const config = await importer.import(safePath);
+        const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
+          success: true,
+          config: config as unknown as Record<string, unknown>,
+        });
+        this.deps.broker.postToWebview(response);
+      } catch (err: unknown) {
+        if (!(err instanceof SfdmuTargetObjectError)) throw err;
+        this.deps.log(`[ERR] migration:import-sfdmu: ${err.message}`);
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
+            success: false,
+            error: err.message,
+            code: 'TARGET_OBJECT_MAPPED',
+            objects: [...err.objects],
+          }),
+        );
+      }
     } catch (err: unknown) {
       this.deps.log(`[ERR] migration:import-sfdmu: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {

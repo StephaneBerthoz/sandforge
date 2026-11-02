@@ -628,6 +628,99 @@ describe('OrgManagerPage', () => {
       expect(mockConnectMutate).not.toHaveBeenCalled();
     });
 
+    const reconnecting = (org: Partial<SalesforceOrg>): void => {
+      useOrgStore.setState({ orgs: [{ ...mockOrg, status: 'expired', ...org }] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+    };
+    const loginChoice = (): string =>
+      (screen.getByTestId('inline-login-url-select') as HTMLSelectElement).value;
+
+    it("should sign in at the org's own My Domain, which an org that blocks the two login hosts needs", () => {
+      reconnecting({ instanceUrl: 'https://acme.my.salesforce.com/' });
+
+      expect(loginChoice()).toBe('custom');
+      expect((screen.getByTestId('inline-my-domain-input') as HTMLInputElement).value).toBe(
+        'https://acme.my.salesforce.com',
+      );
+
+      fireEvent.click(screen.getByTestId('org-inline-connect'));
+
+      expect(mockConnectMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authMethod: 'oauth_web',
+          loginUrl: 'https://acme.my.salesforce.com',
+        }),
+      );
+    });
+
+    it("should send a sandbox's password login to its own URL rather than test.salesforce.com", () => {
+      reconnecting({
+        instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+        authMethod: 'usernamePassword',
+      });
+      fireEvent.change(screen.getByTestId('inline-password-input'), {
+        target: { value: 'typed-again' },
+      });
+
+      fireEvent.click(screen.getByTestId('org-inline-connect'));
+
+      expect(mockConnectMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authMethod: 'usernamePassword',
+          loginUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+        }),
+      );
+    });
+
+    it.each([
+      ['Sandbox', 'https://test.salesforce.com'],
+      ['Scratch', 'https://test.salesforce.com'],
+      ['Production', 'https://login.salesforce.com'],
+    ] as const)(
+      'should go by the type of a %s org on an old instance name, which has no My Domain',
+      (orgType, host) => {
+        reconnecting({ instanceUrl: 'https://na139.salesforce.com', orgType });
+
+        expect(loginChoice()).toBe(host);
+        expect(screen.queryByTestId('inline-my-domain-input')).toBeNull();
+      },
+    );
+
+    it('should keep a login host named as the choice it is', () => {
+      reconnecting({ instanceUrl: 'https://test.salesforce.com', orgType: 'Production' });
+
+      expect(loginChoice()).toBe('https://test.salesforce.com');
+      expect(screen.queryByTestId('inline-my-domain-input')).toBeNull();
+    });
+
+    it('should not leave the My Domain of the last org it reopened for the next', () => {
+      useOrgStore.setState({
+        orgs: [
+          {
+            ...mockOrg,
+            status: 'expired',
+            instanceUrl: 'https://acme.my.salesforce.com',
+          },
+          {
+            ...mockOrg,
+            id: 'org-2',
+            status: 'expired',
+            instanceUrl: 'https://na139.salesforce.com',
+          },
+        ],
+      });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+      fireEvent.click(screen.getByTestId('org-reconnect-org-2'));
+      fireEvent.change(screen.getByTestId('inline-login-url-select'), {
+        target: { value: 'custom' },
+      });
+
+      expect((screen.getByTestId('inline-my-domain-input') as HTMLInputElement).value).toBe('');
+    });
+
     it('should prefill the username for an org in error that logged in with a password', () => {
       useOrgStore.setState({
         orgs: [{ ...mockOrg, status: 'error', authMethod: 'usernamePassword' }],

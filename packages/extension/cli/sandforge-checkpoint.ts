@@ -1450,14 +1450,28 @@ function filesLeftOf(diff: Partial<Pick<RewindDiff, 'files'>>): number {
   return files === undefined ? 0 : files.outsideAdded + files.outsideDeleted;
 }
 
+/** The fields of an object gone from what the org shows since: deleted, hidden, or either. */
+function fieldsGoneOf(object: Pick<RewindDiff['objects'][number], 'schemaDrift'>): number {
+  const drift = object.schemaDrift;
+  if (drift === undefined) return 0;
+  return drift.removed.length + (drift.hidden?.length ?? 0) + (drift.uncertain?.fields.length ?? 0);
+}
+
 /**
  * Whether the org differs from the checkpoint, among the objects and fields
  * it holds: records a rewind would delete, give back, bring back or make
  * again; links between its files and its records to remove, put back or give
  * their sharing back; records it cannot take back, or that the checkpoint does
  * not hold although they are dated before it; files added or deleted since
- * that no record of it links to, which a rewind leaves; or an object that
- * could not be read, which is never taken for one that did not change.
+ * that no record of it links to, which a rewind leaves; a field deleted or
+ * hidden since, which is not compared, so whether it holds its values is not
+ * known; or an object that could not be read, which is never taken for one
+ * that did not change. The panel's preview draws the same line: a field added
+ * since, whose values a rewind leaves alone, does not make it differ, nor does
+ * one whose type changed, which is compared still.
+ *
+ * Without the fields, `--fail-on-change` exited 0 and the preview read "as it
+ * was" under the line that named a field deleted since.
  */
 export function orgDiffers(
   diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'files'>>,
@@ -1466,7 +1480,9 @@ export function orgDiffers(
   return (
     totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0 ||
     linkWritesOf(diff) + filesLeftOf(diff) > 0 ||
-    diff.objects.some((object) => cannotUndoOf(object) > 0 || object.unexplained > 0) ||
+    diff.objects.some(
+      (object) => cannotUndoOf(object) > 0 || object.unexplained > 0 || fieldsGoneOf(object) > 0,
+    ) ||
     diff.unread.length > 0
   );
 }

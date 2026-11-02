@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import type {
+  MigrationImportSfdmuResponse,
   MigrationPickFileResponse,
   MigrationSaveSyncConfigResponse,
   SyncOperation,
@@ -23,11 +24,7 @@ import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 
 /** Response payload of `migration:import-sfdmu:response`. */
-interface MigrationImportResult {
-  success: boolean;
-  config?: Record<string, unknown>;
-  error?: string;
-}
+type MigrationImportResult = MigrationImportSfdmuResponse['payload'];
 
 /** The extension the importer takes — mirrors MigrationHandler's whitelist. */
 const ALLOWED_EXTENSION = '.json';
@@ -102,6 +99,17 @@ function countOf(obj: Record<string, unknown> | undefined, key: string): number 
  * placeholders the save replaces with the orgs picked here.
  */
 const editedConfigSchema = syncConfigSchema.omit({ sourceOrgId: true, targetOrgId: true });
+
+/** Why the host imported nothing: in the page's language when it gave a code. */
+function importFailureMessage(
+  answer: MigrationImportResult,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  if (answer.code === 'TARGET_OBJECT_MAPPED') {
+    return t('migration.targetObjectMapped', { objects: (answer.objects ?? []).join('; ') });
+  }
+  return answer.error ?? t('migration.unknownError');
+}
 
 /** Why the host saved no Sync configuration, in the page's language. */
 function saveRefusalMessage(
@@ -214,7 +222,7 @@ export const MigrationPage: React.FC = () => {
 
   const responseError =
     importMutation.data && !importMutation.data.success
-      ? (importMutation.data.error ?? t('migration.unknownError'))
+      ? importFailureMessage(importMutation.data, t)
       : null;
   const displayedError = importMutation.error ?? responseError;
   const successResult =

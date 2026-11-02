@@ -99,6 +99,27 @@ const LOGIN_SANDBOX = 'https://test.salesforce.com';
 /** The Login URL choice under which the page asks for a My Domain URL. */
 const LOGIN_CUSTOM = 'custom';
 
+/**
+ * Where an org's Reconnect signs in: at the org's own URL. Going by its type
+ * alone sent it to login.salesforce.com or test.salesforce.com, which an org
+ * that blocks both refuses, until its My Domain was typed again. An org on an
+ * old instance name has no My Domain to go back to: the shared check refuses
+ * that URL, and its type still names the host that serves it.
+ */
+function reconnectLogin(org: Pick<SalesforceOrg, 'instanceUrl' | 'orgType'>): {
+  choice: string;
+  myDomain: string;
+} {
+  const own = parseSalesforceLoginUrl(org.instanceUrl);
+  if (!own.ok) {
+    const sandbox = org.orgType === 'Sandbox' || org.orgType === 'Scratch';
+    return { choice: sandbox ? LOGIN_SANDBOX : LOGIN_PRODUCTION, myDomain: '' };
+  }
+  return own.origin === LOGIN_PRODUCTION || own.origin === LOGIN_SANDBOX
+    ? { choice: own.origin, myDomain: '' }
+    : { choice: LOGIN_CUSTOM, myDomain: own.origin };
+}
+
 /** Why the page refuses a typed login URL, by the reason the shared check gives. */
 const LOGIN_URL_REFUSALS: Record<
   Extract<SalesforceLoginUrlParse, { ok: false }>['reason'],
@@ -621,9 +642,9 @@ export const OrgManagerPage: React.FC = () => {
       resetForm();
       setActiveMethod(org.authMethod);
       setAlias(org.alias);
-      setLoginChoice(
-        org.orgType === 'Sandbox' || org.orgType === 'Scratch' ? LOGIN_SANDBOX : LOGIN_PRODUCTION,
-      );
+      const login = reconnectLogin(org);
+      setLoginChoice(login.choice);
+      setCustomLoginUrl(login.myDomain);
       if (org.authMethod === 'usernamePassword') setUsername(org.username);
     },
     [handleConnect, deviceLoading, stopDeviceSignIn],

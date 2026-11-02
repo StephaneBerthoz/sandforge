@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { syncConfigSchema } from '@sandforge/shared';
-import { SfdmuImporter, sfdmuExportSchema } from './SfdmuImporter';
+import { SfdmuImporter, SfdmuTargetObjectError, sfdmuExportSchema } from './SfdmuImporter';
 import type { FileReader, SfdmuExport } from './SfdmuImporter';
 
 function createMockFileReader(content: string): FileReader {
@@ -293,6 +293,173 @@ describe('SfdmuImporter', () => {
 
       expect(result.objects[0].where).toBe('IsActive = true');
       expect(result.objects[0].orderBy).toBe('Name');
+    });
+  });
+
+  describe('a target object', () => {
+    /** An export of Account with this `fieldMapping`, as the file writes it. */
+    const accountMapped = (fieldMapping: unknown[], more: Record<string, unknown> = {}): string =>
+      JSON.stringify({
+        objects: [
+          {
+            query: 'SELECT Id, Name FROM Account',
+            operation: 'Upsert',
+            externalId: 'Name',
+            objectName: 'Account',
+            useFieldMapping: true,
+            fieldMapping,
+            ...more,
+          },
+        ],
+      });
+
+    const importing = (content: string) =>
+      new SfdmuImporter(createMockFileReader(content)).import('/path/to/export.json');
+
+    const refusalOf = async (content: string): Promise<SfdmuTargetObjectError> => {
+      const refusal: unknown = await importing(content).catch((err: unknown) => err);
+      expect(refusal).toBeInstanceOf(SfdmuTargetObjectError);
+      return refusal as SfdmuTargetObjectError;
+    };
+
+    it('refuses an object sent to another, naming it, where it goes and its fields, rather than writing them on the source object', async () => {
+      // It came out as `object: Account`, `Name → Company`, without a word.
+      const refusal = await refusalOf(
+        accountMapped([{ targetObject: 'Lead', sourceField: 'Name', targetField: 'Company' }]),
+      );
+
+      expect(refusal.objects).toEqual(['Account → Lead (Name → Company)']);
+      expect(refusal.message).toContain('Nothing was imported');
+      expect(refusal.message).toContain('Account → Lead (Name → Company)');
+    });
+
+    it('reads the target as SFDMU documents it, on an entry of its own beside the fields', async () => {
+      const refusal = await refusalOf(
+        accountMapped([
+          { targetObject: 'Staff__c' },
+          { sourceField: 'Name', targetField: 'Full_Name__c' },
+          { sourceField: 'Phone', targetField: 'Mobile__c' },
+        ]),
+      );
+
+      expect(refusal.objects).toEqual([
+        'Account → Staff__c (Name → Full_Name__c, Phone → Mobile__c)',
+      ]);
+    });
+
+    it('names an object sent to another with no field mapped', async () => {
+      const refusal = await refusalOf(accountMapped([{ targetObject: 'Lead' }]));
+
+      expect(refusal.objects).toEqual(['Account → Lead']);
+    });
+
+    it('names every object refused, and imports none of the others', async () => {
+      const refusal = await refusalOf(
+        JSON.stringify({
+          objects: [
+            {
+              query: 'SELECT Id, Name FROM Account',
+              operation: 'Insert',
+              objectName: 'Account',
+              fieldMapping: [{ targetObject: 'Lead' }],
+            },
+            { query: 'SELECT Id FROM Case', operation: 'Insert', objectName: 'Case' },
+            {
+              query: 'SELECT Id, LastName FROM Contact',
+              operation: 'Insert',
+              objectName: 'Contact',
+              fieldMapping: [{ targetObject: 'Staff__c' }],
+            },
+          ],
+        }),
+      );
+
+      expect(refusal.objects).toEqual(['Account → Lead', 'Contact → Staff__c']);
+    });
+
+    it('refuses it with useFieldMapping off too, as the fields would still be converted onto the source object', async () => {
+      const refusal = await refusalOf(
+        accountMapped([{ targetObject: 'Lead', sourceField: 'Name', targetField: 'Company' }], {
+          useFieldMapping: false,
+        }),
+      );
+
+      expect(refusal.objects).toEqual(['Account → Lead (Name → Company)']);
+    });
+
+    it('takes the last target named, as SFDMU does', async () => {
+      const refusal = await refusalOf(
+        accountMapped([{ targetObject: 'Account' }, { targetObject: 'Lead' }]),
+      );
+      expect(refusal.objects).toEqual(['Account → Lead']);
+
+      const config = await importing(
+        accountMapped([{ targetObject: 'Lead' }, { targetObject: 'Account' }]),
+      );
+      expect(config.objects[0].objectApiName).toBe('Account');
+    });
+
+    it('takes a target that names the object itself, whatever its case, for no target at all', async () => {
+      const config = await importing(
+        accountMapped([
+          { targetObject: 'ACCOUNT' },
+          { sourceField: 'BillingCity', targetField: 'ShippingCity' },
+        ]),
+      );
+
+      expect(config.objects[0].objectApiName).toBe('Account');
+      // The entry of the target maps no field: only the rename is left of the mapping.
+      expect(config.objects[0].fieldMappings).toEqual([
+        { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+      ]);
+    });
+
+    it('takes an empty target for none, as SFDMU does', async () => {
+      const config = await importing(
+        accountMapped([{ targetObject: '', sourceField: 'Name', targetField: 'Name' }]),
+      );
+
+      expect(config.objects[0].fieldMappings).toEqual([
+        { sourceField: 'Name', targetField: 'Name', type: 'direct' },
+      ]);
+    });
+
+    it('does not refuse a Readonly object: it is left out, and nothing is written for it', async () => {
+      const config = await importing(
+        JSON.stringify({
+          objects: [
+            {
+              query: 'SELECT Id FROM Account',
+              operation: 'Readonly',
+              objectName: 'Account',
+              fieldMapping: [{ targetObject: 'Lead' }],
+            },
+            { query: 'SELECT Id FROM Case', operation: 'Insert', objectName: 'Case' },
+          ],
+        }),
+      );
+
+      expect(config.objects.map((object) => object.objectApiName)).toEqual(['Case']);
+    });
+
+    it.each([
+      ['half a field pair', { sourceField: 'Name' }],
+      ['half a field pair beside a target', { targetObject: 'Account', targetField: 'Name' }],
+      ['an entry that names nothing', {}],
+      ['an empty target and no field', { targetObject: '' }],
+    ])('still refuses %s, which maps nothing', (_label, entry) => {
+      const result = sfdmuExportSchema.safeParse({
+        objects: [
+          {
+            query: 'SELECT Id FROM Account',
+            operation: 'Insert',
+            objectName: 'Account',
+            fieldMapping: [entry],
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
     });
   });
 
