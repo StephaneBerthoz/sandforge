@@ -1473,7 +1473,7 @@ function isWithheld(reading: EmailDeliverability): reading is { level: 'withheld
 }
 
 /** What a command line's report of the target's automation says of its deliverability. */
-function deliverabilityLineOf(reading: EmailDeliverability): string {
+export function deliverabilityLineOf(reading: EmailDeliverability): string {
   if ('unread' in reading) {
     return (
       `deliverability: not read (${reading.unread}) — the run is refused without ` +
@@ -1642,7 +1642,12 @@ export function deliverabilityGate(input: DeliverabilityGateInput): Deliverabili
   return {
     verdict: 'asks',
     deliverability,
-    confirmation: { deliverability },
+    confirmation: {
+      deliverability:
+        input.keepsAddresses === true
+          ? { ...deliverability, keepsAddresses: true }
+          : deliverability,
+    },
     ...(input.accepted
       ? {}
       : {

@@ -2388,6 +2388,12 @@ export interface EmailSender {
  */
 export interface RunDeliverability {
   reading: EmailDeliverability;
+  /**
+   * Of a run's question: set when the records it writes keep the addresses
+   * they hold (`--keep-contact-points`), so the question says the emails reach
+   * them, where it says they are under `.invalid` otherwise.
+   */
+  keepsAddresses?: true;
   senders: EmailSender[];
   /**
    * Why what may send could not all be listed: a part of the target's

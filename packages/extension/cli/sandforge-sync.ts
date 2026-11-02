@@ -31,7 +31,7 @@
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
- *     --source SRC --target TGT --object Account --object Contact
+ *     --source SRC --target TGT --object Account --object Contact [--accept-emails]
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --config-file <config.json> --store <dir> --source SRC --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
@@ -137,7 +137,12 @@ import {
   type PutBackKept,
 } from '../src/modules/dataops/backupRetention.js';
 import { loadOrg, makeConn } from './sfSession.js';
-import { refuseProductionTarget, typeTarget, type TypedTarget } from './targetKind.js';
+import {
+  isProductionTarget,
+  refuseProductionTarget,
+  typeTarget,
+  type TypedTarget,
+} from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
@@ -181,6 +186,7 @@ import {
   CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   bypassesToAssign,
+  deliverabilityLineOf,
   formatMB,
   readApiBudget,
   readDataStorage,
@@ -189,6 +195,10 @@ import {
   removalStepsAutomationRefusal,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { RUN_CANCELLED } from '../src/modules/forge/forgeAudit.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+} from '../src/modules/forge/targetDeliverability.js';
 import {
   gateSyncWrite,
   measureSyncWrite,
@@ -295,6 +305,17 @@ Options:
                          for a user who cannot assign permission sets, exit
                          1; with --dry-run, says what would be muted and
                          assigns nothing                   (default: off)
+  --accept-emails        write although the target delivers the emails its
+                         flows, processes and workflow rules send as the run
+                         writes (Setup > Deliverability: All email), or would
+                         not say whether it does. Read only when something
+                         that still runs sends one, with one line of
+                         anonymous Apex that sends nothing; without the flag
+                         the run is refused, exit 1 (EMAILS_NOT_ACCEPTED),
+                         nothing written. On System email only or No access
+                         it is not needed. --mute-automation keeps quiet what
+                         tests the org's bypass; what an Apex trigger sends is
+                         read nowhere                      (default: off)
 ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
   --help                 this text
 
@@ -481,6 +502,11 @@ interface CliArgs {
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation: boolean;
   /**
+   * Write although the target delivers the emails of what still runs, or
+   * would not say whether it does (`--accept-emails`).
+   */
+  acceptEmails: boolean;
+  /**
    * Take a checkpoint of what the run writes before its first write
    * (`--checkpoint-first`): the days it is kept and the objects left out of
    * it. undefined = none.
@@ -514,6 +540,7 @@ const RUN_FLAGS: CommandFlags = {
     '--json',
     '--fail-on-partial',
     '--mute-automation',
+    '--accept-emails',
     ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
@@ -589,6 +616,7 @@ export function parseArgs(argv: string[]): CliArgs {
       json: has('--json'),
       failOnPartial: has('--fail-on-partial'),
       muteAutomation: has('--mute-automation'),
+      acceptEmails: has('--accept-emails'),
       ...asked,
       configFile,
       store,
@@ -665,6 +693,7 @@ export function parseArgs(argv: string[]): CliArgs {
     json: has('--json'),
     failOnPartial: has('--fail-on-partial'),
     muteAutomation: has('--mute-automation'),
+    acceptEmails: has('--accept-emails'),
     ...asked,
   };
 }
@@ -1044,6 +1073,9 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   if (check.emailsUnread !== undefined) {
     lines.push(`  emails: not counted, ${check.emailsUnread} could not be read`);
   }
+  // Whether the target delivers the emails of what still runs: read only
+  // when something sends one.
+  if (check.deliverability) lines.push(`  ${deliverabilityLineOf(check.deliverability.reading)}`);
   // The day's API requests the run takes of the target, against what it has left.
   const api = check.apiRequests;
   if (api) {
@@ -1113,12 +1145,14 @@ export function recordTypeGivenOfObjectsLines(
  * @param muteAssigns - Whether a real run's mute would assign permission sets
  *   (`recordTypeGivenOfObjectsLines`).
  * @param checkpointRefused - Why a real run's checkpoint would be refused, in the command's words.
+ * @param emailsRefused - Why a real run would be refused for the emails it makes the target send.
  */
 export function simulationLines(
   simulation: SyncSimulationResult,
   target = 'the target',
   muteAssigns = false,
   checkpointRefused?: string,
+  emailsRefused?: string,
 ): string[] {
   const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
   // The order the run writes the objects in, and what moved.
@@ -1165,6 +1199,8 @@ export function simulationLines(
       lines.push(
         '    a run of the command would be refused before it writes: past a daily email limit',
       );
+    } else if (simulation.writeCheck.verdict !== 'refused' && emailsRefused !== undefined) {
+      lines.push(`    a run of the command would be refused before it writes: ${emailsRefused}`);
     }
   }
   if (simulation.writeCheckUnread !== undefined) {
@@ -1834,6 +1870,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readApiBudget: () => readApiBudget(targetConn),
     readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
     readLimits: () => readEmailLimits(targetConn),
+    // As the user the run writes as, once something that still runs may send
+    // an email: one line of anonymous Apex that sends nothing, never in a
+    // production org, which a dry run reads: it is typed for it here.
+    readDeliverability: async () =>
+      isProductionTarget(typed ?? (await typeTarget(targetConn)))
+        ? NO_APEX_IN_PRODUCTION
+        : readEmailDeliverability(targetConn),
+    // The emails go out on --accept-emails alone: nothing else on the line
+    // stands for it. The records keep their addresses under
+    // --keep-contact-points, or a configuration's keepContactPoints.
+    emails: {
+      target: args.target,
+      accepted: args.acceptEmails,
+      keepsAddresses: config.keepContactPoints === true,
+      mayMute: !args.muteAutomation,
+    },
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
     ...(checkpoints
       ? {
@@ -1875,10 +1927,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let gateCheck: SyncWriteCheck | undefined;
   /** Why a simulation's gate could not read what a real run's checkpoint would hold. */
   let checkpointFailed: string | undefined;
+  /** Why a real run would be refused for its emails, as a simulation's gate found it. */
+  let emailsRefused: string | undefined;
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
     measure: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       checkpointFailed = measured.checkpointFailed;
+      emailsRefused = measured.runEmails?.gate.stop?.message;
       return measured.check;
     },
     hold: async (counted) => {
@@ -1924,6 +1979,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             return planned;
           },
           `sandforge-sync ${runId}`,
+          { target: args.target },
         )
       : undefined;
   // What a run with --mute-automation would assign, silence, leave running
@@ -2132,7 +2188,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const checkpointRefused =
       checkpointFailed ??
       (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
-    const wouldBeRefused = [muteRefused, checkpointRefused].filter(
+    const wouldBeRefused = [muteRefused, checkpointRefused, emailsRefused].filter(
       (reason): reason is string => reason !== undefined,
     );
     const elapsed = Date.now() - t0;
@@ -2143,7 +2199,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return;
     }
     const muteAssigns = (planned?.plan?.assign.length ?? 0) > 0;
-    for (const line of simulationLines(simulation, args.target, muteAssigns, checkpointRefused)) {
+    for (const line of simulationLines(
+      simulation,
+      args.target,
+      muteAssigns,
+      checkpointRefused,
+      emailsRefused,
+    )) {
       log(line);
     }
     log(`\ndone in ${elapsed}ms`);

@@ -89,6 +89,9 @@ function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures
     readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
     readAutomation: async () => AUTOMATION,
     readLimits: async () => ({}),
+    // An org that delivers none of the emails of its automation: no question.
+    readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
+    emails: { target: 'DEV-SB', accepted: false },
     confirmAboveRecords: 2_000,
     ...overrides,
   };
@@ -482,6 +485,7 @@ describe('the write path of a Sync run that mutes and takes a checkpoint first',
         });
       },
       'run-1',
+      { target: 'DEV-SB' },
     );
     return {
       muting,

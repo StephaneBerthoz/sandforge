@@ -13,6 +13,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { answeringDeliverability } from '../../test/deliverabilityOrg.js';
 
 /** What a target that runs nothing on `objects` answers a read of its automation. */
 function quietTarget(objects: readonly string[]): ForgeTargetAutomation {
@@ -1718,12 +1719,17 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({
         ...options.conn,
+        // An org that delivers none of the emails of its automation: its
+        // read asks nothing.
         request: vi.fn(
-          async () =>
-            options.limits ?? {
-              DataStorageMB: { Max: 200, Remaining: options.remainingMB },
-              SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
-            },
+          answeringDeliverability(
+            'withheld',
+            async () =>
+              options.limits ?? {
+                DataStorageMB: { Max: 200, Remaining: options.remainingMB },
+                SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
+              },
+          ).request,
         ),
       } as never);
       await handler.handle(scanMsg('scan-gate'));

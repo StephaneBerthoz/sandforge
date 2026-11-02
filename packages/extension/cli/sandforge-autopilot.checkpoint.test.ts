@@ -324,8 +324,9 @@ describe('sandforge-autopilot --checkpoint-first', () => {
     await main(argv('--checkpoint-first', '--plan-only'));
 
     expect(out.join('')).toContain(
-      'a real run would be refused: The run takes about 69 API requests (68 of them for the ' +
-        'checkpoint taken first), and TGT has 40 of its 15000 daily requests left',
+      'a real run would be refused: The run takes about 70 API requests (68 of them for the ' +
+        'checkpoint taken first, 1 to read back the record types the target gave), and TGT ' +
+        'has 40 of its 15000 daily requests left',
     );
 
     // Without it, the plan's own requests fit.

@@ -39,7 +39,7 @@ import type {
 } from '@sandforge/shared';
 import { recordWriteHeaders, stillRunningOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import { refuseProductionTarget, typeTarget } from './targetKind.js';
+import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode, type RunStatus } from './exitCodes.js';
@@ -86,6 +86,7 @@ import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js
 import {
   autopilotApiCheck,
   autopilotEmails,
+  autopilotReadBackOf,
   autopilotWritePlan,
   objectsThePlanWrites,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
@@ -95,6 +96,7 @@ import {
   DEFAULT_MAX_TOTAL,
   apiBudgetRefusal,
   checkpointPartOf,
+  deliverabilityPartOf,
   emailCheckLines,
   emailRefusal,
   formatMB,
@@ -135,6 +137,12 @@ import {
 } from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+  type RunEmailsInput,
+} from '../src/modules/forge/targetDeliverability.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -203,6 +211,17 @@ Options:
                          --fit share, the share is taken of what the caps leave
   --fit-within <MB>      with --fit or --fit-cap: take no more than this many
                          MB, whatever the target has left
+  --accept-emails        write although the target delivers the emails its
+                         flows, processes and workflow rules send as the plan
+                         writes (Setup > Deliverability: All email), or would
+                         not say whether it does. Read only when something
+                         that still runs sends one, with one line of
+                         anonymous Apex that sends nothing; without the flag
+                         the run is refused, exit 1 (EMAILS_NOT_ACCEPTED),
+                         nothing written. On System email only or No access
+                         it is not needed. --mute-automation keeps quiet what
+                         tests the org's bypass; what an Apex trigger sends is
+                         read nowhere                     (default: off)
 ${checkpointFirstHelp({
   run: 'the run',
   simulation: '--plan-only',
@@ -219,7 +238,8 @@ object, only the records the selection references are read, by id; a lookup
 past the bounds is left empty, and the plan says which. Before it writes, the
 run is held to --max-total, to the data storage and the daily API requests the
 target has left, and to the daily emails the target's flows would send for its
-records: past any, nothing is written.
+records: past any, nothing is written. Where the target delivers those emails,
+or would not say whether it does, it writes only with --accept-emails.
 
 Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
 says what it wrote and which objects it did not, and --json names every record
@@ -256,6 +276,11 @@ interface CliArgs {
   /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
   muteAutomation: boolean;
   /**
+   * Write although the target delivers the emails of what still runs, or
+   * would not say whether it does (`--accept-emails`).
+   */
+  acceptEmails: boolean;
+  /**
    * Take a checkpoint of what the run writes before its first write
    * (`--checkpoint-first`): the days it is kept and the objects left out of
    * it. undefined = none.
@@ -277,6 +302,7 @@ const FLAGS: CommandFlags = {
     '--json',
     '--fail-on-partial',
     '--mute-automation',
+    '--accept-emails',
     ...CHECKPOINT_FIRST_FLAGS.switches,
   ],
   values: [
@@ -384,6 +410,7 @@ export function parseArgs(argv: string[]): CliArgs {
     json: args.includes('--json'),
     failOnPartial: args.includes('--fail-on-partial'),
     muteAutomation: args.includes('--mute-automation'),
+    acceptEmails: args.includes('--accept-emails'),
     ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     ...(fit ? { fit } : {}),
   };
@@ -663,7 +690,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // once, whatever counts them again.
   let budget: Promise<ApiBudget> | undefined;
   const readBudget = (): Promise<ApiBudget> => (budget ??= readApiBudget(targetConn));
-  let api = await autopilotApiCheck(writePlan, storage, readBudget);
+  let api = await autopilotApiCheck(writePlan, storage, readBudget, undefined, {
+    readBack: autopilotReadBackOf(writePlan),
+  });
   log('');
   for (const line of writePlanLines(writePlan, check, args.target)) log(line);
   // A run that takes a checkpoint first says them once it is scoped, its
@@ -726,7 +755,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
   }
   if (checkpoints) {
-    api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate);
+    api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
+      readBack: autopilotReadBackOf(writePlan),
+    });
     log(apiRequestsLine(api, args.target));
     if (checkpointPlanned) {
       for (const line of checkpointEstimateLines(checkpointPlanned.estimate)) log(line);
@@ -809,7 +840,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           }
         }
       }
-      api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate);
+      api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
+        readBack: autopilotReadBackOf(writePlan),
+      });
       log('');
       sayThePlan();
       log('');
@@ -835,6 +868,42 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (emails.unread !== undefined) {
     log(`  emails: not counted, ${emails.unread} could not be read`);
   }
+  // Whether the target delivers the emails of what still runs once the
+  // mute's plan holds, on the objects the plan writes records of: read last
+  // before the run's gate, as the user the run writes as, only when something
+  // may send one, and never in a production org, which --plan-only reads. Its
+  // requests are the run's: counted, and said. The emails go out on
+  // --accept-emails alone: nothing else on the line stands for it.
+  const planObjects = new Set(writePlan.objects.map(({ objectApiName }) => objectApiName));
+  const writes: RunEmailsInput['writes'] = (objectApiName, write) =>
+    planObjects.has(objectApiName) && (write === 'insert' || write === 'update');
+  const runEmails =
+    writePlan.totalRows > 0
+      ? await runEmailsOf({
+          read: await readTheAutomation(),
+          ...(mute?.plan ? { plan: mute.plan } : {}),
+          writes,
+          readDeliverability: async () =>
+            isProductionTarget(typedTarget ?? (await typeTarget(targetConn)))
+              ? NO_APEX_IN_PRODUCTION
+              : readEmailDeliverability(targetConn),
+          accepted: args.acceptEmails,
+          target: args.target,
+          run: 'autopilot',
+          keepsAddresses: args.keepContactPoints,
+          mayMute: !args.muteAutomation,
+        })
+      : undefined;
+  const emailsGate = runEmails?.gate;
+  if (emailsGate?.line !== undefined) log(`  ${emailsGate.line}`);
+  const deliverability = deliverabilityPartOf(runEmails?.ofRun);
+  if (deliverability.deliverability !== undefined) {
+    api = await autopilotApiCheck(writePlan, storage, readBudget, checkpointPlanned?.estimate, {
+      readBack: autopilotReadBackOf(writePlan),
+      ...deliverability,
+    });
+    log(apiRequestsLine(api, args.target));
+  }
   const refusals = [
     // The checkpoint's refusal in the command's words, said with the rest.
     checkpointFailed ??
@@ -849,6 +918,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Its own refusal closes on the sentence the thrown error adds once.
     apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
     emailRefusal(emails.checks, args.target),
+    // Its own refusal says nothing was written before what lifts it: the
+    // sentence the thrown error closes on says it once.
+    emailsGate?.stop?.message.replace(/ Nothing was written\./, ''),
     muteRefused,
     fitRefused,
   ].filter((reason): reason is string => reason !== undefined);
@@ -896,6 +968,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               personAccounts: Object.fromEntries(scan.personAccounts),
               emails: emails.checks,
               ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
+              // Whether the target delivers them: absent when nothing sends.
+              ...(emailsGate?.deliverability ? { deliverability: emailsGate.deliverability } : {}),
               refusals,
             },
             // What a real run's mute would assign, silence, leave running
@@ -968,6 +1042,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ? await mute.prepared.acquire(`sandforge-autopilot ${t0}`)
       : undefined;
     mutedAutomation = held?.outcome ?? mute?.muted;
+    // Read back against its plan: a set it does not hold leaves running a
+    // sender of emails the gate was not told of. The run writes nothing, and
+    // gives the lease back.
+    const relit = held ? runEmails?.afterLease(held.outcome, args.acceptEmails) : undefined;
+    if (held && relit) {
+      mutedAutomation = await held.release();
+      for (const line of muteLines(mutedAutomation, args.target)) log(line);
+      throw new Error(relit.message);
+    }
     result = await orchestrator
       .executePlan(plan, graph, rules, recordCounts, undefined, stop.signal, scan.parentIds, {
         ...(args.keepContactPoints ? { keepContactPoints: true } : {}),

@@ -100,6 +100,11 @@ import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOp
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+} from '../../modules/forge/targetDeliverability.js';
+import { runEmailsDetailsOf, type RunEmailsSaid } from '../../modules/forge/runEmailsSaid.js';
 import { BulkDataWriter, syncWriterCalls } from '../../modules/sync/BulkDataWriter.js';
 import {
   targetWriteFieldsOf,
@@ -152,7 +157,7 @@ import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
 import type { StandardPricebooks } from '../../modules/sync/syncPrices.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
-import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
+import { liveAnswer, type WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   readApiBudget,
@@ -420,6 +425,34 @@ interface SyncReaders {
 }
 
 /**
+ * Who answers for the emails of a run nobody is asked about, and what lifts
+ * its refusal. A pipeline's step is answered by the Approval before it — the
+ * answer the step's run carries (`withGivenAnswer`) — and nothing else; a
+ * schedule by no one. A run from the page is asked: only a lease that does not
+ * hold what it was to keep quiet refuses it.
+ */
+function syncEmailsAnswerOf(policy: SyncGatePolicy): {
+  emailsAccepted?: boolean;
+  emailsLiftedBy: string;
+} {
+  if (policy === 'ask') {
+    return {
+      emailsLiftedBy: 'Untick Mute automation to be asked about them and sync all the same',
+    };
+  }
+  const given = liveAnswer();
+  return given
+    ? {
+        emailsAccepted: given.approved,
+        emailsLiftedBy: 'Approve an Approval step put before this Sync step to sync all the same',
+      }
+    : {
+        emailsLiftedBy:
+          'Run it from the Sync page, which asks before it writes, to sync all the same',
+      };
+}
+
+/**
  * Domain handler for sync-related webview-to-extension messages.
  *
  * Routes sync:* message types to schema description and data synchronization
@@ -517,9 +550,11 @@ export class SyncOpsHandler implements DomainHandler {
   /**
    * What a run of `config` is held to before its first write, and a
    * simulation of it measured by (`SyncRunGate`): its records against the
-   * target's data storage, its daily emails and the setting's volume, asked
-   * of the user through Production Guard's confirmation when someone started
-   * it, and refused past the emails when nobody watches it.
+   * target's data storage, its daily emails, whether the target delivers them
+   * and the setting's volume, asked of the user through Production Guard's
+   * confirmation when someone started it, and refused past the emails when
+   * nobody watches it — and, where the target delivers them, unless the
+   * Approval before a pipeline's step answered for them.
    *
    * @param policy - Who answers for the run (`SyncGatePolicy`).
    * @param checkpointFirst - The checkpoint the run takes of what it writes
@@ -536,6 +571,7 @@ export class SyncOpsHandler implements DomainHandler {
     const target = this.deps.orgManager.getOrg(config.targetOrgId);
     const reader = this.targetAutomation;
     const guard = this.deps.infraServices?.productionGuard;
+    const emailsAnswer = syncEmailsAnswerOf(policy);
     return syncWriteGate(
       {
         readStorage: () =>
@@ -556,6 +592,18 @@ export class SyncOpsHandler implements DomainHandler {
           new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
             readEmailLimits(targetConn),
           ),
+        // As the user the run writes as, once something that still runs may
+        // send an email: one line of anonymous Apex that sends nothing, never
+        // in a production org, where a person may still run a sync.
+        readDeliverability: () =>
+          guardTierOf(target) === 'production'
+            ? Promise.resolve(NO_APEX_IN_PRODUCTION)
+            : readEmailDeliverability(targetConn),
+        emails: {
+          target: target?.alias ?? config.targetOrgId,
+          accepted: emailsAnswer.emailsAccepted === true,
+          keepsAddresses: config.keepContactPoints === true,
+        },
         confirmAboveRecords: this.confirmAboveRecords(),
         ...(checkpointFirst ? { checkpointFirst } : {}),
       },
@@ -564,6 +612,7 @@ export class SyncOpsHandler implements DomainHandler {
         org: target?.alias ?? config.targetOrgId,
         orgTier: guardTierOf(target),
         ...(guard ? { confirm: (question: WriteConfirmation) => guard.confirmRun(question) } : {}),
+        emailsLiftedBy: emailsAnswer.emailsLiftedBy,
       },
     );
   }
@@ -1022,6 +1071,7 @@ export class SyncOpsHandler implements DomainHandler {
     result: SyncExecutionResult,
     guardDecision: GuardDecision | undefined,
     triggeredBy: SyncHistoryEntry['triggeredBy'],
+    emails?: RunEmailsSaid,
   ): void {
     const objects = syncAuditObjects(result.objectResults ?? []);
     const touched = objects.some(
@@ -1039,8 +1089,9 @@ export class SyncOpsHandler implements DomainHandler {
       guard: guardDecision,
       objects,
       source: { origin: 'org', orgId: config.sourceOrgId },
-      // What started it: the page, a re-run, a schedule or a pipeline.
-      details: { triggeredBy },
+      // What started it: the page, a re-run, a schedule or a pipeline; and
+      // whether the target delivered the emails of what still ran.
+      details: { triggeredBy, ...runEmailsDetailsOf(emails) },
       ...(result.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
       // The checkpoint it took first and kept: what a rewind to before it goes to.
       ...(result.checkpoint?.state === 'taken'
@@ -2464,6 +2515,17 @@ export class SyncOpsHandler implements DomainHandler {
      * deleted when it never did.
      */
     let wrote = false;
+    /** What became of its emails at its gate: what its audit entry says of them. */
+    let emails: RunEmailsSaid | undefined;
+    /** The run's gate, its answer on the emails kept as it answers. */
+    const emailsKeptBy = (gate: SyncWriteGate): SyncWriteGate => ({
+      measure: (counted) => gate.measure(counted),
+      hold: async (counted) => {
+        const held = await gate.hold(counted);
+        emails = held.answer.emails;
+        return held;
+      },
+    });
     // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
     const pauseGate = new PauseGate();
     this.pauseGates.set(operationId, pauseGate);
@@ -2631,7 +2693,9 @@ export class SyncOpsHandler implements DomainHandler {
           const policy: SyncGatePolicy =
             triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask';
           if (!muteAutomation) {
-            return this.writeGateFor(config, targetConn, policy, undefined, checkpoint?.gate);
+            return emailsKeptBy(
+              this.writeGateFor(config, targetConn, policy, undefined, checkpoint?.gate),
+            );
           }
           // Asked to mute, the gate plans the mute from what the target runs
           // on the objects the run writes, measures what still runs, and
@@ -2650,8 +2714,12 @@ export class SyncOpsHandler implements DomainHandler {
                 writes: syncRunWrites,
               }),
             operationId,
+            {
+              target: this.deps.orgManager.getOrg(config.targetOrgId)?.alias ?? config.targetOrgId,
+              liftedBy: syncEmailsAnswerOf(policy).emailsLiftedBy,
+            },
           );
-          return muting.gate;
+          return emailsKeptBy(muting.gate);
         })(),
         // Both orgs' record types, a record's mapped to the target's.
         recordTypes: readers.recordTypes,
@@ -2735,7 +2803,7 @@ export class SyncOpsHandler implements DomainHandler {
       } catch (historyErr: unknown) {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
-      this.recordRun(config, operationId, result, guardDecision, triggeredBy);
+      this.recordRun(config, operationId, result, guardDecision, triggeredBy, emails);
 
       const response = buildResponse(
         this.deps,
@@ -2777,7 +2845,11 @@ export class SyncOpsHandler implements DomainHandler {
           outcome: 'stopped',
           guard: guardDecision,
           code: err.code,
-          details: { triggeredBy, ...(refusal ? { checkpointRefusal: refusal.code } : {}) },
+          details: {
+            triggeredBy,
+            ...(refusal ? { checkpointRefusal: refusal.code } : {}),
+            ...runEmailsDetailsOf(emails),
+          },
         });
         sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, {
           code: err.code,
@@ -2879,7 +2951,7 @@ export class SyncOpsHandler implements DomainHandler {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
       // What it wrote before it failed is in the partial result, when there is one.
-      this.recordRun(config, operationId, failureResult, guardDecision, triggeredBy);
+      this.recordRun(config, operationId, failureResult, guardDecision, triggeredBy, emails);
 
       return failureResult;
     } finally {

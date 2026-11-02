@@ -21,8 +21,14 @@ import type {
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
-import { DATA_STORAGE_NOT_TOLD, type ForgeRemovalRisk } from '@sandforge/shared';
+import {
+  DATA_STORAGE_NOT_TOLD,
+  type EmailSender,
+  type ForgeRemovalRisk,
+  type RunDeliverability,
+} from '@sandforge/shared';
 import { formatMB } from '../modules/forge/ForgeRunGate';
+import { uiLocaleOf } from '../core/i18n/catalogueText';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
@@ -326,14 +332,104 @@ function assignCommands(question: RunConfirmation): string[] {
     : [];
 }
 
+/** A sender of emails as the question lists it, by its kind and why it counts. */
+function senderLine({ objectApiName, kind, name, why }: EmailSender): string {
+  if (kind === 'assignmentRule') {
+    return vscode.l10n.t(
+      '• {0}: assignment rule "{1}", which can mail the owner it assigns',
+      objectApiName,
+      name,
+    );
+  }
+  if (why === 'notRead') {
+    return kind === 'flow'
+      ? vscode.l10n.t('• {0}: Flow "{1}", whose definition was not read', objectApiName, name)
+      : kind === 'process'
+        ? vscode.l10n.t('• {0}: process "{1}", whose definition was not read', objectApiName, name)
+        : vscode.l10n.t(
+            '• {0}: workflow rule "{1}", whose definition was not read',
+            objectApiName,
+            name,
+          );
+  }
+  return kind === 'flow'
+    ? vscode.l10n.t('• {0}: Flow "{1}"', objectApiName, name)
+    : kind === 'process'
+      ? vscode.l10n.t('• {0}: process "{1}"', objectApiName, name)
+      : vscode.l10n.t('• {0}: workflow rule "{1}"', objectApiName, name);
+}
+
+/**
+ * What a run's question says first, when the target delivers the emails what
+ * still runs sends, or would not say whether it does: that it does, who sends
+ * them, and where they go — not only to the records the run writes. Nothing
+ * when it delivers none of them, or nothing sends: the question then has no
+ * such block. Its answer is "Execute and send the emails".
+ */
+function deliverabilityLines(question: {
+  org: string;
+  deliverability?: RunDeliverability;
+}): string[] {
+  const said = question.deliverability;
+  if (said === undefined || ('level' in said.reading && said.reading.level === 'withheld')) {
+    return [];
+  }
+  const { org } = question;
+  const lines = [
+    'unread' in said.reading
+      ? vscode.l10n.t(
+          'Whether {0} delivers the emails its automation sends could not be read ({1}), and what still runs as the records go in may send some:',
+          org,
+          said.reading.unread,
+        )
+      : vscode.l10n.t(
+          '{0} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+          org,
+        ),
+  ];
+  lines.push(...said.senders.slice(0, LISTED_IN_A_QUESTION).map(senderLine));
+  if (said.senders.length > LISTED_IN_A_QUESTION) {
+    lines.push(vscode.l10n.t('• and {0} more', said.senders.length - LISTED_IN_A_QUESTION));
+  }
+  // A part of the automation that sends emails refused whole lists nothing,
+  // which is not the same as sending nothing.
+  if (said.sendersUnread !== undefined) {
+    lines.push(
+      vscode.l10n.t('• what could not be read of its automation: {0}', said.sendersUnread),
+    );
+  }
+  lines.push(
+    said.keepsAddresses
+      ? vscode.l10n.t(
+          'They go to the addresses the records and the alerts name: those of the records the run writes, as they hold them, the owners of the records, the records already in {0}, and an address an alert names.',
+          org,
+        )
+      : vscode.l10n.t(
+          'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in {0}, nor an address an alert names.',
+          org,
+        ),
+  );
+  if ('unread' in said.reading) {
+    lines.push(
+      vscode.l10n.t(
+        'On System email only or No access (Setup > Deliverability), none of them goes out.',
+      ),
+    );
+  }
+  lines.push(vscode.l10n.t('Execute and send the emails lets them go out.'));
+  return lines;
+}
+
 /**
  * What a run's question says of what fires in the target as the run inserts
  * and updates. One asked only for what may refuse a removal — a run started
  * with Clone directly, which never showed Review — says first that nothing
- * fires: the lines that follow are the whole of why it asks.
+ * fires: the lines that follow are the whole of why it asks. Whether the
+ * target delivers the emails of what still runs comes first, what leaves the
+ * org before what runs in it.
  */
 function automationQuestion(question: AutomationConfirmation): string[] {
-  const lines: string[] = [];
+  const lines: string[] = [...deliverabilityLines(question)];
   if (
     question.fired.length === 0 &&
     question.firedOnUpdate.length === 0 &&
@@ -470,12 +566,13 @@ function readQuestion(question: ReadConfirmation): string[] {
 }
 
 /**
- * What a run's question says first, of what leaves the org: the daily email
- * limits the records take the target past, those it did not say it has left
- * of, and the emails no read counted.
+ * What a run's question says first, of what leaves the org: whether the
+ * target delivers the emails of what still runs, the daily email limits the
+ * records take the target past, those it did not say it has left of, and the
+ * emails no read counted.
  */
 function leavesTheOrgLines(question: WriteConfirmation): string[] {
-  const lines: string[] = [];
+  const lines: string[] = [...deliverabilityLines(question)];
   // The daily email limits the records take the target past: the rest of
   // them would be refused one by one, as the flow that sends fails.
   for (const over of question.emails ?? []) {
@@ -970,9 +1067,18 @@ export function runQuestionDetail(question: RunConfirmation): string {
  */
 export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   // Compared against the same localized value it is shown with (see the
-  // production confirmation below).
+  // production confirmation below). A question that says the target delivers
+  // the emails of what still runs is answered by sending them: no other
+  // button stands for that.
   const rehearsal = question.stage === 'rehearsal';
-  const go = rehearsal ? vscode.l10n.t('Rehearse') : vscode.l10n.t('Execute');
+  const sends =
+    (question.stage === 'write' || question.stage === 'automation') &&
+    deliverabilityLines(question).length > 0;
+  const go = rehearsal
+    ? vscode.l10n.t('Rehearse')
+    : sends
+      ? vscode.l10n.t('Execute and send the emails')
+      : vscode.l10n.t('Execute');
   // A modal's text cannot be selected everywhere: the command that would
   // assign a bypass goes to the clipboard from a button of its own. It
   // cancels the clone, which the user runs again once the command ran.
@@ -1110,6 +1216,17 @@ function tierWord(tier: SafetyTier): string {
 }
 
 /**
+ * Whether `count` takes the singular, by the plural rule of the language
+ * whose bundle VS Code shows, as the status bar's count of orgs takes it
+ * (`extension.ts`): French says "0 enregistrement" where English says
+ * "0 records", and an editor in a language SandForge ships no bundle for is
+ * shown the English strings, and English's rule.
+ */
+function takesSingular(count: number): boolean {
+  return new Intl.PluralRules(uiLocaleOf(undefined, vscode.env.language)).select(count) === 'one';
+}
+
+/**
  * The confirmation's question in the UI language. Every piece is a whole
  * phrase with its placeholders, so a language orders the operation, the
  * records and the org its own way; the English keys are the guard's own words.
@@ -1135,11 +1252,15 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
     if (unit === 'component') {
       if (count === 'unknown') return vscode.l10n.t('components');
       if (typeof count !== 'number') return vscode.l10n.t('at most {0} components', count.atMost);
-      return count === 1 ? vscode.l10n.t('1 component') : vscode.l10n.t('{0} components', count);
+      return takesSingular(count)
+        ? vscode.l10n.t('{0} component', count)
+        : vscode.l10n.t('{0} components', count);
     }
     if (count === 'unknown') return vscode.l10n.t('records');
     if (typeof count !== 'number') return vscode.l10n.t('at most {0} records', count.atMost);
-    return count === 1 ? vscode.l10n.t('1 record') : vscode.l10n.t('{0} records', count);
+    return takesSingular(count)
+      ? vscode.l10n.t('{0} record', count)
+      : vscode.l10n.t('{0} records', count);
   },
   besides: (counted, alsoWrites) =>
     vscode.l10n.t(

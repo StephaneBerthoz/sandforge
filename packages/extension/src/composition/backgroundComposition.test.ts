@@ -47,6 +47,7 @@ import {
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   migrationExportPicker,
+  L10N_QUESTION_WORDS,
   runQuestionDetail,
   wireBackgroundNotifications,
   wireOfflineNotifications,
@@ -1463,5 +1464,229 @@ describe('wireBackgroundNotifications', () => {
     expect(stateSync.setActiveOperations).toHaveBeenCalledWith([
       expect.objectContaining({ operationId: 'op-1', status: 'aborted' }),
     ]);
+  });
+});
+
+describe("a run's question on the emails the target delivers (localized)", () => {
+  /** A sync of contacts into an org on All email, whose flows email them past what it has left. */
+  const delivered: WriteConfirmation = {
+    stage: 'write',
+    module: 'sync',
+    org: 'DEV',
+    orgTier: 'development',
+    objects: [{ objectApiName: 'Contact', rows: 20 }],
+    total: 20,
+    counted: true,
+    storage: { estimateMB: 0.04, maxMB: 200, remainingMB: 150, near: false },
+    emails: [
+      {
+        limit: 'SingleEmail',
+        emails: 40,
+        remaining: 15,
+        max: 15,
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+      },
+    ],
+    deliverability: {
+      reading: { level: 'all' },
+      senders: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' },
+        { objectApiName: 'Contact', kind: 'workflowRule', name: 'Welcome rule', why: 'email' },
+        { objectApiName: 'Contact', kind: 'flow', name: 'Packaged', why: 'notRead' },
+        { objectApiName: 'Case', kind: 'assignmentRule', name: 'Support queue', why: 'assignment' },
+      ],
+    },
+  };
+
+  /** The same, of records that keep the addresses they hold. */
+  const kept: WriteConfirmation = {
+    ...delivered,
+    deliverability: { ...delivered.deliverability!, keepsAddresses: true },
+  };
+
+  /** An org that would not say, what sends having been refused whole. */
+  const unread: NonNullable<WriteConfirmation['deliverability']> = {
+    reading: { unread: 'timed out' },
+    senders: [],
+    sendersUnread: "the target's flows: INSUFFICIENT_ACCESS",
+  };
+
+  /** The bundle of a language, as VS Code hands the host its strings. */
+  const bundleOf = (locale: string): Record<string, string> =>
+    JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', `bundle.l10n.${locale}.json`), 'utf8'),
+    ) as Record<string, string>;
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('says first what the org delivers, who sends it and where it goes, before the daily limits', () => {
+    const lines = runQuestionDetail(delivered).split('\n');
+
+    expect(lines.slice(2, 10)).toEqual([
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+      '• Contact: Flow "Welcome email"',
+      '• Contact: workflow rule "Welcome rule"',
+      '• Contact: Flow "Packaged", whose definition was not read',
+      '• Case: assignment rule "Support queue", which can mail the owner it assigns',
+      'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in DEV, nor an address an alert names.',
+      'Execute and send the emails lets them go out.',
+      'These records make the flows of DEV send about 40 single emails, more than the 15 of 15 it has left today (emails per record: Contact 2). Past them, a record whose flow fails in the save is refused.',
+    ]);
+  });
+
+  it('says the emails reach the addresses the records keep, when they keep them', () => {
+    expect(runQuestionDetail(kept)).toContain(
+      'They go to the addresses the records and the alerts name: those of the records the run writes, as they hold them, the owners of the records, the records already in DEV, and an address an alert names.',
+    );
+  });
+
+  it('says why the org would not say, and where none goes out, when the read failed and listed no sender', () => {
+    const lines = runQuestionDetail({
+      ...delivered,
+      emails: undefined,
+      deliverability: unread,
+    }).split('\n');
+
+    expect(lines.slice(2, 7)).toEqual([
+      'Whether DEV delivers the emails its automation sends could not be read (timed out), and what still runs as the records go in may send some:',
+      "• what could not be read of its automation: the target's flows: INSUFFICIENT_ACCESS",
+      'They go to the addresses the records and the alerts name: those of the records the run writes are under .invalid, but not those of the owners of the records, of the records already in DEV, nor an address an alert names.',
+      'On System email only or No access (Setup > Deliverability), none of them goes out.',
+      'Execute and send the emails lets them go out.',
+    ]);
+  });
+
+  it('says what could not be read beside the senders it lists, when a part of the automation was refused', () => {
+    const lines = runQuestionDetail({
+      ...delivered,
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' }],
+        sendersUnread: "the target's processes: INSUFFICIENT_ACCESS",
+      },
+    }).split('\n');
+
+    expect(lines.slice(3, 5)).toEqual([
+      '• Contact: Flow "Welcome email"',
+      "• what could not be read of its automation: the target's processes: INSUFFICIENT_ACCESS",
+    ]);
+  });
+
+  it('says nothing of an org that withholds them', () => {
+    const detail = runQuestionDetail({
+      ...delivered,
+      deliverability: {
+        reading: { level: 'withheld' },
+        senders: delivered.deliverability!.senders,
+      },
+    });
+    expect(detail).not.toContain('delivers every email');
+    expect(detail).not.toContain('Execute and send the emails');
+  });
+
+  it('puts it first in the automation question of a clone, before what fires', () => {
+    const lines = runQuestionDetail({
+      stage: 'automation',
+      org: 'DEV',
+      orgTier: 'development',
+      fired: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email' }],
+      firedOnUpdate: [],
+      updateSteps: [],
+      unread: [],
+      bypass: [],
+      assign: [],
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [{ objectApiName: 'Contact', kind: 'flow', name: 'Welcome email', why: 'email' }],
+      },
+    }).split('\n');
+
+    expect(lines[0]).toBe(
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the records go in may send some:',
+    );
+    expect(lines.indexOf('Execute and send the emails lets them go out.')).toBeLessThan(
+      lines.indexOf('DEV runs automation on the records this clone inserts:'),
+    );
+  });
+
+  it('is answered by its own button, translated, which alone sends them', async () => {
+    l10nBundle.current = bundleOf('fr');
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const { productionGuard } = createBackgroundComposition({
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmRun(delivered)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call.slice(2)).toEqual(['Exécuter et envoyer les e-mails']);
+
+    // A question that sends nothing keeps Execute.
+    vi.mocked(vscode.window.showWarningMessage).mockClear();
+    await productionGuard.confirmRun({ ...delivered, deliverability: undefined });
+    expect(
+      (vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[]).slice(2),
+    ).toEqual(['Exécuter']);
+    // Execute does not answer a question that sends them.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Exécuter' as never);
+    await expect(productionGuard.confirmRun(delivered)).resolves.toBe('declined');
+  });
+
+  it.each(['fr', 'de', 'es', 'pt-br', 'ja'])(
+    'says the whole of it in %s, none of its sentences left in English',
+    (locale) => {
+      l10nBundle.current = bundleOf(locale);
+      const english = [
+        ...runQuestionDetail(delivered).split('\n'),
+        ...runQuestionDetail(kept).split('\n'),
+        ...runQuestionDetail({ ...delivered, deliverability: unread }).split('\n'),
+      ];
+      l10nBundle.current = {};
+      const said = new Set([
+        ...runQuestionDetail(delivered).split('\n'),
+        ...runQuestionDetail(kept).split('\n'),
+        ...runQuestionDetail({ ...delivered, deliverability: unread }).split('\n'),
+      ]);
+      // The objects and their counts are names and numbers, the same in every language.
+      const sentences = english.filter((line) => !/^• \w+: \d+$/.test(line));
+      expect(sentences.filter((line) => said.has(line))).toEqual([]);
+    },
+  );
+});
+
+describe("the count of a run's question, by the plural rule of the displayed language", () => {
+  const env = vscode.env as { language?: string };
+
+  beforeEach(() => {
+    l10nBundle.current = {};
+    delete env.language;
+  });
+
+  it('says one record, and none, as English counts them', () => {
+    env.language = 'en';
+    expect(L10N_QUESTION_WORDS.counted('record', 0)).toBe('0 records');
+    expect(L10N_QUESTION_WORDS.counted('record', 1)).toBe('1 record');
+    expect(L10N_QUESTION_WORDS.counted('component', 2)).toBe('2 components');
+  });
+
+  it('says none in the singular in French, where English says "0 records"', () => {
+    env.language = 'fr';
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(L10N_QUESTION_WORDS.counted('record', 0)).toBe('0 enregistrement');
+    expect(L10N_QUESTION_WORDS.counted('record', 1)).toBe('1 enregistrement');
+    expect(L10N_QUESTION_WORDS.counted('record', 2)).toBe('2 enregistrements');
+    expect(L10N_QUESTION_WORDS.counted('component', 0)).toBe('0 composant');
+  });
+
+  it('takes English’s rule in a language SandForge ships no bundle for', () => {
+    env.language = 'ru';
+    // Russian says 21 in the singular; the English strings shown do not.
+    expect(L10N_QUESTION_WORDS.counted('record', 21)).toBe('21 records');
   });
 });

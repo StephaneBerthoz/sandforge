@@ -64,12 +64,22 @@ import { autopilotAuditFitOf, planWriteGateOf } from '../../modules/autopilot/au
 import {
   autopilotApiCheck,
   autopilotEmails,
+  autopilotReadBackOf,
   autopilotWritePlan,
   gateAutopilotWrite,
   objectsThePlanWrites,
   type AutopilotCheckpointFirst,
   type AutopilotEmails,
 } from '../../modules/autopilot/AutopilotRunGate.js';
+import {
+  NO_APEX_IN_PRODUCTION,
+  readEmailDeliverability,
+  runEmailsOf,
+  type RunEmails,
+  type RunEmailsInput,
+} from '../../modules/forge/targetDeliverability.js';
+import { emailsRefusalWords, runEmailsDetailsOf } from '../../modules/forge/runEmailsSaid.js';
+import { EMAILS_NOT_ACCEPTED } from '../../modules/forge/ForgeRunGate.js';
 import {
   beforeRunFailedWords,
   type BeforeRunAsk,
@@ -137,6 +147,9 @@ export const AUTOPILOT_GATE_CODES = {
   CHECKPOINT_REFUSED: 'CHECKPOINT_REFUSED',
   // The run's Stop while it took the checkpoint first: a cancel, nothing written.
   RUN_CANCELLED: 'RUN_CANCELLED',
+  // A lease that did not hold what it was to keep quiet left running a sender
+  // of emails its question did not ask about: nothing written.
+  EMAILS_NOT_ACCEPTED,
 } as const;
 
 /**
@@ -1172,12 +1185,48 @@ export class AutopilotHandler implements DomainHandler {
       }
       checkpointFirst = scoped;
     }
+    // What the target runs on the objects the plan writes, read once: its
+    // emails are counted from it, and what may send one found in it.
+    if (writePlan.totalRows > 0) {
+      read ??= await this.readTargetAutomation(operation.targetOrgId, plan);
+    }
     const emails = await this.targetEmails(
       operation.targetOrgId,
       plan,
       writePlan,
       mute ? mute.automation : read,
     );
+    // The writes of the objects the plan writes records of: what may send an
+    // email as they go in, or as their lookups are filled after their wave.
+    const planObjects = new Set(writePlan.objects.map(({ objectApiName }) => objectApiName));
+    const writes: RunEmailsInput['writes'] = (objectApiName, write) =>
+      planObjects.has(objectApiName) && AUTOPILOT_WRITES(objectApiName, write);
+    // Whether the target delivers the emails of what still runs once the
+    // mute's plan holds: read last before the question, as the user the run
+    // writes as, only when something may send one, and never with Apex in a
+    // production org. The question's answer is the accord.
+    const orgName = targetOrg?.alias ?? operation.targetOrgId;
+    const runEmails: RunEmails | undefined = read
+      ? await runEmailsOf({
+          read,
+          ...(mute?.plan ? { plan: mute.plan } : {}),
+          writes,
+          readDeliverability: async () =>
+            guardRequest.orgTier === 'production'
+              ? NO_APEX_IN_PRODUCTION
+              : readEmailDeliverability(
+                  await getJsforceConnection(
+                    operation.targetOrgId,
+                    this.deps.orgRegistry,
+                    this.deps.orgManager,
+                  ),
+                ),
+          accepted: false,
+          target: orgName,
+          run: 'autopilot',
+          keepsAddresses: payload.keepContactPoints === true,
+        })
+      : undefined;
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
@@ -1185,10 +1234,13 @@ export class AutopilotHandler implements DomainHandler {
       confirmAboveRecords: this.confirmAboveRecords(),
       emails: emails.checks,
       ...(emails.unread !== undefined ? { emailsUncounted: emails.unread } : {}),
-      org: targetOrg?.alias ?? operation.targetOrgId,
+      org: orgName,
       orgTier: guardRequest.orgTier,
       confirm: (question) => guard.confirmRun(question),
       ...(checkpointFirst ? { checkpointFirst } : {}),
+      // The record types the target gave, read back once the writes are through.
+      readBack: autopilotReadBackOf(writePlan),
+      ...(runEmails ? { runEmails } : {}),
     });
     if (!gate.go) {
       recordWriteRun(this.deps, {
@@ -1200,6 +1252,7 @@ export class AutopilotHandler implements DomainHandler {
         guard: guardDecision,
         ...(auditFit ? { fit: auditFit } : {}),
         code: gate.code,
+        details: runEmailsDetailsOf(gate.emails),
       });
       const stop = new Error(gate.message);
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
@@ -1244,6 +1297,8 @@ export class AutopilotHandler implements DomainHandler {
         ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         ...(checkpoint?.state === 'taken' ? { checkpointId: checkpoint.checkpointId } : {}),
         ...(auditFit ? { fit: auditFit } : {}),
+        // Whether the target delivered the emails of what still ran.
+        details: runEmailsDetailsOf(gate.emails),
       });
     };
     try {
@@ -1281,6 +1336,40 @@ export class AutopilotHandler implements DomainHandler {
       // ends, written, failed, stopped or thrown alike.
       const held = mute?.prepared ? await mute.prepared.acquire(msg.id) : undefined;
       if (held) mutedAutomation = held.outcome;
+      // Read back against its plan: a set it does not hold leaves running a
+      // sender of emails no one was asked about, and the run writes nothing.
+      const relit = held
+        ? runEmails?.afterLease(held.outcome, gate.emails?.accepted === true)
+        : undefined;
+      if (held && relit) {
+        mutedAutomation = await held.release();
+        if (taken) checkpoint = await this.settleCheckpoint(taken, false);
+        recorded = true;
+        recordWriteRun(this.deps, {
+          action: 'autopilot_execute',
+          module: 'autopilot',
+          operationId: msg.id,
+          orgId: operation.targetOrgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          code: relit.code,
+          muted: auditMutedOf(mutedAutomation),
+          details: runEmailsDetailsOf(gate.emails),
+        });
+        const message = emailsRefusalWords(
+          relit.message,
+          'autopilot',
+          'Untick Mute automation to be asked about them and run it all the same',
+        );
+        const stop = new Error(message);
+        this.liveTracker?.fail(msg.id, message);
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
+          code: AUTOPILOT_GATE_CODES.EMAILS_NOT_ACCEPTED,
+          ...(checkpoint ? { extraPayload: { checkpoint } } : {}),
+        });
+        settle(stop);
+        return;
+      }
       writing = true;
       const ran = this.orchestrator.executePlan(
         plan,

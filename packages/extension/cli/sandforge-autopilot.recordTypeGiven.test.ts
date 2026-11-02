@@ -211,7 +211,11 @@ function muteOf(events: string[]) {
   vi.mocked(muteForRun).mockResolvedValue({
     automation: read,
     muted,
-    plan: { assign: [{ name: 'PS_Bypass' }] },
+    plan: {
+      assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Bypass_Flow'] }],
+      silenced: [],
+      stillRuns: [],
+    },
     prepared: {
       acquire: async () => {
         events.push('lease');

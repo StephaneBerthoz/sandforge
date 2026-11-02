@@ -28,6 +28,7 @@ import { ProductionGuard, type RunConfirmation } from '../../core/precheck/Produ
 import { SyncOrchestrator } from '../../modules/sync/SyncOrchestrator.js';
 import type { SyncOrchestratorDeps } from '../../modules/sync/SyncOrchestrator.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { answeringDeliverability } from '../../test/deliverabilityOrg.js';
 import { clearDescribeCache } from '../../core/connection/describeCache.js';
 import {
   SyncRunCreations,
@@ -342,16 +343,20 @@ function mockOrgs(contacts: number, org: ReturnType<typeof memoryPermissionOrg>)
           ? org.connection.sobject(name)
           : { create, upsert: vi.fn(), update: vi.fn(), destroy: vi.fn() },
       ),
-      request: vi.fn(async () => {
-        steps.push('limits read');
-        return target
-          ? {
-              DataStorageMB: { Max: 5, Remaining: 5 },
-              DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
-              SingleEmail: { Max: 15, Remaining: 15 },
-            }
-          : {};
-      }),
+      // An org that delivers none of the emails of its automation, its user
+      // holding Send Email: its read takes two requests, and asks nothing.
+      request: vi.fn(
+        answeringDeliverability('withheld', async () => {
+          steps.push('limits read');
+          return target
+            ? {
+                DataStorageMB: { Max: 5, Remaining: 5 },
+                DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+                SingleEmail: { Max: 15, Remaining: 15 },
+              }
+            : {};
+        }).request,
+      ),
       limitInfo: undefined,
     } as never;
   });
@@ -763,8 +768,10 @@ describe('a Sync run that takes a checkpoint first, from the page', () => {
     const [answer] = posted(deps, 'sync:simulate:response');
     expect(answer.payload.checkpoint).toEqual(ESTIMATE);
     const check = answer.payload.writeCheck as { apiRequests?: { estimate: number } };
-    // The run's write and the read-back of the record types given, and the take's 68.
-    expect(check.apiRequests?.estimate).toBe(1 + 1 + ESTIMATE.estimate.apiRequests);
+    // The run's write and the read-back of the record types given, the take's
+    // 68, and the two of the read of whether the target delivers the email
+    // its welcome flow sends.
+    expect(check.apiRequests?.estimate).toBe(1 + 1 + ESTIMATE.estimate.apiRequests + 2);
     expect(checkpoints.take).not.toHaveBeenCalled();
     expect(asked.questions).toEqual([]);
   });

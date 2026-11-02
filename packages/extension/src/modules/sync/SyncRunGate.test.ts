@@ -49,6 +49,9 @@ const WELCOME_FLOW: ForgeTargetAutomation = {
 
 const QUIET: ForgeTargetAutomation = { ...WELCOME_FLOW, objects: [] };
 
+/** What a gate says of the emails of an org that withholds them: read, and no accord needed. */
+const WITHHELD = { accepted: false, deliverability: 'withheld' } as const;
+
 /** What the gate reads of a target with room, a quiet automation and a Developer Edition's emails. */
 function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures {
   return {
@@ -56,6 +59,9 @@ function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures
     readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
     readAutomation: async () => QUIET,
     readLimits: async () => ({ SingleEmail: { max: 15, remaining: 12 } }),
+    // An org that delivers none of the emails of its automation: no question.
+    readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
+    emails: { target: 'TRAP', accepted: false },
     confirmAboveRecords: 2_000,
     ...overrides,
   };
@@ -399,7 +405,9 @@ describe('gateSyncWrite', () => {
       confirm,
     });
 
-    expect(answer).toEqual({ go: true, asked: true });
+    // The org withholds the emails of its automation: said, never asked about.
+    expect(answer).toEqual({ go: true, asked: true, emails: WITHHELD });
+    expect(confirm.mock.calls[0][0].deliverability).toBeUndefined();
     expect(confirm.mock.calls[0][0]).toMatchObject({
       stage: 'write',
       module: 'sync',
@@ -491,9 +499,11 @@ describe('gateSyncWrite', () => {
       confirm,
     });
 
+    // What could not be read may send emails: the org's deliverability is
+    // read all the same, and withholds them.
     expect([first, second]).toEqual([
-      { go: true, asked: true },
-      { go: true, asked: true },
+      { go: true, asked: true, emails: WITHHELD },
+      { go: true, asked: true, emails: WITHHELD },
     ]);
     expect(confirm.mock.calls[0][0].emailsUnread).toEqual([
       { limit: 'SingleEmail', emails: 40, unread: 'INSUFFICIENT_ACCESS' },
@@ -518,7 +528,7 @@ describe('gateSyncWrite', () => {
     for (const policy of ['unattended', 'refuse'] as const) {
       expect(
         await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development' }),
-      ).toEqual({ go: true, asked: false });
+      ).toEqual({ go: true, asked: false, emails: WITHHELD });
     }
   });
 
@@ -705,6 +715,7 @@ describe('mutingSyncWriteGate', () => {
           writes: syncRunWrites,
         }),
       'run-1',
+      { target: 'TRAP' },
     );
     return { muting, org, done: () => rmSync(dir, { recursive: true, force: true }) };
   }

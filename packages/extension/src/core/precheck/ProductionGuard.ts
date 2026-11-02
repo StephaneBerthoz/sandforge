@@ -472,7 +472,7 @@ export interface GivenAnswer {
 const givenAnswers = new AsyncLocalStorage<GivenAnswer & { live: boolean }>();
 
 /** The answer given for the run under way, while that run lasts. */
-function liveAnswer(): GivenAnswer | undefined {
+export function liveAnswer(): GivenAnswer | undefined {
   const given = givenAnswers.getStore();
   return given?.live ? given : undefined;
 }

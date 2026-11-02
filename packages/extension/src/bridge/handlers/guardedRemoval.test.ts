@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 // strings stay as the guard words them.
 vi.mock('vscode', () => ({
   window: { showWarningMessage: vi.fn(), showInformationMessage: vi.fn() },
+  env: { language: 'en' },
   l10n: {
     t: (message: string, ...args: unknown[]): string =>
       message.replace(/\{(\d+)\}/g, (_m, i: string) => String(args[Number(i)] ?? '')),

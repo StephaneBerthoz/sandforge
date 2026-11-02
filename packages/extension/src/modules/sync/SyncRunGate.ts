@@ -2,8 +2,9 @@
  * What a Sync run is held to before it writes: the records it writes, counted
  * object by object under each filter before anything is read, against
  * `sandforge.safety.confirmAboveRecords`, the data storage the target has
- * left, and the daily emails the target's automation sends as they go in —
- * Forge's write gate (`ForgeRunGate`), as Seed and Autopilot hold their runs.
+ * left, the daily emails the target's automation sends as they go in, and
+ * whether the target delivers them — Forge's write gate (`ForgeRunGate`), as
+ * Seed and Autopilot hold their runs.
  *
  * Sync was the one path between two orgs that checked nothing before it
  * wrote: Production Guard was judged on an unknown count, and a Developer
@@ -30,7 +31,7 @@ import type {
   SyncUnwritableReason,
   SyncWriteCheck,
 } from '@sandforge/shared';
-import { stillRunningOf } from '@sandforge/shared';
+import { emailSendersOf, stillRunningOf } from '@sandforge/shared';
 import type { BeforeRunTake } from '../checkpoint/beforeRunCheckpoint.js';
 import { beforeRunFailedWords } from '../checkpoint/beforeRunCheckpoint.js';
 import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
@@ -57,6 +58,8 @@ import {
   confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
+  deliverabilityAfterLeaseStop,
+  deliverabilityPartOf,
   emailRefusal,
   formatMB,
   overEmailOf,
@@ -69,10 +72,19 @@ import {
   type ApiBudgetCheck,
   type DataStorage,
   type EmailCheck,
+  type EMAILS_NOT_ACCEPTED,
   type EmailLimit,
   type StorageCheck,
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
+import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
+import {
+  heldPlanOf,
+  runEmailsOf,
+  type DeliverabilityRead,
+  type RunEmails,
+  type RunEmailsInput,
+} from '../forge/targetDeliverability.js';
 
 /** One object of a run, as counted before its first write. */
 export interface SyncCountedObject {
@@ -151,6 +163,18 @@ export interface SyncWriteMeasures {
   readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
   /** The target's daily email limits, as its `/limits` say them. */
   readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+  /**
+   * Whether the target delivers the emails its automation sends
+   * (`readEmailDeliverability`): read only when something that still runs may
+   * send one, as the user the run writes as.
+   */
+  readDeliverability: () => Promise<DeliverabilityRead>;
+  /**
+   * Who the gate on its emails names, and what answers for them: `accepted`
+   * is the accord of a run nobody is asked about, `--accept-emails` or the
+   * Approval before a pipeline's step, for which nothing else stands.
+   */
+  emails: Pick<RunEmailsInput, 'target' | 'accepted' | 'keepsAddresses' | 'mayMute'>;
   /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks; 0 never asks. */
   confirmAboveRecords: number;
   /** The checkpoint the run takes of what it writes before its first write; absent when not asked. */
@@ -196,6 +220,10 @@ export interface MeasuredSyncWrite {
   checkpoint?: RunCheckpointEstimate;
   /** Why the checkpoint's scope could not be read, in the run's words: the run is refused. */
   checkpointFailed?: string;
+  /** What its emails came to at the gate: absent for a run that writes nothing. */
+  runEmails?: RunEmails;
+  /** Whether it came with the accord for them ({@link SyncWriteMeasures.emails}). */
+  emailsAccepted: boolean;
 }
 
 /**
@@ -232,8 +260,8 @@ function automationOn(
 }
 
 /**
- * The target's automation read once for a run's gate: the checkpoint's scope
- * reads it on every object the run writes, and the emails on those it
+ * The target's automation read once for a run's gate: what still runs is read
+ * on every object the run writes, and the emails it counts on those it
  * creates, which that read holds already.
  */
 function readOnce(read: SyncWriteMeasures['readAutomation']): SyncWriteMeasures['readAutomation'] {
@@ -272,43 +300,39 @@ export async function measureSyncWrite(
   let storage: StorageCheck = storageCheckOf(plan, { maxMB: 0, remainingMB: 0 });
   let emails: EmailCheck[] = [];
   let emailsUnread: string | undefined;
-  // The checkpoint the run takes first, scoped from what still runs as the
-  // run writes — what the mute keeps quiet held quiet, when the run mutes —
-  // before its requests are counted: they are among them. What the target
-  // runs is read once, for the scope and the emails alike.
-  let readAutomation = measures.readAutomation;
+  // What still runs as the run writes — what the mute keeps quiet held quiet,
+  // when the run mutes — read once: the checkpoint it takes first is scoped
+  // from it, and what may send an email is found in it, before its requests
+  // are counted: both are among them. An object it only updates or deletes
+  // sends all the same.
+  const readAutomation = total > 0 ? readOnce(measures.readAutomation) : measures.readAutomation;
   let checkpoint: RunCheckpointEstimate | undefined;
   let checkpointFailed: string | undefined;
-  if (total > 0 && measures.checkpointFirst) {
-    readAutomation = readOnce(measures.readAutomation);
+  let runEmails: RunEmails | undefined;
+  const writes = syncWritesOf(counted);
+  let read: RunEmailsInput['read'] | undefined;
+  if (total > 0) {
     const written = counted.objects
       .filter((object) => object.rows > 0)
       .map((object) => object.objectApiName);
-    // What could not be read creates nothing the scope can name: the
-    // checkpoint then holds the objects the run writes, and the question
-    // says what it cannot know.
-    const running = await readAutomation(written).then(
-      (automation) => stillRunningOf(automation, undefined, syncWritesOf(counted)),
-      () => ({ firing: [] }),
-    );
-    try {
-      checkpoint = await measures.checkpointFirst.scope(written, running);
-    } catch (err: unknown) {
-      checkpointFailed = beforeRunFailedWords(err);
+    read = await readAutomation(written).catch((err: unknown) => ({
+      unread: err instanceof Error ? err.message : String(err),
+    }));
+    if (measures.checkpointFirst) {
+      // What could not be read creates nothing the scope can name: the
+      // checkpoint then holds the objects the run writes, and the question
+      // says what it cannot know.
+      const running = 'objects' in read ? stillRunningOf(read, undefined, writes) : { firing: [] };
+      try {
+        checkpoint = await measures.checkpointFirst.scope(written, running);
+      } catch (err: unknown) {
+        checkpointFailed = beforeRunFailedWords(err);
+      }
     }
   }
   // The calls of its writes to the target, against its daily requests, read
   // with the storage: its reads are of the source, whose own budget they take.
-  // The checkpoint's reads and the read-backs of the record types given are
-  // the target's, and are counted beside them.
-  const estimate = {
-    run: runRequestsEstimate(objects),
-    ...checkpointPartOf(checkpoint),
-    ...(counted.readBack !== undefined && counted.readBack > 0
-      ? { readBack: counted.readBack }
-      : {}),
-  };
-  let api: ApiBudgetCheck = apiBudgetCheckOf(estimate, { unread: 'not read' });
+  let budget: ApiBudget | { unread: string } | undefined = { unread: 'not read' };
   if (total > 0) {
     const limits = await measures.readStorage().catch((err: unknown) => ({
       unread: err instanceof Error ? err.message : String(err),
@@ -316,13 +340,12 @@ export async function measureSyncWrite(
     // Read on their own when the storage could not be, as Forge reads them: a
     // Standard User's `/limits` list the daily requests and not the storage,
     // and the run said neither could be read.
-    const budget =
+    budget =
       'unread' in limits
         ? await measures.readApiBudget().catch((err: unknown) => ({
             unread: err instanceof Error ? err.message : String(err),
           }))
         : limits.dailyApiRequests;
-    api = apiBudgetCheckOf(estimate, budget);
     if (plan.totalRows > 0) storage = storageCheckOf(plan, limits);
   }
   if (plan.totalRows > 0) {
@@ -335,6 +358,32 @@ export async function measureSyncWrite(
     emails = said.checks;
     emailsUnread = said.unread;
   }
+  // Whether the target delivers the emails of what still runs, read last
+  // before the question, and only when something may send one: a run with
+  // nothing left to send sends no request for it.
+  if (read !== undefined) {
+    runEmails = await runEmailsOf({
+      ...measures.emails,
+      read,
+      writes,
+      readDeliverability: measures.readDeliverability,
+      run: 'sync',
+    });
+  }
+  // The checkpoint's reads, the read-backs of the record types given and the
+  // read of the deliverability are the target's, and are counted beside the
+  // run's own.
+  const api: ApiBudgetCheck = apiBudgetCheckOf(
+    {
+      run: runRequestsEstimate(objects),
+      ...checkpointPartOf(checkpoint),
+      ...(counted.readBack !== undefined && counted.readBack > 0
+        ? { readBack: counted.readBack }
+        : {}),
+      ...deliverabilityPartOf(runEmails?.ofRun),
+    },
+    budget,
+  );
   const threshold = measures.confirmAboveRecords;
   const aboveRecords = threshold > 0 && total > threshold ? threshold : undefined;
   const unwritable = (counted.unwritable ?? []).map(({ objectApiName, rows, why }) => ({
@@ -349,6 +398,9 @@ export async function measureSyncWrite(
   // A checkpoint asked first is asked about: it reads whole tables of the
   // target, not the run's rows, and the question says its cost before
   // anything is taken. Refused at its scope, it refuses the run.
+  // Emails the target delivers, or would not say it withholds, are asked
+  // about whoever answers: what stands for the answer is the gate's to take.
+  const emailsGate = runEmails?.gate;
   const verdict: SyncWriteCheck['verdict'] =
     total === 0
       ? unwritable.length > 0
@@ -364,7 +416,8 @@ export async function measureSyncWrite(
             (plan.totalRows > 0 && storage.verdict !== 'fits') ||
             emails.some((check) => check.verdict !== 'fits') ||
             emailsUnread !== undefined ||
-            checkpoint !== undefined
+            checkpoint !== undefined ||
+            emailsGate?.verdict === 'asks'
           ? 'asks'
           : 'writes';
   const check: SyncWriteCheck = {
@@ -395,6 +448,7 @@ export async function measureSyncWrite(
       ...(email.unread !== undefined ? { unread: email.unread } : {}),
     })),
     ...(emailsUnread !== undefined ? { emailsUnread } : {}),
+    ...(emailsGate?.deliverability ? { deliverability: emailsGate.deliverability } : {}),
     ...(unwritable.length > 0 ? { unwritable } : {}),
     ...(total > 0
       ? {
@@ -420,6 +474,8 @@ export async function measureSyncWrite(
     api,
     ...(checkpoint !== undefined ? { checkpoint } : {}),
     ...(checkpointFailed !== undefined ? { checkpointFailed } : {}),
+    ...(runEmails !== undefined ? { runEmails } : {}),
+    emailsAccepted: measures.emails.accepted,
   };
 }
 
@@ -433,6 +489,7 @@ export type SyncGateCode =
   | typeof API_BUDGET_EXCEEDED
   | 'SYNC_TARGET_UNWRITABLE'
   | 'SYNC_EMAILS_EXCEEDED'
+  | typeof EMAILS_NOT_ACCEPTED
   | 'SYNC_WRITE_DECLINED'
   | 'SYNC_CONFIRMATION_UNAVAILABLE'
   | typeof CHECKPOINT_REFUSED
@@ -443,12 +500,16 @@ export type SyncGateCode =
  * Who answers for a run before it writes:
  * - `ask`: a run from the page, a re-run or a Quick Sync, whose user is
  *   asked past the setting's volume, near the storage, when the storage could
- *   not be read, past a daily email limit, or when what is left of one, or
- *   the target's automation, could not be read;
+ *   not be read, past a daily email limit, when what is left of one, or the
+ *   target's automation, could not be read, or when the target would deliver
+ *   the emails of what still runs: the answer then sends them;
  * - `unattended`: a schedule's or a pipeline's run, which nobody watches: it
  *   is refused past a daily email limit, where every record past it would be
- *   refused by the flow that sends, and goes on otherwise, as it was set up;
- * - `refuse`: the command line, refused past either limit, as a clone is.
+ *   refused by the flow that sends, and where the target would deliver the
+ *   emails of what still runs unless an Approval answered for them; it goes
+ *   on otherwise, as it was set up;
+ * - `refuse`: the command line, refused past either limit, as a clone is, and
+ *   for those emails without `--accept-emails`.
  *
  * Past the storage the target has left, every one of them is refused.
  */
@@ -460,15 +521,18 @@ export type SyncGatePolicy = 'ask' | 'unattended' | 'refuse';
  * point at once it has written, and to delete when it stops before writing
  * — its lease refused after the take — as it then wrote nothing.
  * `refusal` is the take's own refusal of one stopped for its checkpoint.
+ * `emails` is what became of its emails: what the check after the lease and
+ * the audit entry read. Absent when there is nothing to say of them.
  */
 export type SyncGateAnswer =
-  | { go: true; asked: boolean; checkpoint?: RunCheckpointTaken }
+  | { go: true; asked: boolean; checkpoint?: RunCheckpointTaken; emails?: RunEmailsSaid }
   | {
       go: false;
       code: SyncGateCode;
       message: string;
       refusal?: CheckpointRefusal;
       checkpoint?: RunCheckpointTaken;
+      emails?: RunEmailsSaid;
     };
 
 /**
@@ -476,6 +540,8 @@ export type SyncGateAnswer =
  *
  * @param input.org - The target, as the user knows it.
  * @param input.confirm - Puts the question (`ProductionGuard.confirmRun`); only the `ask` policy puts one.
+ * @param input.emailsLiftedBy - What lifts the refusal for the emails where
+ *   the run runs, where it is no flag (`emailsRefusalWords`).
  */
 export async function gateSyncWrite(
   measured: MeasuredSyncWrite,
@@ -484,6 +550,7 @@ export async function gateSyncWrite(
     org: string;
     orgTier: SafetyTier;
     confirm?: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
+    emailsLiftedBy?: string;
   },
 ): Promise<SyncGateAnswer> {
   const { check, storage, emails, plan, api } = measured;
@@ -522,13 +589,26 @@ export async function gateSyncWrite(
   // would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED.
   const overBudget = apiBudgetRefusal(api, input.org);
   if (overBudget) return { go: false, code: API_BUDGET_EXCEEDED, message: overBudget };
+  const emailsGate = measured.runEmails?.gate;
   if (input.policy !== 'ask') {
     const over = emailRefusal(emails, input.org);
-    return over
-      ? { go: false, code: 'SYNC_EMAILS_EXCEEDED', message: `${over} Nothing was written.` }
-      : { go: true, asked: false };
+    if (over) {
+      return { go: false, code: 'SYNC_EMAILS_EXCEEDED', message: `${over} Nothing was written.` };
+    }
+    // Past the limits no accord helps: said first, as what no flag lifts.
+    const stop = emailsGate?.stop;
+    return stop
+      ? {
+          go: false,
+          code: stop.code,
+          message: emailsRefusalWords(stop.message, 'sync', input.emailsLiftedBy),
+          ...runEmailsSaidOf(emailsGate, false),
+        }
+      : { go: true, asked: false, ...runEmailsSaidOf(emailsGate, measured.emailsAccepted) };
   }
-  if (check.verdict === 'writes') return { go: true, asked: false };
+  if (check.verdict === 'writes') {
+    return { go: true, asked: false, ...runEmailsSaidOf(emailsGate, false) };
+  }
   const line = largeVolumeThreshold(input.orgTier);
   const overEmails = emails.filter((email) => email.verdict === 'exceeds').map(overEmailOf);
   const unreadEmails = emails.filter((email) => email.verdict === 'unread').map(unreadEmailOf);
@@ -552,14 +632,24 @@ export async function gateSyncWrite(
         ...(unwritable.length > 0 ? { unwritable } : {}),
         ...confirmationApiOf(api),
         ...(measured.checkpoint !== undefined ? { checkpoint: measured.checkpoint } : {}),
+        ...emailsGate?.confirmation,
       })
     : 'unavailable';
-  if (answer === 'confirmed') return { go: true, asked: true };
+  if (answer === 'confirmed') {
+    // The question said them: its answer is the accord, and only then.
+    return {
+      go: true,
+      asked: true,
+      ...runEmailsSaidOf(emailsGate, emailsGate?.verdict === 'asks'),
+    };
+  }
+  const unsent = runEmailsSaidOf(emailsGate, false);
   return answer === 'declined'
     ? {
         go: false,
         code: 'SYNC_WRITE_DECLINED',
         message: 'The sync was cancelled before it wrote anything. Nothing was written.',
+        ...unsent,
       }
     : {
         go: false,
@@ -567,6 +657,7 @@ export async function gateSyncWrite(
         message:
           'The sync needed a confirmation before it wrote, and there was no one to ask. ' +
           'Nothing was written.',
+        ...unsent,
       };
 }
 
@@ -690,20 +781,27 @@ export interface MutingSyncWriteGate {
  * all for a run whose checkpoint is refused. Refused — a production org, a
  * user who cannot assign, a set that cannot be assigned — the run stops at
  * its gate, nothing written, and its answer names the checkpoint taken
- * before the lease was refused, for the run to delete.
+ * before the lease was refused, for the run to delete. Read back, a lease
+ * that does not hold a set it was to assign may leave running a sender no
+ * one was asked about: the run stops the same way.
  *
  * @param build - The run's gate, over the reader of the target's automation it is given.
  * @param plan - The mute of a run writing the objects read; throws `MuteRefusedError` when refused.
+ * @param emails.target - The org, as the refusal for the emails names it.
+ * @param emails.liftedBy - What lifts that refusal where the run runs, where it is no flag.
  */
 export function mutingSyncWriteGate(
   build: (readAutomation: SyncWriteMeasures['readAutomation']) => SyncWriteGate,
   readAutomation: SyncWriteMeasures['readAutomation'],
-  plan: (read: ForgeTargetAutomation | { unread: string }) => Promise<RunMute>,
+  plan: (read: RunEmailsInput['read']) => Promise<RunMute>,
   runId: string,
+  emails: { target: string; liftedBy?: string },
 ): MutingSyncWriteGate {
   let mute: RunMute | undefined;
   let held: HeldMute | undefined;
   let muted: MutedAutomation | undefined;
+  /** What the target runs on the objects the run writes, before the mute holds it. */
+  let automation: RunEmailsInput['read'] | undefined;
   const gate = build(async (objects) => {
     const view = mute?.automation;
     if (view && objects.every((name) => view.objectsRead.includes(name))) {
@@ -723,11 +821,11 @@ export function mutingSyncWriteGate(
           .filter((object) => object.rows > 0)
           .map((object) => object.objectApiName);
         if (!mute && objects.length > 0) {
-          const read = await readAutomation(objects).catch((err: unknown) => ({
+          automation = await readAutomation(objects).catch((err: unknown) => ({
             unread: err instanceof Error ? err.message : String(err),
           }));
           try {
-            mute = await plan(read);
+            mute = await plan(automation);
             muted = mute.muted;
           } catch (err: unknown) {
             return { check: await gate.measure(counted), answer: refusedBy(err) };
@@ -743,6 +841,36 @@ export function mutingSyncWriteGate(
             return {
               check: answer.check,
               answer: { ...refusedBy(err), ...(checkpoint ? { checkpoint } : {}) },
+            };
+          }
+          // The lease read back against its plan, before the first write.
+          const { checkpoint, emails: said } = answer.answer;
+          const { deliverability } = answer.check;
+          const writes = syncWritesOf(counted);
+          const relit =
+            mute.plan && automation && 'objects' in automation
+              ? deliverabilityAfterLeaseStop({
+                  planned: deliverability?.senders ?? [],
+                  held: emailSendersOf(
+                    stillRunningOf(automation, heldPlanOf(mute.plan, held.outcome), writes),
+                    { writes },
+                  ),
+                  ...(deliverability ? { reading: deliverability.reading } : {}),
+                  accepted: said?.accepted === true,
+                  target: emails.target,
+                  run: 'sync',
+                })
+              : undefined;
+          if (relit) {
+            return {
+              check: answer.check,
+              answer: {
+                go: false,
+                code: relit.code,
+                message: emailsRefusalWords(relit.message, 'sync', emails.liftedBy),
+                ...(checkpoint ? { checkpoint } : {}),
+                ...(said ? { emails: said } : {}),
+              },
             };
           }
         }

@@ -1,8 +1,9 @@
 /**
  * What an Autopilot run is held to before it writes: the records its plan
  * counts, against `sandforge.safety.confirmAboveRecords`, the data storage
- * the target has left and the daily emails its flows would send for them —
- * Forge's write gate (`ForgeRunGate`), on the plan.
+ * the target has left, the daily emails its flows would send for them and
+ * whether the target delivers them — Forge's write gate (`ForgeRunGate`), on
+ * the plan.
  *
  * Autopilot consulted the Production Guard and nothing else. Run for real
  * with plan only, a plan of 2.6 million records for a target with 22 MB of
@@ -38,8 +39,10 @@ import {
   confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
+  deliverabilityPartOf,
   overEmailOf,
   runRequestsEstimate,
+  type RunRequestParts,
   storageCheckOf,
   storageRefusal,
   takeCheckpointFirst,
@@ -54,6 +57,8 @@ import {
   type TargetEmails,
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
+import { runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
+import type { RunEmails } from '../forge/targetDeliverability.js';
 
 /**
  * The records a plan writes, per object, and the data storage they take: the
@@ -140,21 +145,36 @@ function unreadEmailsOf(
 }
 
 /**
+ * The requests a run sends once its writes are through to read back the
+ * record type the target gave the records it created without one: one an
+ * object, at most, of those the plan writes records of — the `readBack` part
+ * of its API requests. A run read them back, up to one an object, and none of
+ * them was counted.
+ */
+export function autopilotReadBackOf(plan: Pick<WritePlan, 'objects'>): number {
+  return plan.objects.filter(({ rows }) => rows > 0).length;
+}
+
+/**
  * The plan's calls against the daily API requests the target has left, read
  * from the same `/limits` as its storage, or on their own when the storage
  * could not be, as Sync reads them: a Standard User's `/limits` list the
  * daily requests and not the storage, and the run took both for unread. The
- * checkpoint the run takes first reads the target too, and its requests are
- * counted beside the plan's.
+ * checkpoint the run takes first reads the target too, and so do the reads
+ * back of the record types given and the read of whether the target delivers
+ * its emails: their requests are counted beside the plan's.
  *
  * @param readApiBudget - The target's daily API requests, read on their own.
  * @param checkpoint - What the checkpoint taken first would cost; absent when not asked.
+ * @param parts - The reads back ({@link autopilotReadBackOf}) and the read of
+ *   the deliverability (`deliverabilityPartOf`); absent or 0 when there are none.
  */
 export async function autopilotApiCheck(
   plan: Pick<WritePlan, 'objects'>,
   storage: DataStorage | { unread: string },
   readApiBudget: () => Promise<ApiBudget>,
   checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>,
+  parts: Pick<RunRequestParts, 'readBack' | 'deliverability'> = {},
 ): Promise<ApiBudgetCheck> {
   const budget =
     'unread' in storage
@@ -162,10 +182,13 @@ export async function autopilotApiCheck(
           unread: err instanceof Error ? err.message : String(err),
         }))
       : storage.dailyApiRequests;
+  const { readBack = 0, deliverability = 0 } = parts;
   return apiBudgetCheckOf(
     {
       run: runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
       ...checkpointPartOf(checkpoint),
+      ...(readBack > 0 ? { readBack } : {}),
+      ...(deliverability > 0 ? { deliverability } : {}),
     },
     budget,
   );
@@ -185,10 +208,24 @@ export type AutopilotCheckpointCode = typeof CHECKPOINT_REFUSED | typeof RUN_CAN
 /**
  * What the gate came to: the run goes on, or it stops before its first
  * write, and why. A run that goes on names the checkpoint it took first.
+ * `emails` is what became of its emails: what the check after the lease and
+ * the audit entry read; absent when there is nothing to say of them.
  */
 export type AutopilotGateOutcome =
-  | { go: true; check: StorageCheck; asked: boolean; checkpoint?: RunCheckpointTaken }
-  | { go: false; code: AutopilotGateCode; message: string; check: StorageCheck };
+  | {
+      go: true;
+      check: StorageCheck;
+      asked: boolean;
+      checkpoint?: RunCheckpointTaken;
+      emails?: RunEmailsSaid;
+    }
+  | {
+      go: false;
+      code: AutopilotGateCode;
+      message: string;
+      check: StorageCheck;
+      emails?: RunEmailsSaid;
+    };
 
 /**
  * What the gate of a plan that takes a checkpoint first came to: as
@@ -204,6 +241,7 @@ export type AutopilotCheckpointGateOutcome =
       message: string;
       check: StorageCheck;
       refusal?: CheckpointRefusal;
+      emails?: RunEmailsSaid;
     };
 
 /**
@@ -234,6 +272,18 @@ export interface AutopilotGateInput {
   orgTier: SafetyTier;
   confirm: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
   checkpointFirst?: AutopilotCheckpointFirst;
+  /**
+   * The requests the run sends to read back the record types the target
+   * gave ({@link autopilotReadBackOf}); absent or 0 when there are none.
+   */
+  readBack?: number;
+  /**
+   * What the plan's emails came to at their gate: what still runs that may
+   * send one once the mute's plan holds, and whether the target delivers
+   * them, read only when something may (`runEmailsOf`). Absent when nothing
+   * was read.
+   */
+  runEmails?: RunEmails;
 }
 
 /**
@@ -262,6 +312,9 @@ export interface AutopilotGateInput {
  *   the target's automation could not be read (`AutopilotEmails.unread`).
  * @param input.confirm - Puts the question (`ProductionGuard.confirmRun`).
  * @param input.checkpointFirst - The checkpoint the plan takes first; absent when not asked.
+ * @param input.runEmails - What its emails are judged on: where the target
+ *   delivers them, or would not say, the plan is asked about them first, and
+ *   the answer sends them ("Execute and send the emails").
  */
 export function gateAutopilotWrite(
   input: AutopilotGateInput & { checkpointFirst?: undefined },
@@ -288,8 +341,12 @@ export async function gateAutopilotWrite(
     };
   }
   // Refused past the daily API requests the target has left, as the run
-  // would stop part way through: the checkpoint's among them.
-  const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget, checkpoint);
+  // would stop part way through: the checkpoint's among them, the reads back
+  // of the record types given and the read of the deliverability.
+  const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget, checkpoint, {
+    ...(input.readBack !== undefined ? { readBack: input.readBack } : {}),
+    ...deliverabilityPartOf(input.runEmails?.ofRun),
+  });
   const overBudget = apiBudgetRefusal(api, input.org);
   if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };
   const threshold = input.confirmAboveRecords;
@@ -301,15 +358,20 @@ export async function gateAutopilotWrite(
   // And so is an automation that could not be read, whose emails were not
   // counted at all, as a Sync run asks: Autopilot logged it and wrote.
   const uncounted = input.emailsUncounted;
+  // And so are the emails of what still runs, where the target delivers
+  // them or would not say: the answer to the question sends them.
+  const emailsGate = input.runEmails?.gate;
+  const delivered = emailsGate?.verdict === 'asks';
   // The checkpoint asked first is taken once the plan may write: after its
   // question, before the lease its caller takes.
   const go = async (asked: boolean): Promise<AutopilotCheckpointGateOutcome> => {
+    const emails = runEmailsSaidOf(emailsGate, asked && delivered);
     const first = input.checkpointFirst;
-    if (first === undefined) return { go: true, check, asked };
+    if (first === undefined) return { go: true, check, asked, ...emails };
     const took = await takeCheckpointFirst(() => first.take(first.estimate));
     return 'stop' in took
-      ? { go: false, ...took.stop, check }
-      : { go: true, check, asked, checkpoint: took.checkpoint };
+      ? { go: false, ...took.stop, check, ...emails }
+      : { go: true, check, asked, checkpoint: took.checkpoint, ...emails };
   };
   if (
     aboveRecords === undefined &&
@@ -317,7 +379,8 @@ export async function gateAutopilotWrite(
     overEmails.length === 0 &&
     unreadEmails.length === 0 &&
     uncounted === undefined &&
-    checkpoint === undefined
+    checkpoint === undefined &&
+    !delivered
   ) {
     return go(false);
   }
@@ -338,14 +401,17 @@ export async function gateAutopilotWrite(
     ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
     ...confirmationApiOf(api),
     ...(checkpoint !== undefined ? { checkpoint } : {}),
+    ...emailsGate?.confirmation,
   });
   if (answer === 'confirmed') return go(true);
+  const unsent = runEmailsSaidOf(emailsGate, false);
   return answer === 'declined'
     ? {
         go: false,
         code: 'WRITE_DECLINED',
         message: 'The Autopilot run was cancelled before it wrote anything. Nothing was written.',
         check,
+        ...unsent,
       }
     : {
         go: false,
@@ -354,5 +420,6 @@ export async function gateAutopilotWrite(
           'The Autopilot run needed a confirmation before it wrote, and there was no one to ' +
           'ask. Nothing was written.',
         check,
+        ...unsent,
       };
 }
