@@ -374,11 +374,6 @@ export interface FrozenDryRunLoadControl {
   status: 'pending' | 'passed' | 'failed';
   at?: string;
   detail?: string;
-  /**
-   * Per object, the record type the target gave the records the load
-   * created without one, as read back. Absent when there was nothing to say.
-   */
-  recordTypesGiven?: RecordTypeGiven[];
 }
 
 /** The frozen dataset manifest (identity card — no source data). */

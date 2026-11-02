@@ -251,9 +251,10 @@ against any org.
 
 Exit codes: 0 the run finished, some of its records refused included (read the
 summary for per-object failures); 1 the run could not be started or was
-refused, or it died or produced only failures; 2 a bad command line; 3 the run
-was partial and --fail-on-partial was given; 130 Ctrl-C stopped the run, 143 a
-SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP.
+refused, among them emails not accepted (EMAILS_NOT_ACCEPTED) and a checkpoint
+asked first refused or not taken, or it died or produced only failures; 2 a bad
+command line; 3 the run was partial and --fail-on-partial was given; 130 Ctrl-C
+stopped the run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP.
 `;
 
 /** Everything the command line settled. */

@@ -12,7 +12,7 @@ import type {
 import { SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
-import { formatNumber, uiLocale } from '../../../utils/formatters';
+import { formatNumber, roundedUpMegabytes, shareRoundedDown } from '../../../utils/formatters';
 
 /*
  * Fit to storage, on the review step: what the plan comes to against its
@@ -59,21 +59,6 @@ export function isAutopilotPlanWriteGate(value: unknown): value is AutopilotPlan
   );
 }
 
-/** Megabytes as the extension says them: rounded up, two decimals under 10 MB. */
-function megabytes(value: number): string {
-  if (value <= 0) return '0';
-  const factor = value < 10 ? 100 : 10;
-  return formatNumber(Math.ceil(value * factor - 1e-9) / factor);
-}
-
-/** A share, as a percentage rounded down to a tenth: never more than was kept. */
-function percent(share: number): string {
-  return new Intl.NumberFormat(uiLocale(), {
-    style: 'percent',
-    maximumFractionDigits: 1,
-  }).format(Math.floor(share * 1000) / 1000);
-}
-
 /** What a part of the target's automation the room leaves out is, as the panel names it. */
 const NOT_COUNTED_KEYS: Readonly<Record<StorageRoomNotCounted['kind'], string>> = {
   trigger: 'autopilot.fit.notCountedTrigger',
@@ -107,7 +92,7 @@ export const AutopilotPlanStorage: React.FC<AutopilotPlanStorageProps> = ({
   testId,
 }) => {
   const { t } = useTranslation();
-  const estimate = megabytes(writeGate.estimateMB);
+  const estimate = roundedUpMegabytes(writeGate.estimateMB);
   const figures = {
     estimate,
     org,
@@ -178,7 +163,7 @@ export function fitNotAppliedWords(
     return t('autopilot.fit.whole', {
       org,
       records: formatNumber(report.records),
-      estimate: megabytes(report.estimateMB),
+      estimate: roundedUpMegabytes(report.estimateMB),
     });
   }
   return cannotFitWords(cannotFit, org, t);
@@ -202,8 +187,8 @@ function cannotFitWords(
       const least = cannotFit.why === 'least';
       if (over.bound === 'storage') {
         return t(least ? 'autopilot.fit.cannotLeastStorage' : 'autopilot.fit.cannotCapsStorage', {
-          takes: megabytes(over.takesMB),
-          fits: megabytes(over.fitsMB),
+          takes: roundedUpMegabytes(over.takesMB),
+          fits: roundedUpMegabytes(over.fitsMB),
           org,
         });
       }
@@ -278,13 +263,13 @@ export const AutopilotFitReportView = React.forwardRef<
   const { t } = useTranslation();
   const headingId = useId();
   const { budget } = report;
-  const fits = megabytes(budget.budgetMB + budget.automationMB);
+  const fits = roundedUpMegabytes(budget.budgetMB + budget.automationMB);
 
   let bound: string;
   switch (report.heldBy) {
     case 'within':
       bound = t('autopilot.fit.boundWithin', {
-        fits: megabytes(budget.withinMB ?? budget.budgetMB + budget.automationMB),
+        fits: roundedUpMegabytes(budget.withinMB ?? budget.budgetMB + budget.automationMB),
       });
       break;
     case 'apiRequests':
@@ -299,7 +284,7 @@ export const AutopilotFitReportView = React.forwardRef<
     default:
       bound = t('autopilot.fit.boundStorage', {
         fits,
-        near: percent(budget.share),
+        near: shareRoundedDown(budget.share),
         remaining: formatNumber(budget.remainingMB),
         max: formatNumber(budget.maxMB),
         rounding: formatNumber(budget.roundingMB),
@@ -311,7 +296,7 @@ export const AutopilotFitReportView = React.forwardRef<
   if (report.automationUnread !== undefined) {
     room = t('autopilot.fit.roomUnread', { org, reason: report.automationUnread });
   } else if (budget.automationMB > 0) {
-    room = t('autopilot.fit.roomKept', { room: megabytes(budget.automationMB), org });
+    room = t('autopilot.fit.roomKept', { room: roundedUpMegabytes(budget.automationMB), org });
   } else {
     room = t(report.countedMuted ? 'autopilot.fit.roomNoneMuted' : 'autopilot.fit.roomNone', {
       org,
@@ -330,7 +315,7 @@ export const AutopilotFitReportView = React.forwardRef<
       </h4>
       {report.share !== undefined && (
         <p data-testid={`${testId}-share`}>
-          {t('autopilot.fit.share', { share: percent(report.share) })}
+          {t('autopilot.fit.share', { share: shareRoundedDown(report.share) })}
         </p>
       )}
       <p data-testid={`${testId}-bound`}>{bound}</p>
@@ -432,8 +417,8 @@ export const AutopilotFitReportView = React.forwardRef<
       <p data-testid={`${testId}-total`}>
         {t(budget.automationMB > 0 ? 'autopilot.fit.totalWithRoom' : 'autopilot.fit.total', {
           records: formatNumber(report.records),
-          estimate: megabytes(report.estimateMB),
-          room: megabytes(budget.automationMB),
+          estimate: roundedUpMegabytes(report.estimateMB),
+          room: roundedUpMegabytes(budget.automationMB),
           requests: formatNumber(report.requestsRead),
         })}
       </p>
@@ -840,7 +825,7 @@ export const AutopilotFitResultLine: React.FC<AutopilotFitResultLineProps> = ({
     <div className="flex flex-col gap-0.5 text-xs text-text-primary" data-testid={testId}>
       <p>
         {report.share !== undefined
-          ? t('autopilot.fit.fitted', { ...figures, share: percent(report.share) })
+          ? t('autopilot.fit.fitted', { ...figures, share: shareRoundedDown(report.share) })
           : t('autopilot.fit.fittedCaps', figures)}
       </p>
       {(cutSinceFit ?? 0) > 0 && (

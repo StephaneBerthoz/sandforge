@@ -8,7 +8,7 @@ import type {
 } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { useMessageListener } from '../../hooks/useMessageBus';
-import { formatNumber, uiLocale } from '../../utils/formatters';
+import { formatNumber, roundedUpMegabytes, shareRoundedDown } from '../../utils/formatters';
 
 /**
  * The refusals of a seed a smaller seed answers — its records past the data
@@ -134,21 +134,6 @@ export function fittedRunOf(proposal: SeedFitProposal): FittedSeedRun {
   };
 }
 
-/** Megabytes as the extension says them: rounded up, two decimals under 10 MB. */
-function megabytes(value: number): string {
-  if (value <= 0) return '0';
-  const factor = value < 10 ? 100 : 10;
-  return formatNumber(Math.ceil(value * factor - 1e-9) / factor);
-}
-
-/** A share, as a percentage rounded down to a tenth: never more than was kept. */
-function percent(share: number): string {
-  return new Intl.NumberFormat(uiLocale(), {
-    style: 'percent',
-    maximumFractionDigits: 1,
-  }).format(Math.floor(share * 1000) / 1000);
-}
-
 /** What a part of the target's automation the room leaves out is, as the card names it. */
 const NOT_COUNTED_KEYS: Readonly<Record<StorageRoomNotCounted['kind'], string>> = {
   trigger: 'seed.fit.notCountedTrigger',
@@ -193,7 +178,7 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
   const { t } = useTranslation();
   const headingId = useId();
   const { budget } = proposal;
-  const fits = megabytes(budget.budgetMB + budget.automationMB);
+  const fits = roundedUpMegabytes(budget.budgetMB + budget.automationMB);
   const fitted = fittedRunOf(proposal);
 
   let bound: string;
@@ -204,7 +189,7 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
   } else {
     bound = t('seed.fit.boundStorage', {
       fits,
-      near: percent(budget.share),
+      near: shareRoundedDown(budget.share),
       remaining: formatNumber(budget.remainingMB),
       max: formatNumber(budget.maxMB),
       rounding: formatNumber(budget.roundingMB),
@@ -216,12 +201,12 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
   if (proposal.automationUnread !== undefined) {
     room = t('seed.fit.roomUnread', { org, reason: proposal.automationUnread });
   } else if (budget.automationMB > 0) {
-    room = t('seed.fit.roomKept', { room: megabytes(budget.automationMB), org });
+    room = t('seed.fit.roomKept', { room: roundedUpMegabytes(budget.automationMB), org });
   } else {
     room = t('seed.fit.roomNone', { org });
   }
 
-  const estimate = megabytes(proposal.estimateMB);
+  const estimate = roundedUpMegabytes(proposal.estimateMB);
   const cannotFit = proposal.cannotFit !== undefined;
 
   return (
@@ -243,7 +228,7 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
       ) : (
         <>
           <p data-testid={`${testId}-share`}>
-            {t('seed.fit.share', { share: percent(proposal.share) })}
+            {t('seed.fit.share', { share: shareRoundedDown(proposal.share) })}
           </p>
           <p data-testid={`${testId}-bound`}>{bound}</p>
           <p data-testid={`${testId}-room`}>{room}</p>
@@ -369,7 +354,7 @@ export const SeedFitResultLine: React.FC<SeedFitResultLineProps> = ({ fitted, or
         org,
         after: formatNumber(fitted.records),
         before: formatNumber(fitted.fit.before),
-        share: percent(fitted.fit.share),
+        share: shareRoundedDown(fitted.fit.share),
       })}
     </p>
   );

@@ -59,6 +59,21 @@ export function formatNumber(n: number, locale: string = uiLocale()): string {
 
 const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
 
+/** Megabytes as the extension says them: rounded up, two decimals under 10 MB. */
+export function roundedUpMegabytes(value: number, locale: string = uiLocale()): string {
+  if (value <= 0) return '0';
+  const factor = value < 10 ? 100 : 10;
+  return formatNumber(Math.ceil(value * factor - 1e-9) / factor, locale);
+}
+
+/** A share, as a percentage rounded down to a tenth: never more than was kept. */
+export function shareRoundedDown(share: number, locale: string = uiLocale()): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  }).format(Math.floor(share * 1000) / 1000);
+}
+
 /**
  * An `Intl.DateTimeFormat` in `locale` ({@link uiLocale} by default), built
  * once per locale and options. Ask for it where the date is written: one built
