@@ -1058,7 +1058,14 @@ describe('messageLines', () => {
         listing: {
           window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
           looked: ['Contact', 'Task'],
-          found: [{ objectApiName: 'Task', count: 3, names: ['Call'], overBound: false }],
+          found: [
+            {
+              objectApiName: 'Task',
+              count: 3,
+              names: ['Call'],
+              classes: { made: 3, madeOver: 0, late: 0, untied: 0 },
+            },
+          ],
           unread: [],
           handWork: [],
         },
@@ -1066,7 +1073,7 @@ describe('messageLines', () => {
     });
 
     expect(lines).toContain('it would delete 3 record(s), children first:');
-    expect(lines).toContain('  Task: 3 (Call, …)');
+    expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
   });
 
   it('says a verification that found the load wrote part of the dataset partial', () => {

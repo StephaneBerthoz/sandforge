@@ -215,24 +215,24 @@ function removalAnswering(
 
 /**
  * A sweep in parts answering `result`, as the real one goes about it: its
- * listing said before its first delete, `first` when the removal makes it,
- * `afterRemoval` once the run's records are gone. What it found made for the
- * run is `made`.
+ * listing said as it asks, unless it takes nothing and so asks nothing
+ * (`takesNothing`), `first` when the removal makes it, `afterRemoval` once the
+ * run's records are gone. What it found made for the run is `made`.
  */
 function partsAnswering(
   result: ForgeSweepResult | (() => ForgeSweepResult),
   listing?: ForgeSweepListing,
   made: readonly string[] = [],
+  takesNothing = false,
 ): (org: unknown, input: SweepInput, options: SweepOptions) => SweepParts {
   return (_org, _input, options) => ({
     automationMade: new Set(made),
     made: new Set(made),
-    ask: vi.fn(async () => undefined),
-    listing,
-    first: vi.fn(async () => {
-      if (listing) await options.approve?.(listing);
-      return true;
+    ask: vi.fn(async () => {
+      if (listing && !takesNothing) await options.approve?.(listing);
     }),
+    listing,
+    first: vi.fn(async () => true),
     afterRemoval: vi.fn(async () => false),
     result: () => (typeof result === 'function' ? result() : result),
   });
@@ -1056,8 +1056,18 @@ describe('sandforge-clone --remove', () => {
       window: { from: '2026-10-01T09:59:59Z', to: '2026-10-01T10:01:05Z' },
       looked: ['Contact', 'Account', 'Task', 'Asset'],
       found: [
-        { objectApiName: 'Task', count: 1, names: ['Welcome call'] },
-        { objectApiName: 'Asset', count: 1, names: ['Insured risk'] },
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Welcome call'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
+        {
+          objectApiName: 'Asset',
+          count: 1,
+          names: ['Insured risk'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
       ],
       unread: [],
       handWork: [],
@@ -1115,8 +1125,8 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).not.toHaveBeenCalled();
       expect(sweepParts).not.toHaveBeenCalled();
       expect(printed).toContain('it would delete 2 record(s), children first:');
-      expect(printed).toContain('  Task: 1 (Welcome call)');
-      expect(printed).toContain('  Asset: 1 (Insured risk)');
+      expect(printed).toContain('  Task: 1 — 1 made for the run (Welcome call)');
+      expect(printed).toContain('  Asset: 1 — 1 made for the run (Insured risk)');
       expect(existsSync(removalsPath(path))).toBe(false);
     });
 
@@ -1148,6 +1158,10 @@ describe('sandforge-clone --remove', () => {
 
       expect(removalOptions().sweep).toEqual(expect.any(Function));
       const { input, options, parts } = sweepCall();
+      // It reads and asks before the removal, and deletes at its turn in it.
+      expect(vi.mocked(parts.ask).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(removeRunRecords).mock.invocationCallOrder[0],
+      );
       expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(parts.first).mock.invocationCallOrder[0],
       );
@@ -1224,6 +1238,143 @@ describe('sandforge-clone --remove', () => {
       expect(removalOptions().signal?.aborted).toBe(true);
       expect(JSON.parse(stdout.join(''))).toMatchObject({
         result: { status: 'cancelled', objects: [], sweep: { status: 'cancelled' } },
+      });
+    });
+
+    it('takes no lease, and removes nothing, once a Ctrl-C came as the sweep read', async () => {
+      const acquire = vi.fn();
+      const automation = {
+        objectsRead: ['Contact', 'Account'],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 0,
+      };
+      const muted: MutedAutomation = {
+        state: 'muted',
+        assigned: ['PS_Bypass'],
+        held: [],
+        permissions: ['Bypass'],
+        silenced: [],
+        stillRan: [],
+      };
+      vi.mocked(muteForRun).mockResolvedValue({
+        automation,
+        muted,
+        prepared: {
+          plan: { assign: [], silenced: [], stillRuns: [] },
+          automation,
+          planned: muted,
+          acquire,
+        },
+      });
+      vi.mocked(sweepParts).mockImplementation((org, input, options) => ({
+        ...partsAnswering({ ...SWEPT, status: 'cancelled', objects: [] })(org, input, options),
+        ask: vi.fn(async () => {
+          process.emit('SIGINT');
+        }),
+      }));
+      vi.mocked(removeRunRecords).mockImplementation(
+        removalAnswering({ ...TOOK_ALL, objects: [], cancelled: true }),
+      );
+
+      await run([
+        '--remove',
+        file(runSummary()),
+        '--target',
+        'TGT',
+        '--sweep',
+        '--mute-automation',
+        '--json',
+      ]);
+
+      expect(acquire).not.toHaveBeenCalled();
+      expect(removalOptions().signal?.aborted).toBe(true);
+    });
+
+    describe('that takes nothing, so asks nothing', () => {
+      /** What it read: a task made late, one tied to nothing. */
+      const KEPT: ForgeSweepListing = {
+        window: LISTING.window,
+        looked: ['Contact', 'Task'],
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 2,
+            names: ['Late call', 'Loose call'],
+            classes: { made: 0, madeOver: 0, late: 1, untied: 1 },
+          },
+        ],
+        unread: [],
+        handWork: [],
+        late: [{ objectApiName: 'Task', count: 1 }],
+        untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+      };
+      const NOTHING: ForgeSweepResult = {
+        status: 'success',
+        objects: [],
+        unread: [],
+        handWork: [],
+      };
+
+      beforeEach(() => {
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(NOTHING, KEPT, [], true));
+        vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+      });
+
+      it('says what it kept and why, before the removal deletes', async () => {
+        expect(
+          await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep']),
+        ).toBeUndefined();
+
+        expect(printed).toContain('it would delete none of what it found:');
+        const said = printed.join('\n');
+        expect(said).toContain('kept, made late');
+        expect(said).toContain('(--sweep-untied takes them)');
+      });
+
+      it('gives it under --json with what the sweep did', async () => {
+        expect(
+          await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep', '--json']),
+        ).toBeUndefined();
+
+        expect(JSON.parse(stdout.join('')).result.sweepListing).toEqual(KEPT);
+      });
+
+      it('says it of a sweep that goes alone too, nothing of the run left', async () => {
+        const path = file(runSummary());
+        file(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            run: runKey(PLAN),
+            removalStamps: {},
+            removalSpans: [FIRST_SPAN],
+            removalLeft: [],
+          },
+          'clone-summary.removals.json',
+        );
+
+        expect(await run(['--remove', path, '--target', 'TGT', '--sweep'])).toBeUndefined();
+
+        expect(printed.join('\n')).toContain('kept, made late');
+      });
+
+      it('says nothing of a sweep refused, whose result says why', async () => {
+        vi.mocked(sweepParts).mockImplementation(
+          partsAnswering(
+            { status: 'refused', refusal: 'No window.', objects: [], unread: [], handWork: [] },
+            { ...KEPT, found: [], refusal: 'No window.' },
+            [],
+            true,
+          ),
+        );
+
+        expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep'])).toBe(3);
+
+        expect(printed.join('\n')).not.toContain('a sweep looks in');
+        expect(printed).toContain('  No window.');
       });
     });
 
@@ -1500,6 +1651,10 @@ describe('sandforge-clone --remove', () => {
         });
         vi.mocked(sweepParts).mockImplementation((org, input, options) => ({
           ...partsAnswering(SWEPT, LISTING)(org, input, options),
+          ask: vi.fn(async () => {
+            events.push('question');
+            said.push('sweep asks');
+          }),
           first: vi.fn(async () => {
             events.push('write');
             said.push('sweep before');
@@ -1533,6 +1688,7 @@ describe('sandforge-clone --remove', () => {
         ).toBeUndefined();
 
         expect(said).toEqual([
+          'sweep asks',
           'lease',
           'sweep before',
           'the run’s records',

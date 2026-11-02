@@ -11,11 +11,9 @@ import { parseRemoveArgs as syncRemoveArgs } from './sandforge-sync.js';
 import { parseRemoveArgs as seedRemoveArgs } from './sandforge-seed.js';
 import { parseArgs as frozenArgs } from './sandforge-frozen.js';
 import {
-  MADE_KEPT_PER_OBJECT,
   automationHeldLines,
   clonePreviewLines,
   commandSweepTies,
-  madeKept,
   otherRunsOf,
   parseRemoveArgs as cloneRemoveArgs,
   quoteCopiesLines,
@@ -23,6 +21,7 @@ import {
   runUserIdOf,
   sweepClassArgsOf,
   sweepListingLines,
+  sweepUnsaid,
   sweepLines,
   sweepOrgOf,
   syncRunSpanOf,
@@ -419,22 +418,6 @@ describe('commandSweepTies', () => {
   });
 });
 
-describe('madeKept', () => {
-  it('keeps what earlier sweeps found, then what this one found, each once', () => {
-    expect(madeKept([fakeId('00T', 1)], [fakeId('00T', 1).slice(0, 15), fakeId('02i', 1)])).toEqual(
-      [fakeId('00T', 1), fakeId('02i', 1)],
-    );
-    expect(madeKept(undefined, [])).toBeUndefined();
-  });
-
-  it('keeps no more of one object than a sweep reads of one', () => {
-    const many = Array.from({ length: MADE_KEPT_PER_OBJECT + 5 }, (_, n) => fakeId('00T', n));
-    const kept = madeKept(undefined, [...many, fakeId('02i', 1)]) ?? [];
-    expect(kept.filter((id) => id.startsWith('00T'))).toHaveLength(MADE_KEPT_PER_OBJECT);
-    expect(kept).toContain(fakeId('02i', 1));
-  });
-});
-
 describe('runUserIdOf', () => {
   it('takes the first value that is a Salesforce id, and nothing else into a query', () => {
     expect(runUserIdOf(undefined, "005' OR Id != '", fakeId('005', 1))).toBe(fakeId('005', 1));
@@ -495,7 +478,27 @@ const TIED: ForgeSweepListing = {
   late: [{ objectApiName: 'Task', count: 1 }],
 };
 
-describe('sweepListingLines, of a sweep told the ties', () => {
+describe('sweepUnsaid', () => {
+  const listing = { looked: [], found: [], unread: [], handWork: [] };
+
+  it('gives what a sweep read when its question said nothing of it', () => {
+    expect(sweepUnsaid({ listing }, undefined)).toBe(listing);
+  });
+
+  it('gives nothing once it was said, for a sweep stopped before it read, or none', () => {
+    expect(sweepUnsaid({ listing }, listing)).toBeUndefined();
+    expect(sweepUnsaid({ listing: undefined }, undefined)).toBeUndefined();
+    expect(sweepUnsaid(undefined, undefined)).toBeUndefined();
+  });
+
+  it('gives nothing of a sweep refused, whose result says why', () => {
+    expect(sweepUnsaid({ listing: { ...listing, refusal: 'No window.' } }, undefined)).toBe(
+      undefined,
+    );
+  });
+});
+
+describe('sweepListingLines', () => {
   it('counts what it takes, says each object’s classes, and what it lists and keeps with the flag that takes it', () => {
     const lines = sweepListingLines(TIED, 'TGT');
 
@@ -570,22 +573,52 @@ describe('sweepListingLines, of a sweep told the ties', () => {
     );
   });
 
-  it('says a sweep that tells no ties as it always did', () => {
+  it('counts nothing of an object past the bound, none of whose records goes', () => {
     const lines = sweepListingLines(
       {
         window: TIED.window,
-        looked: ['Task'],
-        found: [{ objectApiName: 'Task', count: 2, names: ['Welcome call'] }],
+        looked: ['Task', 'FeedItem'],
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 2,
+            names: ['Welcome call'],
+            classes: { made: 2, madeOver: 0, late: 0, untied: 0 },
+          },
+          { objectApiName: 'FeedItem', count: 10_000, names: [], overBound: true },
+        ],
         unread: [],
         handWork: [],
       },
       'TGT',
     );
-    expect(lines).toEqual([
-      "a sweep looks in TGT for what the run's user created from 2026-10-15T08:59:59Z to 2026-10-15T09:06:00Z that the run's id map does not hold, in: Task",
-      'it would delete 2 record(s), children first:',
-      '  Task: 2 (Welcome call, …)',
-    ]);
+    expect(lines).toContain('it would delete 2 record(s), children first:');
+    expect(lines).toContain('  FeedItem: 10000 or more (over the bound: none would be deleted)');
+  });
+
+  it('says it deletes none of what it found, of a sweep that keeps it all', () => {
+    const lines = sweepListingLines(
+      {
+        window: TIED.window,
+        looked: ['Task'],
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 1,
+            names: ['Late call'],
+            classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+          },
+        ],
+        unread: [],
+        handWork: [],
+        late: [{ objectApiName: 'Task', count: 1 }],
+        untied: { objects: [] },
+      },
+      'TGT',
+      {},
+    );
+    expect(lines).toContain('it would delete none of what it found:');
+    expect(lines).not.toContain('it would delete 0 record(s), children first:');
   });
 });
 

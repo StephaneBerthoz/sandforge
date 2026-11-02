@@ -28,10 +28,10 @@
  * - minus every record the run's id map holds: what the run wrote, linked to
  *   or matched; and never an object of {@link NEVER_SWEPT}.
  *
- * Told what ties a record to the run ({@link SweepInput.ties}), a sweep takes
- * only what is tied to it ({@link sweepTiesOf}). The run's user is not proof
- * enough: a quote line the platform copied from an opportunity line the run
- * inserted carries the run's user as its creator, as the run's own lines do.
+ * A sweep takes only what is tied to the run ({@link SweepInput.ties},
+ * {@link sweepTiesOf}). The run's user is not proof enough: a quote line the
+ * platform copied from an opportunity line the run inserted carries the run's
+ * user as its creator, as the run's own lines do.
  * Every child object of the run's objects is looked at too, counted first,
  * five counts a composite where the org lets them go so
  * ({@link SweepOrg.counts}), {@link SWEEP_LOOK_BOUND} objects at most; what is
@@ -43,17 +43,11 @@
  * once a record of the run is deleted, a lookup the org clears with it
  * (`Task.AccountId`) no longer tells the tie.
  *
- * Without them, a sweep takes everything the run's user created in the
- * window, as before.
- *
- * A window in which the run's user is likely to have worked by hand is not
- * swept: records the user created in it on objects people make by hand
- * ({@link HAND_WORK_OBJECTS}) that the run never wrote and the target's
- * automation does not reach are said, left, and the sweep refused — and,
- * told the ties, only such records tied to nothing of the run, which refuse
- * only what is tied to nothing. Nothing outside the window, or created by
- * anyone else, is ever deleted: each row the org answers is checked again
- * against both before its delete is sent.
+ * Hand work is not swept: records the run's user created in the window on
+ * objects people make by hand ({@link HAND_WORK_OBJECTS}), tied to nothing of
+ * the run, are said, left, and refuse what is tied to nothing. Nothing outside
+ * the window, or created by anyone else, is ever deleted: each row the org
+ * answers is checked again against both before its delete is sent.
  */
 
 import type {
@@ -118,12 +112,10 @@ export const SWEEP_SIDE_OBJECTS: readonly string[] = [
 ];
 
 /**
- * Objects a person creates by hand. Records the run's user created in the
- * window on one of them that the run did not write and the target's
- * automation does not create are taken for hand work, and the sweep refused.
- * Told the ties, such a record tied to nothing of the run is hand work on any
- * of them, the run's own objects among them, and refuses only what is tied to
- * nothing.
+ * Objects a person creates by hand. A record the run's user created in the
+ * window, tied to nothing of the run, is taken for hand work on any of them,
+ * the run's own objects among them: never swept, and it refuses what is tied
+ * to nothing.
  */
 export const HAND_WORK_OBJECTS: readonly string[] = [
   'Account',
@@ -175,9 +167,9 @@ export const SWEEP_TRAIL_MS = 60_000;
 export const SWEEP_OBJECT_BOUND = 10_000;
 
 /**
- * The most objects a sweep told the ties counts the records of: the run's
- * objects, the side objects, what the automation creates and the hand-work
- * objects first, then the children of the run's objects. An account has some
+ * The most objects a sweep counts the records of: the run's objects, the side
+ * objects, what the automation creates and the hand-work objects first, then
+ * the children of the run's objects. An account has some
  * 165 child objects on a scratch org; past the bound, the rest are named, not
  * looked at. Kept from the design until P2-4 (a tour 0 probe deferred: how
  * many objects are left of an account's, a contact's, a case's, an
@@ -344,7 +336,11 @@ export interface SweepTies {
    * what is tied to nothing is not swept.
    */
   otherRuns?: ReadonlyArray<{ readonly ids: readonly string[]; readonly idsUntold?: true }>;
-  /** The ids of the assignments the run's mute created: never swept. */
+  /**
+   * The ids of the assignments the run's mute created: never swept. No caller
+   * has them to pass: a lease keeps no ids, and {@link NEVER_SWEPT} holds what
+   * they would be ids of.
+   */
   leased?: readonly string[];
   /** What the run's mute kept quiet and what still ran, said with the listing. */
   muted?: ForgeSweepListing['muted'];
@@ -387,13 +383,8 @@ export interface SweepInput {
    * held (`seedSweepInput`). Records the run created tell it first.
    */
   user?: string;
-  /**
-   * What tells the records tied to the run from the rest. Given, the sweep
-   * takes only what is tied to the run, and lists the rest; absent, it takes
-   * everything the run's user created in the window, as it did before it
-   * told them apart.
-   */
-  ties?: SweepTies;
+  /** What tells the records tied to the run, the only ones it takes, from the rest, which it lists. */
+  ties: SweepTies;
   /** Stops the sweep before its next call to the org. */
   signal?: AbortSignal;
 }
@@ -442,10 +433,10 @@ interface SweepRow {
   modifiedBy?: string;
   /** When it was created: what tells a record changed since from a record made late. */
   created: number;
-  /** Its class, when the sweep told the ties; absent, it is taken as everything was before. */
-  class?: SweepClass;
+  /** Its class, which says whether it is taken. */
+  class: SweepClass;
   sameSave?: boolean;
-  /** When it goes against the run's own records; `before` unless the ties say otherwise. */
+  /** When it goes against the run's own records. */
   turn: SweepTurn;
   name?: string;
 }
@@ -459,9 +450,8 @@ interface SweepFindings {
   /** Whether a stop came before the reads were through. */
   stopped: boolean;
   /**
-   * The org the order of the deletes is read from: told the ties, the
-   * describes the sweep already read, so nothing more is read once the sweep
-   * was asked.
+   * The org the order of the deletes is read from: the describes the sweep
+   * already read, so nothing more is read once the sweep was asked.
    */
   ordering?: RemovalOrg;
 }
@@ -585,10 +575,8 @@ function childLookedAt(listed: ListedObject): boolean {
 
 /** How a sweep reads an object, or why it cannot. */
 async function sweptObjectOf(
-  org: RemovalOrg,
   objectApiName: string,
-  describeOf: (objectApiName: string) => Promise<DescribedObject> = async (name) =>
-    describedObjectSchema.parse(await org.describe(name)),
+  describeOf: (objectApiName: string) => Promise<DescribedObject>,
 ): Promise<SweptObject | { reason: string }> {
   let described;
   try {
@@ -663,8 +651,7 @@ function createdByAny(creators: readonly string[], window: Window): string {
 
 /**
  * Find what a sweep would take, reading only: the run's window and user, then
- * per object the records that user created in the window that the run's id
- * map does not hold, and the hand work that refuses the sweep.
+ * what is tied to the run among what that user created ({@link findTied}).
  */
 async function findSweep(
   org: SweepOrg,
@@ -712,91 +699,7 @@ async function findSweep(
     findings.stopped = stopped();
     return findings;
   }
-  if (input.ties) {
-    return findTied(org, input, input.ties, told.user, findings, window, removalSpans);
-  }
-  const user = told.user;
-
-  const listed = await objectsListed(org);
-  /** The org's spelling of an object, or undefined when the org does not list it. */
-  const inOrg = (name: string): string | undefined =>
-    listed ? listed.get(name.toLowerCase())?.name : name;
-  const runObjects = input.created.map((object) => object.objectApiName);
-  const looked: string[] = [];
-  const look = (name: string, said: boolean): void => {
-    if (looked.some((known) => known.toLowerCase() === name.toLowerCase())) return;
-    if (NEVER_SWEPT.some((never) => never.toLowerCase() === name.toLowerCase())) return;
-    const spelled = inOrg(name);
-    // An object the org does not have holds nothing to sweep; one the run
-    // wrote or its automation creates is said, as it was expected there.
-    if (spelled) looked.push(spelled);
-    else if (said)
-      listing.unread.push({ objectApiName: name, reason: 'The org has no such object.' });
-  };
-  for (const name of runObjects) look(name, true);
-  for (const name of SWEEP_SIDE_OBJECTS) look(name, false);
-  for (const name of input.automation.creates) look(name, true);
-  listing.looked = looked;
-  const lookedKeys = new Set(looked.map((name) => name.toLowerCase()));
-
-  for (const objectApiName of looked) {
-    if (stopped()) {
-      findings.stopped = true;
-      return findings;
-    }
-    const swept = await sweptObjectOf(org, objectApiName);
-    if ('reason' in swept) {
-      listing.unread.push({ objectApiName, reason: swept.reason });
-      continue;
-    }
-    const read = await readCreated(org, swept, user, window, input.remap, stopped);
-    if ('reason' in read) {
-      listing.unread.push({ objectApiName, reason: read.reason });
-      continue;
-    }
-    if (read.stopped) {
-      findings.stopped = true;
-      return findings;
-    }
-    if (read.rows.length === 0 && !read.overBound) continue;
-    listing.found.push({
-      objectApiName,
-      count: read.rows.length,
-      names: read.names,
-      ...(read.overBound ? { overBound: true as const } : {}),
-    });
-    if (!read.overBound) findings.rows.set(objectApiName, read.rows);
-  }
-
-  // Hand work: what the user created in the window where neither the run nor
-  // the target's automation writes.
-  for (const name of HAND_WORK_OBJECTS) {
-    if (lookedKeys.has(name.toLowerCase())) continue;
-    const objectApiName = inOrg(name);
-    if (!objectApiName) continue;
-    if (stopped()) {
-      findings.stopped = true;
-      return findings;
-    }
-    try {
-      const answer = await org.query(
-        `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${createdBy(user, window)}`,
-      );
-      if (answer.totalSize > 0) {
-        listing.handWork.push({ objectApiName, count: answer.totalSize });
-      }
-    } catch (err: unknown) {
-      listing.unread.push({ objectApiName, reason: extractErrorMessage(err) });
-    }
-  }
-  if (listing.handWork.length > 0) {
-    listing.refusal =
-      `The run's user created records in the run's window that neither the run nor the ` +
-      `target's automation writes (${handWorkWords(listing.handWork)}): hand work, likely, in the ` +
-      'same span. They are left, and nothing is swept: what that user created by hand on the ' +
-      'objects the sweep looks at could not be told from what the automation created.';
-  }
-  return findings;
+  return findTied(org, input, input.ties, told.user, findings, window, removalSpans);
 }
 
 /** Records per object, as a sentence names them. */
@@ -804,80 +707,10 @@ function handWorkWords(counts: readonly ForgeRemovalLeftCount[]): string {
   return counts.map((count) => `${count.objectApiName}: ${count.count}`).join(', ');
 }
 
-/**
- * Read the records of one object the user created in the window, page after
- * page by id, those the run's id map holds left out. Each row is checked
- * again against the user and the window: a row the org answered outside them
- * is never swept. Past {@link SWEEP_OBJECT_BOUND}, the object is said to be
- * over it, and none of its records is swept.
- */
-async function readCreated(
-  org: RemovalOrg,
-  object: SweptObject,
-  user: string,
-  window: Window,
-  remap: RecordKeys,
-  stopped: () => boolean,
-): Promise<
-  { rows: SweepRow[]; names: string[]; overBound: boolean; stopped: boolean } | { reason: string }
-> {
-  const name = assertSoqlIdentifier(object.name);
-  const columns = [
-    ...new Set(
-      ['Id', 'CreatedById', 'CreatedDate', object.modified, object.modifiedBy, object.nameField]
-        .filter((column): column is string => column !== undefined)
-        .map(assertSoqlIdentifier),
-    ),
-  ];
-  const rows: SweepRow[] = [];
-  const names: string[] = [];
-  let after: string | undefined;
-  for (;;) {
-    if (stopped()) return { rows, names, overBound: false, stopped: true };
-    let answer: { records: unknown[] };
-    try {
-      answer = await org.query(
-        `SELECT ${columns.join(', ')} FROM ${name} WHERE ${createdBy(user, window)}` +
-          `${after ? ` AND Id > '${after}'` : ''} ORDER BY Id LIMIT ${PAGE}`,
-      );
-    } catch (err: unknown) {
-      return { reason: extractErrorMessage(err) };
-    }
-    for (const record of answer.records) {
-      if (typeof record !== 'object' || record === null) continue;
-      const row = record as Record<string, unknown>;
-      if (typeof row.Id !== 'string') continue;
-      after = row.Id;
-      const creator = typeof row.CreatedById === 'string' ? recordKey(row.CreatedById) : '';
-      const created = epochOf(row.CreatedDate);
-      if (creator !== recordKey(user) || !(created >= window.from && created <= window.to)) {
-        continue;
-      }
-      if (remap.has(recordKey(row.Id))) continue;
-      const modifiedBy = object.modifiedBy ? row[object.modifiedBy] : undefined;
-      rows.push({
-        id: row.Id,
-        modified: epochOf(row[object.modified]),
-        created,
-        turn: 'before',
-        ...(typeof modifiedBy === 'string' ? { modifiedBy: recordKey(modifiedBy) } : {}),
-      });
-      const named = object.nameField ? row[object.nameField] : undefined;
-      if (typeof named === 'string' && named.trim() !== '' && names.length < NAMES_SHOWN) {
-        names.push(named.trim().slice(0, 80));
-      }
-      if (rows.length > SWEEP_OBJECT_BOUND) {
-        return { rows: rows.slice(0, SWEEP_OBJECT_BOUND), names, overBound: true, stopped: false };
-      }
-    }
-    if (answer.records.length < PAGE) return { rows, names, overBound: false, stopped: false };
-  }
-}
+// ─── What ties a record to the run ───────────────────────────────────────────
 
-// ─── The sweep told the ties ─────────────────────────────────────────────────
-
-/** A record found by a sweep told the ties, with what it points at. */
-interface TiedRow extends SweepRow {
+/** A record a sweep found, before its class: with who created it and what it points at. */
+interface TiedRow extends Omit<SweepRow, 'class' | 'sameSave' | 'turn'> {
   creator: string;
   /** Its lookups read, field by field, to a record id's key. */
   references: Array<{ field: string; key: string }>;
@@ -995,7 +828,6 @@ async function readTiedRows(
         modified: epochOf(row[object.modified]),
         created,
         creator,
-        turn: 'before',
         references,
         ...(typeof modifiedBy === 'string' ? { modifiedBy: recordKey(modifiedBy) } : {}),
         ...(typeof named === 'string' && named.trim() !== ''
@@ -1016,7 +848,7 @@ interface Anchor extends SweepAnchor {
   id: string;
 }
 
-/** The describes a sweep told the ties reads, each once. */
+/** The describes a sweep reads, each once. */
 interface Describes {
   /** The describe, or the org's refusal. */
   of(objectApiName: string): Promise<DescribedObject>;
@@ -1066,9 +898,9 @@ function describesOf(org: RemovalOrg): Describes {
 }
 
 /**
- * The objects a sweep told the ties counts: those every sweep looks at, the
- * hand-work ones, then the children of the run's objects people work with,
- * up to {@link SWEEP_LOOK_BOUND}; past it, named as not looked at.
+ * The objects a sweep counts: those it always looks at, the hand-work ones,
+ * then the children of the run's objects people work with, up to
+ * {@link SWEEP_LOOK_BOUND}; past it, named as not looked at.
  */
 async function objectsToCount(
   org: RemovalOrg,
@@ -1262,7 +1094,7 @@ function classify(
     let sameSave = 0;
     let changed = 0;
     for (const row of kept) {
-      if (row.class) classes[row.class]++;
+      classes[row.class]++;
       if (row.sameSave) sameSave++;
       if (changedSince(row, window, removalSpans)) changed++;
     }
@@ -1315,10 +1147,11 @@ function classify(
 }
 
 /**
- * Find what a sweep told the ties would take, reading only, every read before
- * the first delete: the objects the run's records have as children beside
- * those every sweep looks at, counted first; the records the run's user — and
- * the org's Automated Process user — created in the window, and up to
+ * Find what a sweep would take among what the run's user created, reading
+ * only, every read before the first delete: the objects the run's records have
+ * as children beside those every sweep looks at, counted first; the records
+ * the run's user — and the org's Automated Process user — created in the
+ * window, and up to
  * {@link LATE_WITHIN_MS} after the run's last write for what comes late; their
  * lookups, the run's records' lookups to them, and when the records of the
  * run they are tied to were created; then each one's class.
@@ -1431,7 +1264,7 @@ async function findTied(
     // An object the org would not count is said in the sweep's words when its
     // describe tells why — no creator to tell what the run's user created —,
     // in the org's otherwise.
-    const swept = await sweptObjectOf(org, objectApiName, describes.of);
+    const swept = await sweptObjectOf(objectApiName, describes.of);
     if ('reason' in swept) {
       listing.unread.push({ objectApiName, reason: swept.reason });
       continue;
@@ -1535,8 +1368,7 @@ function changedSince(
   window: Window,
   removalSpans: readonly ForgeRemovalSpan[],
 ): boolean {
-  const since =
-    row.class === undefined ? window.to : Math.max(window.to, row.created + SAME_SAVE_MS);
+  const since = Math.max(window.to, row.created + SAME_SAVE_MS);
   return !(row.modified <= since) && !byRemoval(row, removalSpans);
 }
 
@@ -1580,13 +1412,13 @@ export interface SweepOptions {
   removalSpans: readonly ForgeRemovalSpan[];
   /**
    * Take too what the sweep finds tied to the run but made late (`late`):
-   * listed and kept otherwise. Of a sweep told no ties, nothing changes.
+   * listed and kept otherwise.
    */
   sweepLate?: boolean;
   /**
    * Take too what the sweep finds tied to nothing of the run (`untied`),
    * unless that is refused (`ForgeSweepListing.untied.refusal`): listed and
-   * kept otherwise. Of a sweep told no ties, nothing changes.
+   * kept otherwise.
    */
   sweepUntied?: boolean;
   /**
@@ -1754,7 +1586,6 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       }
       const untiedTaken = options.sweepUntied === true && listing.untied?.refusal === undefined;
       const taken = (row: SweepRow): boolean =>
-        row.class === undefined ||
         row.class === 'made' ||
         row.class === 'madeOver' ||
         (row.class === 'late' && options.sweepLate === true) ||
@@ -1881,11 +1712,10 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
 
 /**
  * Sweep in one go, the run's own records gone already or left as they are:
- * find what the run's user created in the window, keep what someone changed
- * since the run unless the request includes it, and delete the rest,
- * children before their parents — what waits for one of the run's records
- * last, where it goes only once that record went — {@link RECORDS_PER_CALL}
- * at a time, stopped between two calls when asked. Records the org refuses
+ * find what is tied to the run, keep what someone changed since the run
+ * unless the request includes it, and delete the rest, children before their
+ * parents — what waits for one of the run's records last, where it goes only
+ * once that record went — {@link RECORDS_PER_CALL} at a time, stopped between two calls when asked. Records the org refuses
  * are counted with its reasons, and sent once more when the rest has gone. A
  * refused sweep deletes nothing.
  */

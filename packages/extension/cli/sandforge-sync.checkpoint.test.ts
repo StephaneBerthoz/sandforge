@@ -181,6 +181,9 @@ const RECORD_TYPES = [
   },
 ];
 
+/** Who the session is, as the target says: asked once of a run that writes. */
+const whoIsAsked = vi.fn(async () => ({ user_id: '005000000000007AAA' }));
+
 /**
  * A source and a sandbox target of accounts, with room to spare unless
  * `limits` says; each write to the target in `events`, each refused when
@@ -235,6 +238,7 @@ function orgs(
     }),
     describe: async () => DESCRIBED,
     tooling: { query: async () => page([]), queryMore: async () => page([]) },
+    identity: whoIsAsked,
     request: async () =>
       limits ?? {
         DataStorageMB: { Max: 200, Remaining: 150 },
@@ -507,11 +511,14 @@ describe('sandforge-sync --checkpoint-first', () => {
     const events: string[] = [];
     orgs(events);
     const { port } = checkpointsOf(events);
+    whoIsAsked.mockClear();
 
     expect(await exitOf(argv('--checkpoint-first', '--dry-run', '--json'))).toBe(0);
 
     expect(events).toEqual(['scope']);
     expect(port.take).not.toHaveBeenCalled();
+    // Nothing is written to hold to the user it writes as.
+    expect(whoIsAsked).not.toHaveBeenCalled();
     const printed = JSON.parse(out.join('')) as {
       checkpoint: RunCheckpointEstimate;
       simulation: SyncSimulationResult;
@@ -805,6 +812,11 @@ describe('sandforge-sync --checkpoint-first', () => {
     expect(help).toContain('--checkpoint-first     take a checkpoint of what the run writes');
     expect(help).toContain('--checkpoint-keep-days <n>');
     expect(help).toContain('--checkpoint-exclude-object <ApiName>');
+    // Exit 1, as the refusals of a run that asks them exit.
+    const exits = help.slice(help.indexOf('Exit codes')).replace(/\s+/g, ' ');
+    expect(exits).toContain('API requests');
+    expect(exits).toContain('(EMAILS_NOT_ACCEPTED)');
+    expect(exits).toContain('(CHECKPOINT_REFUSED)');
   });
 });
 

@@ -176,6 +176,8 @@ import {
 } from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
+import { madeKept } from '../src/modules/forge/sweepTies.js';
+import { keepRunUser } from '../src/modules/sync/runUser.js';
 import {
   SWEEP_CLASS_FLAGS,
   automationHeldLines,
@@ -191,6 +193,7 @@ import {
   sweepListingLines,
   sweepOrgOf,
   sweepPartsOptions,
+  sweepUnsaid,
   syncRunSpanOf,
   targetAutomationReader,
   type SweepClassArgs,
@@ -541,9 +544,12 @@ Relations (with --object; the options after a --relation apply to it):
 Exit codes: 0 the run finished, some of its records refused included (read the
 summary for per-object failures), or the removal took every record it set out
 to, or a preview said what a removal would do, refusals included; 1 the run or
-the removal could not be started, either was refused before
-it wrote or deleted anything — a production org among the reasons, and for
-the removal what the target runs as it deletes, without --accept-automation —,
+the removal could not be started, either was refused before it wrote or
+deleted anything — a production org among the reasons; for the run, more data
+storage than the org has left, more emails or API requests than it has left
+today, emails it delivers without --accept-emails (EMAILS_NOT_ACCEPTED), a
+checkpoint asked first refused or not taken (CHECKPOINT_REFUSED); for the
+removal, what the target runs as it deletes, without --accept-automation —,
 or the run produced only failures, or it stopped on an error (its file keeps
 what it created); 2 a bad command line, a template file that does not hold, a
 run id a run keeps already, or a summary or a file --remove cannot
@@ -2258,6 +2264,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     startedAt,
     ...(typedTarget ? { targetOrganizationId: typedTarget.id } : {}),
   });
+  // Who the run writes as, for the sweep of its removal: its file takes it
+  // whenever the org says, and nothing waits for it, not even the end of the
+  // process, which goes as `main` returns.
+  keepRunUser(kept, () => conn.identity(), 'sandforge-seed');
   const runFilePath = runs?.pathOf(runId);
 
   // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
@@ -2437,6 +2447,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         return;
       }
       checkpointTaken = took.checkpoint;
+      // Named in the run's file, for its history to offer a rewind to before it.
+      kept?.checkpoint?.(took.checkpoint);
       for (const line of checkpointTakenLines(
         took.checkpoint,
         args.target,
@@ -2997,7 +3009,7 @@ async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<Removal
 
 /** The user a run's file keeps it wrote as, when it keeps one that reads as an id. */
 function runUserOfRun(run: SyncRunKept): Pick<RemovalSubject, 'runUserId'> {
-  const runUserId = runUserIdOf((run as Partial<Record<'runUserId', unknown>>).runUserId);
+  const runUserId = runUserIdOf(run.runUserId);
   return runUserId ? { runUserId } : {};
 }
 
@@ -3131,11 +3143,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   if (args.preview) return previewRemoval(args, subject, run, say, t0);
 
-  /**
-   * What the sweep found, said before its first delete: what it took, and
-   * what it listed and kept. Unset when it took nothing, as it then asks
-   * nothing.
-   */
+  /** What the sweep found, said before its first delete: what it took, and what it listed and kept. */
   let sweepListing: ForgeSweepListing | undefined;
   const output = (
     status: ForgeUndoStatus,
@@ -3235,7 +3243,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
     // What tells the records tied to the run from the rest of what its user
     // created in its window: the other runs of this machine that wrote to
-    // the org meanwhile, its mute, when its first removal began.
+    // the org meanwhile, its mute, when its first removal began, what its
+    // earlier sweeps found made for it.
     const ties = commandSweepTies({
       otherRuns: await otherRunsOf({
         organizationId: org.id,
@@ -3245,6 +3254,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       }),
       ...(subject.muted ? { muted: subject.muted } : {}),
       ...(earlier?.removalSpans ? { removalSpans: earlier.removalSpans } : {}),
+      ...(earlier?.madeEarlier ? { made: earlier.madeEarlier } : {}),
     });
     return seedSweepInput(
       removalOrg(conn, 'sandforge-seed --sweep'),
@@ -3370,19 +3380,29 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         },
       )
     : undefined;
+  // The sweep reads what it takes and says it here, before the lease: the
+  // lease is held for the deletes alone. It deletes at its turn.
+  await parts?.ask();
+  const unsaid = sweepUnsaid(parts, sweepListing);
+  if (unsaid) {
+    sweepListing = unsaid;
+    say('');
+    for (const line of sweepListingLines(unsaid, args.target, args)) say(line);
+  }
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
   // The lease is taken before the removal's first delete and given back as it
   // ends, whatever it ended on.
-  const held = removalMute?.prepared
-    ? await removalMute.prepared
-        .acquire(`sandforge-seed --remove ${run.runId}`)
-        .catch((err: unknown) => {
-          if (!isMuteRefusedError(err)) throw err;
-          releaseStop();
-          process.stderr.write(`${err.message}\n`);
-          process.exit(1);
-        })
-    : undefined;
+  const held =
+    removalMute?.prepared && !stop.signal.aborted
+      ? await removalMute.prepared
+          .acquire(`sandforge-seed --remove ${run.runId}`)
+          .catch((err: unknown) => {
+            if (!isMuteRefusedError(err)) throw err;
+            releaseStop();
+            process.stderr.write(`${err.message}\n`);
+            process.exit(1);
+          })
+      : undefined;
   let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
   try {
     outcome = await removeSyncRun({
@@ -3405,6 +3425,22 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     });
   } finally {
     releaseStop();
+    // What the sweep found made for the run, kept whatever the removal ended
+    // on: once a record of the run is deleted, the org may clear the lookup
+    // that told the tie, and the next sweep would list it as tied to nothing.
+    if (parts && parts.made.size > 0) {
+      await subject
+        .updateRemoval((earlierState) => ({
+          ...earlierState,
+          madeEarlier: madeKept(earlierState.madeEarlier, parts.made),
+        }))
+        .catch((err: unknown) => {
+          process.stderr.write(
+            `What the sweep found made for the run could not be kept (${err instanceof Error ? err.message : String(err)}): ` +
+              'a later --sweep may list it as tied to nothing.\n',
+          );
+        });
+    }
     if (held) {
       mutedAutomation = await held.release();
       for (const line of muteLines(mutedAutomation, args.target)) say(line);
@@ -3656,8 +3692,10 @@ async function previewRemoval(
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-seed')) {
   holdOutputWhole();
-  main().catch((err: unknown) => {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
+  main()
+    .then(() => process.exit(process.exitCode ?? 0))
+    .catch((err: unknown) => {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
 }

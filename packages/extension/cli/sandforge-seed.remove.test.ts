@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import type { ForgeTargetAutomation } from '@sandforge/shared';
+import type { ForgeSweepListing, ForgeTargetAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 
 vi.mock('../src/logger.js', () => ({
@@ -58,6 +58,7 @@ import {
   writePathOrderDefects,
   type WritePathStep,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { nodeSeedRunCreations } from '../src/modules/seed/SeedRunCreations.js';
 import { syncRemovalPlan } from '../src/modules/sync/SyncRunCreations.js';
 import { main, parseRemoveArgs, readRunSummary, runOfSummary } from './sandforge-seed.js';
 
@@ -481,7 +482,7 @@ describe('sandforge-seed --remove', () => {
     expect(order).toEqual(['first, 0 delete(s) before', 'after, 0 contact(s) left']);
   });
 
-  it('holds the mute’s lease from the sweep’s first delete to its last part, then gives it back', async () => {
+  it('takes the mute’s lease once the sweep has read and asked, holds it from the sweep’s first delete to its last part, then gives it back', async () => {
     const events: WritePathStep[] = [];
     const said: string[] = [];
     const muted: MutedAutomation = {
@@ -520,6 +521,10 @@ describe('sandforge-seed --remove', () => {
         input,
         options,
       ),
+      ask: vi.fn(async () => {
+        events.push('question');
+        said.push('sweep asks');
+      }),
       first: vi.fn(async () => {
         events.push('write');
         said.push('sweep before');
@@ -540,8 +545,249 @@ describe('sandforge-seed --remove', () => {
 
     await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--mute-automation', '--json'));
 
-    expect(said).toEqual(['lease', 'sweep before', 'the run’s records', 'sweep after', 'release']);
+    expect(said).toEqual([
+      'sweep asks',
+      'lease',
+      'sweep before',
+      'the run’s records',
+      'sweep after',
+      'release',
+    ]);
     expect(writePathOrderDefects(events)).toEqual([]);
+  });
+
+  describe('what a sweep that takes nothing kept', () => {
+    /** What such a sweep read: a task made late, one tied to nothing. */
+    const KEPT: ForgeSweepListing = {
+      window: { from: '2026-10-18T09:00:00Z', to: '2026-10-18T09:16:00Z' },
+      looked: ['Contact', 'Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 2,
+          names: ['Late call', 'Loose call'],
+          classes: { made: 0, madeOver: 0, late: 1, untied: 1 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+      late: [{ objectApiName: 'Task', count: 1 }],
+      untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+    };
+    const NOTHING: ForgeSweepResult = {
+      status: 'success',
+      objects: [],
+      unread: [],
+      handWork: [],
+    };
+
+    /** A sweep that found `listing` and takes nothing, so it asks nothing. */
+    const keeping = (listing: ForgeSweepListing | undefined) =>
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering(NOTHING)(sweptOrg, input, options),
+        listing,
+      }));
+
+    it('says it, as its question would have', async () => {
+      keeping(KEPT);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
+
+      expect(stdout).toContain('it would delete none of what it found:');
+      expect(stdout).toContain('Task: 2');
+      expect(stdout).toContain('kept, made late');
+      expect(stdout).toContain('(--sweep-late takes them)');
+      expect(stdout).toContain('(--sweep-untied takes them)');
+    });
+
+    it('gives it under --json, and says it on stderr', async () => {
+      keeping(KEPT);
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+
+      expect(JSON.parse(stdout).result.sweepListing).toEqual(KEPT);
+      expect(stderr.mock.calls.join('')).toContain('kept, made late');
+    });
+
+    it('says it once of a sweep that asked, and not of one refused, whose result says why', async () => {
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering(NOTHING)(sweptOrg, input, options),
+        listing: KEPT,
+        ask: vi.fn(async () => {
+          await options.approve?.(KEPT);
+        }),
+      }));
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
+
+      expect(stdout.split('it would delete none of what it found:')).toHaveLength(2);
+
+      stdout = '';
+      vi.mocked(sweepParts).mockReset();
+      writeFileSync(file, JSON.stringify(summary()));
+      rmSync(join(dir, 'seed.removals.json'), { force: true });
+      keeping({ ...KEPT, found: [], refusal: 'The target did not date this run’s writes.' });
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep')).catch(() => undefined);
+
+      expect(stdout).not.toContain('a sweep looks in');
+    });
+  });
+
+  it('takes no lease once a stop came while the sweep read', async () => {
+    const acquire = vi.fn();
+    const automation = { objectsRead: [], objects: [], unread: [] } as never;
+    const muted: MutedAutomation = {
+      state: 'muted',
+      assigned: ['PS_Bypass'],
+      held: [],
+      permissions: ['Bypass'],
+      silenced: [],
+      stillRan: [],
+    };
+    vi.mocked(muteForRun).mockResolvedValue({
+      automation,
+      muted,
+      prepared: {
+        plan: { assign: [], silenced: [], stillRuns: [] },
+        automation,
+        planned: muted,
+        acquire,
+      },
+    });
+    vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+      ...partsAnswering({ status: 'cancelled', objects: [], unread: [], handWork: [] })(
+        sweptOrg,
+        input,
+        options,
+      ),
+      ask: vi.fn(async () => {
+        process.emit('SIGINT');
+      }),
+    }));
+    stubExit();
+
+    await main(
+      argv('--remove', file, '--target', 'TGT', '--sweep', '--mute-automation', '--json'),
+    ).catch(() => undefined);
+
+    expect(acquire).not.toHaveBeenCalled();
+    expect(org.deletes).toEqual([]);
+  });
+
+  describe('what the sweep found made for the run', () => {
+    const TASK = fakeId('00T', 1);
+    const LATER = fakeId('00T', 2);
+
+    /** A sweep that found `made` made for the run. */
+    const finding = (...made: string[]) =>
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering({ status: 'success', objects: [], unread: [], handWork: [] })(
+          sweptOrg,
+          input,
+          options,
+        ),
+        made: new Set(made),
+      }));
+    const keptBesideIt = (): unknown =>
+      (
+        JSON.parse(readFileSync(join(dir, 'seed.removals.json'), 'utf8')) as {
+          madeEarlier?: unknown;
+        }
+      ).madeEarlier;
+
+    it('is kept beside the summary, and the next sweep is told it, its tie gone with the run’s records', async () => {
+      finding(TASK);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+
+      expect(keptBesideIt()).toEqual([TASK]);
+      expect(vi.mocked(sweepParts).mock.calls[0][1].ties.madeEarlier).toBeUndefined();
+
+      stdout = '';
+      finding(LATER);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+
+      expect(vi.mocked(sweepParts).mock.calls[1][1].ties.madeEarlier).toEqual([TASK]);
+      expect(keptBesideIt()).toEqual([TASK, LATER]);
+    });
+
+    it('is told to a listing too', async () => {
+      finding(TASK);
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+      vi.mocked(listSweep).mockResolvedValue({ looked: [], found: [], unread: [], handWork: [] });
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json'));
+
+      expect(vi.mocked(listSweep).mock.calls[0][1].ties.madeEarlier).toEqual([TASK]);
+    });
+
+    it('is kept whatever the removal ended on', async () => {
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering({ status: 'success', objects: [], unread: [], handWork: [] })(
+          sweptOrg,
+          input,
+          options,
+        ),
+        made: new Set([TASK]),
+        afterRemoval: vi.fn(async () => {
+          throw new Error('the connection dropped');
+        }),
+      }));
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--sweep'))).rejects.toThrow(
+        'the connection dropped',
+      );
+
+      expect(keptBesideIt()).toEqual([TASK]);
+    });
+
+    it('says it could not be kept, and the removal’s own outcome stands', async () => {
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering({ status: 'success', objects: [], unread: [], handWork: [] })(
+          sweptOrg,
+          input,
+          options,
+        ),
+        // Asked once the removal ended: where the file is written is taken by then.
+        get made() {
+          mkdirSync(`${join(dir, 'seed.removals.json')}.${process.pid}.tmp`);
+          return new Set([TASK]);
+        },
+      }));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+
+      expect(stderr.mock.calls.join('')).toContain(
+        'What the sweep found made for the run could not be kept',
+      );
+      expect(JSON.parse(stdout).result.status).toBe('success');
+    });
+
+    it('is kept beside the run’s file, which told the sweep the user it wrote as', async () => {
+      const journal = join(dir, 'journal');
+      const recorder = nodeSeedRunCreations(journal).recorder({
+        runId: 'seed-kept',
+        targetOrgId: 'TGT',
+        startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+        targetOrganizationId: ORG_ID,
+      });
+      const runUser = fakeId('005', 7);
+      recorder.runUser?.(runUser);
+      recorder.note('Contact', [C1]);
+      await recorder.end({ status: 'success', objectResults: [] });
+      finding(TASK);
+      const path = nodeSeedRunCreations(journal).pathOf('seed-kept');
+
+      await main(argv('--remove', path, '--target', 'TGT', '--sweep', '--json'));
+
+      expect(vi.mocked(sweepParts).mock.calls[0][1].runUserId).toBe(runUser);
+      const kept = await nodeSeedRunCreations(journal).get('seed-kept');
+      expect(kept?.removal?.madeEarlier).toEqual([TASK]);
+    });
   });
 
   it('lists what a sweep would take and deletes nothing, the run’s records included', async () => {

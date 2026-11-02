@@ -240,10 +240,8 @@ export interface SeedSweepKept {
    * of the run beyond its records — the other runs of this machine in its
    * window, its mute, when its removal began, what an earlier sweep found
    * made. The records it created and those it wrote over are added here.
-   * Absent, the sweep takes everything the run's user created in the
-   * window, as before.
    */
-  ties?: Omit<SweepTies, 'writtenOver'>;
+  ties: Omit<SweepTies, 'writtenOver'>;
 }
 
 /**
@@ -259,19 +257,19 @@ export interface SeedSweepKept {
  *   which may be updates before anything was created or after the last.
  * @param writtenOver - The records a Sync run wrote over: never swept, and,
  *   of a run that created nothing, what tells the user it wrote as. Read
- *   before a removal puts their values back. Told the ties, what is tied to
- *   them alone is `madeOver`, their writes dated by the run's window.
+ *   before a removal puts their values back. What is tied to them alone is
+ *   `madeOver`, their writes dated by the run's window.
  * @param kept - What the run's file keeps beside its records: the user it
- *   wrote as, read first, and whether the ties are told.
+ *   wrote as, read first, and what ties a record to the run.
  */
 export async function seedSweepInput(
   org: Pick<RemovalOrg, 'queryDeleted'> & Partial<Pick<RemovalOrg, 'query'>>,
   created: Created,
   automation: ForgeTargetAutomation | { error: string },
-  signal?: AbortSignal,
-  writes?: RunWrites,
-  writtenOver: Created = [],
-  kept: SeedSweepKept = {},
+  signal: AbortSignal | undefined,
+  writes: RunWrites | undefined,
+  writtenOver: Created,
+  kept: SeedSweepKept,
 ): Promise<SweepInput> {
   const createdAny = created.some(({ ids }) => ids.length > 0);
   // A run that created nothing is dated by its writes alone.
@@ -295,9 +293,7 @@ export async function seedSweepInput(
     automation: sweepAutomationOf(automation),
     ...(runUserId ? { runUserId } : {}),
     ...(user ? { user } : {}),
-    ...(kept.ties
-      ? { ties: { ...kept.ties, ...(over.length > 0 ? { writtenOver: over } : {}) } }
-      : {}),
+    ties: { ...kept.ties, ...(over.length > 0 ? { writtenOver: over } : {}) },
     ...(signal ? { signal } : {}),
   };
 }

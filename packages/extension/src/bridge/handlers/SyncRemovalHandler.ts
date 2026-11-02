@@ -672,8 +672,8 @@ export class SyncRemovalHandler implements DomainHandler {
       automation = { error: extractErrorMessage(err) };
     }
     const org = removalOrg(conn, context);
-    // Told the ties, the sweep takes only what is tied to the run's records;
-    // the window the other runs are judged by is the one read back from them.
+    // The window the other runs are judged by is the one read back from the
+    // run's records, so what ties a record to the run comes after them.
     const input = await seedSweepInput(
       org,
       run.created,

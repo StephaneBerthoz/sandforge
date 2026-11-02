@@ -4071,7 +4071,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         remap,
         automation: sweepAutomationOf(automation),
         ...(load.runUserId ? { runUserId: load.runUserId } : {}),
-        // Told the ties, the sweep takes only what is tied to the load's records.
+        // The sweep takes only what is tied to the load's records.
         ties: await this.tiesOfLoad(load, writtenBetween, store),
         ...(signal ? { signal } : {}),
       },

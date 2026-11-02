@@ -54,6 +54,7 @@ const A1 = fakeId('001', 1);
 const C1 = fakeId('003', 1);
 const C2 = fakeId('003', 2);
 const JOB = fakeId('750', 1);
+const RUN_USER = fakeId('005', 7);
 
 const argv = (...args: string[]): string[] => ['node', 'sandforge-sync.ts', ...args];
 
@@ -90,8 +91,11 @@ describe('the file a run of sandforge-sync keeps', () => {
   let org: MemoryRemovalOrg;
   let bulkJob: { state: string; rows: Array<Record<string, unknown>> };
   let jobsAsked: string[];
+  /** What the target says of who the session is. */
+  let identity: () => Promise<{ user_id?: unknown }>;
 
   beforeEach(() => {
+    identity = async () => ({ user_id: RUN_USER });
     rmSync(runsDir(), { recursive: true, force: true });
     org = new MemoryRemovalOrg({
       Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
@@ -108,6 +112,7 @@ describe('the file a run of sandforge-sync keeps', () => {
             : { records: [{ Id: ORG_ID }], totalSize: 1 },
       ),
       queryMore: vi.fn(),
+      identity: () => identity(),
       // What a removal brings back from the recycle bin, the fake org's own bin.
       soap: { undelete: async (ids: string[]) => org.undelete(ids) },
       bulk2: {
@@ -173,6 +178,50 @@ describe('the file a run of sandforge-sync keeps', () => {
       runFile: file,
       lastWriteAt: expect.any(String),
     });
+  });
+
+  it('keeps in its file the user the target says it writes as, for the sweep of its removal', async () => {
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      return answered(config);
+    };
+
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept?.runUserId).toBe(RUN_USER);
+  });
+
+  it('keeps it once its target says, past the run’s first line', async () => {
+    let say: (who: { user_id: string }) => void = () => undefined;
+    identity = () => new Promise((resolve) => (say = resolve));
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      say({ user_id: RUN_USER });
+      await Promise.resolve();
+      deps.creations?.note('Account', [fakeId('001', 2)]);
+      return answered(config);
+    };
+
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept?.runUserId).toBe(RUN_USER);
+  });
+
+  it('ends without an answer from a target that does not say who the session is', async () => {
+    identity = () => new Promise(() => undefined);
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      return answered(config);
+    };
+
+    // Not the 15 seconds the read is given: this test's five would end first.
+    await run();
+
+    const kept = readRunFile(readFileSync(join(runsDir(), runFiles()[0]), 'utf8'));
+    expect(kept).toMatchObject({ end: { status: 'success' } });
+    expect(kept?.runUserId).toBeUndefined();
   });
 
   it('prints in its summary what a delta run deleted as the source had, and --remove brings it back from the summary alone', async () => {

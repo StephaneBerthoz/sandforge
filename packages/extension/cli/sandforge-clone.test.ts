@@ -249,6 +249,17 @@ describe('sandforge-clone usage text', () => {
     expect(stdout).toContain('may reach the');
   });
 
+  it('names under exit 1 the refusals of a run that asks a day’s requests, its emails or a checkpoint', async () => {
+    expect(await run(['node', 'sandforge-clone.ts', '--help'])).toBe(0);
+
+    const one = /\n {2}1 {2}([\s\S]*?)\n {2}2 {2}/.exec(stdout)?.[1].replace(/\s+/g, ' ');
+    expect(one).toContain('more API requests than it has left today');
+    expect(one).toContain('more emails than it has left today');
+    expect(one).toContain('(EMAILS_NOT_ACCEPTED)');
+    expect(one).toContain('the checkpoint asked first was refused or could not be taken');
+    expect(one).toContain('(CHECKPOINT_REFUSED)');
+  });
+
   it('names no bare command anywhere in the script source', () => {
     const source = readFileSync(join(__dirname, 'sandforge-clone.ts'), 'utf8');
     expect(source.split('\n').filter((line) => BARE_COMMAND_LINE.test(line))).toEqual([]);

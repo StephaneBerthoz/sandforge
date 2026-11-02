@@ -826,8 +826,8 @@ export interface ForgeSweepFound {
   overBound?: true;
   /**
    * Of `count`, how many fall in each class of what a sweep tells the run's
-   * from hand work ({@link ForgeSweepClasses}). Absent from a sweep that does
-   * not tell them apart: it takes them all, as before.
+   * from hand work ({@link ForgeSweepClasses}). Absent from an object past the
+   * bound, none of whose records is swept.
    */
   classes?: ForgeSweepClasses;
 }
@@ -891,12 +891,9 @@ export interface ForgeSweepAutomationGaps {
 export interface ForgeSweepListing {
   /**
    * Why the sweep will not run, when it will not: nothing is deleted. The
-   * run's write window or its user could not be told, or — of a sweep that
-   * does not tell the records tied to the run from the rest — the user
-   * created records in the window that neither the run nor the target's
-   * automation reaches: hand work, likely, in the same span. A sweep told
-   * the ties is not refused for hand work: only what is tied to nothing of
-   * the run is, as `untied.refusal` says, and what is tied goes.
+   * run's write window or its user could not be told. Hand work refuses no
+   * sweep: only what is tied to nothing of the run, as `untied.refusal` says,
+   * and what is tied goes.
    */
   refusal?: string;
   /** The span looked in; absent when the run's writes were not dated. */
@@ -911,25 +908,22 @@ export interface ForgeSweepListing {
   automationGaps?: ForgeSweepAutomationGaps;
   /**
    * Records the run's user created in the window on objects people make by
-   * hand, per object: said, never swept. Of a sweep that does not tell the
-   * ties, those on objects neither the run nor the target's automation
-   * reaches, and the reason the whole sweep is refused; of a sweep told the
-   * ties, those tied to nothing of the run, on any such object, which refuse
-   * only what is tied to nothing (`untied.refusal`) — an asset a case of the
-   * run names is the run's, not hand work.
+   * hand, tied to nothing of the run, per object: said, never swept. They
+   * refuse only what is tied to nothing (`untied.refusal`) — an asset a case
+   * of the run names is the run's, not hand work.
    */
   handWork: ForgeRemovalLeftCount[];
   /**
    * Per object, the records found tied to nothing of the run (class
    * `untied`): listed and kept unless the removal asks for them
    * (`sweepUntied`), and why that ask would be refused, when it would.
-   * Absent from a sweep that does not tell them apart.
+   * Absent from a sweep refused before it read them.
    */
   untied?: { objects: ForgeRemovalLeftCount[]; refusal?: string };
   /**
    * Per object, the records found tied to the run but created late (class
    * `late`): listed and kept unless the removal asks for them (`sweepLate`).
-   * Absent from a sweep that does not tell them apart.
+   * Absent from a sweep refused before it read them.
    */
   late?: ForgeRemovalLeftCount[];
   /**

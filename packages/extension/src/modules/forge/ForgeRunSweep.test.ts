@@ -3,7 +3,6 @@ import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 
 import { compositeReader, type CompositeQueryConnection } from '../checkpoint/compositeQueries.js';
 import { writePathOrderDefects, type WritePathStep } from '../checkpoint/beforeRunCheckpoint.js';
-import type { RemovalOrg } from './ForgeRunRemoval.js';
 import {
   HAND_WORK_OBJECTS,
   NEVER_SWEPT,
@@ -37,6 +36,8 @@ const COLLEAGUE = id('005', 2);
 const FIRST_WRITE = '2026-10-15T09:00:00.000Z';
 const LAST_WRITE = '2026-10-15T09:02:00.000Z';
 const DURING = '2026-10-15T09:01:00.000+0000';
+/** Half a minute after the run's records: within a minute of them, still made for the run. */
+const SOON_AFTER = '2026-10-15T09:01:30.000+0000';
 /** Half a minute after the last write: an asynchronous path's record, inside the window. */
 const JUST_AFTER = '2026-10-15T09:02:30.000+0000';
 const BEFORE = '2026-10-15T08:00:00.000+0000';
@@ -53,144 +54,6 @@ const DEFAULT_FIELDS = [
   'LastModifiedDate',
   'LastModifiedById',
 ];
-
-/**
- * An org in memory that answers the sweep's queries as the org would: by the
- * creator, the creation dates and the id the query names, a page at a time.
- */
-class SweepOrg implements RemovalOrg {
-  readonly rows = new Map<string, Row[]>();
-  /** Records deleted, kept in the recycle bin. */
-  readonly bin = new Map<string, Row[]>();
-  readonly fields = new Map<string, string[]>();
-  readonly children = new Map<string, Array<{ childSObject: string; field: string }>>();
-  readonly notDeletable = new Set<string>();
-  /** Ids the org refuses to delete, until `freed` lets them go. */
-  readonly refusals = new Map<string, string>();
-  /** Ids a refusal holds only on the first try. */
-  readonly freedOnRetry = new Set<string>();
-  readonly deletes: Array<{ object: string; ids: string[] }> = [];
-  readonly queries: string[] = [];
-  /** An org that answers every row of an object, whatever the query asks: what the sweep checks again. */
-  answersEverything = false;
-  /** Told after each delete. */
-  onDelete?: () => void;
-
-  add(object: string, ...rows: Row[]): void {
-    this.rows.set(object, [...(this.rows.get(object) ?? []), ...rows]);
-  }
-
-  ids(object: string): string[] {
-    return (this.rows.get(object) ?? []).map((row) => row.Id);
-  }
-
-  async describe(objectApiName: string): Promise<unknown> {
-    if (!this.rows.has(objectApiName) && !this.fields.has(objectApiName)) {
-      throw new Error(`INVALID_TYPE: sObject type '${objectApiName}' is not supported.`);
-    }
-    return {
-      name: objectApiName,
-      label: objectApiName,
-      queryable: true,
-      deletable: !this.notDeletable.has(objectApiName),
-      fields: (this.fields.get(objectApiName) ?? DEFAULT_FIELDS).map((name) => ({
-        name,
-        label: name,
-        type: 'string',
-        ...(name === 'Name' ? { nameField: true } : {}),
-      })),
-      childRelationships: (this.children.get(objectApiName) ?? []).map((child) => ({
-        ...child,
-        cascadeDelete: false,
-      })),
-    };
-  }
-
-  async describeGlobal(): Promise<unknown> {
-    return {
-      sobjects: [...new Set([...this.rows.keys(), ...this.fields.keys()])].map((name) => ({
-        name,
-      })),
-    };
-  }
-
-  async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
-    this.queries.push(soql);
-    const match =
-      /^SELECT (.+) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+?)(?: AND Id > '(\w+)')?(?: ORDER BY Id LIMIT (\d+))?$/.exec(
-        soql,
-      );
-    if (!match) throw new Error(`unexpected query: ${soql}`);
-    const [, columns, object, user, from, to, after, limit] = match;
-    let rows = [...(this.rows.get(object) ?? [])].sort((a, b) => a.Id.localeCompare(b.Id));
-    if (!this.answersEverything) {
-      rows = rows.filter((row) => {
-        const created = Date.parse(String(row.CreatedDate));
-        return row.CreatedById === user && created >= Date.parse(from) && created <= Date.parse(to);
-      });
-    }
-    if (after) rows = rows.filter((row) => row.Id > after);
-    if (columns === 'COUNT()') return { totalSize: rows.length, records: [] };
-    const page = limit ? rows.slice(0, Number(limit)) : rows;
-    return { totalSize: page.length, records: page.map((row) => ({ ...row })) };
-  }
-
-  async queryDeleted(soql: string): Promise<{ records: unknown[] }> {
-    const match = /^SELECT CreatedById FROM (\w+) WHERE Id IN \((.*)\)$/.exec(soql);
-    if (!match) throw new Error(`unexpected query of the recycle bin: ${soql}`);
-    const wanted = new Set(match[2].split(', ').map((quoted) => quoted.slice(1, -1)));
-    const all = [...(this.rows.get(match[1]) ?? []), ...(this.bin.get(match[1]) ?? [])];
-    return {
-      records: all
-        .filter((row) => wanted.has(row.Id))
-        .map((row) => ({ CreatedById: row.CreatedById })),
-    };
-  }
-
-  async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
-    this.deletes.push({ object: objectApiName, ids: [...ids] });
-    const answer = ids.map((recordId) => {
-      const refusal = this.refusals.get(recordId);
-      if (refusal) {
-        if (this.freedOnRetry.has(recordId)) this.refusals.delete(recordId);
-        return {
-          id: recordId,
-          success: false,
-          errors: [{ statusCode: 'DELETE_FAILED', message: refusal }],
-        };
-      }
-      const rows = this.rows.get(objectApiName) ?? [];
-      const row = rows.find((r) => r.Id === recordId);
-      if (!row) {
-        return {
-          id: recordId,
-          success: false,
-          errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
-        };
-      }
-      this.rows.set(
-        objectApiName,
-        rows.filter((r) => r.Id !== recordId),
-      );
-      this.bin.set(objectApiName, [...(this.bin.get(objectApiName) ?? []), row]);
-      return { id: recordId, success: true, errors: [] };
-    });
-    this.onDelete?.();
-    return answer;
-  }
-
-  async update(): Promise<unknown> {
-    throw new Error('a sweep updates nothing');
-  }
-
-  async serverTime(): Promise<string> {
-    return new Date().toISOString();
-  }
-
-  async userId(): Promise<string> {
-    return RUN_USER;
-  }
-}
 
 /** A record created by `by` at `created`, last modified then unless told. */
 function rec(
@@ -213,14 +76,42 @@ function rec(
 /**
  * The org after a clone of one case and its contact into it, the run's own
  * records still there (or in the recycle bin once removed): every other
- * object the tests read starts empty.
+ * object the tests read starts empty. What hangs from them goes by its own
+ * delete: nothing cascades.
  */
-function orgAfterRun(): SweepOrg {
-  const org = new SweepOrg();
+function orgAfterRun(): TiedOrg {
+  const org = new TiedOrg();
+  org.shape('Case', {
+    children: [
+      { childSObject: 'Task', field: 'WhatId' },
+      { childSObject: 'FeedItem', field: 'ParentId' },
+    ],
+  });
+  org.shape('Contact', {
+    references: { Source_Case__c: ['Case'] },
+    children: [
+      { childSObject: 'Task', field: 'WhoId' },
+      { childSObject: 'Asset', field: 'ContactId' },
+    ],
+  });
+  org.shape('Task', { references: { WhatId: ['Case'], WhoId: ['Contact'] } });
+  org.shape('FeedItem', { references: { ParentId: ['Case'] } });
+  org.shape('Asset', { references: { ContactId: ['Contact'] } });
   org.add('Case', rec(id('500', 1), 'Cloned case', RUN_USER, DURING));
   org.add('Contact', rec(id('003', 1), 'Cloned contact', RUN_USER, DURING));
-  for (const object of ['Task', 'FeedItem', 'Asset', 'Opportunity', 'Account']) org.add(object);
+  for (const object of ['Opportunity', 'Account']) org.add(object);
   return org;
+}
+
+/** A task on the run's case, by the run's user unless told, as the case's flow opens one. */
+function onCase(
+  n: number,
+  name: string,
+  by = RUN_USER,
+  created = DURING,
+  modified: { at?: string; by?: string } = {},
+): Row {
+  return { ...rec(id('00T', n), name, by, created, modified), WhatId: id('500', 1) };
 }
 
 /** What a sweep is told of that run: its window, its records, its remap. */
@@ -235,6 +126,7 @@ function input(overrides: Partial<SweepInput> = {}): SweepInput {
     created,
     remap,
     automation: { creates: ['Asset'] },
+    ties: {},
     ...overrides,
   };
 }
@@ -327,18 +219,17 @@ describe('sweepAutomationOf', () => {
 describe('listSweep', () => {
   it('lists, per object, what the run’s user created in the window that the run’s remap does not hold', async () => {
     const org = orgAfterRun();
-    org.add(
-      'Task',
-      rec(id('00T', 1), 'Welcome call', RUN_USER, DURING),
-      rec(id('00T', 2), 'Follow up', RUN_USER, JUST_AFTER),
-    );
-    org.add('Asset', rec(id('02i', 1), 'Insured risk', RUN_USER, DURING));
+    org.add('Task', onCase(1, 'Welcome call'), onCase(2, 'Follow up', RUN_USER, JUST_AFTER));
+    org.add('Asset', {
+      ...rec(id('02i', 1), 'Insured risk', RUN_USER, DURING),
+      ContactId: id('003', 1),
+    });
 
     const listing = await listSweep(org, input());
 
     expect(listing.refusal).toBeUndefined();
     expect(listing.window).toEqual({ from: '2026-10-15T08:59:59Z', to: '2026-10-15T09:03:00Z' });
-    expect(listing.found).toEqual([
+    expect(listing.found).toMatchObject([
       { objectApiName: 'Task', count: 2, names: ['Welcome call', 'Follow up'] },
       { objectApiName: 'Asset', count: 1, names: ['Insured risk'] },
     ]);
@@ -348,20 +239,29 @@ describe('listSweep', () => {
     expect(org.deletes).toEqual([]);
   });
 
-  it('looks at the objects the run wrote, the side objects the org has, and what the automation creates', async () => {
+  it('looks at the objects the run wrote, the side objects the org has, what the automation creates and the hand-work objects', async () => {
     const org = orgAfterRun();
     const listing = await listSweep(org, input());
-    expect(listing.looked).toEqual(['Case', 'Contact', 'Task', 'FeedItem', 'Asset']);
+    expect(listing.looked).toEqual([
+      'Case',
+      'Contact',
+      'Task',
+      'FeedItem',
+      'Asset',
+      'Account',
+      'Opportunity',
+    ]);
     // Side objects the org does not have are no object to sweep, and not said.
     expect(listing.unread).toEqual([]);
     expect(SWEEP_SIDE_OBJECTS).toEqual(
       expect.arrayContaining(['Task', 'Event', 'FeedItem', 'EmailMessage', 'CaseComment']),
     );
+    expect(HAND_WORK_OBJECTS).toContain('Opportunity');
   });
 
   it('says an object it cannot tell creators by, and one the automation creates that the org lacks', async () => {
     const org = orgAfterRun();
-    org.fields.set('ContentDocumentLink', ['Id', 'LinkedEntityId', 'SystemModstamp']);
+    org.shape('ContentDocumentLink', { fields: ['Id', 'LinkedEntityId', 'SystemModstamp'] });
     const listing = await listSweep(org, input({ automation: { creates: ['Insured_Risk__c'] } }));
     expect(listing.unread).toEqual([
       { objectApiName: 'Insured_Risk__c', reason: 'The org has no such object.' },
@@ -383,13 +283,15 @@ describe('listSweep', () => {
     const org = orgAfterRun();
     await org.destroy('Case', [id('500', 1)]);
     await org.destroy('Contact', [id('003', 1)]);
-    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
+    org.add('Task', onCase(1, 'Welcome call'));
     org.deletes.length = 0;
 
     const listing = await listSweep(org, input());
 
     expect(listing.refusal).toBeUndefined();
-    expect(listing.found).toEqual([{ objectApiName: 'Task', count: 1, names: ['Welcome call'] }]);
+    expect(listing.found).toMatchObject([
+      { objectApiName: 'Task', count: 1, names: ['Welcome call'] },
+    ]);
   });
 
   it('takes the user it is told for a run that created nothing: a Sync run that only wrote over records', async () => {
@@ -403,7 +305,7 @@ describe('listSweep', () => {
     const listing = await listSweep(org, input({ created: [], user: RUN_USER }));
 
     expect(listing.refusal).toBeUndefined();
-    expect(listing.found).toEqual([
+    expect(listing.found).toMatchObject([
       { objectApiName: 'Task', count: 1, names: ['Account updated'] },
     ]);
   });
@@ -420,11 +322,13 @@ describe('listSweep', () => {
 
   it('reads the user from the records the run created, whatever it is told', async () => {
     const org = orgAfterRun();
-    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
+    org.add('Task', onCase(1, 'Welcome call'));
 
     const listing = await listSweep(org, input({ user: COLLEAGUE }));
 
-    expect(listing.found).toEqual([{ objectApiName: 'Task', count: 1, names: ['Welcome call'] }]);
+    expect(listing.found).toMatchObject([
+      { objectApiName: 'Task', count: 1, names: ['Welcome call'] },
+    ]);
   });
 
   it('refuses when the run’s records name more than one creator', async () => {
@@ -432,28 +336,6 @@ describe('listSweep', () => {
     org.rows.set('Contact', [rec(id('003', 1), 'Cloned contact', COLLEAGUE, DURING)]);
     const listing = await listSweep(org, input());
     expect(listing.refusal).toMatch(/created by 2 different users/);
-  });
-
-  it('refuses a window in which the run’s user created records the run and its automation do not reach', async () => {
-    const org = orgAfterRun();
-    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
-    org.add('Opportunity', rec(id('006', 1), 'Typed by hand', RUN_USER, DURING));
-
-    const listing = await listSweep(org, input());
-
-    expect(listing.handWork).toEqual([{ objectApiName: 'Opportunity', count: 1 }]);
-    expect(listing.refusal).toMatch(/hand work, likely/);
-    expect(listing.refusal).toContain('Opportunity: 1');
-    expect(HAND_WORK_OBJECTS).toContain('Opportunity');
-  });
-
-  it('takes no record the automation creates for hand work', async () => {
-    const org = orgAfterRun();
-    // Asset is a hand-work object, but the target's Case flow creates assets.
-    org.add('Asset', rec(id('02i', 1), 'Insured risk', RUN_USER, DURING));
-    const listing = await listSweep(org, input());
-    expect(listing.handWork).toEqual([]);
-    expect(listing.found).toEqual([{ objectApiName: 'Asset', count: 1, names: ['Insured risk'] }]);
   });
 
   it('counts an object past the bound as over it, and stops reading it there', async () => {
@@ -477,16 +359,13 @@ describe('listSweep', () => {
 });
 
 describe('sweepRunRecords', () => {
-  it('deletes what the run’s user created in the window, and nothing created outside it or by anyone else', async () => {
+  it('deletes what is tied to the run, and nothing created outside its window or by anyone else', async () => {
     const org = orgAfterRun();
-    const swept = [
-      rec(id('00T', 1), 'Welcome call', RUN_USER, DURING),
-      rec(id('00T', 2), 'Follow up', RUN_USER, JUST_AFTER),
-    ];
+    const swept = [onCase(1, 'Welcome call'), onCase(2, 'Follow up', RUN_USER, SOON_AFTER)];
     const kept = [
-      rec(id('00T', 3), 'Before the run', RUN_USER, BEFORE),
-      rec(id('00T', 4), 'Long after the run', RUN_USER, LONG_AFTER),
-      rec(id('00T', 5), 'A colleague’s task', COLLEAGUE, DURING),
+      onCase(3, 'Before the run', RUN_USER, BEFORE),
+      onCase(4, 'Long after the run', RUN_USER, LONG_AFTER),
+      onCase(5, 'A colleague’s task', COLLEAGUE, DURING),
     ];
     org.add('Task', ...swept, ...kept);
     // An org that answers every row whatever the query asks: each row is
@@ -516,24 +395,22 @@ describe('sweepRunRecords', () => {
 
   it('deletes nothing when the sweep is refused', async () => {
     const org = orgAfterRun();
-    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
-    org.add('Opportunity', rec(id('006', 1), 'Typed by hand', RUN_USER, DURING));
+    org.add('Task', onCase(1, 'Welcome call'));
 
-    const result = await sweepRunRecords(org, input(), NO_SPANS);
+    const result = await sweepRunRecords(org, input({ writtenBetween: undefined }), NO_SPANS);
 
     expect(result.status).toBe('refused');
-    expect(result.refusal).toMatch(/hand work/);
-    expect(result.handWork).toEqual([{ objectApiName: 'Opportunity', count: 1 }]);
+    expect(result.refusal).toMatch(/did not date this run’s writes/);
     expect(org.deletes).toEqual([]);
   });
 
   it('keeps what someone changed since the run, unless the request includes it', async () => {
-    const changedByColleague = rec(id('00T', 1), 'Edited task', RUN_USER, DURING, {
+    const changedByColleague = onCase(1, 'Edited task', RUN_USER, DURING, {
       at: LONG_AFTER,
       by: COLLEAGUE,
     });
     const org = orgAfterRun();
-    org.add('Task', changedByColleague, rec(id('00T', 2), 'Untouched', RUN_USER, DURING));
+    org.add('Task', changedByColleague, onCase(2, 'Untouched'));
 
     const result = await sweepRunRecords(org, input(), NO_SPANS);
     expect(result.objects[0]).toMatchObject({ found: 2, deleted: 1, keptChanged: 1 });
@@ -549,7 +426,7 @@ describe('sweepRunRecords', () => {
     const org = orgAfterRun();
     org.add(
       'Task',
-      rec(id('00T', 1), 'Restamped by the removal', RUN_USER, DURING, {
+      onCase(1, 'Restamped by the removal', RUN_USER, DURING, {
         at: '2026-10-15T10:00:05.000+0000',
         by: RUN_USER,
       }),
@@ -563,11 +440,16 @@ describe('sweepRunRecords', () => {
 
   it('deletes children before their parents', async () => {
     const org = orgAfterRun();
-    // A contact the target's automation created beside the run's, and a task
-    // on it: the contacts are looked at first, as an object the run wrote.
-    org.add('Contact', rec(id('003', 2), 'Created by a flow', RUN_USER, DURING));
-    org.add('Task', rec(id('00T', 1), 'On that contact', RUN_USER, DURING));
-    org.children.set('Contact', [{ childSObject: 'Task', field: 'WhoId' }]);
+    // A contact the target's automation created under the run's case, and a
+    // task on it: the contacts are looked at first, as an object the run wrote.
+    org.add('Contact', {
+      ...rec(id('003', 2), 'Created by a flow', RUN_USER, DURING),
+      Source_Case__c: id('500', 1),
+    });
+    org.add('Task', {
+      ...rec(id('00T', 1), 'On that contact', RUN_USER, DURING),
+      WhoId: id('003', 2),
+    });
 
     await sweepRunRecords(org, input(), NO_SPANS);
 
@@ -577,12 +459,7 @@ describe('sweepRunRecords', () => {
 
   it('stops between two calls when asked, and says it was cancelled', async () => {
     const org = orgAfterRun();
-    org.add(
-      'Task',
-      ...Array.from({ length: 250 }, (_, n) =>
-        rec(id('00T', n + 1), `Task ${n}`, RUN_USER, DURING),
-      ),
-    );
+    org.add('Task', ...Array.from({ length: 250 }, (_, n) => onCase(n + 1, `Task ${n}`)));
     const stop = new AbortController();
     org.onDelete = () => stop.abort();
 
@@ -595,12 +472,7 @@ describe('sweepRunRecords', () => {
 
   it('counts what the org refuses with its reason, and sends it once more once the rest has gone', async () => {
     const org = orgAfterRun();
-    org.add(
-      'Task',
-      rec(id('00T', 1), 'Held a moment', RUN_USER, DURING),
-      rec(id('00T', 2), 'Refused for good', RUN_USER, DURING),
-      rec(id('00T', 3), 'Free', RUN_USER, DURING),
-    );
+    org.add('Task', onCase(1, 'Held a moment'), onCase(2, 'Refused for good'), onCase(3, 'Free'));
     org.refusals.set(id('00T', 1), 'records still hang from it');
     org.freedOnRetry.add(id('00T', 1));
     org.refusals.set(id('00T', 2), 'a flow refuses the delete');
@@ -638,7 +510,7 @@ describe('sweepRunRecords', () => {
 describe('the sweep asked before its first delete', () => {
   it('stops before any delete when the approval refuses, and says why', async () => {
     const org = orgAfterRun();
-    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
+    org.add('Task', onCase(1, 'Welcome call'));
     const asked: number[] = [];
 
     const result = await sweepRunRecords(org, input(), {
@@ -752,10 +624,12 @@ describe('what a sweep leaves on the run and in the audit trail', () => {
   });
 });
 
-// ─── The sweep told the ties ─────────────────────────────────────────────────
+// ─── What ties a record to the run ───────────────────────────────────────────
 
 /** What the org says of an object beyond its records: its lookups, its children, its flags. */
 interface ObjectShape {
+  /** Its columns in place of the usual ones: a read of any other is refused, as the org refuses it. */
+  fields?: string[];
   /** Its lookups, by field, to the objects they may point at. */
   references?: Record<string, string[]>;
   children?: Array<{
@@ -775,8 +649,8 @@ const sameValue = (held: unknown, asked: string): boolean =>
     : held === asked;
 
 /**
- * Answer `soql` from `rows` as the org does, for the statements a sweep told
- * the ties sends: `SELECT <fields> | COUNT() FROM <object>`, a WHERE of `=`,
+ * Answer `soql` from `rows` as the org does, for the statements a sweep
+ * sends: `SELECT <fields> | COUNT() FROM <object>`, a WHERE of `=`,
  * `IN (…)`, `>=`, `<=` and `>` terms under AND, `ORDER BY Id`, `LIMIT`. An
  * id compares by its first fifteen characters, a polymorphic lookup's too.
  */
@@ -817,8 +691,8 @@ function answerSoql(soql: string, rows: Row[]): { totalSize: number; records: un
 }
 
 /**
- * An org in memory a sweep told the ties works on: lookups and child
- * relationships by describe, a delete the org refuses while a restricting
+ * An org in memory a sweep works on: lookups and child relationships by
+ * describe, a delete the org refuses while a restricting
  * lookup names the record (`Case.AssetId`, DELETE_FAILED), cascades, and a
  * lookup the org clears as the record it names goes (`Task.AccountId`).
  * Each call is counted where a run's write path is: a read, or a write.
@@ -830,6 +704,14 @@ class TiedOrg implements CountingOrg {
   readonly deletes: Array<{ object: string; ids: string[] }> = [];
   readonly queries: string[] = [];
   readonly events: WritePathStep[] = [];
+  /** Ids the org refuses to delete, with its reason, until `freedOnRetry` lets them go. */
+  readonly refusals = new Map<string, string>();
+  /** Ids a refusal holds only on the first try. */
+  readonly freedOnRetry = new Set<string>();
+  /** An org that answers every row of an object, whatever the query asks: what the sweep checks again. */
+  answersEverything = false;
+  /** Told after each delete. */
+  onDelete?: () => void;
   counts?: CountingOrg['counts'];
 
   add(object: string, ...rows: Row[]): void {
@@ -875,7 +757,7 @@ class TiedOrg implements CountingOrg {
       queryable: true,
       deletable: true,
       fields: [
-        ...DEFAULT_FIELDS.map((name) => ({
+        ...(shape.fields ?? DEFAULT_FIELDS).map((name) => ({
           name,
           label: name,
           type: name.endsWith('ById') ? 'reference' : 'string',
@@ -896,7 +778,20 @@ class TiedOrg implements CountingOrg {
   /** What the org answers, without counting the call: a composite's subrequest. */
   answer(soql: string): { totalSize: number; records: unknown[] } {
     const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
-    return answerSoql(soql, this.rows.get(object) ?? []);
+    const columns = this.shapes.get(object)?.fields;
+    const unknown = /(\w+) (?:=|>=|<=|>|IN) /
+      .exec(soql.slice(soql.indexOf(' WHERE ')))
+      ?.slice(1)
+      .find((column) => columns && !columns.includes(column));
+    if (unknown) throw new Error(`INVALID_FIELD: No such column '${unknown}' on ${object}`);
+    return answerSoql(
+      this.answersEverything
+        ? soql.replace(/ WHERE CreatedById .*? AND CreatedDate <= \S+( AND )?/, (_, and) =>
+            and ? ' WHERE ' : '',
+          )
+        : soql,
+      this.rows.get(object) ?? [],
+    );
   }
 
   async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
@@ -935,7 +830,16 @@ class TiedOrg implements CountingOrg {
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     this.events.push('write');
     this.deletes.push({ object: objectApiName, ids: [...ids] });
-    return ids.map((recordId) => {
+    const answer = ids.map((recordId) => {
+      const refusal = this.refusals.get(recordId);
+      if (refusal) {
+        if (this.freedOnRetry.has(recordId)) this.refusals.delete(recordId);
+        return {
+          id: recordId,
+          success: false,
+          errors: [{ statusCode: 'DELETE_FAILED', message: refusal }],
+        };
+      }
       const row = this.row(objectApiName, recordId);
       if (!row) {
         return {
@@ -962,6 +866,8 @@ class TiedOrg implements CountingOrg {
       this.remove(objectApiName, row);
       return { id: recordId, success: true, errors: [] };
     });
+    this.onDelete?.();
+    return answer;
   }
 
   async update(): Promise<unknown> {
@@ -1104,8 +1010,8 @@ function tiedOrg(): TiedOrg {
   return org;
 }
 
-/** What a sweep told the ties is told of that run. */
-function tiedInput(ties: SweepTies | null = {}, overrides: Partial<SweepInput> = {}): SweepInput {
+/** What a sweep is told of that run. */
+function tiedInput(ties: SweepTies = {}, overrides: Partial<SweepInput> = {}): SweepInput {
   const created = [
     { objectApiName: 'Account', ids: [ACCOUNT] },
     { objectApiName: 'Contact', ids: [CONTACT] },
@@ -1117,7 +1023,7 @@ function tiedInput(ties: SweepTies | null = {}, overrides: Partial<SweepInput> =
     remap: new Set([ACCOUNT, CONTACT, CASE, LINKED_ACCOUNT].map((x) => x.slice(0, 15))),
     automation: { creates: ['Asset', 'PermissionSetAssignment'] },
     runUserId: RUN_USER,
-    ...(ties ? { ties } : {}),
+    ties,
     ...overrides,
   };
 }
@@ -1125,7 +1031,7 @@ function tiedInput(ties: SweepTies | null = {}, overrides: Partial<SweepInput> =
 /** The ids deleted, over every call. */
 const deletedIds = (org: TiedOrg): string[] => org.deletes.flatMap((call) => call.ids);
 
-describe('a sweep told the ties: what it lists', () => {
+describe('what a sweep lists', () => {
   it('lists each record in its class, hand work apart, and refuses only what is tied to nothing', async () => {
     const org = tiedOrg();
     org.add('Opportunity', rec(id('006', 1), 'Typed by hand', RUN_USER, at(40)));
@@ -1264,7 +1170,7 @@ describe('a sweep told the ties: what it lists', () => {
   });
 });
 
-describe('a sweep told the ties: what it takes', () => {
+describe('what a sweep takes', () => {
   it('keeps what is tied to nothing unasked, takes it when asked, and not while another run of this machine wrote in the window', async () => {
     const loose = id('00T', 3);
     let org = tiedOrg();
@@ -1544,14 +1450,5 @@ describe('a sweep told the ties: what it takes', () => {
     await sweepRunRecords(org, onlyOver, NO_SPANS);
     expect(deletedIds(org)).toEqual([id('00T', 9)]);
     expect(org.ids('Contact')).toContain(updated);
-  });
-
-  it('takes everything the run’s user created in the window when told no ties, as before', async () => {
-    const org = tiedOrg();
-    const result = await sweepRunRecords(org, tiedInput(null), NO_SPANS);
-    expect(deletedIds(org)).toEqual(expect.arrayContaining([id('00T', 3), id('00T', 7)]));
-    // The asset goes before the case that names it, and the org refuses it.
-    expect(org.ids('Asset')).toEqual([id('02i', 1)]);
-    expect(result.status).toBe('partial');
   });
 });

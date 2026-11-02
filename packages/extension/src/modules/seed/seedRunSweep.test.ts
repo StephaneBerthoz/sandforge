@@ -110,6 +110,10 @@ describe('seedSweepInput', () => {
       org,
       [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
       automation,
+      undefined,
+      undefined,
+      [],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual({
@@ -233,6 +237,8 @@ describe('writtenSince', () => {
         serverTime: orgClock,
         now,
       },
+      [],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual({
@@ -324,6 +330,7 @@ describe('a Sync run that created nothing and only wrote over records', () => {
         now: () => new Date('2026-10-01T08:00:00.000Z'),
       },
       [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      { ties: {} },
     );
 
     expect(input.writtenBetween).toEqual(WRITTEN);
@@ -349,6 +356,7 @@ describe('a Sync run that created nothing and only wrote over records', () => {
       undefined,
       undefined,
       [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      { ties: {} },
     );
 
     expect(input.user).toBeUndefined();
@@ -373,7 +381,7 @@ describe('a Sync run that created nothing and only wrote over records', () => {
       unread: [],
     } as unknown as ForgeTargetAutomation;
 
-    const read = await seedSweepInput(org, [], automation, undefined, writes, over);
+    const read = await seedSweepInput(org, [], automation, undefined, writes, over, { ties: {} });
     expect(read.user).toBeUndefined();
     expect(read.runUserId).toBeUndefined();
     expect(statements).toHaveLength(1);
@@ -381,13 +389,14 @@ describe('a Sync run that created nothing and only wrote over records', () => {
     statements.length = 0;
     const kept = await seedSweepInput(org, [], automation, undefined, writes, over, {
       runUserId: USER,
+      ties: {},
     });
     expect(kept.runUserId).toBe(USER);
     expect(kept.user).toBeUndefined();
     expect(statements).toEqual([]);
   });
 
-  it('ties what the automation made to the records it created and, as made over, to those it wrote over, when the ties are asked', async () => {
+  it('ties what the automation made to the records it created and, as made over, to those it wrote over', async () => {
     const { org } = orgModified({});
     const dated = {
       ...org,
@@ -415,9 +424,5 @@ describe('a Sync run that created nothing and only wrote over records', () => {
       removalBegan: '2026-10-01T08:00:00.000Z',
       writtenOver: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
     });
-
-    // Unasked, the sweep takes what the run's user created in the window, as before.
-    const unasked = await seedSweepInput(dated, created, automation, undefined, undefined, over);
-    expect(unasked).not.toHaveProperty('ties');
   });
 });

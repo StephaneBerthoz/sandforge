@@ -546,8 +546,8 @@ export class SeedRemovalHandler implements DomainHandler {
     } catch (err: unknown) {
       automation = { error: extractErrorMessage(err) };
     }
-    // Told the ties, the sweep takes only what is tied to the run's records;
-    // the window the other runs are judged by is the one read back from them.
+    // The window the other runs are judged by is the one read back from the
+    // run's records, so what ties a record to the run comes after them.
     const org = removalOrg(conn, context);
     const input = await seedSweepInput(org, run.created, automation, signal, undefined, [], {
       ...(run.runUserId ? { runUserId: run.runUserId } : {}),

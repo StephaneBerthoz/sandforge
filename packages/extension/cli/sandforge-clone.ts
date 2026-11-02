@@ -191,7 +191,6 @@ import {
 import {
   SWEEP_LEAD_MS,
   SWEEP_LOOK_BOUND,
-  SWEEP_OBJECT_BOUND,
   SWEEP_TRAIL_MS,
   listSweep,
   sweepAuditDetails,
@@ -206,6 +205,7 @@ import {
   type SweepParts,
   type SweepTies,
 } from '../src/modules/forge/ForgeRunSweep.js';
+import { MADE_KEPT_PER_OBJECT, madeKept } from '../src/modules/forge/sweepTies.js';
 import {
   compositeConnectionOf,
   compositeReader,
@@ -921,9 +921,11 @@ Exit codes:
      inserts, or the removal's deletes fire automation, and
      --accept-automation was not given; the target delivers the emails of
      what still runs, or would not say whether it does, and --accept-emails
-     was not given (EMAILS_NOT_ACCEPTED); the run would write more than
-     --max-total records, or more than the target's data storage has left
-     (nothing is written or deleted then)
+     was not given (EMAILS_NOT_ACCEPTED); the checkpoint asked first was
+     refused or could not be taken (CHECKPOINT_REFUSED); the run would write
+     more than --max-total records, more than the target's data storage
+     has left or more emails than it has left today, or would take more API
+     requests than it has left today (nothing is written or deleted then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
   3  the removal left records of the run in the org: kept, or refused, or
@@ -4085,7 +4087,7 @@ function countsOfObjects(counts: readonly ForgeRemovalLeftCount[]): string {
   return counts.map((count) => `${count.objectApiName}: ${count.count}`).join(', ');
 }
 
-/** What of one object's records falls in each class of a sweep told the ties, in words. */
+/** What of one object's records falls in each class of a sweep, in words. */
 function classWords(classes: ForgeSweepClasses): string {
   return [
     classes.made > 0
@@ -4102,15 +4104,16 @@ function classWords(classes: ForgeSweepClasses): string {
 }
 
 /**
- * What a sweep told the ties takes of what it found, as it is asked: what is
- * made for the run, what came late with `--sweep-late`, what is tied to
- * nothing with `--sweep-untied` unless that is refused.
+ * What a sweep takes of what it found, as it is asked: what is made for the
+ * run, what came late with `--sweep-late`, what is tied to nothing with
+ * `--sweep-untied` unless that is refused.
  */
 function takenOf(listing: ForgeSweepListing, take: SweepClassArgs): number {
   const untiedTaken = take.sweepUntied === true && listing.untied?.refusal === undefined;
   return listing.found.reduce((sum, object) => {
     const classes = object.classes;
-    if (!classes) return sum + object.count;
+    // An object past the bound has no class, and none of its records goes.
+    if (!classes) return sum;
     return (
       sum +
       classes.made +
@@ -4122,11 +4125,11 @@ function takenOf(listing: ForgeSweepListing, take: SweepClassArgs): number {
 }
 
 /**
- * What a sweep told the ties lists and keeps, said with what it takes: what
- * came late, what is tied to nothing — and why taking it is refused, when it
- * is —, the objects past the most it looks at, what the run's mute kept quiet
- * and what still ran, and, to whoever reads the list before a sweep, the one
- * case it cannot tell from the automation's.
+ * What a sweep lists and keeps, said with what it takes: what came late, what
+ * is tied to nothing — and why taking it is refused, when it is —, the objects
+ * past the most it looks at, what the run's mute kept quiet and what still ran,
+ * and, to whoever reads the list before a sweep, the one case it cannot tell
+ * from the automation's.
  *
  * @param before - Whether the list is read before a sweep, not as one begins.
  */
@@ -4187,8 +4190,8 @@ function sweepClassLines(
 /**
  * What a sweep would delete, said before anything is: the window and the
  * objects looked at, per object the records found with a few of their names
- * — names, never ids — and, told the ties, how many fall in each class; what
- * it lists and keeps, and why; what could not be looked at, and why the
+ * — names, never ids — and how many fall in each class; what it lists and
+ * keeps, and why; what could not be looked at, and why the
  * sweep would be refused. Exported so it can be tested.
  *
  * @param take - What the removal asks the sweep to take beside what is made
@@ -4201,17 +4204,16 @@ export function sweepListingLines(
   take?: SweepClassArgs,
 ): string[] {
   const found = takenOf(listing, take ?? {});
-  const tied = listing.found.some((object) => object.classes !== undefined);
-  // Told the ties, a sweep looks at every child of the run's objects.
-  const looked = tied ? someOf(listing.looked) : listing.looked.join(', ');
   return [
     listing.window
       ? `a sweep looks in ${target} for what the run's user created from ${listing.window.from} ` +
-        `to ${listing.window.to} that the run's id map does not hold, in: ${looked}`
+        `to ${listing.window.to} that the run's id map does not hold, in: ${someOf(listing.looked)}`
       : `a sweep of ${target} cannot tell the window the run wrote in`,
     ...(listing.found.length > 0
       ? [
-          `it would delete ${found} record(s), children first:`,
+          found > 0
+            ? `it would delete ${found} record(s), children first:`
+            : 'it would delete none of what it found:',
           ...listing.found.map(
             (object) =>
               `  ${object.objectApiName}: ${object.count}` +
@@ -4230,6 +4232,23 @@ export function sweepListingLines(
     ...sweepNoteLines(listing),
     ...(listing.refusal ? [`sweep refused: ${listing.refusal}`] : []),
   ];
+}
+
+/**
+ * The listing of a sweep whose command said nothing of it yet: one that takes
+ * nothing asks nothing (`SweepOptions.approve`), and a `--sweep` that kept all
+ * it found, late or tied to nothing, did not say so. Undefined once it was
+ * said, for a sweep stopped before it read, and for one refused, whose result
+ * says why. Exported so it can be tested.
+ *
+ * @param said - What the sweep's question said, when it asked one.
+ */
+export function sweepUnsaid(
+  parts: Pick<SweepParts, 'listing'> | undefined,
+  said: ForgeSweepListing | undefined,
+): ForgeSweepListing | undefined {
+  const listing = parts?.listing;
+  return said === undefined && listing?.refusal === undefined ? listing : undefined;
 }
 
 /**
@@ -4302,16 +4321,16 @@ export function sweepLines(result: ForgeSweepResult): string[] {
  * writes, what it created, every record its id map holds — written, linked
  * to, matched or written over — the user it kept it wrote as, and what the
  * target's automation creates as the run's objects are written, read now;
- * and, told them, what ties a record to the run (`SweepTies`), so that the
- * sweep takes only what is tied to it. Exported so it can be tested.
+ * and what ties a record to the run (`SweepTies`), so that the sweep takes
+ * only what is tied to it. Exported so it can be tested.
  */
 export async function cliSweepInput(
   conn: Connection,
   target: string,
   summary: RunSummary,
   created: readonly ForgeRunObjectRecords[],
+  ties: SweepTies,
   signal?: AbortSignal,
-  ties?: SweepTies,
 ): Promise<SweepInput> {
   let automation: ForgeTargetAutomation | { error: string };
   try {
@@ -4329,7 +4348,7 @@ export async function cliSweepInput(
     remap: new Set(Object.values(summary.result.remapTable).map((id) => id.slice(0, 15))),
     automation: sweepAutomationOf(automation),
     ...(runUserId ? { runUserId } : {}),
-    ...(ties ? { ties } : {}),
+    ties,
     ...(signal ? { signal } : {}),
   };
 }
@@ -4584,41 +4603,6 @@ export function commandSweepTies(input: {
   };
 }
 
-/**
- * The most ids of what sweeps found made for a run its removals keep, per
- * object: what one sweep reads at most of one (`SWEEP_OBJECT_BOUND`).
- */
-export const MADE_KEPT_PER_OBJECT = SWEEP_OBJECT_BOUND;
-
-/**
- * The ids of what the sweeps of a run found made for it, to keep beside the
- * run for the next one: those kept, then those this sweep found, each once,
- * {@link MADE_KEPT_PER_OBJECT} per object at most — an object by the first
- * three characters of its ids. Once a record of the run is deleted, a lookup
- * the org clears with it (`Task.AccountId`) no longer tells the tie, and the
- * next removal's sweep finds what it tied only by these. Undefined when
- * there is none. Exported so it can be tested.
- */
-export function madeKept(
-  earlier: readonly string[] | undefined,
-  found: Iterable<string>,
-): string[] | undefined {
-  const seen = new Set<string>();
-  const perObject = new Map<string, number>();
-  const kept: string[] = [];
-  for (const id of [...(earlier ?? []), ...found]) {
-    const key = id.slice(0, 15);
-    if (!SF_ID_RE.test(id) || seen.has(key)) continue;
-    const prefix = id.slice(0, 3);
-    const count = perObject.get(prefix) ?? 0;
-    if (count >= MADE_KEPT_PER_OBJECT) continue;
-    seen.add(key);
-    perObject.set(prefix, count + 1);
-    kept.push(id);
-  }
-  return kept.length > 0 ? kept : undefined;
-}
-
 /** The exit code of a removal that left records of the run in the org. */
 const RECORDS_LEFT_EXIT = 3;
 
@@ -4787,7 +4771,7 @@ export function removalsAfter(
 ): RunRemovals | undefined {
   const gone = new Set(outcome.gone ?? []);
   const kept = madeKept(earlier?.made, made);
-  const newlyMade = (kept?.length ?? 0) > (earlier?.made?.length ?? 0);
+  const newlyMade = kept.length > (earlier?.made?.length ?? 0);
   if (
     Object.keys(outcome.stamps).length === 0 &&
     !outcome.span &&
@@ -4810,7 +4794,7 @@ export function removalsAfter(
     removalSpans: [...(earlier?.removalSpans ?? []), ...(outcome.span ? [outcome.span] : [])],
     ...(left ? { removalLeft: left } : {}),
     ...(swept ? { sweep: swept } : {}),
-    ...(kept ? { made: kept } : {}),
+    ...(kept.length > 0 ? { made: kept } : {}),
   };
 }
 
@@ -4941,11 +4925,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   );
   /** Records of the run an earlier removal of this summary took: not planned again. */
   let removedEarlier = 0;
-  /**
-   * What the sweep found, said before its first delete: what it took, and
-   * what it listed and kept — late, tied to nothing. Unset when it took
-   * nothing, as it then asks nothing.
-   */
+  /** What the sweep found, said before its first delete: what it took, and what it listed and kept. */
   let sweepListing: ForgeSweepListing | undefined;
   /**
    * @param removalsFile - Where what the removal left on the run's records
@@ -5094,32 +5074,30 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // org meanwhile, its mute, its earlier removals, and what their sweeps
   // found made for it. Read only for a sweep, or its listing.
   const finished = Date.parse(summary.finishedAt ?? '');
-  const sweepTies =
-    args.sweep || args.sweepList
-      ? commandSweepTies({
-          otherRuns: await otherRunsOf({
-            organizationId: org.id,
-            alias: args.target,
-            span: Number.isFinite(finished)
-              ? { from: finished - summary.elapsedMs, to: finished }
-              : undefined,
-            own: {
-              ...(summary.journal !== undefined ? { journal: summary.journal } : {}),
-              ids: created.flatMap((object) => object.ids),
-            },
-          }),
-          ...(summary.mutedAutomation ? { muted: summary.mutedAutomation } : {}),
-          ...(earlier ? { removalSpans: earlier.removalSpans } : {}),
-          ...(earlier?.made ? { made: earlier.made } : {}),
-        })
-      : undefined;
+  const sweepTies = async (): Promise<SweepTies> =>
+    commandSweepTies({
+      otherRuns: await otherRunsOf({
+        organizationId: org.id,
+        alias: args.target,
+        span: Number.isFinite(finished)
+          ? { from: finished - summary.elapsedMs, to: finished }
+          : undefined,
+        own: {
+          ...(summary.journal !== undefined ? { journal: summary.journal } : {}),
+          ids: created.flatMap((object) => object.ids),
+        },
+      }),
+      ...(summary.mutedAutomation ? { muted: summary.mutedAutomation } : {}),
+      ...(earlier ? { removalSpans: earlier.removalSpans } : {}),
+      ...(earlier?.made ? { made: earlier.made } : {}),
+    });
 
   if (args.sweepList) {
     // What a sweep would delete, read and said; nothing is deleted, the
     // run's own records included.
     const listing = await listSweep(
       sweepOrgOf(conn, 'sandforge-clone --sweep-list'),
-      await cliSweepInput(conn, args.target, summary, created, undefined, sweepTies),
+      await cliSweepInput(conn, args.target, summary, created, await sweepTies()),
       earlier?.removalSpans ?? [],
     );
     if (args.json) {
@@ -5174,7 +5152,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const parts = args.sweep
     ? sweepParts(
         sweepOrgOf(conn, 'sandforge-clone --sweep', stop.signal),
-        await cliSweepInput(conn, args.target, summary, created, stop.signal, sweepTies),
+        await cliSweepInput(conn, args.target, summary, created, await sweepTies(), stop.signal),
         {
           includeChanged: args.includeChanged,
           // What the earlier removals of the run changed while they ran is no
@@ -5191,6 +5169,23 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         },
       )
     : undefined;
+
+  // The sweep reads what it takes and says it here, before the lease: the
+  // lease is held for the deletes alone. It deletes at its turn.
+  if (parts) {
+    const releaseStop = onStopSignal(interrupt);
+    try {
+      await parts.ask();
+    } finally {
+      releaseStop();
+    }
+    const unsaid = sweepUnsaid(parts, sweepListing);
+    if (unsaid) {
+      sweepListing = unsaid;
+      say('');
+      for (const line of sweepListingLines(unsaid, args.target, args)) say(line);
+    }
+  }
 
   // A Ctrl-C during the sweep stops the removal too; with nothing of the run
   // left, the sweep goes alone.
@@ -5286,16 +5281,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   async function removeThePlan(): Promise<RunRemovalOutcome> {
     // The lease is taken before the first delete, and given back as the
     // removal ends, whatever it ended on.
-    const held = removalMute?.prepared
-      ? await removalMute.prepared
-          .acquire(`sandforge-clone --remove ${operationId}`)
-          .catch((err: unknown) => {
-            if (!isMuteRefusedError(err)) throw err;
-            recordRemoval({ outcome: 'stopped', code: err.code });
-            process.stderr.write(`${err.message}\n`);
-            process.exit(1);
-          })
-      : undefined;
+    const held =
+      removalMute?.prepared && !stop.signal.aborted
+        ? await removalMute.prepared
+            .acquire(`sandforge-clone --remove ${operationId}`)
+            .catch((err: unknown) => {
+              if (!isMuteRefusedError(err)) throw err;
+              recordRemoval({ outcome: 'stopped', code: err.code });
+              process.stderr.write(`${err.message}\n`);
+              process.exit(1);
+            })
+        : undefined;
     if (held) mutedAutomation = held.outcome;
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;

@@ -6,6 +6,7 @@
  * was made.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Connection } from 'jsforce';
 import type {
   ForgeTargetAutomation,
@@ -59,6 +60,7 @@ import {
   type CommandCheckpoints,
 } from './beforeRunCheckpoint.js';
 import { main, parseArgs, parseRemoveArgs } from './sandforge-seed.js';
+import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
 import {
   BEFORE_RUN_DELETED_WORDS,
   writePathOrderDefects,
@@ -389,6 +391,16 @@ describe('sandforge-seed --checkpoint-first', () => {
     });
   });
 
+  it('names it in the run’s file, which a seed’s history reads to offer a rewind to before it', async () => {
+    fakeOrg();
+    checkpointsOf();
+
+    await main(argv(2, '--checkpoint-first', '--json'));
+
+    const file = /run file: (\S+)/.exec(stderr.join(''))?.[1];
+    expect(readRunFile(readFileSync(file ?? '', 'utf8'))?.checkpoint).toEqual(TAKEN);
+  });
+
   it('prints a line, without --json, on what it holds and how to rewind to it, the mute left out when there is none', async () => {
     fakeOrg();
     checkpointsOf();
@@ -699,5 +711,10 @@ describe('sandforge-seed --checkpoint-first', () => {
     expect(help).toContain('--checkpoint-first     take a checkpoint of what the run writes');
     expect(help).toContain('--checkpoint-keep-days <n>');
     expect(help).toContain('--checkpoint-exclude-object <ApiName>');
+    // Exit 1, as the refusals of a run that asks them exit.
+    const exits = help.slice(help.indexOf('Exit codes')).replace(/\s+/g, ' ');
+    expect(exits).toContain('API requests');
+    expect(exits).toContain('(EMAILS_NOT_ACCEPTED)');
+    expect(exits).toContain('(CHECKPOINT_REFUSED)');
   });
 });
