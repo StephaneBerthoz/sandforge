@@ -46,6 +46,21 @@ pipeline {
             description: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
         )
         booleanParam(
+            name: 'ACCEPT_EMAILS',
+            defaultValue: false,
+            description: 'Clone for real although the target delivers the emails of what still runs, or would not say whether it does'
+        )
+        booleanParam(
+            name: 'CHECKPOINT_FIRST',
+            defaultValue: false,
+            description: 'Take a checkpoint of what the clone writes before its first write'
+        )
+        booleanParam(
+            name: 'REMOVAL_SWEEP',
+            defaultValue: false,
+            description: 'With the removal, delete too what the automation of the target made for the clone'
+        )
+        booleanParam(
             name: 'ACCEPT_REMOVAL_AUTOMATION',
             defaultValue: false,
             description: 'Remove all the same although flows or Apex triggers of the target fire as the records are deleted'
@@ -118,6 +133,15 @@ pipeline {
                     script {
                         def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
                         def automationFlag = params.ACCEPT_AUTOMATION ? '--accept-automation' : ''
+                        // A real clone writes nothing where the target delivers
+                        // the emails of what still runs, or would not say
+                        // whether it does, unless told to go on:
+                        // ACCEPT_AUTOMATION never stands for it.
+                        def emailsFlag = params.ACCEPT_EMAILS ? '--accept-emails' : ''
+                        // Kept in sandforge-journal/checkpoints, unencrypted:
+                        // a dry run says what it would hold and cost. Never
+                        // archive that folder.
+                        def checkpointFlag = params.CHECKPOINT_FIRST ? '--checkpoint-first' : ''
                         // --summary writes the summary as the run goes, after
                         // each object it ends: a clone that fails part way, or
                         // an aborted build (SIGTERM, which the clone stops on
@@ -131,6 +155,8 @@ pipeline {
                                 --upsert \\
                                 ${dryRunFlag} \\
                                 ${automationFlag} \\
+                                ${emailsFlag} \\
+                                ${checkpointFlag} \\
                                 --json \\
                                 --summary clone-summary.json \\
                                 --remap-csv remap.csv \\
@@ -153,13 +179,17 @@ pipeline {
                         // both are archived. It deletes nothing and exits 1
                         // when the target's flows or triggers fire as the
                         // records are deleted, unless ACCEPT_REMOVAL_AUTOMATION.
+                        // --sweep deletes too what it ties to the clone; add
+                        // --sweep-late for what came late.
                         if (!params.DRY_RUN && params.REMOVE_AFTER) {
                             def removalAutomationFlag = params.ACCEPT_REMOVAL_AUTOMATION ? '--accept-automation' : ''
+                            def sweepFlag = params.REMOVAL_SWEEP ? '--sweep' : ''
                             sh """
                                 pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
                                     --remove clone-summary.json \\
                                     --target ci-target \\
                                     ${removalAutomationFlag} \\
+                                    ${sweepFlag} \\
                                     --json \\
                                     --audit clone-audit.json \\
                                     > clone-removal.json

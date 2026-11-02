@@ -39,6 +39,18 @@ variables:
   # "true" clones for real although flows or Apex triggers of the target fire
   # as the records are inserted: without it, such a clone writes nothing.
   ACCEPT_AUTOMATION: 'false'
+  # "true" clones for real although the target delivers the emails of what
+  # still runs, or would not say whether it does: without it, such a clone
+  # writes nothing, and ACCEPT_AUTOMATION never stands for it.
+  ACCEPT_EMAILS: 'false'
+  # "true" takes a checkpoint of what the clone writes before its first write;
+  # a dry run says what it would hold and cost. It stays in sandforge-journal/
+  # checkpoints, unencrypted, and goes with the job: rewind to it in this job,
+  # and never add that folder to the artifacts.
+  CHECKPOINT_FIRST: 'false'
+  # "true" has the removal delete too what it ties to the clone of what the
+  # target's automation made; add --sweep-late to its call for what came late.
+  REMOVAL_SWEEP: 'false'
   # "true" removes all the same although flows or Apex triggers of the target
   # fire as the records are deleted: without it, such a removal deletes nothing.
   ACCEPT_REMOVAL_AUTOMATION: 'false'
@@ -100,6 +112,10 @@ clone:
       [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
       AUTOMATION_FLAG=""
       [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
+      EMAILS_FLAG=""
+      [ "$ACCEPT_EMAILS" = "true" ] && EMAILS_FLAG="--accept-emails"
+      CHECKPOINT_FLAG=""
+      [ "$CHECKPOINT_FIRST" = "true" ] && CHECKPOINT_FLAG="--checkpoint-first"
       # --summary writes the summary as the run goes, after each object it
       # ends: a clone that fails part way keeps there what it created, where
       # its stdout carries nothing. stdout is kept beside it.
@@ -110,6 +126,8 @@ clone:
         --upsert \
         $DRY_FLAG \
         $AUTOMATION_FLAG \
+        $EMAILS_FLAG \
+        $CHECKPOINT_FLAG \
         --json \
         --summary clone-summary.json \
         --remap-csv remap.csv \
@@ -130,10 +148,13 @@ clone:
       if [ "$DRY_RUN" != "true" ] && [ "$REMOVE_AFTER" = "true" ]; then
         REMOVAL_AUTOMATION_FLAG=""
         [ "$ACCEPT_REMOVAL_AUTOMATION" = "true" ] && REMOVAL_AUTOMATION_FLAG="--accept-automation"
+        SWEEP_FLAG=""
+        [ "$REMOVAL_SWEEP" = "true" ] && SWEEP_FLAG="--sweep"
         pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
           --remove clone-summary.json \
           --target ci-target \
           $REMOVAL_AUTOMATION_FLAG \
+          $SWEEP_FLAG \
           --json \
           --audit clone-audit.json \
           > clone-removal.json

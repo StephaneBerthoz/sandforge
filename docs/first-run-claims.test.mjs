@@ -471,7 +471,19 @@ function helpFlags(script) {
   const source = read(...CLI_DIR, `${script}.ts`);
   const help = /const HELP = `([\s\S]*?)`;/.exec(source)?.[1];
   assert.ok(help, `${script}.ts has no HELP text — re-point this gate`);
-  return new Set([...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0]));
+  const flags = new Set([...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0]));
+  // The checkpoint's lines are one helper's, put in the HELP by a call: the
+  // regex above sees the call and none of the flags it prints.
+  if (help.includes('${checkpointFirstHelp(')) {
+    const lines = /export function checkpointFirstHelp[\s\S]*?\n}\n/.exec(
+      read(...CLI_DIR, 'beforeRunCheckpoint.ts'),
+    )?.[0];
+    assert.ok(lines, 'beforeRunCheckpoint.ts has no checkpointFirstHelp — re-point this gate');
+    for (const [flag] of lines.matchAll(/(?<=' {2})--[a-z][a-z-]*|(?<=` {2})--[a-z][a-z-]*/g)) {
+      flags.add(flag);
+    }
+  }
+  return flags;
 }
 
 const NUMBER_WORDS = [
@@ -544,6 +556,16 @@ test('each script row of ci-examples names every flag its --help lists, and no o
  * the checkout has one installed, and a reader comparing two helps read two
  * ways of running them.
  */
+test('the gate of the script rows reads the checkpoint flags a helper prints', () => {
+  for (const script of ['sandforge-clone', 'sandforge-frozen']) {
+    const help = helpFlags(script);
+    for (const flag of ['--checkpoint-first', '--checkpoint-keep-days']) {
+      assert.ok(help.has(flag), `${script}: ${flag} not read`);
+    }
+    assert.ok(help.has('--checkpoint-exclude-object'), `${script}: the exclusion not read`);
+  }
+});
+
 test('every script’s help runs it the way ci-examples says every script is run', () => {
   const said = /is invoked as `(.+?) packages\/extension\/cli\/sandforge-<name>\.ts \.\.\.`/.exec(
     read('ci-examples', 'README.md'),

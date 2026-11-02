@@ -32,6 +32,9 @@ function source(path: string): string {
 const MODULE_DIR = 'packages/extension/src/modules/checkpoint';
 const CLI = source('packages/extension/cli/sandforge-checkpoint.ts');
 const PANEL_HOST = source('packages/extension/cli/panelHost.ts');
+const BEFORE_RUN_CLI = source('packages/extension/cli/beforeRunCheckpoint.ts');
+const BEFORE_RUN = source('packages/extension/src/modules/checkpoint/beforeRunCheckpoint.ts');
+const DEFAULTS = source('packages/shared/src/constants/defaults.ts');
 const STORE = source(`${MODULE_DIR}/OrgCheckpointStore.ts`);
 const TAKE = source(`${MODULE_DIR}/takeCheckpoint.ts`);
 const SCOPE = source(`${MODULE_DIR}/checkpointScope.ts`);
@@ -170,9 +173,49 @@ describe('docs/modules/checkpoint.md', () => {
     for (const flag of ['--estimate', '--accept-no-undo', '--accept-outside', '--all', '--store']) {
       expect(read.has(flag)).toBe(true);
     }
-    const named = new Set([...prose(DOC).matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]));
+    // The section on Checkpoint first names the flags of the commands that run:
+    // the next test holds those to the helper that prints them.
+    const own = prose(DOC.replace(section(DOC, '## Before a run'), ''));
+    const named = new Set([...own.matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]));
     expect(named.size).toBeGreaterThan(8);
     expect([...named].filter((flag) => !read.has(flag))).toEqual([]);
+  });
+
+  it('says of Checkpoint first what the commands print, and how long it is kept', () => {
+    const before = section(DOC, '## Before a run');
+    // Positive control: the helper every command's --help takes its lines from.
+    const help = /export function checkpointFirstHelp[\s\S]*?\n}\n/.exec(BEFORE_RUN_CLI)?.[0] ?? '';
+    const printed = new Set(
+      [...help.matchAll(/(?<=[' `] {2})--[a-z][a-z-]*/g)].map(([flag]) => flag),
+    );
+    expect(printed).toEqual(
+      new Set(['--checkpoint-first', '--checkpoint-keep-days', '--checkpoint-exclude-object']),
+    );
+    for (const script of ['clone', 'sync', 'seed', 'autopilot', 'frozen']) {
+      expect(source(`packages/extension/cli/sandforge-${script}.ts`)).toContain(
+        '${checkpointFirstHelp({',
+      );
+      expect(before).toContain(`\`sandforge-${script}`);
+    }
+    for (const flag of printed) expect(before).toContain(flag);
+    const named = [...prose(before).matchAll(/(?<![\w-])(--[a-z][a-z-]*)/g)].map((m) => m[1]);
+    const simulations = ['--dry-run', '--plan-only'];
+    expect(named.filter((flag) => !printed.has(flag) && !simulations.includes(flag))).toEqual([]);
+
+    expect(DEFAULTS).toContain(
+      'CHECKPOINT_BEFORE_RUN_KEEP_DAYS = { default: 7, min: 0, max: 3_650 }',
+    );
+    expect(before).toContain('**For how long**: 7 days');
+    expect(before).toContain('(0 keeps it until it is deleted, up to 3,650)');
+    // A run that wrote nothing deletes it, and each list of what it leaves out is the option's.
+    expect(BEFORE_RUN).toContain('if (wrote) return { info: taken };');
+    expect(before).toContain('**A run that wrote nothing deletes it**');
+    expect(label('runResults.checkpoint.option.leavesOut')).toContain(
+      'Chatter posts, Knowledge article versions, users, permissions and setup',
+    );
+    expect(before).toContain(
+      'Chatter posts, Knowledge article versions, users, permissions and setup',
+    );
   });
 
   it('says a rewind or an undo that does not ask needs its checkpoint named, latest refused', () => {
