@@ -350,9 +350,10 @@ const FOLLOW_UP_SUBJECT = 'Trap follow-up: ';
  * sweep: trap 18's flow opens a task for each contact created under an
  * account, pointing at no record, so the removal leaves every one of them.
  * Counted by the run's window and user once the removal is through, listed
- * by `--sweep-list`, taken by `--sweep`, and counted again: none is left. A
- * task of the flow the sweep left is deleted all the same, so that nothing of
- * the canary's stays in the target; the step then fails.
+ * by `--sweep-list`. Tied to nothing of the run, `--sweep` keeps each and says
+ * so at its end; `--sweep-untied` takes them, and they are counted again: none
+ * is left. A task of the flow the sweep left is deleted all the same, so that
+ * nothing of the canary's stays in the target; the step then fails.
  *
  * @returns Whether no task of the run's window and user is left.
  */
@@ -390,6 +391,21 @@ function sweepClone(summaryPath, user, { quiet = false } = {}) {
     '--json',
   ]);
   const swept = jsonOf(sweep.stdout)?.result?.sweep;
+  const leftBySweep = (swept?.left ?? [])
+    .find((kept) => kept.class === 'untied')
+    ?.objects.find((object) => object.objectApiName === 'Task')?.count;
+  const keptBySweep = tasks('sweep-kept')?.length;
+  const untied = tsx('forge-sweep-untied', CLONE_CLI, [
+    '--remove',
+    summaryPath,
+    '--target',
+    TARGET,
+    '--sweep',
+    '--sweep-untied',
+    '--accept-automation',
+    '--json',
+  ]);
+  const sweptUntied = jsonOf(untied.stdout)?.result?.sweep;
   const after = tasks('sweep-after');
   const strays = (after ?? []).filter((task) => String(task.Subject).startsWith(FOLLOW_UP_SUBJECT));
   if (strays.length > 0)
@@ -405,16 +421,25 @@ function sweepClone(summaryPath, user, { quiet = false } = {}) {
     (leftByRemoval ?? 0) > 0 &&
       listed === leftByRemoval &&
       swept?.status === 'success' &&
+      leftBySweep === leftByRemoval &&
+      keptBySweep === leftByRemoval &&
+      sweptUntied?.status === 'success' &&
       left === 0,
     `${leftByRemoval ?? 'unknown'} task(s) the target's flow created left by the removal, ` +
       `${listed} listed, sweep ${swept?.status ?? `exit ${sweep.status}`}` +
       (swept?.refusal ? ` (${swept.refusal})` : '') +
+      ` and ${leftBySweep ?? 0} said left, tied to nothing, ${keptBySweep ?? 'unknown'} kept; ` +
+      `--sweep-untied ${sweptUntied?.status ?? `exit ${untied.status}`}` +
+      (sweptUntied?.refusal ? ` (${sweptUntied.refusal})` : '') +
       `, ${left ?? 'unknown'} left in the window` +
       (strays.length > 0 ? ` (${strays.length} deleted after it)` : ''),
     {
       leftByRemoval: leftByRemoval ?? null,
       listed,
       sweepStatus: swept?.status ?? null,
+      leftBySweep: leftBySweep ?? null,
+      kept: keptBySweep ?? null,
+      untiedStatus: sweptUntied?.status ?? null,
       left: left ?? null,
     },
   );
@@ -752,9 +777,9 @@ function frozenRun(user) {
 }
 
 /**
- * Remove the load with the sweep, then count by id what the target holds of
- * it, and the tasks of trap 18's flow left in the seconds its contacts were
- * created. What the removal left is deleted all the same, so that nothing of
+ * Remove the load with the sweep, asked to take what is tied to nothing of the
+ * run as trap 18's tasks are, then count by id what the target holds of it, and
+ * the tasks of that flow left in the seconds its contacts were created. What the removal left is deleted all the same, so that nothing of
  * the canary's stays in the target; the step then fails.
  */
 function frozenRemove(step, created, user, window, { quiet = false } = {}) {
@@ -764,6 +789,7 @@ function frozenRemove(step, created, user, window, { quiet = false } = {}) {
     '--target',
     TARGET,
     '--sweep',
+    '--sweep-untied',
     '--yes',
   ]);
   const removal = postedOf(remove.doc, 'frozen:remove:response')?.payload?.result;

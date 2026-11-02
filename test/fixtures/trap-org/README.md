@@ -184,8 +184,9 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
   and removes the rest with `--include-changed`, then counts by id what the target still holds.
 - Trap 18's flow opens a task for each contact the clone writes. The tasks point at no record, so
   the removal leaves them: the canary counts them by the run's window and user once the removal is
-  through, lists what `--sweep-list` finds, takes them back with `--sweep`, and counts again: none
-  is left. A task of the flow the sweep left is deleted all the same, and the step fails.
+  through and lists what `--sweep-list` finds. Tied to nothing of the run, `--sweep` keeps them and
+  says so at its end; `--sweep-untied` takes them, and the canary counts again: none is left. A
+  task of the flow the sweep left is deleted all the same, and the step fails.
 - The Frozen Dataset takes one root, `Trap Account 15`, a Customer, so that trap 5's filter takes
   the contacts that prefer it (`canary-frozen-config.json`, pseudonymization rules in
   `canary-frozen-rules.json`, items left out for trap 8, a salt of the canary's own unless
