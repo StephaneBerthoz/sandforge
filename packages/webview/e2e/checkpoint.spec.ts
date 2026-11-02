@@ -288,6 +288,7 @@ async function rewindFromPreview(
     acceptRecreate: false,
     acceptOutside: false,
     acceptUnseen: false,
+    fromPage: true,
   });
   return rewind;
 }
@@ -846,6 +847,7 @@ for (const theme of THEMES) {
       expect(started.payload).toEqual({
         checkpointId: 'ck-picked',
         previewId: 'pv-everything',
+        fromPage: true,
         acceptAutomation: true,
         acceptNoUndo: true,
         acceptRecreate: true,
@@ -1122,6 +1124,7 @@ for (const theme of THEMES) {
       expect(started.payload).toEqual({
         checkpointId: 'ck-per-object',
         previewId: 'pv-per-object',
+        fromPage: true,
         acceptAutomation: false,
         acceptNoUndo: false,
         acceptRecreate: false,
@@ -1342,6 +1345,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-new',
+        fromPage: true,
         acceptAutomation: false,
       });
       await expect(
@@ -1381,6 +1385,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-last',
+        fromPage: true,
         acceptAutomation: false,
       });
       await host.answer('checkpoint:undo', {
@@ -1421,6 +1426,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: id,
         rewindId: 'rw-last',
+        fromPage: true,
         acceptAutomation: true,
       });
       // The rewind had made one account again, the bin no longer giving it back.

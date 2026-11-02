@@ -318,6 +318,7 @@ for (const theme of THEMES) {
       expect(rewind.payload).toEqual({
         checkpointId: CHECKPOINT.checkpointId,
         previewId: 'pv-mute',
+        fromPage: true,
         acceptAutomation: true,
         acceptNoUndo: false,
         acceptRecreate: false,
@@ -366,6 +367,7 @@ for (const theme of THEMES) {
       expect(undo.payload).toEqual({
         checkpointId: CHECKPOINT.checkpointId,
         rewindId: 'rw-new',
+        fromPage: true,
         acceptAutomation: false,
         muteAutomation: true,
       });
