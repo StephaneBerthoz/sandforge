@@ -23,6 +23,7 @@
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
   PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
@@ -102,18 +103,34 @@ export interface SettledSyncRows extends SyncRows {
   readonly prices: PriceCurrencySettled[];
 }
 
+/** The fields a price is known by: its book, its product and its selling model. */
+const PRICE_KEY_FIELDS = [
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+] as const;
+
 /**
  * The rows of a write as the platform takes them: of the price books, the
  * standard one left out, matched; of the prices, those in a currency the
  * target does not hold active left out where the source's own price in the
  * currency they would go in is among the rows, then the standard prices
  * first. Any other object's rows are handed back as they are.
+ *
+ * @param refused - Whether the run refused the record an id names. A price
+ *   whose book, product or selling model it refused is held back by the
+ *   write, and so is every price of them in another currency: it neither
+ *   stands for one nor is left out for one, and goes to the write as it is.
+ *   Left out for the source's own USD price of a product the run held back,
+ *   a GBP price was said "replaced by the source's own price", a price never
+ *   written, and was not counted among those held back, where the gate had.
  */
 export function settleSyncPrices(
   objectApiName: string,
   rows: SyncRows,
   standard: StandardPricebooks | undefined,
   currencies: RunCurrencies | undefined,
+  refused: (id: string) => boolean = () => false,
 ): SettledSyncRows {
   const none: SettledSyncRows = {
     ...rows,
@@ -147,7 +164,13 @@ export function settleSyncPrices(
   let settledPrices: PriceCurrencySettled[] = [];
   if (currencies) {
     const { target } = currencies;
-    const prices = rows.sources;
+    const prices = rows.sources.filter(
+      (row) =>
+        !PRICE_KEY_FIELDS.some((field) => {
+          const id = row[field];
+          return typeof id === 'string' && id !== '' && refused(id);
+        }),
+    );
     const plan = settlePriceCurrencies(
       {
         prices,

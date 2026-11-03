@@ -316,32 +316,71 @@ function isLive(lease: Lease, file: string, self: LockSelf, checks: RunWriterChe
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/*
+ * A journal's file is named by the start of the org's id and of the user's
+ * (`muteJournalFileOf`), and what a run says goes to its output and to a
+ * pipeline's log: a message names the journal's folder, never its file. Run
+ * for real, a run refused for a journal another process held printed its
+ * path, both ids in its name; so did the error of a journal it could not
+ * read, which a run's end said again as what it could not take back.
+ */
+
+/** A journal of `file` that could not be `done`, said by its folder and what to do. */
+function journalFailed(file: string, done: string, err: unknown): Error {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return new Error(
+    `The journal of the mute leases in ${dirname(file)} could not be ${done}` +
+      `${typeof code === 'string' ? ` (${code})` : ''}: the user SandForge runs as must read ` +
+      'and write that folder, or SANDFORGE_MUTE_LEASES_DIR name another, the same for every ' +
+      'run that mutes the org.',
+  );
+}
+
 /**
  * Change the journal `file` under its lock: read it — none yet is an empty
  * one —, hand it to `change`, and write what it gives back whole.
+ *
+ * @param heldOff - What a lock another run's process `pid` kept for a minute
+ *   left undone, and what to do, as the refusal says it: as a lease is
+ *   taken, nothing was assigned and the run is to be run again.
  */
 async function withJournal<T>(
   file: string,
   ids: { organizationId: string; userId: string },
   options: MuteLeaseOptions,
   change: (journal: Journal, save: (journal: Journal) => Promise<void>) => Promise<T>,
+  heldOff: (pid: number) => string = (pid) =>
+    `nothing was assigned. Run again once that run ends, or stop process ${pid} should it hang.`,
 ): Promise<T> {
   const self = options.self ?? THIS_PROCESS;
   const lockOptions = { self, ...(options.checks ? { checks: options.checks } : {}) };
   const deadline = Date.now() + JOURNAL_WAIT_MS;
-  await mkdir(dirname(file), { recursive: true, mode: JOURNAL_DIR_MODE });
+  await mkdir(dirname(file), { recursive: true, mode: JOURNAL_DIR_MODE }).catch((err: unknown) => {
+    throw journalFailed(file, 'made', err);
+  });
   for (;;) {
-    const taken = journalLocks.acquire(`${file}.lock`, (head) => head, lockOptions);
+    let taken: ReturnType<typeof journalLocks.acquire>;
+    try {
+      taken = journalLocks.acquire(`${file}.lock`, (head) => head, lockOptions);
+    } catch (err: unknown) {
+      throw journalFailed(file, 'locked', err);
+    }
     if ('lock' in taken) {
       try {
-        const journal = await readJournal(file, ids);
+        const journal = await readJournal(file, ids).catch((err: unknown) => {
+          throw journalFailed(file, 'read', err);
+        });
         const save = async (next: Journal): Promise<void> => {
           const temp = `${file}.${process.pid}-${randomUUID()}.tmp`;
-          await writeFile(temp, JSON.stringify(next, null, 2), {
-            encoding: 'utf8',
-            mode: JOURNAL_FILE_MODE,
-          });
-          await rename(temp, file);
+          try {
+            await writeFile(temp, JSON.stringify(next, null, 2), {
+              encoding: 'utf8',
+              mode: JOURNAL_FILE_MODE,
+            });
+            await rename(temp, file);
+          } catch (err: unknown) {
+            throw journalFailed(file, 'written', err);
+          }
         };
         return await change(journal, save);
       } finally {
@@ -349,11 +388,12 @@ async function withJournal<T>(
       }
     }
     if (Date.now() > deadline) {
+      const pid = taken.busy.pid;
       throw new MuteRefusedError({
         code: 'MUTE_FAILED',
         message:
-          `The journal of the mute leases (${file}) stayed held by process ${taken.busy.pid} ` +
-          'for a minute: nothing was assigned.',
+          `The journal of the mute leases in ${dirname(file)} stayed held by process ${pid} ` +
+          `for a minute, by another run that mutes the same org as the same user: ${heldOff(pid)}`,
       });
     }
     await sleep(JOURNAL_RETRY_MS);
@@ -874,16 +914,22 @@ export async function acquireMute(
       released ??= (async (): Promise<MutedAutomation> => {
         if (renewal) clearInterval(renewal);
         try {
-          const done = await withJournal(file, ids, options, async (journal, save) => {
-            const lease = journal.leases.find(
-              (l) => l.runId === runId && l.acquiredAt === acquiredAt,
-            );
-            heldHere.delete(key);
-            if (!lease) return undefined;
-            const result = await releaseLease(org, journal, lease, live);
-            await save(journal);
-            return result;
-          });
+          const done = await withJournal(
+            file,
+            ids,
+            options,
+            async (journal, save) => {
+              const lease = journal.leases.find(
+                (l) => l.runId === runId && l.acquiredAt === acquiredAt,
+              );
+              heldHere.delete(key);
+              if (!lease) return undefined;
+              const result = await releaseLease(org, journal, lease, live);
+              await save(journal);
+              return result;
+            },
+            () => 'nothing was taken back',
+          );
           const left = done?.left ?? [];
           return {
             ...outcome,

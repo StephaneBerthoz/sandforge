@@ -1,7 +1,15 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditMutedOf,
   firedOnInsert,
@@ -26,7 +34,9 @@ import {
   whileMuted,
   type MuteLeaseOptions,
   type MutePrepared,
+  type MuteRefusedError,
 } from './AutomationMuteLease.js';
+import { linkedLockKind, type LockFileHead } from '../checkpoint/linkedLock.js';
 
 const SET_FLOW = '0PSxx0000000001AAA';
 const SET_VR = '0PSxx0000000002AAA';
@@ -444,6 +454,117 @@ describe('a lease that no longer holds', () => {
     expect(org.assignments().map((a) => a.id)).toEqual([theirs]);
     expect(journalOf(org).leases.map((l) => l['runId'])).toEqual(['crashed']);
   });
+});
+
+describe('what a run says of a journal it cannot use', () => {
+  /*
+   * A journal is named by the start of the org's id and of the user's, and
+   * what a run says of it goes to its output and to a pipeline's log. Run
+   * for real, a run refused for a journal another process held printed the
+   * journal's path, both ids in its name.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Leases taken as process 100 while process `holder` holds the journal's
+   * lock: each look at the holder finds it alive a minute and a second
+   * later, so that the run's minute of waiting ends at its first look.
+   */
+  function waitingOn(holder: number): MuteLeaseOptions {
+    const options = asProcess(100);
+    return {
+      ...options,
+      checks: {
+        ...options.checks,
+        isAlive: (pid) => {
+          if (pid === holder) vi.setSystemTime(Date.now() + 61_000);
+          return true;
+        },
+      },
+    };
+  }
+
+  /** The journal's lock, taken by process `pid` of this machine, and held. */
+  function lockedBy(org: ReturnType<typeof orgWith>, pid: number): void {
+    const kind = linkedLockKind<LockFileHead>((content) => content as LockFileHead);
+    const taken = kind.acquire(
+      `${muteJournalFileOf(dir, org.organizationId, org.userId)}.lock`,
+      (head) => head,
+      { self: { host: 'this-machine', pid, startedAt: '2026-10-30T08:00:00.000Z' } },
+    );
+    expect('lock' in taken).toBe(true);
+  }
+
+  it('refuses, naming the folder and what to do, when another run holds the journal for a minute', async () => {
+    const org = orgWith();
+    lockedBy(org, 200);
+    const mute = await prepared(org, waitingOn(200));
+
+    const error = await mute.acquire('run-1').catch((err: unknown) => err);
+
+    expect(isMuteRefusedError(error)).toBe(true);
+    expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+    const message = (error as Error).message;
+    expect(message).toBe(
+      `The journal of the mute leases in ${dir} stayed held by process 200 for a minute, by ` +
+        'another run that mutes the same org as the same user: nothing was assigned. Run again ' +
+        'once that run ends, or stop process 200 should it hang.',
+    );
+    expect(message).not.toContain(org.organizationId.slice(0, 15));
+    expect(message).not.toContain(org.userId.slice(0, 15));
+    expect(org.writes).toEqual([]);
+  });
+
+  it('says, naming no id, that nothing was taken back when the journal stays held as the run ends', async () => {
+    const org = orgWith();
+    const held = await (await prepared(org, waitingOn(200))).acquire('run-1');
+    lockedBy(org, 200);
+
+    const done = await held.release();
+
+    expect(done.released).toBe(false);
+    expect(done.reason).toContain(
+      `The journal of the mute leases in ${dir} stayed held by process 200 for a minute, by ` +
+        'another run that mutes the same org as the same user: nothing was taken back',
+    );
+    expect(done.reason).not.toContain(org.organizationId.slice(0, 15));
+    expect(done.reason).not.toContain(org.userId.slice(0, 15));
+    expect(muteLines(done, 'TARGET').join('\n')).not.toContain(org.userId.slice(0, 15));
+  });
+
+  // Read and written by its owner alone: a journal another user made is not
+  // this one's to read, unless this one is root, who reads them all.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'names the folder and what to do, and neither id, when the journal cannot be read',
+    async () => {
+      const org = orgWith();
+      const file = muteJournalFileOf(dir, org.organizationId, org.userId);
+      writeFileSync(file, '{}');
+      chmodSync(file, 0o000);
+
+      const error = await (
+        await prepared(org, asProcess(100))
+      )
+        .acquire('run-1')
+        .catch((err: unknown) => err);
+
+      const message = (error as Error).message;
+      expect(message).toBe(
+        `The journal of the mute leases in ${dir} could not be read (EACCES): the user ` +
+          'SandForge runs as must read and write that folder, or SANDFORGE_MUTE_LEASES_DIR ' +
+          'name another, the same for every run that mutes the org.',
+      );
+      expect(message).not.toContain(org.organizationId.slice(0, 15));
+      expect(message).not.toContain(org.userId.slice(0, 15));
+      expect(org.writes).toEqual([]);
+    },
+  );
 });
 
 describe('whileMuted', () => {

@@ -15,6 +15,7 @@ import type {
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_OBJECT,
   TRANSFORM_RULE_BAD_PATTERN,
   TRANSFORM_RULE_NO_FIELD,
   fieldlessTransformRefusal,
@@ -643,6 +644,16 @@ const PERSON_ACCOUNT_OBJECTS: ReadonlySet<string> = new Set(['account', 'contact
  */
 type GateInput = SyncCountedWrite & { readBack?: number };
 
+/**
+ * What a run's gate counts apart from the rows it writes: what the objects
+ * left out hold back (`heldBackOf`), and the rows it matches to a record of
+ * the target rather than writes (`HeldBackInput.matched`), by object.
+ */
+interface CountedApart {
+  heldBack: ReadonlyMap<string, SyncHeldBackObject>;
+  matched: ReadonlyMap<string, number>;
+}
+
 /** Whether an object's write creates records: an insert, or an upsert that may. */
 function createsRecords(operation: SyncObjectConfig['operation']): boolean {
   return operation === 'insert' || operation === 'upsert';
@@ -657,6 +668,10 @@ function createsRecords(operation: SyncObjectConfig['operation']): boolean {
  *   the run reads back once written (`GateInput.readBack`).
  * @param heldBack - The rows of each object the run holds back for a record
  *   of an object the target takes none of (`heldBackOf`): counted apart.
+ * @param matched - The rows of each object the run matches to a record the
+ *   target holds and never writes (`HeldBackInput.matched`): the standard
+ *   price book, and the prices left out for the source's own. Neither
+ *   written nor refused, they are counted in no object.
  */
 function countedWriteOf(
   objects: readonly SyncObjectConfig[],
@@ -665,6 +680,7 @@ function countedWriteOf(
   refused: ReadonlyMap<string, TargetRefusal> = new Map(),
   readBack: ReadonlySet<string> = new Set(),
   heldBack: ReadonlyMap<string, SyncHeldBackObject> = new Map(),
+  matched: ReadonlyMap<string, number> = new Map(),
 ): GateInput {
   let alreadyCopied = 0;
   const measured = objects.map((objectConfig): SyncCountedObject => {
@@ -673,10 +689,11 @@ function countedWriteOf(
     const left = copied.get(name)?.size ?? 0;
     alreadyCopied += Math.min(left, count.rows);
     const held = refused.has(name) ? 0 : (heldBack.get(name)?.rows ?? 0);
+    const apart = held + (matched.get(name) ?? 0);
     return {
       objectApiName: name,
       operation: objectConfig.operation,
-      rows: Math.max(0, count.rows - left - held),
+      rows: Math.max(0, count.rows - left - apart),
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
     };
   });
@@ -935,15 +952,17 @@ export class SyncOrchestrator {
     /** The objects the target takes none of, left out as the user confirmed, with their rows. */
     const leftOutOfRun = new Map<string, number>();
     // Read once for the gate and the run alike: a standard price book the
-    // gate matched is the one the run matches.
+    // gate matched is the one the run matches, and the prices it settles are
+    // settled by the currencies the run writes them in.
     const standardPricebooks = this.standardPricebooksOnce();
+    const currencies = this.currenciesOnce();
     if (this.deps.writeGate && 'counted' in counts) {
       // What the objects left out would hold back, counted apart from what
       // the run writes: read as the run reads it, and a read that fails stops
       // the run here, as it would stop it at that object.
-      let heldBack: ReadonlyMap<string, SyncHeldBackObject>;
+      let apart: CountedApart;
       try {
-        heldBack = await this.heldBackOfRun(
+        apart = await this.heldBackOfRun(
           config,
           sortedObjects,
           unwritable,
@@ -952,6 +971,7 @@ export class SyncOrchestrator {
           earlier.links,
           copied,
           standardPricebooks,
+          currencies,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -967,7 +987,8 @@ export class SyncOrchestrator {
         copied,
         unwritable,
         readsBack,
-        heldBack,
+        apart.heldBack,
+        apart.matched,
       );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
@@ -1012,7 +1033,6 @@ export class SyncOrchestrator {
     };
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
-    const currencies = this.currenciesOnce();
     const currencyChangesById = new Map<string, CurrencyChange>();
     // The emails and phone numbers of every row made unreachable before it is
     // written, unless the configuration keeps them: see `syncContactPoints`.
@@ -1736,8 +1756,10 @@ export class SyncOrchestrator {
   /**
    * The rows of an object's write as the platform takes them
    * (`settleSyncPrices`): the standard price book matched, once the run has
-   * read both orgs', and the prices ordered and settled. Hands the rows back
-   * as they are for any object whose records name no price book.
+   * read both orgs', and the prices ordered and settled, those under a book,
+   * a product or a selling model the run refused left as they are, for the
+   * write to hold back. Hands the rows back as they are for any object whose
+   * records name no price book.
    */
   private async pricesSettled(
     objectConfig: SyncObjectConfig,
@@ -1756,7 +1778,13 @@ export class SyncOrchestrator {
       prepared.sources.some(carriesACurrency)
         ? await run.currencies()
         : undefined;
-    return settleSyncPrices(objectApiName, prepared, standard, currencies);
+    return settleSyncPrices(
+      objectApiName,
+      prepared,
+      standard,
+      currencies,
+      (id) => run.links.refusedObjectOf(id) !== undefined,
+    );
   }
 
   /**
@@ -2067,11 +2095,14 @@ export class SyncOrchestrator {
    * would hold back (`heldBackOf`), each object read as the run reads it —
    * from its watermark on a delta configuration —, those an earlier run
    * copied left out, as the run leaves them, and the standard price book
-   * matched as the run matches it. Nothing is read when no object is left
-   * out.
+   * matched as the run matches it; with what the run matches to a record of
+   * the target rather than writes, among the price books and the prices it
+   * creates (`HeldBackInput.matched`). Nothing is read when no object is left
+   * out and the run creates no price book nor price.
    *
    * @param standardPricebooks - Both orgs' standard price books, the read the
    *   run itself goes on with.
+   * @param currencies - Both orgs' currencies, the read the run goes on with.
    */
   private async heldBackOfRun(
     config: SyncConfig,
@@ -2082,15 +2113,25 @@ export class SyncOrchestrator {
     earlier: ReadonlyMap<string, string> | undefined,
     copied: AlreadyCopied,
     standardPricebooks: () => Promise<StandardPricebooks | undefined>,
-  ): Promise<ReadonlyMap<string, SyncHeldBackObject>> {
-    if (unwritable.size === 0) return new Map();
-    return heldBackOf({
+    currencies: () => Promise<RunCurrencies | undefined>,
+  ): Promise<CountedApart> {
+    const matched = new Map<string, number>();
+    const priced = ordered.some(
+      (object) =>
+        createsRecords(object.operation) &&
+        (object.objectApiName === PRICEBOOK_OBJECT ||
+          object.objectApiName === PRICEBOOK_ENTRY_OBJECT),
+    );
+    if (unwritable.size === 0 && !priced) return { heldBack: new Map(), matched };
+    const heldBack = await heldBackOf({
       ordered,
       lookups,
       leftOut: new Set(unwritable.keys()),
       ...(earlier ? { earlier } : {}),
       copied,
       standardPricebooks,
+      currencies,
+      matched,
       read: async (objectConfig) => {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
         return plan?.read === 'delta'
@@ -2100,6 +2141,7 @@ export class SyncOrchestrator {
           : this.deps.querySource(config.sourceOrgId, objectConfig);
       },
     });
+    return { heldBack, matched };
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */
@@ -2194,13 +2236,25 @@ export class SyncOrchestrator {
     }
     const gate = this.deps.writeGate;
     const standardPricebooks = this.standardPricebooksOnce();
+    const currencies = this.currenciesOnce();
     const counts = gate ? await this.countRun(config, ordered, deltaLoad, true) : undefined;
     if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
     if (gate && counts && 'counted' in counts) {
       try {
         // With the requests a run sends to read back the record types the
-        // target gave, and the rows the objects left out hold back, as its
-        // gate counts them.
+        // target gave, the rows the objects left out hold back and those the
+        // run matches rather than writes, as its gate counts them.
+        const apart = await this.heldBackOfRun(
+          config,
+          ordered,
+          refused,
+          lookups,
+          deltaLoad,
+          earlier.links,
+          copied,
+          standardPricebooks,
+          currencies,
+        );
         writeCheck = await gate.measure(
           countedWriteOf(
             ordered,
@@ -2208,16 +2262,8 @@ export class SyncOrchestrator {
             copied,
             refused,
             this.deps.queryTargetRows ? typed : new Set<string>(),
-            await this.heldBackOfRun(
-              config,
-              ordered,
-              refused,
-              lookups,
-              deltaLoad,
-              earlier.links,
-              copied,
-              standardPricebooks,
-            ),
+            apart.heldBack,
+            apart.matched,
           ),
         );
       } catch (err: unknown) {
@@ -2227,7 +2273,7 @@ export class SyncOrchestrator {
     const run: RunContext = {
       links: new SyncRunLinks(earlier.links),
       recordTypes: this.recordTypesOnce(),
-      currencies: this.currenciesOnce(),
+      currencies,
       currencyChangesById: new Map<string, CurrencyChange>(),
       standardPricebooks,
       later: laterInCycles(writeOrder),

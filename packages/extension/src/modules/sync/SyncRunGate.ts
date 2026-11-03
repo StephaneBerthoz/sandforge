@@ -722,7 +722,7 @@ export function unwritableRefusal(
   const named = unwritable
     .map(
       ({ objectApiName, rows, why, key }) =>
-        `${objectApiName} (${rows} records): ${UNWRITABLE_WHY[why](org, key)}`,
+        `${objectApiName} (${rows} record${rows === 1 ? '' : 's'}): ${UNWRITABLE_WHY[why](org, key)}`,
     )
     .join('; ');
   const pronoun = unwritable.length === 1 ? 'it' : 'them';

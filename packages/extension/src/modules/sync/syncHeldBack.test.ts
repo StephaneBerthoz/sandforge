@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SyncObjectConfig } from '@sandforge/shared';
+import { orgCurrenciesOf } from '../../core/common/recordCurrencies.js';
 import { heldBackOf, sourceFieldOf } from './syncHeldBack.js';
 import type { WriteLookup } from './syncWriteOrder.js';
 
@@ -194,6 +195,120 @@ describe('heldBackOf', () => {
       expect([...held.values()]).toEqual([
         { objectApiName: 'PricebookEntry', rows: 1, parent: 'Pricebook2', field: 'Pricebook2Id' },
       ]);
+    });
+
+    it('counts the standard book of the books left out as matched, not among the books refused', async () => {
+      const matched = new Map<string, number>();
+
+      await heldBackOf({
+        ordered,
+        lookups: priced,
+        leftOut: new Set(['Pricebook2']),
+        read: reader(catalog),
+        standardPricebooks: async () => books,
+        matched,
+      });
+
+      expect([...matched]).toEqual([['Pricebook2', 1]]);
+    });
+
+    describe('the prices in a currency the target does not hold', () => {
+      const currencies = {
+        source: orgCurrenciesOf([
+          { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+          { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true },
+        ])!,
+        target: orgCurrenciesOf([
+          { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+        ])!,
+      };
+      /** Of a product in each book, a price in USD and one in GBP. */
+      const twoCurrencies: Record<string, Array<Record<string, unknown>>> = {
+        Product2: [{ Id: fakeId('01t', 1) }],
+        Pricebook2: catalog.Pricebook2,
+        PricebookEntry: [books.source, fakeId('01s', 2)].flatMap((book, at) =>
+          ['USD', 'GBP'].map((CurrencyIsoCode, n) => ({
+            Id: fakeId('01u', 10 * at + n + 1),
+            Pricebook2Id: book,
+            Product2Id: fakeId('01t', 1),
+            CurrencyIsoCode,
+          })),
+        ),
+      };
+      const withProducts = new Map<string, WriteLookup[]>([
+        [
+          'PricebookEntry',
+          [
+            { field: 'Pricebook2Id', referenceTo: ['Pricebook2'] },
+            { field: 'Product2Id', referenceTo: ['Product2'] },
+          ],
+        ],
+      ]);
+
+      it('counts each price left out for the source’s own in USD as matched, with the standard book, nothing left out', async () => {
+        const matched = new Map<string, number>();
+        const read = reader(twoCurrencies);
+
+        const held = await heldBackOf({
+          ordered: [objectOf('Product2'), objectOf('Pricebook2'), objectOf('PricebookEntry')],
+          lookups: withProducts,
+          leftOut: new Set(),
+          read,
+          standardPricebooks: async () => books,
+          currencies: async () => currencies,
+          matched,
+        });
+
+        expect(held.size).toBe(0);
+        expect([...matched]).toEqual([
+          ['Pricebook2', 1],
+          ['PricebookEntry', 2],
+        ]);
+        // The products are read for nothing: no lookup names one left out.
+        expect(read.mock.calls.map(([objectConfig]) => objectConfig.objectApiName)).toEqual([
+          'Pricebook2',
+          'PricebookEntry',
+        ]);
+      });
+
+      it('holds back with their product the prices in GBP, matching none of them', async () => {
+        const matched = new Map<string, number>();
+
+        const held = await heldBackOf({
+          ordered: [
+            objectOf('Product2', { operation: 'upsert' }),
+            objectOf('Pricebook2'),
+            objectOf('PricebookEntry'),
+          ],
+          lookups: withProducts,
+          leftOut: new Set(['Product2']),
+          read: reader(twoCurrencies),
+          standardPricebooks: async () => books,
+          currencies: async () => currencies,
+          matched,
+        });
+
+        expect(held.get('PricebookEntry')?.rows).toBe(4);
+        expect(matched.get('PricebookEntry')).toBeUndefined();
+      });
+
+      it('reads no price for it when the target holds every currency of the source', async () => {
+        const matched = new Map<string, number>();
+        const read = reader(twoCurrencies);
+
+        await heldBackOf({
+          ordered: [objectOf('PricebookEntry')],
+          lookups: withProducts,
+          leftOut: new Set(),
+          read,
+          standardPricebooks: async () => books,
+          currencies: async () => ({ source: currencies.target, target: currencies.target }),
+          matched,
+        });
+
+        expect(read).not.toHaveBeenCalled();
+        expect(matched.size).toBe(0);
+      });
     });
 
     it('holds them back with the rest when both books cannot be read, as the run then sends them unmatched', async () => {
