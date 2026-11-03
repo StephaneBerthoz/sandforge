@@ -266,6 +266,7 @@ import {
   storageRefusal,
   writePlanLines,
   writePlanOf,
+  writtenWithWords,
   forgeWriteBudgetOf,
   readApiBudget,
   takeCheckpointFirst,
@@ -319,7 +320,13 @@ import {
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
-import { auditMutedOf, stillRunningOf, type MutedAutomation } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  gapLiftedBy,
+  stillRunningOf,
+  type MutedAutomation,
+  type MutedAutomationAlsoLifted,
+} from '@sandforge/shared';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -340,6 +347,7 @@ import {
 } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
+import { validationRulesOf } from '../src/modules/forge/rehearsal/rehearsalGaps.js';
 import {
   RehearsalNotRolledBackError,
   rehearse,
@@ -2413,6 +2421,33 @@ function truncatedObjectsOf(
 }
 
 /**
+ * The line of the records a run linked to rather than created: those the
+ * target held before the run, and apart from them those the platform wrote
+ * itself with a record the run created, in the words each object's line uses.
+ * All said "already in the target", the owner's member and split of the run's
+ * opportunity read as records the target held before the run.
+ */
+function linkedLine(
+  summary: Pick<ExecutionSummary, 'linkedCount' | 'writtenByThePlatform'>,
+): string {
+  const byWords = new Map<string, number>();
+  for (const { objectApiName, rows } of summary.writtenByThePlatform ?? []) {
+    const words = writtenWithWords(objectApiName);
+    byWords.set(words, (byWords.get(words) ?? 0) + rows);
+  }
+  const byThePlatform = [...byWords.values()].reduce((sum, rows) => sum + rows, 0);
+  if (byThePlatform === 0) {
+    return `linked:  ${summary.linkedCount} (already in the target, not created)`;
+  }
+  const held = summary.linkedCount - byThePlatform;
+  const parts = [
+    ...(held > 0 ? [`${held} already in the target, not created`] : []),
+    ...[...byWords].map(([words, rows]) => `${rows} written by the platform with ${words}`),
+  ];
+  return `linked:  ${summary.linkedCount} (${parts.join('; ')})`;
+}
+
+/**
  * The text summary of a run. Records the target already held are named apart
  * from the created and the failed ones: linked is neither, and a duplicate
  * nobody could identify is a failure whose children lost their lookup.
@@ -2441,7 +2476,7 @@ export function summaryLines(
     ...(summary.updatedCount > 0
       ? [`updated: ${summary.updatedCount} (matched by their external id, not created)`]
       : []),
-    `linked:  ${summary.linkedCount} (already in the target, not created)`,
+    linkedLine(summary),
     // A read that failed is the object's failure, counted in no record: the
     // clone never learned how many of its rows it held.
     `failed:  ${summary.failedCount}` +
@@ -2830,14 +2865,22 @@ export function upsertKeyLines(keys: readonly NeutralizedUpsertKey[], target: st
  * grouped by object and record type, each with its step in Setup: shown,
  * never made. Nothing on a run that writes, nor when no change would cure a
  * gap. Exported so it can be tested.
+ *
+ * @param lifted - What the run's mute lifts beside what it silences
+ *   (`MutePlan.alsoLifts`): a validation rule it lifts refuses no row, and is
+ *   no change to ask for. Its gap line said the mute lifts it, and the list
+ *   still asked the admin to turn it off, as Review's did.
  */
 export function dryRunAdminChanges(
   dryRun: boolean,
   targetGaps: { gaps: readonly ForgeGap[] },
   simulated: readonly ForgeGap[] | undefined,
+  lifted?: readonly MutedAutomationAlsoLifted[],
 ): { adminChanges?: ForgeAdminChangeGroup[] } {
   if (!dryRun) return {};
-  const groups = adminChangesOf(mergeGaps(targetGaps.gaps, simulated ?? []));
+  const groups = adminChangesOf(
+    mergeGaps(targetGaps.gaps, simulated ?? []).filter((gap) => !gapLiftedBy(gap, lifted)),
+  );
   return groups.length > 0 ? { adminChanges: groups } : {};
 }
 
@@ -2860,9 +2903,13 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // Written over by `--upsert`: the target held them before the run.
     updatedCount: summary.updatedCount,
     // Neither created nor failed: the target already held these records —
-    // it named them, or they were matched by name — and their children link
-    // to them.
+    // it named them, or they were matched by name — or the platform wrote
+    // them itself with a record the run created, and their children link to
+    // them.
     linkedCount: summary.linkedCount,
+    // Of them, per object, those the platform wrote with a record the run
+    // created: in the target no more than that record was before the run.
+    ...(summary.writtenByThePlatform ? { writtenByThePlatform: summary.writtenByThePlatform } : {}),
     // What a dry run would have inserted: it writes nothing.
     wouldInsertCount: summary.wouldInsertCount,
     failedCount: summary.failedCount,
@@ -3457,7 +3504,11 @@ export function rehearsalPlanLines(plan: RehearsalPlan, target: string): string[
  * its status code, field and rows — an update's apart — and what could not be
  * judged. Exported so it can be tested.
  */
-export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): string[] {
+export function rehearsalLines(
+  rehearsal: ForgeRehearsal,
+  target: string,
+  options: { lifted?: readonly MutedAutomationAlsoLifted[] } = {},
+): string[] {
   const updates =
     rehearsal.updatesJudged > 0
       ? `; ${rehearsal.updatesJudged} update(s) judged, ${rehearsal.updatesPassed} would save, ` +
@@ -3485,6 +3536,19 @@ export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): strin
       lines.push(
         `  refused on update  ${gap.objectApiName}${field}: ${code}, ${gap.rows} update(s)${standsFor} ` +
           '(the record goes in without what the update gives it)',
+      );
+      continue;
+    }
+    // A rule the run's mute lifts refused a row the run writes whole: a
+    // rehearsal takes no mute. Said as the row going again without its
+    // field, the line told of a loss the run under the mute never has.
+    const lifted = gapLiftedBy(gap, options.lifted);
+    if (lifted) {
+      lines.push(
+        `  refused  ${gap.objectApiName}${field}: ${code}, ${gap.rows} row(s)${standsFor}, ` +
+          `validation rule "${String(gap.detail?.rule)}": the mute lifts it (${lifted.permission}, ` +
+          `in ${lifted.permissionSet}), which the rehearsal ran without; a real run under it ` +
+          'writes the row whole',
       );
       continue;
     }
@@ -7006,6 +7070,14 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       return remainingFileStorageMB(c);
     },
     requestsSent,
+    // The owner of an opportunity the run sends without one, whose team the
+    // platform writes with it: what a dry run links a team row to, as the
+    // rehearsal below and the run do.
+    runningUser: async (orgId) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return (await c.identity()).user_id;
+    },
   };
 
   // A rehearsal instead of the run: every row read and prepared by the run's
@@ -7053,6 +7125,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ),
         // Why a restricted picklist refused a value, as the target's describe says it.
         targetFields: (name) => executorDeps.describeFields(args.target, name),
+        // The rule a validation refusal is of, from the rules the read of the
+        // target's metadata listed above: one the mute lifts is said lifted.
+        validationRules: async () => validationRulesOf(targetGaps.gaps),
         // Nobody to ask: --rehearse is the request, and --accept-automation
         // the acceptance of what the target runs, as for a real run.
         confirm: async (rehearsalPlan) => {
@@ -7074,7 +7149,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // What the target refused, on stderr under --json as every other line:
     // the JSON alone left the terminal at the last call's progress line.
     say('');
-    for (const line of rehearsalLines(rehearsal, args.target)) say(line);
+    for (const line of rehearsalLines(
+      rehearsal,
+      args.target,
+      liftedByMute ? { lifted: liftedByMute } : {},
+    )) {
+      say(line);
+    }
     if (args.json) {
       process.stdout.write(
         JSON.stringify(
@@ -7145,15 +7226,17 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * What a dry run's gate counted as the write would have begun: per object
    * the records, the storage they take and the emails they send, and in all
    * the records `--max-total` holds a run to — with why some emails were not
-   * counted, when what sends them could not be read. Given with --json under
-   * `writePlan`: an environment holds the real run to this count, so a scope
-   * that grew since its dry run is refused, not written.
+   * counted, when what sends them could not be read, and what was read and is
+   * not counted (`leftOut`), the rows the platform writes itself among them.
+   * Given with --json under `writePlan`: an environment holds the real run to
+   * this count, so a scope that grew since its dry run is refused, not written.
    */
   let dryRunWritePlan:
     | {
         totalRows: number;
         storageBytes: number;
         objects: WritePlan['objects'];
+        leftOut?: WritePlan['leftOut'];
         emails?: Array<{ limit: string; emails: number }>;
         emailsUncounted?: string;
       }
@@ -7269,6 +7352,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         totalRows: plan.totalRows,
         storageBytes: plan.storageBytes,
         objects: plan.objects,
+        ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
         ...(emailCounts !== undefined ? { emails: emailCounts } : {}),
         ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
       };
@@ -7367,8 +7451,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // (`answeredBy`); what could not be read, and what the read cost.
     targetGaps: gapsWithAnswers(targetGaps, gapDecisions),
     // Of a dry run, the changes to the target's metadata that would let the
-    // rows go in as they are, for whoever administers it.
-    ...dryRunAdminChanges(args.dryRun, targetGaps, counted.gaps),
+    // rows go in as they are, for whoever administers it: none for a rule the
+    // mute lifts.
+    ...dryRunAdminChanges(args.dryRun, targetGaps, counted.gaps, liftedByMute),
     // The external ids --upsert may match by that the run writes neutralized.
     ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
     result: {

@@ -242,6 +242,11 @@ export interface WritePlanLeftOut {
   writtenBefore: number;
   /** Per object held back whole for a record type closed to the user the run writes as, its rows. */
   heldBack: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * Per object, the rows the platform writes itself with a record the run
+   * creates, which the write links to and never sends. Absent when none.
+   */
+  byThePlatform?: Array<{ objectApiName: string; rows: number }>;
 }
 
 /**
@@ -303,11 +308,22 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const heldBack = objects
     .filter((object) => (object.leftOut?.heldBack ?? 0) > 0)
     .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.heldBack ?? 0 }));
+  const byThePlatform = objects
+    .filter((object) => (object.leftOut?.byThePlatform ?? 0) > 0)
+    .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.byThePlatform ?? 0 }));
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
-    ...(writtenBefore > 0 || heldBack.length > 0 ? { leftOut: { writtenBefore, heldBack } } : {}),
+    ...(writtenBefore > 0 || heldBack.length > 0 || byThePlatform.length > 0
+      ? {
+          leftOut: {
+            writtenBefore,
+            heldBack,
+            ...(byThePlatform.length > 0 ? { byThePlatform } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -2177,7 +2193,8 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
 /**
  * What the command line says of the rows a run read or counted and will not
  * write, left out of the records to write: those the run it retries or
- * resumes wrote, and an object held back whole for a record type.
+ * resumes wrote, an object held back whole for a record type, and the rows
+ * the platform writes itself with a record the run creates.
  */
 export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
   if (!leftOut) return [];
@@ -2194,7 +2211,24 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
         'closed to the user the run writes as',
     );
   }
+  for (const { objectApiName, rows } of leftOut.byThePlatform ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) written by the platform with ` +
+        `${writtenWithWords(objectApiName)}, which the run links to and does not send`,
+    );
+  }
   return lines;
+}
+
+/**
+ * What the platform writes a row of `objectApiName` with, in the words the
+ * line of each object says it: an email's task, a person account's contact,
+ * the owner's member and split of an opportunity.
+ */
+export function writtenWithWords(objectApiName: string): string {
+  if (objectApiName === 'Task') return 'their email';
+  if (objectApiName === 'Contact') return 'their person account';
+  return 'their opportunity, for its owner';
 }
 
 /** What each kind of risk says on the command line, after the object. */

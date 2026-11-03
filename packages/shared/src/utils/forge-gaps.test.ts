@@ -230,4 +230,26 @@ describe('what a mute lifts of a gap', () => {
     // Only a validation rule is lifted: a duplicate rule of that name is not.
     expect(gapLiftedBy({ ...rule, kind: 'duplicate_rule' }, [lifts])).toBeUndefined();
   });
+
+  it("finds the entry of a rule a rehearsal's refusal names, the rehearsal taking no mute", () => {
+    const refused = {
+      kind: 'rehearsal_refusal' as const,
+      objectApiName: 'Contact',
+      detail: { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', rule: 'Email_Required' },
+    };
+
+    expect(gapLiftedBy(refused, [lifts])).toEqual(lifts);
+    // Another refusal naming no rule, or of another code, is lifted by nothing.
+    expect(
+      gapLiftedBy({ ...refused, detail: { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION' } }, [
+        lifts,
+      ]),
+    ).toBeUndefined();
+    expect(
+      gapLiftedBy(
+        { ...refused, detail: { statusCode: 'REQUIRED_FIELD_MISSING', rule: 'Email_Required' } },
+        [lifts],
+      ),
+    ).toBeUndefined();
+  });
 });

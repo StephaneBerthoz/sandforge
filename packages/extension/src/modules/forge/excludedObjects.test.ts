@@ -42,6 +42,23 @@ describe('isExcludedFromCopy', () => {
     expect(isExcludedFromCopy('AppUsageAssignment')).toBe(true);
   });
 
+  it('excludes the logs and the history the platform alone writes about a record', () => {
+    // An org's describe says none of them createable or deletable; reached
+    // from an opportunity, its delete logs ended the clone partial.
+    for (const name of [
+      'OpportunityRelatedDeleteLog',
+      'CaseHistory2',
+      'ApiAnomalyEventStore',
+      'CredentialStuffingEventStore',
+      'GuestUserAnomalyEventStore',
+      'LoginAnomalyEventStore',
+      'ReportAnomalyEventStore',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+  });
+
   it('keeps the data objects a clone is for', () => {
     for (const name of ['Account', 'Contact', 'Case', 'Asset', 'Invoice__c', 'Vlocity__c']) {
       expect(isExcludedFromCopy(name)).toBe(false);

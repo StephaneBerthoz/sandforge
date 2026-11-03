@@ -5,8 +5,10 @@ import type {
   FieldInfo,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  ForgeWriteBoundary,
   InsertResult,
 } from './ForgeExecutor.js';
+import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -306,6 +308,7 @@ describe('ForgeExecutor, person accounts', () => {
     // record the target held: listed with them, the results said the target
     // had refused it because it already held it.
     expect(summary.existingRecords).toEqual([]);
+    expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
     // The account's lookup at its contact is owed nothing: the platform
     // refuses an update of it.
     expect(updated.flatMap(({ rows }) => rows).some((row) => 'PersonContactId' in row)).toBe(false);
@@ -1135,5 +1138,33 @@ describe('ForgeExecutor, person accounts', () => {
     );
     // Not in the target before the run, nor after a dry run.
     expect(summary.existingRecords).toEqual([]);
+  });
+
+  it("counts no person account's contact at its gate, which the run never sends, in a run or a dry run", async () => {
+    for (const dryRun of [false, true]) {
+      const { executor, inserted } = orgsWithPersonAccounts();
+      let shown: ForgeWriteBoundary | undefined;
+
+      const summary = await executor.execute(CASE_GRAPH, 'src', 'tgt', () => undefined, {
+        ...ROOTED_AT_THE_CASE,
+        dryRun,
+        beforeWrite: async (boundary) => {
+          shown = boundary;
+        },
+      });
+
+      const plan = writePlanOf(shown?.objects ?? []);
+      const written = dryRun
+        ? summary.wouldInsertCount
+        : inserted.reduce((sum, { rows }) => sum + rows.length, 0);
+      // Two accounts, the business account's contact and the case.
+      expect(written).toBe(4);
+      expect(plan.totalRows).toBe(written);
+      expect(plan.leftOut?.byThePlatform).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+      expect(leftOutLines(plan.leftOut)).toEqual([
+        '  not counted: Contact, 1 record(s) written by the platform with their person account, ' +
+          'which the run links to and does not send',
+      ]);
+    }
   });
 });

@@ -5,6 +5,7 @@ import type {
   ForgeGraphNode,
   ForgeRehearsalProgress,
 } from '@sandforge/shared';
+import { gapLiftedBy } from '@sandforge/shared';
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { GraphDiscoveryService } from '../GraphDiscoveryService.js';
 import { ForgeRehearser, type ForgeRehearserDeps } from './ForgeRehearser.js';
@@ -329,6 +330,65 @@ describe('a rehearsal of a run, through the run’s own executor', () => {
       value: 'Acme',
       detail: expect.objectContaining({ reason: 'record-type' }),
     });
+  });
+
+  it("names the target's validation rule a refusal is of, which Review says lifted when the ticked mute lifts it", async () => {
+    const run = reads();
+    vi.mocked(run.queryRecords).mockImplementation(async (org, soql) => {
+      if (org !== 'src') return [];
+      if (/FROM Account\b/.test(soql)) return [{ Id: ACCOUNT_ID, Name: 'Acme' }];
+      return [];
+    });
+    const composite = vi.fn<Composite>(async () => ({
+      compositeResponse: [
+        {
+          body: [
+            {
+              success: false,
+              errors: [
+                {
+                  statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                  message: 'A name is required.',
+                  fields: ['Name'],
+                },
+              ],
+            },
+          ],
+          httpStatusCode: 200,
+        },
+        HALTED,
+      ],
+    }));
+    const validationRules = vi.fn(async () => [
+      {
+        objectApiName: 'Account',
+        name: 'Name_Required',
+        message: 'A name is required.',
+        field: 'Name',
+      },
+    ]);
+
+    const result = await new ForgeRehearser({
+      reads: run,
+      discoveryService: { personalFields: vi.fn(() => []) } as unknown as GraphDiscoveryService,
+      composite,
+      apiPath: async () => '/services/data/v66.0',
+      validationRules,
+    }).rehearse(GRAPH, CONFIG, { confirm: async () => {} });
+
+    expect(validationRules).toHaveBeenCalledWith('tgt', ['Account']);
+    expect(result.gaps[0].detail?.['rule']).toBe('Name_Required');
+    expect(
+      gapLiftedBy(result.gaps[0], [
+        {
+          objectApiName: 'Account',
+          kind: 'validationRule',
+          name: 'Name_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'Data_Load',
+        },
+      ]),
+    ).toMatchObject({ permissionSet: 'Data_Load' });
   });
 });
 

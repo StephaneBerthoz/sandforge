@@ -1330,6 +1330,55 @@ describe('GraphDiscoveryService', () => {
       expect(graph.nodes.find((n) => n.objectApiName === 'User')).toBeUndefined();
     });
 
+    it("leaves out of an opportunity's graph the delete logs the platform alone writes, whatever they hold", async () => {
+      // A split deleted from the source opportunity left four delete logs on
+      // it. Reached, they were a node the target refuses inserts on, and the
+      // clone ended partial on "Object is not createable on target org".
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Opportunity'
+          ? {
+              name: 'Opportunity',
+              fields: [
+                {
+                  name: 'Id',
+                  type: 'id',
+                  referenceTo: [],
+                  relationshipName: null,
+                  isMasterDetail: false,
+                },
+              ],
+              childRelationships: [
+                {
+                  childSObject: 'OpportunityRelatedDeleteLog',
+                  field: 'OpportunityId',
+                  relationshipName: 'OpportunityRelatedDeleteLogs',
+                  isCascadeDelete: true,
+                },
+                {
+                  childSObject: 'OpportunityContactRole',
+                  field: 'OpportunityId',
+                  relationshipName: 'OpportunityContactRoles',
+                  isCascadeDelete: true,
+                },
+              ],
+            }
+          : { name: objectName, fields: [], childRelationships: [] },
+      );
+      vi.mocked(deps.queryCount).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM OpportunityRelatedDeleteLog') ? 4 : 1,
+      );
+
+      const graph = await service.discover(
+        createConfig({ recordId: '006XXXXXXXXXXXX', depth: 'direct' }),
+      );
+
+      expect(graph.nodes.map((n) => n.objectApiName).sort()).toEqual([
+        'Opportunity',
+        'OpportunityContactRole',
+      ]);
+      expect(graph.edges.some((e) => e.targetObject === 'OpportunityRelatedDeleteLog')).toBe(false);
+    });
+
     it('leaves the files of a record and their links out of the graph', async () => {
       // Walked into as records, a file's body was read as its address and an
       // insert would have written that address: a run that copies files does

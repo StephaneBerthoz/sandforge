@@ -244,12 +244,14 @@ export interface WriteConfirmation {
   /**
    * What the run read or counted and will not write, left out of the rows
    * above: the rows the run it retries or resumes wrote, which it links to,
-   * and the objects held back whole for a record type closed to the user it
-   * writes as. Absent when nothing is.
+   * the objects held back whole for a record type closed to the user it
+   * writes as, and the rows the platform writes itself with a record the run
+   * creates, which it links to. Absent when nothing is.
    */
   leftOut?: {
     writtenBefore: number;
     heldBack: Array<{ objectApiName: string; rows: number }>;
+    byThePlatform?: Array<{ objectApiName: string; rows: number }>;
   };
   /**
    * Set when the rows were counted rather than read: a run of whole tables

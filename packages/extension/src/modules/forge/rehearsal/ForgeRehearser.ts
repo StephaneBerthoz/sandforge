@@ -13,6 +13,7 @@ import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import { rehearsalExecutorDeps } from './RehearsalWriter.js';
 import { RehearsalCancelledError, rehearse, type RehearsalPlan } from './rehearse.js';
 import type { CompositeRequestBody } from './compositeCalls.js';
+import type { TargetValidationRule } from './rehearsalGaps.js';
 
 /** What the extension's rehearsals are wired to. */
 export interface ForgeRehearserDeps {
@@ -36,6 +37,14 @@ export interface ForgeRehearserDeps {
    * `RehearsalDeps.runningUser`.
    */
   runningUser?: (orgId: string) => Promise<string | undefined>;
+  /**
+   * An org's active validation rules of the objects named. Optional: see
+   * `RehearsalDeps.validationRules`.
+   */
+  validationRules?: (
+    orgId: string,
+    objectApiNames: readonly string[],
+  ) => Promise<readonly TargetValidationRule[]>;
 }
 
 /** What one rehearsal is given besides the graph and the config. */
@@ -70,7 +79,7 @@ export class ForgeRehearser {
     options: RehearseOptions,
   ): Promise<ForgeRehearsal> {
     const { targetOrgId } = config;
-    const { runningUser } = this.deps;
+    const { runningUser, validationRules } = this.deps;
     const recordTypeNames = new Map(
       (options.recordTypeMappings ?? []).map((m) => [m.targetId.slice(0, 15), m.developerName]),
     );
@@ -122,6 +131,9 @@ export class ForgeRehearser {
       }),
       recordTypeNames,
       targetFields: (objectApiName) => this.deps.reads.describeFields(targetOrgId, objectApiName),
+      ...(validationRules
+        ? { validationRules: (objects) => validationRules(targetOrgId, objects) }
+        : {}),
       confirm: options.confirm,
       onProgress: options.onProgress,
       ...(options.signal ? { signal: options.signal } : {}),

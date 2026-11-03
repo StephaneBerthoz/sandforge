@@ -10426,6 +10426,29 @@ describe('ForgeExecutor', () => {
 
           expect(summary.linkedCount, `dryRun ${String(dryRun)}`).toBe(1);
           expect(summary.existingRecords, `dryRun ${String(dryRun)}`).toEqual([]);
+          expect(summary.writtenByThePlatform, `dryRun ${String(dryRun)}`).toEqual([
+            { objectApiName: 'Task', rows: 1 },
+          ]);
+        }
+      });
+
+      it('counts at its gate no task the platform writes with an email the run creates, in a run or a dry run', async () => {
+        for (const dryRun of [false, true]) {
+          const { orgDeps, inserted } = orgs();
+          let shown: ForgeWriteBoundary | undefined;
+
+          await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+            ...scoped,
+            dryRun,
+            beforeWrite: async (boundary) => {
+              shown = boundary;
+            },
+          });
+
+          const plan = writePlanOf(shown?.objects ?? []);
+          expect(plan.objects.map((o) => o.objectApiName)).not.toContain('Task');
+          expect(plan.leftOut?.byThePlatform).toEqual([{ objectApiName: 'Task', rows: 1 }]);
+          if (!dryRun) expect(inserted['Task'] ?? []).toEqual([]);
         }
       });
 

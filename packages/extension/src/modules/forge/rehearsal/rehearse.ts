@@ -37,10 +37,12 @@ import {
 } from './compositeCalls.js';
 import {
   RESTRICTED_PICKLIST_REFUSAL,
+  VALIDATION_RULE_REFUSAL,
   rehearsalGaps,
   type RefusedRow,
   type TargetPicklist,
   type TargetPicklists,
+  type TargetValidationRule,
 } from './rehearsalGaps.js';
 
 /** What a rehearsal is about to cost, put to the user before its first call. */
@@ -104,6 +106,14 @@ export interface RehearsalDeps {
     objectApiName: string,
   ) => Promise<ReadonlyArray<{ name: string; picklistValues?: string[]; controllerName?: string }>>;
   /**
+   * The target's active validation rules of the objects named: what tells the
+   * rule a validation refusal is of, so that a rule the run's mute lifts is
+   * said lifted — a rehearsal takes no mute, and the run under one writes the
+   * row whole. Asked only of the objects a rule refused. Optional: without
+   * it, the refusal names no rule.
+   */
+  validationRules?: (objectApiNames: readonly string[]) => Promise<readonly TargetValidationRule[]>;
+  /**
    * Put the plan to the user before the first call. What it throws stops the
    * rehearsal there, with nothing sent to the target.
    */
@@ -115,6 +125,30 @@ export interface RehearsalDeps {
    * rolled back whole, so stopping between two leaves nothing in the target.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * The target's active validation rules of the objects whose rows a rule
+ * refused, asked once; none when nothing a rule refused, or the target would
+ * not say.
+ */
+async function rulesRefusing(
+  refused: readonly RefusedRow[],
+  deps: Pick<RehearsalDeps, 'validationRules'>,
+): Promise<readonly TargetValidationRule[]> {
+  const objects = [
+    ...new Set(
+      refused
+        .filter(({ errors }) => errors.some((e) => e.statusCode === VALIDATION_RULE_REFUSAL))
+        .map(({ row }) => row.objectApiName),
+    ),
+  ];
+  if (objects.length === 0 || !deps.validationRules) return [];
+  try {
+    return await deps.validationRules(objects);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -645,7 +679,12 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     why.set(key, (why.get(key) ?? 0) + 1);
   }
   return {
-    gaps: rehearsalGaps(refused, deps.recordTypeNames, await picklistsRefused(refused, deps)),
+    gaps: rehearsalGaps(
+      refused,
+      deps.recordTypeNames,
+      await picklistsRefused(refused, deps),
+      await rulesRefusing(refused, deps),
+    ),
     rows: rows.length,
     sampled: toJudge.length,
     judged: verdicts.size,

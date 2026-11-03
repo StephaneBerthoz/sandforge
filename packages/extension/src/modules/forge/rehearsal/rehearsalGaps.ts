@@ -103,6 +103,67 @@ const KIND_OF_CODE: ReadonlyMap<
   ],
 ]);
 
+/** The code a validation rule of the target refuses a row with. */
+export const VALIDATION_RULE_REFUSAL = 'FIELD_CUSTOM_VALIDATION_EXCEPTION';
+
+/**
+ * An active validation rule of the target, as the read of its metadata gives
+ * it: what tells the rule a refusal is of, its message being the one the
+ * refusal carries.
+ */
+export interface TargetValidationRule {
+  objectApiName: string;
+  /** Its name, after its package's namespace for a packaged one. */
+  name: string;
+  /** The error message it shows, which its refusal carries. */
+  message: string;
+  /** The field it shows its error on; none for the top of the page. */
+  field?: string;
+}
+
+/**
+ * The validation rules the read of the target's metadata listed among its
+ * gaps (`TargetGapReader`), as a rehearsal tells its refusals' rules by them.
+ */
+export function validationRulesOf(gaps: readonly ForgeGap[]): TargetValidationRule[] {
+  return gaps.flatMap((gap) => {
+    const name = gap.detail?.['rule'];
+    const message = gap.detail?.['message'];
+    if (gap.kind !== 'validation_rule' || typeof name !== 'string' || typeof message !== 'string') {
+      return [];
+    }
+    return [
+      {
+        objectApiName: gap.objectApiName,
+        name,
+        message,
+        ...(gap.field !== undefined ? { field: gap.field } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * The rule of the target a validation refusal is of: the one rule of the
+ * row's object whose message is the refusal's, and whose field, when both
+ * name one, is the refusal's. None when no rule, or more than one, answers.
+ */
+function ruleOfRefusal(
+  objectApiName: string,
+  error: SaveErrorDetail,
+  rules: readonly TargetValidationRule[],
+): string | undefined {
+  if (error.statusCode !== VALIDATION_RULE_REFUSAL || error.message.trim() === '') return undefined;
+  const field = error.fields[0]?.toLowerCase();
+  const matching = rules.filter(
+    (rule) =>
+      rule.objectApiName.toLowerCase() === objectApiName.toLowerCase() &&
+      rule.message.trim() === error.message.trim() &&
+      (rule.field === undefined || field === undefined || rule.field.toLowerCase() === field),
+  );
+  return matching.length === 1 ? matching[0].name : undefined;
+}
+
 /** A count a gap's detail holds; 0 when it holds none. */
 function numberIn(gap: ForgeGap, key: string): number {
   const value = gap.detail?.[key];
@@ -244,16 +305,21 @@ function gapsOfError(
   error: SaveErrorDetail,
   recordTypeNames: ReadonlyMap<string, string>,
   picklists: TargetPicklists,
+  rules: readonly TargetValidationRule[],
 ): ForgeGap[] {
   const { row } = refused;
   const code = error.statusCode || NO_STATUS_CODE;
   const message = messageOf(row, error);
+  // Named, the rule a mute lifts is told by its name (`gapLiftedBy`): a
+  // rehearsal runs without the mute the run takes.
+  const rule = refused.onUpdate ? undefined : ruleOfRefusal(row.objectApiName, error, rules);
   const detail = (field?: string): NonNullable<ForgeGap['detail']> => {
     const value = field === undefined ? undefined : row.fields[field];
     return {
       statusCode: code,
       fields: [...error.fields],
       ...(message !== undefined ? { message } : {}),
+      ...(rule !== undefined ? { rule } : {}),
       rowsOfTheRun: refused.standsFor,
       // A text too long is said by its length, never by what it says.
       ...(code === 'STRING_TOO_LONG' && typeof value === 'string'
@@ -354,11 +420,14 @@ function gapsOfError(
  *   is a gap of the record type the row goes in with.
  * @param picklists - The target's restricted picklists the refusals name, as
  *   its describe says them: why a value was refused, where it tells.
+ * @param rules - The target's active validation rules of the objects refused
+ *   so: a refusal of one is a gap that names it (`detail.rule`).
  */
 export function rehearsalGaps(
   refused: readonly RefusedRow[],
   recordTypeNames: ReadonlyMap<string, string> = new Map(),
   picklists: TargetPicklists = new Map(),
+  rules: readonly TargetValidationRule[] = [],
 ): ForgeGap[] {
   const byId = new Map<string, ForgeGap>();
   for (const entry of refused) {
@@ -368,7 +437,7 @@ export function rehearsalGaps(
         : [{ statusCode: NO_STATUS_CODE, message: '', fields: [] }];
     // Once per row: a row refused twice on the same gap counts once.
     const ofRow = mergeGaps(
-      ...errors.map((error) => gapsOfError(entry, error, recordTypeNames, picklists)),
+      ...errors.map((error) => gapsOfError(entry, error, recordTypeNames, picklists, rules)),
     );
     for (const gap of ofRow) {
       const seen = byId.get(gap.id);

@@ -204,7 +204,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         { getJsforceConnection },
         fileTransfer,
         { TargetAutomationReader, targetAutomationQueries },
-        { TargetGapReader },
+        { TargetGapReader, readActiveValidationRules },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
       ]) => {
@@ -580,6 +580,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             return fileTransfer.remainingFileStorageMB(conn);
           },
           requestsSent: () => executorRequests,
+          // The owner of an opportunity the run sends without one, whose
+          // team the platform writes with it: what a simulation links a team
+          // row to, as the rehearsal and the run do.
+          runningUser: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return (await conn.identity()).user_id;
+          },
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired
@@ -705,6 +712,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return (await conn.identity()).user_id;
           },
+          // The rule a validation refusal is of, read as Review's gaps read
+          // the rules: one the ticked mute lifts is said lifted in Gaps.
+          validationRules: (orgId, objectApiNames) =>
+            readActiveValidationRules(
+              async (soql) => (await targetQueries.toolingQuery(orgId, soql)).records,
+              objectApiNames,
+            ),
         });
 
         const forgeOrchestrator = new ForgeOrchestrator({

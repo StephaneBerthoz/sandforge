@@ -1345,12 +1345,21 @@ describe('sandforge-clone target automation', () => {
         }) as unknown as Connection,
       });
 
-      // Without the mute, the rule's rows go again without the field.
+      // Without the mute, the rule's rows go again without the field, and the
+      // target's admin is asked to turn it off.
       expect(await run(argv('--skip-preflight', '--dry-run', '--json'))).toBeUndefined();
       expect(errored).toContain(
         '    warning: validation rule "Name_Required" on LastName: "A last name is required." ' +
           '(not when $Permission.Bypass_VR; a row it refuses goes again without LastName)',
       );
+      const deactivations = (json: string): unknown[] =>
+        (
+          (JSON.parse(json) as { adminChanges?: Array<{ changes: Array<{ change: string }> }> })
+            .adminChanges ?? []
+        ).flatMap((group) =>
+          group.changes.filter((change) => change.change === 'deactivate_validation_rule'),
+        );
+      expect(deactivations(stdout)).toEqual([expect.objectContaining({ value: 'Name_Required' })]);
       errored.length = 0;
       stdout = '';
 
@@ -1383,7 +1392,103 @@ describe('sandforge-clone target automation', () => {
       ]);
       expect(summary.mutePlan?.assign.map((set) => set.permissionSet)).toEqual(['Data_Load']);
       expect(summary.mutePlan?.alsoLifts).toHaveLength(1);
+      // The mute lifts the rule: its admin is no longer asked to turn it off.
+      expect(deactivations(stdout)).toEqual([]);
       expect(perms.writes).toEqual([]);
+    });
+
+    it('says a rehearsal refusal by a rule the mute lifts lifted, the rehearsal taking no mute', async () => {
+      // The trap org's shape: the set assigned for the welcome flow's bypass
+      // holds the bypass of a rule that refuses a contact without an email.
+      // The rehearsal assigns nothing, so the rule refused the contact, and
+      // its line said a real run writes it again without the field, where the
+      // run under the mute writes it whole.
+      const withEmail = {
+        ...DESCRIBES,
+        Contact: object('Contact', '003', [
+          { name: 'LastName' },
+          { name: 'Email', type: 'email' },
+          { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+        ]),
+      };
+      const { target, perms } = mutableTarget({}, withEmail);
+      const withRule = fakeOrg({
+        describes: withEmail,
+        permissionSets: [{ name: 'Data_Load', grants: 2 }],
+        alsoGranted: [{ id: '0CP000000000002AAA', name: 'Bypass_VR' }],
+        validationRules: [
+          {
+            Id: '03d000000000001AAA',
+            ValidationName: 'Email_Required',
+            NamespacePrefix: null,
+            ErrorDisplayField: 'Email',
+            ErrorMessage: 'An email is required.',
+            EntityDefinition: { QualifiedApiName: 'Contact' },
+          },
+        ],
+        ruleFormula: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))',
+      });
+      /** Each rehearsal call, answered as the platform answers it for a user without the bypass. */
+      const halted = {
+        body: [{ errorCode: 'PROCESSING_HALTED', message: 'halted' }],
+        httpStatusCode: 400,
+      };
+      const composite = async (request: unknown): Promise<unknown> => {
+        const { method, url, body } = request as { method?: string; url?: string; body?: string };
+        if (method !== 'POST' || url !== '/composite')
+          return withRule.conn.request(request as string);
+        const sent = JSON.parse(body ?? '{}') as {
+          compositeRequest: Array<{ body?: { records?: Array<Record<string, unknown>> } }>;
+        };
+        const collections = sent.compositeRequest.slice(0, -1);
+        const answers: unknown[] = collections.map(() => halted);
+        const at = collections.findIndex((sub) =>
+          (sub.body?.records ?? []).some(
+            (r) => (r['attributes'] as { type: string }).type === 'Contact' && !r['Email'],
+          ),
+        );
+        if (at !== -1) {
+          answers[at] = {
+            body: (collections[at].body?.records ?? []).map(() => ({
+              success: false,
+              errors: [
+                {
+                  statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                  message: 'An email is required.',
+                  fields: ['Email'],
+                },
+              ],
+            })),
+            httpStatusCode: 200,
+          };
+        }
+        answers.push(halted);
+        return { compositeResponse: answers };
+      };
+      withOrgs({
+        ...target,
+        conn: Object.assign(Object.create(null) as object, target.conn, {
+          query: (soql: string) =>
+            /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+              ? target.conn.query(soql)
+              : withRule.conn.query(soql),
+          tooling: withRule.conn.tooling,
+          request: composite,
+        }) as unknown as Connection,
+      });
+
+      expect(
+        await run(argv('--skip-preflight', '--rehearse', '--mute-automation')),
+      ).toBeUndefined();
+
+      // The rehearsal poses no mute: nothing is assigned.
+      expect(perms.writes).toEqual([]);
+      expect(printed).toContain(
+        '  refused  Contact.Email: FIELD_CUSTOM_VALIDATION_EXCEPTION, 1 row(s), validation rule ' +
+          '"Email_Required": the mute lifts it (Bypass_VR, in Data_Load), which the rehearsal ran ' +
+          'without; a real run under it writes the row whole',
+      );
+      expect(printed.join('\n')).not.toContain('a real run writes it again without the field');
     });
 
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {

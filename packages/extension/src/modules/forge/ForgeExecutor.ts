@@ -814,6 +814,12 @@ export interface ForgeRowsLeftOut {
   writtenBefore?: number;
   /** Rows held back with the object, whole, for a record type closed to the user the run writes as. */
   heldBack?: number;
+  /**
+   * Rows the platform writes itself with a record the run creates — the
+   * owner's member and split of an opportunity, a person account's contact,
+   * an email's task — which the write links to and never sends.
+   */
+  byThePlatform?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -959,6 +965,16 @@ export interface ForgeExecutorDeps {
    * `apiCalls` out.
    */
   requestsSent?: () => number;
+  /**
+   * The id of the user the run writes to an org as: the owner the platform
+   * gives an opportunity sent without one, whose member and splits it writes
+   * with the opportunity. Asked by a simulation, which writes no opportunity
+   * and asks the target for no owner: a team row a decision gives that user
+   * is then linked to the platform's, as the run links it. Optional: without
+   * it a simulation stands an id of its own for that user, and says such a
+   * row inserted.
+   */
+  runningUser?: (orgId: string) => Promise<string | undefined>;
 }
 
 /** Progress event emitted during execution. */
@@ -1136,6 +1152,14 @@ export interface ExecutionSummary {
    * Absent when there were none.
    */
   withTheirRecordSourceIds?: string[];
+  /**
+   * Of `linkedCount`, per object, the rows linked to what the platform wrote
+   * itself with a record the run created, or would on a dry run: the owner's
+   * member and split of an opportunity, the contact of a person account, the
+   * task of an email. None of them was in the target before the run, which
+   * the rest of `linkedCount` was. Absent when there were none.
+   */
+  writtenByThePlatform?: Array<{ objectApiName: string; rows: number }>;
   /**
    * Per object, the rows of `remapTable` this run created and the ones it
    * linked to a record the target already held — the table counted by object.
@@ -1927,6 +1951,11 @@ interface ExecutionState {
    */
   personAccountsInTarget?: Promise<boolean | undefined>;
   /**
+   * The user the run writes to the target as, asked once a run of
+   * `ForgeExecutorDeps.runningUser`: see `writesAs`. Unset until asked.
+   */
+  writesAs?: Promise<string | undefined>;
+  /**
    * The target's person account record types, read once a run: see
    * `personRecordTypesInTarget`. Unset until asked.
    */
@@ -1942,6 +1971,8 @@ interface ExecutionState {
    * created, and deletes with it. See `ExecutionSummary.withTheirRecordSourceIds`.
    */
   readonly withTheirRecord: Set<string>;
+  /** See `ExecutionSummary.writtenByThePlatform`: per object, the rows. */
+  readonly writtenByThePlatform: Map<string, number>;
   /**
    * The rows read and left out because the platform writes them itself, or
    * they cannot go in without one it does, by source id.
@@ -2740,6 +2771,22 @@ function ownSentNote(count: number): string {
     ? `, ${count} ${count === 1 ? "person account's contact" : "person accounts' contacts"} ` +
         'sent on their own: the target wrote none with their account'
     : '';
+}
+
+/**
+ * Count, among the rows linked, `rows` of `objectApiName` the platform wrote
+ * itself with a record the run created: see `ExecutionSummary.writtenByThePlatform`.
+ */
+function countWrittenByThePlatform(
+  state: Pick<ExecutionState, 'writtenByThePlatform'>,
+  objectApiName: string,
+  rows: number,
+): void {
+  if (rows <= 0) return;
+  state.writtenByThePlatform.set(
+    objectApiName,
+    (state.writtenByThePlatform.get(objectApiName) ?? 0) + rows,
+  );
 }
 
 /**
@@ -3699,6 +3746,7 @@ export class ForgeExecutor {
       leftEmptyByFilter: new Map(),
       contactsOnTheirOwn: new Set<string>(),
       withTheirRecord: new Set<string>(),
+      writtenByThePlatform: new Map<string, number>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
@@ -4379,13 +4427,16 @@ export class ForgeExecutor {
       // them: see `pricesTheGateCounts`.
       const pricesForLines = await this.pricesTheGateCounts(state);
       const capped = cappedObjectsOf(state).cappedObjects;
-      const objects = await Promise.all(
-        [...state.preread].map(([objectApiName, read]) =>
-          this.toWriteAtTheGate(
-            state,
-            objectApiName,
-            read,
-            isPricebookEntry(objectApiName) ? pricesForLines : 0,
+      const objects = await this.withoutWhatThePlatformWrites(
+        state,
+        await Promise.all(
+          [...state.preread].map(([objectApiName, read]) =>
+            this.toWriteAtTheGate(
+              state,
+              objectApiName,
+              read,
+              isPricebookEntry(objectApiName) ? pricesForLines : 0,
+            ),
           ),
         ),
       );
@@ -6907,6 +6958,14 @@ export class ForgeExecutor {
       ...(state.withTheirRecord.size > 0 && !simulated
         ? { withTheirRecordSourceIds: [...state.withTheirRecord] }
         : {}),
+      ...(state.writtenByThePlatform.size > 0
+        ? {
+            writtenByThePlatform: [...state.writtenByThePlatform].map(([objectApiName, rows]) => ({
+              objectApiName,
+              rows,
+            })),
+          }
+        : {}),
       ...(state.leftEmptyByFilter.size > 0 && !simulated
         ? {
             lookupsLeftEmptyByFilter: [...state.leftEmptyByFilter].flatMap(
@@ -9050,6 +9109,7 @@ export class ForgeExecutor {
     // with an email the run created, and was not there before the run. Listed
     // with them, the results said the target had refused a task nothing sent.
     if (linked > 0) state.linkedCount += linked;
+    countWrittenByThePlatform(state, TASK, linked);
     return { rows: kept, linked };
   }
 
@@ -9100,10 +9160,12 @@ export class ForgeExecutor {
     const { config, remapper, simulated } = state;
     const userField = TEAM_USER_FIELD[objectApiName];
     const defaultUser = config.decisions.defaultOf(objectApiName, userField);
-    // A simulation does not ask the target which user it writes as: an id of
-    // its own stands for that user, the owner of each opportunity no owner
-    // mapping gives another.
-    let writesAs: string | undefined;
+    // A simulation asks for the user the run writes as, the owner of each
+    // opportunity no owner mapping gives another, as a rehearsal does: with an
+    // id of its own in its place, a row a decision gave that user was said
+    // inserted, where the run linked it to the platform's member. One of its
+    // own stands for the user the target does not name.
+    let writesAs = simulated ? await this.writesAs(state) : undefined;
     const team = await opportunityTeamOf(objectApiName, rows, {
       source: (soql) => this.deps.queryRecords(state.sourceOrgId, soql),
       target: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
@@ -9158,6 +9220,7 @@ export class ForgeExecutor {
     }
     const linked = team.linked.size;
     if (linked > 0) state.linkedCount += linked;
+    countWrittenByThePlatform(state, objectApiName, withTheirOpportunity);
     if (linked > withTheirOpportunity) {
       state.existingRecords.push({
         objectApiName,
@@ -9535,6 +9598,22 @@ export class ForgeExecutor {
   }
 
   /**
+   * The id of the user the run writes to the target as, asked once a run
+   * (`ForgeExecutorDeps.runningUser`); nothing when the deps cannot say, or
+   * the target would not.
+   */
+  private writesAs(state: ExecutionState): Promise<string | undefined> {
+    const { runningUser } = this.deps;
+    state.writesAs ??= runningUser
+      ? runningUser(state.targetOrgId).then(
+          (id) => (typeof id === 'string' && id !== '' ? id : undefined),
+          () => undefined,
+        )
+      : Promise.resolve(undefined);
+    return state.writesAs;
+  }
+
+  /**
    * Whether the target has person accounts: its describe of the account names
    * `PersonContactId`, the lookup at the contact the platform writes with one.
    * Read once a run, from the describe the run holds of the account; nothing
@@ -9775,6 +9854,7 @@ export class ForgeExecutor {
       else accountNotWritten++;
     }
     if (linked > 0) state.linkedCount += linked;
+    countWrittenByThePlatform(state, CONTACT, withTheirAccount);
     // Only those the target held with an account it held before the run are
     // among the records it held, as for an opportunity's team: listed with
     // them, a contact the platform wrote with the run's account was said
@@ -10832,6 +10912,141 @@ export class ForgeExecutor {
       ...(leftOut.writtenBefore !== undefined || leftOut.heldBack !== undefined ? { leftOut } : {}),
       ...(mayAdd > 0 && !heldBack ? { mayAdd } : {}),
     };
+  }
+
+  /**
+   * The objects the gate is shown, less the rows the platform writes itself
+   * with a record the run creates, said beside them (`leftOut.byThePlatform`):
+   * the owner's member and split of each opportunity, as a simulation links
+   * them (`opportunityTeamOf`); the contact of a person account the target
+   * takes as one; the task of an email that does not wait for it. The write
+   * links each to what the platform wrote, and sends none of them. Counted,
+   * the gate of one opportunity's clone said 5 records where the run wrote 3,
+   * and held the run to --max-total and the target's storage for 2 it never
+   * sent, its dry run included.
+   */
+  private async withoutWhatThePlatformWrites(
+    state: ExecutionState,
+    objects: Array<ForgeWriteBoundary['objects'][number]>,
+  ): Promise<Array<ForgeWriteBoundary['objects'][number]>> {
+    const rowsOf = (objectApiName: string): readonly Record<string, unknown>[] =>
+      objects.find((object) => object.objectApiName === objectApiName)?.rows ?? [];
+    const platform = new Map<string, ReadonlySet<Record<string, unknown>>>();
+    const opportunities = new Set(rowsOf('Opportunity').map((row) => String(row['Id'])));
+    for (const object of objects) {
+      if (!isOpportunityTeamObject(object.objectApiName) || object.rows.length === 0) continue;
+      if (opportunities.size === 0) break;
+      platform.set(
+        object.objectApiName,
+        await this.teamThePlatformWrites(state, object.objectApiName, object.rows, opportunities),
+      );
+    }
+    const contacts = await this.personContactsThePlatformWrites(
+      state,
+      rowsOf(ACCOUNT),
+      rowsOf(CONTACT),
+    );
+    if (contacts.size > 0) platform.set(CONTACT, contacts);
+    // The platform writes the task of an email related to a record of the
+    // target, one the run writes or holds; an email on a case waits for the
+    // task the run writes itself (`waitsForItsTask`).
+    const written = new Set(objects.flatMap((object) => object.rows.map((row) => row['Id'])));
+    const emailTasks = new Set(
+      rowsOf(EMAIL_MESSAGE).flatMap((email) => {
+        const task = email['ActivityId'];
+        const related = email['RelatedToId'];
+        const inTheTarget =
+          typeof related === 'string' &&
+          related !== '' &&
+          (written.has(related) || state.remapper.get(related) !== undefined);
+        return typeof task === 'string' && task !== '' && inTheTarget && !waitsForItsTask(email)
+          ? [task]
+          : [];
+      }),
+    );
+    const tasks = new Set(rowsOf(TASK).filter((row) => emailTasks.has(String(row['Id']))));
+    if (tasks.size > 0) platform.set(TASK, tasks);
+    return objects.map((object) => {
+      const itsOwn = platform.get(object.objectApiName);
+      if (!itsOwn || itsOwn.size === 0) return object;
+      return {
+        ...object,
+        rows: object.rows.filter((row) => !itsOwn.has(row)),
+        leftOut: { ...object.leftOut, byThePlatform: itsOwn.size },
+      };
+    });
+  }
+
+  /**
+   * Of the rows of an opportunity's team the gate is shown, those the platform
+   * writes with an opportunity the run creates: the owner's member, and the
+   * owner's split of each type held to 100 %, the owner being the one an owner
+   * mapping gives or the user the run writes as. Asked as a simulation asks
+   * (`opportunityTeamOf`), which writes no opportunity: the target holds none
+   * of them yet.
+   *
+   * @param opportunities - The source ids of the opportunities the run creates.
+   */
+  private async teamThePlatformWrites(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    opportunities: ReadonlySet<string>,
+  ): Promise<ReadonlySet<Record<string, unknown>>> {
+    const { config } = state;
+    const defaultUser = config.decisions.defaultOf(objectApiName, TEAM_USER_FIELD[objectApiName]);
+    const runningUser = await this.writesAs(state);
+    try {
+      const team = await opportunityTeamOf(objectApiName, rows, {
+        source: (soql) => this.deps.queryRecords(state.sourceOrgId, soql),
+        target: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        targetIdOf: (sourceId) => (opportunities.has(sourceId) ? sourceId : undefined),
+        mappedUser: (sourceUserId) => config.ownerMappings[sourceUserId],
+        ...(defaultUser !== undefined ? { defaultUser } : {}),
+        written: [],
+        simulated: {
+          // An owner no mapping gives and the target would not name is still
+          // the owner of the rows of the source's owner.
+          ownerOf: (sourceOwnerId) =>
+            config.ownerMappings[sourceOwnerId] ?? runningUser ?? `${USER_PREFIX}gate`,
+          idFor: () => '',
+        },
+      });
+      return new Set(team.linked.keys());
+    } catch {
+      // Not asked, the rows are counted, as the write may yet send them.
+      return new Set();
+    }
+  }
+
+  /**
+   * Of the contacts the gate is shown, those of person accounts the platform
+   * writes with the account: never sent, as a dry run says them
+   * (`writtenWithTheirAccountOnADryRun`) — save those the target takes as
+   * business accounts' (`takenAsBusinessAccounts`), or the target has no
+   * person accounts, which go as any contact.
+   */
+  private async personContactsThePlatformWrites(
+    state: ExecutionState,
+    accounts: readonly Record<string, unknown>[],
+    contacts: readonly Record<string, unknown>[],
+  ): Promise<ReadonlySet<Record<string, unknown>>> {
+    const persons = contacts.filter(
+      (row) => isPersonAccountRow(row) && !state.contactsOnTheirOwn.has(String(row['Id'])),
+    );
+    if (persons.length === 0) return new Set();
+    if ((await this.personAccountsInTarget(state)) === false) return new Set();
+    const createable = state.preread.get(ACCOUNT)?.createableSet ?? new Set<string>();
+    const recordTypeWritten =
+      createable.has('RecordTypeId') &&
+      !(state.config.fieldExclusions[ACCOUNT] ?? []).includes('RecordTypeId') &&
+      state.config.fieldMappings[ACCOUNT]?.['RecordTypeId'] === undefined;
+    const business = new Set(
+      [...(await this.takenAsBusinessAccounts(state, accounts, recordTypeWritten))].map((row) =>
+        String(row[PERSON_CONTACT_FIELD]),
+      ),
+    );
+    return new Set(persons.filter((row) => !business.has(String(row['Id']))));
   }
 
   /**

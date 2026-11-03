@@ -91,6 +91,25 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   // of their own, which writes both.
   'ContentDocument',
   'ContentDocumentLink',
+  // Logs and a history the platform alone writes about a record, which
+  // discovery reaches through the record's children or a feed item's parent
+  // and no suffix below names. An org's own describe, read as its
+  // administrator, says none of them createable or deletable. Reached, the
+  // clone of an opportunity ended partial: a split deleted from it in the
+  // source had left four delete logs, which "Object is not createable on
+  // target org" skipped as a blocking gap, and Apex refuses them too ("DML
+  // operation Delete not allowed on OpportunityRelatedDeleteLog"). The
+  // CaseHistory2 rows of a deep clone's cases were said blocking the same
+  // way, the target's admin asked to grant Create on them. The event stores
+  // are where Threat Detection keeps what it saw, a feed item's parent among
+  // them.
+  'OpportunityRelatedDeleteLog',
+  'CaseHistory2',
+  'ApiAnomalyEventStore',
+  'CredentialStuffingEventStore',
+  'GuestUserAnomalyEventStore',
+  'LoginAnomalyEventStore',
+  'ReportAnomalyEventStore',
 ];
 
 /*

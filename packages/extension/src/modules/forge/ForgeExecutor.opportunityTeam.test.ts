@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { ForgeExecutor } from './ForgeExecutor.js';
-import type { FieldInfo, ForgeExecutorDeps, ForgeProgressEvent } from './ForgeExecutor.js';
+import type {
+  FieldInfo,
+  ForgeExecutorDeps,
+  ForgeProgressEvent,
+  ForgeWriteBoundary,
+} from './ForgeExecutor.js';
+import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { TeamSellingOrg } from '../../test/teamSellingOrg.js';
@@ -602,6 +608,42 @@ describe('ForgeExecutor, a decision giving a user to a team row whose user the t
       ),
     );
   });
+
+  it('says in a dry run what the run does when the decision gives the user the run writes as: the member linked, not inserted', async () => {
+    // Played for real: the dry run said "1 would be inserted" of the rep's
+    // member and 4 records in all, where the run linked it to the
+    // platform's and wrote 3. The simulation stood an id of its own for the
+    // copy's owner, which the user the decision gives never matched.
+    const run = orgs(withARepsOverlay());
+    const ran = await new ForgeExecutor({
+      ...run.deps,
+      runningUser: async () => RUNNING_USER,
+    }).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      decisions: givenTo(RUNNING_USER),
+    });
+    const { deps } = orgs(withARepsOverlay());
+    const said: ForgeProgressEvent[] = [];
+
+    const simulated = await new ForgeExecutor({
+      ...deps,
+      runningUser: async () => RUNNING_USER,
+    }).execute(dealGraph(), 'src', 'tgt', (event) => said.push(event), {
+      ...ROOTED_AT_THE_DEAL,
+      decisions: givenTo(RUNNING_USER),
+      dryRun: true,
+    });
+
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+    expect(ran.successCount).toBe(3);
+    expect(simulated.wouldInsertCount).toBe(ran.successCount);
+    expect(simulated.linkedCount).toBe(ran.linkedCount);
+    expect(said.map((event) => event.message)).toContainEqual(
+      expect.stringMatching(
+        /^Simulated OpportunityTeamMember: 0 would be inserted, 2 written by the platform with their opportunity, for its owner, 0 failed/,
+      ),
+    );
+  });
 });
 
 describe('ForgeExecutor, the values of a team row linked to the record the platform wrote', () => {
@@ -661,6 +703,51 @@ describe('ForgeExecutor, the values of a team row linked to the record the platf
 });
 
 describe('ForgeExecutor, where the records the platform wrote with the run’s opportunity are said', () => {
+  it('counts none of them at its gate, which holds --max-total and the storage to what the run writes, in a run or in a dry run', async () => {
+    // Played for real: the gate said 5 records to write, the owner's member
+    // and Revenue split among them, where the run wrote 3.
+    for (const dryRun of [false, true]) {
+      const { deps, target } = orgs();
+      let shown: ForgeWriteBoundary | undefined;
+
+      const summary = await new ForgeExecutor(deps).execute(
+        dealGraph(),
+        'src',
+        'tgt',
+        () => undefined,
+        {
+          ...ROOTED_AT_THE_DEAL,
+          dryRun,
+          beforeWrite: async (boundary) => {
+            shown = boundary;
+          },
+        },
+      );
+
+      const plan = writePlanOf(shown?.objects ?? []);
+      const written = dryRun
+        ? summary.wouldInsertCount
+        : Object.values(target.sent).reduce((sum, rows) => sum + rows.length, 0);
+      expect(written).toBe(3);
+      expect(plan.totalRows).toBe(written);
+      expect(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])).toEqual([
+        ['Account', 1],
+        ['Opportunity', 1],
+        ['OpportunitySplit', 1],
+      ]);
+      expect(plan.leftOut?.byThePlatform).toEqual([
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+      ]);
+      expect(leftOutLines(plan.leftOut)).toEqual([
+        '  not counted: OpportunitySplit, 1 record(s) written by the platform with their ' +
+          'opportunity, for its owner, which the run links to and does not send',
+        '  not counted: OpportunityTeamMember, 1 record(s) written by the platform with their ' +
+          'opportunity, for its owner, which the run links to and does not send',
+      ]);
+    }
+  });
+
   it('lists none of them among the records the target held already, in a run or in a dry run', async () => {
     for (const dryRun of [false, true]) {
       const { deps } = orgs();
@@ -675,6 +762,11 @@ describe('ForgeExecutor, where the records the platform wrote with the run’s o
 
       expect(summary.existingRecords).toEqual([]);
       expect(summary.linkedCount).toBe(2);
+      // Said apart from the records the target held: the platform wrote them.
+      expect(summary.writtenByThePlatform).toEqual([
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+      ]);
     }
   });
 

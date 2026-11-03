@@ -213,12 +213,20 @@ export function gapAssignments(gap: Pick<ForgeGap, 'detail'>): ForgeGapAssignmen
  * Gaps tab say it lifted from this one match. On the trap org, the lines said
  * the rule's rows would go again without Email while the mute let them
  * through whole, and the panel said nothing of it.
+ *
+ * A rehearsal's refusal by a validation rule it names (`detail.rule`) is
+ * matched the same way: a rehearsal takes no mute, and the rule refused a
+ * row the run under the mute writes whole.
  */
 export function gapLiftedBy(
   gap: Pick<ForgeGap, 'kind' | 'objectApiName' | 'detail'>,
   lifted: readonly MutedAutomationAlsoLifted[] | undefined,
 ): MutedAutomationAlsoLifted | undefined {
-  if (gap.kind !== 'validation_rule' || !lifted) return undefined;
+  const ofARule =
+    gap.kind === 'validation_rule' ||
+    (gap.kind === 'rehearsal_refusal' &&
+      gap.detail?.['statusCode'] === 'FIELD_CUSTOM_VALIDATION_EXCEPTION');
+  if (!ofARule || !lifted) return undefined;
   const rule = gap.detail?.['rule'];
   if (typeof rule !== 'string') return undefined;
   return lifted.find(

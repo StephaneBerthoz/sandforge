@@ -481,6 +481,42 @@ describe('sandforge-clone summary', () => {
     );
   });
 
+  it('says apart what the platform wrote with a record the run created, which was in the target no more than that record', () => {
+    // Played for real: "linked: 2 (already in the target, not created)" of
+    // the owner's member and Revenue split the platform wrote with the
+    // opportunity the run created.
+    const ran = summary({
+      successCount: 3,
+      linkedCount: 4,
+      writtenByThePlatform: [
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+        { objectApiName: 'Contact', rows: 1 },
+      ],
+    });
+
+    expect(summaryLines(ran)[1]).toBe(
+      'linked:  4 (1 already in the target, not created; ' +
+        '2 written by the platform with their opportunity, for its owner; ' +
+        '1 written by the platform with their person account)',
+    );
+    expect(
+      summaryLines(
+        summary({ linkedCount: 1, writtenByThePlatform: [{ objectApiName: 'Task', rows: 1 }] }),
+      )[1],
+    ).toBe('linked:  1 (1 written by the platform with their email)');
+    // The count a pipeline reads is the same; what of it the platform wrote is beside it.
+    expect(jsonResult(ran)).toMatchObject({
+      linkedCount: 4,
+      writtenByThePlatform: [
+        { objectApiName: 'OpportunityTeamMember', rows: 1 },
+        { objectApiName: 'OpportunitySplit', rows: 1 },
+        { objectApiName: 'Contact', rows: 1 },
+      ],
+    });
+    expect(jsonResult(summary({ linkedCount: 2 }))).not.toHaveProperty('writtenByThePlatform');
+  });
+
   it('counts the records an upsert matched by their external id as updated, not created', () => {
     const lines = summaryLines(summary({ successCount: 3, updatedCount: 2 }));
 
@@ -611,6 +647,50 @@ describe('sandforge-clone summary', () => {
     // A run that writes says none, nor a dry run whose gaps no change cures.
     expect(dryRunAdminChanges(false, { gaps: metadata }, simulated)).toEqual({});
     expect(dryRunAdminChanges(true, { gaps: [metadata[1]] }, undefined)).toEqual({});
+  });
+
+  it("asks the target's admin to turn off no validation rule the run's mute lifts", () => {
+    // With --mute-automation, the gap line said the mute lifts the rule, and
+    // adminChanges still asked to deactivate it.
+    const rule: ForgeGap = {
+      id: 'validation_rule|Contact|Email||Email_Required',
+      kind: 'validation_rule',
+      severity: 'warning',
+      source: 'metadata',
+      objectApiName: 'Contact',
+      field: 'Email',
+      rows: 0,
+      detail: { rule: 'Email_Required', message: 'An email is required.' },
+      decisions: ['leave_empty', 'ignore'],
+    };
+    const lifted = [
+      {
+        objectApiName: 'Contact',
+        kind: 'validationRule' as const,
+        name: 'Email_Required',
+        permission: 'Bypass_VR',
+        permissionSet: 'Data_Load',
+      },
+    ];
+
+    expect(dryRunAdminChanges(true, { gaps: [rule] }, undefined, lifted)).toEqual({});
+    // Without the mute, or for another rule, it is still asked.
+    expect(dryRunAdminChanges(true, { gaps: [rule] }, undefined).adminChanges).toEqual([
+      {
+        objectApiName: 'Contact',
+        changes: [
+          expect.objectContaining({
+            change: 'deactivate_validation_rule',
+            value: 'Email_Required',
+          }),
+        ],
+      },
+    ]);
+    expect(
+      dryRunAdminChanges(true, { gaps: [rule] }, undefined, [
+        { ...lifted[0], name: 'Phone_Format' },
+      ]).adminChanges,
+    ).toHaveLength(1);
   });
 
   it('says the decisions the run applied and on how many records', () => {

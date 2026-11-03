@@ -86,6 +86,37 @@ describe('the gaps of the rows a rehearsal saw refused', () => {
     expect(gap.detail?.['writtenWithoutTheField']).toBe(true);
   });
 
+  it('name the validation rule a refusal is of, by the message and the field the target gives it', () => {
+    const refusal = refused('Account', { Phone: '0102030405' }, [
+      {
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: 'Format attendu',
+        fields: ['Phone'],
+      },
+    ]);
+    const rule = {
+      objectApiName: 'Account',
+      name: 'Phone_Format',
+      message: 'Format attendu',
+      field: 'Phone',
+    };
+
+    expect(rehearsalGaps([refusal], new Map(), new Map(), [rule])[0].detail?.['rule']).toBe(
+      'Phone_Format',
+    );
+    // A rule of another field, another object, or two rules of the same
+    // message: none is named.
+    for (const rules of [
+      [{ ...rule, field: 'Fax' }],
+      [{ ...rule, objectApiName: 'Lead' }],
+      [rule, { ...rule, name: 'Phone_Again', field: undefined }],
+    ]) {
+      expect(rehearsalGaps([refusal], new Map(), new Map(), rules)[0].detail).not.toHaveProperty(
+        'rule',
+      );
+    }
+  });
+
   it('take a required field refusal as a required field gap per field, with the id the simulation gives it', () => {
     const gaps = rehearsalGaps([
       refused('Opportunity', { Name: 'A' }, [

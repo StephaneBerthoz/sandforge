@@ -805,6 +805,29 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says apart what the platform writes itself, which the records to write leave out', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      leftOut: {
+        writtenBefore: 0,
+        heldBack: [],
+        byThePlatform: [
+          { objectApiName: 'OpportunityTeamMember', rows: 1 },
+          { objectApiName: 'Contact', rows: 2 },
+          { objectApiName: 'Task', rows: 3 },
+        ],
+      },
+    }).split('\n');
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'Not counted: OpportunityTeamMember, 1 records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
+        'Not counted: Contact, 2 records written by the platform with their person account, which the run links to and does not send.',
+        'Not counted: Task, 3 records written by the platform with their email, which the run links to and does not send.',
+      ]),
+    );
+  });
+
   it('says the daily email limits the records take the target past, first of what follows the records', () => {
     const lines = runQuestionDetail({
       ...write,
