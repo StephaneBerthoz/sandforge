@@ -886,6 +886,33 @@ describe('what a run says before its first write', () => {
     );
   });
 
+  it('says the contacts an account left out holds back, and counts them nowhere among the records to write', () => {
+    // The run said "write gate: 4 record(s) to write … Contact 4", and would
+    // have written none of them.
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        heldBack: [
+          { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+          { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+        ],
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toBe('write gate: 0 record(s) to write to TGT, about 0 MB of data storage');
+    expect(lines.slice(-2)).toEqual([
+      '  Contact: 4 record(s) held back, not written — their AccountId names Account records left out',
+      '  Case: 1 record(s) held back, not written — their ContactId names Contact records held back',
+    ]);
+  });
+
   it('lists the records per object, those left as an earlier run copied them, the storage and the emails', () => {
     expect(
       writeCheckLines(

@@ -475,6 +475,95 @@ describe('SyncOrchestrator — before the first write', () => {
     },
   );
 
+  it('counts at its gate the contacts an account left out holds back apart, not to write, as its simulation counts them', async () => {
+    // Run against a real target, a run whose account upsert matched on Name
+    // said "4 record(s) to write … Contact 4", while its dry run said 0
+    // contacts written and 4 held back. A contact under an account the run
+    // does not read goes as before, as the run sends it.
+    const source = sourceOrg();
+    source.Contact.push({ Id: fakeId('003', 3), LastName: 'Poe', AccountId: fakeId('001', 9) });
+    const objects = [
+      insertOf('Contact', 0),
+      { ...insertOf('Account', 1), operation: 'upsert' as const, externalIdField: 'Name' },
+    ];
+    const simulated = gate();
+    const simulation = await orchestrator(targetOrg(), source, {
+      writeGate: simulated.writeGate,
+      describeTargetFields: nameNoKey,
+    }).simulate(config({ objects }));
+    const ran = gate({ go: true, asked: true });
+    await orchestrator(targetOrg(), source, {
+      writeGate: ran.writeGate,
+      describeTargetFields: nameNoKey,
+    }).execute(config({ objects }));
+
+    const counted = {
+      objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 1 }],
+      alreadyCopied: 0,
+      unwritable: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          rows: 2,
+          why: 'notAKey',
+          key: 'Name',
+        },
+      ],
+      heldBack: [{ objectApiName: 'Contact', rows: 2, parent: 'Account', field: 'AccountId' }],
+    };
+    expect(ran.held).toEqual([counted]);
+    expect(simulated.measured).toEqual([counted]);
+    expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      insert: 1,
+      refused: 2,
+    });
+  });
+
+  it('counts at its gate the rows under a row held back as held back too', async () => {
+    // A case under a contact held back for its account is held back with it.
+    const source = {
+      ...sourceOrg(),
+      Case: [
+        { Id: fakeId('500', 1), Subject: 'Late', ContactId: fakeId('003', 1) },
+        { Id: fakeId('500', 2), Subject: 'Open', ContactId: null },
+      ],
+    };
+    const describes = async (object: string): Promise<TargetWriteFields> =>
+      object === 'Case'
+        ? targetWriteFieldsOf({
+            name: 'Case',
+            fields: [
+              { name: 'Subject', createable: true, type: 'string' },
+              { name: 'ContactId', createable: true, type: 'reference', referenceTo: ['Contact'] },
+            ],
+          })
+        : accountsClosed(object);
+    // Refused at its gate, as a run with nothing else to write is.
+    const ran = gate({
+      go: false,
+      code: 'SYNC_TARGET_UNWRITABLE',
+      message: 'Nothing was written.',
+    });
+
+    await expect(
+      orchestrator(targetOrg(), source, {
+        writeGate: ran.writeGate,
+        describeTargetFields: describes,
+      }).execute(
+        config({ objects: [insertOf('Case', 0), insertOf('Contact', 1), insertOf('Account', 2)] }),
+      ),
+    ).rejects.toBeInstanceOf(SyncRunRefused);
+
+    expect(ran.held[0]?.objects).toEqual([
+      { objectApiName: 'Contact', operation: 'insert', rows: 0 },
+      { objectApiName: 'Case', operation: 'insert', rows: 1 },
+    ]);
+    expect(ran.held[0]?.heldBack).toEqual([
+      { objectApiName: 'Contact', rows: 2, parent: 'Account', field: 'AccountId' },
+      { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+    ]);
+  });
+
   it('stops before the contacts when the accounts it leaves out cannot be read, as its simulation stops', async () => {
     const target = targetOrg();
     const source = sourceOrg();

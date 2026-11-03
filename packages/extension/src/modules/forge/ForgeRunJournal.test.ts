@@ -609,8 +609,31 @@ describe("a run's journal", () => {
       records: 38,
       bytes: 2_200_000,
       requests: 68,
-      added: [{ objectApiName: 'Task', reason: 'A flow creates them as contacts go in.' }],
-      notHeld: [],
+      // With the codes a page says them by, which the journal keeps.
+      added: [
+        {
+          objectApiName: 'Task',
+          code: 'createdByAutomation' as const,
+          reason: 'A flow creates them as contacts go in.',
+          creators: [
+            {
+              kind: 'flow' as const,
+              name: 'Contact follow-up',
+              objectApiName: 'Contact',
+              write: 'insert' as const,
+            },
+          ],
+          moreCreators: 2,
+        },
+      ],
+      notHeld: [
+        {
+          objectApiName: 'FeedItem',
+          code: 'unreadable' as const,
+          reason: 'Left out. A rewind leaves its records as they are.',
+          detail: 'QUERY_TIMEOUT',
+        },
+      ],
     };
 
     it('keeps the user the run writes as in its head, read back from the head and the journal', async () => {

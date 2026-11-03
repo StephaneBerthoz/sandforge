@@ -1556,6 +1556,10 @@
         "notAKey": "{{object}} ({{rows}} 件のレコード): upsert の照合項目 {{key}} は、ターゲット組織の外部 ID でも idLookup 項目でもありません。いずれも書き込めません。",
         "hint": "ページから開始した実行は、これらのオブジェクトを外すかどうかを確認してから残りを書き込みます。スケジュール実行とコマンドラインは拒否されます。"
       },
+      "heldBack": {
+        "leftOut_other": "{{object}} ({{count}} 件のレコード): 保留され、書き込まれません。{{field}} が除外される {{parent}} のレコードを指しており、それなしで書き込むと {{parent}} のないレコードになります。",
+        "heldBack_other": "{{object}} ({{count}} 件のレコード): 保留され、書き込まれません。{{field}} が保留される {{parent}} のレコードを指しています。"
+      },
       "apiRequests": {
         "fits": "API 要求: 約 {{estimate}} 件。ターゲット組織には 1 日 {{max}} 件のうち {{remaining}} 件が残っています。",
         "near": "API 要求: 約 {{estimate}} 件。実行後、ターゲット組織に残るのは 1 日 {{max}} 件の 10 分の 1 未満です (残り {{remaining}} 件)。",
@@ -6326,34 +6330,6 @@
       "pickedCount_other": "{{formatted}} 個のオブジェクトを選択済み",
       "leftOutAlways": "対象外: ユーザー、権限、設定、選択しなかったカスタム設定、Chatter、履歴オブジェクトとログオブジェクト、［ドキュメント］タブのドキュメント。",
       "leftOutAlwaysWithSettings": "対象外: ユーザー、権限、設定、Chatter、履歴オブジェクトとログオブジェクト、［ドキュメント］タブのドキュメント。",
-      "leftOutReason": {
-        "excludedByUser": "指定どおり対象外にしました。",
-        "notFound": "組織にこの名前のオブジェクトはありません。",
-        "chatter": "Chatter の投稿、コメント、フィードは対象外です。Salesforce は投稿を、投稿先のレコードと一緒にしか復元しません。",
-        "history": "履歴は対象外です。組織自身の変更の記録です。",
-        "sharing": "共有は対象外です。組織自身が管理します。",
-        "changeEvent": "変更イベントは対象外です。",
-        "unsupportedKind": "対象外: この種類のオブジェクトには、ごみ箱も更新もレコードと同じようには届きません。",
-        "customSetting": "カスタム設定は、カスタム設定として選択しない限り対象外です。巻き戻しで元に戻る設定情報だからです。",
-        "notCustomSetting": "カスタム設定として選択されましたが、組織にこの名前のカスタム設定はありません。",
-        "files": "［ドキュメント］タブのドキュメントは対象外です。設定と同じく、フォルダーに保管された共有コンテンツです。",
-        "heldWithFiles": "ファイル (ContentDocument) と一緒に保持します。Salesforce はファイルのバージョンを単独で削除も復元もせず、ファイルのリンクは結び付いたレコードを通じて読み取ります。",
-        "setup": "ユーザー、権限、設定は対象外です。",
-        "metadata": "対象外: メタデータであり、チェックポイントには保持されません。",
-        "notWritable": "対象外: SandForge が接続するユーザーは、そのレコードを作成、編集、削除できません。",
-        "notDescribed": "対象外: 組織がこのオブジェクトの説明を返しませんでした。",
-        "noSystemModstamp": "対象外: SystemModstamp がないため、その後にレコードが変更されたことを判別できません。",
-        "noRecycleBin": "対象外: 組織はこのレコードをごみ箱を経由せず完全に削除するため、その後の削除を判別することも復元することもできません。",
-        "unreadable": "対象外: 組織が全件の読み取りを拒否しています。",
-        "pastTheLimit": "{{object}} には {{records}} 件のレコードがあり、チェックポイントの 1 オブジェクトあたりの上限 {{limit}} を超えています。一部だけを全体として扱わないよう対象外にしました。",
-        "noViewAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトにどちらも持っていません。参照できないレコードが、その後に削除されたものと読み取られるためです。",
-        "noModifyAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトに View All を持っていますが Modify All はありません。他のユーザーの変更を巻き戻しで元に戻せないためです。",
-        "activities": "View All Data と Modify All Data がない場合、ToDo と行動は対象外です。Salesforce の活動には View All がなく、どのレコードにも関連付けられていない非公開の活動は参照できないままになります。",
-        "catalog": "View All Data と Modify All Data がない場合、商品と価格表は対象外です。これらには Salesforce の View All も Modify All もありません。",
-        "filesNotProven": "View All Data と Modify All Data がない場合、ファイルは対象外です。ユーザーがすべてのファイルを参照できることは証明できません。",
-        "settingNotProven": "View All Data と Modify All Data がない場合、カスタム設定は対象外です。オブジェクトの権限では、ユーザーがすべての行を参照し書き込めることを証明できません。",
-        "parentNotSeen": "View All Data と Modify All Data がない場合、独自の権限を持たないオブジェクトは、ユーザーが親のすべてのレコードに View All と Modify All を持つときだけ保持されます。ここではそれを証明できません。"
-      },
       "customSettings": {
         "title_other": "カスタム設定 ({{formatted}})",
         "hint": "設定データのため、選択しない限り対象外です。巻き戻しでは、選択したカスタム設定の各行を、その後に誰が変更したかにかかわらず、チェックポイントが保持する状態に戻します (連携のエンドポイントや管理者のスイッチなど)。保持するには「アプリケーションのカスタマイズ」権限が必要です。",
@@ -6759,6 +6735,54 @@
         "alreadyKept": "「{{name}}」は同じ内容ですでにこのマシンに保持されているため、そのまま残しました。",
         "done": "完了"
       }
+    }
+  },
+  "checkpointNotes": {
+    "leftOut": {
+      "excludedByUser": "指定どおり対象外にしました。",
+      "notFound": "組織にこの名前のオブジェクトはありません。",
+      "chatter": "Chatter の投稿、コメント、フィードは対象外です。Salesforce は投稿を、投稿先のレコードと一緒にしか復元しません。",
+      "history": "履歴は対象外です。組織自身の変更の記録です。",
+      "sharing": "共有は対象外です。組織自身が管理します。",
+      "changeEvent": "変更イベントは対象外です。",
+      "unsupportedKind": "対象外: この種類のオブジェクトには、ごみ箱も更新もレコードと同じようには届きません。",
+      "customSetting": "カスタム設定は、カスタム設定として選択しない限り対象外です。巻き戻しで元に戻る設定情報だからです。",
+      "notCustomSetting": "カスタム設定として選択されましたが、組織にこの名前のカスタム設定はありません。",
+      "files": "［ドキュメント］タブのドキュメントは対象外です。設定と同じく、フォルダーに保管された共有コンテンツです。",
+      "heldWithFiles": "ファイル (ContentDocument) と一緒に保持します。Salesforce はファイルのバージョンを単独で削除も復元もせず、ファイルのリンクは結び付いたレコードを通じて読み取ります。",
+      "setup": "ユーザー、権限、設定は対象外です。",
+      "metadata": "対象外: メタデータであり、チェックポイントには保持されません。",
+      "notWritable": "対象外: SandForge が接続するユーザーは、そのレコードを作成、編集、削除できません。",
+      "notDescribed": "対象外: 組織がこのオブジェクトの説明を返しませんでした。",
+      "noSystemModstamp": "対象外: SystemModstamp がないため、その後にレコードが変更されたことを判別できません。",
+      "noRecycleBin": "対象外: 組織はこのレコードをごみ箱を経由せず完全に削除するため、その後の削除を判別することも復元することもできません。",
+      "unreadable": "対象外: 組織が全件の読み取りを拒否しています。",
+      "pastTheLimit": "{{object}} には {{records}} 件のレコードがあり、チェックポイントの 1 オブジェクトあたりの上限 {{limit}} を超えています。一部だけを全体として扱わないよう対象外にしました。",
+      "noViewAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトにどちらも持っていません。参照できないレコードが、その後に削除されたものと読み取られるためです。",
+      "noModifyAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトに View All を持っていますが Modify All はありません。他のユーザーの変更を巻き戻しで元に戻せないためです。",
+      "activities": "View All Data と Modify All Data がない場合、ToDo と行動は対象外です。Salesforce の活動には View All がなく、どのレコードにも関連付けられていない非公開の活動は参照できないままになります。",
+      "catalog": "View All Data と Modify All Data がない場合、商品と価格表は対象外です。これらには Salesforce の View All も Modify All もありません。",
+      "filesNotProven": "View All Data と Modify All Data がない場合、ファイルは対象外です。ユーザーがすべてのファイルを参照できることは証明できません。",
+      "settingNotProven": "View All Data と Modify All Data がない場合、カスタム設定は対象外です。オブジェクトの権限では、ユーザーがすべての行を参照し書き込めることを証明できません。",
+      "parentNotSeen": "View All Data と Modify All Data がない場合、独自の権限を持たないオブジェクトは、ユーザーが親のすべてのレコードに View All と Modify All を持つときだけ保持されます。ここではそれを証明できません。"
+    },
+    "added": {
+      "kind": {
+        "flow": "フロー",
+        "process": "プロセス",
+        "workflowRule": "ワークフロールール",
+        "trigger": "Apex トリガー"
+      },
+      "createdBy": {
+        "insert": "ターゲットの{{kind}}「{{name}}」が、{{object}} のレコードの挿入時に {{created}} のレコードを作成します。",
+        "update": "ターゲットの{{kind}}「{{name}}」が、{{object}} のレコードの更新時に {{created}} のレコードを作成します。",
+        "delete": "ターゲットの{{kind}}「{{name}}」が、{{object}} のレコードの削除時に {{created}} のレコードを作成します。",
+        "undelete": "ターゲットの{{kind}}「{{name}}」が、{{object}} のレコードの復元時に {{created}} のレコードを作成します。"
+      },
+      "more_other": "ほかに {{count}} 件の自動化もこれを作成します。",
+      "files": "ファイル。選択したオブジェクトのチェックポイントは常にこれを含みます。巻き戻すと、含まれるレコードにその後追加されたファイルが削除されます。",
+      "attachments": "添付ファイル。選択したオブジェクトのチェックポイントは常にこれを含みます。巻き戻すと、その後追加された添付ファイルが削除されます。",
+      "heldUnasked": "選択したオブジェクトのチェックポイントが常に含むものとして含まれます。"
     }
   },
   "automationMute": {

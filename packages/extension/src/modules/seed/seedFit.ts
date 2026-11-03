@@ -71,6 +71,15 @@ import { seedRequestsEstimate, seedStorageBytes } from './seedStorage.js';
 /** The template a fit reads: its objects and their relations. */
 type FitTemplate = Pick<SeedTemplate, 'objects' | 'relations'>;
 
+/**
+ * The codes a seed asked to fit is refused under, before its first write, on
+ * the command's line and in its `--json` summary: the target would not say
+ * what data storage it has left, so there is nothing to fit to; or no count
+ * of the template fits what it has left.
+ */
+export const SEED_FIT_STORAGE_UNREAD = 'SEED_FIT_STORAGE_UNREAD';
+export const SEED_CANNOT_FIT = 'SEED_CANNOT_FIT';
+
 /** At most so many records of an object (`objects`), and of every object not named (`all`). */
 export interface SeedFitCaps {
   all?: number;

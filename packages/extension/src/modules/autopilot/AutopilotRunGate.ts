@@ -56,9 +56,45 @@ import {
   type CHECKPOINT_REFUSED,
   type TargetEmails,
   type WritePlan,
+  EMAILS_NOT_ACCEPTED,
 } from '../forge/ForgeRunGate.js';
 import { runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
 import type { RunEmails } from '../forge/targetDeliverability.js';
+
+/**
+ * The codes a run's write gate stops it with on the error channel, each
+ * worded by the page in the interface language: Forge's gate codes, under
+ * Autopilot's name so neither page reads the other's.
+ */
+export const AUTOPILOT_GATE_CODES = {
+  STORAGE_EXCEEDED: 'AUTOPILOT_STORAGE_EXCEEDED',
+  // One code for every module's run past the target's daily API requests.
+  API_BUDGET_EXCEEDED: 'API_BUDGET_EXCEEDED',
+  WRITE_DECLINED: 'AUTOPILOT_WRITE_DECLINED',
+  CONFIRMATION_UNAVAILABLE: 'AUTOPILOT_CONFIRMATION_UNAVAILABLE',
+  // One code for every module's run refused for the checkpoint it takes first.
+  CHECKPOINT_REFUSED: 'CHECKPOINT_REFUSED',
+  // The run's Stop while it took the checkpoint first: a cancel, nothing written.
+  RUN_CANCELLED: 'RUN_CANCELLED',
+  // A lease that did not hold what it was to keep quiet left running a sender
+  // of emails its question did not ask about: nothing written.
+  EMAILS_NOT_ACCEPTED,
+} as const;
+
+/**
+ * The codes of a fit that could not be made, each worded by the page in the
+ * interface language: the plan under review stays as it was.
+ */
+export const AUTOPILOT_FIT_CODES = {
+  /** No plan to fit: the window was reloaded since it was made. */
+  NO_PLAN: 'AUTOPILOT_NO_PLAN',
+  /** The target would not say what it has left of its storage. */
+  STORAGE_UNREAD: 'AUTOPILOT_FIT_STORAGE_UNREAD',
+  /** The source refused a read of the records to choose from. */
+  READ_REFUSED: 'AUTOPILOT_FIT_READ_REFUSED',
+  /** The plan changed, or a run started, while the fit read. */
+  STALE: 'AUTOPILOT_FIT_STALE',
+} as const;
 
 /**
  * The records a plan writes, per object, and the data storage they take: the

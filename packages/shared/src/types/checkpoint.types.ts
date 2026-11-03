@@ -785,15 +785,49 @@ export interface RunCheckpointRequest {
   excluded?: string[];
 }
 
+/** Why a checkpoint before a run holds an object beside those the run writes. */
+export type RunCheckpointAddedCode =
+  /** The target's automation that still runs creates its records as the run's writes fire it. */
+  | 'createdByAutomation'
+  /** Salesforce Files, which every checkpoint of picked objects holds. */
+  | 'files'
+  /** Attachments, which every checkpoint of picked objects holds. */
+  | 'attachments'
+  /** Held as every checkpoint of picked objects holds it. */
+  | 'heldUnasked';
+
+/** An automation of the target that creates the records of an object a checkpoint before a run adds. */
+export interface RunCheckpointCreator {
+  kind: 'flow' | 'process' | 'workflowRule' | 'trigger';
+  name: string;
+  /** The object whose records' write fires it. */
+  objectApiName: string;
+  write: 'insert' | 'update' | 'delete' | 'undelete';
+}
+
 /**
  * An object a checkpoint before a run holds beside those the run writes
- * (`added`), or leaves out (`notHeld`), and why, in the words a person reads:
- * "the target's flow 'X' creates Asset records as Case records go in", "Chatter
- * posts… a rewind leaves its records as they are", "left out as asked".
+ * (`added`), or leaves out (`notHeld`), and why: `code`, which a page says in
+ * its language — a `RunCheckpointAddedCode` of what it holds, the
+ * `CheckpointLeftOutCode` of what it leaves out —, and `reason`, the same in
+ * English for the command line and a run's file: "the target's flow 'X'
+ * creates Asset records as Case records go in", "Chatter posts… a rewind
+ * leaves its records as they are", "left out as asked".
  */
 export interface RunCheckpointObjectNote {
   objectApiName: string;
+  /** Absent from a note kept before notes had codes: `reason` alone says why. */
+  code?: RunCheckpointAddedCode | CheckpointLeftOutCode;
   reason: string;
+  /** Of a left-out code, what it leaves to name, in the words it came in (`CheckpointLeftOutObject.detail`). */
+  detail?: string;
+  /** Of `pastTheLimit`, the object's records and the checkpoint's limit for one object. */
+  records?: number;
+  limit?: number;
+  /** Of `createdByAutomation`, the automations that create its records, three at most. */
+  creators?: RunCheckpointCreator[];
+  /** Of `createdByAutomation`, how many more create them. */
+  moreCreators?: number;
 }
 
 /**

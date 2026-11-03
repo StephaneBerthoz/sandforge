@@ -1649,6 +1649,12 @@
         "notAKey": "{{object}} ({{rows}} registros): o upsert dele corresponde por {{key}}, que não é um ID externo nem um campo idLookup na org de destino. Nenhum deles pode ser gravado.",
         "hint": "Iniciada pela página, a execução pergunta se deve deixar esses objetos de fora e grava o resto; uma execução agendada e a linha de comando são recusadas."
       },
+      "heldBack": {
+        "leftOut_one": "{{object}} ({{count}} registro): retido, não gravado — o {{field}} dele nomeia um registro de {{parent}} deixado de fora, e gravado sem ele, ficaria sem o seu {{parent}}.",
+        "leftOut_other": "{{object}} ({{count}} registros): retidos, não gravados — o {{field}} deles nomeia registros de {{parent}} deixados de fora, e gravados sem eles, ficariam sem o seu {{parent}}.",
+        "heldBack_one": "{{object}} ({{count}} registro): retido, não gravado — o {{field}} dele nomeia um registro de {{parent}} retido.",
+        "heldBack_other": "{{object}} ({{count}} registros): retidos, não gravados — o {{field}} deles nomeia registros de {{parent}} retidos."
+      },
       "apiRequests": {
         "fits": "Solicitações de API: cerca de {{estimate}}, das {{remaining}} que restam à org de destino de suas {{max}} diárias.",
         "near": "Solicitações de API: cerca de {{estimate}}, o que deixaria a org de destino com menos de um décimo de suas {{max}} diárias ({{remaining}} restantes).",
@@ -6704,34 +6710,6 @@
       "pickedCount_other": "{{formatted}} objetos escolhidos",
       "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas que você não escolher, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
       "leftOutAlwaysWithSettings": "Deixados de fora: usuários, permissões, configuração, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
-      "leftOutReason": {
-        "excludedByUser": "Deixado de fora como pedido.",
-        "notFound": "A org não tem nenhum objeto com este nome.",
-        "chatter": "Publicações, comentários e feeds do Chatter são deixados de fora: o Salesforce recupera uma publicação só com aquilo em que ela foi publicada.",
-        "history": "O histórico é deixado de fora: é o rastro de alterações da própria org.",
-        "sharing": "O compartilhamento é deixado de fora: a própria org o mantém.",
-        "changeEvent": "Eventos de alteração são deixados de fora.",
-        "unsupportedKind": "Deixado de fora: nem a lixeira nem uma atualização alcançam este tipo de objeto como alcançam um registro.",
-        "customSetting": "Configurações personalizadas são deixadas de fora, a menos que você as escolha como tais: são configuração, que um retrocesso restaura.",
-        "notCustomSetting": "Escolhido como configuração personalizada: a org não tem nenhuma configuração personalizada com este nome.",
-        "files": "Documentos da guia Documentos são deixados de fora: são conteúdo compartilhado guardado em pastas, como a configuração.",
-        "heldWithFiles": "Guardado com seu arquivo (ContentDocument): o Salesforce não exclui nem recupera sozinho a versão de um arquivo, e lê os vínculos de um arquivo pelos registros a que o ligam.",
-        "setup": "Usuários, permissões e configuração são deixados de fora.",
-        "metadata": "Deixado de fora: são metadados, que um ponto de verificação não guarda.",
-        "notWritable": "Deixado de fora: o usuário com que o SandForge se conecta não pode criar, editar e excluir seus registros.",
-        "notDescribed": "Deixado de fora: a org não quis descrevê-lo.",
-        "noSystemModstamp": "Deixado de fora: não tem SystemModstamp, então nada indicaria que um registro mudou desde então.",
-        "noRecycleBin": "Deixado de fora: a org exclui seus registros definitivamente, sem lixeira, então nada indicaria que um foi excluído desde então, nem o recuperaria.",
-        "unreadable": "Deixado de fora: a org se recusa a lê-lo por inteiro.",
-        "pastTheLimit": "{{object}} tem {{records}} registros, acima do limite de {{limit}} do ponto de verificação para um objeto: deixado de fora, pois uma parte passaria pelo todo.",
-        "noViewAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta não tem nenhum dos dois neste: um registro que ele não vê pareceria excluído desde então.",
-        "noModifyAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta tem View All neste, não Modify All: um retrocesso não poderia restaurar o que outros alteraram.",
-        "activities": "Sem View All Data e Modify All Data, tarefas e eventos são deixados de fora: o Salesforce não tem View All para atividades, e uma atividade privada ligada a nenhum registro fica fora de vista.",
-        "catalog": "Sem View All Data e Modify All Data, produtos e catálogos de preços são deixados de fora: o Salesforce não tem View All nem Modify All para eles.",
-        "filesNotProven": "Sem View All Data e Modify All Data, arquivos são deixados de fora: nada prova que o usuário vê cada arquivo.",
-        "settingNotProven": "Sem View All Data e Modify All Data, configurações personalizadas são deixadas de fora: nenhuma permissão em um objeto prova que o usuário vê e grava cada linha.",
-        "parentNotSeen": "Sem View All Data e Modify All Data, um objeto sem permissões próprias só é guardado quando o usuário tem View All e Modify All em cada registro de que ele depende, o que não está provado aqui."
-      },
       "customSettings": {
         "title_one": "Configuração personalizada ({{formatted}})",
         "title_other": "Configurações personalizadas ({{formatted}})",
@@ -7232,6 +7210,55 @@
         "alreadyKept": "“{{name}}” já está guardado nesta máquina, igual: foi deixado como estava.",
         "done": "Concluído"
       }
+    }
+  },
+  "checkpointNotes": {
+    "leftOut": {
+      "excludedByUser": "Deixado de fora como pedido.",
+      "notFound": "A org não tem nenhum objeto com este nome.",
+      "chatter": "Publicações, comentários e feeds do Chatter são deixados de fora: o Salesforce recupera uma publicação só com aquilo em que ela foi publicada.",
+      "history": "O histórico é deixado de fora: é o rastro de alterações da própria org.",
+      "sharing": "O compartilhamento é deixado de fora: a própria org o mantém.",
+      "changeEvent": "Eventos de alteração são deixados de fora.",
+      "unsupportedKind": "Deixado de fora: nem a lixeira nem uma atualização alcançam este tipo de objeto como alcançam um registro.",
+      "customSetting": "Configurações personalizadas são deixadas de fora, a menos que você as escolha como tais: são configuração, que um retrocesso restaura.",
+      "notCustomSetting": "Escolhido como configuração personalizada: a org não tem nenhuma configuração personalizada com este nome.",
+      "files": "Documentos da guia Documentos são deixados de fora: são conteúdo compartilhado guardado em pastas, como a configuração.",
+      "heldWithFiles": "Guardado com seu arquivo (ContentDocument): o Salesforce não exclui nem recupera sozinho a versão de um arquivo, e lê os vínculos de um arquivo pelos registros a que o ligam.",
+      "setup": "Usuários, permissões e configuração são deixados de fora.",
+      "metadata": "Deixado de fora: são metadados, que um ponto de verificação não guarda.",
+      "notWritable": "Deixado de fora: o usuário com que o SandForge se conecta não pode criar, editar e excluir seus registros.",
+      "notDescribed": "Deixado de fora: a org não quis descrevê-lo.",
+      "noSystemModstamp": "Deixado de fora: não tem SystemModstamp, então nada indicaria que um registro mudou desde então.",
+      "noRecycleBin": "Deixado de fora: a org exclui seus registros definitivamente, sem lixeira, então nada indicaria que um foi excluído desde então, nem o recuperaria.",
+      "unreadable": "Deixado de fora: a org se recusa a lê-lo por inteiro.",
+      "pastTheLimit": "{{object}} tem {{records}} registros, acima do limite de {{limit}} do ponto de verificação para um objeto: deixado de fora, pois uma parte passaria pelo todo.",
+      "noViewAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta não tem nenhum dos dois neste: um registro que ele não vê pareceria excluído desde então.",
+      "noModifyAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta tem View All neste, não Modify All: um retrocesso não poderia restaurar o que outros alteraram.",
+      "activities": "Sem View All Data e Modify All Data, tarefas e eventos são deixados de fora: o Salesforce não tem View All para atividades, e uma atividade privada ligada a nenhum registro fica fora de vista.",
+      "catalog": "Sem View All Data e Modify All Data, produtos e catálogos de preços são deixados de fora: o Salesforce não tem View All nem Modify All para eles.",
+      "filesNotProven": "Sem View All Data e Modify All Data, arquivos são deixados de fora: nada prova que o usuário vê cada arquivo.",
+      "settingNotProven": "Sem View All Data e Modify All Data, configurações personalizadas são deixadas de fora: nenhuma permissão em um objeto prova que o usuário vê e grava cada linha.",
+      "parentNotSeen": "Sem View All Data e Modify All Data, um objeto sem permissões próprias só é guardado quando o usuário tem View All e Modify All em cada registro de que ele depende, o que não está provado aqui."
+    },
+    "added": {
+      "kind": {
+        "flow": "pelo Flow",
+        "process": "pelo processo",
+        "workflowRule": "pela regra de fluxo de trabalho",
+        "trigger": "pelo gatilho do Apex"
+      },
+      "createdBy": {
+        "insert": "Registros de {{created}} são criados {{kind}} \"{{name}}\" do destino quando registros de {{object}} são inseridos.",
+        "update": "Registros de {{created}} são criados {{kind}} \"{{name}}\" do destino quando registros de {{object}} são atualizados.",
+        "delete": "Registros de {{created}} são criados {{kind}} \"{{name}}\" do destino quando registros de {{object}} são excluídos.",
+        "undelete": "Registros de {{created}} são criados {{kind}} \"{{name}}\" do destino quando registros de {{object}} são restaurados."
+      },
+      "more_one": "E mais {{count}} automação os cria.",
+      "more_other": "E mais {{count}} automações os criam.",
+      "files": "Os arquivos, que todo ponto de verificação de objetos escolhidos contém: retroceder exclui os arquivos adicionados desde então aos registros que ele contém.",
+      "attachments": "Os anexos, que todo ponto de verificação de objetos escolhidos contém: retroceder exclui os anexos adicionados desde então.",
+      "heldUnasked": "Incluído como todo ponto de verificação de objetos escolhidos o inclui."
     }
   },
   "automationMute": {

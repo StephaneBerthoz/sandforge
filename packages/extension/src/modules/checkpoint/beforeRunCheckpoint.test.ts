@@ -232,16 +232,27 @@ describe('beforeRunScopeOf', () => {
 
     expect(scope.written).toEqual(['Account', 'Contact']);
     expect(scope.picked).toEqual(['Account', 'Contact', 'Case', 'Task']);
+    // Each with its code and what creates it, which a page says in its
+    // language: the English reason went to the page as it was.
     expect(scope.added).toEqual([
       {
         objectApiName: 'Case',
+        code: 'createdByAutomation',
         reason: "The target's flow 'Open a case' creates Case records as Account records go in.",
+        creators: [
+          { kind: 'flow', name: 'Open a case', objectApiName: 'Account', write: 'insert' },
+        ],
       },
       {
         objectApiName: 'Task',
+        code: 'createdByAutomation',
         reason:
           "The target's flow 'Log the change' creates Task records as Contact records are " +
           "updated; the target's flow 'Welcome task' creates task records as Contact records go in.",
+        creators: [
+          { kind: 'flow', name: 'Log the change', objectApiName: 'Contact', write: 'update' },
+          { kind: 'flow', name: 'Welcome task', objectApiName: 'Contact', write: 'insert' },
+        ],
       },
     ]);
     expect(scope.excluded).toEqual([]);
@@ -280,10 +291,17 @@ describe('beforeRunScopeOf', () => {
     expect(scope.added).toEqual([
       {
         objectApiName: 'Task',
+        code: 'createdByAutomation',
         reason:
           "The target's process 'A' creates Task records as Case records go in; the target's " +
           "workflow rule 'B' creates Task records as Case records go in; the target's flow 'C' " +
           'creates Task records as Case records are deleted; and 2 more.',
+        creators: [
+          { kind: 'process', name: 'A', objectApiName: 'Case', write: 'insert' },
+          { kind: 'workflowRule', name: 'B', objectApiName: 'Case', write: 'insert' },
+          { kind: 'flow', name: 'C', objectApiName: 'Case', write: 'delete' },
+        ],
+        moreCreators: 2,
       },
     ]);
   });
@@ -446,13 +464,15 @@ describe('beforeRunEstimateOf', () => {
       read(
         ['Attachment', 'Account', 'ContentDocument', 'Contact'],
         [
-          { objectApiName: 'FeedItem', reason: CHATTER },
-          { objectApiName: 'Task', reason: ACTIVITIES },
+          { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER },
+          { objectApiName: 'Task', code: 'activities', reason: ACTIVITIES },
         ],
       ),
       7,
     );
 
+    // Each note with its code, which the Forge and Sync panels say in their
+    // language: they showed the English reason as it was.
     expect(estimate).toEqual({
       state: 'planned',
       estimate: {
@@ -467,12 +487,14 @@ describe('beforeRunEstimateOf', () => {
       added: [
         {
           objectApiName: 'Attachment',
+          code: 'attachments',
           reason:
             'Attachments, which every checkpoint of picked objects holds: a rewind deletes the ' +
             'attachments added since.',
         },
         {
           objectApiName: 'ContentDocument',
+          code: 'files',
           reason:
             'Files, which every checkpoint of picked objects holds: a rewind deletes the files ' +
             'added since to the records it holds.',
@@ -481,11 +503,57 @@ describe('beforeRunEstimateOf', () => {
       notHeld: [
         {
           objectApiName: 'FeedItem',
+          code: 'chatter',
           reason: `${CHATTER} A rewind leaves its records as they are.`,
         },
-        { objectApiName: 'Task', reason: `${ACTIVITIES} A rewind leaves its records as they are.` },
+        {
+          objectApiName: 'Task',
+          code: 'activities',
+          reason: `${ACTIVITIES} A rewind leaves its records as they are.`,
+        },
       ],
     });
+  });
+
+  it('keeps of an object left out what its code names, and says in words alone one a take gave no code', () => {
+    const estimate = beforeRunEstimateOf(
+      scope,
+      read(
+        ['Account', 'Contact'],
+        [
+          {
+            objectApiName: 'Task',
+            code: 'pastTheLimit',
+            reason: 'Task has 900000 records, past the limit.',
+            records: 900_000,
+            limit: 500_000,
+          },
+          { objectApiName: 'FeedItem', code: 'unreadable', reason: 'Left out.', detail: 'TIMEOUT' },
+          { objectApiName: 'Asset', reason: 'Left out, as an older take said it.' },
+        ],
+      ),
+      7,
+    );
+
+    expect(estimate.notHeld).toEqual([
+      {
+        objectApiName: 'Task',
+        code: 'pastTheLimit',
+        reason: 'Task has 900000 records, past the limit. A rewind leaves its records as they are.',
+        records: 900_000,
+        limit: 500_000,
+      },
+      {
+        objectApiName: 'FeedItem',
+        code: 'unreadable',
+        reason: 'Left out. A rewind leaves its records as they are.',
+        detail: 'TIMEOUT',
+      },
+      {
+        objectApiName: 'Asset',
+        reason: 'Left out, as an older take said it. A rewind leaves its records as they are.',
+      },
+    ]);
   });
 
   it('says what the flows that still run add once the take holds it', () => {
@@ -495,7 +563,11 @@ describe('beforeRunEstimateOf', () => {
     expect(estimate.added).toEqual([
       {
         objectApiName: 'Task',
+        code: 'createdByAutomation',
         reason: "The target's flow 'Welcome task' creates Task records as Contact records go in.",
+        creators: [
+          { kind: 'flow', name: 'Welcome task', objectApiName: 'Contact', write: 'insert' },
+        ],
       },
     ]);
     expect(estimate.refusal).toBeUndefined();
@@ -680,7 +752,7 @@ describe('the checkpoint a take before a run kept', () => {
     const kept = {
       checkpoint: checkpointOf(
         ['Case', 'Account'],
-        [{ objectApiName: 'FeedItem', reason: CHATTER }],
+        [{ objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER }],
       ),
       requests: { total: 66, byPhase: {} as never },
       estimate: { records: 4, apiRequests: 68, apiRequestsLeft: 14_000, seconds: 3, bytes: 4_000 },
@@ -703,13 +775,18 @@ describe('the checkpoint a take before a run kept', () => {
         added: [
           {
             objectApiName: 'Case',
+            code: 'createdByAutomation',
             reason:
               "The target's flow 'Open a case' creates Case records as Account records go in.",
+            creators: [
+              { kind: 'flow', name: 'Open a case', objectApiName: 'Account', write: 'insert' },
+            ],
           },
         ],
         notHeld: [
           {
             objectApiName: 'FeedItem',
+            code: 'chatter',
             reason: `${CHATTER} A rewind leaves its records as they are.`,
           },
         ],

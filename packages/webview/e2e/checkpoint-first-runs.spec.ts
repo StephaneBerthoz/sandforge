@@ -93,14 +93,22 @@ const ESTIMATE = {
     bytes: 2200000,
   },
   objects: ['Account', 'Task'],
+  // Each note with its code, as the extension sends it: the page says it in
+  // its language, from a namespace the Sync page loads.
   added: [
     {
       objectApiName: 'Task',
+      code: 'createdByAutomation',
       reason:
         "The target's flow 'Account follow-up' creates Task records as Account records go in.",
+      creators: [
+        { kind: 'flow', name: 'Account follow-up', objectApiName: 'Account', write: 'insert' },
+      ],
     },
   ],
-  notHeld: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are never held.' }],
+  notHeld: [
+    { objectApiName: 'FeedItem', code: 'chatter', reason: 'Chatter posts are never held.' },
+  ],
   keepDays: 7,
 };
 
@@ -246,7 +254,14 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('sync-simulation-checkpoint-cost')).toContainText(
         'A real run would take a checkpoint first: about 7,588 records of Account and Task',
       );
-      await expect(page.getByTestId('sync-simulation-checkpoint-added-Task')).toBeVisible();
+      await expect(page.getByTestId('sync-simulation-checkpoint-added-Task')).toHaveText(
+        "Task · The target's flow 'Account follow-up' creates Task records as Account records go in.",
+      );
+      // The catalogue's words, by the note's code, not the extension's own.
+      await expect(page.getByTestId('sync-simulation-checkpoint-not-held-FeedItem')).toHaveText(
+        'FeedItem · Chatter posts, comments and feeds are left out: Salesforce brings a post back ' +
+          'only with what it was posted on.',
+      );
       const results = await checkAccessibility(page);
       expect(results.violations, formatViolations(results.violations)).toEqual([]);
 

@@ -607,6 +607,47 @@ describe('gateSyncWrite', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('counts the contacts an account left out holds back apart, writes none of them, and names them in its refusal', async () => {
+    // A run whose account upsert matched on Name said "4 record(s) to write
+    // … Contact 4", and its refusal named the account alone: the run would
+    // have written none of the contacts, each naming an account left out.
+    const confirm = vi.fn();
+    const measured = await measureSyncWrite(
+      {
+        objects: [{ objectApiName: 'Contact', operation: 'insert', rows: 0 }],
+        alreadyCopied: 0,
+        unwritable: [
+          { objectApiName: 'Account', operation: 'upsert', rows: 2, why: 'notAKey', key: 'Name' },
+        ],
+        heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      },
+      measures(),
+    );
+
+    expect(measured.check).toMatchObject({
+      objects: [],
+      total: 0,
+      heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      verdict: 'refused',
+    });
+    // Nothing else to write: refused whoever answers, nobody asked.
+    for (const policy of ['ask', 'unattended', 'refuse'] as const) {
+      expect(
+        await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development', confirm }),
+      ).toEqual({
+        go: false,
+        code: 'SYNC_TARGET_UNWRITABLE',
+        message:
+          'TRAP would take no record of one object the sync writes — Account (2 records): its ' +
+          'upsert matches on Name, neither an External ID nor an idLookup field in TRAP. Left ' +
+          'out, it holds back 4 Contact records, whose AccountId names an Account record left ' +
+          'out. Leave it out of the run, or match on an External ID field of TRAP. Nothing was ' +
+          'written.',
+      });
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it('refuses a run past the API requests the target has left today, whoever answers for it, and says them on the page', async () => {
     const confirm = vi.fn();
     const measured = await measureSyncWrite(

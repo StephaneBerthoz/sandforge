@@ -624,6 +624,21 @@ describe('sandforge-seed --checkpoint-first', () => {
     expect(stdout.join('')).toContain(BEFORE_RUN_DELETED_WORDS);
   });
 
+  it('gives the day’s API requests under wouldBeRefused of a dry run, as the real run is refused for them', async () => {
+    // 40 requests left today, fewer than the checkpoint and the seed take.
+    fakeOrg(200, 40);
+    checkpointsOf();
+
+    await main(argv(2, '--checkpoint-first', '--dry-run', '--json'));
+
+    const printed = JSON.parse(stdout.join('')) as {
+      apiRequests: { refusal?: string };
+      wouldBeRefused?: string[];
+    };
+    expect(printed.apiRequests.refusal).toMatch(/^The run takes about \d+ API requests/);
+    expect(printed.wouldBeRefused).toEqual([printed.apiRequests.refusal]);
+  });
+
   it('gives a mute refused under wouldBeRefused of a dry run, as the real run is refused for it', async () => {
     fakeOrg();
     vi.mocked(muteForRun).mockRejectedValue(

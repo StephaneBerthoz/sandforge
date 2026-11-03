@@ -37,7 +37,11 @@ import {
 import * as path from 'node:path';
 import * as z from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark, RunCheckpointTaken } from '@sandforge/shared';
-import { checkpointIdSchema, forgeRemovalPlanLeft } from '@sandforge/shared';
+import {
+  checkpointIdSchema,
+  forgeRemovalPlanLeft,
+  runCheckpointNoteCodeFields,
+} from '@sandforge/shared';
 import { MADE_KEPT_PER_OBJECT } from '../forge/sweepTies.js';
 import { SyncIdMap } from './SyncIdMap.js';
 import { THIS_HOST, type RunWriterHost } from './runWriter.js';
@@ -401,6 +405,8 @@ const CHECKPOINT_OBJECTS_KEPT = 1_000;
 const checkpointNoteSchema = z.object({
   objectApiName: objectSchema,
   reason: z.string().max(4_000),
+  // The code a page says it by: read without it, the history's note was English.
+  ...runCheckpointNoteCodeFields,
 });
 
 /**

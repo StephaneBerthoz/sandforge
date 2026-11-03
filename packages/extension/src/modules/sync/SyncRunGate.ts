@@ -78,6 +78,7 @@ import {
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
 import { emailsRefusalWords, runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
+import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
   heldPlanOf,
   runEmailsOf,
@@ -114,6 +115,13 @@ export interface SyncCountedWrite {
    * from `objects`. Absent when none.
    */
   unwritable?: SyncUnwritableObject[];
+  /**
+   * The rows of the objects written after one of `unwritable` that the run
+   * holds back, a lookup of theirs naming a record left out, or a row held
+   * back in turn (`heldBackOf`): counted apart from `objects`, whose rows
+   * leave them out. Absent when none.
+   */
+  heldBack?: SyncHeldBackObject[];
   /**
    * The requests the run sends once its writes are through to read back the
    * record type the target gave the records it created without one: the
@@ -394,6 +402,12 @@ export async function measureSyncWrite(
     rows,
     why,
   }));
+  const heldBack = (counted.heldBack ?? []).map(({ objectApiName, rows, parent, field }) => ({
+    objectApiName,
+    rows,
+    parent,
+    field,
+  }));
   // Emails the target would not say it has room for are asked about, as
   // storage it would not say is, and so is an automation that could not be
   // read, whose emails were not counted at all: the page said both and the
@@ -453,6 +467,7 @@ export async function measureSyncWrite(
     ...(emailsUnread !== undefined ? { emailsUnread } : {}),
     ...(emailsGate?.deliverability ? { deliverability: emailsGate.deliverability } : {}),
     ...(unwritable.length > 0 ? { unwritable } : {}),
+    ...(heldBack.length > 0 ? { heldBack } : {}),
     ...(total > 0
       ? {
           apiRequests:
@@ -565,7 +580,7 @@ export async function gateSyncWrite(
     return {
       go: false,
       code: 'SYNC_TARGET_UNWRITABLE',
-      message: unwritableRefusal(unwritable, input.org),
+      message: unwritableRefusal(unwritable, input.org, check.heldBack),
     };
   }
   if (check.total === 0) return { go: true, asked: false };
@@ -676,8 +691,13 @@ const UNWRITABLE_WHY: Record<SyncUnwritableReason, (org: string, key?: string) =
 
 /**
  * The refusal of a run some of whose objects the target takes none of: each
- * named, with why and its records, and what to do. A run went on to write
- * the objects before them, then had every record of theirs refused.
+ * named, with why and its records, the rows of the objects after them it
+ * would hold back, and what to do. A run went on to write the objects before
+ * them, then had every record of theirs refused.
+ *
+ * @param heldBack - The rows the objects left out would hold back: refused
+ *   with no word of them, a run named the account it could not write and not
+ *   the contacts it would write none of.
  */
 export function unwritableRefusal(
   unwritable: ReadonlyArray<{
@@ -687,6 +707,12 @@ export function unwritableRefusal(
     key?: string;
   }>,
   org: string,
+  heldBack: ReadonlyArray<{
+    objectApiName: string;
+    rows: number;
+    parent: string;
+    field: string;
+  }> = [],
 ): string {
   const named = unwritable
     .map(
@@ -706,9 +732,20 @@ export function unwritableRefusal(
   const access = `give the user SandForge writes as access to ${mixed ? namesOf(closed) : pronoun} in ${org}`;
   const key = `match ${mixed ? `${namesOf(keyed)} ` : ''}on an External ID field of ${org}`;
   const way = mixed ? `${access}, or ${key}` : keyed.length > 0 ? `or ${key}` : `or ${access}`;
+  const leftOut = new Set(unwritable.map(({ objectApiName }) => objectApiName));
+  const held = heldBack
+    .map(
+      ({ objectApiName, rows, parent, field }) =>
+        `${rows} ${objectApiName} record${rows === 1 ? '' : 's'}, whose ${field} names ` +
+        `${/^[aeiou]/i.test(parent) ? 'an' : 'a'} ${parent} record ` +
+        (leftOut.has(parent) ? 'left out' : 'held back'),
+    )
+    .join('; ');
   return (
     `${org} would take no record of ${unwritable.length === 1 ? 'one object' : `${unwritable.length} objects`} ` +
-    `the sync writes — ${named}. Leave ${pronoun} out of the run, ${way}. Nothing was written.`
+    `the sync writes — ${named}.` +
+    (held !== '' ? ` Left out, ${pronoun === 'it' ? 'it holds' : 'they hold'} back ${held}.` : '') +
+    ` Leave ${pronoun} out of the run, ${way}. Nothing was written.`
   );
 }
 

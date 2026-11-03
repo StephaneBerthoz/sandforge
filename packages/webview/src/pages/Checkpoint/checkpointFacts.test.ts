@@ -117,7 +117,7 @@ describe('checkpointFacts', () => {
 
   it('words every reason of the take as the extension words it in the file and on the command line', () => {
     const words = leftOutWords(readFileSync(join(MODULE, 'takeCheckpoint.ts'), 'utf8'));
-    const said: Record<string, string> = en.checkpoint.take.leftOutReason;
+    const said: Record<string, string> = en.checkpointNotes.leftOut;
     expect(words.size).toBeGreaterThan(20);
     for (const [reason, first] of words) expect(said[reason], reason).toContain(first);
     // What the take counts past its limit, worded by itself, and nothing the extension no longer gives.

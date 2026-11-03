@@ -3488,10 +3488,13 @@ export class ForgeExecutor {
     // anything: stopped at the file stage instead, its records would already
     // be in the target without the files they were cloned for.
     if (resolved.files) {
-      const refusal =
-        fileCopyRefusal(resolved.anonymization !== undefined, resolved.files.acceptedAsIs) ??
-        this.fileCopyUnwired();
-      if (refusal) throw new ForgeFilesRefusedError(refusal);
+      const notAccepted = fileCopyRefusal(
+        resolved.anonymization !== undefined,
+        resolved.files.acceptedAsIs,
+      );
+      if (notAccepted) throw new ForgeFilesRefusedError(notAccepted, 'FILES_NOT_ACCEPTED');
+      const unwired = this.fileCopyUnwired();
+      if (unwired) throw new ForgeFilesRefusedError(unwired, 'FILES_NOT_COPYABLE');
     }
     // The record types the user decided to write as others, in ids, over the
     // run's own mapping: every stage that reads the mapping reads them.
@@ -7001,7 +7004,7 @@ export class ForgeExecutor {
     // failed lookup hid, and the run would read as complete.
     const unread = lookupFailure(selected);
     if (unread && !config.dryRun) {
-      throw new ForgeFilesRefusedError(`${unread} Nothing was written.`);
+      throw new ForgeFilesRefusedError(`${unread} Nothing was written.`, 'FILES_UNREAD');
     }
     state.errors.push(...selected.errors);
     // Taking up a run that stopped: what it copied is not copied again, only
@@ -7020,7 +7023,9 @@ export class ForgeExecutor {
         const reason =
           `The file storage the target has left could not be read (${extractErrorMessage(err)}), ` +
           'so the files could not be checked against it.';
-        if (!config.dryRun) throw new ForgeFilesRefusedError(`${reason} Nothing was written.`);
+        if (!config.dryRun) {
+          throw new ForgeFilesRefusedError(`${reason} Nothing was written.`, 'FILE_STORAGE_UNREAD');
+        }
         state.errors.push(filesRunError(reason));
       }
     }
@@ -7034,7 +7039,10 @@ export class ForgeExecutor {
     const shortfall =
       remaining === undefined ? null : storageShortfall(bytesOf(selection.files), remaining);
     if (shortfall && !config.dryRun) {
-      throw new ForgeFilesRefusedError(`${shortfall} Nothing was written.`);
+      throw new ForgeFilesRefusedError(
+        `${shortfall} Nothing was written.`,
+        'FILE_STORAGE_EXCEEDED',
+      );
     }
     if (shortfall) state.errors.push(filesRunError(shortfall));
 

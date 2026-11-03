@@ -161,6 +161,55 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('says the contacts an account left out holds back, and the cases under them, none of them to write', async () => {
+    // Counted under each filter alone, they were said to be written: "4
+    // records to write" of a run that would write none.
+    const check: SyncWriteCheck = {
+      ...PAST_EMAILS,
+      objects: [],
+      total: 0,
+      alreadyCopied: 0,
+      emails: [],
+      verdict: 'refused',
+      unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+      heldBack: [
+        { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+        { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+      ],
+    };
+    const { unmount } = render(<SyncWriteCheckCard check={check} />);
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toBe('0 records to write');
+    expect(screen.getByTestId('sync-write-check-held-back-Contact').textContent).toBe(
+      'Contact (4 records): held back, not written — their AccountId names Account records ' +
+        'left out, and written without them, they would stand without their Account.',
+    );
+    expect(screen.getByTestId('sync-write-check-held-back-Case').textContent).toBe(
+      'Case (1 record): held back, not written — its ContactId names a Contact record held back.',
+    );
+    unmount();
+
+    // In the page's language.
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<SyncWriteCheckCard check={check} />);
+      expect(screen.getByTestId('sync-write-check-held-back-Contact').textContent).toBe(
+        fr.sync.writeCheck.heldBack.leftOut_other
+          .replace('{{object}}', 'Contact')
+          .replace('{{count}}', '4')
+          .replace('{{field}}', 'AccountId')
+          .split('{{parent}}')
+          .join('Account'),
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
   it('says the API requests the run takes against what the target has left today', () => {
     // Only Forge's Review compared them.
     render(

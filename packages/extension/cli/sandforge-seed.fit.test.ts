@@ -380,6 +380,12 @@ describe('a seed fitted from the command line', () => {
     await main(argv(2_000, '--dry-run', '--json'));
     const { fit, storage } = summary();
     expect(storage?.refusal).toMatch(/^The records to write take about/);
+    // Said with every other refusal a real run would meet, as Sync says it:
+    // under storage.refusal alone, a pipeline reading wouldBeRefused took the
+    // seed for one that would write.
+    expect((JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] }).wouldBeRefused).toEqual([
+      storage?.refusal,
+    ]);
     expect(fit).toMatchObject({ applied: false, heldBy: 'storage' });
     expect(stderr.join('')).toMatch(/\n {2}--fit share would seed: share [\d.]+ %/);
 
@@ -481,14 +487,58 @@ describe('a seed fitted from the command line', () => {
     expect(fit?.objects[0]?.after).toBeGreaterThan(800);
   });
 
-  it('refuses a seed its caps leave past what fits, and writes nothing', async () => {
+  it('refuses a seed its caps leave past what fits under its code, and writes nothing', async () => {
     fakeOrg();
 
     await expect(
       main(argv(2_000, '--fit-cap', 'Account=1500', '--fit-within', '1')),
     ).rejects.toThrow(
-      /^The seed was refused before it wrote anything: it cannot be fitted to TGT: with these caps the seed takes [\d.]+ MB, room for what the org's automation creates under them included, past the 1 MB that fit: lower them, or fit by share\. Nothing was written\.$/,
+      /^refused \(SEED_CANNOT_FIT\): The seed was refused before it wrote anything: it cannot be fitted to TGT: with these caps the seed takes [\d.]+ MB, room for what the org's automation creates under them included, past the 1 MB that fit: lower them, or fit by share\. Nothing was written\.$/,
     );
+    expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+
+    // With --json, stdout carries the code: a CI job read an empty stdout.
+    stdout.length = 0;
+    await expect(
+      main(argv(2_000, '--fit-cap', 'Account=1500', '--fit-within', '1', '--json')),
+    ).rejects.toThrow(/^refused \(SEED_CANNOT_FIT\)/);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      tool: 'sandforge-seed',
+      dryRun: false,
+      refused: {
+        code: 'SEED_CANNOT_FIT',
+        message: expect.stringMatching(/^The seed was refused before it wrote anything/) as string,
+      },
+    });
+    expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+
+    // A dry run says it under wouldBeRefused.
+    stdout.length = 0;
+    await main(
+      argv(2_000, '--fit-cap', 'Account=1500', '--fit-within', '1', '--dry-run', '--json'),
+    );
+    expect(JSON.parse(stdout.join('')).wouldBeRefused).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /^The seed was refused before it wrote anything: it cannot be fitted/,
+        ),
+      ]),
+    );
+  });
+
+  it('refuses a fit to a target that does not say its storage under its code, and writes nothing', async () => {
+    const conn = fakeOrg();
+    conn.request = async () => {
+      steps.push('limits read');
+      throw new Error('the limits are not served');
+    };
+
+    await expect(main(argv(10, '--fit', 'share', '--json'))).rejects.toThrow(
+      /^refused \(SEED_FIT_STORAGE_UNREAD\): The seed was refused before it wrote anything: it cannot be fitted to TGT, whose data storage left could not be read/,
+    );
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      refused: { code: 'SEED_FIT_STORAGE_UNREAD' },
+    });
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
   });
 

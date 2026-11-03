@@ -1649,6 +1649,12 @@
         "notAKey": "{{object}} ({{rows}} records): its upsert matches on {{key}}, neither an External ID nor an idLookup field in the target org. None of them can be written.",
         "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused."
       },
+      "heldBack": {
+        "leftOut_one": "{{object}} ({{count}} record): held back, not written — its {{field}} names a {{parent}} record left out, and written without it, it would stand without its {{parent}}.",
+        "leftOut_other": "{{object}} ({{count}} records): held back, not written — their {{field}} names {{parent}} records left out, and written without them, they would stand without their {{parent}}.",
+        "heldBack_one": "{{object}} ({{count}} record): held back, not written — its {{field}} names a {{parent}} record held back.",
+        "heldBack_other": "{{object}} ({{count}} records): held back, not written — their {{field}} names {{parent}} records held back."
+      },
       "apiRequests": {
         "fits": "API requests: about {{estimate}}, of the {{remaining}} the target org has left of its {{max}} a day.",
         "near": "API requests: about {{estimate}}, which would leave the target org less than a tenth of its {{max}} a day ({{remaining}} left).",
@@ -6704,34 +6710,6 @@
       "pickedCount_other": "{{formatted}} objects picked",
       "leftOutAlways": "Left out: users, permissions, setup, custom settings unless you pick them, Chatter, history and log objects, the documents of the Documents tab.",
       "leftOutAlwaysWithSettings": "Left out: users, permissions, setup, Chatter, history and log objects, the documents of the Documents tab.",
-      "leftOutReason": {
-        "excludedByUser": "Left out as asked.",
-        "notFound": "The org has no object of this name.",
-        "chatter": "Chatter posts, comments and feeds are left out: Salesforce brings a post back only with what it was posted on.",
-        "history": "History is left out: it is the org's own trace of changes.",
-        "sharing": "Sharing is left out: the org keeps it itself.",
-        "changeEvent": "Change events are left out.",
-        "unsupportedKind": "Left out: neither the recycle bin nor an update reaches this kind of object as it reaches a record.",
-        "customSetting": "Custom settings are left out unless you pick them as custom settings: they are configuration, which a rewind sets back.",
-        "notCustomSetting": "Picked as a custom setting: the org has no custom setting of this name.",
-        "files": "Documents of the Documents tab are left out: they are shared content kept in folders, as setup is.",
-        "heldWithFiles": "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's version on its own, and reads the links of a file through the records they tie it to.",
-        "setup": "Users, permissions and setup are left out.",
-        "metadata": "Left out: it is metadata, which a checkpoint doesn't hold.",
-        "notWritable": "Left out: the user SandForge connects as may not create, edit and delete its records.",
-        "notDescribed": "Left out: the org would not describe it.",
-        "noSystemModstamp": "Left out: it has no SystemModstamp, so nothing would tell a record changed since.",
-        "noRecycleBin": "Left out: the org deletes its records for good, with no recycle bin, so nothing would tell one deleted since, nor bring it back.",
-        "unreadable": "Left out: the org refuses to read it whole.",
-        "pastTheLimit": "{{object}} has {{records}} records, past the checkpoint's limit of {{limit}} for one object: left out of the checkpoint, as part of it would be taken for all of it.",
-        "noViewAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has neither on this one: a record they cannot see would read as deleted since.",
-        "noModifyAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.",
-        "activities": "Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.",
-        "catalog": "Without View All Data and Modify All Data, products and price books are left out: Salesforce has no View All or Modify All for them.",
-        "filesNotProven": "Without View All Data and Modify All Data, files are left out: nothing proves the user sees every file.",
-        "settingNotProven": "Without View All Data and Modify All Data, custom settings are left out: no permission on an object proves the user sees and writes every row.",
-        "parentNotSeen": "Without View All Data and Modify All Data, an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here."
-      },
       "customSettings": {
         "title_one": "Custom setting ({{formatted}})",
         "title_other": "Custom settings ({{formatted}})",
@@ -7232,6 +7210,55 @@
         "alreadyKept": "“{{name}}” is kept on this machine already, the same: it was left as it is.",
         "done": "Done"
       }
+    }
+  },
+  "checkpointNotes": {
+    "leftOut": {
+      "excludedByUser": "Left out as asked.",
+      "notFound": "The org has no object of this name.",
+      "chatter": "Chatter posts, comments and feeds are left out: Salesforce brings a post back only with what it was posted on.",
+      "history": "History is left out: it is the org's own trace of changes.",
+      "sharing": "Sharing is left out: the org keeps it itself.",
+      "changeEvent": "Change events are left out.",
+      "unsupportedKind": "Left out: neither the recycle bin nor an update reaches this kind of object as it reaches a record.",
+      "customSetting": "Custom settings are left out unless you pick them as custom settings: they are configuration, which a rewind sets back.",
+      "notCustomSetting": "Picked as a custom setting: the org has no custom setting of this name.",
+      "files": "Documents of the Documents tab are left out: they are shared content kept in folders, as setup is.",
+      "heldWithFiles": "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's version on its own, and reads the links of a file through the records they tie it to.",
+      "setup": "Users, permissions and setup are left out.",
+      "metadata": "Left out: it is metadata, which a checkpoint doesn't hold.",
+      "notWritable": "Left out: the user SandForge connects as may not create, edit and delete its records.",
+      "notDescribed": "Left out: the org would not describe it.",
+      "noSystemModstamp": "Left out: it has no SystemModstamp, so nothing would tell a record changed since.",
+      "noRecycleBin": "Left out: the org deletes its records for good, with no recycle bin, so nothing would tell one deleted since, nor bring it back.",
+      "unreadable": "Left out: the org refuses to read it whole.",
+      "pastTheLimit": "{{object}} has {{records}} records, past the checkpoint's limit of {{limit}} for one object: left out of the checkpoint, as part of it would be taken for all of it.",
+      "noViewAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has neither on this one: a record they cannot see would read as deleted since.",
+      "noModifyAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.",
+      "activities": "Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.",
+      "catalog": "Without View All Data and Modify All Data, products and price books are left out: Salesforce has no View All or Modify All for them.",
+      "filesNotProven": "Without View All Data and Modify All Data, files are left out: nothing proves the user sees every file.",
+      "settingNotProven": "Without View All Data and Modify All Data, custom settings are left out: no permission on an object proves the user sees and writes every row.",
+      "parentNotSeen": "Without View All Data and Modify All Data, an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here."
+    },
+    "added": {
+      "kind": {
+        "flow": "flow",
+        "process": "process",
+        "workflowRule": "workflow rule",
+        "trigger": "Apex trigger"
+      },
+      "createdBy": {
+        "insert": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records go in.",
+        "update": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records are updated.",
+        "delete": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records are deleted.",
+        "undelete": "The target's {{kind}} '{{name}}' creates {{created}} records as {{object}} records come back."
+      },
+      "more_one": "And {{count}} more automation creates them.",
+      "more_other": "And {{count}} more automations create them.",
+      "files": "Files, which every checkpoint of picked objects holds: a rewind deletes the files added since to the records it holds.",
+      "attachments": "Attachments, which every checkpoint of picked objects holds: a rewind deletes the attachments added since.",
+      "heldUnasked": "Held as every checkpoint of picked objects holds it."
     }
   },
   "automationMute": {

@@ -30,7 +30,7 @@ const loadDiscovery = () =>
 
 /** Review: the plan, the gaps, the automation and the controls before a run. */
 const loadReview = () =>
-  withEnglish(() => import('./ForgeReview'), ['forgeRun'])().then((module) => ({
+  withEnglish(() => import('./ForgeReview'), ['checkpointNotes', 'forgeRun'])().then((module) => ({
     default: module.ForgeReview,
   }));
 
@@ -42,9 +42,11 @@ const loadExecution = () =>
 
 /** Results: what the run wrote, and what it left. */
 const loadResults = () =>
-  withEnglish(() => import('./ForgeResults'), ['forgeRun', 'list'])().then((module) => ({
-    default: module.ForgeResults,
-  }));
+  withEnglish(() => import('./ForgeResults'), ['checkpointNotes', 'forgeRun', 'list'])().then(
+    (module) => ({
+      default: module.ForgeResults,
+    }),
+  );
 
 export const ForgeDiscovery = lazy(loadDiscovery);
 export const ForgeReview = lazy(loadReview);

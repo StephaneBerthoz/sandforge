@@ -194,6 +194,23 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   })}
                 </p>
               ))}
+              {(check.heldBack ?? []).map(({ objectApiName, rows, parent, field }) => {
+                // Held back for a record of an object left out, or for a row
+                // held back in turn: counted among the records to write, they
+                // said a run would write what it would write none of.
+                const words = { object: objectApiName, count: rows, parent, field };
+                return (
+                  <p
+                    key={`held-${objectApiName}`}
+                    className="text-status-warning"
+                    data-testid={`sync-write-check-held-back-${objectApiName}`}
+                  >
+                    {(check.unwritable ?? []).some((object) => object.objectApiName === parent)
+                      ? t('sync.writeCheck.heldBack.leftOut', words)
+                      : t('sync.writeCheck.heldBack.heldBack', words)}
+                  </p>
+                );
+              })}
               {(check.unwritable ?? []).length > 0 && (
                 <p className="text-text-secondary">{t('sync.writeCheck.unwritable.hint')}</p>
               )}

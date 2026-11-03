@@ -128,6 +128,38 @@ export const checkpointLeftOutCodeSchema = z.enum([
   'settingNotProven',
   'parentNotSeen',
 ]);
+/**
+ * What a run's file keeps of a note of the checkpoint taken before it, beside
+ * its object and its reason (`RunCheckpointObjectNote`): the code a page says
+ * it by, and what the code names. Each optional: a file written before notes
+ * had codes has none.
+ */
+export const runCheckpointNoteCodeFields = {
+  code: z
+    .enum([
+      'createdByAutomation',
+      'files',
+      'attachments',
+      'heldUnasked',
+      ...checkpointLeftOutCodeSchema.options,
+    ])
+    .optional(),
+  detail: z.string().max(500).optional(),
+  records: z.number().int().nonnegative().optional(),
+  limit: z.number().int().nonnegative().optional(),
+  creators: z
+    .array(
+      z.object({
+        kind: z.enum(['flow', 'process', 'workflowRule', 'trigger']),
+        name: z.string().max(500),
+        objectApiName: z.string().max(255),
+        write: z.enum(['insert', 'update', 'delete', 'undelete']),
+      }),
+    )
+    .max(10)
+    .optional(),
+  moreCreators: z.number().int().nonnegative().optional(),
+};
 export const checkpointStatusSchema = z.enum(['taking', 'ready', 'failed']);
 export const checkpointCustomSettingKindSchema = z.enum(['hierarchy', 'list']);
 export const checkpointObjectAccessSchema = z.enum(['org', 'object', 'parent']);

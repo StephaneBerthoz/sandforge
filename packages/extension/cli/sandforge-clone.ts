@@ -783,7 +783,10 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          Salesforce Files (the latest version of each) and
                          attachments, after the records they hang on. The
                          total is checked against the target's file storage
-                         before anything is written.
+                         before anything is written: past it, refused
+                         (FILE_STORAGE_EXCEEDED), as when that storage could
+                         not be read (FILE_STORAGE_UNREAD) or the files not
+                         all looked up (FILES_UNREAD).
   --max-file-size <MB>   largest file --files copies, 1 to 35   (default: 10)
                          A larger file is left out and listed, never cut.
   --files-as-is          accept that files are copied as they are: their
@@ -7613,21 +7616,28 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // deleted when it wrote none, before what the run did is said.
     await settleCheckpoint();
     // Recorded as the panel records a run that did not end: stopped at its
-    // gate under the gate's code; stopped by Ctrl-C, partial once it wrote;
-    // failed otherwise, with what it wrote before it threw.
+    // gate under the gate's code, or for its files under theirs, as the panel
+    // records the files it was not to copy; stopped by Ctrl-C, partial once
+    // it wrote; failed otherwise, with what it wrote before it threw.
     const gate = err instanceof ForgeRunGateError ? err : undefined;
-    const stoppedPartial = gate ? undefined : partialSummaryOf(err);
+    const filesRefused = err instanceof ForgeFilesRefusedError ? err : undefined;
+    const refusedBefore = gate ?? filesRefused;
+    const stoppedPartial = refusedBefore ? undefined : partialSummaryOf(err);
     const tallies = stoppedPartial ? auditTalliesOf(stoppedPartial) : undefined;
     const objects = tallies ? forgeAuditObjects(tallies) : [];
     const cancelled = interrupted !== undefined || err instanceof ForgeAbortedError;
-    const stoppedOutcome = gate
+    const stoppedOutcome = refusedBefore
       ? 'stopped'
       : cancelled
         ? cancelledRunOutcome(stoppedPartial, objects)
         : 'failure';
     recordClone({
       outcome: stoppedOutcome,
-      ...(gate ? { code: gate.code } : stoppedOutcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
+      ...(refusedBefore
+        ? { code: refusedBefore.code }
+        : stoppedOutcome === 'stopped'
+          ? { code: RUN_CANCELLED }
+          : {}),
       ...(tallies
         ? {
             objects,
@@ -7647,11 +7657,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       stoppedPartial !== undefined &&
       stoppedPartial.successCount + stoppedPartial.updatedCount + stoppedPartial.linkedCount > 0;
     await endJournal(cancelled ? 'cancelled' : 'failure', wrote);
-    if (gate) endRefused({ code: gate.code, message: gate.message });
-    if (err instanceof ForgeFilesRefusedError) {
-      process.stderr.write(`${err.message}\n`);
-      process.exit(1);
-    }
+    // Refused for its files, it said a sentence with no code and left stdout
+    // empty: a CI job could not tell files too big from a crash.
+    if (refusedBefore) endRefused({ code: refusedBefore.code, message: refusedBefore.message });
     const partial = stoppedPartial;
     if (partial && (interrupted !== undefined || err instanceof ForgeAbortedError)) {
       const document = runDocument(withRecordTypeCalls(partial), new Date(), {

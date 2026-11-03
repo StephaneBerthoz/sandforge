@@ -43,7 +43,7 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
-import { refusedLine, refusedSummary } from './runRefused.js';
+import { refusedLine, refusedSummary, type RunRefusal } from './runRefused.js';
 import {
   AutopilotOrchestrator,
   type AutopilotPlanFit,
@@ -91,6 +91,8 @@ import {
   autopilotReadBackOf,
   autopilotWritePlan,
   objectsThePlanWrites,
+  AUTOPILOT_FIT_CODES,
+  AUTOPILOT_GATE_CODES,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
 import { STORAGE_RECOUNT_SECONDS, fitBudgetOf } from '../src/modules/forge/fitBudget.js';
 import {
@@ -254,6 +256,16 @@ A production target is refused before the scan: Autopilot writes to sandboxes
 and Developer Edition orgs only, and --plan-only, which only reads, runs
 against any org.
 
+A run refused before its first write says each reason on a line of its own,
+refused (CODE): ..., and --json prints "refused": {"code", "message"}, the
+other reasons under "alsoRefused": past --max-total (MAX_TOTAL_EXCEEDED), the
+data storage (AUTOPILOT_STORAGE_EXCEEDED), the API requests
+(API_BUDGET_EXCEEDED) or the emails (AUTOPILOT_EMAILS_EXCEEDED) the target has
+left, its emails not accepted (EMAILS_NOT_ACCEPTED), its checkpoint
+(CHECKPOINT_REFUSED), its mute (MUTE_PRODUCTION, MUTE_NO_RIGHT, MUTE_FAILED),
+or its fit (AUTOPILOT_CANNOT_FIT, AUTOPILOT_FIT_STORAGE_UNREAD,
+AUTOPILOT_FIT_READ_REFUSED).
+
 Exit codes: 0 the run finished, some of its records refused, left without a
 lookup or left a draft included (read the summary for per-object failures, and
 --json's result.status); 1 the run could not be started or was
@@ -300,6 +312,17 @@ interface CliArgs {
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * The codes a run of the command is refused under that the panel never
+ * meets, beside those it shares with it (`AUTOPILOT_GATE_CODES`,
+ * `AUTOPILOT_FIT_CODES`): past --max-total, as a clone past its own; past a
+ * daily email limit the target's automation sends against, as a Sync or a
+ * seed past one; and a plan --fit could not cut to fit.
+ */
+const MAX_TOTAL_EXCEEDED = 'MAX_TOTAL_EXCEEDED';
+const AUTOPILOT_EMAILS_EXCEEDED = 'AUTOPILOT_EMAILS_EXCEEDED';
+const AUTOPILOT_CANNOT_FIT = 'AUTOPILOT_CANNOT_FIT';
 
 /** What the line reads. */
 const FLAGS: CommandFlags = {
@@ -721,7 +744,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       .read(args.target, objectsThePlanWrites(plan))
       .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) })));
   let mute: RunMute | undefined;
-  let muteRefused: string | undefined;
+  let muteRefused: RunRefusal | undefined;
   if (args.muteAutomation) {
     const read = await readTheAutomation();
     try {
@@ -731,7 +754,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
     } catch (err: unknown) {
       if (!isMuteRefusedError(err)) throw err;
-      muteRefused = err.message.replace(/ Nothing was assigned\.$/, '');
+      muteRefused = {
+        code: err.code,
+        message: err.message.replace(/ Nothing was assigned\.$/, ''),
+      };
     }
   }
   // The checkpoint asked first, scoped from the objects the plan writes and
@@ -776,7 +802,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // it. The plan it answers replaces the plan, and meets the run's gate again
   // from here on, /limits read again: a fit is never a pass.
   let fit: AutopilotPlanFit | undefined;
-  let fitRefused: string | undefined;
+  let fitRefused: RunRefusal | undefined;
   if (args.fit) {
     log('\nfitting…');
     const fitBudget = fitBudgetOf({
@@ -789,9 +815,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       otherRequests: checkpointPartOf(checkpointPlanned?.estimate),
     });
     if ('unread' in fitBudget) {
-      fitRefused =
-        `The plan cannot be fitted to ${args.target}, whose data storage left could not be ` +
-        `read (${fitBudget.unread}).`;
+      fitRefused = {
+        code: AUTOPILOT_FIT_CODES.STORAGE_UNREAD,
+        message:
+          `The plan cannot be fitted to ${args.target}, whose data storage left could not be ` +
+          `read (${fitBudget.unread}).`,
+      };
     } else {
       try {
         fit = await orchestrator.fitPlan(sourceConn as unknown as AutopilotConnection, {
@@ -811,14 +840,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         const muted = (mute?.plan?.assign.length ?? 0) > 0;
         for (const line of autopilotFitLines(fit, args.target, muted)) log(line);
         if (fit.cannotFit !== undefined) {
-          fitRefused = `The plan cannot be fitted to ${args.target}: ${fit.cannotFit}.`;
+          fitRefused = {
+            code: AUTOPILOT_CANNOT_FIT,
+            message: `The plan cannot be fitted to ${args.target}: ${fit.cannotFit}.`,
+          };
         }
       } catch (err: unknown) {
         // Nothing is chosen from what was not read: a refusal, which
         // --plan-only reports and a real run stops on.
-        fitRefused =
-          'The plan could not be fitted: the source refused a read of it ' +
-          `(${extractErrorMessage(err)}).`;
+        fitRefused = {
+          code: AUTOPILOT_FIT_CODES.READ_REFUSED,
+          message:
+            'The plan could not be fitted: the source refused a read of it ' +
+            `(${extractErrorMessage(err)}).`,
+        };
       }
     }
     if (fit?.fitted) {
@@ -912,26 +947,41 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     });
     log(apiRequestsLine(api, args.target));
   }
-  const refusals = [
+  /** Each reason a real run is refused for, under its code, in the order the lines say them. */
+  const coded = (code: string, message: string | undefined): RunRefusal | undefined =>
+    message === undefined ? undefined : { code, message };
+  const refusedFor = [
     // The checkpoint's refusal in the command's words, said with the rest.
-    checkpointFailed ??
-      (checkpointPlanned?.estimate.refusal !== undefined
-        ? checkpointRefusedWords(checkpointPlanned.estimate.refusal)
-        : undefined),
-    writePlan.totalRows > args.maxTotal
-      ? `The run would write ${writePlan.totalRows} records, more than --max-total ` +
-        `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
-      : undefined,
-    storageRefusal(check, args.target),
-    // Its own refusal closes on the sentence the thrown error adds once.
-    apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
-    emailRefusal(emails.checks, args.target),
+    coded(
+      CHECKPOINT_REFUSED,
+      checkpointFailed ??
+        (checkpointPlanned?.estimate.refusal !== undefined
+          ? checkpointRefusedWords(checkpointPlanned.estimate.refusal)
+          : undefined),
+    ),
+    coded(
+      MAX_TOTAL_EXCEEDED,
+      writePlan.totalRows > args.maxTotal
+        ? `The run would write ${writePlan.totalRows} records, more than --max-total ` +
+            `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
+        : undefined,
+    ),
+    coded(AUTOPILOT_GATE_CODES.STORAGE_EXCEEDED, storageRefusal(check, args.target)),
+    // Its own refusal closes on the sentence the summary adds once.
+    coded(
+      AUTOPILOT_GATE_CODES.API_BUDGET_EXCEEDED,
+      apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
+    ),
+    coded(AUTOPILOT_EMAILS_EXCEEDED, emailRefusal(emails.checks, args.target)),
     // Its own refusal says nothing was written before what lifts it: the
-    // sentence the thrown error closes on says it once.
-    emailsGate?.stop?.message.replace(/ Nothing was written\./, ''),
+    // sentence the summary closes on says it once.
+    emailsGate?.stop
+      ? coded(emailsGate.stop.code, emailsGate.stop.message.replace(/ Nothing was written\./, ''))
+      : undefined,
     muteRefused,
     fitRefused,
-  ].filter((reason): reason is string => reason !== undefined);
+  ].filter((refused): refused is RunRefusal => refused !== undefined);
+  const refusals = refusedFor.map(({ message }) => message);
   // Past what the org or --max-total allow, a person is told there is a way
   // through: unasked, a fit reads nothing.
   if (
@@ -995,12 +1045,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     return;
   }
-  if (refusals.length > 0) {
-    const said = `${refusals.join(' ')} Nothing was written.`;
-    const stop = emailsGate?.stop;
-    if (!stop) throw new Error(said);
-    // What else the gate refused is said with it: nothing is held back for a second run.
-    const refused = { code: stop.code, message: said };
+  if (refusedFor.length > 0) {
+    // Every reason under its code, as a clone refused for several says them:
+    // the first under `refused`, the others under `alsoRefused`, each its own
+    // line, so a CI job told of one is not refused again for the next. A run
+    // refused past --max-total, its storage or its API requests said a
+    // sentence with no code, and printed nothing on stdout.
+    const [refused, ...also] = refusedFor.map(({ code, message }) => ({
+      code,
+      message: `${message} Nothing was written.`,
+    }));
     if (args.json) {
       process.stdout.write(
         refusedSummary(
@@ -1011,10 +1065,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             elapsedMs: Date.now() - t0,
           },
           refused,
+          also,
         ),
       );
     }
-    throw new Error(refusedLine(refused));
+    throw new Error([refused, ...also].map(refusedLine).join('\n'));
   }
 
   log('\nexecuting… (REAL)');
@@ -1121,8 +1176,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
 
   if (args.json) {
+    // A stopped run is `cancelled`, as Live Operations and the audit trail
+    // name it, and as Sync's and a seed's summaries say it beside their
+    // status: the summary said `stopped` alone, a word neither used.
+    const ended = { status, ...result, ...(result.stopped === true ? { cancelled: true } : {}) };
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result: { status, ...result }, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), ...(fit ? { fit: autopilotFitJson(fit) } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result: ended, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}), ...(fit ? { fit: autopilotFitJson(fit) } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
     if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;

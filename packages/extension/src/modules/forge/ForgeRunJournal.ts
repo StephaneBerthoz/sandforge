@@ -8,6 +8,7 @@ import {
   forgeConfigSchema,
   forgeGraphSchema,
   forgeRunCreatedRecords,
+  runCheckpointNoteCodeFields,
   type ForgeRemovalPlan,
   type ForgeWrittenBetween,
   type IdMapRow,
@@ -191,6 +192,8 @@ const headSchema = z.object({
 const checkpointNoteSchema = z.object({
   objectApiName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
   reason: z.string().max(2_000),
+  // The code a page says it by: read without it, the history's note was English.
+  ...runCheckpointNoteCodeFields,
 });
 const checkpointSchema = z.object({
   checkpoint: z.object({

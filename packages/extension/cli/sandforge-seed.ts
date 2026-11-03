@@ -135,6 +135,8 @@ import {
   seedStorageGate,
 } from '../src/modules/seed/seedStorage.js';
 import {
+  SEED_CANNOT_FIT,
+  SEED_FIT_STORAGE_UNREAD,
   fitSeedTemplate,
   fittedTemplate,
   seedRoomOf,
@@ -330,7 +332,9 @@ Options:
                          writes leave a tenth of the day's API requests. The
                          counts are said object by object, then the gate is
                          met again by them; a seed that cannot be cut to fit
-                         is refused, exit 1. With --dry-run, says the counts
+                         is refused, exit 1 (SEED_CANNOT_FIT; one fitted to a
+                         target that does not say what it has left,
+                         SEED_FIT_STORAGE_UNREAD). With --dry-run, says the counts
                          and what they meet, and the summary's JSON carries
                          them as fit                       (default: off)
   --fit-cap <Object>=<n> | <n>
@@ -2190,16 +2194,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
   let fit: { applied: boolean; fit: SeedFit } | undefined;
+  /** Why a real run would be refused for its fit, of a dry run. */
+  let fitRefused: string | undefined;
+  /** Refuse a real run for its fit, under its code; a dry run says it would be. */
+  const refuseForFit = (refused: RunRefusal): void => {
+    if (!args.dryRun) refuse(refused);
+    fitRefused = refused.message;
+    log(`  a real run would be refused: ${refused.message}`);
+  };
   // Refused for its checkpoint, there is nothing to fit: no smaller seed
   // answers it.
   if (args.fit && storage.refusedFor !== 'checkpoint' && checkpointRefusals.length === 0) {
     const budget = seedFitBudgetOf(storage, args.fit.withinMB);
     if ('unread' in budget) {
-      const refusal =
-        `The seed was refused before it wrote anything: it cannot be fitted to ${args.target}, ` +
-        `whose data storage left could not be read (${budget.unread}). Nothing was written.`;
-      if (!args.dryRun) throw new Error(refusal);
-      log(`  a real run would be refused: ${refusal}`);
+      refuseForFit({
+        code: SEED_FIT_STORAGE_UNREAD,
+        message:
+          `The seed was refused before it wrote anything: it cannot be fitted to ${args.target}, ` +
+          `whose data storage left could not be read (${budget.unread}). Nothing was written.`,
+      });
     } else {
       const fitted = fitSeedTemplate({
         template: taken,
@@ -2213,11 +2226,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         log(line);
       }
       if (fitted.proposal.cannotFit !== undefined) {
-        const refusal =
-          'The seed was refused before it wrote anything: it cannot be fitted to ' +
-          `${args.target}: ${fitted.proposal.cannotFit}. Nothing was written.`;
-        if (!args.dryRun) throw new Error(refusal);
-        log(`  a real run would be refused: ${refusal}`);
+        refuseForFit({
+          code: SEED_CANNOT_FIT,
+          message:
+            'The seed was refused before it wrote anything: it cannot be fitted to ' +
+            `${args.target}: ${fitted.proposal.cannotFit}. Nothing was written.`,
+        });
       } else if (fitted.heldBy !== 'whole') {
         // The counts fitted, the gate is met again by them, its /limits read
         // again: a fit is never a pass, and an org that lost room since
@@ -2606,10 +2620,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const checkpointSaid = args.dryRun ? checkpointPlanned?.estimate : checkpointInfo;
   /** What a real run's records would be refused for, for their emails: past the day's, or delivered. */
   const emailRefusalSaid = automation.gate.refusal ?? emailsStop?.message;
-  /** What a dry run says a real run would be refused for, as an environment's plan reads it. */
+  /**
+   * What a dry run says a real run would be refused for, as an environment's
+   * plan reads it, every refusal of the gate among them, as Sync's: its
+   * storage and its API requests were said under `storage.refusal` and
+   * `apiRequests.refusal` alone, and a pipeline reading `wouldBeRefused` took
+   * a seed past them for one that would write.
+   */
   const wouldBeRefused = [
     ...(muteRefused !== undefined ? [muteRefused] : []),
     ...checkpointRefusals,
+    ...(fitRefused !== undefined ? [fitRefused] : []),
+    ...(storage.refusal !== undefined && storage.refusedFor !== 'checkpoint'
+      ? [storage.refusal]
+      : []),
+    ...(automation.gate.refusal !== undefined ? [automation.gate.refusal] : []),
     ...(emailsStop ? [emailsStop.message] : []),
   ];
 

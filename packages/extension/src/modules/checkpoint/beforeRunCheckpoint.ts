@@ -80,6 +80,7 @@ import type {
   CheckpointRefusal,
   RunCheckpointEstimate,
   RunCheckpointInfo,
+  RunCheckpointCreator,
   RunCheckpointObjectNote,
   RunCheckpointRequest,
   RunCheckpointTaken,
@@ -283,7 +284,10 @@ function createdByWords(clauses: readonly string[]): string {
 export function beforeRunScopeOf(input: BeforeRunScopeInput): BeforeRunScope {
   const written = eachOnce(input.written);
   const writtenKeys = new Set(written.map(keyOf));
-  const creators = new Map<string, { objectApiName: string; clauses: string[] }>();
+  const creators = new Map<
+    string,
+    { objectApiName: string; clauses: string[]; by: RunCheckpointCreator[] }
+  >();
   for (const entry of input.running.firing) {
     if (entry.flow === undefined) continue;
     for (const created of entry.flow.creates ?? []) {
@@ -291,19 +295,34 @@ export function beforeRunScopeOf(input: BeforeRunScopeInput): BeforeRunScope {
       if (writtenKeys.has(key) || PLATFORM_EVENT.test(created)) continue;
       let creator = creators.get(key);
       if (creator === undefined) {
-        creator = { objectApiName: created, clauses: [] };
+        creator = { objectApiName: created, clauses: [], by: [] };
         creators.set(key, creator);
       }
       const clause =
         `the target's ${KIND_WORDS[entry.kind]} '${entry.name}' creates ${created} records as ` +
         `${entry.objectApiName} records ${WRITE_WORDS[entry.write]}`;
-      if (!creator.clauses.includes(clause)) creator.clauses.push(clause);
+      if (!creator.clauses.includes(clause)) {
+        creator.clauses.push(clause);
+        creator.by.push({
+          kind: entry.kind,
+          name: entry.name,
+          objectApiName: entry.objectApiName,
+          write: entry.write,
+        });
+      }
     }
   }
-  const added = [...creators.values()].map(({ objectApiName, clauses }) => ({
-    objectApiName,
-    reason: createdByWords(clauses),
-  }));
+  // Each with its code and the automations it names, which a page says in
+  // its language: the English reason went to the page as it was.
+  const added = [...creators.values()].map(
+    ({ objectApiName, clauses, by }): RunCheckpointObjectNote => ({
+      objectApiName,
+      code: 'createdByAutomation',
+      reason: createdByWords(clauses),
+      creators: by.slice(0, CREATORS_NAMED),
+      ...(by.length > CREATORS_NAMED ? { moreCreators: by.length - CREATORS_NAMED } : {}),
+    }),
+  );
   return {
     written,
     added,
@@ -318,13 +337,19 @@ export function beforeRunScopeOf(input: BeforeRunScopeInput): BeforeRunScope {
  * Why the take holds an object nobody asked for: the files every checkpoint
  * of picked objects holds, so that a rewind deletes those added since.
  */
-const FILES_WORDS: Readonly<Record<string, string>> = {
-  [keyOf(FILE_OBJECT)]:
-    'Files, which every checkpoint of picked objects holds: a rewind deletes the files added ' +
-    'since to the records it holds.',
-  [keyOf(ATTACHMENT_OBJECT)]:
-    'Attachments, which every checkpoint of picked objects holds: a rewind deletes the ' +
-    'attachments added since.',
+const FILES_WORDS: Readonly<Record<string, { code: 'files' | 'attachments'; reason: string }>> = {
+  [keyOf(FILE_OBJECT)]: {
+    code: 'files',
+    reason:
+      'Files, which every checkpoint of picked objects holds: a rewind deletes the files added ' +
+      'since to the records it holds.',
+  },
+  [keyOf(ATTACHMENT_OBJECT)]: {
+    code: 'attachments',
+    reason:
+      'Attachments, which every checkpoint of picked objects holds: a rewind deletes the ' +
+      'attachments added since.',
+  },
 };
 
 /** Why the take holds an object nobody asked for, when it is no file. */
@@ -377,19 +402,28 @@ function heldOfScope(
   for (const name of held) place(name);
   const picked = new Set(scope.picked.map(keyOf));
   const added: RunCheckpointObjectNote[] = [
-    ...scope.added.flatMap(({ objectApiName, reason }) => {
-      const asHeld = byKey.get(keyOf(objectApiName));
-      return asHeld === undefined ? [] : [{ objectApiName: asHeld, reason }];
+    ...scope.added.flatMap((note) => {
+      const asHeld = byKey.get(keyOf(note.objectApiName));
+      return asHeld === undefined ? [] : [{ ...note, objectApiName: asHeld }];
     }),
     ...held
       .filter((name) => !picked.has(keyOf(name)))
-      .map((name) => ({ objectApiName: name, reason: FILES_WORDS[keyOf(name)] ?? HELD_UNASKED })),
+      .map((name): RunCheckpointObjectNote => ({
+        objectApiName: name,
+        ...(FILES_WORDS[keyOf(name)] ?? { code: 'heldUnasked', reason: HELD_UNASKED }),
+      })),
   ];
+  // With the code the take gave each object it left out, and what it names:
+  // a page says why in its language, where the English reason went as it was.
   const notHeld = leftOut
     .filter(({ objectApiName }) => !holds(objectApiName))
-    .map(({ objectApiName, reason }) => ({
+    .map(({ objectApiName, reason, code, detail, records, limit }): RunCheckpointObjectNote => ({
       objectApiName,
+      ...(code !== undefined ? { code } : {}),
       reason: `${reason} ${LEFT_AS_THEY_ARE}`,
+      ...(detail !== undefined ? { detail } : {}),
+      ...(records !== undefined ? { records } : {}),
+      ...(limit !== undefined ? { limit } : {}),
     }));
   const reasons = new Map(
     leftOut.map(({ objectApiName, reason }) => [keyOf(objectApiName), reason]),

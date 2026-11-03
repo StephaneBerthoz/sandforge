@@ -354,6 +354,71 @@ describe('sandforge-clone --audit', () => {
     ]);
   });
 
+  it('refuses a clone whose files do not fit under its code, says it on stdout, and records it stopped', async () => {
+    // A file of 2 KB on the account, and a target with no file storage left.
+    const source = fakeOrg(SOURCE_ORG);
+    const read = source.conn.query.bind(source.conn);
+    const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    Object.assign(source.conn, {
+      query: async (soql: string) => {
+        if (soql.includes(' FROM ContentDocumentLink ')) {
+          return page([
+            {
+              ContentDocumentId: '069000000000001AAA',
+              LinkedEntityId: ACCOUNT,
+              ShareType: 'V',
+              Visibility: 'AllUsers',
+            },
+          ]);
+        }
+        if (soql.includes(' FROM ContentVersion ')) {
+          return page([
+            {
+              Id: '068000000000001AAA',
+              ContentDocumentId: '069000000000001AAA',
+              Title: 'Spec',
+              PathOnClient: 'spec.pdf',
+              ContentSize: 2048,
+              ContentLocation: 'S',
+              SharingPrivacy: 'N',
+            },
+          ]);
+        }
+        if (soql.includes(' FROM Attachment ')) return page([]);
+        return read(soql);
+      },
+    });
+    const target = fakeOrg(TARGET_ORG);
+    Object.assign(target.conn, {
+      request: async () => ({ FileStorageMB: { Max: 20, Remaining: 0 } }),
+    });
+    withOrgs(target);
+    orgs.SRC = source;
+
+    expect(await run(argv('--audit', auditPath, '--files', '--json'))).toBe(1);
+
+    expect(orgs.TGT.written).toEqual([]);
+    // A sentence with no code on stderr and an empty stdout: a CI job could
+    // not tell files too big from a crash.
+    expect(stderr).toContain(
+      'refused (FILE_STORAGE_EXCEEDED): The files to copy take 2 KB and the target has 0 B ' +
+        'of file storage left.',
+    );
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-clone',
+      source: 'SRC',
+      target: 'TGT',
+      dryRun: false,
+      refused: {
+        code: 'FILE_STORAGE_EXCEEDED',
+        message: expect.stringMatching(/Nothing was written\.$/) as string,
+      },
+    });
+    expect(entries()).toEqual([
+      expect.objectContaining({ outcome: 'stopped', details: { code: 'FILE_STORAGE_EXCEEDED' } }),
+    ]);
+  });
+
   it('records nothing for a dry run, which writes nothing', async () => {
     withOrgs();
 

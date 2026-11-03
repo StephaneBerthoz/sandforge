@@ -50,6 +50,7 @@ import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 import type { SyncCountedObject, SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { lookupsOf, orderSyncObjects, type WriteLookup } from './syncWriteOrder.js';
+import { heldBackOf, type SyncHeldBackObject } from './syncHeldBack.js';
 import {
   REFUSED_BY_THE_TARGET,
   refusedOnTheirFields,
@@ -649,10 +650,13 @@ function createsRecords(operation: SyncObjectConfig['operation']): boolean {
 
 /**
  * What the run writes, as its gate measures it: each object's records as
- * counted, less those an earlier run copied, which an insert leaves as they are.
+ * counted, less those an earlier run copied, which an insert leaves as they
+ * are, and less those it holds back for a record of an object left out.
  *
  * @param readBack - The objects whose records created without a record type
  *   the run reads back once written (`GateInput.readBack`).
+ * @param heldBack - The rows of each object the run holds back for a record
+ *   of an object the target takes none of (`heldBackOf`): counted apart.
  */
 function countedWriteOf(
   objects: readonly SyncObjectConfig[],
@@ -660,6 +664,7 @@ function countedWriteOf(
   copied: AlreadyCopied,
   refused: ReadonlyMap<string, TargetRefusal> = new Map(),
   readBack: ReadonlySet<string> = new Set(),
+  heldBack: ReadonlyMap<string, SyncHeldBackObject> = new Map(),
 ): GateInput {
   let alreadyCopied = 0;
   const measured = objects.map((objectConfig): SyncCountedObject => {
@@ -667,10 +672,11 @@ function countedWriteOf(
     const count = counted.get(name) ?? { rows: 0 };
     const left = copied.get(name)?.size ?? 0;
     alreadyCopied += Math.min(left, count.rows);
+    const held = refused.has(name) ? 0 : (heldBack.get(name)?.rows ?? 0);
     return {
       objectApiName: name,
       operation: objectConfig.operation,
-      rows: Math.max(0, count.rows - left),
+      rows: Math.max(0, count.rows - left - held),
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
     };
   });
@@ -687,10 +693,12 @@ function countedWriteOf(
     (object) =>
       object.rows > 0 && createsRecords(object.operation) && readBack.has(object.objectApiName),
   ).length;
+  const held = [...heldBack.values()].filter(({ objectApiName }) => !refused.has(objectApiName));
   return {
     objects: written,
     alreadyCopied,
     ...(unwritable.length > 0 ? { unwritable } : {}),
+    ...(held.length > 0 ? { heldBack: held } : {}),
     ...(reads > 0 ? { readBack: reads } : {}),
   };
 }
@@ -825,6 +833,7 @@ export class SyncOrchestrator {
       order,
       refused: unwritable,
       typed,
+      lookups,
     } = await this.writeOrderOf(config.objects);
     // Of each object a cycle of lookups ties to others, those written after it.
     const later = laterInCycles(order);
@@ -903,7 +912,36 @@ export class SyncOrchestrator {
     /** The objects the target takes none of, left out as the user confirmed, with their rows. */
     const leftOutOfRun = new Map<string, number>();
     if (this.deps.writeGate && 'counted' in counts) {
-      const measured = countedWriteOf(sortedObjects, counts.counted, copied, unwritable, readsBack);
+      // What the objects left out would hold back, counted apart from what
+      // the run writes: read as the run reads it, and a read that fails stops
+      // the run here, as it would stop it at that object.
+      let heldBack: ReadonlyMap<string, SyncHeldBackObject>;
+      try {
+        heldBack = await this.heldBackOfRun(
+          config,
+          sortedObjects,
+          unwritable,
+          lookups,
+          deltaLoad,
+          earlier.links,
+          copied,
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new SyncRunFailure(
+          message,
+          { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: message },
+          err,
+        );
+      }
+      const measured = countedWriteOf(
+        sortedObjects,
+        counts.counted,
+        copied,
+        unwritable,
+        readsBack,
+        heldBack,
+      );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
       for (const object of measured.unwritable ?? []) {
@@ -1951,6 +1989,8 @@ export class SyncOrchestrator {
     order?: SyncWriteOrder;
     refused: ReadonlyMap<string, TargetRefusal>;
     typed: ReadonlySet<string>;
+    /** Per object, the lookups its write carries, from the target's describe. */
+    lookups: ReadonlyMap<string, readonly WriteLookup[]>;
   }> {
     const describe = this.deps.describeTargetFields;
     const refused = new Map<string, TargetRefusal>();
@@ -1960,6 +2000,7 @@ export class SyncOrchestrator {
         ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder),
         refused,
         typed,
+        lookups: new Map(),
       };
     }
     const lookups = new Map<string, WriteLookup[]>();
@@ -1992,7 +2033,41 @@ export class SyncOrchestrator {
         }
       }
     }
-    return { ...orderSyncObjects(written, lookups), refused, typed };
+    return { ...orderSyncObjects(written, lookups), refused, typed, lookups };
+  }
+
+  /**
+   * The rows of the objects after one the target takes none of that the run
+   * would hold back (`heldBackOf`), each object read as the run reads it —
+   * from its watermark on a delta configuration —, those an earlier run
+   * copied left out, as the run leaves them. Nothing is read when no object
+   * is left out.
+   */
+  private async heldBackOfRun(
+    config: SyncConfig,
+    ordered: readonly SyncObjectConfig[],
+    unwritable: ReadonlyMap<string, TargetRefusal>,
+    lookups: ReadonlyMap<string, readonly WriteLookup[]>,
+    load: SyncDeltaLoad | null | undefined,
+    earlier: ReadonlyMap<string, string> | undefined,
+    copied: AlreadyCopied,
+  ): Promise<ReadonlyMap<string, SyncHeldBackObject>> {
+    if (unwritable.size === 0) return new Map();
+    return heldBackOf({
+      ordered,
+      lookups,
+      leftOut: new Set(unwritable.keys()),
+      ...(earlier ? { earlier } : {}),
+      copied,
+      read: async (objectConfig) => {
+        const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
+        return plan?.read === 'delta'
+          ? this.deps.querySource(config.sourceOrgId, objectConfig, {
+              changedSince: changedSinceLiteral(plan.since),
+            })
+          : this.deps.querySource(config.sourceOrgId, objectConfig);
+      },
+    });
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */
@@ -2023,7 +2098,13 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     // In the order the run writes them, said with the simulation.
-    const { ordered, order: writeOrder, refused, typed } = await this.writeOrderOf(config.objects);
+    const {
+      ordered,
+      order: writeOrder,
+      refused,
+      typed,
+      lookups,
+    } = await this.writeOrderOf(config.objects);
     let filePlan: SyncFilePlan | undefined;
     let writeCheck: SyncWriteCheck | undefined;
     let writeCheckUnread: string | undefined;
@@ -2085,7 +2166,8 @@ export class SyncOrchestrator {
     if (gate && counts && 'counted' in counts) {
       try {
         // With the requests a run sends to read back the record types the
-        // target gave, as its gate counts them.
+        // target gave, and the rows the objects left out hold back, as its
+        // gate counts them.
         writeCheck = await gate.measure(
           countedWriteOf(
             ordered,
@@ -2093,6 +2175,15 @@ export class SyncOrchestrator {
             copied,
             refused,
             this.deps.queryTargetRows ? typed : new Set<string>(),
+            await this.heldBackOfRun(
+              config,
+              ordered,
+              refused,
+              lookups,
+              deltaLoad,
+              earlier.links,
+              copied,
+            ),
           ),
         );
       } catch (err: unknown) {

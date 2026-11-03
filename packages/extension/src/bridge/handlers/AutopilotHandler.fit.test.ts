@@ -2,7 +2,8 @@ import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AutopilotHandler, AUTOPILOT_FIT_CODES } from './AutopilotHandler.js';
+import { AutopilotHandler } from './AutopilotHandler.js';
+import { AUTOPILOT_FIT_CODES } from '../../modules/autopilot/AutopilotRunGate.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
   AutopilotFitReport,

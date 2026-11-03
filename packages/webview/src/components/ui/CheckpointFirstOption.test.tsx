@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import type { RunCheckpointEstimate } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { developerOrg, productionOrg } from '../../pages/Checkpoint/testing/checkpointFixtures';
 import { CheckpointFirstEstimate, CheckpointFirstOption } from './CheckpointFirstOption';
@@ -120,6 +121,52 @@ describe('CheckpointFirstOption', () => {
     expect(screen.getByTestId('option-estimate-not-held-FeedItem')).toHaveTextContent(
       'FeedItem · Chatter posts',
     );
+  });
+
+  it('says what it adds and leaves out in the interface’s language, by each note’s code', async () => {
+    // Forge's and Sync's panels said both lists in the extension's English.
+    const coded: RunCheckpointEstimate = {
+      ...ESTIMATE,
+      added: [
+        {
+          ...ESTIMATE.added[0],
+          code: 'createdByAutomation',
+          creators: [
+            { kind: 'flow', name: 'Welcome task', objectApiName: 'Contact', write: 'insert' },
+          ],
+        },
+        {
+          objectApiName: 'ContentDocument',
+          code: 'files',
+          reason: 'Files, which every checkpoint of picked objects holds.',
+        },
+      ],
+      notHeld: [
+        {
+          objectApiName: 'FeedItem',
+          code: 'chatter',
+          reason: 'Chatter posts: a rewind leaves its records.',
+        },
+      ],
+    };
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      render(<CheckpointFirstEstimate estimate={coded} lead="" testId="estimate" />);
+
+      expect(screen.getByTestId('estimate-added-Task')).toHaveTextContent(
+        'Task · Des enregistrements Task sont créés par le Flow « Welcome task » de la cible ' +
+          'quand des enregistrements Contact sont insérés.',
+      );
+      expect(screen.getByTestId('estimate-added-ContentDocument')).toHaveTextContent(
+        `ContentDocument · ${fr.checkpointNotes.added.files}`,
+      );
+      expect(screen.getByTestId('estimate-not-held-FeedItem')).toHaveTextContent(
+        `FeedItem · ${fr.checkpointNotes.leftOut.chatter}`,
+      );
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
   });
 
   it('recommends itself where the run has no other way back, until it is ticked', () => {

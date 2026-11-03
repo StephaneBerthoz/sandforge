@@ -932,6 +932,19 @@ export interface SyncWriteCheck {
     key?: ApiName;
   }>;
   /**
+   * The rows of the objects written after one of `unwritable` the run holds
+   * back, not written: a lookup of theirs names a record of an object left
+   * out — `parent`, by `field` —, or a row held back in turn. Not counted in
+   * `objects`. Counted under each filter alone, they were said to be written:
+   * "4 records to write" of a run that would write none. Absent when none.
+   */
+  heldBack?: Array<{
+    objectApiName: ApiName;
+    rows: number;
+    parent: ApiName;
+    field: ApiName;
+  }>;
+  /**
    * The API requests the run takes of the target, roughly, against the daily
    * requests it has left: `near` when the run would leave it under a tenth of
    * them, `exceeds` past them — refused, as a run would stop part way through.

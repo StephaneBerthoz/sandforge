@@ -788,10 +788,10 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
       const items = within(screen.getByTestId('checkpoint-left-out'))
         .getAllByRole('listitem')
         .map((item) => item.textContent);
-      expect(items[0]).toBe(`FeedItem — ${fr.checkpoint.take.leftOutReason.chatter}`);
+      expect(items[0]).toBe(`FeedItem — ${fr.checkpointNotes.leftOut.chatter}`);
       // The org's own words stay as it said them.
       expect(items[1]).toBe(
-        `Lead — ${fr.checkpoint.take.leftOutReason.unreadable} (OPERATION_TOO_LARGE)`,
+        `Lead — ${fr.checkpointNotes.leftOut.unreadable} (OPERATION_TOO_LARGE)`,
       );
       expect(items[2]).toContain(`Case a ${formatNumber(2_500_000)} enregistrements`);
       expect(items[2]).toContain(`la limite de ${formatNumber(2_000_000)}`);

@@ -22,7 +22,7 @@ import type { ExportCheckpointProps, ImportCheckpointProps } from './CheckpointT
  */
 
 const LoadedTakeCheckpoint = lazy(() =>
-  withEnglish(() => import('./TakeCheckpoint'), [])().then((module) => ({
+  withEnglish(() => import('./TakeCheckpoint'), ['checkpointNotes'])().then((module) => ({
     default: module.TakeCheckpoint,
   })),
 );

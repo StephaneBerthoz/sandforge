@@ -352,6 +352,15 @@ describe('sandforge-seed --accept-emails', () => {
       refused: { code: 'SEED_EMAILS_EXCEEDED' },
     });
     expect(writes()).toEqual([]);
+
+    // A dry run says it under wouldBeRefused, with every refusal of the gate.
+    stdout.length = 0;
+    await main(argv('--accept-emails', '--dry-run', '--json'));
+    expect(JSON.parse(stdout.join('')).wouldBeRefused).toEqual([
+      expect.stringMatching(
+        /^The seed was refused before it wrote anything: its records would make TGT send about 2 single emails/,
+      ),
+    ]);
   });
 
   it('prints a summary --remove reads as a run that wrote nothing', async () => {

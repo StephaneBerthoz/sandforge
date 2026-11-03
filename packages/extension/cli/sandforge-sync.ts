@@ -1122,11 +1122,20 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
                 : ''),
     );
   }
-  // The objects the target takes none of, as the run writes them.
+  // The objects the target takes none of, as the run writes them, and the
+  // rows of the objects after them it holds back for their records.
   for (const object of check.unwritable ?? []) {
     lines.push(
       `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ` +
         `${UNWRITABLE_WORDS[object.why]}${object.key !== undefined ? ` (${object.key})` : ''}`,
+    );
+  }
+  const leftOut = new Set((check.unwritable ?? []).map(({ objectApiName }) => objectApiName));
+  for (const object of check.heldBack ?? []) {
+    lines.push(
+      `  ${object.objectApiName}: ${object.rows} record(s) held back, not written — their ` +
+        `${object.field} names ${object.parent} records ` +
+        (leftOut.has(object.parent) ? 'left out' : 'held back'),
     );
   }
   if (check.aboveRecords !== undefined) {
@@ -2246,7 +2255,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       checkpointRefused,
       gateRefused,
       emailsRefused,
-      unwritable.length > 0 ? unwritableRefusal(unwritable, args.target) : undefined,
+      unwritable.length > 0
+        ? unwritableRefusal(unwritable, args.target, simulation.writeCheck?.heldBack)
+        : undefined,
     ].filter((reason): reason is string => reason !== undefined);
     const elapsed = Date.now() - t0;
     if (args.json) {

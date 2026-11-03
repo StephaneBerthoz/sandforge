@@ -1649,6 +1649,12 @@
         "notAKey": "{{object}} ({{rows}} enregistrements) : son upsert s'appuie sur {{key}}, qui n'est ni un ID externe ni un champ idLookup dans l'org cible. Aucun ne peut être écrit.",
         "hint": "Lancée depuis la page, l'exécution demande s'il faut laisser ces objets de côté et écrit le reste ; une exécution planifiée et la ligne de commande sont refusées."
       },
+      "heldBack": {
+        "leftOut_one": "{{object}} ({{count}} enregistrement) : retenu, non écrit — son {{field}} désigne un enregistrement {{parent}} laissé de côté, et écrit sans lui, il resterait sans son {{parent}}.",
+        "leftOut_other": "{{object}} ({{count}} enregistrements) : retenus, non écrits — leur {{field}} désigne des enregistrements {{parent}} laissés de côté, et écrits sans eux, ils resteraient sans leur {{parent}}.",
+        "heldBack_one": "{{object}} ({{count}} enregistrement) : retenu, non écrit — son {{field}} désigne un enregistrement {{parent}} retenu.",
+        "heldBack_other": "{{object}} ({{count}} enregistrements) : retenus, non écrits — leur {{field}} désigne des enregistrements {{parent}} retenus."
+      },
       "apiRequests": {
         "fits": "Requêtes d'API : environ {{estimate}}, sur les {{remaining}} qu'il reste à l'org cible de ses {{max}} par jour.",
         "near": "Requêtes d'API : environ {{estimate}}, ce qui laisserait à l'org cible moins d'un dixième de ses {{max}} par jour ({{remaining}} restantes).",
@@ -6704,34 +6710,6 @@
       "pickedCount_other": "{{formatted}} objets choisis",
       "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés sauf ceux que vous choisissez, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
       "leftOutAlwaysWithSettings": "Laissés de côté : utilisateurs, autorisations, configuration, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
-      "leftOutReason": {
-        "excludedByUser": "Laissé de côté à votre demande.",
-        "notFound": "L'org n'a aucun objet de ce nom.",
-        "chatter": "Les publications, commentaires et fils Chatter sont laissés de côté : Salesforce ne rétablit une publication qu'avec ce sur quoi elle a été publiée.",
-        "history": "L'historique est laissé de côté : c'est la trace que l'org garde elle-même de ses changements.",
-        "sharing": "Le partage est laissé de côté : l'org le tient elle-même.",
-        "changeEvent": "Les événements de modification sont laissés de côté.",
-        "unsupportedKind": "Laissé de côté : ni la corbeille ni une mise à jour n'atteignent ce type d'objet comme elles atteignent un enregistrement.",
-        "customSetting": "Les paramètres personnalisés sont laissés de côté sauf si vous les choisissez comme tels : c'est de la configuration, qu'un retour arrière rétablit.",
-        "notCustomSetting": "Choisi comme paramètre personnalisé : l'org n'a aucun paramètre personnalisé de ce nom.",
-        "files": "Les documents de l'onglet Documents sont laissés de côté : c'est du contenu partagé rangé dans des dossiers, comme la configuration.",
-        "heldWithFiles": "Gardé avec son fichier (ContentDocument) : Salesforce ne supprime ni ne rétablit seule la version d'un fichier, et lit les liens d'un fichier à travers les enregistrements auxquels ils le rattachent.",
-        "setup": "Les utilisateurs, les autorisations et la configuration sont laissés de côté.",
-        "metadata": "Laissé de côté : ce sont des métadonnées, qu'un point de contrôle ne garde pas.",
-        "notWritable": "Laissé de côté : l'utilisateur sous lequel SandForge se connecte ne peut pas créer, modifier et supprimer ses enregistrements.",
-        "notDescribed": "Laissé de côté : l'org n'a pas voulu le décrire.",
-        "noSystemModstamp": "Laissé de côté : il n'a pas de SystemModstamp, donc rien ne dirait qu'un enregistrement a changé depuis.",
-        "noRecycleBin": "Laissé de côté : l'org supprime ses enregistrements définitivement, sans corbeille, donc rien ne dirait qu'un enregistrement a été supprimé depuis, ni ne le rétablirait.",
-        "unreadable": "Laissé de côté : l'org refuse de le lire en entier.",
-        "pastTheLimit": "{{object}} a {{records}} enregistrements, au-delà de la limite de {{limit}} du point de contrôle pour un objet : laissé de côté, car une partie passerait pour le tout.",
-        "noViewAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte n'a ni l'un ni l'autre sur celui-ci : un enregistrement qu'il ne voit pas passerait pour supprimé depuis.",
-        "noModifyAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte a View All sur celui-ci, pas Modify All : un retour arrière ne pourrait pas rétablir ce que d'autres ont changé.",
-        "activities": "Sans View All Data et Modify All Data, les tâches et événements sont laissés de côté : Salesforce n'a pas de View All pour les activités, et une activité privée liée à aucun enregistrement reste hors de vue.",
-        "catalog": "Sans View All Data et Modify All Data, les produits et catalogues de prix sont laissés de côté : Salesforce n'a ni View All ni Modify All pour eux.",
-        "filesNotProven": "Sans View All Data et Modify All Data, les fichiers sont laissés de côté : rien ne prouve que l'utilisateur voit chaque fichier.",
-        "settingNotProven": "Sans View All Data et Modify All Data, les paramètres personnalisés sont laissés de côté : aucune autorisation sur un objet ne prouve que l'utilisateur voit et écrit chaque ligne.",
-        "parentNotSeen": "Sans View All Data et Modify All Data, un objet sans autorisations propres n'est gardé que si l'utilisateur a View All et Modify All sur chaque enregistrement dont il dépend, ce qui n'est pas prouvé ici."
-      },
       "customSettings": {
         "title_one": "Paramètre personnalisé ({{formatted}})",
         "title_other": "Paramètres personnalisés ({{formatted}})",
@@ -7232,6 +7210,55 @@
         "alreadyKept": "« {{name}} » est déjà conservé sur cette machine, identique : il a été laissé tel quel.",
         "done": "Terminé"
       }
+    }
+  },
+  "checkpointNotes": {
+    "leftOut": {
+      "excludedByUser": "Laissé de côté à votre demande.",
+      "notFound": "L'org n'a aucun objet de ce nom.",
+      "chatter": "Les publications, commentaires et fils Chatter sont laissés de côté : Salesforce ne rétablit une publication qu'avec ce sur quoi elle a été publiée.",
+      "history": "L'historique est laissé de côté : c'est la trace que l'org garde elle-même de ses changements.",
+      "sharing": "Le partage est laissé de côté : l'org le tient elle-même.",
+      "changeEvent": "Les événements de modification sont laissés de côté.",
+      "unsupportedKind": "Laissé de côté : ni la corbeille ni une mise à jour n'atteignent ce type d'objet comme elles atteignent un enregistrement.",
+      "customSetting": "Les paramètres personnalisés sont laissés de côté sauf si vous les choisissez comme tels : c'est de la configuration, qu'un retour arrière rétablit.",
+      "notCustomSetting": "Choisi comme paramètre personnalisé : l'org n'a aucun paramètre personnalisé de ce nom.",
+      "files": "Les documents de l'onglet Documents sont laissés de côté : c'est du contenu partagé rangé dans des dossiers, comme la configuration.",
+      "heldWithFiles": "Gardé avec son fichier (ContentDocument) : Salesforce ne supprime ni ne rétablit seule la version d'un fichier, et lit les liens d'un fichier à travers les enregistrements auxquels ils le rattachent.",
+      "setup": "Les utilisateurs, les autorisations et la configuration sont laissés de côté.",
+      "metadata": "Laissé de côté : ce sont des métadonnées, qu'un point de contrôle ne garde pas.",
+      "notWritable": "Laissé de côté : l'utilisateur sous lequel SandForge se connecte ne peut pas créer, modifier et supprimer ses enregistrements.",
+      "notDescribed": "Laissé de côté : l'org n'a pas voulu le décrire.",
+      "noSystemModstamp": "Laissé de côté : il n'a pas de SystemModstamp, donc rien ne dirait qu'un enregistrement a changé depuis.",
+      "noRecycleBin": "Laissé de côté : l'org supprime ses enregistrements définitivement, sans corbeille, donc rien ne dirait qu'un enregistrement a été supprimé depuis, ni ne le rétablirait.",
+      "unreadable": "Laissé de côté : l'org refuse de le lire en entier.",
+      "pastTheLimit": "{{object}} a {{records}} enregistrements, au-delà de la limite de {{limit}} du point de contrôle pour un objet : laissé de côté, car une partie passerait pour le tout.",
+      "noViewAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte n'a ni l'un ni l'autre sur celui-ci : un enregistrement qu'il ne voit pas passerait pour supprimé depuis.",
+      "noModifyAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte a View All sur celui-ci, pas Modify All : un retour arrière ne pourrait pas rétablir ce que d'autres ont changé.",
+      "activities": "Sans View All Data et Modify All Data, les tâches et événements sont laissés de côté : Salesforce n'a pas de View All pour les activités, et une activité privée liée à aucun enregistrement reste hors de vue.",
+      "catalog": "Sans View All Data et Modify All Data, les produits et catalogues de prix sont laissés de côté : Salesforce n'a ni View All ni Modify All pour eux.",
+      "filesNotProven": "Sans View All Data et Modify All Data, les fichiers sont laissés de côté : rien ne prouve que l'utilisateur voit chaque fichier.",
+      "settingNotProven": "Sans View All Data et Modify All Data, les paramètres personnalisés sont laissés de côté : aucune autorisation sur un objet ne prouve que l'utilisateur voit et écrit chaque ligne.",
+      "parentNotSeen": "Sans View All Data et Modify All Data, un objet sans autorisations propres n'est gardé que si l'utilisateur a View All et Modify All sur chaque enregistrement dont il dépend, ce qui n'est pas prouvé ici."
+    },
+    "added": {
+      "kind": {
+        "flow": "le Flow",
+        "process": "le processus",
+        "workflowRule": "la règle de workflow",
+        "trigger": "le déclencheur Apex"
+      },
+      "createdBy": {
+        "insert": "Des enregistrements {{created}} sont créés par {{kind}} « {{name}} » de la cible quand des enregistrements {{object}} sont insérés.",
+        "update": "Des enregistrements {{created}} sont créés par {{kind}} « {{name}} » de la cible quand des enregistrements {{object}} sont mis à jour.",
+        "delete": "Des enregistrements {{created}} sont créés par {{kind}} « {{name}} » de la cible quand des enregistrements {{object}} sont supprimés.",
+        "undelete": "Des enregistrements {{created}} sont créés par {{kind}} « {{name}} » de la cible quand des enregistrements {{object}} sont restaurés."
+      },
+      "more_one": "Et {{count}} autre automatisation en crée.",
+      "more_other": "Et {{count}} autres automatisations en créent.",
+      "files": "Les fichiers, que tout point de contrôle d'objets choisis contient : un retour arrière supprime les fichiers ajoutés depuis aux enregistrements qu'il contient.",
+      "attachments": "Les pièces jointes, que tout point de contrôle d'objets choisis contient : un retour arrière supprime les pièces jointes ajoutées depuis.",
+      "heldUnasked": "Contenu comme tout point de contrôle d'objets choisis le contient."
     }
   },
   "automationMute": {

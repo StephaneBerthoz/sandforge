@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { RunCheckpointTaken } from '@sandforge/shared';
 import * as path from 'node:path';
 import type { Connection } from 'jsforce';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
@@ -984,8 +985,8 @@ describe('SyncRunCreations — what a run deleted, as the source had', () => {
 });
 
 describe('SyncRunCreations — the checkpoint a run took before its first write', () => {
-  const TAKEN = {
-    state: 'taken' as const,
+  const TAKEN: RunCheckpointTaken = {
+    state: 'taken',
     checkpointId: 'ck-20261101-101500-a1b2',
     name: 'Before Sync run 2026-11-01 10:15 UTC',
     takenAt: '2026-11-01T10:15:04.000Z',
@@ -994,17 +995,31 @@ describe('SyncRunCreations — the checkpoint a run took before its first write'
     records: 38,
     bytes: 2_200_000,
     requests: 68,
+    // With the codes a page says them by, which the file keeps: read without
+    // them, the run's history named the checkpoint's objects in English.
     added: [
       {
         objectApiName: 'Task',
+        code: 'createdByAutomation',
         reason:
           "The target's flow 'Contact follow-up' creates Task records as Contact records go in.",
+        creators: [
+          { kind: 'flow', name: 'Contact follow-up', objectApiName: 'Contact', write: 'insert' },
+        ],
       },
     ],
     notHeld: [
       {
         objectApiName: 'FeedItem',
+        code: 'chatter',
         reason: 'Chatter posts. A rewind leaves its records as they are.',
+      },
+      {
+        objectApiName: 'Asset',
+        code: 'pastTheLimit',
+        reason: 'Asset has 900000 records. A rewind leaves its records as they are.',
+        records: 900_000,
+        limit: 500_000,
       },
     ],
   };

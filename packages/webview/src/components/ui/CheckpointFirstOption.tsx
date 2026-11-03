@@ -12,6 +12,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { cn } from '../../theme';
 import { formatNumber } from '../../utils/formatters';
 import { checkpointRefusalWords } from '../../utils/runCheckpoint';
+import { runNoteWords } from '../../utils/checkpointNotes';
 import { namedObjects } from './RewindBeforeRun';
 
 /** Props for {@link CheckpointFirstEstimate}. */
@@ -23,12 +24,16 @@ export interface CheckpointFirstEstimateProps {
   className?: string;
 }
 
-/** The objects of a list of notes, one a line, each with why. */
+/**
+ * The objects of a list of notes, one a line, each with why, in the page's
+ * language: Forge's and Sync's panels said it in the extension's English.
+ */
 const NoteList: React.FC<{ title: string; notes: RunCheckpointObjectNote[]; testId: string }> = ({
   title,
   notes,
   testId,
 }) => {
+  const { t } = useTranslation();
   if (notes.length === 0) return null;
   return (
     <div data-testid={testId}>
@@ -37,8 +42,7 @@ const NoteList: React.FC<{ title: string; notes: RunCheckpointObjectNote[]; test
         {notes.map((note) => (
           <li key={note.objectApiName} data-testid={`${testId}-${note.objectApiName}`}>
             <span className="font-mono">{note.objectApiName}</span>
-            {/* The host's own words: the contract gives a reason, never a code. */}
-            <span className="text-text-secondary">{` · ${note.reason}`}</span>
+            <span className="text-text-secondary">{` · ${runNoteWords(t, note)}`}</span>
           </li>
         ))}
       </ul>
