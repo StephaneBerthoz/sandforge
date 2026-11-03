@@ -717,6 +717,24 @@ function leftOutResult(
 }
 
 /**
+ * Each record of `sources` noted refused, when the object's write set out to
+ * create it: a lookup at one of them holds its row back (`PARENT_REFUSED`).
+ * An object the target takes none of goes through here, in a simulation as in
+ * the run that leaves it out.
+ */
+function noteSourcesRefused(
+  links: SyncRunLinks,
+  objectConfig: SyncObjectConfig,
+  sources: ReadonlyArray<Record<string, unknown> | undefined>,
+): void {
+  if (!createsRecords(objectConfig.operation)) return;
+  for (const source of sources) {
+    const id = source?.['Id'];
+    if (typeof id === 'string' && id !== '') links.noteRefused(id, objectConfig.objectApiName);
+  }
+}
+
+/**
  * Why a run of `config` is refused before it reads anything, or undefined: a
  * transform rule of it that names no field would change every field of every
  * record. Each start of a run refuses it first (the bridge, the command line);
@@ -1226,7 +1244,35 @@ export class SyncOrchestrator {
       const refusal = unwritable.get(objectConfig.objectApiName);
       const leftOutRows = leftOutOfRun.get(objectConfig.objectApiName);
       if (refusal && leftOutRows !== undefined) {
-        await push(leftOutResult(objectConfig, refusal, leftOutRows));
+        // Its records are read all the same, as the simulation reads them,
+        // and each one it set out to create is noted refused: the rows of the
+        // objects after whose lookup names one are held back, as the
+        // simulation counted them. Left out unread, a contact went with its
+        // source AccountId, which the target refused, and was written again
+        // without it: written orphaned, or under the target's own account of
+        // that id between two sandboxes of one production. A read that fails
+        // stops the run here, as the simulation stops, before the rows it
+        // could not hold back are written.
+        const left = leftOutResult(objectConfig, refusal, leftOutRows);
+        try {
+          await this.noteLeftOutRefused(
+            config,
+            objectConfig,
+            deltaLoad,
+            { links, recordTypes, currencies, currencyChangesById, standardPricebooks },
+            copied.get(objectConfig.objectApiName),
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          await push({ ...left, errors: [...left.errors, message] });
+          leaveUnset();
+          throw new SyncRunFailure(
+            message,
+            finish(buildResult(config.id, operationId, objectResults, startTime, 'failure')),
+            err,
+          );
+        }
+        await push(left);
         continue;
       }
       // The rows the object's read leaves to the platform, kept out here: its
@@ -2193,14 +2239,7 @@ export class SyncOrchestrator {
     // records written, then the run had every one refused, after the objects
     // before it were written.
     if (refusal && prepared.records.length > 0) {
-      if (objectConfig.operation === 'insert' || objectConfig.operation === 'upsert') {
-        for (const source of prepared.sources) {
-          const id = source?.['Id'];
-          if (typeof id === 'string' && id !== '') {
-            run.links.noteRefused(id, objectConfig.objectApiName);
-          }
-        }
-      }
+      noteSourcesRefused(run.links, objectConfig, prepared.sources);
       return withEncryptedLeftOut<SyncObjectSimulation>(
         {
           objectApiName: objectConfig.objectApiName,
@@ -2410,6 +2449,40 @@ export class SyncOrchestrator {
       };
     }
     return { ...withHeld, delta: deltaOutcomeOf(plan, read.rows) };
+  }
+
+  /**
+   * Read an object the run leaves out as {@link simulateObject} reads it, and
+   * note each record of it the run set out to create refused
+   * (`noteSourcesRefused`); nothing of it is written.
+   *
+   * @param copied - The source records an earlier run copied, by the first
+   *   fifteen characters of their id: an insert leaves them out of the read.
+   */
+  private async noteLeftOutRefused(
+    config: SyncConfig,
+    objectConfig: SyncObjectConfig,
+    deltaLoad: SyncDeltaLoad | null | undefined,
+    run: RunContext,
+    copied?: ReadonlySet<string>,
+  ): Promise<void> {
+    if (!createsRecords(objectConfig.operation)) return;
+    const { plan } = await this.readPlan(config, objectConfig, deltaLoad);
+    const read: ObjectRead = {
+      changedSince: plan?.read === 'delta' ? changedSinceLiteral(plan.since) : undefined,
+      rows: 0,
+      cut: false,
+    };
+    const asRead = await this.prepare(
+      config,
+      objectConfig,
+      new RowsLeftToThePlatform(),
+      plan ? read : undefined,
+      copied,
+    );
+    if (asRead.records.length === 0) return;
+    const settled = await this.pricesSettled(objectConfig, asRead, run);
+    noteSourcesRefused(run.links, objectConfig, settled.sources);
   }
 
   /**

@@ -300,6 +300,10 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
         excludedFields: obj.excludedFields,
         insertOrder: obj.insertOrder,
         batchSize: obj.batchSize,
+        // An object a feature brings, skipped in an org without it: sent
+        // without the mark, the gate counted Knowledge articles in an org
+        // without Knowledge, and the run that skipped them ended partial.
+        ...(obj.optional === true ? { optional: true } : {}),
       }));
 
       const template: SeedTemplate = {

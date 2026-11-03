@@ -262,6 +262,30 @@ describe('what the hints say, in English', () => {
     );
   });
 
+  it('says beside access the key that lifts a refused upsert, in every locale', () => {
+    // A page run of accounts upserted on Name is refused under this code: the
+    // hint said only to give access, which no access lifts.
+    const KEY: Record<string, RegExp> = {
+      en: /External ID/,
+      fr: /ID externe/,
+      de: /externe ID/,
+      es: /ID externo/,
+      'pt-BR': /ID externo/,
+      ja: /外部 ID/,
+    };
+    const hint = translateError('Refused', { code: 'SYNC_TARGET_UNWRITABLE' });
+    expect(hint?.actionKey).toBe('errors.syncTargetUnwritable.action');
+    for (const [locale, key] of Object.entries(KEY)) {
+      const explanation = lookup(LOCALES[locale], hint?.explanationKey ?? '') as string;
+      const action = lookup(LOCALES[locale], hint?.actionKey ?? '') as string;
+      expect({ locale, upsert: /upsert/i.test(explanation), key: key.test(action) }).toEqual({
+        locale,
+        upsert: true,
+        key: true,
+      });
+    }
+  });
+
   it("says the target's automation failed, not that the object should be left out", () => {
     expect(errors.automationRefused.forge.explanation).toContain('a trigger, a Flow or a process');
     expect(errors.automationRefused.forge.action).not.toContain('Leave this object out');

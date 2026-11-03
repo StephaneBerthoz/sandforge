@@ -49,6 +49,41 @@ describe('templateTheOrgTakes', () => {
     expect(taken.relations?.map((r) => r.childObject)).toEqual(['Case']);
   });
 
+  it('leaves out the objects of the template that hang from a closed one, as the run skips them', async () => {
+    // Campaign closed to a user without the Marketing User box: the run skips
+    // it, then its members, which have nothing to point at, then what a rule
+    // of theirs points at. Counted, the gate refused a seed that fit, and the
+    // fit cut the accounts for members never written.
+    const member = object('CampaignMember');
+    const note = {
+      ...object('Note__c'),
+      fieldRules: [
+        {
+          fieldApiName: 'Member__c',
+          ruleType: 'reference',
+          config: { referenceObject: 'CampaignMember' },
+        },
+      ],
+    } as unknown as SeedObjectConfig;
+    const generated = (childObject: string, parentObject: string) => ({
+      childObject,
+      parentObject,
+      lookupField: `${parentObject}Id`,
+      parents: { kind: 'generated' },
+    });
+
+    const taken = await templateTheOrgTakes(
+      {
+        objects: [object('Account'), object('Campaign', true), member, note, object('Contact')],
+        relations: [generated('CampaignMember', 'Campaign'), generated('Contact', 'Account')],
+      } as unknown as Pick<SeedTemplate, 'objects' | 'relations'>,
+      seedObjectAccess(org({ marketingUser: false })),
+    );
+
+    expect(taken.objects.map((o) => o.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(taken.relations?.map((r) => r.childObject)).toEqual(['Contact']);
+  });
+
   it('leaves out one the user may not create, and keeps an object the template requires', async () => {
     const taken = await templateTheOrgTakes(
       {

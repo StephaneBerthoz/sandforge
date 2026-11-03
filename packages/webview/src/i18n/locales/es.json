@@ -6463,8 +6463,8 @@
       "action": "Simúlela para ver las cifras y luego dé al usuario que la ejecuta una omisión que silencie esos Flows, escriba menos registros o vuelva a ejecutarla mañana."
     },
     "syncTargetUnwritable": {
-      "explanation": "La sincronización se rechazó antes de escribir nada: la org de destino no aceptaría ningún registro de un objeto que escribe. No tiene el objeto, o el usuario con el que escribe la sincronización no puede verlo, crearlo ni editarlo allí.",
-      "action": "Deje esos objetos fuera de la ejecución, o dé al usuario con el que escribe la sincronización acceso a ellos en la org de destino. Iniciada desde la página, la sincronización pregunta si dejarlos fuera y escribe el resto."
+      "explanation": "La sincronización se rechazó antes de escribir nada: la org de destino no aceptaría ningún registro de un objeto que escribe. No tiene el objeto, el usuario con el que escribe la sincronización no puede verlo, crearlo ni editarlo allí, o su upsert coincide por un campo por el que la org de destino no hace ninguno.",
+      "action": "Deje esos objetos fuera de la ejecución, dé al usuario con el que escribe la sincronización acceso a un objeto que no puede escribir en la org de destino, o haga que un upsert coincida por un ID externo de esa org: el mensaje dice lo que necesita cada objeto. Iniciada desde la página, la sincronización pregunta si dejarlos fuera y escribe el resto."
     },
     "apiBudgetExceeded": {
       "explanation": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino, con sus registros rechazados con REQUEST_LIMIT_EXCEEDED.",

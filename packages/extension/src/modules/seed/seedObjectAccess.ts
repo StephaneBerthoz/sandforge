@@ -10,7 +10,7 @@
  * user.
  */
 
-import type { SeedTemplate } from '@sandforge/shared';
+import { seedDependencies, type SeedTemplate } from '@sandforge/shared';
 import type { SeedObjectAccess } from './SeedOrchestrator.js';
 
 /** The part of a connection the reader needs. */
@@ -73,11 +73,11 @@ export function seedObjectAccess(
 
 /**
  * The template a seed's storage gate and its fit count: without its optional
- * objects the org takes no record of, which the run skips. Counted, an org
- * without Knowledge had the fit cut its other objects to make room for a
- * hundred articles it would never hold, and name them in its table. Reads the
- * org only for a template that has one; a read that fails tells nothing, and
- * the object is counted.
+ * objects the org takes no record of, nor the objects that hang from them,
+ * which the run skips. Counted, an org without Knowledge had the fit cut its
+ * other objects to make room for a hundred articles it would never hold, and
+ * name them in its table. Reads the org only for a template that has one; a
+ * read that fails tells nothing, and the object is counted.
  */
 export async function templateTheOrgTakes<T extends Pick<SeedTemplate, 'objects' | 'relations'>>(
   template: T,
@@ -93,6 +93,21 @@ export async function templateTheOrgTakes<T extends Pick<SeedTemplate, 'objects'
     }
   }
   if (closed.size === 0) return template;
+  // What hangs from a closed object is skipped with it, as the run skips an
+  // object whose parents wrote nothing (`seedDependencies`), and what hangs
+  // from that in turn. Kept, a campaign's members lost only their relation:
+  // counted as a root, the gate refused a seed that fit, and the fit cut the
+  // other objects for members the run never wrote.
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const object of template.objects) {
+      if (closed.has(object.objectApiName)) continue;
+      if (seedDependencies(object, template.relations).some((name) => closed.has(name))) {
+        closed.add(object.objectApiName);
+        grew = true;
+      }
+    }
+  }
   return {
     ...template,
     objects: template.objects.filter((object) => !closed.has(object.objectApiName)),

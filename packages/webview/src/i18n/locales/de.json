@@ -6463,8 +6463,8 @@
       "action": "Simulieren Sie sie, um die Zahlen zu sehen, und geben Sie dann dem ausführenden Benutzer eine Umgehung, die diese Flows stumm hält, schreiben Sie weniger Datensätze oder führen Sie sie morgen erneut aus."
     },
     "syncTargetUnwritable": {
-      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas schrieb: Die Ziel-Org würde keinen Datensatz eines Objekts annehmen, das sie schreibt. Sie hat das Objekt nicht, oder der Benutzer, mit dem die Synchronisierung schreibt, darf es dort nicht sehen, erstellen oder bearbeiten.",
-      "action": "Lassen Sie diese Objekte aus dem Lauf heraus, oder geben Sie dem Benutzer, mit dem die Synchronisierung schreibt, Zugriff darauf in der Ziel-Org. Von der Seite gestartet, fragt die Synchronisierung, ob sie sie auslassen soll, und schreibt den Rest."
+      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas schrieb: Die Ziel-Org würde keinen Datensatz eines Objekts annehmen, das sie schreibt. Sie hat das Objekt nicht, der Benutzer, mit dem die Synchronisierung schreibt, darf es dort nicht sehen, erstellen oder bearbeiten, oder sein Upsert gleicht über ein Feld ab, über das die Ziel-Org keinen Upsert abgleicht.",
+      "action": "Lassen Sie diese Objekte aus dem Lauf heraus, geben Sie dem Benutzer, mit dem die Synchronisierung schreibt, Zugriff auf ein Objekt, das er in der Ziel-Org nicht schreiben darf, oder lassen Sie einen Upsert über eine externe ID dieser Org abgleichen: Die Meldung sagt, was jedes Objekt braucht. Von der Seite gestartet, fragt die Synchronisierung, ob sie sie auslassen soll, und schreibt den Rest."
     },
     "apiBudgetExceeded": {
       "explanation": "Der Lauf wurde abgelehnt, bevor er etwas schrieb: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben, seine Datensätze mit REQUEST_LIMIT_EXCEEDED abgelehnt.",

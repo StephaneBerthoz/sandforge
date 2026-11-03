@@ -96,6 +96,17 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                     .map(({ objectApiName, rows }) => `${objectApiName} ${formatNumber(rows)}`)
                     .join(', ')})`}
               </p>
+              {/* Under the count, as the command line says it: what follows it,
+                  the storage, the requests and the emails, is measured on all
+                  the run counts. Said below them, it spoke of nothing above. */}
+              {(check.notWritten ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-not-written">
+                  {t('sync.writeCheck.notWritten', {
+                    count: check.notWritten,
+                    total: formatNumber(check.total),
+                  })}
+                </p>
+              )}
               {check.alreadyCopied > 0 && (
                 <p className="text-text-secondary">
                   {t('sync.writeCheck.alreadyCopied', { count: check.alreadyCopied })}
@@ -168,14 +179,6 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
               {check.checkpointUnread !== undefined && (
                 <p className="text-status-warning" data-testid="sync-write-check-checkpoint-unread">
                   {check.checkpointUnread}
-                </p>
-              )}
-              {(check.notWritten ?? 0) > 0 && (
-                <p className="text-text-secondary" data-testid="sync-write-check-not-written">
-                  {t('sync.writeCheck.notWritten', {
-                    count: check.notWritten,
-                    total: formatNumber(check.total),
-                  })}
                 </p>
               )}
               {(check.unwritable ?? []).map(({ objectApiName, rows, why, key }) => (

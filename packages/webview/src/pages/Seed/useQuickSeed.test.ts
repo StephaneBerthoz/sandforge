@@ -4,7 +4,7 @@ import { useQuickSeed, isSeedTargetCandidate } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
-import { CRM_STARTER, OrgSafetyTier } from '@sandforge/shared';
+import { CRM_STARTER, OrgSafetyTier, SERVICE_CLOUD_STARTER } from '@sandforge/shared';
 import type { SalesforceOrg, SeedFitProposal, SeedTemplate } from '@sandforge/shared';
 
 function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
@@ -727,6 +727,26 @@ describe('useQuickSeed', () => {
       'Contact',
       'Opportunity',
       'Case',
+    ]);
+  });
+
+  it('sends an object the template marks optional as optional, for an org without it to seed the rest', () => {
+    // Sent without the mark, the articles were a required object: the
+    // storage gate counted them in an org without Knowledge, and the run
+    // that skipped them ended partial.
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(SERVICE_CLOUD_STARTER);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+
+    const sent = (mockMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+    expect(sent.objects.find((o) => o.objectApiName === 'Knowledge__kav')?.optional).toBe(true);
+    expect(sent.objects.filter((o) => o.optional === true).map((o) => o.objectApiName)).toEqual([
+      'Knowledge__kav',
     ]);
   });
 

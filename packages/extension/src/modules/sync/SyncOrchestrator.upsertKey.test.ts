@@ -7,6 +7,7 @@ import { FieldMappingService } from './FieldMapping.js';
 import { TransformPipeline } from './TransformPipeline.js';
 import { ConflictResolver } from './ConflictResolver.js';
 import { unwritableRefusal, type SyncWriteGate } from './SyncRunGate.js';
+import { simulationKey } from './SyncSimulation.js';
 
 /*
  * An upsert of accounts on Name, run between two scratch orgs: its dry run
@@ -138,6 +139,20 @@ function orchestrator(
 
 const ACCOUNT = { Id: '001000000000001AAA', Name: 'Northwind', Legacy_Key__c: 'n-1' };
 
+/** A target that holds one record of each key it is asked of, as one copied with the org does. */
+const holdingEach: NonNullable<SyncOrchestratorDeps['findInTarget']> = async (
+  _org,
+  _objectConfig,
+  _keyField,
+  keys,
+) =>
+  new Map(
+    keys.flatMap((key) => {
+      const held = simulationKey(key);
+      return held === null ? [] : [[held, 1] as const];
+    }),
+  );
+
 describe('the key of an upsert', () => {
   it('counts every record refused in a simulation, naming the field, where it counted them inserted', async () => {
     const target = targetOrg();
@@ -185,11 +200,11 @@ describe('the key of an upsert', () => {
     ],
     ['the Id', 'Account', 'Id', ACCOUNT],
   ])('lets through %s', async (_what, objectApiName, externalIdField, row) => {
-    const access = await orchestrator(targetOrg(), [row]).simulate(
+    const access = await orchestrator(targetOrg(), [row], { findInTarget: holdingEach }).simulate(
       config(objectConfig({ objectApiName, externalIdField })),
     );
 
-    expect(access.objects[0]).toMatchObject({ refused: 0 });
+    expect(access.objects[0]).toMatchObject({ update: 1, refused: 0 });
   });
 
   describe('written in another case than the target names it', () => {
@@ -259,10 +274,66 @@ describe('the key of an upsert', () => {
     const noKey = objectConfig();
     delete noKey.externalIdField;
 
-    const simulated = await orchestrator(targetOrg(), [ACCOUNT]).simulate(config(noKey));
+    const simulated = await orchestrator(targetOrg(), [ACCOUNT], {
+      findInTarget: holdingEach,
+    }).simulate(config(noKey));
 
-    expect(simulated.objects[0]).toMatchObject({ refused: 0 });
+    expect(simulated.objects[0]).toMatchObject({ update: 1, refused: 0 });
   });
+
+  it.each([
+    ['named', 'Id'],
+    ['left to the default', undefined],
+  ])(
+    'counts refused an upsert on the Id %s whose id the target does not hold, and the rows under it',
+    async (_how, externalIdField) => {
+      // The id is the source's: the platform creates no record of an id it is
+      // given, so the run had every such row refused, where the dry run said
+      // it would insert them, refused 0, exit 0.
+      const accounts = objectConfig({ externalIdField });
+      if (externalIdField === undefined) delete accounts.externalIdField;
+      const contacts = objectConfig({
+        objectApiName: 'Contact',
+        operation: 'insert',
+        insertOrder: 1,
+      });
+      delete contacts.externalIdField;
+      const run = config(accounts);
+      run.objects.push(contacts);
+      const contact = { Id: '003000000000001AAA', LastName: 'Ann', AccountId: ACCOUNT.Id };
+      const withLookup = async (objectApiName: string) =>
+        objectApiName === 'Contact'
+          ? targetWriteFieldsOf({
+              name: 'Contact',
+              createable: true,
+              updateable: true,
+              fields: [
+                ...CONTACT_FIELDS,
+                {
+                  name: 'AccountId',
+                  createable: true,
+                  type: 'reference',
+                  referenceTo: ['Account'],
+                },
+              ],
+            })
+          : describeTarget(objectApiName);
+
+      const simulated = await orchestrator(targetOrg(), [], {
+        querySource: async (_org, objectConfig) =>
+          objectConfig.objectApiName === 'Account' ? [{ ...ACCOUNT }] : [{ ...contact }],
+        describeTargetFields: withLookup,
+      }).simulate(run);
+
+      expect(simulated.objects.map((o) => [o.objectApiName, o.insert, o.refused])).toEqual([
+        ['Account', 0, 1],
+        ['Contact', 0, 1],
+      ]);
+      expect(simulated.objects[0]?.notes.join(' ')).toContain(
+        'an upsert on the Id finds no record there and creates none',
+      );
+    },
+  );
 
   it('holds no insert or update to a key it does not send', async () => {
     const simulated = await orchestrator(targetOrg(), [ACCOUNT]).simulate(
@@ -348,5 +419,21 @@ describe('unwritableRefusal', () => {
     );
     expect(said).toContain('Leave it out of the run, or match on an External ID field of TGT.');
     expect(said).not.toContain('access');
+  });
+
+  it('says beside a key what lifts it, and the access only of the objects access lifts', () => {
+    const said = unwritableRefusal(
+      [
+        { objectApiName: 'Account', rows: 3, why: 'notAKey', key: 'Name' },
+        { objectApiName: 'Invoice__c', rows: 2, why: 'notInTarget' },
+        { objectApiName: 'Case', rows: 4, why: 'notCreateable' },
+      ],
+      'TGT',
+    );
+
+    expect(said).toContain(
+      'Leave them out of the run, give the user SandForge writes as access to Invoice__c and ' +
+        'Case in TGT, or match Account on an External ID field of TGT. Nothing was written.',
+    );
   });
 });

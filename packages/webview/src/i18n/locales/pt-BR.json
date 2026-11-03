@@ -6463,8 +6463,8 @@
       "action": "Simule-a para ver os números e depois dê ao usuário que a executa um bypass que silencie esses Flows, grave menos registros ou execute-a de novo amanhã."
     },
     "syncTargetUnwritable": {
-      "explanation": "A sincronização foi recusada antes de gravar qualquer coisa: a org de destino não aceitaria nenhum registro de um objeto que ela grava. Ela não tem o objeto, ou o usuário com que a sincronização grava não pode vê-lo, criá-lo ou editá-lo lá.",
-      "action": "Deixe esses objetos fora da execução, ou dê ao usuário com que a sincronização grava acesso a eles na org de destino. Iniciada pela página, a sincronização pergunta se deve deixá-los de fora e grava o resto."
+      "explanation": "A sincronização foi recusada antes de gravar qualquer coisa: a org de destino não aceitaria nenhum registro de um objeto que ela grava. Ela não tem o objeto, o usuário com que a sincronização grava não pode vê-lo, criá-lo ou editá-lo lá, ou o upsert dele corresponde por um campo pelo qual a org de destino não faz nenhum.",
+      "action": "Deixe esses objetos fora da execução, dê ao usuário com que a sincronização grava acesso a um objeto que ele não pode gravar na org de destino, ou faça um upsert corresponder por um ID externo dessa org: a mensagem diz o que cada objeto precisa. Iniciada pela página, a sincronização pergunta se deve deixá-los de fora e grava o resto."
     },
     "apiBudgetExceeded": {
       "explanation": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, e teria parado no meio do caminho, com seus registros recusados com REQUEST_LIMIT_EXCEEDED.",

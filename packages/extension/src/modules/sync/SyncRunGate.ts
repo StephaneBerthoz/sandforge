@@ -695,13 +695,20 @@ export function unwritableRefusal(
     )
     .join('; ');
   const pronoun = unwritable.length === 1 ? 'it' : 'them';
-  // No access lifts a key the target does not match on.
-  const way = unwritable.some(({ why }) => why !== 'notAKey')
-    ? `give the user SandForge writes as access to ${pronoun} in ${org}`
-    : `match on an External ID field of ${org}`;
+  // No access lifts a key the target does not match on. Where both kinds
+  // stand, each way names the objects it lifts: one sentence of access for
+  // all of them sent the user to give access that left the key refused.
+  const keyed = unwritable.filter(({ why }) => why === 'notAKey');
+  const closed = unwritable.filter(({ why }) => why !== 'notAKey');
+  const mixed = keyed.length > 0 && closed.length > 0;
+  const namesOf = (objects: typeof unwritable): string =>
+    objects.map(({ objectApiName }) => objectApiName).join(' and ');
+  const access = `give the user SandForge writes as access to ${mixed ? namesOf(closed) : pronoun} in ${org}`;
+  const key = `match ${mixed ? `${namesOf(keyed)} ` : ''}on an External ID field of ${org}`;
+  const way = mixed ? `${access}, or ${key}` : keyed.length > 0 ? `or ${key}` : `or ${access}`;
   return (
     `${org} would take no record of ${unwritable.length === 1 ? 'one object' : `${unwritable.length} objects`} ` +
-    `the sync writes — ${named}. Leave ${pronoun} out of the run, or ${way}. Nothing was written.`
+    `the sync writes — ${named}. Leave ${pronoun} out of the run, ${way}. Nothing was written.`
   );
 }
 

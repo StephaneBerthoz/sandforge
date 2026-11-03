@@ -6463,8 +6463,8 @@
       "action": "Simulez-la pour voir les chiffres, puis donnez à l'utilisateur qui l'exécute un contournement qui fait taire ces Flows, écrivez moins d'enregistrements, ou relancez-la demain."
     },
     "syncTargetUnwritable": {
-      "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : l'org cible n'accepterait aucun enregistrement d'un objet qu'elle écrit. Elle n'a pas cet objet, ou l'utilisateur avec lequel la synchronisation écrit ne peut pas le voir, le créer ou le modifier.",
-      "action": "Laissez ces objets hors de l'exécution, ou donnez à l'utilisateur avec lequel la synchronisation écrit l'accès à ces objets dans l'org cible. Lancée depuis la page, la synchronisation demande s'il faut les laisser de côté et écrit le reste."
+      "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : l'org cible n'accepterait aucun enregistrement d'un objet qu'elle écrit. Elle n'a pas cet objet, l'utilisateur avec lequel la synchronisation écrit ne peut pas le voir, le créer ou le modifier, ou son upsert s'appuie sur un champ sur lequel l'org cible n'en fait aucun.",
+      "action": "Laissez ces objets hors de l'exécution, donnez à l'utilisateur avec lequel la synchronisation écrit l'accès à un objet qu'il ne peut pas écrire dans l'org cible, ou faites porter un upsert sur un ID externe de cette org : le message dit ce qu'il faut à chaque objet. Lancée depuis la page, la synchronisation demande s'il faut les laisser de côté et écrit le reste."
     },
     "apiBudgetExceeded": {
       "explanation": "L'exécution a été refusée avant d'écrire quoi que ce soit : elle prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêtée en cours de route, ses enregistrements refusés avec REQUEST_LIMIT_EXCEEDED.",

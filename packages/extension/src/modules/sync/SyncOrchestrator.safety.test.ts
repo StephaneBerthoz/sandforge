@@ -412,6 +412,92 @@ describe('SyncOrchestrator — before the first write', () => {
     });
   });
 
+  /** The target's describes, as a user without Create on Account reads them. */
+  const accountsClosed = async (object: string): Promise<TargetWriteFields> =>
+    object === 'Account'
+      ? targetWriteFieldsOf({
+          name: 'Account',
+          createable: false,
+          updateable: false,
+          fields: [{ name: 'Name', createable: false, type: 'string' }],
+        })
+      : DESCRIBES[object];
+
+  /** The target's describes, as an org that matches no upsert on Account.Name gives them. */
+  const nameNoKey = async (object: string): Promise<TargetWriteFields> =>
+    object === 'Account'
+      ? targetWriteFieldsOf({
+          name: 'Account',
+          createable: true,
+          updateable: true,
+          fields: [
+            { name: 'Id', createable: false, type: 'id', idLookup: true, externalId: false },
+            { name: 'Name', createable: true, type: 'string', idLookup: false, externalId: false },
+          ],
+        })
+      : DESCRIBES[object];
+
+  it.each([
+    ['the target user may not create', accountsClosed, insertOf('Account', 1)],
+    [
+      'whose upsert matches on a field the target matches none on',
+      nameNoKey,
+      { ...insertOf('Account', 1), operation: 'upsert' as const, externalIdField: 'Name' },
+    ],
+  ])(
+    'holds back the contacts of an account %s once the user leaves it out, as its simulation counted them',
+    async (_why, describeTargetFields, accounts) => {
+      // The simulation counted every contact refused, its account refused;
+      // the run left the accounts out and sent each contact with the source's
+      // AccountId, which the target refused, and wrote it again without one.
+      const target = targetOrg();
+      const objects = [insertOf('Contact', 0), accounts];
+      const simulation = await orchestrator(target, sourceOrg(), {
+        writeGate: gate().writeGate,
+        describeTargetFields,
+      }).simulate(config({ objects }));
+      const { writeGate } = gate({ go: true, asked: true });
+
+      const result = await orchestrator(target, sourceOrg(), {
+        writeGate,
+        describeTargetFields,
+      }).execute(config({ objects }));
+
+      expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+        insert: 0,
+        refused: 2,
+      });
+      expect(target.insert).not.toHaveBeenCalled();
+      expect(target.held.size).toBe(0);
+      const contacts = result.objectResults.find((o) => o.objectApiName === 'Contact');
+      expect(contacts).toMatchObject({ success: 0, failed: 2 });
+      expect(contacts?.errors.join(' ')).toContain('PARENT_REFUSED');
+    },
+  );
+
+  it('stops before the contacts when the accounts it leaves out cannot be read, as its simulation stops', async () => {
+    const target = targetOrg();
+    const source = sourceOrg();
+    const { writeGate } = gate({ go: true, asked: true });
+
+    const run = orchestrator(target, source, {
+      writeGate,
+      describeTargetFields: accountsClosed,
+      querySource: async (_org, objectConfig) => {
+        if (objectConfig.objectApiName === 'Account') {
+          throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+        }
+        return source[objectConfig.objectApiName];
+      },
+    }).execute(config());
+
+    await expect(run).rejects.toMatchObject({
+      message: 'QUERY_TIMEOUT: Your query request was running for too long.',
+      result: expect.objectContaining({ status: 'failure' }) as unknown,
+    });
+    expect(target.insert).not.toHaveBeenCalled();
+  });
+
   it('measures a simulation by its gate, asking nobody', async () => {
     const target = targetOrg();
     const { writeGate, held, measured } = gate();

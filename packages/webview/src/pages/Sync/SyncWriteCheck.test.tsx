@@ -131,6 +131,21 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('says what of the count it would not write under the count, above the figures measured on all of it', () => {
+    // Said below the storage, the API requests and the emails, "what follows"
+    // spoke of the lines above it, read as measured on the records written.
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, total: 4, notWritten: 3 }} />);
+
+    const notWritten = screen.getByTestId('sync-write-check-not-written');
+    expect(screen.getByTestId('sync-write-check-records').nextElementSibling).toBe(notWritten);
+    for (const figure of ['sync-write-check-storage', 'sync-write-check-emails-SingleEmail']) {
+      expect(
+        notWritten.compareDocumentPosition(screen.getByTestId(figure)) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
   it('names the field of an upsert the target matches none on', () => {
     render(
       <SyncWriteCheckCard

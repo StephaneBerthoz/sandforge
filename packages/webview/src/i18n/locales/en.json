@@ -6463,8 +6463,8 @@
       "action": "Simulate it to see the figures, then give the running user a bypass that keeps those Flows quiet, write fewer records, or run it again tomorrow."
     },
     "syncTargetUnwritable": {
-      "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, or the user the sync writes as may not see, create or edit it there.",
-      "action": "Leave those objects out of the run, or give the user the sync writes as access to them in the target org. Started from the page, the sync asks whether to leave them out and writes the rest."
+      "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, the user the sync writes as may not see, create or edit it there, or its upsert matches on a field the target org matches none on.",
+      "action": "Leave those objects out of the run, give the user the sync writes as access to an object it may not write in the target org, or match an upsert on an External ID field of that org: the message says which each object needs. Started from the page, the sync asks whether to leave them out and writes the rest."
     },
     "apiBudgetExceeded": {
       "explanation": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through, its records refused with REQUEST_LIMIT_EXCEEDED.",
