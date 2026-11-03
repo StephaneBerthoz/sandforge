@@ -9,6 +9,7 @@ import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { isAuthError } from '../common/isAuthError.js';
 import { OrgConnectionError } from './OrgConnectionError.js';
+import { sfChildEnv } from './sfEnvironment.js';
 import { expiredScratchDate } from '@sandforge/shared';
 import { logger } from '../../logger.js';
 
@@ -229,7 +230,7 @@ export async function refreshTokenViaCli(username: string): Promise<CliCredentia
     // spawns, which is why runInShell also has CLI_DEADLINE_MS.
     timeout: CLI_TIMEOUT_MS,
     windowsHide: true,
-    env: { ...process.env, NO_COLOR: '1' },
+    env: sfChildEnv(),
   } as const;
 
   // POSIX: argv-as-array via execFile — no shell, no interpolation.

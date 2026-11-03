@@ -1,6 +1,10 @@
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
 import type { CliTokenReader, SfdxImportResult, SfdxUnreadableOrg } from './SfdxBridge';
+import { logger } from '../../logger.js';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
@@ -38,12 +42,72 @@ function liveTokenOf(username: string): string {
   return `00Dlive!${username}`;
 }
 
+/** What a stand-in `sf` prints, by the way it is started. */
+interface ScriptedSf {
+  /** `sf org list --json` with its output on the extension's pipes. */
+  pipe: { stdout: string; stderr: string };
+  /** How long that run lasts, on a clock the test fakes. */
+  pipeTakesMs?: number;
+  /**
+   * The same command with its output sent to files: what it writes into
+   * them, or the error its shell exits with after the shell has created them.
+   */
+  file?: { stdout: string; stderr: string; error?: Error };
+  /** What `where sf node` (Windows) or `which -a sf node` prints. */
+  where?: string;
+  /** What `sf --version` prints. */
+  version?: string;
+}
+
+/** One start of a process, as `exec` was asked for it. */
+interface SeenExec {
+  command: string;
+  env: NodeJS.ProcessEnv | undefined;
+}
+
+/** The redirection `readThroughFiles` writes, in either shell's quotes. */
+const REDIRECTED = /^sf org list --json > (['"])([^'"]+)\1 2> (['"])([^'"]+)\3$/;
+
+/**
+ * The CLI at the process boundary, answering each command the way the shell
+ * would run it. A redirected run gets two files the shell has already created
+ * (empty), and writes into them what the script says.
+ */
+function scriptSf(script: ScriptedSf): SeenExec[] {
+  const seen: SeenExec[] = [];
+  mockExec.mockImplementation((async (
+    command: string,
+    options?: { env?: NodeJS.ProcessEnv },
+  ): Promise<{ stdout: string; stderr: string }> => {
+    seen.push({ command, env: options?.env });
+    if (command === 'sf --version') return { stdout: script.version ?? '', stderr: '' };
+    if (command === 'sf org list --json') {
+      if (script.pipeTakesMs !== undefined) vi.setSystemTime(Date.now() + script.pipeTakesMs);
+      return script.pipe;
+    }
+    const redirected = REDIRECTED.exec(command);
+    if (redirected) {
+      writeFileSync(redirected[2], script.file?.stdout ?? '');
+      writeFileSync(redirected[4], script.file?.stderr ?? '');
+      if (script.file?.error) throw script.file.error;
+      return { stdout: '', stderr: '' };
+    }
+    if (command === 'where sf node' || command === 'which -a sf node') {
+      return { stdout: script.where ?? '', stderr: '' };
+    }
+    throw new Error(`The stand-in sf was not scripted for: ${command}`);
+  }) as never);
+  return seen;
+}
+
 describe('SfdxBridge', () => {
   let bridge: SfdxBridge;
   let readToken: ReturnType<typeof vi.fn<CliTokenReader>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // A scripted CLI answers every command it is given: it must not outlive its test.
+    mockExec.mockReset();
     readToken = vi.fn<CliTokenReader>(async (username) => ({
       accessToken: liveTokenOf(username),
     }));
@@ -59,7 +123,12 @@ describe('SfdxBridge', () => {
       expect(result).toBe(true);
       expect(mockExec).toHaveBeenCalledWith(
         'sf --version',
-        expect.objectContaining({ maxBuffer: 10 * 1024 * 1024, windowsHide: true }),
+        expect.objectContaining({
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+          // A managed laptop's sf took 13 s to say its version.
+          timeout: 30_000,
+        }),
       );
     });
 
@@ -313,18 +382,15 @@ describe('SfdxBridge', () => {
     });
 
     it('says which command printed nothing, and how to see which sf answered', async () => {
-      mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
+      scriptSf({ pipe: { stdout: '', stderr: '' } });
 
       await expect(bridge.listOrgs()).rejects.toThrow(
-        /sf org list --json ended without an error and printed nothing, so there are no orgs to read\..*(where|which) sf/,
+        /sf org list --json ended without an error and printed nothing, so there are no orgs to read\..*(where\.exe|which -a) sf/,
       );
     });
 
     it('quotes what an sf that printed nothing wrote on stderr', async () => {
-      mockExec.mockResolvedValueOnce({
-        stdout: ' \r\n',
-        stderr: '\nBlocked by policy\nmore',
-      } as never);
+      scriptSf({ pipe: { stdout: ' \r\n', stderr: '\nBlocked by policy\nmore' } });
 
       await expect(bridge.listOrgs()).rejects.toThrow('(it said: Blocked by policy)');
     });
@@ -376,6 +442,240 @@ describe('SfdxBridge', () => {
       mockExec.mockRejectedValueOnce(err as never);
 
       await expect(bridge.listOrgs()).rejects.toThrow('SF CLI failed with no output');
+    });
+  });
+
+  /**
+   * On a Windows laptop `sf org list --json` printed 40 KB in a terminal of
+   * the window and nothing when the extension ran it, without an error. The
+   * second run sends its output to a file, and what is said names the sf
+   * this window runs, what it printed and how long it ran.
+   */
+  describe('an sf org list that prints nothing on its pipe', () => {
+    const ORG = {
+      orgId: '00D000000000001AAA',
+      username: 'admin@uat.example',
+      alias: 'uat',
+      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+      accessToken: 'token-1',
+      connectedStatus: 'Connected',
+      isSandbox: true,
+    };
+    const realPlatform = process.platform;
+    let output: string[];
+
+    beforeEach(() => {
+      output = [];
+      logger.init({ appendLine: (line) => output.push(line) });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: realPlatform });
+      mockExec.mockReset();
+    });
+
+    /** The paths of the two files the redirected run of `seen` wrote to. */
+    function redirectedFiles(seen: SeenExec[]): string[] {
+      const run = seen.map((call) => REDIRECTED.exec(call.command)).find((match) => match !== null);
+      return run ? [run[2], run[4]] : [];
+    }
+
+    it('reads the orgs from a file the second run sends its output to, then removes the file', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      const seen = scriptSf({
+        pipe: { stdout: '', stderr: '' },
+        file: { stdout: makeSfOrgListOutput([ORG]), stderr: '' },
+        where: '/usr/local/bin/sf\n/usr/local/bin/node\n',
+      });
+
+      const results = await bridge.listOrgs();
+
+      expect(results.map((r) => r.org.orgId)).toEqual(['00D000000000001AAA']);
+      const files = redirectedFiles(seen);
+      expect(files).toHaveLength(2);
+      expect(seen.map((call) => call.command)).toContain(
+        `sf org list --json > '${files[0]}' 2> '${files[1]}'`,
+      );
+      expect(existsSync(dirname(files[0]))).toBe(false);
+      expect(output.join('\n')).toMatch(
+        /sf org list --json printed nothing on its pipe; what it wrote to a file was read instead\..*sf found: \/usr\/local\/bin\/sf; node found: \/usr\/local\/bin\/node/,
+      );
+    });
+
+    it('says which sf this window runs, what its sf --version printed and how long it ran', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      const home = homedir();
+      scriptSf({
+        version: '@salesforce/cli/2.156.8 linux-x64 node-v22.15.1\n',
+        pipe: { stdout: '', stderr: '' },
+        file: { stdout: '', stderr: '' },
+        where: `${home}/.npm-global/bin/sf\n/usr/bin/sf\n${home}/.nvm/node\n`,
+      });
+
+      await bridge.isCliAvailable();
+      const failure = await bridge.listOrgs().then(
+        () => undefined,
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+
+      expect(failure).toMatch(/It ran \d+\.\d s and exited with code 0\./);
+      expect(failure).toMatch(
+        /Run again with its output sent to a file, it ended with exit code 0 after \d+\.\d s, with 0 chars in its stdout file and 0 in its stderr file\./,
+      );
+      expect(failure).toContain(
+        'This window runs ~/.npm-global/bin/sf (sf is found in 2 folders of its PATH)',
+      );
+      expect(failure).toContain(
+        'and its sf --version says @salesforce/cli/2.156.8 linux-x64 node-v22.15.1',
+      );
+      expect(failure).not.toContain(home);
+      const logged = output.join('\n');
+      expect(logged).toContain('sf org list --json printed nothing, on its pipe or to a file.');
+      expect(logged).toMatch(
+        /first run: \d+\.\d s of the 30 s allowed, exit code 0, stdout 0 chars, stderr 0 chars;/,
+      );
+      expect(logged).toMatch(
+        /run with its output sent to files: ended with exit code 0 after \d+\.\d s, with 0 chars in its stdout file and 0 in its stderr file;/,
+      );
+      expect(logged).toContain(
+        'sf found: ~/.npm-global/bin/sf | /usr/bin/sf; node found: ~/.nvm/node',
+      );
+      expect(logged).toContain('sf --version: "@salesforce/cli/2.156.8 linux-x64 node-v22.15.1"');
+      expect(logged).toContain('variables set: ');
+      expect(logged).not.toContain(home);
+    });
+
+    it('says the run reached its limit when it lasted the 30 s it was allowed', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        scriptSf({
+          pipe: { stdout: '', stderr: '' },
+          pipeTakesMs: 30_000,
+          file: { stdout: '', stderr: '' },
+        });
+
+        await expect(bridge.listOrgs()).rejects.toThrow(
+          'It ran 30.0 s, its 30 s limit, and exited with code 0.',
+        );
+        expect(output.join('\n')).toContain(
+          'first run: 30.0 s of the 30 s allowed (it reached the limit), exit code 0',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says how the second run ended and what it wrote on stderr when its shell fails', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      scriptSf({
+        pipe: { stdout: '', stderr: '' },
+        file: {
+          stdout: '',
+          stderr: '/bin/sh: 1: sf: not found\n',
+          error: Object.assign(new Error('Command failed: sf org list --json'), { code: 127 }),
+        },
+      });
+
+      await expect(bridge.listOrgs()).rejects.toThrow(
+        /it ended with exit code 127 after \d+\.\d s, with 0 chars in its stdout file and 26 in its stderr file \("\/bin\/sh: 1: sf: not found"\)\./,
+      );
+    });
+
+    it('says the second run could not be made when the temp folder holds a quote', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      const quotedTemp = mkdtempSync(join(tmpdir(), "it's-"));
+      const savedTmp = process.env.TMPDIR;
+      process.env.TMPDIR = quotedTemp;
+      try {
+        const seen = scriptSf({ pipe: { stdout: '', stderr: '' } });
+
+        await expect(bridge.listOrgs()).rejects.toThrow(
+          'Run again with its output sent to a file, it could not be made (The temporary folder path cannot contain a quote or control characters',
+        );
+        expect(seen.every((call) => !call.command.includes(' > '))).toBe(true);
+        expect(readdirSync(quotedTemp)).toEqual([]);
+      } finally {
+        if (savedTmp === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = savedTmp;
+        rmSync(quotedTemp, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * cmd.exe gets each file path in double quotes, as every argument it is
+     * handed; `where` lists npm's extensionless shell script first, which
+     * cmd.exe does not run, so the window's sf is the `.cmd` after it.
+     */
+    it('on Windows, quotes the files for cmd.exe and names the sf.cmd cmd.exe runs', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const npm = `${homedir()}\\AppData\\Roaming\\npm`;
+      const seen = scriptSf({
+        version: '',
+        pipe: { stdout: '', stderr: '' },
+        file: { stdout: '', stderr: '' },
+        where: `${npm}\\sf\r\n${npm}\\sf.cmd\r\nC:\\nvm4w\\nodejs\\sf.cmd\r\nC:\\nvm4w\\nodejs\\node.exe\r\n`,
+      });
+
+      await bridge.isCliAvailable();
+      const failure = await bridge.listOrgs().then(
+        () => undefined,
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+
+      const files = redirectedFiles(seen);
+      expect(seen.map((call) => call.command)).toContain(
+        `sf org list --json > "${files[0]}" 2> "${files[1]}"`,
+      );
+      expect(seen.map((call) => call.command)).toContain('where sf node');
+      expect(failure).toContain(
+        'This window runs ~\\AppData\\Roaming\\npm\\sf.cmd (sf is found in 2 folders of its PATH)',
+      );
+      expect(failure).toContain('and its sf --version printed nothing either');
+      expect(failure).toContain('run sf org list --json and where.exe sf');
+    });
+
+    it('leaves the pipe alone when sf org list printed its JSON there', async () => {
+      const seen = scriptSf({ pipe: { stdout: makeSfOrgListOutput([ORG]), stderr: '' } });
+
+      await bridge.listOrgs();
+
+      expect(seen.map((call) => call.command)).toEqual(['sf org list --json']);
+      expect(output).toEqual([]);
+    });
+  });
+
+  /**
+   * The extension host carries variables of VS Code's own processes, among
+   * them ELECTRON_RUN_AS_NODE=1; a terminal of the window does not get them,
+   * and neither does sf.
+   */
+  describe('the environment sf runs in', () => {
+    const saved = { ...process.env };
+
+    afterEach(() => {
+      for (const name of Object.keys(process.env)) {
+        if (!(name in saved)) delete process.env[name];
+      }
+      Object.assign(process.env, saved);
+      mockExec.mockReset();
+    });
+
+    it('is the host environment without its VS Code variables, colours off', async () => {
+      process.env.ELECTRON_RUN_AS_NODE = '1';
+      process.env.VSCODE_PID = '4242';
+      process.env.HTTPS_PROXY = 'http://proxy.example:8080';
+      const seen = scriptSf({ pipe: { stdout: makeSfOrgListOutput([]), stderr: '' } });
+
+      await bridge.listOrgs();
+
+      const env = seen[0].env ?? {};
+      expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+      expect(env.VSCODE_PID).toBeUndefined();
+      expect(env.HTTPS_PROXY).toBe('http://proxy.example:8080');
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(env.NO_COLOR).toBe('1');
+      expect(process.env.ELECTRON_RUN_AS_NODE).toBe('1');
     });
   });
 
