@@ -32,27 +32,33 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
 
-/** One object of the fake org: the fields the user is shown, and its rows. */
+/**
+ * One object of the fake org: the fields the user is shown, and its rows; the
+ * fields the user may read and not edit, and whether it may edit the object.
+ */
 interface FakeObject {
   shown: readonly string[];
   rows: Array<Record<string, unknown>>;
+  readOnly?: readonly string[];
+  editable?: false;
 }
 
 /** An object's describe, as the org gives it to the connected user. */
-function describeOf(name: string, shown: readonly string[]) {
+function describeOf(name: string, object: FakeObject) {
+  const editable = (field: string) => field !== 'Id' && !(object.readOnly ?? []).includes(field);
   return {
     name,
     label: name,
-    createable: true,
-    updateable: true,
+    createable: object.editable ?? true,
+    updateable: object.editable ?? true,
     deletable: true,
     queryable: true,
-    fields: ['Id', ...shown].map((field) => ({
+    fields: ['Id', ...object.shown].map((field) => ({
       name: field,
       label: field,
       type: field === 'Id' ? 'id' : 'string',
-      createable: field !== 'Id',
-      updateable: field !== 'Id',
+      createable: editable(field),
+      updateable: editable(field),
       permissionable: field !== 'Id',
     })),
     recordTypeInfos: [],
@@ -101,7 +107,7 @@ function orgOf(objects: Record<string, FakeObject>) {
     describe: vi.fn(async (name: string) => {
       const object = objects[name];
       if (!object) throw new Error(`NOT_FOUND: The requested resource does not exist: ${name}`);
-      return describeOf(name, object.shown);
+      return describeOf(name, object);
     }),
     sobject: vi.fn(() => ({ update, upsert: vi.fn() })),
     soap: { undelete: vi.fn(async () => []) },
@@ -320,6 +326,10 @@ describe('DataOpsHandler: a masking run of the page covers its template, or writ
       objectsNotCovered: ['Account'],
       message: expect.stringContaining('masks no field of Account'),
     });
+    // No access would change it: the template names no field of Account.
+    const message = String(posted('dataops:error')[0].payload.message);
+    expect(message).toContain('Choose an object its rules name, or another template.');
+    expect(message).not.toContain('access');
     expect(posted('dataops:anonymize:response')).toEqual([]);
     expect(update).not.toHaveBeenCalled();
   });
@@ -417,7 +427,208 @@ describe('DataOpsHandler: a masking run of the page covers its template, or writ
     expect(checkpoints.load('org-1', 'tpl-saved-people', fingerprint)?.id).toBe('cp-1');
   });
 
+  it('masks every rule of an object whatever the case its rules name it in, once', async () => {
+    // `contact.Birthdate` is the field Salesforce reads as Contact.Birthdate:
+    // asked for Contact, the run masked the first names alone and said success.
+    new AnonymizationTemplateStore(store).save({
+      id: 'tpl-saved-cases',
+      name: 'Cases',
+      description: '',
+      complianceFramework: 'custom',
+      rules: [
+        { fieldPattern: 'Contact.FirstName', ruleType: 'nullify', description: '' },
+        { fieldPattern: 'contact.Birthdate', ruleType: 'nullify', description: '' },
+      ],
+      saved: true,
+      createdAt: '2026-10-01T00:00:00.000Z',
+    });
+    const { update } = orgOf({ Contact: { shown: ['FirstName', 'Birthdate'], rows: CONTACTS } });
+
+    for (const objects of [['Contact'], undefined]) {
+      update.mockClear();
+      await request('dataops:anonymize', {
+        templateId: 'tpl-saved-cases',
+        ...(objects ? { objects } : {}),
+      });
+
+      expect(posted('dataops:error')).toEqual([]);
+      const sent = update.mock.calls.flatMap(([batch]) => batch);
+      expect(sent).toEqual(
+        CONTACTS.map((c) =>
+          expect.objectContaining({ Id: c.Id, FirstName: null, Birthdate: null }),
+        ),
+      );
+    }
+  });
+
+  describe('on the person accounts of Account', () => {
+    /**
+     * Field-level security of a person account's fields is its contact's: the
+     * one that hides Birthdate from the user hides PersonBirthdate too, and
+     * the describe of Account leaves it out as that of Contact leaves out
+     * Birthdate.
+     */
+    const PERSON_SHOWN = [
+      'IsPersonAccount',
+      'Name',
+      'FirstName',
+      'LastName',
+      'Phone',
+      'PersonEmail',
+      'PersonMailingStreet',
+      'PersonMailingCity',
+      'PersonMailingPostalCode',
+    ];
+    const CONTACT_SHOWN = [
+      'FirstName',
+      'LastName',
+      'Email',
+      'Phone',
+      'MailingStreet',
+      'MailingCity',
+      'MailingPostalCode',
+      'Description',
+    ];
+    const PERSONS = [
+      {
+        Id: '001000000000001',
+        IsPersonAccount: true,
+        Name: 'Ada Lovelace',
+        FirstName: 'Ada',
+        LastName: 'Lovelace',
+        Phone: '+1 415 555 0101',
+        PersonEmail: 'ada@example.org',
+        PersonMailingStreet: '12 St James Square',
+        PersonMailingCity: 'London',
+        PersonMailingPostalCode: 'SW1Y 4JH',
+        PersonBirthdate: '1815-12-10',
+      },
+    ];
+
+    it('refuses a field of a person account the org hides, asked for Account alone, before a record is written', async () => {
+      // Contact is not in the run, so nothing named Contact.Birthdate: the
+      // rule for PersonBirthdate was dropped without a word, the rest of the
+      // person accounts masked, the run a success and every birthdate in clear.
+      const { update, query } = orgOf({
+        Account: { shown: PERSON_SHOWN, rows: PERSONS },
+        Contact: { shown: CONTACT_SHOWN, rows: [] },
+      });
+
+      await request('dataops:anonymize', {
+        templateId: 'tpl-ccpa-california',
+        objects: ['Account'],
+        snapshot: true,
+      });
+
+      const [refused] = posted('dataops:error');
+      expect(refused?.payload).toMatchObject({
+        code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
+        fieldsNotFound: [{ objectApiName: 'Account', fieldApiName: 'PersonBirthdate' }],
+        objectsNotCovered: [],
+      });
+      expect(String(refused?.payload.message)).toContain(
+        'masks Account.PersonBirthdate, which the org does not show',
+      );
+      expect(posted('dataops:anonymize:response')).toEqual([]);
+      expect(update).not.toHaveBeenCalled();
+      expect(query.mock.calls.every(([soql]) => String(soql).startsWith('SELECT COUNT()'))).toBe(
+        true,
+      );
+    });
+
+    it('names that field in the preview, as Apply is then refused for it', async () => {
+      orgOf({
+        Account: { shown: PERSON_SHOWN, rows: PERSONS },
+        Contact: { shown: CONTACT_SHOWN, rows: [] },
+      });
+
+      await request(
+        'dataops:anonymize:preview',
+        { templateId: 'tpl-ccpa-california', objects: ['Account'] },
+        'preview-1',
+      );
+
+      expect(posted('dataops:anonymize:preview:response')[0].payload.fieldsNotFound).toEqual([
+        { objectApiName: 'Account', fieldApiName: 'PersonBirthdate' },
+      ]);
+    });
+
+    it('masks a person account whose contact field the platform gives no person account field, as before', async () => {
+      // A contact's description is shown, and a person account has no
+      // PersonDescription: nothing hides it, there is none to mask.
+      new AnonymizationTemplateStore(store).save({
+        id: 'tpl-saved-notes',
+        name: 'Notes',
+        description: '',
+        complianceFramework: 'custom',
+        rules: [
+          { fieldPattern: 'Contact.LastName', ruleType: 'fake', description: '' },
+          { fieldPattern: 'Contact.Description', ruleType: 'nullify', description: '' },
+        ],
+        saved: true,
+        createdAt: '2026-10-01T00:00:00.000Z',
+      });
+      const { update } = orgOf({
+        Account: { shown: PERSON_SHOWN, rows: PERSONS },
+        Contact: { shown: CONTACT_SHOWN, rows: [] },
+      });
+
+      await request('dataops:anonymize', { templateId: 'tpl-saved-notes', objects: ['Account'] });
+
+      expect(posted('dataops:error')).toEqual([]);
+      expect(posted('dataops:anonymize:response')[0].payload).toMatchObject({
+        status: 'success',
+      });
+      expect(update).toHaveBeenCalled();
+    });
+  });
+
   describe('its preview, before the click', () => {
+    it('names a field the user may read and not edit, and an object it may not edit, which Apply is then refused for', async () => {
+      // A read-only field passed Preview, the dry run and an environment's
+      // plan, and Apply was then refused, CRUD_FLS_DENIED.
+      const { update } = orgOf({
+        Contact: { shown: ['FirstName', 'Birthdate'], readOnly: ['Birthdate'], rows: CONTACTS },
+        Lead: { shown: ['Email', 'Phone'], editable: false, rows: LEADS },
+      });
+
+      await request('dataops:anonymize:preview', {}, 'preview-1');
+      await request('dataops:anonymize', {}, 'apply-1');
+
+      const preview = posted('dataops:anonymize:preview:response')[0].payload;
+      expect(
+        (preview.objects as Array<{ objectApiName: string; writeDenied?: unknown }>).map((o) => [
+          o.objectApiName,
+          o.writeDenied,
+        ]),
+      ).toEqual([
+        ['Contact', { deniedFields: ['Birthdate'] }],
+        ['Lead', { deniedFields: [] }],
+      ]);
+      expect(preview.fieldsNotFound).toEqual([]);
+      const refused = posted('dataops:error')[0].payload;
+      expect(refused.code).toBe('CRUD_FLS_DENIED');
+      expect(String(refused.message)).toContain(
+        "fields [Birthdate] of 'Contact' are not updateable",
+      );
+      expect(String(refused.message)).toContain("User lacks 'update' permission on 'Lead'");
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('names no access on an object with no row, as Apply refuses nothing for it', async () => {
+      orgOf({
+        Contact: { shown: ['FirstName', 'Birthdate'], rows: CONTACTS },
+        Lead: { shown: ['Email', 'Phone'], readOnly: ['Email'], rows: [] },
+      });
+
+      await request('dataops:anonymize:preview', {}, 'preview-1');
+
+      const preview = posted('dataops:anonymize:preview:response')[0].payload;
+      expect((preview.objects as Array<{ writeDenied?: unknown }>).some((o) => o.writeDenied)).toBe(
+        false,
+      );
+    });
+
     it('names what Apply is then refused for, field for field', async () => {
       const org = {
         Contact: { shown: ['FirstName'], rows: CONTACTS },

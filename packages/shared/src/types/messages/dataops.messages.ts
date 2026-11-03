@@ -310,6 +310,13 @@ export interface AnonymizePreviewObject {
    */
   notCovered?: true;
   /**
+   * Present when the object holds rows and the connected user may not edit
+   * what Apply writes there: the fields it names, or the object itself when
+   * `deniedFields` is empty. Apply is refused for it (`CRUD_FLS_DENIED`), and
+   * masks nothing.
+   */
+  writeDenied?: { deniedFields: string[] };
+  /**
    * How each of them is masked, by field: the template's method, or, on the
    * fields of a person account the template does not name, the method a
    * contact's rule or an erasure gives it.

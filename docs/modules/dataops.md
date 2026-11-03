@@ -261,7 +261,11 @@ your own:
   `PersonEmail` for `Email`, `PersonMailingStreet` for `MailingStreet`, a
   custom field as `__pc` -- and the fields only a person account holds that
   the personal data detector names and no rule covers (a mobile or home
-  phone, a birthdate) are overwritten as an erasure overwrites them. Those
+  phone, a birthdate) are overwritten as an erasure overwrites them. Field-level
+  security on a contact's field hides the person account's too, and such a
+  field refuses the run as a field the template names does,
+  `MASKING_FIELDS_UNSEEN`, `--object Account` included; a contact's field that
+  no person account holds, such as `Description`, masks nothing there. Those
   rules mask person accounts only; a business account keeps its rules, a
   person account goes without a rule on `Name`, which the platform computes
   from its first and last names, and an org without person accounts is
@@ -280,8 +284,10 @@ your own:
   so it asks no confirmation. An empty field stays empty, as Apply leaves it;
   an object the org will not read is listed with what the org said. What Apply
   would be refused for is said first, in the words of the refusal, and again
-  in its confirmation. A made-up name is the one Apply
-  writes on the first object; on the next ones Apply may draw another for a
+  in its confirmation: a field the org does not show, an object with no field
+  left, and what the connected user may read and not edit (`CRUD_FLS_DENIED`),
+  which `anonymize --dry-run` and an environment's plan refuse as well. A
+  made-up name is the one Apply writes on the first object; on the next ones Apply may draw another for a
   record whose name an earlier record of the run took first. Apply cannot be
   undone unless it keeps the values first (see above) or a backup holds them.
 - **Your own templates.** **Create Template** opens an editor on the rules of

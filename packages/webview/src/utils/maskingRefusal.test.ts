@@ -44,6 +44,31 @@ describe('maskingGapWords', () => {
       en.common.refusal.maskingMasksNothing.replace('{{objects}}', 'Account'),
     );
   });
+
+  it('says what the user may not edit, alone or after the fields the org hides', () => {
+    expect(
+      maskingGapWords(
+        { fieldsNotFound: [], objectsNotCovered: [], notWritable: ['Contact.Birthdate'] },
+        t,
+      ),
+    ).toBe(en.common.refusal.maskingNotWritable.replace('{{fields}}', 'Contact.Birthdate'));
+    const both = maskingGapWords(
+      { fieldsNotFound: [EMAIL], objectsNotCovered: [], notWritable: ['Contact'] },
+      t,
+    );
+    expect(both).toContain('Lead.Email');
+    expect(
+      both.endsWith(` ${en.common.refusal.maskingNotWritable.replace('{{fields}}', 'Contact')}`),
+    ).toBe(true);
+  });
+
+  it('points an object with no field to name to another object or template, not to an access no field needs', () => {
+    // Every hidden field is named apart: here the template names no field of
+    // the object, and the access the words asked for changed nothing.
+    const said = maskingGapWords({ fieldsNotFound: [], objectsNotCovered: ['Account'] }, t);
+    expect(said).toContain('Choose an object its rules name, or another template.');
+    expect(said).not.toContain('access');
+  });
 });
 
 describe('maskingRefusalWords', () => {

@@ -6,6 +6,12 @@ export interface MaskingGaps {
   fieldsNotFound: ReadonlyArray<{ objectApiName: string; fieldApiName: string }>;
   /** The objects with rows of which it could mask no field at all. */
   objectsNotCovered: readonly string[];
+  /**
+   * What the user may not edit on the objects with rows, `Object.Field`, or
+   * the object's name where it may edit none of it: Apply's own check refuses
+   * the run for it.
+   */
+  notWritable?: readonly string[];
 }
 
 /** Translates a key in the interface language. */
@@ -15,12 +21,28 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
  * Why a masking run cannot cover what its template names, and what to do, in
  * the interface language: the fields the org does not show the user and what
  * hides them, with the objects of which no field is left; or, with no field to
- * name, the objects its rules mask nothing of. A refused run and the preview
- * before it say it in these words, so the two cannot come to differ.
+ * name, the objects its rules mask nothing of; then what the user may not
+ * edit. A refused run and the preview before it say it in these words, so the
+ * two cannot come to differ.
  */
 export function maskingGapWords(gaps: MaskingGaps, t: Translate): string {
+  const notWritable = gaps.notWritable ?? [];
+  const denied =
+    notWritable.length > 0
+      ? t('common.refusal.maskingNotWritable', { fields: listWords(notWritable, t) })
+      : '';
+  const said = coverageWords(gaps, t);
+  return said === '' ? denied : denied === '' ? said : `${said} ${denied}`;
+}
+
+/** What of a template's fields a run cannot cover, or nothing when it covers them. */
+function coverageWords(gaps: MaskingGaps, t: Translate): string {
   const objects = listWords(gaps.objectsNotCovered, t);
-  if (gaps.fieldsNotFound.length === 0) return t('common.refusal.maskingMasksNothing', { objects });
+  if (gaps.fieldsNotFound.length === 0) {
+    return gaps.objectsNotCovered.length > 0
+      ? t('common.refusal.maskingMasksNothing', { objects })
+      : '';
+  }
   const fields = listWords(
     gaps.fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`),
     t,

@@ -7,6 +7,7 @@ import {
   personAccountFieldOf,
   personAccountMasking,
   personAccountRules,
+  personFieldsHidden,
   rulesOfRow,
   type MaskableField,
 } from './personAccountMasking.js';
@@ -133,6 +134,16 @@ describe('personAccountRules', () => {
     });
   });
 
+  it('reads the object of a rule whatever its case, as Salesforce reads it', () => {
+    expect(
+      personAccountRules([
+        { fieldPattern: 'contact.Email', ruleType: 'hash', description: '' },
+        { fieldPattern: 'CONTACT.Phone', ruleType: 'mask', description: '' },
+        { fieldPattern: 'account.phone', ruleType: 'nullify', description: '' },
+      ]).map((r) => r.fieldPattern),
+    ).toEqual(['Account.PersonEmail']);
+  });
+
   it('derives nothing from a template without contact rules', () => {
     expect(
       personAccountRules([
@@ -180,8 +191,9 @@ describe('personAccountMasking', () => {
     const byField = new Map(masking?.rules.map((r) => [r.fieldApiName, r.method]));
     expect(byField.get('FirstName')).toBe('fake');
     expect(byField.get('PersonEmail')).toBe('fake');
-    // A field the org lacks is not masked, nor said to be missing.
+    // A field the describe leaves out is not masked, and is told apart.
     expect(byField.has('PersonNowhere')).toBe(false);
+    expect(masking?.unseen).toEqual(['PersonNowhere']);
     // What the template did not name, the detector does: a person's phones,
     // birthdate and salutation, overwritten as an erasure overwrites them.
     expect(byField.get('PersonMobilePhone')).toBe('fake');
@@ -194,6 +206,28 @@ describe('personAccountMasking', () => {
     expect(byField.has('Fax')).toBe(false);
     expect(byField.has('PersonContactId')).toBe(false);
     expect([...(masking?.personOnly ?? [])]).toEqual(masking?.rules.map((r) => r.fieldApiName));
+  });
+});
+
+describe('personFieldsHidden', () => {
+  it("takes a person account's field the describe leaves out for hidden when the contact's is not shown either", () => {
+    // Field-level security on a contact's Birthdate hides PersonBirthdate.
+    expect(
+      personFieldsHidden(
+        ['PersonBirthdate', 'Loyalty_Tier__pc', 'FirstName'],
+        [{ name: 'Id' }, { name: 'Email' }],
+      ),
+    ).toEqual(['PersonBirthdate', 'Loyalty_Tier__pc', 'FirstName']);
+  });
+
+  it('takes it for one the platform gives no person account when the contact shows its field', () => {
+    expect(
+      personFieldsHidden(['PersonDescription', 'PersonBirthdate'], [{ name: 'description' }]),
+    ).toEqual(['PersonBirthdate']);
+  });
+
+  it('takes every one for hidden in an org that would not describe Contact', () => {
+    expect(personFieldsHidden(['PersonEmail'], undefined)).toEqual(['PersonEmail']);
   });
 });
 

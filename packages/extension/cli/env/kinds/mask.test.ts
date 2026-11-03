@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EnvMaskResource, EnvResourceState } from '@sandforge/shared';
-import { missingFieldLine } from '../../sandforge-dataops.js';
+import { missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import {
   forgetMaskStore,
   maskApplyLine,
@@ -59,7 +59,13 @@ function runOf(over: Partial<EnvMaskResource> = {}) {
 /** A dry run's answer, as the script prints it with --json, the panel's messages in it. */
 function dryAnswer(over: {
   objects?: Array<{ objectApiName: string; count: number | null }>;
-  preview?: Array<{ objectApiName: string; fields: string[]; error?: string }>;
+  preview?: Array<{
+    objectApiName: string;
+    fields: string[];
+    error?: string;
+    notCovered?: true;
+    writeDenied?: { deniedFields: string[] };
+  }>;
   fieldsNotFound?: Array<{ objectApiName: string; fieldApiName: string }>;
   error?: string;
 }): MaskDryRunAnswer {
@@ -225,14 +231,60 @@ describe('what the script answers', () => {
         .refusals,
     ).toEqual(['Contact: not read: no']);
     expect(
-      maskDryRead(dryAnswer({ preview: [{ objectApiName: 'Contact', fields: [] }] })).refusals,
+      maskDryRead(
+        dryAnswer({ preview: [{ objectApiName: 'Contact', fields: [], notCovered: true }] }),
+      ).refusals,
     ).toEqual([
       'Contact: its rules mask no field the org shows this user: a run would mask nothing there',
     ]);
     expect(maskDryRunCount(dryAnswer({ error: 'refused by the guard' })).refusal).toBe(
       'refused by the guard',
     );
-    // Negative control: a dry run that says nothing is refused, never taken for nothing to mask.
+  });
+
+  it('refuses nothing for an object with no record whose rules mask no field shown, as its run refuses nothing', () => {
+    // Read from its empty list of fields, the plan blocked the resource, and
+    // the apply with it, for a run that would have gone.
+    expect(
+      maskDryRead(
+        dryAnswer({
+          objects: [
+            { objectApiName: 'Contact', count: 2 },
+            { objectApiName: 'Lead', count: 0 },
+          ],
+          preview: [
+            { objectApiName: 'Contact', fields: ['Email'] },
+            { objectApiName: 'Lead', fields: [] },
+          ],
+        }),
+      ).refusals,
+    ).toEqual([]);
+  });
+
+  it('refuses what the user may not edit, in the script’s words, as the run is refused for it', () => {
+    // A field shown read-only left the plan unblocked, and the apply was
+    // refused at the run, after the resources before it.
+    expect(
+      maskDryRead(
+        dryAnswer({
+          objects: [
+            { objectApiName: 'Contact', count: 2 },
+            { objectApiName: 'Lead', count: 1 },
+          ],
+          preview: [
+            {
+              objectApiName: 'Contact',
+              fields: ['Email', 'Birthdate'],
+              writeDenied: { deniedFields: ['Birthdate'] },
+            },
+            { objectApiName: 'Lead', fields: ['Email'], writeDenied: { deniedFields: [] } },
+          ],
+        }),
+      ).refusals,
+    ).toEqual([notWritableLine('Contact', 'Birthdate'), notWritableLine('Lead')]);
+  });
+
+  it('refuses a dry run that says nothing, never taken for nothing to mask', () => {
     expect(
       maskDryRunCount({ tool: 'sandforge-dataops', command: 'dry-run', org: 'T', posted: [] })
         .refusal,

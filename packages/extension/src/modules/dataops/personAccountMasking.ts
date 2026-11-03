@@ -79,8 +79,10 @@ export function personAccountFieldOf(field: string): string | undefined {
 export function personAccountRules(
   rules: readonly AnonymizationTemplateRule[],
 ): AnonymizationTemplateRule[] {
+  // An object whatever its case, as Salesforce reads it: a rule written
+  // `contact.Email` derived nothing.
   const fieldOf = (rule: AnonymizationTemplateRule, object: string): string | undefined =>
-    rule.fieldPattern.startsWith(`${object}.`)
+    rule.fieldPattern.toLowerCase().startsWith(`${object.toLowerCase()}.`)
       ? rule.fieldPattern.slice(object.length + 1)
       : undefined;
   const named = new Set(
@@ -116,6 +118,8 @@ export interface PersonAccountMasking {
   rules: DataOpsAnonymizationRule[];
   /** The fields those rules mask: on a person account only, never on a business one. */
   personOnly: ReadonlySet<string>;
+  /** The fields the derived rules name that the describe does not list (`personFieldsHidden`). */
+  unseen: string[];
 }
 
 /**
@@ -150,6 +154,7 @@ export function personAccountMasking(input: {
   const taken = new Set(input.kept.map((rule) => rule.fieldApiName.toLowerCase()));
   const rules: DataOpsAnonymizationRule[] = [];
   const personOnly = new Set<string>();
+  const unseen: string[] = [];
   const add = (rule: DataOpsAnonymizationRule, field: MaskableField): void => {
     taken.add(field.name.toLowerCase());
     personOnly.add(field.name);
@@ -157,7 +162,11 @@ export function personAccountMasking(input: {
   };
   for (const rule of input.derived) {
     const field = byName.get(rule.fieldApiName.toLowerCase());
-    if (!field || taken.has(field.name.toLowerCase())) continue;
+    if (!field) {
+      unseen.push(rule.fieldApiName);
+      continue;
+    }
+    if (taken.has(field.name.toLowerCase())) continue;
     add(rule, field);
   }
   // Put to the detector under the contact's names, so it names on a person
@@ -189,7 +198,33 @@ export function personAccountMasking(input: {
       field,
     );
   }
-  return { rules, personOnly };
+  return { rules, personOnly, unseen };
+}
+
+/**
+ * Which of the fields a template's derived rules name, and Account's describe
+ * leaves out, the org hides from the user rather than lacks.
+ *
+ * A describe lists only what the user may read, and a person account's
+ * fields are its contact's: field-level security that hides a contact's
+ * Birthdate hides the PersonBirthdate of every person account. Left out
+ * without a word, such a rule let `--object Account` mask the rest of the
+ * person accounts, end in success, and leave every birthdate in clear. So a
+ * field is hidden unless Contact's describe shows the field it stands for:
+ * then the field is one the platform gives no person account — a contact's
+ * Description is shown, and a person account has no PersonDescription — and
+ * there is nothing to mask. An org that will not describe Contact shows none.
+ *
+ * @param unseen - The fields of the derived rules Account's describe lacks.
+ * @param contactFields - Contact's describe's fields, or undefined when the
+ *   org would not describe it.
+ */
+export function personFieldsHidden(
+  unseen: readonly string[],
+  contactFields: readonly { name: string }[] | undefined,
+): string[] {
+  const shown = new Set((contactFields ?? []).map((f) => f.name.toLowerCase()));
+  return unseen.filter((field) => !shown.has(contactFieldOf(field).toLowerCase()));
 }
 
 /**

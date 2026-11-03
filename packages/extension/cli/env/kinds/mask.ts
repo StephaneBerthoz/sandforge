@@ -56,7 +56,7 @@ import {
 import { anonymizationTemplateSavePayloadSchema } from '../../../src/bridge/validatePayload.js';
 import { ANONYMIZATION_TEMPLATES } from '../../../src/bridge/templates/anonymizationTemplates.js';
 import { fileConfigStore } from '../../fileConfigStore.js';
-import { masksObject, missingFieldLine } from '../../sandforge-dataops.js';
+import { masksObject, missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
   canonicalJson,
@@ -388,6 +388,8 @@ const previewSchema = z.object({
         objectApiName: z.string().min(1),
         fields: z.array(z.string()),
         error: z.string().optional(),
+        notCovered: z.literal(true).optional(),
+        writeDenied: z.object({ deniedFields: z.array(z.string()) }).optional(),
       })
       .loose(),
   ),
@@ -404,7 +406,8 @@ export interface MaskDryRead {
  * What a dry run says: per object, the records its condition selects; and
  * what refuses a run now, in the script's words — the handler's refusal, an
  * object the org would not count or read, a field the rules name that the
- * org does not show the user, an object of which they mask no field.
+ * org does not show the user, an object of which they mask no field, what the
+ * user may not edit.
  */
 export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
   const refusals: string[] = [];
@@ -437,12 +440,18 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
   for (const object of preview.data.objects) {
     if (object.error !== undefined) {
       refusals.push(`${object.objectApiName}: not read: ${object.error}`);
-    } else if (object.fields.length === 0) {
+    } else if (object.notCovered === true) {
+      // As the preview marks it: an object with records whose rules mask no
+      // field. One with no record holds nothing to mask, and its run refuses
+      // nothing: read from its empty list of fields, it blocked the plan.
       refusals.push(
         `${object.objectApiName}: its rules mask no field the org shows this user: a run would ` +
           'mask nothing there',
       );
     }
+    const denied = object.writeDenied?.deniedFields;
+    if (denied?.length === 0) refusals.push(notWritableLine(object.objectApiName));
+    for (const field of denied ?? []) refusals.push(notWritableLine(object.objectApiName, field));
   }
   for (const missing of preview.data.fieldsNotFound) {
     refusals.push(missingFieldLine(missing.objectApiName, missing.fieldApiName));

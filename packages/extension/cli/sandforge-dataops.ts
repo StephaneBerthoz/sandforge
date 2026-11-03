@@ -440,23 +440,55 @@ export function missingFieldLine(objectApiName: string, fieldApiName: string): s
 }
 
 /**
+ * What a dry run says of what the user may not edit on an object that holds
+ * records: a field it may read, or the object itself when no field is given.
+ * A run is refused for it, `CRUD_FLS_DENIED`, and masks nothing. Exported for
+ * the environments, which refuse a mask resource in these words.
+ */
+export function notWritableLine(objectApiName: string, fieldApiName?: string): string {
+  return fieldApiName === undefined
+    ? `${objectApiName}: this user may not edit its records — a run is refused ` +
+        '(CRUD_FLS_DENIED) and masks nothing (give the user edit access to the object)'
+    : `${objectApiName}.${fieldApiName}: this user may read it and not edit it — a run is ` +
+        'refused (CRUD_FLS_DENIED) and masks nothing (give the user edit access to it, or take ' +
+        'it out of the template)';
+}
+
+/**
  * Whether the run a dry run stands for would be refused: a field the org does
  * not show the user on an object that holds records, or such an object with no
- * field left. A step that rehearses before it runs stops here, not at the run.
- * Exported so it can be tested.
+ * field left; what the user may not edit there; or an object the org would
+ * not count or read, at which the run stops before it writes, as the
+ * environments' plan reads it. A step that rehearses before it runs stops
+ * here, not at the run. Exported so it can be tested.
+ *
+ * @param coverage - The coverage's answer: the records it counted per object.
  */
-export function runWouldBeRefused(preview: Record<string, unknown>): boolean {
+export function runWouldBeRefused(
+  preview: Record<string, unknown>,
+  coverage: Record<string, unknown> = {},
+): boolean {
   const missing = (preview.fieldsNotFound as unknown[] | undefined) ?? [];
-  const objects = (preview.objects as Array<{ notCovered?: true }> | undefined) ?? [];
-  return missing.length > 0 || objects.some((o) => o.notCovered === true);
+  const objects =
+    (preview.objects as
+      Array<{ notCovered?: true; error?: string; writeDenied?: unknown }> | undefined) ?? [];
+  const counted = (coverage.objects as Array<{ count: number | null }> | undefined) ?? [];
+  return (
+    missing.length > 0 ||
+    objects.some(
+      (o) => o.notCovered === true || o.error !== undefined || o.writeDenied !== undefined,
+    ) ||
+    counted.some((o) => o.count === null)
+  );
 }
 
 /**
  * The lines a dry run comes to: per object, the records a run would mask
  * under its filter, each field with its method, the fields the org lacks, and
  * the first records masked as a run masks them — their new values only. An
- * object of which a run could mask no field is said, as it refuses that run. A
- * stopped run that a resume would carry on is said. Exported so it can be tested.
+ * object of which a run could mask no field is said, as it refuses that run,
+ * and so is what the user may not edit. A stopped run that a resume would
+ * carry on is said. Exported so it can be tested.
  */
 export function dryRunLines(
   template: Listed,
@@ -471,6 +503,7 @@ export function dryRunLines(
       objectApiName: string;
       fields: string[];
       notCovered?: true;
+      writeDenied?: { deniedFields: string[] };
       methods?: Record<string, string>;
       rows: Array<{ id: string; after: Record<string, unknown> }>;
       error?: string;
@@ -480,6 +513,9 @@ export function dryRunLines(
   for (const o of counted) {
     const rows = o.count === null ? 'an unknown number of' : String(o.count);
     lines.push(`  ${o.objectApiName}: ${rows} record(s) to mask`);
+    if (o.count === null) {
+      lines.push('    not counted by the org: a run stops at its count and masks nothing');
+    }
     const shownObject = previewed.find((p) => p.objectApiName === o.objectApiName);
     if (shownObject?.error) {
       lines.push(`    not read: ${shownObject.error}`);
@@ -507,6 +543,11 @@ export function dryRunLines(
     }
     if (shownObject?.notCovered) {
       lines.push('    no field of it can be masked: a run is refused and masks nothing');
+    }
+    const denied = shownObject?.writeDenied?.deniedFields;
+    if (denied?.length === 0) lines.push(`    ${notWritableLine(o.objectApiName)}`);
+    for (const field of denied ?? []) {
+      lines.push(`    ${notWritableLine(o.objectApiName, field)}`);
     }
     const sample = shownObject?.rows ?? [];
     if (sample.length > 0) {
@@ -873,7 +914,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const line of dryRunLines(template, coverage.payload ?? {}, preview.payload ?? {})) {
       log(line);
     }
-    if (runWouldBeRefused(preview.payload ?? {})) process.exitCode = FAILED_EXIT;
+    if (runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {})) {
+      process.exitCode = FAILED_EXIT;
+    }
     return;
   }
 
@@ -886,6 +929,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   if (args.mode === 'run' && toMask === 0) {
+    // A count the org refused is no zero: a filter on a field field-level
+    // security hides was refused, taken for none, and the line exited 0
+    // having read and written nothing.
+    const uncounted = counted.filter((o) => o.count === null).map((o) => o.objectApiName);
+    if (uncounted.length > 0) {
+      fail(
+        `${uncounted.join(', ')}: the org did not count the records a run would mask, so ` +
+          'nothing was masked (its reason is in the warning above).',
+      );
+      return;
+    }
     log(
       object !== undefined
         ? 'Nothing to mask: no record of the object is under the filter.'

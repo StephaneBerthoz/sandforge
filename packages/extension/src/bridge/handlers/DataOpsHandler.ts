@@ -102,11 +102,13 @@ import {
   PERSON_ACCOUNT_FLAG,
   personAccountMasking,
   personAccountRules,
+  personFieldsHidden,
   rulesOfRow,
   type MaskableField,
 } from '../../modules/dataops/personAccountMasking.js';
 import {
   ACCOUNT,
+  CONTACT,
   accountKindOf,
   leftOutForAccountKind,
 } from '../../core/common/platformRecords.js';
@@ -400,6 +402,11 @@ function collectDmlError(
  * and birthdate in clear. Empty for an unknown template — such a request
  * stops at the template lookup, before any write.
  *
+ * An object is the same whatever its case, as Salesforce takes it, and goes
+ * under the name the template's rules give it: asked for `contact`, a run of
+ * rules naming `Contact` counted nothing, said there was nothing to mask and
+ * exited 0 on an org full of contacts.
+ *
  * @param personAccounts - Whether the org has person accounts
  *   (`orgHasPersonAccounts`); read only for a request that names no object.
  */
@@ -408,13 +415,23 @@ function plannedAnonymizeObjects(
   template: ListedAnonymizationTemplate | undefined,
   personAccounts = false,
 ): string[] {
-  if (payload.objects) return payload.objects;
-  if (!template) return [];
-  const objects = template.rules
+  const named = (template?.rules ?? [])
     .map((r) => r.fieldPattern.split('.')[0])
-    .filter((v, i, a) => a.indexOf(v) === i);
+    .filter((v, i, a) => a.findIndex((w) => sameObject(w, v)) === i);
+  if (payload.objects) {
+    return payload.objects.map(
+      (o) => named.find((n) => sameObject(n, o)) ?? (sameObject(o, ACCOUNT) ? ACCOUNT : o),
+    );
+  }
+  if (!template) return [];
+  const objects = [...named];
   if (personAccounts && personRowsOnly(payload, template, ACCOUNT)) objects.push(ACCOUNT);
   return objects;
+}
+
+/** Whether two API names name one object: Salesforce reads them whatever their case. */
+function sameObject(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /** The filter that holds the rows of Account to its person accounts. */
@@ -473,13 +490,17 @@ async function orgHasPersonAccounts(
   }
 }
 
-/** The rules of a template a masking run applies to one object: those naming it, and a wildcard. */
+/**
+ * The rules of a template a masking run applies to one object: those naming
+ * it, whatever the case they name it in, and a wildcard.
+ */
 function rulesOfObject(
   template: ListedAnonymizationTemplate,
   objectName: string,
 ): AnonymizationTemplateRule[] {
+  const prefix = `${objectName.toLowerCase()}.`;
   return template.rules.filter(
-    (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
+    (r) => r.fieldPattern.toLowerCase().startsWith(prefix) || (r.fieldPattern as string) === '*',
   );
 }
 
@@ -523,6 +544,37 @@ function describedOnce(conn: Pick<Connection, 'describe'>): {
       return answer;
     },
   };
+}
+
+/**
+ * What of a masking run the user SandForge connects as may not write: per
+ * object, its edit access to the object and to each field its rules name, read
+ * from the describe the run reads (`CrudFlsGuard`). A run is refused for any
+ * before anything is asked or written, and its preview says so first: a field
+ * shown read-only passed Preview, the dry run and an environment's plan, and
+ * Apply was then refused for it.
+ *
+ * @param objects - The objects that hold rows, each with the rules the run
+ *   applies to it, those derived for its person accounts included.
+ */
+async function maskingWritesDenied(
+  conn: { describe: (objectApiName: string) => Promise<Record<string, unknown>> },
+  objects: ReadonlyArray<{ objectApiName: string; rules: readonly AnonymizationTemplateRule[] }>,
+): Promise<CrudFlsDenial[]> {
+  const guard = new CrudFlsGuard(async (objectApiName: string) =>
+    describeToObjectDescribe(await conn.describe(objectApiName)),
+  );
+  return guard.deniedOf(
+    objects.map(({ objectApiName, rules }) => ({
+      objectApiName,
+      operation: 'update' as const,
+      // A field of a person account the org lacks is not asked about, as any
+      // field it lacks.
+      fieldNames: rules
+        .map((r) => (r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern))
+        .filter((f) => f !== '*'),
+    })),
+  );
 }
 
 /** Whether a template has anything to mask on an object: a rule of its own, or one for person accounts. */
@@ -1454,8 +1506,9 @@ export class DataOpsHandler implements DomainHandler {
    * fields are masked too (`personAccountMasking`), and each row is read with
    * the flag that tells a person account's: the rules a row is masked by are
    * those its kind of account can hold (`rulesOf`). A rule derived for person
-   * accounts whose field the org lacks is never said to be missing: the
-   * template does not name it.
+   * accounts whose field the describe leaves out is said to be missing when
+   * the org hides the field rather than lacks it (`personFieldsHidden`), which
+   * asks Contact's describe.
    *
    * @param conn - Connection used for the describe call.
    * @param objectApiName - Already-sanitized SObject API name.
@@ -1492,6 +1545,15 @@ export class DataOpsHandler implements DomainHandler {
       derived: personRules,
       detector: this.deps.infraServices?.piiDetector ?? new PIIDetector(),
     });
+    if (persons && persons.unseen.length > 0) {
+      const contactFields = await conn.describe(CONTACT).then(
+        (desc) => desc.fields,
+        () => undefined,
+      );
+      for (const field of personFieldsHidden(persons.unseen, contactFields)) {
+        if (!missing.includes(field)) missing.push(field);
+      }
+    }
     const all = persons ? [...kept, ...persons.rules] : kept;
     const masked = all
       .map((r) => r.fieldApiName)
@@ -3559,14 +3621,16 @@ export class DataOpsHandler implements DomainHandler {
         gaps,
       };
     }
+    // Every field the template names that the org hides was named above, a
+    // person account's among them: here it names none of the object's, and
+    // no access would change that.
     if (objectsNotCovered.length > 0) {
       return {
         code: PIPELINE_MASKING_REFUSAL.masksNothing,
         message:
           `The template "${template.name}" masks no field of ${objectsNotCovered.join(', ')} ` +
-          'in this org: the run would write nothing over its records. Give the user SandForge ' +
-          'connects as read and edit access to the fields it names, or choose another template. ' +
-          'Nothing was masked.',
+          'in this org: the run would write nothing over its records. Choose an object its ' +
+          'rules name, or another template. Nothing was masked.',
         gaps,
       };
     }
@@ -4091,23 +4155,13 @@ export class DataOpsHandler implements DomainHandler {
       // before anything is asked or written: checked object by object as the
       // run reached each one, a refusal stopped it after the objects before
       // it were masked, and named only the first object it could not write.
-      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
-        const desc = await described.describe(objectApiName);
-        return describeToObjectDescribe(desc);
-      });
-      const denials = await crudFlsGuard.deniedOf(
+      const denials = await maskingWritesDenied(
+        described,
         work
           .filter((w) => w.tally.total > 0)
           .map((w) => ({
             objectApiName: w.tally.objectApiName,
-            operation: 'update' as const,
-            // A field of a person account the org lacks is not asked about,
-            // as any field it lacks.
-            fieldNames: [...w.objectRules, ...w.personRules]
-              .map((r) =>
-                r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
-              )
-              .filter((f) => f !== '*'),
+            rules: [...w.objectRules, ...w.personRules],
           })),
       );
       if (denials.length > 0) {
@@ -4832,9 +4886,9 @@ export class DataOpsHandler implements DomainHandler {
    * answer. Asked with the objects and the filter a run would be given, it
    * shows the first rows that run would mask.
    *
-   * It says what Apply would be refused for (`maskingNotCovered`), and nothing
-   * Apply would not: a hidden field of an object with no row stops no run, so
-   * it is not named.
+   * It says what Apply would be refused for (`maskingNotCovered`, and what the
+   * user may not edit, `maskingWritesDenied`), and nothing Apply would not: a
+   * hidden field of an object with no row stops no run, so it is not named.
    */
   private async handleAnonymizePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -4861,15 +4915,19 @@ export class DataOpsHandler implements DomainHandler {
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const objects: AnonymizePreviewObject[] = [];
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
+      // Its fields and the user's access to them read from one describe, as a run reads them.
+      const described = describedOnce(conn);
       for (const objectName of await this.plannedObjectsIn(conn, parsed, template)) {
         if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         try {
+          const objectRules = rulesOfObject(template, objectName);
+          const personRules = personRulesOfObject(template, objectName);
           const { rules, select, missing, rulesOf } = await this.maskedFields(
-            conn,
+            described,
             objectApiName,
-            this.maskingRules(objectName, rulesOfObject(template, objectName)),
-            this.maskingRules(objectName, personRulesOfObject(template, objectName)),
+            this.maskingRules(objectName, objectRules),
+            this.maskingRules(objectName, personRules),
           );
           const page = await maskingPage(
             conn,
@@ -4886,6 +4944,12 @@ export class DataOpsHandler implements DomainHandler {
               ...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })),
             );
           }
+          // What Apply's own check refuses, `CRUD_FLS_DENIED`, said before the click.
+          const [denied] = holdsRows
+            ? await maskingWritesDenied(described, [
+                { objectApiName, rules: [...objectRules, ...personRules] },
+              ])
+            : [];
           // Each row by the rules its kind of account can hold, as Apply masks it.
           const rulesOfEach = page.records.map(rulesOf);
           const masked = page.records.map(
@@ -4898,6 +4962,7 @@ export class DataOpsHandler implements DomainHandler {
             objectApiName,
             fields,
             ...(holdsRows && rules.length === 0 ? { notCovered: true as const } : {}),
+            ...(denied ? { writeDenied: { deniedFields: [...denied.deniedFields] } } : {}),
             methods: Object.fromEntries(rules.map((r) => [r.fieldApiName, r.method])),
             rows: page.records.slice(0, PREVIEW_ROWS).map((original, index) => {
               const before: Record<string, AnonymizePreviewValue> = {};

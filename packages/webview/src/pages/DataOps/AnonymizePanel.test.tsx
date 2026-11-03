@@ -230,6 +230,47 @@ describe('AnonymizePanel', () => {
       );
     });
 
+    it('says before the click that Apply will be refused for what the user may not edit, in the preview and again in the confirmation', () => {
+      // A field shown read-only passed Preview without a word, and Apply was
+      // then refused, CRUD_FLS_DENIED.
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onPreview={vi.fn()}
+          onApply={vi.fn()}
+          preview={{
+            templateId: 'tpl-1',
+            objects: [
+              {
+                objectApiName: 'Contact',
+                fields: ['Email', 'Birthdate'],
+                writeDenied: { deniedFields: ['Birthdate'] },
+                rows: [],
+              },
+              {
+                objectApiName: 'Lead',
+                fields: ['Email'],
+                writeDenied: { deniedFields: [] },
+                rows: [],
+              },
+            ],
+            fieldsNotFound: [],
+          }}
+        />,
+      );
+      const said =
+        'Apply will be refused, and will mask nothing. The user SandForge connects as may not ' +
+        'edit Contact.Birthdate and Lead: give that user edit access, or take it out of the ' +
+        'template.';
+      expect(screen.getByTestId('preview-fields-not-found').textContent).toBe(said);
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      expect(screen.getByTestId('confirm-fields-not-found').textContent).toBe(said);
+    });
+
     it('says nothing of a refusal for a preview that found nothing to refuse', () => {
       render(
         <AnonymizePanel

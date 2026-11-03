@@ -97,15 +97,28 @@ type PreviewLine = {
 /** What a preview found Apply would be refused for, or `undefined` when it would not be. */
 function refusedFor(preview: AnonymizePreview): MaskingGaps | undefined {
   const objectsNotCovered = preview.objects.filter((o) => o.notCovered).map((o) => o.objectApiName);
-  return preview.fieldsNotFound.length > 0 || objectsNotCovered.length > 0
-    ? { fieldsNotFound: preview.fieldsNotFound, objectsNotCovered }
+  // A field shown read-only passed Preview, and Apply was then refused for it.
+  const notWritable = preview.objects.flatMap((o) =>
+    o.writeDenied === undefined
+      ? []
+      : o.writeDenied.deniedFields.length === 0
+        ? [o.objectApiName]
+        : o.writeDenied.deniedFields.map((field) => `${o.objectApiName}.${field}`),
+  );
+  return preview.fieldsNotFound.length > 0 || objectsNotCovered.length > 0 || notWritable.length > 0
+    ? {
+        fieldsNotFound: preview.fieldsNotFound,
+        objectsNotCovered,
+        ...(notWritable.length > 0 ? { notWritable } : {}),
+      }
     : undefined;
 }
 
 /**
  * What Apply would be refused for, before the click, in the words the refusal
  * uses: the fields the org lacks or field-level security hides from the user
- * SandForge connects as, the objects left with no field, and what to do.
+ * SandForge connects as, the objects left with no field, what that user may
+ * not edit, and what to do.
  */
 const ApplyRefusedFor: React.FC<{ gaps: MaskingGaps; testId: string }> = ({ gaps, testId }) => {
   const { t } = useTranslation();
