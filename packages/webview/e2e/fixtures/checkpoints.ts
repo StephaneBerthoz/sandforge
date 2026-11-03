@@ -206,8 +206,12 @@ export function scopeAnswer(
       },
     ],
     leftOut: [
-      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
-      { objectApiName: 'AccountHistory', reason: 'History is the audit trail.' },
+      { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+      {
+        objectApiName: 'AccountHistory',
+        code: 'history',
+        reason: "History is left out: it is the org's own trace of changes.",
+      },
     ],
     estimate: {
       records: 2424,
@@ -222,6 +226,11 @@ export function scopeAnswer(
 
 /** The opening the take gives each reason it leaves an object out for its user's permissions. */
 const WITHOUT_BOTH = 'Without View All Data and Modify All Data,';
+
+/** Why every checkpoint leaves a feed out, in the extension's words and the page's. */
+const CHATTER_LEFT_OUT =
+  'Chatter posts, comments and feeds are left out: Salesforce brings a post back only with ' +
+  'what it was posted on.';
 
 /**
  * What `checkpoint:scope` answers a user without View All Data and Modify
@@ -239,19 +248,23 @@ export function perObjectScope(): CheckpointScopeResponse['payload'] {
       { ...contact, access: 'object', leftOutFields: [] },
     ],
     leftOut: [
-      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
-      { objectApiName: 'Task', reason: activities },
-      { objectApiName: 'Event', reason: activities },
+      { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+      { objectApiName: 'Task', code: 'activities', reason: activities },
+      { objectApiName: 'Event', code: 'activities', reason: activities },
       {
         objectApiName: 'Opportunity',
+        code: 'noModifyAll',
         reason: `${WITHOUT_BOTH} an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.`,
       },
       {
         objectApiName: 'OpportunityLineItem',
+        code: 'parentNotSeen',
         reason: `${WITHOUT_BOTH} an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here (Opportunity, which OpportunityId names, is not held whole).`,
+        detail: 'Opportunity, which OpportunityId names, is not held whole',
       },
       {
         objectApiName: 'Product2',
+        code: 'catalog',
         reason: `${WITHOUT_BOTH} products and price books are left out: Salesforce has no View All or Modify All for them.`,
       },
     ],

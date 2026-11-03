@@ -7,6 +7,7 @@ import type {
   CheckpointBeforeRunModule,
   CheckpointCustomSettingKind,
   CheckpointEstimate,
+  CheckpointLeftOutCode,
   CheckpointLeftOutFieldReason,
   CheckpointObjectAccess,
   CheckpointOrgTier,
@@ -30,6 +31,7 @@ import {
   checkpointArchiveHeaderSchema,
   checkpointBeforeRunSchema,
   checkpointCustomSettingKindSchema,
+  checkpointLeftOutCodeSchema,
   checkpointLeftOutFieldReasonSchema,
   checkpointObjectAccessSchema,
   checkpointOrgTierSchema,
@@ -58,6 +60,9 @@ describe('the checkpoint file and its schema', () => {
     expectTypeOf<
       z.infer<typeof checkpointLeftOutFieldReasonSchema>
     >().toEqualTypeOf<CheckpointLeftOutFieldReason>();
+    expectTypeOf<
+      z.infer<typeof checkpointLeftOutCodeSchema>
+    >().toEqualTypeOf<CheckpointLeftOutCode>();
     expectTypeOf<z.infer<typeof checkpointStatusSchema>>().toEqualTypeOf<CheckpointStatus>();
     expectTypeOf<
       z.infer<typeof checkpointCustomSettingKindSchema>

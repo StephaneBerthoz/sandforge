@@ -100,6 +100,34 @@ export const checkpointLeftOutFieldReasonSchema = z.enum([
   'base64',
   'compound',
 ]);
+export const checkpointLeftOutCodeSchema = z.enum([
+  'excludedByUser',
+  'notFound',
+  'chatter',
+  'history',
+  'sharing',
+  'changeEvent',
+  'unsupportedKind',
+  'customSetting',
+  'notCustomSetting',
+  'files',
+  'heldWithFiles',
+  'setup',
+  'metadata',
+  'notWritable',
+  'notDescribed',
+  'noSystemModstamp',
+  'noRecycleBin',
+  'unreadable',
+  'pastTheLimit',
+  'noViewAll',
+  'noModifyAll',
+  'activities',
+  'catalog',
+  'filesNotProven',
+  'settingNotProven',
+  'parentNotSeen',
+]);
 export const checkpointStatusSchema = z.enum(['taking', 'ready', 'failed']);
 export const checkpointCustomSettingKindSchema = z.enum(['hierarchy', 'list']);
 export const checkpointObjectAccessSchema = z.enum(['org', 'object', 'parent']);
@@ -185,7 +213,17 @@ export const orgCheckpointSchema = z
     scope: z.object({
       mode: checkpointScopeModeSchema,
       leftOut: z
-        .array(z.object({ objectApiName: apiNameSchema, reason: z.string().min(1).max(500) }))
+        .array(
+          z.object({
+            objectApiName: apiNameSchema,
+            // Absent from a checkpoint taken before reasons had codes.
+            code: checkpointLeftOutCodeSchema.optional(),
+            reason: z.string().min(1).max(500),
+            detail: z.string().max(500).optional(),
+            records: countSchema.optional(),
+            limit: countSchema.optional(),
+          }),
+        )
         .max(10_000),
     }),
     objects: z

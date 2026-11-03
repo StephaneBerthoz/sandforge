@@ -6480,6 +6480,34 @@
       "pickedCount_other": "{{formatted}} objets choisis",
       "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés sauf ceux que vous choisissez, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
       "leftOutAlwaysWithSettings": "Laissés de côté : utilisateurs, autorisations, configuration, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
+      "leftOutReason": {
+        "excludedByUser": "Laissé de côté à votre demande.",
+        "notFound": "L'org n'a aucun objet de ce nom.",
+        "chatter": "Les publications, commentaires et fils Chatter sont laissés de côté : Salesforce ne rétablit une publication qu'avec ce sur quoi elle a été publiée.",
+        "history": "L'historique est laissé de côté : c'est la trace que l'org garde elle-même de ses changements.",
+        "sharing": "Le partage est laissé de côté : l'org le tient elle-même.",
+        "changeEvent": "Les événements de modification sont laissés de côté.",
+        "unsupportedKind": "Laissé de côté : ni la corbeille ni une mise à jour n'atteignent ce type d'objet comme elles atteignent un enregistrement.",
+        "customSetting": "Les paramètres personnalisés sont laissés de côté sauf si vous les choisissez comme tels : c'est de la configuration, qu'un retour arrière rétablit.",
+        "notCustomSetting": "Choisi comme paramètre personnalisé : l'org n'a aucun paramètre personnalisé de ce nom.",
+        "files": "Les documents de l'onglet Documents sont laissés de côté : c'est du contenu partagé rangé dans des dossiers, comme la configuration.",
+        "heldWithFiles": "Gardé avec son fichier (ContentDocument) : Salesforce ne supprime ni ne rétablit seule la version d'un fichier, et lit les liens d'un fichier à travers les enregistrements auxquels ils le rattachent.",
+        "setup": "Les utilisateurs, les autorisations et la configuration sont laissés de côté.",
+        "metadata": "Laissé de côté : ce sont des métadonnées, qu'un point de contrôle ne garde pas.",
+        "notWritable": "Laissé de côté : l'utilisateur sous lequel SandForge se connecte ne peut pas créer, modifier et supprimer ses enregistrements.",
+        "notDescribed": "Laissé de côté : l'org n'a pas voulu le décrire.",
+        "noSystemModstamp": "Laissé de côté : il n'a pas de SystemModstamp, donc rien ne dirait qu'un enregistrement a changé depuis.",
+        "noRecycleBin": "Laissé de côté : l'org supprime ses enregistrements définitivement, sans corbeille, donc rien ne dirait qu'un enregistrement a été supprimé depuis, ni ne le rétablirait.",
+        "unreadable": "Laissé de côté : l'org refuse de le lire en entier.",
+        "pastTheLimit": "{{object}} a {{records}} enregistrements, au-delà de la limite de {{limit}} du point de contrôle pour un objet : laissé de côté, car une partie passerait pour le tout.",
+        "noViewAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte n'a ni l'un ni l'autre sur celui-ci : un enregistrement qu'il ne voit pas passerait pour supprimé depuis.",
+        "noModifyAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte a View All sur celui-ci, pas Modify All : un retour arrière ne pourrait pas rétablir ce que d'autres ont changé.",
+        "activities": "Sans View All Data et Modify All Data, les tâches et événements sont laissés de côté : Salesforce n'a pas de View All pour les activités, et une activité privée liée à aucun enregistrement reste hors de vue.",
+        "catalog": "Sans View All Data et Modify All Data, les produits et catalogues de prix sont laissés de côté : Salesforce n'a ni View All ni Modify All pour eux.",
+        "filesNotProven": "Sans View All Data et Modify All Data, les fichiers sont laissés de côté : rien ne prouve que l'utilisateur voit chaque fichier.",
+        "settingNotProven": "Sans View All Data et Modify All Data, les paramètres personnalisés sont laissés de côté : aucune autorisation sur un objet ne prouve que l'utilisateur voit et écrit chaque ligne.",
+        "parentNotSeen": "Sans View All Data et Modify All Data, un objet sans autorisations propres n'est gardé que si l'utilisateur a View All et Modify All sur chaque enregistrement dont il dépend, ce qui n'est pas prouvé ici."
+      },
       "customSettings": {
         "title_one": "Paramètre personnalisé ({{formatted}})",
         "title_other": "Paramètres personnalisés ({{formatted}})",
@@ -6751,7 +6779,8 @@
       "rewindNeeds": {
         "tick": "Pour revenir à ce point, cochez :",
         "plan": "Lecture du plan des objets cochés…",
-        "planFailed": "Le plan des objets cochés n'a pas pu être lu : réessayez plus haut."
+        "planFailed": "Le plan des objets cochés n'a pas pu être lu : réessayez plus haut.",
+        "readFailed": "La nouvelle lecture de {{org}} a échoué : réessayez plus haut."
       },
       "deliverability": {
         "all": "{{org}} délivre tous les e-mails que ses automatisations envoient (Configuration > Délivrabilité : Tous les e-mails), et ce qui s'exécute encore quand le retour arrière écrit peut en envoyer : {{senders}}.",

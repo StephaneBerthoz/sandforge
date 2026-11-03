@@ -661,6 +661,7 @@ describe('CheckpointHandler — the scope', () => {
     ]);
     expect(excluded.payload.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
     expect(excluded.payload.refusal).toBeUndefined();
@@ -789,6 +790,7 @@ describe('CheckpointHandler — what a take is asked beside its scope', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });
@@ -1022,6 +1024,60 @@ describe('CheckpointHandler — the preview', () => {
     expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
       code: 'EMAILS',
       retryable: true,
+    });
+  });
+
+  it('answers a preview asked to mute for what still runs: the emails a bypass keeps quiet count against nothing and refuse nothing, the automation as read', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          bypassGrants: [
+            {
+              permission: 'Skip_Flows',
+              permissionSets: [{ name: 'Flows_Bypass', label: 'Flows bypass', grants: 1 }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+    expect(answerOf(h, 'wv-preview-1').payload).toMatchObject({ refusal: { code: 'EMAILS' } });
+
+    await h.send('wv-preview-2', 'checkpoint:preview', { checkpointId, muteAutomation: true });
+    const muted = answerOf(h, 'wv-preview-2');
+    expect(muted.type).toBe('checkpoint:preview:response');
+    expect(muted.payload).not.toHaveProperty('refusal');
+    expect(muted.payload).not.toHaveProperty('emails');
+    expect(muted.payload).toMatchObject({
+      automation: { objects: [{ objectApiName: 'Account' }] },
     });
   });
 

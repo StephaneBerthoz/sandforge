@@ -6480,6 +6480,34 @@
       "pickedCount_other": "{{formatted}} objects picked",
       "leftOutAlways": "Left out: users, permissions, setup, custom settings unless you pick them, Chatter, history and log objects, the documents of the Documents tab.",
       "leftOutAlwaysWithSettings": "Left out: users, permissions, setup, Chatter, history and log objects, the documents of the Documents tab.",
+      "leftOutReason": {
+        "excludedByUser": "Left out as asked.",
+        "notFound": "The org has no object of this name.",
+        "chatter": "Chatter posts, comments and feeds are left out: Salesforce brings a post back only with what it was posted on.",
+        "history": "History is left out: it is the org's own trace of changes.",
+        "sharing": "Sharing is left out: the org keeps it itself.",
+        "changeEvent": "Change events are left out.",
+        "unsupportedKind": "Left out: neither the recycle bin nor an update reaches this kind of object as it reaches a record.",
+        "customSetting": "Custom settings are left out unless you pick them as custom settings: they are configuration, which a rewind sets back.",
+        "notCustomSetting": "Picked as a custom setting: the org has no custom setting of this name.",
+        "files": "Documents of the Documents tab are left out: they are shared content kept in folders, as setup is.",
+        "heldWithFiles": "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's version on its own, and reads the links of a file through the records they tie it to.",
+        "setup": "Users, permissions and setup are left out.",
+        "metadata": "Left out: it is metadata, which a checkpoint doesn't hold.",
+        "notWritable": "Left out: the user SandForge connects as may not create, edit and delete its records.",
+        "notDescribed": "Left out: the org would not describe it.",
+        "noSystemModstamp": "Left out: it has no SystemModstamp, so nothing would tell a record changed since.",
+        "noRecycleBin": "Left out: the org deletes its records for good, with no recycle bin, so nothing would tell one deleted since, nor bring it back.",
+        "unreadable": "Left out: the org refuses to read it whole.",
+        "pastTheLimit": "{{object}} has {{records}} records, past the checkpoint's limit of {{limit}} for one object: left out of the checkpoint, as part of it would be taken for all of it.",
+        "noViewAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has neither on this one: a record they cannot see would read as deleted since.",
+        "noModifyAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.",
+        "activities": "Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.",
+        "catalog": "Without View All Data and Modify All Data, products and price books are left out: Salesforce has no View All or Modify All for them.",
+        "filesNotProven": "Without View All Data and Modify All Data, files are left out: nothing proves the user sees every file.",
+        "settingNotProven": "Without View All Data and Modify All Data, custom settings are left out: no permission on an object proves the user sees and writes every row.",
+        "parentNotSeen": "Without View All Data and Modify All Data, an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here."
+      },
       "customSettings": {
         "title_one": "Custom setting ({{formatted}})",
         "title_other": "Custom settings ({{formatted}})",
@@ -6751,7 +6779,8 @@
       "rewindNeeds": {
         "tick": "To rewind, tick:",
         "plan": "Reading the plan of the objects ticked…",
-        "planFailed": "The plan of the objects ticked could not be read: try again above."
+        "planFailed": "The plan of the objects ticked could not be read: try again above.",
+        "readFailed": "{{org}} could not be read again: try again above."
       },
       "deliverability": {
         "all": "{{org}} delivers every email its automation sends (Setup > Deliverability: All email), and what still runs as the rewind writes may send some: {{senders}}.",

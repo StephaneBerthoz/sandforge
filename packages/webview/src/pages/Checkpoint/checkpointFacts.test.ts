@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { CheckpointLeftOutCode } from '@sandforge/shared';
 import {
   CHECKPOINT_NAME_MAX,
-  LEFT_OUT_FOR_ACCESS,
   heldPerObject,
   isCheckpointName,
   leftOutForAccess,
@@ -21,15 +21,21 @@ import {
   readyCheckpoint,
   scopeAnswer,
 } from './testing/checkpointFixtures';
+import en from '../../i18n/locales/en.json';
 
-/** The extension's checkpoint module, whose words the page reads. */
-const MODULE = join(__dirname, '..', '..', '..', '..', 'extension', 'src', 'modules', 'checkpoint');
+const PACKAGES = join(__dirname, '..', '..', '..', '..');
+
+/** The extension's checkpoint module, whose words the page says in the interface's language. */
+const MODULE = join(PACKAGES, 'extension', 'src', 'modules', 'checkpoint');
+
+/** The checkpoint's types, which name each reason. */
+const TYPES = join(PACKAGES, 'shared', 'src', 'types', 'checkpoint.types.ts');
 
 /** The members of a union of string literals, as `export type NAME = | 'a' | 'b';` declares it. */
-function unionOf(source: string, name: string): string[] {
+function unionOf<T extends string>(source: string, name: string): T[] {
   const body = new RegExp(`export type ${name} =([\\s\\S]*?);`).exec(source)?.[1];
   if (body === undefined) throw new Error(`${name} is gone: re-point this test`);
-  return [...body.matchAll(/'(\w+)'/g)].map((match) => match[1]);
+  return [...body.matchAll(/'(\w+)'/g)].map((match) => match[1] as T);
 }
 
 /** The first literal of each reason of the take's `LEFT_OUT_WORDS`, by reason. */
@@ -83,25 +89,16 @@ describe('checkpointFacts', () => {
     expect(refusedBeforeScope(scopeAnswer({ objects: [], leftOut: [] }))).toBe(false);
   });
 
-  it('tells an object left out for its user’s permissions by the words the take opens its reason with', () => {
-    expect(
-      leftOutForAccess({
-        reason:
-          'Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.',
-      }),
-    ).toBe(true);
-    expect(leftOutForAccess({ reason: 'Chatter posts are left out.' })).toBe(false);
-    // The same words further on in a reason are no opening.
-    expect(
-      leftOutForAccess({ reason: 'Left out: without View All Data and Modify All Data, no.' }),
-    ).toBe(false);
+  it('tells an object left out for its user’s permissions by its code, whatever its words say', () => {
+    expect(leftOutForAccess({ code: 'activities' })).toBe(true);
+    expect(leftOutForAccess({ code: 'chatter' })).toBe(false);
+    // An entry of a checkpoint taken before reasons had codes is told apart by nothing.
+    expect(leftOutForAccess({})).toBe(false);
   });
 
-  it('reads the opening off every reason the take gives for a user’s permissions, and off no other', () => {
-    const access = unionOf(
-      readFileSync(join(MODULE, 'checkpointAccess.ts'), 'utf8'),
-      'AccessLeftOutReason',
-    );
+  it('counts for a user’s permissions every reason of a take without View All Data and Modify All Data, and no other', () => {
+    const types = readFileSync(TYPES, 'utf8');
+    const access = unionOf<CheckpointLeftOutCode>(types, 'CheckpointAccessLeftOutCode');
     // Positive control: the seven reasons of a take without View All Data and Modify All Data.
     expect([...access].sort()).toEqual([
       'activities',
@@ -112,15 +109,19 @@ describe('checkpointFacts', () => {
       'parentNotSeen',
       'settingNotProven',
     ]);
+    for (const code of access) expect(leftOutForAccess({ code }), code).toBe(true);
+    const others = unionOf<CheckpointLeftOutCode>(types, 'CheckpointLeftOutCode');
+    expect(others.length).toBeGreaterThan(access.length);
+    for (const code of others) expect(leftOutForAccess({ code }), code).toBe(false);
+  });
+
+  it('words every reason of the take as the extension words it in the file and on the command line', () => {
     const words = leftOutWords(readFileSync(join(MODULE, 'takeCheckpoint.ts'), 'utf8'));
-    expect(words.size).toBeGreaterThan(access.length);
-    for (const reason of access) expect(words.has(reason), reason).toBe(true);
-    for (const [reason, said] of words) {
-      expect({ reason, opens: said.startsWith(LEFT_OUT_FOR_ACCESS) }).toEqual({
-        reason,
-        opens: access.includes(reason),
-      });
-    }
+    const said: Record<string, string> = en.checkpoint.take.leftOutReason;
+    expect(words.size).toBeGreaterThan(20);
+    for (const [reason, first] of words) expect(said[reason], reason).toContain(first);
+    // What the take counts past its limit, worded by itself, and nothing the extension no longer gives.
+    expect(Object.keys(said).sort()).toEqual([...words.keys(), 'pastTheLimit'].sort());
   });
 
   it('says a scope is held per object when an object is held so, or one is left out for its user’s permissions alone', () => {

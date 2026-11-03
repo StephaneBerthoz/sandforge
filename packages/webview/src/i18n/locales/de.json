@@ -6480,6 +6480,34 @@
       "pickedCount_other": "{{formatted}} Objekte ausgewählt",
       "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, außer Sie wählen sie aus, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
       "leftOutAlwaysWithSettings": "Ausgelassen: Benutzer, Berechtigungen, Setup, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
+      "leftOutReason": {
+        "excludedByUser": "Auf Wunsch ausgelassen.",
+        "notFound": "Die Org hat kein Objekt dieses Namens.",
+        "chatter": "Chatter-Beiträge, -Kommentare und -Feeds werden ausgelassen: Salesforce stellt einen Beitrag nur mit dem wieder her, worauf er gepostet wurde.",
+        "history": "Der Verlauf wird ausgelassen: Er ist die eigene Spur der Änderungen der Org.",
+        "sharing": "Die Freigabe wird ausgelassen: Die Org führt sie selbst.",
+        "changeEvent": "Änderungsereignisse werden ausgelassen.",
+        "unsupportedKind": "Ausgelassen: Weder der Papierkorb noch eine Aktualisierung erreicht diese Art von Objekt so wie einen Datensatz.",
+        "customSetting": "Benutzerdefinierte Einstellungen werden ausgelassen, außer Sie wählen sie als solche aus: Sie sind Konfiguration, die ein Zurücksetzen wiederherstellt.",
+        "notCustomSetting": "Als benutzerdefinierte Einstellung ausgewählt: Die Org hat keine benutzerdefinierte Einstellung dieses Namens.",
+        "files": "Dokumente der Registerkarte Dokumente werden ausgelassen: Sie sind gemeinsam genutzte Inhalte in Ordnern, wie das Setup.",
+        "heldWithFiles": "Mit seiner Datei gehalten (ContentDocument): Salesforce löscht die Version einer Datei nicht allein, stellt sie nicht allein wieder her und liest die Verknüpfungen einer Datei über die Datensätze, an die sie sie binden.",
+        "setup": "Benutzer, Berechtigungen und Setup werden ausgelassen.",
+        "metadata": "Ausgelassen: Es sind Metadaten, die ein Prüfpunkt nicht hält.",
+        "notWritable": "Ausgelassen: Der Benutzer, als der SandForge sich verbindet, darf seine Datensätze nicht anlegen, bearbeiten und löschen.",
+        "notDescribed": "Ausgelassen: Die Org wollte es nicht beschreiben.",
+        "noSystemModstamp": "Ausgelassen: Es hat keinen SystemModstamp, also würde nichts zeigen, dass sich ein Datensatz seitdem geändert hat.",
+        "noRecycleBin": "Ausgelassen: Die Org löscht seine Datensätze endgültig, ohne Papierkorb, also würde nichts zeigen, dass einer seitdem gelöscht wurde, und nichts ihn zurückholen.",
+        "unreadable": "Ausgelassen: Die Org verweigert es, es vollständig zu lesen.",
+        "pastTheLimit": "{{object}} hat {{records}} Datensätze, über dem Limit des Prüfpunkts von {{limit}} für ein Objekt: ausgelassen, da ein Teil davon als das Ganze gelten würde.",
+        "noViewAll": "Ohne View All Data und Modify All Data wird ein Objekt nur mit View All und Modify All darauf gehalten, und der Benutzer, als der SandForge sich verbindet, hat auf diesem keines von beiden: Ein Datensatz, den er nicht sieht, gälte als seitdem gelöscht.",
+        "noModifyAll": "Ohne View All Data und Modify All Data wird ein Objekt nur mit View All und Modify All darauf gehalten, und der Benutzer, als der SandForge sich verbindet, hat auf diesem View All, nicht Modify All: Ein Zurücksetzen könnte nicht wiederherstellen, was andere geändert haben.",
+        "activities": "Ohne View All Data und Modify All Data werden Aufgaben und Ereignisse ausgelassen: Salesforce hat kein View All für Aktivitäten, und eine private, mit keinem Datensatz verknüpfte Aktivität bleibt unsichtbar.",
+        "catalog": "Ohne View All Data und Modify All Data werden Produkte und Preisbücher ausgelassen: Salesforce hat für sie kein View All oder Modify All.",
+        "filesNotProven": "Ohne View All Data und Modify All Data werden Dateien ausgelassen: Nichts belegt, dass der Benutzer jede Datei sieht.",
+        "settingNotProven": "Ohne View All Data und Modify All Data werden benutzerdefinierte Einstellungen ausgelassen: Keine Berechtigung auf einem Objekt belegt, dass der Benutzer jede Zeile sieht und schreibt.",
+        "parentNotSeen": "Ohne View All Data und Modify All Data wird ein Objekt ohne eigene Berechtigungen nur gehalten, wenn der Benutzer View All und Modify All für jeden Datensatz hat, an dem es hängt, was hier nicht belegt ist."
+      },
       "customSettings": {
         "title_one": "Benutzerdefinierte Einstellung ({{formatted}})",
         "title_other": "Benutzerdefinierte Einstellungen ({{formatted}})",
@@ -6751,7 +6779,8 @@
       "rewindNeeds": {
         "tick": "Zum Zurücksetzen anhaken:",
         "plan": "Der Plan der angehakten Objekte wird gelesen…",
-        "planFailed": "Der Plan der angehakten Objekte konnte nicht gelesen werden: Versuchen Sie es oben erneut."
+        "planFailed": "Der Plan der angehakten Objekte konnte nicht gelesen werden: Versuchen Sie es oben erneut.",
+        "readFailed": "{{org}} konnte nicht erneut gelesen werden: Versuchen Sie es oben erneut."
       },
       "deliverability": {
         "all": "{{org}} stellt jede E-Mail zu, die ihre Automatisierungen senden (Setup > Zustellbarkeit: Alle E-Mails), und was beim Schreiben des Zurücksetzens noch läuft, kann welche senden: {{senders}}.",

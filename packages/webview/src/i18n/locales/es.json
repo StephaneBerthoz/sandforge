@@ -6480,6 +6480,34 @@
       "pickedCount_other": "{{formatted}} objetos elegidos",
       "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas salvo las que elija, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
       "leftOutAlwaysWithSettings": "Se dejan fuera: usuarios, permisos, configuración, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
+      "leftOutReason": {
+        "excludedByUser": "Se deja fuera como se pidió.",
+        "notFound": "La org no tiene ningún objeto con este nombre.",
+        "chatter": "Las publicaciones, comentarios y feeds de Chatter se dejan fuera: Salesforce recupera una publicación solo con aquello en lo que se publicó.",
+        "history": "El historial se deja fuera: es el rastro de cambios propio de la org.",
+        "sharing": "El uso compartido se deja fuera: la org lo mantiene ella misma.",
+        "changeEvent": "Los eventos de cambio se dejan fuera.",
+        "unsupportedKind": "Se deja fuera: ni la papelera ni una actualización llegan a este tipo de objeto como llegan a un registro.",
+        "customSetting": "Las configuraciones personalizadas se dejan fuera salvo que las elija como tales: son configuración, que un retroceso restablece.",
+        "notCustomSetting": "Elegido como configuración personalizada: la org no tiene ninguna configuración personalizada con este nombre.",
+        "files": "Los documentos de la ficha Documentos se dejan fuera: son contenido compartido guardado en carpetas, como la configuración.",
+        "heldWithFiles": "Se guarda con su archivo (ContentDocument): Salesforce no elimina ni recupera por sí sola la versión de un archivo, y lee los vínculos de un archivo a través de los registros a los que lo unen.",
+        "setup": "Los usuarios, los permisos y la configuración se dejan fuera.",
+        "metadata": "Se deja fuera: son metadatos, que un punto de control no guarda.",
+        "notWritable": "Se deja fuera: el usuario con el que se conecta SandForge no puede crear, editar y eliminar sus registros.",
+        "notDescribed": "Se deja fuera: la org no quiso describirlo.",
+        "noSystemModstamp": "Se deja fuera: no tiene SystemModstamp, así que nada indicaría que un registro cambió desde entonces.",
+        "noRecycleBin": "Se deja fuera: la org elimina sus registros definitivamente, sin papelera, así que nada indicaría que uno se eliminó desde entonces, ni lo recuperaría.",
+        "unreadable": "Se deja fuera: la org se niega a leerlo entero.",
+        "pastTheLimit": "{{object}} tiene {{records}} registros, por encima del límite de {{limit}} del punto de control para un objeto: se deja fuera, porque una parte pasaría por el todo.",
+        "noViewAll": "Sin View All Data y Modify All Data, un objeto solo se guarda con View All y Modify All sobre él, y el usuario con el que se conecta SandForge no tiene ninguno de los dos sobre este: un registro que no ve parecería eliminado desde entonces.",
+        "noModifyAll": "Sin View All Data y Modify All Data, un objeto solo se guarda con View All y Modify All sobre él, y el usuario con el que se conecta SandForge tiene View All sobre este, no Modify All: un retroceso no podría restablecer lo que otros cambiaron.",
+        "activities": "Sin View All Data y Modify All Data, las tareas y eventos se dejan fuera: Salesforce no tiene View All para las actividades, y una actividad privada no vinculada a ningún registro queda fuera de la vista.",
+        "catalog": "Sin View All Data y Modify All Data, los productos y listas de precios se dejan fuera: Salesforce no tiene View All ni Modify All para ellos.",
+        "filesNotProven": "Sin View All Data y Modify All Data, los archivos se dejan fuera: nada prueba que el usuario vea cada archivo.",
+        "settingNotProven": "Sin View All Data y Modify All Data, las configuraciones personalizadas se dejan fuera: ningún permiso sobre un objeto prueba que el usuario vea y escriba cada fila.",
+        "parentNotSeen": "Sin View All Data y Modify All Data, un objeto sin permisos propios solo se guarda si el usuario tiene View All y Modify All sobre cada registro del que depende, lo que aquí no está probado."
+      },
       "customSettings": {
         "title_one": "Configuración personalizada ({{formatted}})",
         "title_other": "Configuraciones personalizadas ({{formatted}})",
@@ -6751,7 +6779,8 @@
       "rewindNeeds": {
         "tick": "Para retroceder, marque:",
         "plan": "Leyendo el plan de los objetos marcados…",
-        "planFailed": "No se pudo leer el plan de los objetos marcados: vuelva a intentarlo más arriba."
+        "planFailed": "No se pudo leer el plan de los objetos marcados: vuelva a intentarlo más arriba.",
+        "readFailed": "No se pudo leer {{org}} de nuevo: vuelva a intentarlo más arriba."
       },
       "deliverability": {
         "all": "{{org}} entrega todos los correos que envían sus automatizaciones (Configuración > Capacidad de entrega: Todos los emails), y lo que sigue ejecutándose cuando el retroceso escribe puede enviar algunos: {{senders}}.",

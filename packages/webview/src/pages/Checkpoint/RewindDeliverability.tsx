@@ -104,13 +104,17 @@ export function rewindEmailsAskOf(input: {
     (deliverability !== undefined && named.length === 0) ||
     (automation?.unread.some(({ part }) => SENDING_PARTS.has(part)) ?? false);
   if (input.refused === true) return { verdict: 'asks', senders: [...named], unlisted };
-  if (!deliverability) return { verdict: 'none', senders: [], unlisted: false };
+  const quieted =
+    input.mute && automation ? quietedBy(automation, input.mute, input.steps) : new Set<string>();
+  if (!deliverability) {
+    // Read muted with nothing left that sends, the org was not asked whether
+    // it delivers them: what the mute keeps quiet is still said.
+    return { verdict: quieted.size > 0 ? 'quiet' : 'none', senders: [], unlisted: false };
+  }
   const { reading } = deliverability;
   if ('level' in reading && reading.level === 'withheld') {
     return { verdict: 'withheld', senders: [...named], unlisted };
   }
-  const quieted =
-    input.mute && automation ? quietedBy(automation, input.mute, input.steps) : new Set<string>();
   const senders = named.filter((sender) => !quieted.has(senderKey(sender)));
   return {
     verdict: senders.length > 0 || unlisted ? 'asks' : 'quiet',

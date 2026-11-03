@@ -255,16 +255,101 @@ describe('RewindPreview, the emails the org delivers', () => {
     fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
     expect(screen.queryByTestId('checkpoint-preview-accept-emails')).not.toBeInTheDocument();
     expect(screen.getByTestId('checkpoint-preview-deliverability-quiet')).toBeInTheDocument();
+
+    // Read muted, nothing left sends: the org was not asked what it delivers.
+    answerPreview({ automation: WELCOME_ONLY, diff: previewDiff({ previewId: 'pv-2' }) });
+    expect(screen.getByTestId('checkpoint-preview-deliverability-quiet')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-preview-accept-emails')).not.toBeInTheDocument();
     expect(rewind(onRewind)).toEqual(
       expect.not.objectContaining({ acceptEmails: expect.anything() }),
     );
     expect(onRewind.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ muteAutomation: true }));
   });
 
+  it('reads the preview again as the box is ticked: the day’s emails it silences stop refusing the rewind, which waits for the answer', () => {
+    const { onRewind } = renderPreview();
+    const overTheDay = {
+      automation: WELCOME_ONLY,
+      emails: [
+        {
+          limit: 'SingleEmail' as const,
+          emails: 20,
+          objects: [
+            {
+              objectApiName: 'Contact',
+              write: 'update' as const,
+              records: 20,
+              perRecord: 1,
+              sentBy: ['Contact Welcome Email'],
+            },
+          ],
+          verdict: 'exceeds' as const,
+          remaining: 15,
+          max: 15,
+        },
+      ],
+      refusal: {
+        code: 'EMAILS' as const,
+        message: 'The rewind makes DEV-SB send 20 single emails, more than the 15 left today.',
+      },
+    };
+    answerPreview(overTheDay);
+    expect(host.current?.sent('checkpoint:preview')).toHaveLength(1);
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: readyCheckpoint().checkpointId,
+    });
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+    expect(host.current?.sent('checkpoint:preview')).toHaveLength(2);
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: readyCheckpoint().checkpointId,
+      muteAutomation: true,
+    });
+    // The last answer stays up while the org is read, and Rewind stays off.
+    expect(screen.getByTestId('checkpoint-preview-refusal')).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-preview-reading-again')).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+      'Reading DEV-SB again…',
+    );
+
+    answerPreview({ automation: WELCOME_ONLY, diff: previewDiff({ previewId: 'pv-2' }) });
+    expect(screen.queryByTestId('checkpoint-preview-refusal')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-preview-emails')).toBeNull();
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeEnabled();
+
+    // Unticked, what the rewind then sends counts again.
+    fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: readyCheckpoint().checkpointId,
+    });
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    answerPreview({ ...overTheDay, diff: previewDiff({ previewId: 'pv-3' }) });
+    expect(screen.getByTestId('checkpoint-preview-refusal')).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+    answerPreview({ automation: WELCOME_ONLY, diff: previewDiff({ previewId: 'pv-4' }) });
+    expect(rewind(onRewind)).toEqual(
+      expect.objectContaining({ previewId: 'pv-4', muteAutomation: true }),
+    );
+  });
+
   it('muted, still asks for what tests no bypass, and names only that', () => {
     renderPreview();
     answerPreview({ automation: WITH_ALERT, deliverability: delivered({ level: 'all' }) });
     fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+    answerPreview({
+      automation: WITH_ALERT,
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [
+          { objectApiName: 'Account', kind: 'flow', name: 'Account Gone Alert', why: 'email' },
+        ],
+      },
+      diff: previewDiff({ previewId: 'pv-2' }),
+    });
     expect(screen.getByTestId('checkpoint-preview-accept-emails')).toBeInTheDocument();
     const reading = screen.getByTestId('checkpoint-preview-deliverability-reading').textContent;
     expect(reading).toContain('Flow “Account Gone Alert” on Account');

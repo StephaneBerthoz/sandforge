@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  CheckpointRefusal,
-  ForgeTargetAutomation,
-  ForgeTargetFlow,
-  RewindDiffObject,
+import {
+  firedOnRemovalStepsOf,
+  type CheckpointRefusal,
+  type ForgeTargetAutomation,
+  type ForgeTargetFlow,
+  type RewindDiffObject,
 } from '@sandforge/shared';
 
+import { rewindStepsOf } from './rewindBounds.js';
 import {
   actDeliverability,
   actEmailsGate,
@@ -103,6 +105,37 @@ describe('what a rewind and an undo write, per object and write', () => {
       { objectApiName: 'Contact', write: 'update', records: 5 },
       { objectApiName: 'Contact', write: 'delete', records: 4 },
     ]);
+  });
+
+  it('lists among the steps every object whose update its emails count: a flow on an update fires on what comes back from the bin', () => {
+    const objects = [
+      diffObject('Contact', { inBin: 2 }),
+      diffObject('Account', { giveBack: 1 }),
+      // Back with a parent, then given its values back as well.
+      {
+        ...diffObject('Case', {}),
+        toBringBack: { inBin: 0, withParent: 3, deletedWhileTaken: 0 },
+      },
+      // Deleted while the checkpoint was taken: it comes back and nothing more.
+      {
+        ...diffObject('Lead', {}),
+        toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 4 },
+      },
+    ];
+    const updated = writtenByDiff(objects)
+      .filter((each) => each.write === 'update')
+      .map((each) => each.objectApiName);
+    expect(updated).toEqual(['Contact', 'Account', 'Case']);
+    expect(rewindStepsOf({ objects }).giveBack).toEqual(updated);
+
+    // The line of what fires names the flow the emails count on that update.
+    const contact = [diffObject('Contact', { inBin: 2 })];
+    expect(
+      firedOnRemovalStepsOf(
+        automationOf({ Contact: [flow('Touch', 'update', [])] }),
+        rewindStepsOf({ objects: contact }),
+      ).map((each) => ({ step: each.step, name: each.name })),
+    ).toEqual([{ step: 'giveBack', name: 'Touch' }]);
   });
 
   it('counts what a rewind makes again with new Ids as inserted, after what it brings back, and the emails that sends', () => {

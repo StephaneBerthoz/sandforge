@@ -153,6 +153,25 @@ describe('rewindEmailsAskOf', () => {
     ).toEqual({ verdict: 'quiet', senders: [], unlisted: false });
   });
 
+  it('says the mute keeps quiet what a read muted left nothing to ask about, the org not read', () => {
+    expect(
+      rewindEmailsAskOf({
+        deliverability: undefined,
+        automation: SENDING,
+        steps: STEPS,
+        mute: MUTE,
+      }),
+    ).toEqual({ verdict: 'quiet', senders: [], unlisted: false });
+    // Not muted, the same read sends nothing.
+    expect(
+      rewindEmailsAskOf({ deliverability: undefined, automation: SENDING, steps: {} }),
+    ).toEqual({ verdict: 'none', senders: [], unlisted: false });
+    // Muted, with nothing that sends to keep quiet.
+    expect(
+      rewindEmailsAskOf({ deliverability: undefined, automation: SENDING, steps: {}, mute: MUTE }),
+    ).toEqual({ verdict: 'none', senders: [], unlisted: false });
+  });
+
   it('keeps asking a muted rewind for what could not be read of the automation', () => {
     const blind: ForgeTargetAutomation = {
       ...SENDING,

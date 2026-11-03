@@ -930,6 +930,9 @@ describe('takeCheckpoint — refused before anything is read', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).not.toContain('Account');
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Account',
+      code: 'pastTheLimit',
+      records: 32,
+      limit: 20,
       reason:
         "Account has 32 records, past the checkpoint's limit of 20 for one object: left out of " +
         'the checkpoint, as part of it would be taken for all of it.',
@@ -968,23 +971,31 @@ describe('takeCheckpoint — the scope', () => {
     expect(checkpoint.scope.leftOut).toEqual([
       {
         objectApiName: 'Config__c',
+        code: 'customSetting',
         reason:
           'Custom settings are left out unless you pick them as custom settings: they are ' +
           'configuration, which a rewind sets back.',
       },
       {
         objectApiName: 'FeedItem',
+        code: 'chatter',
         reason:
           'Chatter posts, comments and feeds are left out: Salesforce brings a post back only ' +
           'with what it was posted on.',
       },
       {
         objectApiName: 'Lead',
+        code: 'unreadable',
         reason:
           'Left out: the org refuses to read it whole (MALFORMED_QUERY: Implementation ' +
           'restriction: Lead requires a filter).',
+        detail: 'MALFORMED_QUERY: Implementation restriction: Lead requires a filter',
       },
-      { objectApiName: 'User', reason: 'Users, permissions and setup are left out.' },
+      {
+        objectApiName: 'User',
+        code: 'setup',
+        reason: 'Users, permissions and setup are left out.',
+      },
     ]);
   });
 
@@ -1018,7 +1029,7 @@ describe('takeCheckpoint — the scope', () => {
       'Account',
     ]);
     expect(checkpoint.scope.leftOut).toEqual([
-      { objectApiName: 'Nope__c', reason: 'The org has no object of this name.' },
+      { objectApiName: 'Nope__c', code: 'notFound', reason: 'The org has no object of this name.' },
     ]);
     expect(snapshotReads(h.sent)).toEqual(['Contact', 'Account']);
   });
@@ -1092,8 +1103,8 @@ describe('takeCheckpoint — custom settings', () => {
     expect(all.objects.some((object) => object.customSetting !== undefined)).toBe(false);
     expect(all.scope.leftOut).toEqual(
       expect.arrayContaining([
-        { objectApiName: 'App_Switches__c', reason: LEFT_OUT_UNLESS_PICKED },
-        { objectApiName: 'Endpoints__c', reason: LEFT_OUT_UNLESS_PICKED },
+        { objectApiName: 'App_Switches__c', code: 'customSetting', reason: LEFT_OUT_UNLESS_PICKED },
+        { objectApiName: 'Endpoints__c', code: 'customSetting', reason: LEFT_OUT_UNLESS_PICKED },
       ]),
     );
     expect(permissionReads(everything.org.asked).join(' ')).not.toContain(
@@ -1110,6 +1121,7 @@ describe('takeCheckpoint — custom settings', () => {
     expect(some.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(some.scope.leftOut).toContainEqual({
       objectApiName: 'Endpoints__c',
+      code: 'customSetting',
       reason: LEFT_OUT_UNLESS_PICKED,
     });
     expect(snapshotReads(picked.sent)).toEqual(['Account']);
@@ -1144,6 +1156,7 @@ describe('takeCheckpoint — custom settings', () => {
     ).not.toHaveProperty('customSetting');
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Nope__c',
+      code: 'notCustomSetting',
       reason: 'Picked as a custom setting: the org has no custom setting of this name.',
     });
     expect(snapshotReads(h.sent)).toEqual(
@@ -1175,6 +1188,7 @@ describe('takeCheckpoint — custom settings', () => {
     ]);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'App_Switches__c',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });
@@ -1719,14 +1733,17 @@ describe('takeCheckpoint — the files', () => {
       expect.arrayContaining([
         {
           objectApiName: 'ContentVersion',
+          code: 'heldWithFiles',
           reason: expect.stringContaining('Held with its file (ContentDocument)'),
         },
         {
           objectApiName: 'ContentDocumentLink',
+          code: 'heldWithFiles',
           reason: expect.stringContaining('Held with its file (ContentDocument)'),
         },
         {
           objectApiName: 'Document',
+          code: 'files',
           reason:
             'Documents of the Documents tab are left out: they are shared content kept in ' +
             'folders, as setup is.',
@@ -1951,9 +1968,9 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     });
     expect(checkpoint.scope.leftOut).toEqual(
       expect.arrayContaining([
-        { objectApiName: 'Case', reason: WITHOUT_BOTH.noModifyAll },
-        { objectApiName: 'Lead', reason: WITHOUT_BOTH.noViewAll },
-        { objectApiName: 'Task', reason: WITHOUT_BOTH.activities },
+        { objectApiName: 'Case', code: 'noModifyAll', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Lead', code: 'noViewAll', reason: WITHOUT_BOTH.noViewAll },
+        { objectApiName: 'Task', code: 'activities', reason: WITHOUT_BOTH.activities },
       ]),
     );
     // Neither the cases nor the tasks were read, nor their recycle bins.
@@ -2055,14 +2072,17 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     expect(checkpoint.scope.leftOut).toEqual([
       {
         objectApiName: 'Attachment',
+        code: 'parentNotSeen',
         reason:
           'Without View All Data and Modify All Data, an object with no permissions of its own ' +
           'is held only when the user has View All and Modify All on every record it hangs ' +
           'from, which is not proven here (ParentId may name a record of Account, Contact, ' +
           'Case).',
+        detail: 'ParentId may name a record of Account, Contact, Case',
       },
       {
         objectApiName: 'ContentDocument',
+        code: 'filesNotProven',
         reason:
           'Without View All Data and Modify All Data, files are left out: nothing proves the ' +
           'user sees every file.',
@@ -2087,8 +2107,8 @@ describe('takeCheckpoint — a user without View All Data and Modify All Data', 
     expect(checkpoint.objects.map(({ objectApiName }) => objectApiName)).toEqual(['Account']);
     expect(checkpoint.scope.leftOut).toEqual(
       expect.arrayContaining([
-        { objectApiName: 'Case', reason: WITHOUT_BOTH.noModifyAll },
-        { objectApiName: 'Task', reason: WITHOUT_BOTH.activities },
+        { objectApiName: 'Case', code: 'noModifyAll', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Task', code: 'activities', reason: WITHOUT_BOTH.activities },
       ]),
     );
     expect(scope.leftOut).toEqual(checkpoint.scope.leftOut);

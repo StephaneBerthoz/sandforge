@@ -349,6 +349,26 @@ describe('rewindPreviewFacts', () => {
     ).toEqual(['Account']);
   });
 
+  it('names among what it gives back what comes back from the bin, as the extension counts its update, and no record only deleted while the take read', () => {
+    const steps = rewindSteps(
+      previewDiff({
+        objects: [
+          diffObject('Contact', {
+            toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+          }),
+          diffObject('Case', {
+            toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+          }),
+          diffObject('Lead', {
+            toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 3 },
+          }),
+        ],
+      }),
+    );
+    expect(steps.bringBack).toEqual(['Contact', 'Case', 'Lead']);
+    expect(steps.giveBack).toEqual(['Contact', 'Case']);
+  });
+
   it('names the records to make again with new Ids, object by object, only the objects that have some', () => {
     expect(
       recreateLines(

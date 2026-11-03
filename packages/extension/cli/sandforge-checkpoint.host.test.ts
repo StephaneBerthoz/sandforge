@@ -543,6 +543,7 @@ describe('sandforge-checkpoint take', () => {
     expect(checkpoint.objects.map((object) => object.objectApiName)).toEqual(['Account']);
     expect(checkpoint.scope.leftOut).toContainEqual({
       objectApiName: 'Case',
+      code: 'excludedByUser',
       reason: 'Left out as asked.',
     });
   });

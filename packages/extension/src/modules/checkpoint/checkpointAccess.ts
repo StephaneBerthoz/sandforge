@@ -36,6 +36,7 @@
  * describes (`takeCheckpoint.ts`).
  */
 
+import type { CheckpointAccessLeftOutCode } from '@sandforge/shared';
 import type { CheckpointDescribe } from './checkpointFields.js';
 import { FILE_OBJECT } from './checkpointScope.js';
 
@@ -84,21 +85,7 @@ export function coversAnyObject(grants: ObjectGrants): boolean {
 }
 
 /** Why an object is left out of a checkpoint taken without View All Data and Modify All Data. */
-export type AccessLeftOutReason =
-  /** Neither View All nor Modify All on it. */
-  | 'noViewAll'
-  /** View All on it, and not Modify All: what others changed could not be put back. */
-  | 'noModifyAll'
-  /** A task or an event: activities have no View All. */
-  | 'activities'
-  /** A product or a price book: they have no View All or Modify All. */
-  | 'catalog'
-  /** A file: nothing proves who sees every file. */
-  | 'filesNotProven'
-  /** A custom setting: no permission row tells who sees and writes every row. */
-  | 'settingNotProven'
-  /** No permission of its own, and what it hangs from is not proven held whole. */
-  | 'parentNotSeen';
+export type AccessLeftOutReason = CheckpointAccessLeftOutCode;
 
 /** How an object is held, or why it is not, with what the reason names. */
 export type ObjectCoverage =

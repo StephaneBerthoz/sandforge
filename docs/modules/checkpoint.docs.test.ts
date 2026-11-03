@@ -305,13 +305,13 @@ describe('docs/modules/checkpoint.md', () => {
   it('says what the panel shows a user without View All Data and Modify All Data: the objects its permissions leave out, the take per object, the box of what goes out of sight, and the list’s line', () => {
     // Anchor: the preview's box is what it sends as acceptUnseen and holds
     // Rewind until it is ticked; the take tells what the user's permissions
-    // leave out by the scope's words, and the list a checkpoint by its file.
+    // leave out by the scope's code, and the list a checkpoint by its file.
     const preview = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
     expect(preview).toContain('acceptUnseen: unseen.length > 0 && ticked.unseen,');
     expect(preview).toContain('(unseen.length === 0 || ticked.unseen) &&');
     const facts = source('packages/webview/src/pages/Checkpoint/checkpointFacts.ts');
     expect(facts).toContain(
-      "export const LEFT_OUT_FOR_ACCESS = 'Without View All Data and Modify All Data,';",
+      'return object.code !== undefined && object.code in LEFT_OUT_FOR_ACCESS;',
     );
     expect(facts).toContain(
       'return !checkpoint.takenBy.viewAllData || !checkpoint.takenBy.modifyAllData;',
@@ -438,8 +438,16 @@ describe('docs/modules/checkpoint.md', () => {
       noRecycleBin: 'an object without a recycle bin',
       unreadable: 'an object the org will not read without a filter',
     };
-    // Both ways: a reason the scope gains is a kind the page has to name.
-    expect(unionOf(SCOPE, 'ScopeLeftOutReason').sort()).toEqual(Object.keys(said).sort());
+    // Both ways: a reason the scope gains is a kind the page has to name. What
+    // a take counts past its limit is the take's, named under its own line.
+    expect(SCOPE).toContain(
+      "export type ScopeLeftOutReason = Exclude<CheckpointLeftOutCode, 'pastTheLimit'>;",
+    );
+    expect(
+      unionOf(TYPES, 'CheckpointLeftOutCode')
+        .filter((code) => code !== 'pastTheLimit')
+        .sort(),
+    ).toEqual(Object.keys(said).sort());
     // Metadata is what the Tooling API serves, the rest of what the org will not describe.
     expect(SCOPE).toContain(
       "if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';",

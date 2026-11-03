@@ -336,7 +336,7 @@ for (const theme of THEMES) {
         '1 belongs to the vlocity_cmt package',
       );
       await expect(page.getByTestId('checkpoint-left-out')).toContainText(
-        'FeedItem — Chatter posts are left out.',
+        'FeedItem — Chatter posts, comments and feeds are left out',
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
 

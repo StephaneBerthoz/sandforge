@@ -307,9 +307,21 @@ for (const theme of THEMES) {
         '[data-testid="checkpoint-preview-automation-mute-also-lifts"]',
       );
 
-      // Ticked, the rewind asks acceptance only for the trigger that still runs.
+      // Ticked, the org is read again with the mute: what was shown stays up,
+      // the box keeps the keyboard and Rewind waits for the answer.
       await toggle.check();
       await expect(box).toBeVisible();
+      await expect(page.getByTestId('checkpoint-preview-reading-again')).toBeVisible();
+      await expect(page.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+      const read = await host.answer('checkpoint:preview', previewWithAutomation());
+      expect(read.payload).toEqual({
+        checkpointId: CHECKPOINT.checkpointId,
+        muteAutomation: true,
+      });
+      await expect(page.getByTestId('checkpoint-preview-reading-again')).toHaveCount(0);
+      await expect(toggle).toBeFocused();
+
+      // The rewind then asks acceptance only for the trigger that still runs.
       await page.getByTestId('checkpoint-preview-accept-automation').check();
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-automation-mute"]');
       await page.getByTestId('checkpoint-preview-rewind').click();

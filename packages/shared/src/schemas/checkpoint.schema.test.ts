@@ -498,6 +498,18 @@ describe('orgCheckpointSchema', () => {
     }
   });
 
+  it('reads an object left out with its reason’s code, or with its words alone as a checkpoint taken before codes holds it', () => {
+    const scoped = (leftOut: unknown[]) =>
+      orgCheckpointSchema.safeParse(checkpointWith({ scope: { mode: 'everything', leftOut } }));
+    const words = { objectApiName: 'Case', reason: 'Left out.' };
+    expect(scoped([words]).success).toBe(true);
+    expect(
+      scoped([{ ...words, code: 'pastTheLimit', records: 32, limit: 20 }, words]).success,
+    ).toBe(true);
+    expect(scoped([{ ...words, code: 'unreadable', detail: 'QUERY_TIMEOUT' }]).success).toBe(true);
+    expect(scoped([{ ...words, code: 'tooBig' }]).success).toBe(false);
+  });
+
   it('refuses a read mode, a left-out reason or a status it does not know', () => {
     expect(orgCheckpointSchema.safeParse(withContact({ readMode: 'bulk' })).success).toBe(false);
     expect(

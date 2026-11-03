@@ -1120,7 +1120,7 @@ describe('what an export carries, and an import writes back', () => {
         throw new Error('the file is damaged');
       }),
     ).rejects.toThrow('the file is damaged');
-    expect(readdirSync(join(store.root, ORG))).toEqual([]);
+    expect(existsSync(join(store.root, ORG))).toBe(false);
 
     await expect(
       store.importInto(ORG, checkpoint.checkpointId, async () => ({
@@ -1128,7 +1128,7 @@ describe('what an export carries, and an import writes back', () => {
         checkpointId: 'ck-20261022-110000-zzzz',
       })),
     ).rejects.toMatchObject({ code: 'invalid' });
-    expect(readdirSync(join(store.root, ORG))).toEqual([]);
+    expect(existsSync(join(store.root, ORG))).toBe(false);
 
     const done = await store.importInto(ORG, checkpoint.checkpointId, async () => {
       await kept(store, checkpoint);
@@ -1136,6 +1136,22 @@ describe('what an export carries, and an import writes back', () => {
     });
     expect(done).toEqual({ outcome: 'exists' });
     expect(readdirSync(join(store.root, ORG))).toEqual([checkpoint.checkpointId]);
+  });
+
+  it('leaves an org’s other checkpoints where they are when an import of it fails', async () => {
+    const store = storeIn();
+    const held = checkpointOf();
+    await kept(store, held);
+
+    await expect(
+      store.importInto(ORG, 'ck-20261022-110000-zzzz', async () => {
+        throw new Error('the file is damaged');
+      }),
+    ).rejects.toThrow('the file is damaged');
+    expect(readdirSync(join(store.root, ORG))).toEqual([held.checkpointId]);
+    expect((await store.read(held.checkpointId))?.checkpoint).toMatchObject({
+      checkpointId: held.checkpointId,
+    });
   });
 
   it('never takes the folder a take of the same id has just made, empty as it still is', async () => {

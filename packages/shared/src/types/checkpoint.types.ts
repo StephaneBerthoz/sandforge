@@ -173,10 +173,89 @@ export interface CheckpointFiles {
   readByIds?: string[];
 }
 
-/** An object the scope left out, with the reason a person reads. */
+/** Why an object is left out of a checkpoint taken without View All Data and Modify All Data. */
+export type CheckpointAccessLeftOutCode =
+  /** Neither View All nor Modify All on it. */
+  | 'noViewAll'
+  /** View All on it, and not Modify All: what others changed could not be put back. */
+  | 'noModifyAll'
+  /** A task or an event: activities have no View All. */
+  | 'activities'
+  /** A product or a price book: they have no View All or Modify All. */
+  | 'catalog'
+  /** A file: nothing proves who sees every file. */
+  | 'filesNotProven'
+  /** A custom setting: no permission row tells who sees and writes every row. */
+  | 'settingNotProven'
+  /** No permission of its own, and what it hangs from is not proven held whole. */
+  | 'parentNotSeen';
+
+/** Why a checkpoint leaves an object out. */
+export type CheckpointLeftOutCode =
+  /** Its owner asked for it to be left out. */
+  | 'excludedByUser'
+  /** Picked, and the org has no such object. */
+  | 'notFound'
+  /** A Chatter post, comment or feed. */
+  | 'chatter'
+  /** A history object: the org's trace of changes. */
+  | 'history'
+  /** A sharing object: who may see a record, which the org keeps itself. */
+  | 'sharing'
+  /** A change event of Change Data Capture. */
+  | 'changeEvent'
+  /** A big object, an external or Data Cloud object, a Knowledge version or a platform event. */
+  | 'unsupportedKind'
+  /** A custom setting the take did not name: configuration. */
+  | 'customSetting'
+  /** Named as a custom setting, and the org has no custom setting of that name. */
+  | 'notCustomSetting'
+  /** A document of the Documents tab: shared content kept in folders. */
+  | 'files'
+  /** A file's version or link: held with its file, `ContentDocument`. */
+  | 'heldWithFiles'
+  /** Users, permissions and the rest of setup, and the org's logs and jobs. */
+  | 'setup'
+  /** Metadata, which the Tooling API serves: deployed, not kept as data. */
+  | 'metadata'
+  /** The user may not query, create, edit and delete its records. */
+  | 'notWritable'
+  /** Its describe could not be read. */
+  | 'notDescribed'
+  /** No `SystemModstamp`: nothing would tell a record that moved since. */
+  | 'noSystemModstamp'
+  /**
+   * No `IsDeleted`: the org deletes its records for good, with no recycle bin,
+   * so nothing would tell one deleted since, nor bring it back.
+   */
+  | 'noRecycleBin'
+  /** The org refuses to read it whole. */
+  | 'unreadable'
+  /** More records than a checkpoint holds of one object: part of it would pass for all of it. */
+  | 'pastTheLimit'
+  /**
+   * Without View All Data and Modify All Data, why an object the user is not
+   * proven to see and put back whole is left out. `filesNotProven` and
+   * `settingNotProven` are the note's `files` and a custom setting's: `files`
+   * already names the Documents tab's.
+   */
+  | CheckpointAccessLeftOutCode;
+
+/**
+ * An object the scope left out, and why: `code`, which a page says in its
+ * language and tells reasons apart by, and `reason`, the same in English for
+ * the file, the command line and a run's notes.
+ */
 export interface CheckpointLeftOutObject {
   objectApiName: string;
+  /** Absent from a checkpoint taken before reasons had codes: `reason` alone says why. */
+  code?: CheckpointLeftOutCode;
   reason: string;
+  /** What `code` leaves to name, in the words it came in: the org's, or a parent's. */
+  detail?: string;
+  /** Of `pastTheLimit`, its records and the checkpoint's limit for one object. */
+  records?: number;
+  limit?: number;
 }
 
 /** Which objects the checkpoint holds, and the ones its scope left out. */

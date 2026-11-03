@@ -47,10 +47,10 @@ import {
   isFileBodiedObject,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
+  type CheckpointLeftOutCode,
   type CheckpointObject,
 } from '@sandforge/shared';
 import { excludedByDescribe, isNeverCopiedWhenPicked } from '../forge/excludedObjects.js';
-import type { AccessLeftOutReason } from './checkpointAccess.js';
 import type { CheckpointDescribe } from './checkpointFields.js';
 
 /** An object as the org's global describe lists it, as far as the scope reads it. */
@@ -74,54 +74,8 @@ export type GlobalObject = z.infer<typeof globalObjectSchema>;
 /** Every object of the org a person works in, or only those a person picked. */
 export type CheckpointScopeMode = 'everything' | 'picked';
 
-/** Why a checkpoint leaves an object out. */
-export type ScopeLeftOutReason =
-  /** Its owner asked for it to be left out. */
-  | 'excludedByUser'
-  /** Picked, and the org has no such object. */
-  | 'notFound'
-  /** A Chatter post, comment or feed. */
-  | 'chatter'
-  /** A history object: the org's trace of changes. */
-  | 'history'
-  /** A sharing object: who may see a record, which the org keeps itself. */
-  | 'sharing'
-  /** A change event of Change Data Capture. */
-  | 'changeEvent'
-  /** A big object, an external or Data Cloud object, a Knowledge version or a platform event. */
-  | 'unsupportedKind'
-  /** A custom setting the take did not name: configuration. */
-  | 'customSetting'
-  /** Named as a custom setting, and the org has no custom setting of that name. */
-  | 'notCustomSetting'
-  /** A document of the Documents tab: shared content kept in folders. */
-  | 'files'
-  /** A file's version or link: held with its file, `ContentDocument`. */
-  | 'heldWithFiles'
-  /** Users, permissions and the rest of setup, and the org's logs and jobs. */
-  | 'setup'
-  /** Metadata, which the Tooling API serves: deployed, not kept as data. */
-  | 'metadata'
-  /** The user may not query, create, edit and delete its records. */
-  | 'notWritable'
-  /** Its describe could not be read. */
-  | 'notDescribed'
-  /** No `SystemModstamp`: nothing would tell a record that moved since. */
-  | 'noSystemModstamp'
-  /**
-   * No `IsDeleted`: the org deletes its records for good, with no recycle bin,
-   * so nothing would tell one deleted since, nor bring it back.
-   */
-  | 'noRecycleBin'
-  /** The org refuses to read it whole. */
-  | 'unreadable'
-  /**
-   * Without View All Data and Modify All Data, why an object the user is not
-   * proven to see and put back whole is left out (`checkpointAccess.ts`).
-   * `filesNotProven` and `settingNotProven` are the note's `files` and a
-   * custom setting's: `files` already names the Documents tab's.
-   */
-  | AccessLeftOutReason;
+/** Why a scope leaves an object out: what a take counts past its limit is the take's own. */
+export type ScopeLeftOutReason = Exclude<CheckpointLeftOutCode, 'pastTheLimit'>;
 
 /** An object a checkpoint leaves out, with why. */
 export interface ScopeLeftOut {

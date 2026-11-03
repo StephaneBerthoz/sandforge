@@ -134,7 +134,8 @@ const DAY_MS = 86_400_000;
  * the deletions take along out of the user's sight. Any other the preview
  * names — a SandForge run writing to the org, too few API requests left
  * today, more emails than the org has left today (`EMAILS`) — holds the
- * rewind whatever is ticked.
+ * rewind whatever is ticked: the box that mutes reads the preview again, and
+ * the answer counts only the emails of what still runs.
  */
 const LIFTED_BY: Partial<
   Record<CheckpointRefusalCode, 'automation' | 'emails' | 'noUndo' | 'recreate' | 'unseen'>
@@ -259,7 +260,8 @@ export interface RewindPreviewProps {
    * that starts the rewind (`AutomationMuteBox`) from the offer this preview
    * plans of its read: whether it is ticked, and its toggle. Without it, no
    * box is offered, and the rewind is not asked to mute: the Automation
-   * page's Rewind step that does not mute shows this preview so.
+   * page's Rewind step that does not mute shows this preview so. Ticked or
+   * unticked, the preview is read again, for what still runs.
    */
   muteBox?: MuteBoxOf;
   /**
@@ -288,6 +290,16 @@ interface Ticked {
   unseen: boolean;
 }
 
+/** Each box of a preview as it starts. */
+const NOTHING_TICKED: Ticked = {
+  automation: false,
+  emails: false,
+  noUndo: false,
+  recreate: false,
+  outside: false,
+  unseen: false,
+};
+
 /**
  * What a rewind of the org to a checkpoint would do, read from the org as the
  * preview opens and written nowhere: how many records it deletes, gives back
@@ -311,6 +323,11 @@ interface Ticked {
  * picked objects, the records outside it that its deletions take along go
  * only when their box is ticked, and their parents stay otherwise. A box is
  * ticked for the preview it was read with: read again, the org may differ.
+ * The box that mutes reads it again itself, with what still runs: what the
+ * mute keeps quiet then counts against no daily limit and refuses nothing.
+ * The last answer stays up as the org is read, and Rewind waits for the new
+ * one; a read that fails leaves it off, what is up no longer being what was
+ * asked. The objects ticked in the table stay what they were through a read.
  * Rewind then asks for the org's name, typed, under what it deletes, gives
  * back and brings back, as every removal that deletes does.
  *
@@ -339,7 +356,8 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   const orgName = org.alias || org.username;
   // The box beside what the rewind fires: mute it, through the org's own
   // bypass. Not among the boxes that lift a refusal, which a read again
-  // unticks: ticked, it asks something more of the org, which may refuse it.
+  // unticks: ticked, it asks something more of the org, which may refuse it,
+  // and the preview is of what still runs.
   const [mute, setMute] = useState(startMuted);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
@@ -347,7 +365,10 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
 
   const preview = useBridgeQuery<PreviewAnswer>(
     'checkpoint:preview',
-    { checkpointId: checkpoint.checkpointId },
+    {
+      checkpointId: checkpoint.checkpointId,
+      ...(muteBox && mute ? { muteAutomation: true } : {}),
+    },
     { timeoutMs: PREVIEW_TIMEOUT_MS },
   );
   const takenFrom =
@@ -391,12 +412,13 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   } else {
     body = (
       <PreviewBody
-        key={preview.data.diff.previewId}
+        key={checkpoint.checkpointId}
         org={org}
         checkpoint={checkpoint}
         takenFrom={takenFrom}
         answer={preview.data}
         readingAgain={preview.loading}
+        readFailed={preview.error !== null}
         onReadAgain={preview.refetch}
         onRewind={onRewind}
         {...(muteBox ? { muteBox } : {})}
@@ -422,11 +444,21 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
       </h2>
       {/* A read again that failed leaves the last answer up, and says why. */}
       {preview.data !== null && preview.error && (
-        <ErrorBanner
-          message={preview.error}
-          code={preview.errorCode}
-          data-testid="checkpoint-preview-error"
-        />
+        <div className="flex flex-col items-start gap-2">
+          <ErrorBanner
+            message={preview.error}
+            code={preview.errorCode}
+            data-testid="checkpoint-preview-error"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={preview.refetch}
+            data-testid="checkpoint-preview-retry"
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
       )}
       {body}
       <div>
@@ -441,7 +473,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
 /**
  * The emails the rewind's writes make the org send, per daily limit, against
  * what it has left today: past them, the rewind is refused whatever is
- * ticked, as the refusal above says.
+ * accepted, as the refusal above says, unless what sends them is muted.
  */
 const Emails: React.FC<{ emails: readonly CheckpointEmails[]; orgName: string }> = ({
   emails,
@@ -490,6 +522,8 @@ interface PreviewBodyProps {
   answer: PreviewAnswer;
   /** The preview is being read again: what is shown is the last answer. */
   readingAgain: boolean;
+  /** The last read again failed: what is shown may not be what is ticked. */
+  readFailed: boolean;
   onReadAgain: () => void;
   onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
   muteBox?: MuteBoxOf;
@@ -505,6 +539,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   takenFrom,
   answer,
   readingAgain,
+  readFailed,
   onReadAgain,
   onRewind,
   muteBox,
@@ -528,16 +563,19 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     emails: useId(),
   } as const;
   const rewindNeedsId = useId();
-  const [ticked, setTicked] = useState<Ticked>({
-    automation: false,
-    emails: false,
-    noUndo: false,
-    recreate: false,
-    outside: false,
-    unseen: false,
-  });
+  const [ticked, setTicked] = useState<Ticked>(NOTHING_TICKED);
   // What Rewind accepted as it was pressed, while the org's name is typed.
   const [confirming, setConfirming] = useState<RewindAcceptances | null>(null);
+  // Read again, what was accepted of the last answer goes with it. The page
+  // stays: the box that asked the read keeps the keyboard, and the objects
+  // left unticked stay out, where one ticked back unasked would widen the
+  // rewind.
+  const [tickedFor, setTickedFor] = useState(diff.previewId);
+  if (tickedFor !== diff.previewId) {
+    setTickedFor(diff.previewId);
+    setTicked(NOTHING_TICKED);
+    setConfirming(null);
+  }
   const tick = (box: keyof Ticked, value: boolean): void =>
     setTicked((was) => ({ ...was, [box]: value }));
 
@@ -546,7 +584,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const [unticked, setUnticked] = useState<readonly string[]>([]);
   const rowNames = diff.objects.map((object) => object.objectApiName);
   const picks = rowNames.filter((name) => !unticked.includes(name));
-  const selecting = unticked.length > 0;
+  const selecting = picks.length < rowNames.length;
   const pickRow = (name: string, value: boolean): void =>
     setUnticked((was) =>
       value ? was.filter((each) => each !== name) : was.includes(name) ? was : [...was, name],
@@ -652,6 +690,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const canRewind =
     writes &&
     !readingAgain &&
+    !readFailed &&
     !refused &&
     (!selecting || plan !== null) &&
     (counted.undoCannot.length === 0 || ticked.noUndo) &&
@@ -685,6 +724,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const rewindNeeds: React.ReactNode =
     canRewind || !onRewind ? null : readingAgain ? (
       t('checkpoint.preview.readingAgain', { org: orgName })
+    ) : readFailed ? (
+      t('checkpoint.preview.rewindNeeds.readFailed', { org: orgName })
     ) : selecting && picks.length === 0 ? (
       t('checkpoint.preview.selection.none')
     ) : selecting && plan === null ? (

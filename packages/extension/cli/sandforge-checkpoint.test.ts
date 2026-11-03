@@ -1187,7 +1187,8 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
     expect(rewindStepsOf(diff)).toEqual({
       bringBack: ['Case'],
       recreate: [],
-      giveBack: ['Account'],
+      // What comes back from the bin is given its values back: an update.
+      giveBack: ['Account', 'Case'],
       setToDraft: ['Order'],
       delete: ['Order'],
     });

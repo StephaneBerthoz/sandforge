@@ -476,7 +476,12 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
 function leftOutOf(out: ScopeLeftOut): CheckpointLeftOutObject {
   const words = LEFT_OUT_WORDS[out.reason];
   const reason = out.detail === undefined ? words : `${words.replace(/\.$/, '')} (${out.detail}).`;
-  return { objectApiName: out.objectApiName, reason: clipped(reason) };
+  return {
+    objectApiName: out.objectApiName,
+    code: out.reason,
+    reason: clipped(reason),
+    ...(out.detail === undefined ? {} : { detail: clipped(out.detail) }),
+  };
 }
 
 /** An object left out for its size, as a person reads it. */
@@ -487,6 +492,9 @@ function pastTheLimit(
 ): CheckpointLeftOutObject {
   return {
     objectApiName,
+    code: 'pastTheLimit',
+    records,
+    limit,
     reason:
       `${objectApiName} has ${records} records, past the checkpoint's limit of ${limit} for ` +
       'one object: left out of the checkpoint, as part of it would be taken for all of it.',

@@ -185,6 +185,18 @@ for (const theme of THEMES) {
     }) => {
       await previewSending(page, theme, { level: 'all' });
       await page.getByTestId('checkpoint-preview-automation-mute-toggle').check();
+      await expect(page.getByTestId('checkpoint-preview-reading-again')).toBeVisible();
+      await expect(page.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+      await expect
+        .poll(async () => (await outgoing(page, 'checkpoint:preview')).at(-1)?.payload)
+        .toEqual(expect.objectContaining({ muteAutomation: true }));
+      await answerAll(
+        page,
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        previewThatSends(beforeRunCheckpoint().checkpointId, { level: 'all' }),
+      );
+      await expect(page.getByTestId('checkpoint-preview-reading-again')).toHaveCount(0);
 
       const reading = page.getByTestId('checkpoint-preview-deliverability-reading');
       await expect(reading).toContainText('Flow “Account Gone Alert” on Account');

@@ -289,7 +289,9 @@ export function unseenChildren(diff: Partial<Pick<RewindDiff, 'unseen'>>): strin
  * The objects each step of a rewind writes, in the order it writes them: it
  * brings back from the recycle bin, makes again what the bin no longer gives
  * back, gives back values, then deletes. What the org runs as it writes is
- * read for these. An object whose records come back for a moment, to be
+ * read for these. What comes back from the bin is given back the values it
+ * had when deleted once it is back, as the rewind's plan lists it: a flow on
+ * an update fires on it. An object whose records come back for a moment, to be
  * deleted again (`carriersOf`), is brought back and deleted, as the rewind
  * itself lists it: its automation runs on both. A link between a file and a
  * record it removes is a delete of {@link FILE_LINK_OBJECT}, one it puts back
@@ -299,7 +301,11 @@ export function unseenChildren(diff: Partial<Pick<RewindDiff, 'unseen'>>): strin
 export function rewindSteps(
   diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
 ): ForgeRemovalSteps {
-  const rows = diff.objects.map((object) => ({ ...rowOf(object), carriers: carriersOf(object) }));
+  const rows = diff.objects.map((object) => ({
+    ...rowOf(object),
+    carriers: carriersOf(object),
+    updated: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
+  }));
   const links = diff.files;
   const linked = (step: string[], writes: number): string[] =>
     writes > 0 ? [...step, FILE_LINK_OBJECT] : step;
@@ -312,7 +318,7 @@ export function rewindSteps(
       links?.relink ?? 0,
     ),
     giveBack: linked(
-      rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
+      rows.filter((row) => row.updated > 0).map((row) => row.objectApiName),
       links?.updateLinks ?? 0,
     ),
     delete: linked(

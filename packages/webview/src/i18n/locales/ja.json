@@ -6114,6 +6114,34 @@
       "pickedCount_other": "{{formatted}} 個のオブジェクトを選択済み",
       "leftOutAlways": "対象外: ユーザー、権限、設定、選択しなかったカスタム設定、Chatter、履歴オブジェクトとログオブジェクト、［ドキュメント］タブのドキュメント。",
       "leftOutAlwaysWithSettings": "対象外: ユーザー、権限、設定、Chatter、履歴オブジェクトとログオブジェクト、［ドキュメント］タブのドキュメント。",
+      "leftOutReason": {
+        "excludedByUser": "指定どおり対象外にしました。",
+        "notFound": "組織にこの名前のオブジェクトはありません。",
+        "chatter": "Chatter の投稿、コメント、フィードは対象外です。Salesforce は投稿を、投稿先のレコードと一緒にしか復元しません。",
+        "history": "履歴は対象外です。組織自身の変更の記録です。",
+        "sharing": "共有は対象外です。組織自身が管理します。",
+        "changeEvent": "変更イベントは対象外です。",
+        "unsupportedKind": "対象外: この種類のオブジェクトには、ごみ箱も更新もレコードと同じようには届きません。",
+        "customSetting": "カスタム設定は、カスタム設定として選択しない限り対象外です。巻き戻しで元に戻る設定情報だからです。",
+        "notCustomSetting": "カスタム設定として選択されましたが、組織にこの名前のカスタム設定はありません。",
+        "files": "［ドキュメント］タブのドキュメントは対象外です。設定と同じく、フォルダーに保管された共有コンテンツです。",
+        "heldWithFiles": "ファイル (ContentDocument) と一緒に保持します。Salesforce はファイルのバージョンを単独で削除も復元もせず、ファイルのリンクは結び付いたレコードを通じて読み取ります。",
+        "setup": "ユーザー、権限、設定は対象外です。",
+        "metadata": "対象外: メタデータであり、チェックポイントには保持されません。",
+        "notWritable": "対象外: SandForge が接続するユーザーは、そのレコードを作成、編集、削除できません。",
+        "notDescribed": "対象外: 組織がこのオブジェクトの説明を返しませんでした。",
+        "noSystemModstamp": "対象外: SystemModstamp がないため、その後にレコードが変更されたことを判別できません。",
+        "noRecycleBin": "対象外: 組織はこのレコードをごみ箱を経由せず完全に削除するため、その後の削除を判別することも復元することもできません。",
+        "unreadable": "対象外: 組織が全件の読み取りを拒否しています。",
+        "pastTheLimit": "{{object}} には {{records}} 件のレコードがあり、チェックポイントの 1 オブジェクトあたりの上限 {{limit}} を超えています。一部だけを全体として扱わないよう対象外にしました。",
+        "noViewAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトにどちらも持っていません。参照できないレコードが、その後に削除されたものと読み取られるためです。",
+        "noModifyAll": "View All Data と Modify All Data がない場合、オブジェクトは View All と Modify All を持つときだけ保持されます。SandForge が接続するユーザーは、このオブジェクトに View All を持っていますが Modify All はありません。他のユーザーの変更を巻き戻しで元に戻せないためです。",
+        "activities": "View All Data と Modify All Data がない場合、ToDo と行動は対象外です。Salesforce の活動には View All がなく、どのレコードにも関連付けられていない非公開の活動は参照できないままになります。",
+        "catalog": "View All Data と Modify All Data がない場合、商品と価格表は対象外です。これらには Salesforce の View All も Modify All もありません。",
+        "filesNotProven": "View All Data と Modify All Data がない場合、ファイルは対象外です。ユーザーがすべてのファイルを参照できることは証明できません。",
+        "settingNotProven": "View All Data と Modify All Data がない場合、カスタム設定は対象外です。オブジェクトの権限では、ユーザーがすべての行を参照し書き込めることを証明できません。",
+        "parentNotSeen": "View All Data と Modify All Data がない場合、独自の権限を持たないオブジェクトは、ユーザーが親のすべてのレコードに View All と Modify All を持つときだけ保持されます。ここではそれを証明できません。"
+      },
       "customSettings": {
         "title_other": "カスタム設定 ({{formatted}})",
         "hint": "設定データのため、選択しない限り対象外です。巻き戻しでは、選択したカスタム設定の各行を、その後に誰が変更したかにかかわらず、チェックポイントが保持する状態に戻します (連携のエンドポイントや管理者のスイッチなど)。保持するには「アプリケーションのカスタマイズ」権限が必要です。",
@@ -6322,7 +6350,8 @@
       "rewindNeeds": {
         "tick": "巻き戻すには、次をチェックしてください:",
         "plan": "チェックしたオブジェクトの計画を読み込んでいます…",
-        "planFailed": "チェックしたオブジェクトの計画を読み込めませんでした。上で再試行してください。"
+        "planFailed": "チェックしたオブジェクトの計画を読み込めませんでした。上で再試行してください。",
+        "readFailed": "{{org}} を再度読み取れませんでした。上で再試行してください。"
       },
       "deliverability": {
         "all": "{{org}} は自動化が送信するすべてのメールを配信します (設定 > 到達性: すべてのメール)。巻き戻しの書き込み時にまだ実行されるものがメールを送信する可能性があります: {{senders}}。",

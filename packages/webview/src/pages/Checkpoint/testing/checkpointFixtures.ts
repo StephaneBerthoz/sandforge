@@ -199,7 +199,7 @@ export function scopeAnswer(
         leftOutFields: [],
       },
     ],
-    leftOut: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' }],
+    leftOut: [{ objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT }],
     estimate: {
       records: 2424,
       apiRequests: 250,
@@ -211,10 +211,15 @@ export function scopeAnswer(
   };
 }
 
+/** Why any checkpoint leaves out a feed, in the words the page says it in. */
+export const CHATTER_LEFT_OUT =
+  'Chatter posts, comments and feeds are left out: Salesforce brings a post back only with what ' +
+  'it was posted on.';
+
 /**
- * Why a scope leaves out an object for its user's permissions, in the
- * extension's words (`LEFT_OUT_WORDS` of takeCheckpoint.ts): a task, an
- * object the user has View All on and not Modify All, and a product.
+ * Why a scope leaves out an object for its user's permissions, in the words
+ * the page says it in: a task, an object the user has View All on and not
+ * Modify All, and a product.
  */
 export const LEFT_OUT_FOR_ACCESS = {
   activities:
@@ -230,8 +235,11 @@ export const LEFT_OUT_FOR_ACCESS = {
   parentNotSeen:
     'Without View All Data and Modify All Data, an object with no permissions of its own is ' +
     'held only when the user has View All and Modify All on every record it hangs from, which ' +
-    'is not proven here (Opportunity, which OpportunityId names, is not held whole).',
+    'is not proven here.',
 } as const;
+
+/** What the extension adds to the reason of an object it holds through its parents. */
+export const LEFT_OUT_DETAIL = 'Opportunity, which OpportunityId names, is not held whole';
 
 /**
  * What `checkpoint:scope` answers a user without View All Data and Modify
@@ -250,12 +258,21 @@ export function perObjectScope(
       { ...contact, access: 'object' },
     ],
     leftOut: [
-      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
-      { objectApiName: 'Task', reason: LEFT_OUT_FOR_ACCESS.activities },
-      { objectApiName: 'Event', reason: LEFT_OUT_FOR_ACCESS.activities },
-      { objectApiName: 'Opportunity', reason: LEFT_OUT_FOR_ACCESS.noModifyAll },
-      { objectApiName: 'OpportunityLineItem', reason: LEFT_OUT_FOR_ACCESS.parentNotSeen },
-      { objectApiName: 'Product2', reason: LEFT_OUT_FOR_ACCESS.catalog },
+      { objectApiName: 'FeedItem', code: 'chatter', reason: CHATTER_LEFT_OUT },
+      { objectApiName: 'Task', code: 'activities', reason: LEFT_OUT_FOR_ACCESS.activities },
+      { objectApiName: 'Event', code: 'activities', reason: LEFT_OUT_FOR_ACCESS.activities },
+      {
+        objectApiName: 'Opportunity',
+        code: 'noModifyAll',
+        reason: LEFT_OUT_FOR_ACCESS.noModifyAll,
+      },
+      {
+        objectApiName: 'OpportunityLineItem',
+        code: 'parentNotSeen',
+        reason: LEFT_OUT_FOR_ACCESS.parentNotSeen,
+        detail: LEFT_OUT_DETAIL,
+      },
+      { objectApiName: 'Product2', code: 'catalog', reason: LEFT_OUT_FOR_ACCESS.catalog },
     ],
     estimate: {
       records: 2412,

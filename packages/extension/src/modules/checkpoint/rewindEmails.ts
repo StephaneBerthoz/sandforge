@@ -103,6 +103,18 @@ const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string
 };
 
 /**
+ * Records of an object a rewind updates, as its preview counts them: what it
+ * gives back, and what it brings back, the values it had when deleted given
+ * back once it is back. What its emails count and what its steps list read
+ * this one number: a flow on an update fires on either.
+ */
+export function updatedByDiff(
+  object: Pick<RewindDiffObject, 'toGiveBack' | 'toBringBack'>,
+): number {
+  return object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent;
+}
+
+/**
  * What a rewind would write, per object and write, as its preview counts it:
  * what it brings back, what it makes again with new Ids, what it gives back —
  * what it brings back among it, the values it had when deleted given back
@@ -118,7 +130,7 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
         object.toBringBack.deletedWhileTaken +
         (object.toBringBack.carriers ?? 0),
       insert: object.toRecreate ?? 0,
-      update: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
+      update: updatedByDiff(object),
       delete:
         object.toDelete.createdSince +
         object.toDelete.broughtBackSince +

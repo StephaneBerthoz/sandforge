@@ -134,6 +134,10 @@ describe('RewindStepConfirm', () => {
         onConfirm={vi.fn()}
       />,
     );
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: CHECKPOINT_ID,
+      muteAutomation: true,
+    });
     answered();
 
     const box = screen.getByTestId('rewind-step-confirm-mute-toggle');

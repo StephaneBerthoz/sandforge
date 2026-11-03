@@ -1229,11 +1229,12 @@ describe('RewindPreview', () => {
 
       fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
       expect(screen.queryByTestId('checkpoint-preview-accept-automation')).not.toBeInTheDocument();
+      answerPreview({ automation: MUTABLE, diff: previewDiff({ previewId: 'pv-2' }) });
       fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
       confirmRewind();
       expect(onRewind).toHaveBeenCalledWith(
         {
-          previewId: 'pv-1',
+          previewId: 'pv-2',
           acceptAutomation: false,
           acceptNoUndo: false,
           acceptRecreate: false,
@@ -1247,20 +1248,20 @@ describe('RewindPreview', () => {
 
     it('still asks acceptance for what still runs once muted', () => {
       const { onRewind } = renderPreview();
-      answerPreview({
-        automation: {
-          ...MUTABLE,
-          objects: [
-            ...MUTABLE.objects,
-            {
-              objectApiName: 'Contact',
-              flows: [],
-              triggers: [{ name: 'ContactGone', events: ['beforeDelete'] }],
-            },
-          ],
-        },
-      });
+      const automation: ForgeTargetAutomation = {
+        ...MUTABLE,
+        objects: [
+          ...MUTABLE.objects,
+          {
+            objectApiName: 'Contact',
+            flows: [],
+            triggers: [{ name: 'ContactGone', events: ['beforeDelete'] }],
+          },
+        ],
+      };
+      answerPreview({ automation });
       fireEvent.click(screen.getByTestId('checkpoint-preview-automation-mute-toggle'));
+      answerPreview({ automation, diff: previewDiff({ previewId: 'pv-2' }) });
 
       expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
       fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
@@ -1270,6 +1271,113 @@ describe('RewindPreview', () => {
         expect.objectContaining({ acceptAutomation: true, muteAutomation: true }),
         expect.anything(),
       );
+    });
+  });
+
+  describe('read again by the box that mutes', () => {
+    /** A flow on the account's update the box silences: all the rewind fires on it. */
+    const MUTABLE: ForgeTargetAutomation = {
+      ...AUTOMATION,
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Touch',
+              label: 'Account touch',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Touch', bypass: true, held: false }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Skip_Touch',
+          permissionSets: [{ name: 'Touch_Bypass', label: 'Touch bypass', grants: 1 }],
+        },
+      ],
+    };
+    const toggle = (): HTMLElement =>
+      screen.getByTestId('checkpoint-preview-automation-mute-toggle');
+    const rewindButton = (): HTMLElement => screen.getByTestId('checkpoint-preview-rewind');
+
+    it('keeps Rewind off when the read fails: what is up is not what is ticked, until a retry answers', () => {
+      renderPreview();
+      answerPreview({ automation: MUTABLE });
+      fireEvent.click(toggle());
+      act(() =>
+        host.current?.fail('checkpoint:preview', {
+          message: 'The org did not answer.',
+          code: 'PREVIEW_ERROR',
+        }),
+      );
+
+      expect(screen.getByTestId('checkpoint-preview-error')).toHaveTextContent(
+        'The org did not answer.',
+      );
+      expect(rewindButton()).toBeDisabled();
+      expect(screen.getByTestId('checkpoint-preview-rewind-needs').textContent).toBe(
+        'DEV-SB could not be read again: try again above.',
+      );
+
+      fireEvent.click(screen.getByTestId('checkpoint-preview-retry'));
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: ID,
+        muteAutomation: true,
+      });
+      answerPreview({ automation: MUTABLE, diff: previewDiff({ previewId: 'pv-2' }) });
+      expect(screen.queryByTestId('checkpoint-preview-error')).toBeNull();
+      expect(rewindButton()).toBeEnabled();
+    });
+
+    it('unticks what was accepted of the last answer, and keeps the box’s keyboard and the objects left out', () => {
+      // A trigger on the same object: what the box does not silence stays to accept.
+      const automation: ForgeTargetAutomation = {
+        ...MUTABLE,
+        objects: MUTABLE.objects.map((object) => ({
+          ...object,
+          triggers: [{ name: 'AccountGone', events: ['beforeDelete'] }],
+        })),
+      };
+      renderPreview();
+      answerPreview({ automation });
+      fireEvent.click(screen.getByTestId('checkpoint-preview-pick-Contact'));
+      expect(screen.getByTestId('checkpoint-preview-pick-Contact')).not.toBeChecked();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
+
+      const box = toggle();
+      box.focus();
+      fireEvent.click(box);
+      answerPreview({ automation, diff: previewDiff({ previewId: 'pv-2' }) });
+
+      expect(toggle()).toBe(box);
+      expect(document.activeElement).toBe(box);
+      expect(screen.getByTestId('checkpoint-preview-pick-Contact')).not.toBeChecked();
+      expect(screen.getByTestId('checkpoint-preview-accept-automation')).not.toBeChecked();
+    });
+
+    it('asks no mute of a preview that opened muted and finds nothing to silence, and reads what the rewind then does', () => {
+      render(
+        <RewindPreview
+          org={developerOrg()}
+          checkpoint={readyCheckpoint()}
+          onClose={vi.fn()}
+          onRewind={vi.fn()}
+          muteBox={MUTE_BOX}
+          startMuted
+        />,
+      );
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: ID,
+        muteAutomation: true,
+      });
+      answerPreview({ automation: AUTOMATION });
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
+      expect(rewindButton()).toBeDisabled();
     });
   });
 

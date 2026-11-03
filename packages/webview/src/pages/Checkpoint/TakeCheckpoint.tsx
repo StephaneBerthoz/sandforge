@@ -1,8 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 import type {
   CheckpointCustomSettingKind,
+  CheckpointLeftOutCode,
   CheckpointScopeCustomSetting,
   CheckpointScopeFiles,
   CheckpointScopeMode,
@@ -591,7 +593,7 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
               {' — '}
               {t('checkpoint.take.access.cannotPick')}
             </span>
-            <span className="text-text-secondary">{object.reason}</span>
+            <span className="text-text-secondary">{leftOutWords(t, object)}</span>
           </li>
         ))}
       </ul>
@@ -647,25 +649,73 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
   );
 };
 
-/** Objects a scope leaves out, folded under `summary`, each with why in the extension's words. */
+/** What the page says of each reason a scope leaves an object out. */
+const LEFT_OUT_KEYS: Readonly<Record<CheckpointLeftOutCode, string>> = {
+  excludedByUser: 'checkpoint.take.leftOutReason.excludedByUser',
+  notFound: 'checkpoint.take.leftOutReason.notFound',
+  chatter: 'checkpoint.take.leftOutReason.chatter',
+  history: 'checkpoint.take.leftOutReason.history',
+  sharing: 'checkpoint.take.leftOutReason.sharing',
+  changeEvent: 'checkpoint.take.leftOutReason.changeEvent',
+  unsupportedKind: 'checkpoint.take.leftOutReason.unsupportedKind',
+  customSetting: 'checkpoint.take.leftOutReason.customSetting',
+  notCustomSetting: 'checkpoint.take.leftOutReason.notCustomSetting',
+  files: 'checkpoint.take.leftOutReason.files',
+  heldWithFiles: 'checkpoint.take.leftOutReason.heldWithFiles',
+  setup: 'checkpoint.take.leftOutReason.setup',
+  metadata: 'checkpoint.take.leftOutReason.metadata',
+  notWritable: 'checkpoint.take.leftOutReason.notWritable',
+  notDescribed: 'checkpoint.take.leftOutReason.notDescribed',
+  noSystemModstamp: 'checkpoint.take.leftOutReason.noSystemModstamp',
+  noRecycleBin: 'checkpoint.take.leftOutReason.noRecycleBin',
+  unreadable: 'checkpoint.take.leftOutReason.unreadable',
+  pastTheLimit: 'checkpoint.take.leftOutReason.pastTheLimit',
+  noViewAll: 'checkpoint.take.leftOutReason.noViewAll',
+  noModifyAll: 'checkpoint.take.leftOutReason.noModifyAll',
+  activities: 'checkpoint.take.leftOutReason.activities',
+  catalog: 'checkpoint.take.leftOutReason.catalog',
+  filesNotProven: 'checkpoint.take.leftOutReason.filesNotProven',
+  settingNotProven: 'checkpoint.take.leftOutReason.settingNotProven',
+  parentNotSeen: 'checkpoint.take.leftOutReason.parentNotSeen',
+};
+
+/**
+ * Why a scope left an object out, in the page's language, what the reason
+ * leaves to name after it in the words it came in. An entry with no code says
+ * it in the extension's words.
+ */
+function leftOutWords(t: TFunction, object: ScopeAnswer['leftOut'][number]): string {
+  if (object.code === undefined) return object.reason;
+  const why = t(LEFT_OUT_KEYS[object.code], {
+    object: object.objectApiName,
+    records: formatNumber(object.records ?? 0),
+    limit: formatNumber(object.limit ?? 0),
+  });
+  return object.detail === undefined ? why : `${why} (${object.detail})`;
+}
+
+/** Objects a scope leaves out, folded under `summary`, each with why. */
 const LeftOut: React.FC<{
   objects: ScopeAnswer['leftOut'];
   summary: string;
   testId: string;
-}> = ({ objects, summary, testId }) => (
-  <details className="text-xs text-text-primary" data-testid={testId}>
-    <summary className="cursor-pointer">{summary}</summary>
-    <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-      {objects.map((object) => (
-        <li key={object.objectApiName}>
-          <span className="font-mono">{object.objectApiName}</span>
-          {' — '}
-          {object.reason}
-        </li>
-      ))}
-    </ul>
-  </details>
-);
+}> = ({ objects, summary, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <details className="text-xs text-text-primary" data-testid={testId}>
+      <summary className="cursor-pointer">{summary}</summary>
+      <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+        {objects.map((object) => (
+          <li key={object.objectApiName}>
+            <span className="font-mono">{object.objectApiName}</span>
+            {' — '}
+            {leftOutWords(t, object)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+};
 
 /** What each kind of custom setting is called beside its name. */
 const KIND_KEYS: Readonly<Record<CheckpointCustomSettingKind, string>> = {
