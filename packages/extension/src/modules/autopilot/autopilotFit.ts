@@ -71,7 +71,7 @@ import {
   type AutomationRoom,
   type FitBudget,
 } from '../forge/fitBudget.js';
-import { countedStorageBytes, formatMB, runRequestsEstimate } from '../forge/ForgeRunGate.js';
+import { countedStorageBytes, formatMBPast, runRequestsEstimate } from '../forge/ForgeRunGate.js';
 import {
   PERSON_ACCOUNT_FLAG,
   STANDARD_PRICEBOOK_FLAG,
@@ -656,12 +656,16 @@ export async function chooseFitRecords(input: FitRecordsInput): Promise<FitRecor
   /** Why `m` is past its bounds, in words. */
   const overWords = (m: FitMeasure): string => {
     if (!inStorage(m)) {
+      const said = formatMBPast(
+        (m.bytes + m.roomBytes) / BYTES_PER_MB,
+        budget.bytes / BYTES_PER_MB,
+      );
       return (
-        `${formatMB((m.bytes + m.roomBytes) / BYTES_PER_MB)} MB` +
+        `${said.over} MB` +
         (m.roomBytes > 0
           ? ", room for what the org's automation creates under them included"
           : '') +
-        `, past the ${formatMB(budget.bytes / BYTES_PER_MB)} MB that fit`
+        `, past the ${said.bound} MB that fit`
       );
     }
     return inRequests(m)

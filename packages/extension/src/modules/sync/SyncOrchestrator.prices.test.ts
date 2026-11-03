@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, SyncWriteCheck } from '@sandforge/shared';
 import { SyncOrchestrator } from './SyncOrchestrator.js';
+import type { SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { DataSync, type OperationOutcome } from './DataSync.js';
 import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields.js';
 import { FieldMappingService } from './FieldMapping.js';
@@ -294,5 +295,198 @@ describe('SyncOrchestrator — a catalog and the lines priced from it', () => {
     const result = await orchestrator(target, false).execute(CONFIG);
 
     expect(result.objectResults.find((r) => r.objectApiName === 'PricebookEntry')?.success).toBe(0);
+  });
+});
+
+describe('SyncOrchestrator — a catalog whose price books the target takes none of', () => {
+  /*
+   * The price books upserted on a key the target does not match an upsert
+   * on, so the run leaves them out. The standard book is matched all the
+   * same, never written: its price goes, and so do the deal and the line on
+   * it. Only what names the custom book is held back. The describes name
+   * each lookup's object, as an org's do.
+   */
+  const lookup = (name: string, object: string) => ({
+    ...field(name, 'reference'),
+    referenceTo: [object],
+  });
+  const KEYED: Record<string, TargetWriteFields> = {
+    ...DESCRIBES,
+    Pricebook2: targetWriteFieldsOf({
+      name: 'Pricebook2',
+      createable: true,
+      updateable: true,
+      fields: [
+        { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+        { ...field('Name'), idLookup: false, externalId: false },
+        { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+      ],
+    }),
+    PricebookEntry: targetWriteFieldsOf({
+      name: 'PricebookEntry',
+      fields: [
+        lookup('Pricebook2Id', 'Pricebook2'),
+        lookup('Product2Id', 'Product2'),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+      ],
+    }),
+    Opportunity: targetWriteFieldsOf({
+      name: 'Opportunity',
+      fields: [field('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+    }),
+    OpportunityLineItem: targetWriteFieldsOf({
+      name: 'OpportunityLineItem',
+      fields: [
+        lookup('OpportunityId', 'Opportunity'),
+        lookup('PricebookEntryId', 'PricebookEntry'),
+        { ...field('UnitPrice', 'currency'), scale: 2 },
+      ],
+    }),
+  };
+  const STANDARD_PRICE = '01u000000000011AAA';
+  const BOOK_PRICE = '01u000000000012AAA';
+  const BOOK_DEAL = '006000000000002AAA';
+  const ROWS: Record<string, Array<Record<string, unknown>>> = {
+    Product2: [{ Id: WIDGET, Name: 'Widget' }],
+    Pricebook2: [
+      { Id: SOURCE_STANDARD, Name: 'Standard Price Book', Catalog_Key__c: 'STD' },
+      { Id: BOOK, Name: 'Partners', Catalog_Key__c: 'PARTNERS' },
+    ],
+    PricebookEntry: [
+      { Id: STANDARD_PRICE, Pricebook2Id: SOURCE_STANDARD, Product2Id: WIDGET, UnitPrice: 100 },
+      { Id: BOOK_PRICE, Pricebook2Id: BOOK, Product2Id: WIDGET, UnitPrice: 90 },
+    ],
+    Opportunity: [
+      { Id: DEAL, Name: 'Direct deal', Pricebook2Id: SOURCE_STANDARD },
+      { Id: BOOK_DEAL, Name: 'Partner deal', Pricebook2Id: BOOK },
+    ],
+    OpportunityLineItem: [
+      {
+        Id: '00k000000000011AAA',
+        OpportunityId: DEAL,
+        PricebookEntryId: STANDARD_PRICE,
+        UnitPrice: 100,
+      },
+      {
+        Id: '00k000000000012AAA',
+        OpportunityId: BOOK_DEAL,
+        PricebookEntryId: BOOK_PRICE,
+        UnitPrice: 90,
+      },
+    ],
+  };
+  const KEYED_CONFIG: SyncConfig = {
+    ...CONFIG,
+    objects: CONFIG.objects.map((o) =>
+      o.objectApiName === 'Pricebook2'
+        ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+        : o,
+    ),
+  };
+
+  /** A gate that lets the run write, as a user who confirmed leaving the books out, and keeps what it counted. */
+  function gate() {
+    const held: SyncCountedWrite[] = [];
+    const measured: SyncCountedWrite[] = [];
+    const check: SyncWriteCheck = {
+      objects: [],
+      total: 0,
+      alreadyCopied: 0,
+      storage: { verdict: 'fits', estimateMB: 0 },
+      emails: [],
+      verdict: 'asks',
+    };
+    const writeGate: SyncWriteGate = {
+      measure: async (counted) => {
+        measured.push(counted);
+        return check;
+      },
+      hold: async (counted) => {
+        held.push(counted);
+        return { check, answer: { go: true, asked: true } };
+      },
+    };
+    return { writeGate, held, measured };
+  }
+
+  function keyedOrchestrator(target: ReturnType<typeof targetOrg>, writeGate: SyncWriteGate) {
+    const unused = async (): Promise<OperationOutcome[]> => [];
+    const describeTargetFields = async (object: string) => KEYED[object];
+    return new SyncOrchestrator({
+      dataSync: new DataSync({
+        insert: (object, records) => target.insert(object, records),
+        update: unused,
+        upsert: unused,
+        delete: unused,
+        describeTargetFields,
+      }),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: async (_org, config) => ROWS[config.objectApiName].map((r) => ({ ...r })),
+      countSource: async (_org, config) => ROWS[config.objectApiName].length,
+      queryTarget: async () => [],
+      findInTarget: async () => new Map(),
+      describeTargetFields,
+      standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+      writeGate,
+    });
+  }
+
+  it('counts at its gate only what names the custom book as held back, the standard price being written', async () => {
+    const target = targetOrg();
+    const ran = gate();
+
+    const result = await keyedOrchestrator(target, ran.writeGate).execute(KEYED_CONFIG);
+
+    expect(result.objectResults.map((r) => [r.objectApiName, r.success, r.failed])).toEqual([
+      ['Product2', 1, 0],
+      ['Pricebook2', 0, 0],
+      ['PricebookEntry', 1, 1],
+      ['Opportunity', 1, 1],
+      ['OpportunityLineItem', 1, 1],
+    ]);
+    // What the gate counted held back is what the run held back: the price,
+    // the deal and the line under the custom book, one each.
+    expect(ran.held[0]?.heldBack).toEqual([
+      { objectApiName: 'PricebookEntry', rows: 1, parent: 'Pricebook2', field: 'Pricebook2Id' },
+      { objectApiName: 'Opportunity', rows: 1, parent: 'Pricebook2', field: 'Pricebook2Id' },
+      {
+        objectApiName: 'OpportunityLineItem',
+        rows: 1,
+        parent: 'Opportunity',
+        field: 'OpportunityId',
+      },
+    ]);
+    expect(ran.held[0]?.objects.map((o) => [o.objectApiName, o.rows])).toEqual([
+      ['Product2', 1],
+      ['PricebookEntry', 1],
+      ['Opportunity', 1],
+      ['OpportunityLineItem', 1],
+    ]);
+  });
+
+  it('counts in its dry run what the run holds back, as the dry run’s own objects count it', async () => {
+    const simulated = gate();
+
+    const simulation = await keyedOrchestrator(targetOrg(), simulated.writeGate).simulate(
+      KEYED_CONFIG,
+    );
+
+    expect(simulation.error).toBeUndefined();
+    expect(simulated.measured[0]?.heldBack?.map((h) => [h.objectApiName, h.rows])).toEqual([
+      ['PricebookEntry', 1],
+      ['Opportunity', 1],
+      ['OpportunityLineItem', 1],
+    ]);
+    expect(
+      simulation.objects.map((o) => [o.objectApiName, o.insert + o.update, o.refused ?? 0]),
+    ).toEqual([
+      ['Product2', 1, 0],
+      ['Pricebook2', 0, 1],
+      ['PricebookEntry', 1, 1],
+      ['Opportunity', 1, 1],
+      ['OpportunityLineItem', 1, 1],
+    ]);
   });
 });

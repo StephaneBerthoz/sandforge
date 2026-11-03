@@ -3791,6 +3791,7 @@ describe('CheckpointHandler — a checkpoint before a run', () => {
     expect(checkpoint.notHeld).toEqual([
       {
         objectApiName: 'Case',
+        code: 'excludedByUser',
         reason: 'Left out as asked. A rewind leaves its records as they are.',
       },
     ]);
@@ -3926,7 +3927,9 @@ describe('CheckpointHandler — a checkpoint before a run', () => {
       await h.handler.takeBeforeRun(beforeRun(), { operationId: OWN_RUN }),
     );
     expect(checkpoint.objects).toEqual(['Account']);
-    expect(checkpoint.notHeld).toEqual([{ objectApiName: 'Case', reason: noCase }]);
+    expect(checkpoint.notHeld).toEqual([
+      { objectApiName: 'Case', code: 'noModifyAll', reason: noCase },
+    ]);
 
     // A run that writes only what the user cannot be proven to hold.
     const cases = beforeRun({ written: ['Case'], running: { firing: [] } });

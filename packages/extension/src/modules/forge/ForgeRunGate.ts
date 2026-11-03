@@ -1782,11 +1782,35 @@ export function confirmationStorageOf(check: StorageCheck): WriteConfirmationSto
  * too much rather than too little, to two decimals under 10 MB.
  */
 export function formatMB(megabytes: number): string {
+  return megabytesAt(megabytes, megabytes < 10 ? 2 : 1);
+}
+
+/** Megabytes rounded up to `decimals`. */
+function megabytesAt(megabytes: number, decimals: number): string {
   if (megabytes <= 0) return '0';
-  const factor = megabytes < 10 ? 100 : 10;
+  const factor = 10 ** decimals;
   // The epsilon keeps a value the float holds a hair above its decimal —
   // 4.69 × 100 is 469.00000000000006 — from rounding up a step.
   return (Math.ceil(megabytes * factor - 1e-9) / factor).toString();
+}
+
+/**
+ * An amount of megabytes and the bound it is past, each said as
+ * {@link formatMB} says it, with a decimal more for both until they differ
+ * (six at most). A fit refused with --fit-within 0.001 said it took "0.01
+ * MB, past the 0.01 MB that fit": 0.0039 MB and 0.001 MB, both rounded up.
+ */
+export function formatMBPast(over: number, bound: number): { over: string; bound: string } {
+  let decimals = { over: over < 10 ? 2 : 1, bound: bound < 10 ? 2 : 1 };
+  for (;;) {
+    const said = {
+      over: megabytesAt(over, decimals.over),
+      bound: megabytesAt(bound, decimals.bound),
+    };
+    const most = Math.max(decimals.over, decimals.bound);
+    if (Number(said.over) > Number(said.bound) || most >= 6) return said;
+    decimals = { over: most + 1, bound: most + 1 };
+  }
 }
 
 /**

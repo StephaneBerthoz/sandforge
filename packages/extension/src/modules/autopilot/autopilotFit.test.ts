@@ -381,6 +381,20 @@ describe('caps', () => {
     );
   });
 
+  it('says what the caps take and what fits with the decimals that tell them apart', async () => {
+    // Run with --fit-within 0.001, a fit was refused as taking "0.01 MB,
+    // past the 0.01 MB that fit": both rounded up to two decimals.
+    const chosen = await choose(
+      ['Account'],
+      { Account: accounts(1) },
+      { mode: { caps: { Account: 1 } }, budget: budgetOf(BYTES_PER_MB / 1000) },
+    );
+
+    expect(chosen.cannotFit).toBe(
+      'with these caps the plan takes 0.002 MB, past the 0.001 MB that fit: lower them, or fit by share',
+    );
+  });
+
   it('takes the share of what the caps leave, the caps first', async () => {
     const chosen = await choose(
       ['Account'],

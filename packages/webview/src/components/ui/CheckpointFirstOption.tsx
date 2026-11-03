@@ -28,11 +28,13 @@ export interface CheckpointFirstEstimateProps {
  * The objects of a list of notes, one a line, each with why, in the page's
  * language: Forge's and Sync's panels said it in the extension's English.
  */
-const NoteList: React.FC<{ title: string; notes: RunCheckpointObjectNote[]; testId: string }> = ({
-  title,
-  notes,
-  testId,
-}) => {
+const NoteList: React.FC<{
+  title: string;
+  notes: RunCheckpointObjectNote[];
+  /** Which list the notes are of: a code may mean an object added or one left out. */
+  list: 'added' | 'notHeld';
+  testId: string;
+}> = ({ title, notes, list, testId }) => {
   const { t } = useTranslation();
   if (notes.length === 0) return null;
   return (
@@ -42,7 +44,7 @@ const NoteList: React.FC<{ title: string; notes: RunCheckpointObjectNote[]; test
         {notes.map((note) => (
           <li key={note.objectApiName} data-testid={`${testId}-${note.objectApiName}`}>
             <span className="font-mono">{note.objectApiName}</span>
-            <span className="text-text-secondary">{` · ${runNoteWords(t, note)}`}</span>
+            <span className="text-text-secondary">{` · ${runNoteWords(t, note, list)}`}</span>
           </li>
         ))}
       </ul>
@@ -88,11 +90,13 @@ export const CheckpointFirstEstimate: React.FC<CheckpointFirstEstimateProps> = (
       <NoteList
         title={t('runResults.checkpoint.estimate.added')}
         notes={estimate.added}
+        list="added"
         testId={`${testId}-added`}
       />
       <NoteList
         title={t('runResults.checkpoint.notHeldTitle')}
         notes={estimate.notHeld}
+        list="notHeld"
         testId={`${testId}-not-held`}
       />
       {estimate.refusal && (

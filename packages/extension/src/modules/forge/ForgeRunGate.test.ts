@@ -40,6 +40,7 @@ import {
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
+  formatMBPast,
   forgeVolumeCaseKey,
   insertsOf,
   isForgeRunGateError,
@@ -1066,6 +1067,17 @@ describe('formatMB', () => {
     expect(formatMB(74 / 1024)).toBe('0.08');
     expect(formatMB(0.0001)).toBe('0.01');
     expect(formatMB(66.81)).toBe('66.9');
+  });
+
+  it('says an amount and the bound it is past with the decimals that tell them apart', () => {
+    // Both rounded up to two decimals, a fit took "0.01 MB, past the 0.01 MB
+    // that fit" for 0.0039 MB against 0.001 MB.
+    expect(formatMBPast(0.00390625, 0.001)).toEqual({ over: '0.004', bound: '0.001' });
+    // As formatMB says each where it already tells them apart.
+    expect(formatMBPast(0.09, 0.04)).toEqual({ over: '0.09', bound: '0.04' });
+    expect(formatMBPast(66.81, 4.69)).toEqual({ over: '66.9', bound: '4.69' });
+    expect(formatMBPast(4.6951, 4.691)).toEqual({ over: '4.696', bound: '4.691' });
+    expect(formatMBPast(0.0001, 0)).toEqual({ over: '0.01', bound: '0' });
   });
 
   it('keeps a value the float holds a hair above its decimal at that decimal', () => {

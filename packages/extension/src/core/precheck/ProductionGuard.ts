@@ -303,6 +303,13 @@ export interface WriteConfirmation {
     key?: string;
   }>;
   /**
+   * Of a Sync run with objects in `unwritable`: the rows of the objects after
+   * them it holds back, not among `objects`, a lookup of theirs — `field` —
+   * naming a record of `parent` left out, or held back in turn. Confirmed,
+   * none of them is written, and each counts as failed. Absent when none.
+   */
+  heldBack?: Array<{ objectApiName: string; rows: number; parent: string; field: string }>;
+  /**
    * The API requests the run takes, when it would leave the org under a
    * tenth of its daily requests, every part together, and the parts beside
    * the run's own when it has any (`RunRequestParts`: the checkpoint first,

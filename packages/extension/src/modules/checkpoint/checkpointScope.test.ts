@@ -232,7 +232,12 @@ describe('scopeCandidates', () => {
     expect(asked.addedToPicked).toEqual(['ContentDocument']);
     expect(excluded.candidates).toEqual(['Account']);
     expect(excluded.addedToPicked).toEqual([]);
-    expect(excluded.leftOut).toEqual([]);
+    // Named left out as asked, by the org's names: left out by name, the
+    // files went from the checkpoint with no word of them.
+    expect(excluded.leftOut).toEqual([
+      { objectApiName: 'Attachment', reason: 'excludedByUser' },
+      { objectApiName: 'ContentDocument', reason: 'excludedByUser' },
+    ]);
     expect(none.addedToPicked).toEqual([]);
     expect(everything.addedToPicked).toEqual([]);
   });

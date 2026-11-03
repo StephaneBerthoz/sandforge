@@ -161,6 +161,8 @@
   "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "除外: {0} の {1} 件のレコード。同期で書き込むユーザーは {2} でそのレコードを編集できません。",
   "Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.": "除外: {0} の {1} 件のレコード。upsert の照合項目 {2} は、{3} の外部 ID でも idLookup 項目でもありません。",
   "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "除外: {0} の {1} 件のレコード。{2} が記述を返さなかったため、受け付ける内容がわかりません。",
+  "Held back: {0}, {1} records: their {2} names {3} records left out, so none of them is written and each counts as failed.": "保留: {0} の {1} 件のレコード。{2} が除外される {3} のレコードを指しているため、どれも書き込まれず、それぞれ失敗として数えられます。",
+  "Held back: {0}, {1} records: their {2} names {3} records held back, so none of them is written and each counts as failed.": "保留: {0} の {1} 件のレコード。{2} が保留される {3} のレコードを指しているため、どれも書き込まれず、それぞれ失敗として数えられます。",
   "Remove the rest": "残りを削除",
   "SandForge: some records of the run cannot be removed": "SandForge: 実行のレコードの一部は削除できません",
   "The user SandForge connects as may not delete the records of these objects in {0}, so they stay whatever you choose:": "SandForge が接続するユーザーは {0} でこれらのオブジェクトのレコードを削除できないため、どちらを選んでも残ります:",

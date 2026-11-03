@@ -648,6 +648,11 @@ export async function gateSyncWrite(
         ...(check.emailsUnread !== undefined ? { emailsUncounted: check.emailsUnread } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
         ...(unwritable.length > 0 ? { unwritable } : {}),
+        // Left out of `objects`, and written none of: the question that
+        // leaves their parent out says them, as its refusal does.
+        ...(check.heldBack !== undefined && check.heldBack.length > 0
+          ? { heldBack: check.heldBack }
+          : {}),
         ...confirmationApiOf(api),
         ...(measured.checkpoint !== undefined ? { checkpoint: measured.checkpoint } : {}),
         ...emailsGate?.confirmation,

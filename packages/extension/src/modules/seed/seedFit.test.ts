@@ -401,6 +401,22 @@ describe('fitSeedTemplate', () => {
     );
   });
 
+  it('says what the least it can be cut to takes and what fits with the decimals that tell them apart', () => {
+    // Run with --fit-within 0.001, a seed was refused as taking "0.01 MB …
+    // past the 0.01 MB that fit": both rounded up to two decimals.
+    const fit = fitSeedTemplate({
+      template: templateOf([object('Contact', 5000)]),
+      personObjects: [],
+      budget: budgetOf(KB),
+      room: NO_ROOM,
+    });
+
+    expect(fit.proposal.cannotFit).toBe(
+      'the least it can be cut to — one Contact and what follows it, 1 record — takes 0.002 MB, ' +
+        'past the 0.001 MB that fit',
+    );
+  });
+
   it('keeps the children a relation places by key whole', () => {
     const template = templateOf(
       [object('Account', 300), object('Contact', 3, 3)],

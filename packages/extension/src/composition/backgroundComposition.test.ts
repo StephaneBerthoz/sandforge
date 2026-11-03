@@ -755,6 +755,34 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it("names in a Sync run's question the rows an object left out holds back, which it writes none of", () => {
+    // The question listed the opportunities and the account left out, and
+    // not the contacts under it, which the result then counted failed.
+    expect(
+      runQuestionDetail({
+        ...write,
+        module: 'sync',
+        counted: true,
+        objects: [{ objectApiName: 'Opportunity', rows: 10 }],
+        total: 10,
+        aboveRecords: undefined,
+        unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+        heldBack: [
+          { objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' },
+          { objectApiName: 'Case', rows: 3, parent: 'Contact', field: 'ContactId' },
+        ],
+      }).split('\n'),
+    ).toEqual([
+      'This sync is about to write 10 records to DEV:',
+      '• Opportunity: 10',
+      'Left out: Account, 2 records: its upsert matches on Name, neither an External ID nor an idLookup field in DEV.',
+      'Held back: Contact, 4 records: their AccountId names Account records left out, so none of them is written and each counts as failed.',
+      'Held back: Case, 3 records: their ContactId names Contact records held back, so none of them is written and each counts as failed.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({

@@ -161,6 +161,8 @@
   "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "Omitido: {0}, {1} registros: el usuario con el que escribe la sincronización no puede editar sus registros en {2}.",
   "Left out: {0}, {1} records: its upsert matches on {2}, neither an External ID nor an idLookup field in {3}.": "Omitido: {0}, {1} registros: su upsert coincide por {2}, que no es un ID externo ni un campo idLookup en {3}.",
   "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "Omitido: {0}, {1} registros: {2} no lo describió, así que no se sabe qué acepta.",
+  "Held back: {0}, {1} records: their {2} names {3} records left out, so none of them is written and each counts as failed.": "Retenidos: {0}, {1} registros: su {2} nombra registros de {3} que se dejan fuera, así que ninguno se escribe y cada uno cuenta como fallido.",
+  "Held back: {0}, {1} records: their {2} names {3} records held back, so none of them is written and each counts as failed.": "Retenidos: {0}, {1} registros: su {2} nombra registros de {3} retenidos, así que ninguno se escribe y cada uno cuenta como fallido.",
   "Remove the rest": "Quitar el resto",
   "SandForge: some records of the run cannot be removed": "SandForge: algunos registros de la ejecución no se pueden quitar",
   "The user SandForge connects as may not delete the records of these objects in {0}, so they stay whatever you choose:": "El usuario con el que se conecta SandForge no puede eliminar los registros de estos objetos en {0}, así que se quedan elija lo que elija:",

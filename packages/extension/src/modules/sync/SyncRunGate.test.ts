@@ -648,6 +648,45 @@ describe('gateSyncWrite', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('names in the question that leaves an object out the rows it holds back, which the run writes none of', async () => {
+    // Asked with an account left out, the question listed the opportunities
+    // alone: the contacts, every one naming an account left out, were
+    // neither among the records to write nor said held back, and the result
+    // then counted them failed.
+    const confirm = vi.fn(
+      async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
+    );
+    const measured = await measureSyncWrite(
+      {
+        objects: [
+          { objectApiName: 'Contact', operation: 'insert', rows: 0 },
+          { objectApiName: 'Opportunity', operation: 'insert', rows: 10 },
+        ],
+        alreadyCopied: 0,
+        unwritable: [
+          { objectApiName: 'Account', operation: 'upsert', rows: 2, why: 'notAKey', key: 'Name' },
+        ],
+        heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+      },
+      measures(),
+    );
+
+    const answer = await gateSyncWrite(measured, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(answer).toEqual({ go: true, asked: true });
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      objects: [{ objectApiName: 'Opportunity', rows: 10 }],
+      total: 10,
+      unwritable: [{ objectApiName: 'Account', rows: 2, why: 'notAKey', key: 'Name' }],
+      heldBack: [{ objectApiName: 'Contact', rows: 4, parent: 'Account', field: 'AccountId' }],
+    });
+  });
+
   it('refuses a run past the API requests the target has left today, whoever answers for it, and says them on the page', async () => {
     const confirm = vi.fn();
     const measured = await measureSyncWrite(

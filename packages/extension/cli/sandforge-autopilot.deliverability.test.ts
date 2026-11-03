@@ -399,10 +399,36 @@ describe('sandforge-autopilot --accept-emails', () => {
     muteOf(events, WELCOME, false);
 
     await expect(main(argv('--mute-automation'))).rejects.toThrow(
-      'flow "Lead welcome" on Lead may send emails, and whether TGT delivers them was not read',
+      /^refused \(EMAILS_NOT_ACCEPTED\): .*flow "Lead welcome" on Lead may send emails, and whether TGT delivers them was not read/,
     );
 
     expect(events).toEqual(['lease plan', 'lease', 'release']);
     expect(writePathOrderDefects(['reads', ...stepsOf(events), 'result'])).toEqual([]);
+  });
+
+  it('answers --json with the code of a run refused once the lease is read back', async () => {
+    // Refused past the gate, a run left stdout empty for a CI job that reads
+    // `.refused.code`.
+    orgs([], 'all');
+    readAutomation.mockResolvedValue(WELCOME);
+    muteOf([], WELCOME, false);
+
+    await expect(main(argv('--mute-automation', '--json'))).rejects.toThrow(
+      /^refused \(EMAILS_NOT_ACCEPTED\): /,
+    );
+
+    const said = out.join('');
+    const summary = JSON.parse(said.slice(said.lastIndexOf('\n{\n') + 1)) as Record<
+      string,
+      unknown
+    >;
+    expect(summary).toMatchObject({
+      tool: 'sandforge-autopilot',
+      target: 'TGT',
+      dryRun: false,
+      refused: { code: 'EMAILS_NOT_ACCEPTED' },
+    });
+    // The refusal as the help says it, its code and its message alone.
+    expect(Object.keys(summary.refused as object)).toEqual(['code', 'message']);
   });
 });

@@ -17,9 +17,11 @@
  * at one of them, through the run's own read of the source, and each row is
  * told apart as the run tells it (`SyncRunLinks`): a record an earlier run of
  * a saved configuration copied stands in for its source, and the row naming
- * it goes, with the copy.
+ * it goes, with the copy; so does the standard price book, matched to the
+ * target's.
  */
 import type { SyncObjectConfig } from '@sandforge/shared';
+import { namesAPricebook, type StandardPricebooks } from './syncPrices.js';
 import { SyncRunLinks } from './syncRowPreparation.js';
 import type { WriteLookup } from './syncWriteOrder.js';
 
@@ -90,6 +92,14 @@ export interface HeldBackInput {
   copied?: ReadonlyMap<string, ReadonlySet<string>>;
   /** The records an object's read returns, as the run reads them. */
   read: (objectConfig: SyncObjectConfig) => Promise<Record<string, unknown>[]>;
+  /**
+   * Both orgs' standard price books, as the run reads them: once an object's
+   * records name a price book, the source's is matched to the target's, as
+   * the run matches it (`pricesSettled`), so it is never noted refused and a
+   * row naming it is not held back. Absent, or answering none, the run sends
+   * it as read, and it is counted as any other record.
+   */
+  standardPricebooks?: () => Promise<StandardPricebooks | undefined>;
 }
 
 /**
@@ -106,12 +116,26 @@ export async function heldBackOf(input: HeldBackInput): Promise<Map<string, Sync
   /** The objects some of whose records the run would refuse, by {@link nameKey}. */
   const refusing = new Set<string>();
   const leftOut = new Set([...input.leftOut].map(nameKey));
+  /**
+   * An object's records as the run reads them, the standard price book
+   * matched before any is noted or told apart: with its price books left
+   * out, a sync's gate counted held back for the book the standard book's
+   * prices and the lines on them, which the run then wrote.
+   */
+  const readOf = async (objectConfig: SyncObjectConfig): Promise<Record<string, unknown>[]> => {
+    const records = await input.read(objectConfig);
+    if (records.length > 0 && namesAPricebook(objectConfig.objectApiName, records)) {
+      const standard = await input.standardPricebooks?.();
+      if (standard) links.noteMatched(standard.source, standard.target);
+    }
+    return records;
+  };
   for (const objectConfig of input.ordered) {
     const name = objectConfig.objectApiName;
     if (leftOut.has(nameKey(name))) {
       if (!creates(objectConfig.operation)) continue;
       // Every record its read returns is noted refused, as the run notes it.
-      for (const record of await input.read(objectConfig)) {
+      for (const record of await readOf(objectConfig)) {
         const id = record['Id'];
         if (typeof id === 'string' && id !== '') links.noteRefused(id, name);
       }
@@ -130,7 +154,7 @@ export async function heldBackOf(input: HeldBackInput): Promise<Map<string, Sync
     let rows = 0;
     let first: { parent: string; field: string } | undefined;
     const copied = input.copied?.get(name);
-    for (const record of await input.read(objectConfig)) {
+    for (const record of await readOf(objectConfig)) {
       const id = record['Id'];
       if (copied && typeof id === 'string' && copied.has(id.slice(0, 15))) continue;
       const at = carried.find(({ source }) => {

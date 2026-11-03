@@ -320,11 +320,16 @@ export function scopeCandidates(
     }
     // Only an org that has them, and only when not left out by name: a
     // scope that leaves files out by name keeps the rewind of 1.69, which
-    // leaves files added since.
+    // leaves files added since. Left out so, they are named as an object
+    // picked and left out by name is: they went with no word of them.
     for (const name of HELD_WHEN_PICKED) {
       const key = name.toLowerCase();
       const object = byLowerName.get(key);
-      if (seen.has(key) || excluded.has(key) || object === undefined) continue;
+      if (seen.has(key) || object === undefined) continue;
+      if (excluded.has(key)) {
+        leftOut.push({ objectApiName: object.name, reason: 'excludedByUser' });
+        continue;
+      }
       asked.push(object);
       addedToPicked.push(object.name);
     }

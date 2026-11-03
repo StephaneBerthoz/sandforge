@@ -1045,16 +1045,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     return;
   }
-  if (refusedFor.length > 0) {
-    // Every reason under its code, as a clone refused for several says them:
-    // the first under `refused`, the others under `alsoRefused`, each its own
-    // line, so a CI job told of one is not refused again for the next. A run
-    // refused past --max-total, its storage or its API requests said a
-    // sentence with no code, and printed nothing on stdout.
-    const [refused, ...also] = refusedFor.map(({ code, message }) => ({
-      code,
-      message: `${message} Nothing was written.`,
-    }));
+  /**
+   * Refuse the run before its first write: each reason on its line under its
+   * code, and with --json the summary on stdout, where a CI job reads
+   * `.refused.code`. Refused once the gate let it through — at its
+   * checkpoint's take, its lease, or the lease read back —, a run said a
+   * sentence on stderr alone and left stdout empty.
+   */
+  const refuse = (refused: RunRefusal, also: readonly RunRefusal[] = []): never => {
     if (args.json) {
       process.stdout.write(
         refusedSummary(
@@ -1070,6 +1068,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
     }
     throw new Error([refused, ...also].map(refusedLine).join('\n'));
+  };
+  if (refusedFor.length > 0) {
+    // Every reason under its code, as a clone refused for several says them:
+    // the first under `refused`, the others under `alsoRefused`, each its own
+    // line, so a CI job told of one is not refused again for the next. A run
+    // refused past --max-total, its storage or its API requests said a
+    // sentence with no code, and printed nothing on stdout.
+    const [refused, ...also] = refusedFor.map(({ code, message }) => ({
+      code,
+      message: `${message} Nothing was written.`,
+    }));
+    refuse(refused, also);
   }
 
   log('\nexecuting… (REAL)');
@@ -1107,7 +1117,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         checkpoints.take(planned.ask, planned.estimate, { signal: stop.signal }),
       );
       if ('stop' in took) {
-        if (took.stop.code === CHECKPOINT_REFUSED) throw new Error(checkpointStopWords(took.stop));
+        if (took.stop.code === CHECKPOINT_REFUSED) {
+          refuse({ code: CHECKPOINT_REFUSED, message: checkpointStopWords(took.stop) });
+        }
         process.stderr.write(`${checkpointStopWords(took.stop)}\n`);
         endWith(stopExitCode(stoppedBy ?? 'SIGINT'));
         return;
@@ -1120,7 +1132,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // The lease is taken before the first write and given back as the run
     // ends, written, failed, stopped or thrown alike.
     const held = mute?.prepared
-      ? await mute.prepared.acquire(`sandforge-autopilot ${t0}`)
+      ? await mute.prepared.acquire(`sandforge-autopilot ${t0}`).catch((err: unknown) => {
+          if (!isMuteRefusedError(err)) throw err;
+          return refuse(err.refusal);
+        })
       : undefined;
     mutedAutomation = held?.outcome ?? mute?.muted;
     // Read back against its plan: a set it does not hold leaves running a
@@ -1130,7 +1145,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (held && relit) {
       mutedAutomation = await held.release();
       for (const line of muteLines(mutedAutomation, args.target)) log(line);
-      throw new Error(relit.message);
+      refuse({ code: relit.code, message: relit.message });
     }
     result = await orchestrator
       .executePlan(plan, graph, rules, recordCounts, undefined, stop.signal, scan.parentIds, {

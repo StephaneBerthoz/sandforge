@@ -22,6 +22,7 @@ import {
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { heldFileDocuments, heldFileLinks } from './checkpointFiles.js';
+import { beforeRunEstimateOf, beforeRunScopeOf } from './beforeRunCheckpoint.js';
 import { BYTES_PER_BIN_ID_KEPT, takeEstimate } from './rewindEstimate.js';
 import { SnapshotIndex, compressedSnapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
@@ -1876,6 +1877,36 @@ describe('takeCheckpoint — the files', () => {
       'Attachment',
     ]);
     expect(without).not.toHaveProperty('files');
+    // Named left out, as an object picked and left out by name is: the
+    // files went from the checkpoint with no word of them.
+    expect(without.scope.leftOut).toContainEqual({
+      objectApiName: 'ContentDocument',
+      code: 'excludedByUser',
+      reason: 'Left out as asked.',
+    });
+    // And among what a checkpoint taken first before a run does not hold,
+    // as its dry run says it.
+    const before = beforeRunScopeOf({
+      module: 'sync',
+      written: ['Account'],
+      running: { firing: [] },
+      request: { excluded: ['ContentDocument'] },
+    });
+    const estimate = beforeRunEstimateOf(
+      before,
+      await scopeCheckpoint(
+        h.deps,
+        request({ mode: 'picked', objects: before.picked, excluded: before.excluded }),
+      ),
+      7,
+    );
+    expect(estimate.notHeld).toEqual([
+      {
+        objectApiName: 'ContentDocument',
+        code: 'excludedByUser',
+        reason: 'Left out as asked. A rewind leaves its records as they are.',
+      },
+    ]);
     const read = await h.store.read(without.checkpointId);
     expect(read !== undefined && existsSync(read.folder.filesDir)).toBe(false);
   });

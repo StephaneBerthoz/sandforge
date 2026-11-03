@@ -911,6 +911,9 @@ export class SyncOrchestrator {
     }
     /** The objects the target takes none of, left out as the user confirmed, with their rows. */
     const leftOutOfRun = new Map<string, number>();
+    // Read once for the gate and the run alike: a standard price book the
+    // gate matched is the one the run matches.
+    const standardPricebooks = this.standardPricebooksOnce();
     if (this.deps.writeGate && 'counted' in counts) {
       // What the objects left out would hold back, counted apart from what
       // the run writes: read as the run reads it, and a read that fails stops
@@ -925,6 +928,7 @@ export class SyncOrchestrator {
           deltaLoad,
           earlier.links,
           copied,
+          standardPricebooks,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -986,7 +990,6 @@ export class SyncOrchestrator {
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
-    const standardPricebooks = this.standardPricebooksOnce();
     const currencyChangesById = new Map<string, CurrencyChange>();
     // The emails and phone numbers of every row made unreachable before it is
     // written, unless the configuration keeps them: see `syncContactPoints`.
@@ -2040,8 +2043,12 @@ export class SyncOrchestrator {
    * The rows of the objects after one the target takes none of that the run
    * would hold back (`heldBackOf`), each object read as the run reads it —
    * from its watermark on a delta configuration —, those an earlier run
-   * copied left out, as the run leaves them. Nothing is read when no object
-   * is left out.
+   * copied left out, as the run leaves them, and the standard price book
+   * matched as the run matches it. Nothing is read when no object is left
+   * out.
+   *
+   * @param standardPricebooks - Both orgs' standard price books, the read the
+   *   run itself goes on with.
    */
   private async heldBackOfRun(
     config: SyncConfig,
@@ -2051,6 +2058,7 @@ export class SyncOrchestrator {
     load: SyncDeltaLoad | null | undefined,
     earlier: ReadonlyMap<string, string> | undefined,
     copied: AlreadyCopied,
+    standardPricebooks: () => Promise<StandardPricebooks | undefined>,
   ): Promise<ReadonlyMap<string, SyncHeldBackObject>> {
     if (unwritable.size === 0) return new Map();
     return heldBackOf({
@@ -2059,6 +2067,7 @@ export class SyncOrchestrator {
       leftOut: new Set(unwritable.keys()),
       ...(earlier ? { earlier } : {}),
       copied,
+      standardPricebooks,
       read: async (objectConfig) => {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
         return plan?.read === 'delta'
@@ -2161,6 +2170,7 @@ export class SyncOrchestrator {
       return answer({ error: err instanceof Error ? err.message : String(err) });
     }
     const gate = this.deps.writeGate;
+    const standardPricebooks = this.standardPricebooksOnce();
     const counts = gate ? await this.countRun(config, ordered, deltaLoad, true) : undefined;
     if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
     if (gate && counts && 'counted' in counts) {
@@ -2183,6 +2193,7 @@ export class SyncOrchestrator {
               deltaLoad,
               earlier.links,
               copied,
+              standardPricebooks,
             ),
           ),
         );
@@ -2195,7 +2206,7 @@ export class SyncOrchestrator {
       recordTypes: this.recordTypesOnce(),
       currencies: this.currenciesOnce(),
       currencyChangesById: new Map<string, CurrencyChange>(),
-      standardPricebooks: this.standardPricebooksOnce(),
+      standardPricebooks,
       later: laterInCycles(writeOrder),
     };
     for (const [index, objectConfig] of ordered.entries()) {

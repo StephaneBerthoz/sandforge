@@ -365,7 +365,7 @@ describe('sandforge-autopilot --checkpoint-first', () => {
     muteOf(events);
 
     await expect(main(argv('--mute-automation', '--checkpoint-first'))).rejects.toThrow(
-      /^The checkpoint before the run was refused: Too little room\. .*Nothing was written\.$/,
+      /^refused \(CHECKPOINT_REFUSED\): The checkpoint before the run was refused: Too little room\. .*Nothing was written\.$/,
     );
     expect(events).toEqual(['scope', 'take']);
   });
@@ -377,11 +377,49 @@ describe('sandforge-autopilot --checkpoint-first', () => {
     muteOf(events, true);
 
     await expect(main(argv('--mute-automation', '--checkpoint-first'))).rejects.toThrow(
-      'The set was refused.',
+      /^refused \(MUTE_FAILED\): The set was refused\.$/,
     );
     expect(events).toEqual(['scope', 'take', 'lease', 'settle false']);
     expect(out.join('')).toContain(BEFORE_RUN_DELETED_WORDS);
   });
+
+  it.each([
+    [
+      'the take',
+      {
+        take: {
+          taken: false as const,
+          refusal: { code: 'DISK' as const, message: 'Too little room.' },
+        },
+      },
+      false,
+      'CHECKPOINT_REFUSED',
+    ],
+    ['the lease', {}, true, 'MUTE_FAILED'],
+  ])(
+    'answers --json with the code of a run refused at %s, past the gate and before its first write',
+    async (_step, checkpoint, leaseRefused, code) => {
+      // A CI job reading `.refused.code` got an empty stdout: the gate's
+      // refusals carried their code, these a sentence on stderr alone.
+      const events: string[] = [];
+      orgs(events);
+      checkpointsOf(events, checkpoint);
+      muteOf(events, leaseRefused);
+
+      await expect(main(argv('--mute-automation', '--checkpoint-first', '--json'))).rejects.toThrow(
+        new RegExp(`^refused \\(${code}\\): `),
+      );
+
+      expect(JSON.parse(out.join(''))).toMatchObject({
+        tool: 'sandforge-autopilot',
+        source: 'SRC',
+        target: 'TGT',
+        dryRun: false,
+        refused: { code },
+      });
+      expect(events.some((event) => event.startsWith('write'))).toBe(false);
+    },
+  );
 
   it('deletes the checkpoint of a run the target refused every record of', async () => {
     const events: string[] = [];

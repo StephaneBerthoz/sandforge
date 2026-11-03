@@ -147,6 +147,14 @@ describe('CheckpointFirstOption', () => {
           code: 'chatter',
           reason: 'Chatter posts: a rewind leaves its records.',
         },
+        // The Documents tab's, left out with the code that names Salesforce
+        // Files among the objects added.
+        {
+          objectApiName: 'Document',
+          code: 'files',
+          reason:
+            'Documents of the Documents tab are left out. A rewind leaves its records as they are.',
+        },
       ],
     };
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
@@ -163,6 +171,11 @@ describe('CheckpointFirstOption', () => {
       );
       expect(screen.getByTestId('estimate-not-held-FeedItem')).toHaveTextContent(
         `FeedItem · ${fr.checkpointNotes.leftOut.chatter}`,
+      );
+      // Under Not held, said left out: it read "Files, which every
+      // checkpoint of picked objects holds", the opposite of the reason.
+      expect(screen.getByTestId('estimate-not-held-Document')).toHaveTextContent(
+        `Document · ${fr.checkpointNotes.leftOut.files}`,
       );
     } finally {
       await act(() => i18n.changeLanguage('en'));

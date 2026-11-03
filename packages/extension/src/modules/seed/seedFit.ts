@@ -64,7 +64,7 @@ import {
   type AutomationRoom,
   type FitBudget,
 } from '../forge/fitBudget.js';
-import { formatMB } from '../forge/ForgeRunGate.js';
+import { formatMBPast } from '../forge/ForgeRunGate.js';
 import { ARTICLE_VERSION_OBJECT } from './seedKnowledge.js';
 import { seedRequestsEstimate, seedStorageBytes } from './seedStorage.js';
 
@@ -392,15 +392,20 @@ export function fitSeedTemplate(input: {
     requests: m.requests,
   });
   /** Why `m` is past the budget, in words: its storage, or its requests. */
-  const overWords = (m: Measure): string =>
-    inStorage(m)
-      ? `about ${m.requests} API requests, past the ${budget.runRequests ?? 0} that leave the ` +
+  const overWords = (m: Measure): string => {
+    if (inStorage(m)) {
+      return (
+        `about ${m.requests} API requests, past the ${budget.runRequests ?? 0} that leave the ` +
         'org a tenth of its daily requests'
-      : `${formatMB(m.bytes / BYTES_PER_MB)} MB` +
-        (m.roomBytes > 0
-          ? ", room for what the org's automation creates under them included"
-          : '') +
-        `, past the ${formatMB(budget.bytes / BYTES_PER_MB)} MB that fit`;
+      );
+    }
+    const said = formatMBPast(m.bytes / BYTES_PER_MB, budget.bytes / BYTES_PER_MB);
+    return (
+      `${said.over} MB` +
+      (m.roomBytes > 0 ? ", room for what the org's automation creates under them included" : '') +
+      `, past the ${said.bound} MB that fit`
+    );
+  };
   /** What holds `m` past the budget: the requests when its storage fits, the budget's bound otherwise. */
   const overBy = (m: Measure): SeedFit['heldBy'] =>
     inStorage(m) ? 'apiRequests' : budget.terms.limitedBy;

@@ -889,6 +889,29 @@ function writeQuestion(question: WriteConfirmation): string[] {
                 ),
     );
   }
+  // The rows whose lookup names a record left out, or one held back: the
+  // question named the account it left out and not the contacts under it,
+  // which the result then counted failed.
+  const leftOutObjects = new Set((question.unwritable ?? []).map((o) => o.objectApiName));
+  for (const { objectApiName, rows, parent, field } of question.heldBack ?? []) {
+    lines.push(
+      leftOutObjects.has(parent)
+        ? vscode.l10n.t(
+            'Held back: {0}, {1} records: their {2} names {3} records left out, so none of them is written and each counts as failed.',
+            objectApiName,
+            rows,
+            field,
+            parent,
+          )
+        : vscode.l10n.t(
+            'Held back: {0}, {1} records: their {2} names {3} records held back, so none of them is written and each counts as failed.',
+            objectApiName,
+            rows,
+            field,
+            parent,
+          ),
+    );
+  }
   for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {
     lines.push(
       vscode.l10n.t(

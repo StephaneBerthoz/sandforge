@@ -167,4 +167,45 @@ describe('heldBackOf', () => {
 
     expect(held.size).toBe(0);
   });
+
+  describe('the standard price book of price books left out', () => {
+    const books = { source: fakeId('01s', 1), target: fakeId('01s', 901) };
+    const catalog: Record<string, Array<Record<string, unknown>>> = {
+      Pricebook2: [{ Id: books.source }, { Id: fakeId('01s', 2) }],
+      PricebookEntry: [
+        { Id: fakeId('01u', 1), Pricebook2Id: books.source },
+        { Id: fakeId('01u', 2), Pricebook2Id: fakeId('01s', 2) },
+      ],
+    };
+    const priced = new Map<string, WriteLookup[]>([
+      ['PricebookEntry', [{ field: 'Pricebook2Id', referenceTo: ['Pricebook2'] }]],
+    ]);
+    const ordered = [objectOf('Pricebook2', { operation: 'upsert' }), objectOf('PricebookEntry')];
+
+    it('lets the standard book’s prices go: it is matched to the target’s, as the run matches it', async () => {
+      const held = await heldBackOf({
+        ordered,
+        lookups: priced,
+        leftOut: new Set(['Pricebook2']),
+        read: reader(catalog),
+        standardPricebooks: async () => books,
+      });
+
+      expect([...held.values()]).toEqual([
+        { objectApiName: 'PricebookEntry', rows: 1, parent: 'Pricebook2', field: 'Pricebook2Id' },
+      ]);
+    });
+
+    it('holds them back with the rest when both books cannot be read, as the run then sends them unmatched', async () => {
+      const held = await heldBackOf({
+        ordered,
+        lookups: priced,
+        leftOut: new Set(['Pricebook2']),
+        read: reader(catalog),
+        standardPricebooks: async () => undefined,
+      });
+
+      expect(held.get('PricebookEntry')?.rows).toBe(2);
+    });
+  });
 });

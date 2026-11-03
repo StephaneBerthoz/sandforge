@@ -86,14 +86,32 @@ const CREATED_BY_KEYS: Readonly<Record<RunCheckpointCreator['write'], string>> =
   undelete: 'checkpointNotes.added.createdBy.undelete',
 };
 
+/** Whether a note's code is one a take leaves an object out with. */
+function isLeftOutCode(code: string): code is CheckpointLeftOutCode {
+  return Object.prototype.hasOwnProperty.call(LEFT_OUT_KEYS, code);
+}
+
 /**
  * Why the checkpoint a run takes first holds an object beside those the run
  * writes, or leaves one out, in the page's language: each automation that
  * creates its records named, the others counted; the files every checkpoint
  * holds; or the reason the take left it out. A note with no code, or one of
  * automations it does not name, says it in the extension's words.
+ *
+ * @param list - The list the note is of: `files` names Salesforce Files among
+ *   the objects added, and the Documents tab among those not held, where a
+ *   Document read "Files, which every checkpoint of picked objects holds".
  */
-export function runNoteWords(t: TFunction, note: RunCheckpointObjectNote): string {
+export function runNoteWords(
+  t: TFunction,
+  note: RunCheckpointObjectNote,
+  list: 'added' | 'notHeld',
+): string {
+  if (list === 'notHeld') {
+    return note.code !== undefined && isLeftOutCode(note.code)
+      ? leftOutWords(t, { ...note, code: note.code })
+      : note.reason;
+  }
   switch (note.code) {
     case undefined:
       return note.reason;
