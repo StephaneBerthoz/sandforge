@@ -134,7 +134,10 @@ export interface AutomationMuteBoxProps {
  * box says so.
  *
  * A box no longer offered — read again, the org found nothing to silence — is
- * unticked: a run sent from a page that showed no box mutes nothing.
+ * unticked: a run sent from a page that showed no box mutes nothing. A
+ * read-only box is not: it shows a setting saved elsewhere, which mutes
+ * whatever this read found — a Rewind step's, whose preview it unticked, and
+ * whose next read then showed the step as one that does not mute.
  */
 export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   offer,
@@ -149,8 +152,8 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   const detailsId = useId();
   const offered = muteOffered(offer);
   useEffect(() => {
-    if (!offered && checked) onChange(false);
-  }, [offered, checked, onChange]);
+    if (!readOnly && !offered && checked) onChange(false);
+  }, [readOnly, offered, checked, onChange]);
   if (!offered || offer == null) return null;
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   const sets = offer === 'atStart' ? [] : offer.assign.map((set) => set.permissionSet);

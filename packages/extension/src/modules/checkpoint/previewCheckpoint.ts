@@ -89,6 +89,7 @@ import { actAccessOf } from './rewindAccess.js';
 import { objectsWrittenBy, rewindStepsOf, selectionDiff } from './rewindBounds.js';
 import { rewindDiff } from './rewindDiff.js';
 import { diffOfPicked, planSelection, snapshotRowsOf } from './rewindPlan.js';
+import { muteOfSteps, type MuteOfWrites } from './rewindOrg.js';
 import {
   actDeliverability,
   checkpointEmails,
@@ -127,6 +128,14 @@ export interface PreviewDeps {
   signal?: AbortSignal;
   /** This machine's clock: the preview's id. */
   now?: () => Date;
+  /**
+   * How the rewind's mute is planned (`RewindDeps.mute`), for a preview asked
+   * with `muteAutomation`: asked of the org — what it is, whether the user may
+   * assign permission sets — as the rewind asks it before it writes, nothing
+   * assigned. Its refusal is the one the rewind would meet. Not given, the
+   * mute is planned from the read alone, and nothing of it is refused.
+   */
+  mute?: MuteOfWrites;
 }
 
 /** What a preview is asked. */
@@ -159,7 +168,8 @@ export interface PreviewRequest {
    * Whether the rewind that follows is asked to mute the org's automation:
    * the emails it counts, those it could not count, whether the org delivers
    * them and the refusal it would meet are then those of what still runs, as
-   * the rewind's own gate judges them. `automation` stays the org's as read,
+   * the rewind's own gate judges them, and a mute the org would refuse is
+   * that refusal (`PreviewDeps.mute`). `automation` stays the org's as read,
    * which the mute is planned from. Nothing is assigned.
    */
   muteAutomation?: boolean;
@@ -376,6 +386,13 @@ export async function previewCheckpoint(
     automation && request.muteAutomation === true
       ? planMute(automation, removalStepsWrites(steps))
       : undefined;
+  // A dry run that planned the mute from the read alone passed a user who
+  // may not assign permission sets, whom the rewind then refused.
+  const asked =
+    automation && muted && muted.plan.assign.length > 0 && deps.mute
+      ? await muteOfSteps(deps.mute, automation, steps)
+      : undefined;
+  const muteRefusal = asked && 'refusal' in asked ? asked.refusal : undefined;
   if (automation) {
     const emails = await actDeliverability({
       act: 'rewind',
@@ -434,7 +451,8 @@ export async function previewCheckpoint(
       ? lockedRefusal(orgName, holder)
       : writing !== undefined
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
-        : (budgetRefusal(
+        : (muteRefusal ??
+          budgetRefusal(
             'rewind',
             {
               run: cost.apiRequests - deliverabilityRequests,

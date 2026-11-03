@@ -774,8 +774,12 @@ export class AutomationHandler implements DomainHandler {
         ? await runners.readCheckpoint(parsed.data.checkpointId)
         : undefined;
     const grant = this.rewindGrants().get(pipelineId, step.id);
+    // Taken back by a save that changed the step, it matches nothing again.
     const kept = grant
-      ? { grantedAt: grant.grantedAt, matches: digestOf(step.config) === grant.digest }
+      ? {
+          grantedAt: grant.grantedAt,
+          matches: grant.takenBackAt === undefined && digestOf(step.config) === grant.digest,
+        }
       : undefined;
     if (!runners) {
       // No checkpoint can be read where Checkpoints are not wired in.

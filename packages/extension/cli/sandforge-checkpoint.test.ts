@@ -830,6 +830,14 @@ describe('previewTotals and orgDiffers', () => {
     },
   );
 
+  it('lists, among what --fail-on-change exits 3 on in --help, a field deleted or hidden since', () => {
+    const { stdout } = refused('preview', '--help');
+    const exit3 = /3 partial \(([\s\S]*?)\); 4 unstable/.exec(stdout)?.[1].replace(/\s+/g, ' ');
+    expect(exit3).toContain(
+      'a field it compares deleted or hidden since in an object something moved in',
+    );
+  });
+
   it('says an org is as it was with a field added since, or one whose type changed, as the panel’s preview does', () => {
     const diff = diffOf([
       object({ schemaDrift: { removed: [], added: ['New__c'], changed: ['Score__c'] } }),

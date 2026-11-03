@@ -60,6 +60,12 @@ export const RewindStepConfirm: React.FC<RewindStepConfirmProps> = ({
     max: formatNumber(maxRecords),
   };
   const refused = answer && !answer.granted && answer.stepId === step.id ? answer : undefined;
+  // The objects the step rewinds, when its configuration limits it to some:
+  // its confirmation is of that rewind.
+  const stepObjects = step.config['objects'];
+  const objects = Array.isArray(stepObjects)
+    ? stepObjects.filter((name): name is string => typeof name === 'string')
+    : [];
   return (
     <section
       className="flex flex-col gap-3"
@@ -76,6 +82,11 @@ export const RewindStepConfirm: React.FC<RewindStepConfirmProps> = ({
         org={org}
         checkpoint={checkpoint}
         onClose={onClose}
+        {...(objects.length > 0
+          ? {
+              limitedTo: { objects, acceptOutside: step.config['acceptOutside'] === true },
+            }
+          : {})}
         // The preview of a step that mutes is of what still runs, and says
         // what the mute would assign: what the confirmation is typed under.
         {...(step.config['muteAutomation'] === true

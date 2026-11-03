@@ -678,6 +678,36 @@ describe('sandforge-checkpoint preview', () => {
     );
   });
 
+  it('exits 0 with --fail-on-change for a field set aside with --ignore-field and deleted since: it is not compared, and the org is as it was', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const aside = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--ignore-field',
+      'Case.Subject',
+      '--dry-run',
+    );
+    expect(aside.code).toBe(0);
+    // A case saved since, on the same values, so its object is described
+    // again; then an admin deletes the field set aside.
+    clock = T0 + 60_000;
+    h.org.edit('Case', id('500', 1), { Subject: 'Broken' }, COLLEAGUE);
+    h.org.changeSchema('Case', STAMP_FIELDS);
+    clock = T0 + 120_000;
+
+    const { code, stdout } = await h.run('preview', '--org', 'DEV-SB', '--fail-on-change');
+
+    expect(code, stdout).toBe(0);
+    expect(stdout).toContain(
+      "DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
+    );
+    // Said as what the user chose, never as a field to restore before a rewind.
+    expect(stdout).toContain('not compared (you chose): Case.Subject');
+    expect(stdout).not.toContain('deleted since');
+  });
+
   it('refuses the preview of a checkpoint the org it now answers as was not taken of, reading no record', async () => {
     const h = harness();
     await taken(h, '--name', 'Before UAT');
@@ -1340,6 +1370,57 @@ describe('sandforge-checkpoint rewind', () => {
       expect(answer).not.toHaveProperty('deliverability');
       expect(answer).toMatchObject({ mutedAutomation: { state: 'planned' } });
       expect(h.org.anonymousAsked).toEqual([]);
+    });
+
+    it('says under wouldBeRefused the mute a rewind is refused for, by a user who cannot assign permission sets, assigning nothing; the rewind is refused so', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      const before = stateOf(h.org);
+
+      // The suite's user: View All Data and Modify All Data, neither Assign
+      // Permission Sets nor Manage Users.
+      const dry = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const answer = JSON.parse(dry.stdout) as { wouldBeRefused?: string[] };
+      expect(answer.wouldBeRefused).toEqual([
+        expect.stringMatching(
+          /^refused \(MUTE\): The target's automation cannot be muted: the user the run writes as cannot assign permission sets/,
+        ),
+      ]);
+      expect(stateOf(h.org)).toEqual(before);
+
+      const real = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--mute-automation',
+        '--json',
+      );
+      expect(real.code).toBe(1);
+      expect(JSON.parse(real.stdout)).toMatchObject({ refusal: { code: 'MUTE' } });
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('says no mute refusal for a user who may assign permission sets', async () => {
+      const h = harness({ automation: AUTOMATION });
+      await taken(h, '--name', 'Before UAT');
+      demo(h);
+      Object.assign(h.org.all('UserPermissionAccess')[0] ?? {}, {
+        PermissionsAssignPermissionSets: true,
+      });
+
+      const dry = await h.run(...LINE, '--json', '--mute-automation');
+
+      expect(dry.code, dry.stderr).toBe(0);
+      const answer = JSON.parse(dry.stdout) as Record<string, unknown>;
+      expect(answer).not.toHaveProperty('wouldBeRefused');
+      expect(answer).toMatchObject({ mutedAutomation: { state: 'planned' } });
     });
 
     it('keeps saying the emails of what the mute leaves running', async () => {

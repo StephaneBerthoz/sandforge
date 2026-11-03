@@ -161,6 +161,7 @@ describe('useRecentOpsFeed', () => {
     ['a backup a cap cut short', { status: 'partial', totalRecords: 1500 }],
     ['a pipeline that carried on past a failed step', { status: 'completed_with_warnings' }],
     ['a Frozen load the org refused part of', { status: 'completed-with-errors' }],
+    ['a rewind the org changed again under its writes', { status: 'unstable' }],
   ])('marks the op as partial, not as a success: %s', (_what, result) => {
     renderHook(() => useRecentOpsFeed());
 
@@ -176,6 +177,26 @@ describe('useRecentOpsFeed', () => {
     });
 
     expect(useRecentOpsStore.getState().ops[0]?.status).toBe('partial');
+  });
+
+  it('marks the op as failed when it completes refused: a rewind or a take a gate held back', () => {
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-7',
+        module: 'checkpoint',
+        description: "Rewinding DEV-SB to 'Before UAT'",
+      });
+    });
+    act(() => {
+      dispatchMessage('operation:completed', {
+        operationId: 'op-7',
+        result: { status: 'refused', code: 'UNDELETABLE_UNATTENDED' },
+      });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.status).toBe('failed');
   });
 
   it('marks the op as failed on operation:failed', () => {

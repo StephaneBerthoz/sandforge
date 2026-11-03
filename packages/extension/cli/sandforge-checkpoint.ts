@@ -196,7 +196,8 @@ rewind:
                                  what no bypass keeps quiet still runs, and still needs
                                  --accept-automation. Refused on a production org and for a user
                                  who cannot assign permission sets, exit 1; with --dry-run, says
-                                 what would be muted and assigns nothing
+                                 what would be muted, or why it would be refused, and assigns
+                                 nothing
   --accept-no-undo               rewind even when undo could not bring back some records it deletes
                                  (objects Salesforce undeletes only with their parent, such as
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
@@ -435,8 +436,9 @@ with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
 links between files and records to remove, put back or give their sharing back, records the
 rewind cannot take back or the checkpoint does not hold although they are dated before it, files
-added or deleted since that no record of it is attached to, an object that
-could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
+added or deleted since that no record of it is attached to, a field it compares deleted or
+hidden since in an object something moved in, an object that could not be read; delete: some
+were kept, each said with why); 4 unstable (someone else changed
 records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
 SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches
 the state before it.

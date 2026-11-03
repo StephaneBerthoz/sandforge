@@ -18,6 +18,7 @@ import type {
   CheckpointTakeRequests,
   ForgeTargetAutomation,
   ISODateString,
+  MutedAutomation,
   OrgCheckpoint,
   PipelineCheckpointStepConfig,
   PipelineRewindStepConfig,
@@ -83,7 +84,9 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 import type { DetectedSandboxRefresh } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import {
+  mutedOfError,
   muteForRun,
+  muteLines,
   muteOrgOf,
   planMute,
   type MuteLeaseOptions,
@@ -440,6 +443,7 @@ async function loadCheckpointModules() {
     notConfirmedRefusal: bounds.notConfirmedRefusal,
     undeletableUnattendedRefusal: bounds.undeletableUnattendedRefusal,
     REWIND_STEP_WORDS: bounds.REWIND_STEP_WORDS,
+    REWIND_MUTING_STEP_WORDS: bounds.REWIND_MUTING_STEP_WORDS,
     guardCheckpoint: guard.guardCheckpoint,
     newArchiveKey: archive.newArchiveKey,
     archiveKeyText: archive.archiveKeyText,
@@ -1344,7 +1348,7 @@ export class CheckpointHandler implements DomainHandler {
         bounds: { maxRecords: config.maxRecords, refuseWhenActive: config.refuseWhenActive },
         accepted: config,
         writers: async () => m.rewindWriters(checkpoint.takenBy, await m.takeOrgOf(conn).userId()),
-        words: m.REWIND_STEP_WORDS,
+        words: config.muteAutomation ? m.REWIND_MUTING_STEP_WORDS : m.REWIND_STEP_WORDS,
         user: org.username,
       });
       if (bound !== undefined) throw refuse(bound);
@@ -2252,9 +2256,12 @@ export class CheckpointHandler implements DomainHandler {
       rewindId?: string;
       deliverability?: ActEmailsAudit;
       acceptEmails?: boolean;
+      /** What its mute assigned, for an act that ended with no result to carry it. */
+      muted?: MutedAutomation;
     } = {},
   ): void {
     const { result, code, deliverability } = extra;
+    const muted = result?.mutedAutomation ?? extra.muted;
     const rewindId = result?.rewindId ?? extra.rewindId;
     const pipeline = at.pipeline;
     recordWriteRun(this.deps, {
@@ -2273,7 +2280,7 @@ export class CheckpointHandler implements DomainHandler {
           }
         : {}),
       ...(code !== undefined ? { code } : {}),
-      ...(result?.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
+      ...(muted ? { muted: auditMutedOf(muted) } : {}),
       details: {
         checkpointId: checkpoint.checkpointId,
         ...(rewindId !== undefined ? { rewindId } : {}),
@@ -2549,6 +2556,8 @@ export class CheckpointHandler implements DomainHandler {
             'rewind',
             'No record would be read or written.',
           ),
+          // Asked to mute, the org is asked what the rewind's mute asks it.
+          ...(parsed.muteAutomation === true ? { mute: this.muteOf(conn) } : {}),
         },
         {
           checkpoint,
@@ -2950,7 +2959,10 @@ export class CheckpointHandler implements DomainHandler {
         settle(new Error(why));
       } else {
         sendOperationCompleted(this.deps, operationId, { status: result.status });
-        live.complete();
+        // What still differs, or changed again under the rewind, is left for
+        // the reader: Live Operations listed such a rewind completed.
+        if (result.status === 'success') live.complete();
+        else live.partial();
         settle();
       }
       return result;
@@ -2965,7 +2977,10 @@ export class CheckpointHandler implements DomainHandler {
         this.audit(at, act, org, checkpoint, 'stopped', { code: CANCELLED, ...refused });
         throw new Refused(CANCELLED, extractErrorMessage(err), true);
       }
-      this.audit(at, act, org, checkpoint, 'failure', refused);
+      // Thrown under the lease, what it assigned came with the error.
+      const muted = mutedOfError(err);
+      this.audit(at, act, org, checkpoint, 'failure', { ...refused, ...(muted ? { muted } : {}) });
+      this.unreleased(at, act, org, muted);
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
       live.fail(extractErrorMessage(err));
       settle(err);
@@ -2973,6 +2988,26 @@ export class CheckpointHandler implements DomainHandler {
     } finally {
       options.signal?.removeEventListener('abort', onAbort);
     }
+  }
+
+  /**
+   * A line in the log for a mute the org would not take back, of an act that
+   * ended with no result to say it: the set keeps muting the user's later
+   * writes until the lease ends, or until the next act that mutes the org.
+   */
+  private unreleased(
+    at: Pick<ActAt, 'operationId'>,
+    act: 'rewind' | 'undo',
+    org: SalesforceOrg,
+    muted: MutedAutomation | undefined,
+  ): void {
+    if (muted?.released !== false) return;
+    this.deps.log(
+      `[WARN] checkpoint:${act} ${at.operationId}: ` +
+        muteLines(muted, nameOf(org))
+          .map((line) => line.trim())
+          .join('; '),
+    );
   }
 
   /** What the org runs as a rewind writes records of `objects`, undeletes included. */

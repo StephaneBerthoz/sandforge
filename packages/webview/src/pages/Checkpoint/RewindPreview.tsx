@@ -271,6 +271,20 @@ export interface RewindPreviewProps {
    * user's to untick, and a read again keeps what it was left at.
    */
   startMuted?: boolean;
+  /**
+   * The objects the rewind is limited to, as a Rewind step's configuration
+   * saved them, and whether its deletions take along what of the others was
+   * made since under a record they delete (`acceptOutside`): the preview is of
+   * that rewind, read and planned as one limited in the Rewind column is, and
+   * what it is limited to is not changed here. Absent, every object.
+   */
+  limitedTo?: RewindLimit;
+}
+
+/** What a rewind is limited to: see {@link RewindPreviewProps.limitedTo}. */
+export interface RewindLimit {
+  objects: readonly string[];
+  acceptOutside: boolean;
 }
 
 /** Draws the box that mutes a rewind's automation from the offer of a preview. */
@@ -351,6 +365,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   onRewind,
   muteBox,
   startMuted = false,
+  limitedTo,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
@@ -367,6 +382,10 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
     'checkpoint:preview',
     {
       checkpointId: checkpoint.checkpointId,
+      // A step limited to some objects is previewed as its rewind runs: what
+      // the org runs, the emails and the refusal are those of its objects, and
+      // so is the mute it plans, which was planned on the whole checkpoint.
+      ...(limitedTo ? { objects: limitedTo.objects } : {}),
       ...(muteBox && mute ? { muteAutomation: true } : {}),
     },
     { timeoutMs: PREVIEW_TIMEOUT_MS },
@@ -424,6 +443,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
         {...(muteBox ? { muteBox } : {})}
         mute={mute}
         onMute={setMute}
+        {...(limitedTo ? { limitedTo } : {})}
       />
     );
   }
@@ -530,6 +550,7 @@ interface PreviewBodyProps {
   /** Whether the box that mutes is ticked, and its toggle. */
   mute: boolean;
   onMute: (mute: boolean) => void;
+  limitedTo?: RewindLimit;
 }
 
 /** What a rewind would do, as the org answered: see {@link RewindPreview}. */
@@ -545,6 +566,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   muteBox,
   mute,
   onMute,
+  limitedTo,
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
@@ -583,7 +605,13 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   // object, which asks for no plan.
   const [unticked, setUnticked] = useState<readonly string[]>([]);
   const rowNames = diff.objects.map((object) => object.objectApiName);
-  const picks = rowNames.filter((name) => !unticked.includes(name));
+  // A step's objects, by name whatever its case, as the step's rewind takes them.
+  const limited = limitedTo
+    ? new Set(limitedTo.objects.map((name) => name.toLowerCase()))
+    : undefined;
+  const picks = rowNames.filter((name) =>
+    limited ? limited.has(name.toLowerCase()) : !unticked.includes(name),
+  );
   const selecting = picks.length < rowNames.length;
   const pickRow = (name: string, value: boolean): void =>
     setUnticked((was) =>
@@ -598,7 +626,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           checkpointId: diff.checkpointId,
           previewId: diff.previewId,
           objects: picks,
-          acceptOutside: ticked.outside,
+          acceptOutside: limitedTo ? limitedTo.acceptOutside : ticked.outside,
         })
       : '';
   const settledKey = useSettled(askedKey, SELECTION_SETTLE_MS);
@@ -683,7 +711,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   // outside a checkpoint of picked objects, offered where that one is not.
   const outsideBoxed = picked && outside.length > 0;
   const leftForOutside = plan?.left.some((entry) => entry.reason === 'outsideNotAccepted') ?? false;
-  const unpickedBox = selecting && !outsideBoxed && (leftForOutside || ticked.outside);
+  const unpickedBox =
+    !limitedTo && selecting && !outsideBoxed && (leftForOutside || ticked.outside);
 
   const lifted = refusal ? LIFTED_BY[refusal.code] : undefined;
   const refused = refusal !== undefined && (lifted === undefined || !ticked[lifted]);
@@ -819,7 +848,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           {selecting && (
             <Selection
               picks={picks}
-              rows={rowNames}
+              // A step's objects are its configuration's: none is added here.
+              rows={limitedTo ? [] : rowNames}
               plan={plan}
               planning={picks.length > 0 && plan === null && !planError}
               error={planError ? planning.error : null}

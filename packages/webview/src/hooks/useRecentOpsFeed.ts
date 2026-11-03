@@ -32,13 +32,21 @@ function toRecentOpType(module: string): RecentOp['type'] {
 /**
  * The words a run that ended with part of its work not done completes with:
  * a run's own, a pipeline's that carried on past a failed step, a Frozen
- * load's that the org refused part of.
+ * load's that the org refused part of, a rewind's that the org changed again
+ * under its writes.
  */
 const PARTIAL_STATUSES: ReadonlySet<unknown> = new Set([
   'partial',
   'completed_with_warnings',
   'completed-with-errors',
+  'unstable',
 ]);
+
+/**
+ * The words a run that did not go through completes with: nothing written, or
+ * a take, a rewind or an undo a gate held back, which completes `refused`.
+ */
+const FAILED_STATUSES: ReadonlySet<unknown> = new Set(['failure', 'refused']);
 
 /**
  * The status an `operation:completed` result gives its operation.
@@ -52,7 +60,7 @@ const PARTIAL_STATUSES: ReadonlySet<unknown> = new Set([
  */
 function completedStatus(result: Record<string, unknown>): RecentOp['status'] {
   if (result['aborted'] === true || result['status'] === 'cancelled') return 'cancelled';
-  if (result['status'] === 'failure') return 'failed';
+  if (FAILED_STATUSES.has(result['status'])) return 'failed';
   return PARTIAL_STATUSES.has(result['status']) ? 'partial' : 'success';
 }
 

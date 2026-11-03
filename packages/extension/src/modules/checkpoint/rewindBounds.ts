@@ -290,6 +290,22 @@ export const REWIND_STEP_WORDS: BoundWords = {
   },
 };
 
+/**
+ * What a Rewind step that mutes says lifts each refusal: its automation
+ * refused is what no bypass keeps quiet — a flow with none, an Apex trigger —
+ * which only acceptAutomation lets through. It was told to turn on the
+ * muteAutomation it had on.
+ */
+export const REWIND_MUTING_STEP_WORDS: BoundWords = {
+  ...REWIND_STEP_WORDS,
+  lift: {
+    ...REWIND_STEP_WORDS.lift,
+    acceptAutomation:
+      'turn on acceptAutomation in the step to let what no bypass keeps quiet run, and confirm ' +
+      'it again to rewind all the same',
+  },
+};
+
 /** Why Undo couldn't bring back records a rewind deletes, as a refusal for want of the acceptance says it. */
 const UNDO_CANNOT_WORDS: ReadonlyArray<{ reason: RewindUndoCannotReason; words: string }> = [
   {

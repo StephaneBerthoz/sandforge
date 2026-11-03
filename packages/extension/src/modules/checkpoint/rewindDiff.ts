@@ -1015,10 +1015,26 @@ async function fieldsNowOf(
       now.set(name, { unread: extractErrorMessage(err) });
     }
   }
+  // Of the fields gone, those the checkpoint compares are named, and told
+  // deleted from hidden: the take prints every field the describe lists,
+  // formulas and fields set aside with --ignore-field too, and one of them
+  // gone made the org differ with nothing to rewind and no value it holds.
+  const compared = new Map(
+    objects.map((object) => [
+      object.objectApiName,
+      new Set(
+        comparedFields(object.objectApiName, object.fields, checkpoint.ignoredFields).map((field) =>
+          field.toLowerCase(),
+        ),
+      ),
+    ]),
+  );
+  const comparedOf = (name: string, fields: readonly string[]): string[] =>
+    fields.filter((field) => compared.get(name)?.has(field.toLowerCase()) === true);
   const missing = new Map(
     [...drifts]
-      .filter(([, drift]) => drift.removed.length > 0)
-      .map(([name, drift]) => [name, drift.removed]),
+      .map(([name, drift]) => [name, comparedOf(name, drift.removed)] as const)
+      .filter(([, fields]) => fields.length > 0),
   );
   const told =
     missing.size > 0
@@ -1027,7 +1043,7 @@ async function fieldsNowOf(
   for (const [name, { removed, added, changed }] of drifts) {
     const gone = told.gone.get(name);
     now.set(name, {
-      ...(removed.length + added.length + changed.length > 0
+      ...(comparedOf(name, removed).length + added.length + changed.length > 0
         ? {
             drift: {
               removed: gone?.removed ?? [],

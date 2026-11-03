@@ -51,11 +51,15 @@ import {
   type WritePathStep,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
+import { mutedOfError } from '../../modules/forge/AutomationMuteLease.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
-import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import {
+  memoryPermissionOrg,
+  type MemoryPermissionOrgSetup,
+} from '../../test/memoryPermissionOrg.js';
 import {
   MEMORY_ORG_USER,
   type MemoryChild,
@@ -1070,6 +1074,19 @@ describe('CheckpointHandler — the preview', () => {
 
     await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
     expect(answerOf(h, 'wv-preview-1').payload).toMatchObject({ refusal: { code: 'EMAILS' } });
+
+    // The harness's user may not assign permission sets: the rewind's mute
+    // is refused, and so the preview says.
+    await h.send('wv-preview-0', 'checkpoint:preview', { checkpointId, muteAutomation: true });
+    expect(answerOf(h, 'wv-preview-0').payload).toMatchObject({
+      refusal: {
+        code: 'MUTE',
+        message: expect.stringContaining('cannot assign permission sets') as unknown,
+      },
+    });
+    Object.assign(h.org.all('UserPermissionAccess')[0] ?? {}, {
+      PermissionsAssignPermissionSets: true,
+    });
 
     await h.send('wv-preview-2', 'checkpoint:preview', { checkpointId, muteAutomation: true });
     const muted = answerOf(h, 'wv-preview-2');
@@ -3059,6 +3076,29 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     expect(h.posted.filter((message) => message.type === 'checkpoint:rewind:response')).toEqual([]);
   });
 
+  it('lists a rewind the org refused part of as partial in Live Operations, never completed', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    // A validation rule on the account: its name is not given back, the cases are.
+    h.org.refuseUpdate.set(id('001', 1), {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Name is locked',
+    });
+    h.org.ticking = true;
+
+    const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId));
+
+    expect(rewound.result.status).toBe('partial');
+    expect(operationMessages(h, 'operation:completed', rewound.operationId)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ result: { status: 'partial' } }) as unknown,
+      }),
+    ]);
+    expect(h.tracker.get(rewound.operationId)?.status).toBe('partial');
+  });
+
   it('leaves the panel’s preview as it was: the panel’s rewind confirmed on it goes after the step’s, reading the org again', async () => {
     const h = harness();
     noAutomation(h);
@@ -3249,11 +3289,15 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     });
 
     /** The org's permission sets, reached through the connection its records are read by. */
-    function withPermissionSets(h: Harness): ReturnType<typeof memoryPermissionOrg> {
+    function withPermissionSets(
+      h: Harness,
+      setup: Pick<MemoryPermissionOrgSetup, 'refuseDeleting'> = {},
+    ): ReturnType<typeof memoryPermissionOrg> {
       const permissions = memoryPermissionOrg({
         organizationId: ORG_ID,
         userId: MEMORY_ORG_USER,
         sets: [{ id: '0PS000000000001AAA', name: 'Skip_Account_Set' }],
+        ...setup,
       });
       const base = connectionOf(h.org);
       vi.mocked(getJsforceConnection).mockImplementation(
@@ -3303,7 +3347,7 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
       expect(permissions.writes.map((write) => write.kind)).toEqual(['insert', 'delete']);
     });
 
-    it('is still refused for what no bypass keeps quiet, naming the setting, nothing assigned', async () => {
+    it('is still refused for what no bypass keeps quiet, naming the one setting that lifts it, nothing assigned', async () => {
       const h = harness();
       const checkpointId = await taken(h);
       changedSince(h);
@@ -3328,9 +3372,55 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
 
       expect(refused.code).toBe('AUTOMATION');
       expect(refused.message).toContain('1 flow(s), trigger(s) or rule(s) of Account run');
-      expect(refused.message).toContain('turn on muteAutomation in the step');
+      // The step mutes already: what it lists is what no bypass keeps quiet,
+      // which only acceptAutomation lets through.
+      expect(refused.message).toMatch(
+        /Rewind refused; turn on acceptAutomation in the step to let what no bypass keeps quiet run, and confirm it again to rewind all the same\. No record was written\.$/,
+      );
+      expect(refused.message).not.toContain('muteAutomation');
       expect(permissions.writes).toEqual([]);
       expect(writesOf(h.org)).toEqual(before);
+    });
+
+    it('says what it assigned and that the org would not take it back of a rewind that throws once it wrote: in the error, the audit trail and the log', async () => {
+      const h = harness();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      h.handler.setTargetAutomation(quietable());
+      // The session expires once the first pass wrote: the read again after
+      // it fails, and so does the delete of the assignment.
+      withPermissionSets(h, { refuseDeleting: { '0Paxx0000000001AAA': 'INVALID_SESSION_ID' } });
+      const serverTime = h.org.serverTime.bind(h.org);
+      h.org.serverTime = async () => {
+        if (h.org.updates.length + h.org.deletes.length > 0) {
+          throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+        }
+        return serverTime();
+      };
+      h.org.ticking = true;
+
+      const thrown = await h.handler
+        .rewindForPipeline(rewindStep(checkpointId, { muteAutomation: true }))
+        .catch((err: unknown) => err);
+
+      expect((thrown as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+      expect(mutedOfError(thrown)).toMatchObject({
+        state: 'muted',
+        assigned: ['Skip_Account_Set'],
+        released: false,
+      });
+      expect(h.trail()[0]).toMatchObject({
+        action: 'checkpoint_rewind',
+        outcome: 'failure',
+        muted: { assigned: ['Skip_Account_Set'], released: false },
+      });
+      expect(h.logs).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /^\[WARN\] checkpoint:rewind .*mute: assigned Skip_Account_Set .*not taken back: .*INVALID_SESSION_ID/,
+          ),
+        ]),
+      );
     });
   });
 

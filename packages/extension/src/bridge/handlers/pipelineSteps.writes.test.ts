@@ -626,6 +626,81 @@ describe('the Rewind step', () => {
     expect(result.output).toMatchObject({ code: 'UNDELETABLE_UNATTENDED', deleted: 0 });
   });
 
+  it('says what the mute assigned, and that it was not taken back, of a rewind left untouched where nobody could be asked after its first pass wrote', async () => {
+    const mutedAutomation = {
+      state: 'muted' as const,
+      assigned: ['Skip_Account_Set'],
+      held: [],
+      permissions: ['Skip_Account'],
+      silenced: [
+        {
+          objectApiName: 'Account',
+          kind: 'flow' as const,
+          name: 'Account changed',
+          permission: 'Skip_Account',
+        },
+      ],
+      stillRan: [],
+      released: false,
+      reason: 'the assignments could not be taken back (INVALID_SESSION_ID: Session expired)',
+    };
+    const rewind = vi.fn(async () => {
+      throw new CheckpointStepRefused(
+        'UNDELETABLE_UNATTENDED',
+        'The user may not delete the Account (2) record(s). What the rewind’s first pass wrote stays.',
+        rewindResult({ status: 'partial', mutedAutomation }),
+      );
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({
+      code: 'UNDELETABLE_UNATTENDED',
+      mutedAutomation: { state: 'muted', released: false },
+    });
+    expect(result.error).toContain(
+      'mute: assigned Skip_Account_Set to the user the run writes as in dev, for the run alone',
+    );
+    expect(result.error).toContain(
+      'not taken back: the assignments could not be taken back (INVALID_SESSION_ID: Session expired)',
+    );
+  });
+
+  it('says what the mute assigned, and that it was not taken back, of a rewind that threw under it', async () => {
+    const rewind = vi.fn(async () => {
+      throw Object.assign(new Error('INVALID_SESSION_ID: Session expired or invalid'), {
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Skip_Account_Set'],
+          held: [],
+          permissions: ['Skip_Account'],
+          silenced: [],
+          stillRan: [],
+          released: false,
+          reason: 'the assignments could not be taken back (INVALID_SESSION_ID)',
+        },
+      });
+    });
+
+    const result = await executorWith(runners({ rewind })).execute(
+      step('rewind', { ...REWIND, muteAutomation: true }),
+      context(),
+    );
+
+    expect(rewind).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({ mutedAutomation: { released: false } });
+    expect(result.error).toBe(
+      'INVALID_SESSION_ID: Session expired or invalid mute: assigned Skip_Account_Set to the ' +
+        'user the run writes as in dev, for the run alone; not taken back: the assignments ' +
+        'could not be taken back (INVALID_SESSION_ID).',
+    );
+  });
+
   it('fails, with what still differs, on a rewind that did not complete', async () => {
     const rewind = vi.fn(async () => ({
       operationId: 'op',

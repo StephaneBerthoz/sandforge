@@ -727,6 +727,10 @@ export async function muteOfSteps(
  * back — none when nothing was to be assigned —, which it checks against its
  * plan before it writes: refused there, it writes nothing, and the lease is
  * given back all the same.
+ *
+ * A `write` that throws throws on with what was muted, as `whileMuted` hands
+ * it (`mutedOfError`): the act ends with no result to carry it, and a set the
+ * org would not take back went unsaid while it kept muting the user.
  */
 export async function heldWhile<T>(
   mute: RunMute | undefined,
@@ -736,11 +740,19 @@ export async function heldWhile<T>(
 ): Promise<T> {
   const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
   if (mute && !held) ended(mute.muted);
+  let written: T;
   try {
-    return await write(held);
-  } finally {
-    if (held) ended(await held.release());
+    written = await write(held);
+  } catch (err: unknown) {
+    if (!held) throw err;
+    const muted = await held.release();
+    ended(muted);
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+      mutedAutomation: muted,
+    });
   }
+  if (held) ended(await held.release());
+  return written;
 }
 
 /** What a rewind is asked. */

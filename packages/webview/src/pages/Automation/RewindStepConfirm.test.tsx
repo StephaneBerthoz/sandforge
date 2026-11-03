@@ -150,6 +150,136 @@ describe('RewindStepConfirm', () => {
     expect(screen.queryByTestId('checkpoint-preview-accept-automation')).toBeNull();
   });
 
+  it('keeps a step that mutes muted through a read that finds nothing to silence: the box is the saved step’s, and no read goes out unmuted', () => {
+    render(
+      <RewindStepConfirm
+        step={{ ...step, config: { ...step.config, muteAutomation: true } }}
+        org={developerOrg()}
+        checkpoint={readyCheckpoint()}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // A flow no bypass keeps quiet: the mute has nothing to assign.
+    act(() =>
+      host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', {
+        ...previewAnswer(),
+        automation: {
+          objectsRead: ['Contact'],
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_changed',
+                  label: 'Contact changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        },
+      }),
+    );
+
+    expect(screen.queryByTestId('rewind-step-confirm-mute')).toBeNull();
+    // The box unticked itself, and the preview was read again unmuted: a read
+    // that then found a bypass showed the step as one that does not mute.
+    expect(host.current?.sent('checkpoint:preview')).toHaveLength(1);
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+      checkpointId: CHECKPOINT_ID,
+      muteAutomation: true,
+    });
+  });
+
+  it('previews a step limited to some objects as its rewind: read and planned for those, what the mute would assign of them alone, none added here', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      render(
+        <RewindStepConfirm
+          step={{
+            ...step,
+            config: {
+              ...step.config,
+              objects: ['contact'],
+              acceptOutside: true,
+              muteAutomation: true,
+            },
+          }}
+          org={developerOrg()}
+          checkpoint={readyCheckpoint()}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(host.current?.lastPayload('checkpoint:preview')).toEqual({
+        checkpointId: CHECKPOINT_ID,
+        objects: ['contact'],
+        muteAutomation: true,
+      });
+      // A flow a bypass keeps quiet as accounts are updated: the account is
+      // not among what the step rewinds.
+      act(() =>
+        host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', {
+          ...previewAnswer(),
+          automation: {
+            objectsRead: ['Contact', 'Account'],
+            objects: [
+              {
+                objectApiName: 'Account',
+                flows: [
+                  {
+                    apiName: 'Account_changed',
+                    label: 'Account changed',
+                    timing: 'afterSave',
+                    startsOn: 'update',
+                    condition: 'read',
+                    permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+                  },
+                ],
+                triggers: [],
+              },
+            ],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 0,
+            requests: 0,
+            bypassGrants: [
+              {
+                permission: 'Skip_Account',
+                permissionSets: [{ name: 'Skip_Account_Set', label: 'Skip', grants: 1 }],
+              },
+            ],
+          },
+        }),
+      );
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual({
+        checkpointId: CHECKPOINT_ID,
+        previewId: 'pv-1',
+        objects: ['Contact'],
+        acceptOutside: true,
+      });
+      // Nothing to assign for a rewind of contacts.
+      expect(screen.queryByTestId('rewind-step-confirm-mute')).toBeNull();
+      expect(screen.queryByTestId('checkpoint-preview-pick-Contact')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Limited to Contact' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('asks for the alias under a button and a dialog that say what it allows, in three different words', () => {
     // "Confirm this rewind…", "Confirm for this step…", then a dialog titled
     // as the section above it: three confirmations in a row.

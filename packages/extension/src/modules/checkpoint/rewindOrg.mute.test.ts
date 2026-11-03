@@ -12,7 +12,7 @@ import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../../test/memoryPermissionOrg.js';
-import { muteForRun, muteOrgOf } from '../forge/AutomationMuteLease.js';
+import { mutedOfError, muteForRun, muteOrgOf } from '../forge/AutomationMuteLease.js';
 import { heldWhile, muteOfSteps, type MuteOfWrites } from './rewindOrg.js';
 
 /** An org whose case flow runs before a delete, unless its user holds `Case_Bypass`. */
@@ -124,6 +124,34 @@ describe('heldWhile', () => {
     expect((error as Error).message).toBe('stopped');
     expect(org.assignments()).toEqual([]);
     expect(muted).toMatchObject({ state: 'muted', assigned: ['PS_Case'], released: true });
+  });
+
+  it('throws on with what was muted when the act throws, an assignment the org would not take back said with its reason', async () => {
+    // As an expired session refuses the read again after the first pass, and
+    // then the delete of the assignment.
+    const { mute, org } = muteOf({
+      refuseDeleting: { '0Paxx0000000001AAA': 'INVALID_SESSION_ID' },
+    });
+    const planned = await muteOfSteps(mute, AUTOMATION, STEPS);
+    if ('refusal' in planned) throw new Error(planned.refusal.message);
+
+    const error = await heldWhile(
+      planned.mute,
+      'rewind-1',
+      async () => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      },
+      () => undefined,
+    ).catch((err: unknown) => err);
+
+    expect((error as Error).message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+    expect(mutedOfError(error)).toMatchObject({
+      state: 'muted',
+      assigned: ['PS_Case'],
+      released: false,
+      reason: expect.stringContaining('INVALID_SESSION_ID') as unknown,
+    });
+    expect(org.assignments()).toHaveLength(1);
   });
 
   it('hands the act the lease as read back, to check against its plan before it writes, and gives it back whatever the act then does', async () => {

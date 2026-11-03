@@ -1106,6 +1106,46 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
     expect(diff.fieldsRequests).toBe(1);
   });
 
+  it('names no field it does not compare as gone: one set aside with --ignore-field, or a formula the take described and never held, deleted since', async () => {
+    const taken = await take({
+      objects: [
+        {
+          ...ACCOUNT,
+          described: [
+            ...ACCOUNT_DESCRIBED,
+            { name: 'Score__c', type: 'double', createable: false, updateable: false },
+          ],
+        },
+      ],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
+        );
+      },
+    });
+
+    const diff = await diffOf(taken, {
+      ignoredFields: ['Account.Due__c'],
+      conn: refusingField(taken.org, 'Due__c'),
+    });
+
+    // Neither makes the org differ: the rewind reads, compares and writes
+    // neither, so nothing of them is asked of FieldDefinition either.
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        { ...bySession(1), notCompared: ['Due__c'] },
+      ),
+    ]);
+    expect(taken.org.toolingAsked).toEqual([]);
+    expect(diff.fieldsRequests).toBeUndefined();
+  });
+
   it('asks whether an object changed since a day before the checkpoint: a field deleted after the take described it and before T0 is named, though no record changed', async () => {
     const taken = await take({
       objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],

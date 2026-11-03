@@ -178,6 +178,33 @@ describe('AutomationMuteBox', () => {
     expect(onChange).toHaveBeenCalledWith(false);
   });
 
+  it('leaves a read-only box as it was given, offered or not: the setting it shows is saved elsewhere', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <AutomationMuteBox
+        offer={PLAN}
+        checked
+        onChange={onChange}
+        org="dev"
+        testId="mute"
+        readOnly
+      />,
+    );
+
+    rerender(
+      <AutomationMuteBox
+        offer={NOTHING}
+        checked
+        onChange={onChange}
+        org="dev"
+        testId="mute"
+        readOnly
+      />,
+    );
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('says, on a page that reads none, that what it silences is read as the run starts', () => {
     render(
       <AutomationMuteBox

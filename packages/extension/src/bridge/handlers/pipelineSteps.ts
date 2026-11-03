@@ -2,6 +2,7 @@ import type {
   CheckpointInvalidReason,
   CompareResult,
   GuardTier,
+  MutedAutomation,
   PipelineApprovalRecord,
   PipelineMaskingTemplateInfo,
   PipelineRewindStepInfo,
@@ -31,9 +32,10 @@ import {
   pipelineWriteVerdict,
 } from '@sandforge/shared';
 import * as z from 'zod';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { grantRefusalWords, type GrantRefusal } from '../../modules/automation/RewindGrants.js';
-import { muteLines } from '../../modules/forge/AutomationMuteLease.js';
+import { mutedOfError, muteLines } from '../../modules/forge/AutomationMuteLease.js';
 import {
   StepCancelledError,
   type StepCheck,
@@ -1499,6 +1501,13 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       );
     }
     const org = runners.orgName(config.orgId) ?? config.orgId;
+    // What it assigned, silenced and left running, and whether it was taken back.
+    const mutedWords = (muted: MutedAutomation | undefined): string =>
+      muted
+        ? ` ${muteLines(muted, org)
+            .map((line) => line.trim())
+            .join('; ')}.`
+        : '';
     let outcome: CheckpointPipelineRewindOutcome;
     try {
       outcome = await runners.rewind(
@@ -1514,7 +1523,21 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
         context.signal,
       );
     } catch (err: unknown) {
-      if (!(err instanceof CheckpointStepRefused)) throw err;
+      // What its mute assigned, and whether it was taken back, said as every
+      // other ending says it: of a deletion nobody could be asked about once
+      // the rewind wrote, of a refusal or an error that came under the lease.
+      const muted =
+        (err instanceof CheckpointStepRefused ? err.result?.mutedAutomation : undefined) ??
+        mutedOfError(err);
+      if (!(err instanceof CheckpointStepRefused)) {
+        if (!muted || err instanceof StepCancelledError) throw err;
+        return failed(
+          step,
+          startTime,
+          { orgId: config.orgId, checkpointId: config.checkpointId, mutedAutomation: muted },
+          `${extractErrorMessage(err)}${mutedWords(muted)}`,
+        );
+      }
       return failed(
         step,
         startTime,
@@ -1523,8 +1546,9 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
           checkpointId: config.checkpointId,
           code: err.code,
           ...(err.result ? { status: err.result.status, ...rewound(err.result) } : {}),
+          ...(muted ? { mutedAutomation: muted } : {}),
         },
-        err.message,
+        `${err.message}${mutedWords(muted)}`,
       );
     }
     const { result } = outcome;
@@ -1541,12 +1565,7 @@ function rewindHandler(runners: PipelineStepRunners): StepHandler {
       apiRequests: result.apiRequests.used,
       ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
-    // What it assigned, silenced and left running, and whether it was taken back.
-    const mutedSaid = result.mutedAutomation
-      ? ` ${muteLines(result.mutedAutomation, org)
-          .map((line) => line.trim())
-          .join('; ')}.`
-      : '';
+    const mutedSaid = mutedWords(result.mutedAutomation);
     if (result.status === 'cancelled') {
       throw new StepCancelledError(
         `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.${mutedSaid}`,

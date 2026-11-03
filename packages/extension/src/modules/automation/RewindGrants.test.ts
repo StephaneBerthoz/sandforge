@@ -125,13 +125,35 @@ describe('RewindGrants', () => {
     expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'never' });
   });
 
-  it('takes back a confirmation once a save changes the step, and saving it back does not revive it', () => {
+  it('takes back a confirmation once a save changes the step, saying it changed since, and saving it back does not revive it', () => {
     const grants = new RewindGrants(storeWith());
     grants.write(grantOf());
-    expect(grants.revokeChanged('p-1', [rewindStep({ ...CONFIG, maxRecords: 5 })])).toEqual([
-      'step-r',
-    ]);
+    const changed = rewindStep({ ...CONFIG, maxRecords: 5 });
+    const savedAt = () => new Date('2026-10-31T08:00:00.000Z');
+    expect(grants.revokeChanged('p-1', [changed], savedAt)).toEqual(['step-r']);
+    // Confirmed, then changed: never "never confirmed".
+    expect(grants.verify('p-1', changed)).toEqual({ refusal: 'changed' });
+    expect(grantRefusalWords('Nightly reset', 'changed')).toContain(
+      'has not been confirmed since it was changed',
+    );
+    expect(grants.get('p-1', 'step-r')).toMatchObject({
+      grantedAt: '2026-10-30T09:00:00.000Z',
+      takenBackAt: '2026-10-31T08:00:00.000Z',
+    });
     expect(grants.revokeChanged('p-1', [rewindStep()])).toEqual([]);
+    expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'changed' });
+    // A confirmation given again stands for what is saved then.
+    grants.write(grantOf());
+    expect('grant' in grants.verify('p-1', rewindStep())).toBe(true);
+  });
+
+  it('forgets a confirmation taken back once its step leaves the pipeline, saying nothing again', () => {
+    const grants = new RewindGrants(storeWith());
+    grants.write(grantOf());
+    grants.revokeChanged('p-1', [rewindStep({ ...CONFIG, maxRecords: 5 })]);
+
+    expect(grants.revokeChanged('p-1', [])).toEqual([]);
+    expect(grants.get('p-1', 'step-r')).toBeUndefined();
     expect(grants.verify('p-1', rewindStep())).toEqual({ refusal: 'never' });
   });
 

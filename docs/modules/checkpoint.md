@@ -243,7 +243,7 @@ On disk, the take says before it runs about what it will take: the file that lis
 - **No terminal**: a rewind, an undo or a delete without `--yes` in a CI step stops at its question, exit `2`, having written nothing.
 - **Stopping**: Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once, and leaves a checkpoint listed as never taken, which `delete` removes. Ctrl-C, SIGTERM or SIGHUP stops a rewind or an undo before its next call to the org, exit `130`, `143` or `129`, and leaves its journal: `rewind` again takes up from what still differs, and `undo` still returns the org to how it was before the rewind.
 
-Exit codes: `0` done -- with `--object`, the objects named match; `1` refused before it read or wrote, or nothing done; `2` a bad command line, a `--checkpoint` name several checkpoints have, an `--object` the checkpoint does not hold, `rewind` or `undo` with `--yes` and no checkpoint named, or a question with no terminal; `3` partial -- records still differ, each said with why, of the objects named alone with `--object`; with `--fail-on-change`, the org differs, a field deleted or hidden since in an object something moved in counting as a difference and a field added since not; a `delete` kept some checkpoints, each said with why -- and fields set aside with `--ignore-field` do not count; `4` unstable, someone else changed records during the rewind or the undo. With `--json`, the answer goes alone on stdout and every other line on stderr; [Every flag](#every-flag) gives its shape for each command.
+Exit codes: `0` done -- with `--object`, the objects named match; `1` refused before it read or wrote, or nothing done; `2` a bad command line, a `--checkpoint` name several checkpoints have, an `--object` the checkpoint does not hold, `rewind` or `undo` with `--yes` and no checkpoint named, or a question with no terminal; `3` partial -- records still differ, each said with why, of the objects named alone with `--object`; with `--fail-on-change`, the org differs, a field it compares deleted or hidden since in an object something moved in counting as a difference, and not a field added since, one set aside with `--ignore-field`, nor one it never held, a formula or a roll-up; a `delete` kept some checkpoints, each said with why -- and fields set aside with `--ignore-field` do not count; `4` unstable, someone else changed records during the rewind or the undo. With `--json`, the answer goes alone on stdout and every other line on stderr; [Every flag](#every-flag) gives its shape for each command.
 
 An AI agent runs these commands as the tools of the MCP server of this repository -- `checkpoint_take`, `checkpoint_list`, `checkpoint_preview`, `checkpoint_rewind`, `checkpoint_undo` and `checkpoint_delete` -- each answering with this script's JSON, a rewind, an undo or a delete only with the org's alias given again as `confirm`: [SandForge for AI agents](../mcp.md).
 
@@ -346,7 +346,8 @@ rewind:
                                  what no bypass keeps quiet still runs, and still needs
                                  --accept-automation. Refused on a production org and for a user
                                  who cannot assign permission sets, exit 1; with --dry-run, says
-                                 what would be muted and assigns nothing
+                                 what would be muted, or why it would be refused, and assigns
+                                 nothing
   --accept-no-undo               rewind even when undo could not bring back some records it deletes
                                  (objects Salesforce undeletes only with their parent, such as
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
@@ -585,8 +586,9 @@ with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
 links between files and records to remove, put back or give their sharing back, records the
 rewind cannot take back or the checkpoint does not hold although they are dated before it, files
-added or deleted since that no record of it is attached to, an object that
-could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
+added or deleted since that no record of it is attached to, a field it compares deleted or
+hidden since in an object something moved in, an object that could not be read; delete: some
+were kept, each said with why); 4 unstable (someone else changed
 records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
 SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches
 the state before it.
