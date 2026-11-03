@@ -624,6 +624,78 @@ describe('sandforge-seed --checkpoint-first', () => {
     expect(stdout.join('')).toContain(BEFORE_RUN_DELETED_WORDS);
   });
 
+  it('gives a mute refused under wouldBeRefused of a dry run, as the real run is refused for it', async () => {
+    fakeOrg();
+    vi.mocked(muteForRun).mockRejectedValue(
+      new MuteRefusedError({ code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' }),
+    );
+
+    await main(argv(2, '--dry-run', '--json', '--mute-automation'));
+
+    expect(JSON.parse(stdout.join('')).wouldBeRefused).toEqual(['The user cannot assign.']);
+    stdout.length = 0;
+    await expect(main(argv(2, '--mute-automation'))).rejects.toThrow(
+      'refused (MUTE_NO_RIGHT): The user cannot assign.',
+    );
+  });
+
+  it('names the code of each refusal before its first write in its line, and answers it with --json on stdout', async () => {
+    // A CI job read an empty stdout, and a sentence with no code on stderr.
+    const refusedWith = async (...extra: string[]): Promise<unknown> => {
+      stdout.length = 0;
+      steps.length = 0;
+      let thrown: unknown;
+      await main(argv(2, '--json', ...extra)).catch((err: unknown) => {
+        thrown = err;
+      });
+      expect(writes()).toEqual([]);
+      return {
+        line: thrown instanceof Error ? thrown.message : thrown,
+        ...JSON.parse(stdout.join('')),
+      };
+    };
+
+    fakeOrg();
+    checkpointsOf({
+      take: { taken: false, refusal: { code: 'DISK', message: 'Too little room.' } },
+    });
+    expect(await refusedWith('--checkpoint-first')).toMatchObject({
+      line: expect.stringMatching(
+        /^refused \(CHECKPOINT_REFUSED\): The checkpoint before the run was refused: Too little room\./,
+      ) as string,
+      tool: 'sandforge-seed',
+      target: 'TGT',
+      dryRun: false,
+      refused: { code: 'CHECKPOINT_REFUSED' },
+    });
+
+    fakeOrg(200, 40);
+    checkpointsOf();
+    expect(await refusedWith('--checkpoint-first')).toMatchObject({
+      line: expect.stringMatching(
+        /^refused \(API_BUDGET_EXCEEDED\): The run takes about/,
+      ) as string,
+      refused: { code: 'API_BUDGET_EXCEEDED' },
+    });
+
+    fakeOrg();
+    checkpointsOf();
+    muteOf(true);
+    expect(await refusedWith('--mute-automation', '--checkpoint-first')).toMatchObject({
+      line: 'refused (MUTE_FAILED): The set was refused.',
+      refused: { code: 'MUTE_FAILED', message: 'The set was refused.' },
+    });
+
+    fakeOrg();
+    vi.mocked(muteForRun).mockRejectedValue(
+      new MuteRefusedError({ code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' }),
+    );
+    expect(await refusedWith('--mute-automation')).toMatchObject({
+      line: 'refused (MUTE_NO_RIGHT): The user cannot assign.',
+      refused: { code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' },
+    });
+  });
+
   it('keeps the checkpoint of a seed the org refused every record of: it sent them', async () => {
     fakeOrg(200, 15_000, true);
     checkpointsOf();

@@ -1814,7 +1814,7 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
   });
 
   it('says a step its script refused carries why, in the script’s words, as the apply reads it', () => {
-    expect(APPLY).toContain('A script refused before its first write prints nothing on stdout');
+    expect(APPLY).toContain('A script refused before its first write prints no run on stdout');
     expect(APPLY).toContain('const said = answered ?? (ended ? undefined : reasonLineOf(stderr));');
     expect(section(DOC, '### Apply it: `apply`')).toContain(
       "for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr",

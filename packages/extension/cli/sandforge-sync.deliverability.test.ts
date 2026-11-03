@@ -127,15 +127,17 @@ const DESCRIBED = {
 
 /**
  * A source of two accounts and a sandbox target that delivers the emails of
- * its automation at `level`, with room to spare; each write to the target in
- * `events`, and each read of its deliverability as `deliverability read`; a
- * production org when `production` says.
+ * its automation at `level`, with room to spare and `singleEmails` single
+ * emails left today; each write to the target in `events`, and each read of
+ * its deliverability as `deliverability read`; a production org when
+ * `production` says.
  */
 function orgs(
   events: string[],
   level: DeliverabilityLevel,
   production = false,
   described: { fields: unknown[] } = DESCRIBED,
+  singleEmails = 5_000,
 ): void {
   const page = (records: unknown[]) => ({ records, totalSize: records.length, done: true });
   const asked: string[] = [];
@@ -172,7 +174,7 @@ function orgs(
         async () => ({
           DataStorageMB: { Max: 200, Remaining: 150 },
           DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
-          SingleEmail: { Max: 5_000, Remaining: 5_000 },
+          SingleEmail: { Max: 5_000, Remaining: singleEmails },
         }),
         asked,
       ).request(request);
@@ -383,6 +385,23 @@ describe('sandforge-sync --accept-emails', () => {
     out.length = 0;
     expect(await exitOf(argv('--dry-run', '--json', '--accept-emails'))).toBe(0);
     expect(JSON.parse(out.join('')).wouldBeRefused).toBeUndefined();
+  });
+
+  it('gives with --dry-run --json, under wouldBeRefused, the refusal past the emails left today that a real run meets', async () => {
+    // The emails accepted, nothing asks: the two accounts' emails are past the one left.
+    const events: string[] = [];
+    orgs(events, 'all', false, DESCRIBED, 1);
+    expect(await exitOf(argv('--dry-run', '--json', '--accept-emails'))).toBe(0);
+    const dry = JSON.parse(out.join('')) as { wouldBeRefused?: string[] };
+
+    out.length = 0;
+    orgs(events, 'all', false, DESCRIBED, 1);
+    expect(await exitOf(argv('--json', '--accept-emails'))).toBe(1);
+    const real = JSON.parse(out.join('')) as { refused: { code: string; message: string } };
+
+    expect(real.refused.code).toBe('SYNC_EMAILS_EXCEEDED');
+    expect(dry.wouldBeRefused).toEqual([real.refused.message]);
+    expect(events).not.toContain('write');
   });
 
   it('says an upsert on a field the target matches none on before it writes: counted refused, under wouldBeRefused, and refused in a run', async () => {

@@ -51,7 +51,13 @@ import {
   type CommandCheckpointAsk,
   type CommandCheckpoints,
 } from './beforeRunCheckpoint.js';
-import { inTheCommandsWords, main, parseArgs, parseRemoveArgs } from './sandforge-sync.js';
+import {
+  inTheCommandsWords,
+  main,
+  parseArgs,
+  parseRemoveArgs,
+  readRunSummary,
+} from './sandforge-sync.js';
 import {
   BEFORE_RUN_DELETED_WORDS,
   writePathOrderDefects,
@@ -579,6 +585,43 @@ describe('sandforge-sync --checkpoint-first', () => {
     expect(out.join('')).not.toContain('a run would be refused');
   });
 
+  it.each([
+    [
+      'the daily API requests, the checkpoint’s counted',
+      {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        DailyApiRequests: { Max: 15_000, Remaining: 40 },
+      },
+      'API_BUDGET_EXCEEDED',
+    ],
+    [
+      'the data storage',
+      {
+        DataStorageMB: { Max: 200, Remaining: 0 },
+        DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+      },
+      'SYNC_STORAGE_EXCEEDED',
+    ],
+  ])(
+    'gives with --dry-run --json, under wouldBeRefused, the refusal past %s that a real run meets',
+    async (_label, limits, code) => {
+      // The lines said it; the key a pipeline reads did not, and the run exited 1.
+      orgs([], limits);
+      checkpointsOf([]);
+      await exitOf(argv('--checkpoint-first', '--dry-run', '--json'));
+      const dry = JSON.parse(out.join('')) as { wouldBeRefused?: string[] };
+
+      out.length = 0;
+      orgs([], limits);
+      checkpointsOf([]);
+      expect(await exitOf(argv('--checkpoint-first', '--json'))).toBe(1);
+      const real = JSON.parse(out.join('')) as { refused: { code: string; message: string } };
+
+      expect(real.refused.code).toBe(code);
+      expect(dry.wouldBeRefused).toEqual([real.refused.message]);
+    },
+  );
+
   it('refuses a run past the requests the target has left, the checkpoint among them, before the take', async () => {
     const events: string[] = [];
     orgs(events, {
@@ -677,6 +720,22 @@ describe('sandforge-sync --checkpoint-first', () => {
         'The checkpoint before the run was refused: Too little room. Fix what refuses it, leave ' +
         'an object out of it (--checkpoint-exclude-object <ApiName>), or run without ' +
         '--checkpoint-first to write without one. Nothing was written.',
+    });
+  });
+
+  it('prints, refused, a summary --remove reads as a run that wrote nothing', async () => {
+    const events: string[] = [];
+    orgs(events);
+    checkpointsOf(events, {
+      take: { taken: false, refusal: { code: 'DISK', message: 'Too little room.' } },
+    });
+
+    expect(await exitOf(argv('--checkpoint-first', '--json'))).toBe(1);
+
+    expect(readRunSummary(out.join(''))).toEqual({
+      refusal:
+        'is the summary of a run refused before its first write (CHECKPOINT_REFUSED), which ' +
+        'wrote nothing to the target: there is nothing of it to remove.',
     });
   });
 

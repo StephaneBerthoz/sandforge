@@ -350,6 +350,22 @@ describe('a seed from the command line', () => {
     expect(org.restCalls).toEqual([]);
   });
 
+  it('gives in a dry run’s --json summary, under wouldBeRefused, the mute a real run would be refused', async () => {
+    // Said on stderr alone: the summary showed no refusal, exit 0, and the
+    // real run with the same flags exited 1.
+    const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+    await main(argv(2, '--dry-run', '--json', '--mute-automation'));
+
+    const summary = JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] };
+    expect(summary.wouldBeRefused).toEqual([
+      'The target is a production org: its automation is never muted there, whatever the ' +
+        'setting says. Nothing was assigned; run without the option.',
+    ]);
+    expect(process.exitCode).toBeUndefined();
+    expect(org.restCalls).toEqual([]);
+  });
+
   it('dry-runs against a production org all the same, which only reads', async () => {
     const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
 

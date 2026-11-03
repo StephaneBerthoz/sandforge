@@ -93,6 +93,12 @@ export interface SeedStorageGate {
 }
 
 /**
+ * The code a seed refused for the data storage it takes is answered with: in
+ * the panel, and in the command's line and summary.
+ */
+export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
+
+/**
  * Hold a seed to the data storage its target has left: refused past it, let
  * through otherwise. A target that does not say what it has left — the user
  * may not read its limits — lets the seed through, its check `unread`, for

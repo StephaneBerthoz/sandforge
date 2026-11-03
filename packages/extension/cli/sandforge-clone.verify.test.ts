@@ -34,6 +34,7 @@ vi.mock('../src/modules/forge/RunVerifier.js', async (importOriginal) => {
 import { loadOrg, makeConn } from './sfSession.js';
 import type { RunToVerify, RunVerifierDeps } from '../src/modules/forge/RunVerifier.js';
 import { main, verificationLines } from './sandforge-clone';
+import { refusedSummary } from './runRefused.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -219,6 +220,27 @@ describe('sandforge-clone --verify', () => {
       expect(stderr.join('')).toContain(
         `--verify ${path} is the summary of a dry run, which wrote nothing to the target: ` +
           'there is nothing of it to verify.',
+      );
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
+    it("refuses a refused run's summary, which wrote nothing, before contacting any org", async () => {
+      const path = file(
+        refusedSummary(
+          { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', elapsedMs: 12 },
+          {
+            code: 'MAX_TOTAL_EXCEEDED',
+            message: 'The run would write 6 records. Nothing was written.',
+          },
+        ),
+      );
+
+      expect(await run(['--verify', path, '--target', 'TGT'])).toBe(2);
+
+      expect(stderr.join('')).toBe(
+        `--verify ${path} is the summary of a run refused before its first write ` +
+          '(MAX_TOTAL_EXCEEDED), which wrote nothing to the target: there is nothing of it to ' +
+          'verify.\n',
       );
       expect(loadOrg).not.toHaveBeenCalled();
     });

@@ -149,7 +149,7 @@ import {
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
-import { refusedLine } from './runRefused.js';
+import { refusalOfSummary, refusedLine, refusedSummaryWords } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -189,6 +189,7 @@ import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReade
 import {
   CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  EMAILS_NOT_ACCEPTED,
   bypassesToAssign,
   deliverabilityLineOf,
   formatMB,
@@ -540,6 +541,17 @@ const CONFIG_FILE_SETTINGS: readonly string[] = [
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * The refusals of a run's gate a dry run's `wouldBeRefused` says in words of
+ * its own: an object the target takes none of, the checkpoint asked first,
+ * the emails the target delivers.
+ */
+const SAID_APART: ReadonlySet<string> = new Set([
+  'SYNC_TARGET_UNWRITABLE',
+  CHECKPOINT_REFUSED,
+  EMAILS_NOT_ACCEPTED,
+]);
 
 /** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
 const RUN_FLAGS: CommandFlags = {
@@ -1958,11 +1970,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let checkpointFailed: string | undefined;
   /** Why a real run would be refused for its emails, as a simulation's gate found it. */
   let emailsRefused: string | undefined;
+  /**
+   * Why a real run's gate would refuse it, in that gate's words, for what
+   * nothing else a dry run says names — past the target's data storage, its
+   * API requests or emails left today: the lines said it, `wouldBeRefused`
+   * did not, and a pipeline that read it went on to a run refused.
+   */
+  let gateRefused: string | undefined;
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
     measure: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       checkpointFailed = measured.checkpointFailed;
       emailsRefused = measured.runEmails?.gate.stop?.message;
+      // Asked as a real run's hold asks it.
+      const answer = await gateSyncWrite(measured, { policy: 'refuse', org: args.target, orgTier });
+      gateRefused = !answer.go && !SAID_APART.has(answer.code) ? answer.message : undefined;
       return measured.check;
     },
     hold: async (counted) => {
@@ -2221,6 +2243,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const wouldBeRefused = [
       muteRefused,
       checkpointRefused,
+      gateRefused,
       emailsRefused,
       unwritable.length > 0 ? unwritableRefusal(unwritable, args.target) : undefined,
     ].filter((reason): reason is string => reason !== undefined);
@@ -2659,6 +2682,8 @@ export function readRunSummary(text: string): { summary: RunSummary } | { refusa
   } catch {
     return { refusal: 'is not JSON: save the output of a run printed with --json.' };
   }
+  const refused = refusalOfSummary(raw, 'sandforge-sync');
+  if (refused) return { refusal: refusedSummaryWords(refused) };
   const parsed = runSummarySchema.safeParse(raw);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

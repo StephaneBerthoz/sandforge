@@ -46,7 +46,7 @@ vi.mock('../src/modules/forge/AutomationMuteLease.js', async (original) => {
 });
 
 import { makeConn } from './sfSession.js';
-import { main, parseArgs } from './sandforge-seed.js';
+import { main, parseArgs, readRunSummary } from './sandforge-seed.js';
 import {
   writePathOrderDefects,
   type WritePathStep,
@@ -137,11 +137,17 @@ const ALL_EMAIL = { compiled: true, success: true };
 const CLOSED = { compiled: true, success: false, exceptionMessage: EMAIL_NOT_PERMITTED };
 
 /**
- * A sandbox with `requests` daily API requests left, that takes every record
- * it is sent, answers its anonymous Apex with `apex`, and puts each step
- * down in `steps`; a production org when `production` says.
+ * A sandbox with `requests` daily API requests and `singleEmails` single
+ * emails left, that takes every record it is sent, answers its anonymous Apex
+ * with `apex`, and puts each step down in `steps`; a production org when
+ * `production` says.
  */
-function fakeOrg(apex: unknown = ALL_EMAIL, requests = 15_000, production = false): void {
+function fakeOrg(
+  apex: unknown = ALL_EMAIL,
+  requests = 15_000,
+  production = false,
+  singleEmails = 15,
+): void {
   let made = 0;
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   vi.mocked(makeConn).mockReturnValue({
@@ -177,7 +183,7 @@ function fakeOrg(apex: unknown = ALL_EMAIL, requests = 15_000, production = fals
       return {
         DataStorageMB: { Max: 200, Remaining: 200 },
         DailyApiRequests: { Max: 15_000, Remaining: requests },
-        SingleEmail: { Max: 15, Remaining: 15 },
+        SingleEmail: { Max: 15, Remaining: singleEmails },
       };
     },
   } as unknown as Connection);
@@ -330,6 +336,34 @@ describe('sandforge-seed --accept-emails', () => {
       },
     });
     expect(writes()).toEqual([]);
+  });
+
+  it('names the code of a refusal past the emails left today in its line, and answers it with --json', async () => {
+    // The emails accepted, the two welcome emails are more than the one left.
+    fakeOrg(ALL_EMAIL, 15_000, false, 1);
+
+    await expect(main(argv('--accept-emails', '--json'))).rejects.toThrow(
+      /^refused \(SEED_EMAILS_EXCEEDED\): The seed was refused before it wrote anything: its records would make TGT send about 2 single emails/,
+    );
+
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      tool: 'sandforge-seed',
+      dryRun: false,
+      refused: { code: 'SEED_EMAILS_EXCEEDED' },
+    });
+    expect(writes()).toEqual([]);
+  });
+
+  it('prints a summary --remove reads as a run that wrote nothing', async () => {
+    fakeOrg();
+
+    await expect(main(argv('--json'))).rejects.toThrow(/^refused \(EMAILS_NOT_ACCEPTED\)/);
+
+    expect(readRunSummary(stdout.join(''))).toEqual({
+      refusal:
+        'is the summary of a run refused before its first write (EMAILS_NOT_ACCEPTED), which ' +
+        'wrote nothing to the target: there is nothing of it to remove.',
+    });
   });
 
   it('writes with it, the read before the first write', async () => {

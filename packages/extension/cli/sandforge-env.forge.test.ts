@@ -346,7 +346,7 @@ describe('plan and apply a forge resource', () => {
 
     expect(applied.code).toBe(1);
     const result = envRunResultSchema.parse(applied.answer);
-    // The clone's own refusal, which it says on stderr alone: live, the
+    // The clone's own refusal, as its line says it, its code named: live, the
     // apply's --json gave its exit code and no word of why.
     expect(result.steps).toEqual([
       expect.objectContaining({
@@ -355,8 +355,9 @@ describe('plan and apply a forge resource', () => {
         exitCode: 1,
         status: 'failed',
         refusal:
-          'The run would write 12 records, more than --max-total 4: narrow the clone (--max, ' +
-          '--exclude-object, --filter), or raise --max-total. Nothing was written.',
+          'refused (MAX_TOTAL_EXCEEDED): The run would write 12 records, more than --max-total 4: ' +
+          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total. Nothing ' +
+          'was written.',
       }),
     ]);
     const runLine = world.calls.find((call) => call.args.includes('--summary'));

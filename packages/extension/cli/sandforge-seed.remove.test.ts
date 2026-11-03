@@ -61,6 +61,7 @@ import {
 import { nodeSeedRunCreations } from '../src/modules/seed/SeedRunCreations.js';
 import { syncRemovalPlan } from '../src/modules/sync/SyncRunCreations.js';
 import { main, parseRemoveArgs, readRunSummary, runOfSummary } from './sandforge-seed.js';
+import { refusedSummary } from './runRefused.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -208,6 +209,22 @@ describe('sandforge-seed --remove: the command line and the summary', () => {
     });
     expect(readRunSummary(JSON.stringify(summary({ tool: 'sandforge-sync' })))).toMatchObject({
       refusal: expect.stringMatching(/not the summary of a sandforge-seed run/),
+    });
+    // What `--json` printed of a seed its gate refused: the seed's, its code, no result.
+    expect(
+      readRunSummary(
+        refusedSummary(
+          { tool: 'sandforge-seed', target: 'TGT', elapsedMs: 3 },
+          {
+            code: 'SEED_STORAGE_EXCEEDED',
+            message: 'The records do not fit. Nothing was written.',
+          },
+        ),
+      ),
+    ).toEqual({
+      refusal:
+        'is the summary of a run refused before its first write (SEED_STORAGE_EXCEEDED), which ' +
+        'wrote nothing to the target: there is nothing of it to remove.',
     });
     const truncated = summary();
     (

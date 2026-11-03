@@ -36,7 +36,7 @@ import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../src/test/memoryPermissionOrg.js';
-import { main, parseArgs, parseRemoveArgs } from './sandforge-clone';
+import { main, parseArgs, parseRemoveArgs, parseRunSummary } from './sandforge-clone';
 import {
   writePathOrderDefects,
   type WritePathStep,
@@ -565,7 +565,8 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight'))).toBe(1);
 
     expect(stderr).toBe(
-      'TGT runs automation on the records this clone inserts: Contact: flow "Contact welcome". ' +
+      'refused (AUTOMATION_NOT_ACCEPTED): TGT runs automation on the records this clone ' +
+        'inserts: Contact: flow "Contact welcome". ' +
         'No permission set of TGT holds Load_Data: an admin creates one that includes it, and ' +
         'assigns it to the user the clone writes as. Nothing was written. Add ' +
         '--accept-automation to clone all the same, or turn that automation off in TGT first.\n',
@@ -887,9 +888,33 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
 
       expect(stderr).toBe(
-        'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
-          '--exclude-object, --filter), or raise --max-total. Nothing was written.\n',
+        'refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than --max-total 1: ' +
+          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total. Nothing ' +
+          'was written.\n',
       );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('answers a refusal at its gate with --json on stdout, its code apart, as Sync does', async () => {
+      // stdout stayed empty: a CI job's `jq .refused.code` read nothing.
+      withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+      expect(await run(argv('--skip-preflight', '--max-total', '1', '--json'))).toBe(1);
+
+      expect(JSON.parse(stdout)).toEqual({
+        tool: 'sandforge-clone',
+        source: 'SRC',
+        target: 'TGT',
+        dryRun: false,
+        refused: {
+          code: 'MAX_TOTAL_EXCEEDED',
+          message:
+            'The run would write 2 records, more than --max-total 1: narrow the clone (--max, ' +
+            '--exclude-object, --filter), or raise --max-total. Nothing was written.',
+        },
+        elapsedMs: expect.any(Number) as number,
+      });
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(/^refused \(MAX_TOTAL_EXCEEDED\): /);
       expect(orgs.TGT.written).toEqual([]);
     });
 
@@ -899,7 +924,8 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight'))).toBe(1);
 
       expect(stderr).toBe(
-        'The records to write take about 0.01 MB of data storage, and TGT has 0 MB left of ' +
+        'refused (STORAGE_EXCEEDED): The records to write take about 0.01 MB of data storage, ' +
+          'and TGT has 0 MB left of ' +
           '200 MB: leave objects out, lower the records per object, or free data storage in ' +
           'TGT. Nothing was written.\n',
       );
@@ -1037,7 +1063,7 @@ describe('sandforge-clone target automation', () => {
         expect(await run(argv('--skip-preflight'))).toBe(1);
 
         expect(stderr).toMatch(
-          /^TGT runs automation on the records this clone inserts: Contact: flow "Contact feedback"/,
+          /^refused \(AUTOMATION_NOT_ACCEPTED\): TGT runs automation on the records this clone inserts: Contact: flow "Contact feedback"/,
         );
         expect(orgs.TGT.written).toEqual([]);
       });
@@ -1360,6 +1386,21 @@ describe('sandforge-clone target automation', () => {
       expect(perms.queries.some((soql) => /FROM PermissionSet\b/.test(soql))).toBe(false);
     });
 
+    it('names the code of a refused mute in its line, and answers it with --json on stdout', async () => {
+      withOrgs(mutableTarget({ canAssign: false }).target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBe(1);
+
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(
+        /^refused \(MUTE_NO_RIGHT\): .*cannot assign permission sets/,
+      );
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-clone',
+        dryRun: false,
+        refused: { code: 'MUTE_NO_RIGHT' },
+      });
+    });
+
     it('assigns nothing to a run refused at its write gate: the lease is taken once the gate lets the rows through', async () => {
       const { target, perms, events } = mutableTarget();
       withOrgs(target);
@@ -1550,7 +1591,8 @@ describe('sandforge-clone target automation', () => {
       expect(events).toEqual(['scope']);
       expect(perms.assignments()).toEqual([]);
       expect(stderr).toBe(
-        'The checkpoint before the run was refused: A SandForge run is writing to TGT: start ' +
+        'refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused: A SandForge ' +
+          'run is writing to TGT: start ' +
           'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
           'write without one. Nothing was written.\n',
       );
@@ -1586,7 +1628,8 @@ describe('sandforge-clone target automation', () => {
       expect(events).toEqual(['scope', 'take']);
       expect(perms.assignments()).toEqual([]);
       expect(stderr).toBe(
-        'The checkpoint before the run was refused: Too little room. Fix what refuses it, leave ' +
+        'refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused: Too little ' +
+          'room. Fix what refuses it, leave ' +
           'an object out of it (--checkpoint-exclude-object <ApiName>), or run without ' +
           '--checkpoint-first to write without one. Nothing was written.\n',
       );
@@ -1618,6 +1661,22 @@ describe('sandforge-clone target automation', () => {
       expect(printed).toContain(BEFORE_RUN_DELETED_WORDS);
     });
 
+    it('answers a lease refused after the take with --json on stdout, its code apart', async () => {
+      const { target, events } = mutableTarget({
+        refuseAssigning: { [DATA_LOAD]: 'INSUFFICIENT_ACCESS_OR_READONLY' },
+      });
+      withOrgs(target);
+      checkpointsOf(events);
+
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--checkpoint-first', '--json')),
+      ).toBe(1);
+
+      expect(JSON.parse(stdout)).toMatchObject({ dryRun: false, refused: { code: 'MUTE_FAILED' } });
+      expect(stderr.trimEnd().split('\n').at(-1)).toMatch(/^refused \(MUTE_FAILED\): /);
+      expect(events.some((event) => event.startsWith('write'))).toBe(false);
+    });
+
     it('stops at Ctrl-C during the take with nothing kept and nothing written, and exits 130', async () => {
       const { target, perms, events } = mutableTarget();
       withOrgs(target);
@@ -1644,7 +1703,8 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--checkpoint-first'))).toBe(1);
 
       expect(stderr).toBe(
-        'The run takes about 70 API requests (68 of them for the checkpoint taken first), and ' +
+        'refused (API_BUDGET_EXCEEDED): The run takes about 70 API requests (68 of them for the ' +
+          'checkpoint taken first), and ' +
           'TGT has 50 of its 15000 daily requests left: it would stop part way through, its ' +
           'records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to ' +
           'spare — the limit is counted over the last 24 hours — or write fewer records. ' +
@@ -1676,7 +1736,8 @@ describe('sandforge-clone target automation', () => {
         '  API requests: about 2, of the 1 TGT has left of its 15000 a day: more than it has left',
       );
       expect(stderr).toBe(
-        'The run takes about 2 API requests, and TGT has 1 of its 15000 daily requests left: it ' +
+        'refused (API_BUDGET_EXCEEDED): The run takes about 2 API requests, and TGT has 1 of ' +
+          'its 15000 daily requests left: it ' +
           'would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it ' +
           'once the org has requests to spare — the limit is counted over the last 24 hours — or ' +
           'write fewer records. Nothing was written.\n',
@@ -1766,6 +1827,18 @@ describe('sandforge-clone target automation', () => {
       expect(JSON.parse(stdout)).toMatchObject({
         refused: { code: 'AUTOMATION_NOT_ACCEPTED' },
         alsoRefused: [{ code: 'EMAILS_NOT_ACCEPTED' }],
+      });
+    });
+
+    it('prints a summary --remove reads as a run that wrote nothing, not one to clean up after', async () => {
+      withOrgs(sending());
+
+      expect(await run(argv('--skip-preflight', '--accept-automation', '--json'))).toBe(1);
+
+      expect(parseRunSummary(stdout)).toEqual({
+        refusal:
+          'is the summary of a run refused before its first write (EMAILS_NOT_ACCEPTED), which ' +
+          'wrote nothing to the target: there is nothing of it to remove.',
       });
     });
 

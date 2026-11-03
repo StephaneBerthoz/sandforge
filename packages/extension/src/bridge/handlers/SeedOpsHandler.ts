@@ -115,7 +115,11 @@ import {
   type WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
-import { seedFitBudgetOf, seedStorageGate } from '../../modules/seed/seedStorage.js';
+import {
+  SEED_STORAGE_EXCEEDED,
+  seedFitBudgetOf,
+  seedStorageGate,
+} from '../../modules/seed/seedStorage.js';
 import {
   seedAuditFitOf,
   seedFitProposalOf,
@@ -147,6 +151,7 @@ import {
   type BeforeRunCheckpoints,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import {
+  SEED_EMAILS_EXCEEDED,
   readSeedAutomation,
   seedAutomationLines,
   seedEmailGate,
@@ -159,12 +164,6 @@ import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { isUncopyableObject } from '@sandforge/shared';
 import type { ToolingQueries } from '../../modules/seed/scenario/scenarioOrg.js';
 import type { KnowledgeOrg } from '../../modules/seed/seedKnowledge.js';
-
-/** The code a seed refused for the data storage it takes is answered with. */
-const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
-
-/** The code a seed refused for the emails its records make the org send is answered with. */
-const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
 
 /** The code a seed the user declined at its write question is answered with. */
 export const SEED_WRITE_DECLINED = 'SEED_WRITE_DECLINED';

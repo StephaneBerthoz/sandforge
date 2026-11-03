@@ -385,9 +385,23 @@ describe('a seed fitted from the command line', () => {
 
     stdout.length = 0;
     steps.length = 0;
-    await expect(main(argv(2_000))).rejects.toThrow(/^The records to write take about/);
+    await expect(main(argv(2_000))).rejects.toThrow(
+      /^refused \(SEED_STORAGE_EXCEEDED\): The records to write take about/,
+    );
     expect(stdout.join('')).toMatch(/\n {2}--fit share would seed: share [\d.]+ %/);
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+
+    // With --json, stdout carries the refusal and its code, as Sync's does.
+    stdout.length = 0;
+    await expect(main(argv(2_000, '--json'))).rejects.toThrow(/^refused \(SEED_STORAGE_EXCEEDED\)/);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      tool: 'sandforge-seed',
+      dryRun: false,
+      refused: {
+        code: 'SEED_STORAGE_EXCEEDED',
+        message: expect.stringMatching(/^The records to write take about/) as string,
+      },
+    });
   });
 
   /** A dry run, `--json`, of 2,000 accounts and 2,000 articles the org has no object for. */

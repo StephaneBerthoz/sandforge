@@ -6,6 +6,8 @@
  * and left stdout empty.
  */
 
+import { z } from 'zod';
+
 /** A refusal with its code, as a run's gate gives it. */
 export interface RunRefusal {
   code: string;
@@ -50,4 +52,38 @@ export function refusedSummary(
     null,
     2,
   )}\n`;
+}
+
+/**
+ * The refusal a summary saved from `--json` names, when it is the summary of
+ * a run `tool` refused before its first write: `refusedSummary`'s, or Sync's
+ * of the same shape. One that holds a `result` is a run's that went, never
+ * read as one that wrote nothing.
+ */
+export function refusalOfSummary(raw: unknown, tool: string): RunRefusal | undefined {
+  const parsed = z
+    .object({
+      tool: z.literal(tool),
+      dryRun: z.literal(false),
+      refused: z.object({ code: z.string().min(1), message: z.string() }),
+      result: z.never().optional(),
+    })
+    .safeParse(raw);
+  return parsed.success ? parsed.data.refused : undefined;
+}
+
+/**
+ * Why a refused run's summary has nothing to remove or verify, said after the
+ * file's name: read as a summary printed before it said which records the
+ * run created, it sent the user to a cleanup that takes every record they
+ * created that day.
+ */
+export function refusedSummaryWords(
+  { code }: RunRefusal,
+  nothingTo: 'remove' | 'verify' = 'remove',
+): string {
+  return (
+    `is the summary of a run refused before its first write (${code}), which wrote nothing to ` +
+    `the target: there is nothing of it to ${nothingTo}.`
+  );
 }

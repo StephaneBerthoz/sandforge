@@ -330,7 +330,13 @@ import type {
   RunCheckpointRequest,
   RunCheckpointTaken,
 } from '@sandforge/shared';
-import { refusedLine, refusedSummary } from './runRefused.js';
+import {
+  refusalOfSummary,
+  refusedLine,
+  refusedSummary,
+  refusedSummaryWords,
+  type RunRefusal,
+} from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -688,6 +694,9 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          line goes to stderr. Saved to a file, the summary is
                          what --remove takes the run back from. With
                          --list-objects, the JSON is the objects of the graph.
+                         A run refused before its first write prints
+                         "refused": {"code", "message"} instead, the code its
+                         line names: refused (MAX_TOTAL_EXCEEDED): ...
   --summary <file>       write the summary to <file> as the run goes
                          The JSON --json prints, written after each object
                          with what the run has created so far ("running":
@@ -3873,6 +3882,8 @@ export function parseRunSummary(text: string): { summary: RunSummary } | { refus
         'is the summary of a dry run, which wrote nothing to the target: there is nothing of it to remove.',
     };
   }
+  const refused = refusalOfSummary(raw, 'sandforge-clone');
+  if (refused) return { refusal: refusedSummaryWords(refused) };
   const recorded = z.object({ result: z.object({ createdByObject: z.array(z.unknown()) }) });
   if (!recorded.safeParse(raw).success) {
     return {
@@ -6017,6 +6028,13 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(2);
   }
+  const refused = refusalOfSummary(raw, 'sandforge-clone');
+  if (refused) {
+    process.stderr.write(
+      `--verify ${args.summaryPath} ${refusedSummaryWords(refused, 'verify')}\n`,
+    );
+    process.exit(2);
+  }
   const read = await runSummaryOfFile(args.summaryPath, text, args.target);
   if ('refusal' in read) {
     process.stderr.write(`--verify ${args.summaryPath} ${read.refusal}\n`);
@@ -6657,6 +6675,30 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let mute: RunMute | undefined;
   /** Why a dry run's mute would be refused, said with the rest of its refusals. */
   let muteRefused: string | undefined;
+  /**
+   * End a run refused before its first write as Sync ends one: each refusal's
+   * line names its code, and with --json the summary on stdout carries them,
+   * where a CI job reads `.refused.code`. Refused past --max-total, its
+   * storage or a mute, a clone said a sentence on stderr and left stdout empty.
+   */
+  const endRefused = (refused: RunRefusal, also: readonly RunRefusal[] = []): never => {
+    for (const refusal of [refused, ...also]) process.stderr.write(`${refusedLine(refusal)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+          also,
+        ),
+      );
+    }
+    return process.exit(1);
+  };
   if (muteAutomation) {
     if (!args.muteAutomation) {
       say('  mute: the run taken up was muted, and so is this part of it');
@@ -6670,8 +6712,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (!isMuteRefusedError(err)) throw err;
       if (!args.dryRun) {
         recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        endRefused(err.refusal);
       }
       muteRefused = err.message;
       say(`  a real run would be refused: ${err.message}`);
@@ -6736,27 +6777,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       context: runAudit().context(),
     });
     // Both at once: a CI job told of one, then of the other, runs twice.
-    if (notAccepted) process.stderr.write(`${automationStop}\n`);
-    if (emailsStop) process.stderr.write(`${refusedLine(emailsStop)}\n`);
-    const [refused, ...also] = [
-      ...(notAccepted ? [{ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop }] : []),
-      ...(emailsStop ? [emailsStop] : []),
-    ];
-    if (args.json && refused) {
-      process.stdout.write(
-        refusedSummary(
-          {
-            tool: 'sandforge-clone',
-            source: args.source,
-            target: args.target,
-            elapsedMs: Date.now() - t0,
-          },
-          refused,
-          also,
-        ),
+    if (notAccepted) {
+      endRefused(
+        { code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop },
+        emailsStop ? [emailsStop] : [],
       );
     }
-    process.exit(1);
+    if (emailsStop) endRefused(emailsStop);
   }
   if (notAccepted) {
     dryRunRefusals.push(automationStop);
@@ -7491,8 +7518,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
         // Refused before its first write: the checkpoint taken for it goes.
         await settleCheckpoint();
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        return endRefused(err.refusal);
       });
     held = lease;
     mutedAutomation = lease.outcome;
@@ -7598,7 +7624,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       stoppedPartial !== undefined &&
       stoppedPartial.successCount + stoppedPartial.updatedCount + stoppedPartial.linkedCount > 0;
     await endJournal(cancelled ? 'cancelled' : 'failure', wrote);
-    if (err instanceof ForgeFilesRefusedError || err instanceof ForgeRunGateError) {
+    if (gate) endRefused({ code: gate.code, message: gate.message });
+    if (err instanceof ForgeFilesRefusedError) {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
     }

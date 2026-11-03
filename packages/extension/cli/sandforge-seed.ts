@@ -100,7 +100,13 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
-import { refusedLine, refusedSummary } from './runRefused.js';
+import {
+  refusalOfSummary,
+  refusedLine,
+  refusedSummary,
+  refusedSummaryWords,
+  type RunRefusal,
+} from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import {
   SeedOrchestrator,
@@ -123,6 +129,7 @@ import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/
 import { seedObjectAccess, templateTheOrgTakes } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
 import {
+  SEED_STORAGE_EXCEEDED,
   seedFitBudgetOf,
   seedStorageBytes,
   seedStorageGate,
@@ -137,6 +144,7 @@ import {
 } from '../src/modules/seed/seedFit.js';
 import { STORAGE_RECOUNT_SECONDS } from '../src/modules/forge/fitBudget.js';
 import {
+  API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
   bypassesToAssign,
   deliverabilityPartOf,
@@ -156,6 +164,7 @@ import {
 } from '../src/modules/forge/targetDeliverability.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
+  SEED_EMAILS_EXCEEDED,
   readSeedAutomation,
   seedAutomationLines,
   seedEmailGate,
@@ -357,7 +366,10 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          run (see SANDFORGE_JOURNAL_DIR). A dry run's says
                          too the data storage and the API requests its
                          records would take, each against what the target
-                         has left today.
+                         has left today. A run refused before its first
+                         write prints "refused": {"code", "message"}
+                         instead, the code its line names:
+                         refused (SEED_STORAGE_EXCEEDED): ...
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the org refused others            (default: off)
   --run-id <id>          the run's id, which names its file, its summary's
@@ -2056,13 +2068,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // production org or for a user who cannot assign, a real run writes
   // nothing; a dry run says so, and assigns nothing.
   const writes = seedWritesOf(template, scenario !== undefined);
+  /**
+   * Refuse a real run before its first write, as Sync refuses one: its line
+   * names the code, and with --json the summary on stdout carries it, where a
+   * CI job reads `.refused.code`. Refused for its storage, its checkpoint or
+   * its mute, a seed said a sentence on stderr and left stdout empty.
+   */
+  const refuse = (refused: RunRefusal): never => {
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          { tool: 'sandforge-seed', target: args.target, elapsedMs: Date.now() - t0 },
+          refused,
+        ),
+      );
+    }
+    throw new Error(refusedLine(refused));
+  };
   let mute: RunMute | undefined;
+  /** Why a dry run's mute would be refused, said with the rest of its refusals. */
+  let muteRefused: string | undefined;
   if (args.muteAutomation) {
     try {
       mute = await muteForRun(async () => muteOrgOf(conn), read, { writes });
       for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
     } catch (err: unknown) {
-      if (!isMuteRefusedError(err) || !args.dryRun) throw err;
+      if (!isMuteRefusedError(err)) throw err;
+      if (!args.dryRun) refuse(err.refusal);
+      muteRefused = err.message;
       log(`  a real run would be refused: ${err.message}`);
     }
   }
@@ -2101,7 +2134,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const checkpointRefusals: string[] = [];
   /** Refuse a real run for its checkpoint, nothing written; a dry run says it would be. */
   const refuseForCheckpoint = (refusal: string): void => {
-    if (!args.dryRun) throw new Error(refusal);
+    if (!args.dryRun) refuse({ code: CHECKPOINT_REFUSED, message: refusal });
     checkpointRefusals.push(refusal);
     log(`  a real run would be refused: ${refusal}`);
   };
@@ -2231,7 +2264,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         }
       }
     }
-    if (!args.dryRun) throw new Error(storage.refusal);
+    if (!args.dryRun) {
+      refuse({
+        code: storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED,
+        message: storage.refusal,
+      });
+    }
     log(`  a real run would be refused: ${storage.refusal}`);
   }
   // What the target runs as these records are created, and the emails they
@@ -2251,24 +2289,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   for (const line of automation.lines) log(line);
   if (emails.gate.line !== undefined) log(`  ${emails.gate.line}`);
   if (automation.gate.refusal) {
-    if (!args.dryRun) throw new Error(automation.gate.refusal);
+    if (!args.dryRun) refuse({ code: SEED_EMAILS_EXCEEDED, message: automation.gate.refusal });
     log(`  a real run would be refused: ${automation.gate.refusal}`);
   }
   // The flag the answer a question would have had; `--accept-automation`,
   // which a seed's line does not take, never stands for it.
   const emailsStop = emails.gate.stop;
   if (emailsStop) {
-    if (!args.dryRun) {
-      if (args.json) {
-        process.stdout.write(
-          refusedSummary(
-            { tool: 'sandforge-seed', target: args.target, elapsedMs: Date.now() - t0 },
-            emailsStop,
-          ),
-        );
-      }
-      throw new Error(refusedLine(emailsStop));
-    }
+    if (!args.dryRun) refuse(emailsStop);
     log(`  a real run would be refused: ${emailsStop.message}`);
   }
   log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
@@ -2462,7 +2490,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         checkpoints.take(planned.ask, planned.estimate, { signal: stop.signal }),
       );
       if ('stop' in took) {
-        if (took.stop.code === CHECKPOINT_REFUSED) throw new Error(checkpointStopWords(took.stop));
+        if (took.stop.code === CHECKPOINT_REFUSED) {
+          refuse({ code: CHECKPOINT_REFUSED, message: checkpointStopWords(took.stop) });
+        }
         process.stderr.write(`${checkpointStopWords(took.stop)}\n`);
         endWith(stopExitCode(stoppedBy ?? 'SIGINT'));
         return;
@@ -2480,7 +2510,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     // The lease is taken before the first write and given back as the run
     // ends, written, failed, stopped or thrown alike.
-    const held = !args.dryRun && mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
+    const held =
+      !args.dryRun && mute?.prepared
+        ? await mute.prepared.acquire(runId).catch((err: unknown) => {
+            if (!isMuteRefusedError(err)) throw err;
+            return refuse(err.refusal);
+          })
+        : undefined;
     if (held) mutedAutomation = held.outcome;
     // A set the lease does not hold leaves running what it was to keep quiet:
     // a sender of it the run was not refused for refuses it now, the lease
@@ -2489,7 +2525,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (held && relit) {
       mutedAutomation = await held.release();
       for (const line of muteLines(mutedAutomation, args.target)) log(line);
-      throw new Error(relit.message);
+      refuse(relit);
     }
     result = await orchestrator.execute(template, args.target, runId).finally(async () => {
       if (held) {
@@ -2570,7 +2606,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** What a real run's records would be refused for, for their emails: past the day's, or delivered. */
   const emailRefusalSaid = automation.gate.refusal ?? emailsStop?.message;
   /** What a dry run says a real run would be refused for, as an environment's plan reads it. */
-  const wouldBeRefused = [...checkpointRefusals, ...(emailsStop ? [emailsStop.message] : [])];
+  const wouldBeRefused = [
+    ...(muteRefused !== undefined ? [muteRefused] : []),
+    ...checkpointRefusals,
+    ...(emailsStop ? [emailsStop.message] : []),
+  ];
 
   if (args.json) {
     process.stdout.write(
@@ -2917,6 +2957,8 @@ export function readRunSummary(text: string): { summary: SeedRunSummary } | { re
   } catch {
     return { refusal: 'is not JSON: save the output of a run printed with --json.' };
   }
+  const refused = refusalOfSummary(raw, 'sandforge-seed');
+  if (refused) return { refusal: refusedSummaryWords(refused) };
   const parsed = runSummarySchema.safeParse(raw);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

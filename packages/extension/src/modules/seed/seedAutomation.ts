@@ -248,6 +248,12 @@ export interface SeedEmailRefusalFigures {
   bypasses: Array<SeedBypassWay & { quiets: string[] }>;
 }
 
+/**
+ * The code a seed refused for the emails its records make the org send is
+ * answered with: in the panel, and in the command's line and summary.
+ */
+export const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
+
 /** What a seed's email gate came to. */
 export interface SeedEmailGate {
   /** One per daily limit the records send against. */

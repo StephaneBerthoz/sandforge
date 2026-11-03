@@ -54,6 +54,7 @@ import {
   type SweepParts,
 } from '../src/modules/forge/ForgeRunSweep.js';
 import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
+import { refusedSummary } from './runRefused.js';
 import { muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 import {
@@ -434,6 +435,30 @@ describe('sandforge-clone --remove', () => {
       expect(stderr.join('')).toContain(
         `--remove ${path} is the summary of a dry run, which wrote nothing to the target: ` +
           'there is nothing of it to remove.',
+      );
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
+    it("refuses a refused run's summary, which wrote nothing, and sends no one to sandforge-cleanup", async () => {
+      // As `> clone-summary.json` keeps it of a run its gate refused: its
+      // code, no result. Read as a summary printed before createdByObject,
+      // it sent the user to a cleanup that takes every record created today.
+      const path = file(
+        refusedSummary(
+          { tool: 'sandforge-clone', source: 'SRC', target: 'TGT', elapsedMs: 12 },
+          {
+            code: 'EMAILS_NOT_ACCEPTED',
+            message: 'TGT delivers every email. Nothing was written.',
+          },
+        ),
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBe(2);
+
+      expect(stderr.join('')).toBe(
+        `--remove ${path} is the summary of a run refused before its first write ` +
+          '(EMAILS_NOT_ACCEPTED), which wrote nothing to the target: there is nothing of it to ' +
+          'remove.\n',
       );
       expect(loadOrg).not.toHaveBeenCalled();
     });

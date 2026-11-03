@@ -180,10 +180,10 @@ interface Where {
  * What refused or failed a step, in its script's own words: what its `--json`
  * answer says, where it says it; else, for a step that ended neither done,
  * partial, unstable nor stopped, the last line it said on stderr that says
- * why. A script refused before its first write prints nothing on stdout:
- * live, a forge run its gate refused — `The run would write 6 records, more
- * than --max-total 5` — left the apply's `--json` with its exit code alone,
- * and the reason on the clone's stderr.
+ * why. A script refused before its first write prints no run on stdout,
+ * only its refusal (`isRefusedSummary`): live, a forge run its gate refused —
+ * `The run would write 6 records, more than --max-total 5` — left the apply's
+ * `--json` with its exit code alone, and the reason on the clone's stderr.
  */
 function stepRefusalOf(
   code: number,
@@ -826,7 +826,8 @@ async function runResourceStep(
     ...(planned !== undefined ? { planned } : {}),
     ...(verified !== undefined ? { verified } : {}),
     // A run that failed past its first objects keeps why in its summary; one
-    // its gate refused before its first write says it on stderr alone.
+    // its gate refused before its first write says it in its line on stderr,
+    // its code named, its summary naming no run to read.
     ...(answer?.error !== undefined ? { answered: answer.error } : {}),
     stderr: ran.stderr,
   };
