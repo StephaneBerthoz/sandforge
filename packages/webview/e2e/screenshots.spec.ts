@@ -1065,6 +1065,8 @@ async function decideSimulationGaps(page: import('@playwright/test').Page): Prom
   const region = page.getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[1].id}`);
   await region.getByTestId('gap-default-value').fill('EMEA');
   await region.getByTestId('gap-set-default').click();
+  // Under the gaps that refuse rows, those that may are folded.
+  await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
   await page
     .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
     .getByTestId('gap-truncate')
@@ -1390,6 +1392,7 @@ test.describe('Marketplace Screenshots', () => {
       .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
       .getByTestId('gap-map-value')
       .selectOption('Customer');
+    await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
     await page
       .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
       .getByTestId('gap-truncate')

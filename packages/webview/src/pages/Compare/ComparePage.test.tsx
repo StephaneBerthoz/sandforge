@@ -228,17 +228,23 @@ describe('ComparePage', () => {
     fireEvent.click(screen.getByTestId('cat-ApexClass'));
   }
 
-  it('names the two orgs in the ribbon once both are picked, as a source and a target: it writes nothing', () => {
+  it('picks the two orgs in the ribbon, which names each once, as a source and a target: it writes nothing', () => {
+    // The pickers sat over a ribbon that named both orgs again once picked.
     render(<ComparePage />);
-    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
-    expect(screen.queryByTestId('org-ribbon')).toBeNull();
-
-    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
-
     const ribbon = screen.getByTestId('org-ribbon');
-    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('Dev');
-    expect(ribbon.textContent).toContain('Source');
-    expect(ribbon.textContent).toContain('Target');
+    const source = screen.getByLabelText('Source Org');
+    const target = screen.getByLabelText('Target Org');
+    expect(ribbon.contains(source)).toBe(true);
+    expect(screen.getByTestId('org-ribbon-target').contains(target)).toBe(true);
+
+    fireEvent.change(source, { target: { value: 'org-1' } });
+    fireEvent.change(target, { target: { value: 'org-2' } });
+
+    expect(screen.getAllByTestId('org-ribbon')).toHaveLength(1);
+    // Each org is named by its picker alone: the ribbon draws no name beside it.
+    expect(screen.queryByTestId('org-ribbon-source-name')).toBeNull();
+    expect(screen.queryByTestId('org-ribbon-target-name')).toBeNull();
+    expect(screen.getByTestId('org-ribbon-source-url').textContent).toBe('dev.salesforce.com');
     expect(ribbon.textContent).not.toContain('Written into');
   });
 

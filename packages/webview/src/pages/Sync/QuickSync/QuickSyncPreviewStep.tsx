@@ -20,8 +20,6 @@ import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
 import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { MutedAutomationResult } from '../../../components/ui/MutedAutomationResult';
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
-import { OrgBadge } from '../../../components/ui/OrgBadge';
-import { Icon } from '../../../components/ui/Icon';
 import { useOrgStore } from '../../../stores/useOrgStore';
 
 /** Props for the QuickSyncPreviewStep component. */
@@ -60,9 +58,9 @@ const statusVariant: Record<string, BadgeVariant> = {
 /**
  * Quick Sync Screen 3: Preview and execute.
  *
- * Before execution: the two orgs, the preview data with object breakdown,
- * record counts and API call estimates, and a prominent button naming the
- * target it writes into.
+ * Before execution: the preview data with object breakdown, record counts
+ * and API call estimates, and a prominent button naming the target it writes
+ * into; the ribbon over the Sync page names the two orgs.
  * During execution: shows a progress bar.
  * After execution: reuses the SyncPage Step6 results pattern.
  */
@@ -82,7 +80,6 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
-  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
 
@@ -224,20 +221,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   // Before execution — preview view
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-preview-step">
+      {/* The orgs it copies between are named once, by the ribbon over the
+          page, which names Quick Sync's pair while it is open: two badges
+          here named them a second time. */}
       <p className="text-xs text-(--sf-text-secondary)">{t('quickSync.preview')}</p>
-
-      {/* The orgs it copies between, on the screen that runs it: the preview
-          listed objects and counts, and its notice said "these orgs". */}
-      {(sourceOrg || targetOrg) && (
-        <div
-          className="flex flex-wrap items-center gap-(--sf-space-2)"
-          data-testid="quick-sync-preview-orgs"
-        >
-          {sourceOrg && <OrgBadge org={sourceOrg} />}
-          {sourceOrg && targetOrg && <Icon name="arrow-right" className="text-text-secondary" />}
-          {targetOrg && <OrgBadge org={targetOrg} />}
-        </div>
-      )}
 
       {preview && (
         <>

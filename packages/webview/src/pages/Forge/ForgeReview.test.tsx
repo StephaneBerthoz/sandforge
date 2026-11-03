@@ -806,6 +806,15 @@ describe('ForgeReview', () => {
       );
     });
 
+    it('says what the read found and cost under the gaps, which come first', () => {
+      // Over the gaps, its line pushed the decision down the row.
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-gaps'));
+      const read = screen.getByTestId('forge-gaps-read');
+      const tab = screen.getByTestId('review-gaps-tab');
+      expect(tab.compareDocumentPosition(read) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     describe('read again from the Gaps tab', () => {
       // The tab showed what Review read as it opened: a validation rule's
       // bypass, assigned with the command the tab copied, showed as not held
@@ -1146,6 +1155,20 @@ describe('ForgeReview', () => {
         expect(column.getByTestId('automation-mute-assigns').textContent).toContain('Data_Load');
         fireEvent.click(screen.getByTestId('automation-mute-toggle'));
         expect(mockSetMuteAutomation).toHaveBeenCalledWith(true);
+      });
+
+      it('says in a line what the box does, its detail folded, so Controls stays in the column', () => {
+        // Fourteen lines at 320 pixels held Controls under the column's fold
+        // at 800 pixels high.
+        render(<ForgeReview />);
+        sendFromExtension('forge:automation:response', { automation: mutable });
+
+        const more = screen.getByTestId('automation-mute-more') as HTMLDetailsElement;
+        expect(more.open).toBe(false);
+        expect(more.contains(screen.getByTestId('automation-mute-assigns'))).toBe(true);
+        expect(
+          screen.getByRole('checkbox', { name: "Mute the target's automation for this run" }),
+        ).toBeDefined();
       });
 
       it('says under Execute that the run mutes once it is ticked', () => {

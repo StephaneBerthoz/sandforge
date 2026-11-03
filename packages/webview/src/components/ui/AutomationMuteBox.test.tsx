@@ -109,6 +109,82 @@ describe('AutomationMuteBox', () => {
     ).toContain('text-status-warning');
   });
 
+  describe('folded, as the column of a run holds it', () => {
+    // In Forge's column the box took fourteen lines at 320 pixels, and
+    // Controls went under the fold of the column at 800 pixels high.
+    const UNREAD: MutePlan = { ...PLAN, liftsUnread: [{ part: 'validationRules', rules: 2 }] };
+
+    it('says in a line what it does, and folds what it silences, what still runs and what is unread', () => {
+      render(
+        <AutomationMuteBox
+          offer={UNREAD}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev-sandbox"
+          testId="mute"
+          foldDetails
+        />,
+      );
+
+      const toggle = screen.getByRole('checkbox', {
+        name: "Mute the target's automation for this run",
+      });
+      const more = screen.getByTestId('mute-more') as HTMLDetailsElement;
+      expect(more.tagName).toBe('DETAILS');
+      expect(more.open).toBe(false);
+      for (const part of ['mute-assigns', 'mute-silenced', 'mute-still-runs', 'mute-also-lifts']) {
+        expect(more.contains(screen.getByTestId(part)), part).toBe(true);
+      }
+      // What could not be read is flagged on the line, in words.
+      const summary = screen.getByTestId('mute-more-summary');
+      expect(summary.textContent).toBe(
+        "Through its own bypass: what it silences, what still runs, and what couldn't be read",
+      );
+      expect(summary.className).toContain('text-status-warning');
+      // A screen reader still reads it all with the box.
+      const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
+      expect(described?.textContent).toContain('Assigns the permission set Bypass_Automation');
+      expect(described?.textContent).toContain('Still runs:');
+    });
+
+    it('flags nothing unread when everything was read', () => {
+      render(
+        <AutomationMuteBox
+          offer={PLAN}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+          foldDetails
+        />,
+      );
+      const summary = screen.getByTestId('mute-more-summary');
+      expect(summary.textContent).toBe(
+        'Through its own bypass: what it silences and what still runs',
+      );
+      expect(summary.className).not.toContain('text-status-warning');
+      expect(summary.querySelector('svg')).toBeNull();
+    });
+
+    it('keeps the whole box in view without the option, as every other page shows it', () => {
+      render(
+        <AutomationMuteBox
+          offer={UNREAD}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+        />,
+      );
+      expect(screen.queryByTestId('mute-more')).toBeNull();
+      expect(
+        screen.getByRole('checkbox', {
+          name: "Mute the target's automation for this run — through its own bypass",
+        }),
+      ).toBeDefined();
+    });
+  });
+
   it('names nothing lifted for a set that grants nothing beyond its bypass', () => {
     render(
       <AutomationMuteBox

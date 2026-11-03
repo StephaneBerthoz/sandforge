@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { FORGE_GRAPH_MAX_OBJECTS, forgeObjectsView, useForgeViewStore } from './useForgeViewStore';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import {
+  FORGE_GRAPH_MAX_OBJECTS,
+  FORGE_GRAPH_MIN_PANEL_PX,
+  forgeObjectsView,
+  useForgeObjectsView,
+  useForgeViewStore,
+} from './useForgeViewStore';
 
 describe('forgeObjectsView', () => {
   it('draws a graph of up to the threshold as a graph under auto, and lists a larger one', () => {
@@ -18,6 +25,60 @@ describe('forgeObjectsView', () => {
   it('shows the view picked with the switch over the setting', () => {
     expect(forgeObjectsView('table', 'graph', 400)).toBe('graph');
     expect(forgeObjectsView('auto', 'table', 2)).toBe('table');
+  });
+
+  it('lists a small graph in a table under auto on a panel too narrow to draw it', () => {
+    // At 360 pixels the minimap's strip left no room for a node: four
+    // objects opened at the smallest zoom, all but one outside the box.
+    expect(forgeObjectsView('auto', null, 4, true)).toBe('table');
+    expect(forgeObjectsView('auto', null, 4, false)).toBe('graph');
+  });
+
+  it('leaves a narrow panel to the setting that names a view, and to the switch', () => {
+    expect(forgeObjectsView('graph', null, 4, true)).toBe('graph');
+    expect(forgeObjectsView('auto', 'graph', 4, true)).toBe('graph');
+  });
+});
+
+describe('useForgeObjectsView', () => {
+  const realMatchMedia = window.matchMedia;
+  let matches = false;
+  const listeners = new Set<() => void>();
+
+  beforeEach(() => {
+    useForgeViewStore.setState({ setting: 'auto', choice: null });
+    matches = false;
+    listeners.clear();
+    window.matchMedia = ((query: string) => ({
+      get matches() {
+        return query === `(max-width: ${String(FORGE_GRAPH_MIN_PANEL_PX - 1)}px)` && matches;
+      },
+      media: query,
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  afterEach(() => {
+    window.matchMedia = realMatchMedia;
+  });
+
+  it('follows the width of the panel: a table while it is narrow, the graph once widened', () => {
+    matches = true;
+    const { result } = renderHook(() => useForgeObjectsView(4));
+    expect(result.current).toBe('table');
+
+    act(() => {
+      matches = false;
+      for (const listener of listeners) listener();
+    });
+    expect(result.current).toBe('graph');
+  });
+
+  it('draws the graph where the panel cannot be measured', () => {
+    window.matchMedia = undefined as unknown as typeof window.matchMedia;
+    const { result } = renderHook(() => useForgeObjectsView(4));
+    expect(result.current).toBe('graph');
   });
 });
 
@@ -76,6 +137,43 @@ describe('the setting as it is described', () => {
         .filter((line) => line.includes('`auto`') && line.includes('graph'));
       expect(lines.length).toBeGreaterThan(0);
       for (const line of lines) expect(namesTheNumber(line)).toBe(true);
+    },
+  );
+
+  /** The narrowest panel the graph is drawn in, as a number. */
+  const namesTheWidth = (text: string): boolean =>
+    new RegExp(`(^|\\D)${String(FORGE_GRAPH_MIN_PANEL_PX)}(\\D|$)`).test(text);
+
+  it.each(['', '.fr', '.de', '.es', '.ja', '.pt-br'])(
+    'package.nls%s.json names the panel width under which auto lists the objects',
+    (suffix) => {
+      const bundle = JSON.parse(
+        readFileSync(join(EXTENSION, `package.nls${suffix}.json`), 'utf8'),
+      ) as Record<string, string>;
+      expect(namesTheWidth(bundle['config.forge.graphView.description'])).toBe(true);
+    },
+  );
+
+  it.each([
+    ['README.md'],
+    ['packages', 'extension', 'README.md'],
+    ['docs', 'forge-quickstart.md'],
+    ['docs', 'forge-reference.md'],
+  ])('%s names the width too', (...path) => {
+    const lines = readFileSync(join(REPO, ...path), 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('`auto`') && namesTheNumber(line));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(namesTheWidth(line)).toBe(true);
+  });
+
+  it.each(['en', 'fr', 'de', 'es', 'ja', 'pt-BR'])(
+    'the %s help on Forge names the width',
+    (locale) => {
+      const catalogue = JSON.parse(
+        readFileSync(join(__dirname, '..', 'i18n', 'locales', `${locale}.json`), 'utf8'),
+      ) as { help: { forgeContent: string } };
+      expect(namesTheWidth(catalogue.help.forgeContent)).toBe(true);
     },
   );
 

@@ -4101,7 +4101,9 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(2);
 
       // The command the Gaps row copied run, the target is read again from
-      // the rule's bypass assistant, and the rule shows as kept quiet.
+      // the rule's bypass assistant, and the rule shows as kept quiet. Under
+      // the gap that refuses rows, the rule's group is folded.
+      await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
       const rule = page.getByTestId('gap-validation_rule|Contact|Phone||Phone_Format');
       await expect(rule.getByTestId('bypass-assistant-command')).toHaveText(
         `sf org assign permset --name Data_Load --target-org ${QA_SANDBOX.alias} --on-behalf-of ${QA_SANDBOX.username}`,
@@ -4209,6 +4211,9 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('review-row-gaps-summary')).toHaveText(
         '2 gaps will refuse rows until each is decided.',
       );
+      // Under the gaps that refuse rows, those that may are folded: opened,
+      // their words are measured with the rest.
+      await page.getByTestId('gaps-severity-warning-more').locator('summary').click();
       // The rule's bypass, under it: checked with the rest of the tab.
       await expect(
         page.getByTestId(`gap-${FORGE_GAPS[3].id}`).getByTestId('bypass-assistant-Phone_Bypass'),
@@ -11144,9 +11149,11 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('quick-sync-start-btn').click();
       await page.getByTestId('quick-sync-preview-step').waitFor({ timeout: 10_000 });
       await expect(header).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+      // Named once, by the ribbon: the preview drew two badges under it.
+      await expect(page.getByTestId('quick-sync-preview-orgs')).toHaveCount(0);
       await expect(
-        page.getByTestId('quick-sync-preview-orgs').getByTestId('org-badge-alias'),
-      ).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+        page.getByTestId('quick-sync-preview-step').getByTestId('org-badge-alias'),
+      ).toHaveCount(0);
       await expect(page.getByTestId('quick-sync-inserts-note')).toHaveText(
         'Inserts every record; emails and phone numbers are neutralized.',
       );

@@ -34,6 +34,20 @@ describe('ReviewFilesOption', () => {
     expect(screen.queryByTestId('forge-files-as-is')).toBeNull();
   });
 
+  it('folds what it copies under the box, which a screen reader reads with it', () => {
+    // Four lines in the column of the run held Controls under its fold.
+    render(<ReviewFilesOption />);
+
+    const more = screen.getByTestId('forge-files-more') as HTMLDetailsElement;
+    expect(more.tagName).toBe('DETAILS');
+    expect(more.open).toBe(false);
+    expect(more.querySelector('summary')?.textContent).toBe('Which files it copies');
+    const toggle = screen.getByTestId('forge-files-toggle');
+    const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
+    expect(more.contains(described)).toBe(true);
+    expect(described?.textContent).toMatch(/^Salesforce Files, the latest version of each/);
+  });
+
   it('asks for the largest file once turned on, ten megabytes to start with', () => {
     render(<ReviewFilesOption />);
 

@@ -172,8 +172,12 @@ describe('AutopilotPage', () => {
     render(<AutopilotPage />);
 
     expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('DevSandbox');
-    // An org this machine no longer holds is named by what the run kept of it.
-    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('org-gone');
+    // An org this machine no longer holds is said so, with the id the run kept
+    // of it second: printed as its name, the id read as an alias.
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe(
+      'An org this machine no longer holds',
+    );
+    expect(screen.getByTestId('org-ribbon-target-id').textContent).toBe('org-gone');
   });
 
   it('stays on the run once it stops waiting for it, and says where to follow it', () => {

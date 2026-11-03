@@ -18,6 +18,7 @@ import type { AutopilotStep } from '../../../stores/useAutopilotStore';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { OrgRibbon } from '../../../components/ui/OrgRibbon';
+import { ribbonOrg } from '../../../components/ui/ribbonOrg';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { Step1Connect } from './Step1_Connect';
 import { Step2Objects, pickableInTarget } from './Step2_Objects';
@@ -413,10 +414,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       />
       {/* Past the first step, whose pickers name them, the two orgs stay said. */}
       {currentStep > 0 && (
-        <OrgRibbon
-          source={orgs.find((o) => o.id === sourceOrgId) ?? sourceOrgId ?? undefined}
-          target={targetOrg ?? targetOrgId ?? undefined}
-        />
+        <OrgRibbon source={ribbonOrg(orgs, sourceOrgId)} target={ribbonOrg(orgs, targetOrgId)} />
       )}
       <ModuleHowTo module="autopilot" />
 

@@ -27,6 +27,7 @@ import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
+import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
@@ -581,17 +582,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       )}
 
       {/* What the dataset was frozen from, known by its alias alone once this
-          machine no longer holds that org, and where the load writes. */}
+          machine no longer holds that org — or, with no alias, said in words
+          with its id second —, and where the load writes. */}
       {status?.manifest && sourceOrgId && (
         <Suspense fallback={null}>
           <LazyOrgRibbon
             kind="load"
-            source={
-              orgs.find((o) => o.id === sourceOrgId) ??
-              status.manifest.source.orgAlias ??
-              sourceOrgId
-            }
-            target={orgs.find((o) => o.id === effectiveTarget) ?? (effectiveTarget || undefined)}
+            source={ribbonOrg(orgs, sourceOrgId, status.manifest.source.orgAlias)}
+            target={ribbonOrg(orgs, effectiveTarget)}
           />
         </Suspense>
       )}

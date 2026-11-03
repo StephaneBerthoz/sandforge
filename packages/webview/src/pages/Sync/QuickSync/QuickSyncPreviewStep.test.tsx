@@ -171,19 +171,16 @@ describe('QuickSyncPreviewStep', () => {
     expect(objects).toContain('7 estimated API calls');
   });
 
-  it('names the two orgs on the screen that runs it, and the target on its button', () => {
-    // The screen that held Sync Now named no org: the header showed the
-    // wizard's pair, or none, and the notice said "these orgs".
+  it('leaves the two orgs to the ribbon over the page, and names the target on its button', () => {
+    // The ribbon names Quick Sync's pair while it is open: two badges here
+    // named both orgs a second time on the screen.
     useOrgStore.setState({ orgs: [org('org-src', 'DevSandbox'), org('org-tgt', 'QASandbox')] });
     render(<QuickSyncPreviewStep {...defaultProps} sourceOrgId="org-src" targetOrgId="org-tgt" />);
 
-    const pair = screen.getByTestId('quick-sync-preview-orgs');
-    expect(
-      within(pair)
-        .getAllByTestId('org-badge-alias')
-        .map((alias) => alias.textContent),
-    ).toEqual(['DevSandbox', 'QASandbox']);
-    expect(within(pair).getByTestId('icon-arrow-right').tagName.toLowerCase()).toBe('svg');
+    const step = screen.getByTestId('quick-sync-preview-step');
+    expect(screen.queryByTestId('quick-sync-preview-orgs')).toBeNull();
+    expect(within(step).queryAllByTestId('org-badge-alias')).toHaveLength(0);
+    expect(step.textContent).not.toContain('DevSandbox');
     expect(screen.getByTestId('quick-sync-go-btn').textContent).toBe('Sync into QASandbox');
     useOrgStore.setState({ orgs: [] });
   });

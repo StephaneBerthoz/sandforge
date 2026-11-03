@@ -78,7 +78,7 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({
             'grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-baseline gap-x-2 gap-y-0.5',
             // Underlined on hover rather than tinted: the list's hover colour
             // took the secondary text under the row to 3.7:1.
-            'group scroll-mt-2 cursor-pointer py-3 text-left text-sm',
+            'group scroll-mt-2 cursor-pointer py-2.5 text-left text-sm',
             !compact && 'min-[640px]:grid-cols-[1rem_8rem_minmax(0,1fr)_auto] min-[640px]:gap-x-3',
           )}
         >

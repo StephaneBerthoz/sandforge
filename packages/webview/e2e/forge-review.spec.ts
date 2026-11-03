@@ -255,7 +255,7 @@ async function scrollPanelTo(page: Page, top: number): Promise<void> {
   }, top);
 }
 
-/** Open every row and Controls. */
+/** Open every row and Controls, and what the rows and the column fold. */
 async function openEveryRow(page: Page): Promise<void> {
   for (const row of ['plan', 'anonymization', 'compliance', 'metadata', 'automation', 'controls']) {
     await page.getByTestId(`tab-${row}`).click();
@@ -263,6 +263,13 @@ async function openEveryRow(page: Page): Promise<void> {
   }
   if ((await page.getByTestId('tab-gaps').getAttribute('aria-expanded')) === 'false') {
     await page.getByTestId('tab-gaps').click();
+  }
+  // Folded, their words are measured by no one: axe skips what is not drawn.
+  for (const fold of ['gaps-admin-list', 'automation-mute-more', 'forge-files-more']) {
+    const details = page.getByTestId(fold);
+    if ((await details.count()) === 0) continue;
+    await details.locator('summary').first().click();
+    await expect(details).toHaveAttribute('open', '');
   }
 }
 
@@ -324,6 +331,49 @@ test.describe('Forge Review on a wide panel', () => {
   });
 });
 
+test.describe('Forge Review on a 1280 by 800 panel', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('keeps every row in sight with the Gaps row open on a gap', async ({ page }) => {
+    // Opened on a single gap, the row was 420 pixels high: Plan to
+    // Automation went under the fold.
+    await openReview(page, { gaps: [REFUSING_GAP] });
+    await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
+    for (const row of ['gaps', 'plan', 'anonymization', 'compliance', 'metadata', 'automation']) {
+      expect(await inSight(page, `tab-${row}`), row).toBe(true);
+    }
+    // The gap and its decision, before what serves less.
+    expect(await inSight(page, 'gap-default-value')).toBe(true);
+  });
+
+  test('keeps Controls in sight in the column, the mute folded, Execute under it', async ({
+    page,
+  }) => {
+    // At 800 pixels high Controls went under the fold of the column's own
+    // scroll, under the mute's fourteen lines.
+    await openReview(page, { gaps: [REFUSING_GAP] });
+    await page.getByTestId('automation-mute').waitFor();
+    expect(await inSight(page, 'tab-controls')).toBe(true);
+    expect(await inSight(page, 'review-row-controls-summary')).toBe(true);
+    expect(await inSight(page, 'execute-button')).toBe(true);
+    await expect(page.getByTestId('automation-mute-assigns')).toBeHidden();
+
+    await page.getByTestId('automation-mute-more-summary').click();
+    await expect(page.getByTestId('automation-mute-assigns')).toBeVisible();
+    expect(await inSight(page, 'execute-button')).toBe(true);
+  });
+
+  test('names the two orgs over the How to, and the run under it', async ({ page }) => {
+    // Under the How to, the ribbon came some 210 pixels before the sentence.
+    await openReview(page);
+    const ribbon = await page.getByTestId('org-ribbon').boundingBox();
+    const howTo = await page.getByTestId('how-to-forge').boundingBox();
+    const sentence = await page.getByTestId('review-sentence').boundingBox();
+    expect(ribbon!.y + ribbon!.height).toBeLessThanOrEqual(howTo!.y);
+    expect(howTo!.y + howTo!.height).toBeLessThanOrEqual(sentence!.y);
+  });
+});
+
 test.describe('Forge Review on a narrow panel', () => {
   test.use({ viewport: { width: 360, height: 640 } });
 
@@ -334,22 +384,23 @@ test.describe('Forge Review on a narrow panel', () => {
     expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test('draws every object in a box that stays inside the panel, the table a click away', async ({
+  test('opens the Plan row on the table, the graph a click away in a box inside the panel', async ({
     page,
   }) => {
-    // At this width the fit leaves the minimap its strip and stops at React
-    // Flow's smallest zoom, so the nodes open outside the box and are panned to,
-    // as a graph too wide for its pane always was. The box must not push the
-    // page sideways, and the view that fits must stay one click away.
+    // At this width the fit left the minimap its strip and stopped at React
+    // Flow's smallest zoom: the nodes opened outside the box, all but one, the
+    // minimap taking most of what was left. Under `auto` the table opens.
     await openReview(page);
     await page.getByTestId('tab-plan').click();
+    await expect(page.getByTestId('forge-table-view')).toBeVisible();
+    await expect(page.getByTestId('forge-view-table')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.react-flow__node')).toHaveCount(0);
+
+    await page.getByTestId('forge-view-graph').click();
     await expect(page.locator('.react-flow__node')).toHaveCount(4, { timeout: 10_000 });
     const box = await page.getByTestId('review-graph-box').boundingBox();
     expect(box!.x + box!.width).toBeLessThanOrEqual(360);
     expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
-
-    await page.getByTestId('forge-view-table').click();
-    await expect(page.getByTestId('forge-table-view')).toBeVisible();
   });
 
   test('stacks the ribbon, the source over the target', async ({ page }) => {

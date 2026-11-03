@@ -447,11 +447,13 @@ export const ForgeReview: React.FC = () => {
         {/* Why the last run stopped before it wrote anything, when it did:
             refused, or cancelled at one of its questions, it came back here. */}
         <ForgeRunGateNotice />
+        {/* One line where it fits: held to 21em, the sentence of a run
+            between two short aliases took two lines of a 1280 pixel panel. */}
         {graph && buckets && (
           <h2
             data-testid="review-sentence"
             className={cn(
-              'max-w-[21em] text-2xl leading-tight font-semibold text-text-primary',
+              'max-w-[30em] text-2xl leading-tight font-semibold text-text-primary',
               'min-[860px]:text-3xl [overflow-wrap:anywhere]',
             )}
           >
@@ -490,8 +492,8 @@ export const ForgeReview: React.FC = () => {
             open={openRows.has('gaps')}
             onToggle={() => toggleRow('gaps')}
           >
-            <div className="flex flex-col gap-3">
-              <ReviewGapsRead gaps={gapsRead} />
+            {/* The gaps first, what the read cost and could not see under them. */}
+            <div className="flex flex-col gap-1">
               <ReviewGapsTab
                 onReadAgain={readGapsAgain}
                 readingAgain={gapsRead.pending}
@@ -499,6 +501,7 @@ export const ForgeReview: React.FC = () => {
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}
               />
+              <ReviewGapsRead gaps={gapsRead} />
             </div>
           </ReviewRow>
           <ReviewRow
@@ -634,7 +637,7 @@ export const ForgeReview: React.FC = () => {
         <div
           data-testid="review-run-options"
           className={cn(
-            'flex flex-col gap-3',
+            'flex flex-col gap-2',
             'min-[860px]:min-h-0 min-[860px]:overflow-y-auto min-[860px]:pr-1',
           )}
         >
@@ -648,6 +651,7 @@ export const ForgeReview: React.FC = () => {
               onChange={setMuteAutomation}
               org={muteOrg}
               testId="automation-mute"
+              foldDetails
             />
           )}
           <ReviewFilesOption />

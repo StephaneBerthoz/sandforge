@@ -1,6 +1,6 @@
 import React, { useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BellOff } from 'lucide-react';
+import { AlertTriangle, BellOff } from 'lucide-react';
 import type {
   MuteLiftsUnread,
   MutedAutomationAlsoLifted,
@@ -9,6 +9,7 @@ import type {
   MutedAutomationStillRunning,
   MuteStillRunsWhy,
 } from '@sandforge/shared';
+import { cn } from '../../theme';
 import { listWords } from '../../utils/listWords';
 import { muteOffered, type MuteOffer } from '../../utils/muteOffer';
 
@@ -122,6 +123,14 @@ export interface AutomationMuteBoxProps {
    * which its confirmation is bound to. Off unless given.
    */
   readOnly?: boolean;
+  /**
+   * Say in a line what it does, and fold the rest under a disclosure, as
+   * Checkpoint first folds its own: in Forge's column of the run, the box
+   * took fourteen lines at 320 pixels, and Controls went under the fold of the
+   * column at 800 pixels high. What could not be read is still flagged on the
+   * line. A screen reader reads it all with the box.
+   */
+  foldDetails?: boolean;
 }
 
 /**
@@ -147,6 +156,7 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   testId,
   className,
   readOnly = false,
+  foldDetails = false,
 }) => {
   const { t } = useTranslation();
   const detailsId = useId();
@@ -157,6 +167,38 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   if (!offered || offer == null) return null;
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   const sets = offer === 'atStart' ? [] : offer.assign.map((set) => set.permissionSet);
+  const detail = (
+    <>
+      {offer === 'atStart' ? (
+        <p data-testid={`${testId}-at-start`}>{t('automationMute.box.atStart', { org })}</p>
+      ) : (
+        <>
+          <p data-testid={`${testId}-assigns`}>
+            {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
+          </p>
+          <MuteEntryList
+            title={t('automationMute.box.silences')}
+            entries={offer.silenced}
+            testId={`${testId}-silenced`}
+          />
+          <MuteEntryList
+            title={t('automationMute.box.stillRuns')}
+            entries={offer.stillRuns}
+            testId={`${testId}-still-runs`}
+          />
+          <MuteEntryList
+            title={t('automationMute.box.alsoLifts')}
+            entries={offer.alsoLifts}
+            unread={offer.liftsUnread}
+            testId={`${testId}-also-lifts`}
+          />
+        </>
+      )}
+      <p className="text-text-secondary">{t('automationMute.box.never')}</p>
+    </>
+  );
+  /** Something its sets grant was not read: folded, the line says so. */
+  const unreadFolded = offer !== 'atStart' && (offer.liftsUnread?.length ?? 0) > 0;
   return (
     <div
       data-testid={testId}
@@ -174,36 +216,33 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
         />
         <span className="flex items-start gap-1 font-medium">
           <BellOff size={12} aria-hidden="true" className="mt-0.5 shrink-0" />
-          {t('automationMute.box.label')}
+          {t(foldDetails ? 'automationMute.box.labelShort' : 'automationMute.box.label')}
         </span>
       </label>
       <div id={detailsId} className="ml-5 flex flex-col gap-1">
-        {offer === 'atStart' ? (
-          <p data-testid={`${testId}-at-start`}>{t('automationMute.box.atStart', { org })}</p>
+        {foldDetails ? (
+          <details data-testid={`${testId}-more`}>
+            <summary
+              data-testid={`${testId}-more-summary`}
+              className={cn(
+                'cursor-pointer',
+                unreadFolded ? 'text-status-warning' : 'text-text-secondary',
+              )}
+            >
+              {unreadFolded && (
+                <AlertTriangle
+                  size={11}
+                  aria-hidden="true"
+                  className="mr-1 inline-block align-[-1px]"
+                />
+              )}
+              {t(unreadFolded ? 'automationMute.box.moreUnread' : 'automationMute.box.more')}
+            </summary>
+            <div className="mt-1 flex flex-col gap-1">{detail}</div>
+          </details>
         ) : (
-          <>
-            <p data-testid={`${testId}-assigns`}>
-              {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
-            </p>
-            <MuteEntryList
-              title={t('automationMute.box.silences')}
-              entries={offer.silenced}
-              testId={`${testId}-silenced`}
-            />
-            <MuteEntryList
-              title={t('automationMute.box.stillRuns')}
-              entries={offer.stillRuns}
-              testId={`${testId}-still-runs`}
-            />
-            <MuteEntryList
-              title={t('automationMute.box.alsoLifts')}
-              entries={offer.alsoLifts}
-              unread={offer.liftsUnread}
-              testId={`${testId}-also-lifts`}
-            />
-          </>
+          detail
         )}
-        <p className="text-text-secondary">{t('automationMute.box.never')}</p>
       </div>
     </div>
   );

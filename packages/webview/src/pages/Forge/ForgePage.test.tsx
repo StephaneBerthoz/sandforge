@@ -237,6 +237,21 @@ describe('ForgePage', () => {
     else expect(screen.queryByTestId('org-ribbon')).toBeNull();
   });
 
+  it.each(['review', 'execution', 'results'])(
+    'in the %s phase, names the two orgs over the How to, not under it',
+    async (phase) => {
+      // Under the How to, the ribbon came some 210 pixels before the run's
+      // sentence on a 1280 by 800 panel.
+      mockPhase = phase as typeof mockPhase;
+      render(<ForgePage />);
+      const ribbon = await screen.findByTestId('org-ribbon');
+      const howTo = screen.getByTestId('how-to-forge');
+      expect(ribbon.compareDocumentPosition(howTo) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    },
+  );
+
   it('does not hold a step for the ribbon, whose chunk comes on its own', () => {
     mockPhase = 'review';
     render(<ForgePage />);

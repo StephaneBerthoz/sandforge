@@ -21,6 +21,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { OrgRibbon } from '../../components/ui/OrgRibbon';
+import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
@@ -443,8 +444,8 @@ export const AutopilotPage: React.FC = () => {
         </div>
         <OrgRibbon
           className="px-4 py-2 border-b border-(--sf-border)"
-          source={orgs.find((org) => org.id === sourceOrgId) ?? sourceOrgId ?? undefined}
-          target={orgs.find((org) => org.id === targetOrgId) ?? targetOrgId ?? undefined}
+          source={ribbonOrg(orgs, sourceOrgId)}
+          target={ribbonOrg(orgs, targetOrgId)}
         />
         {outlivedWait && step === 'executing' && executeMutation.error && (
           <p

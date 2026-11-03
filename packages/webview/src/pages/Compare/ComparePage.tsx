@@ -13,7 +13,6 @@ import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { OrgRibbon } from '../../components/ui/OrgRibbon';
 import { OrgSelector } from './OrgSelector';
 import { CategorySelector } from './CategorySelector';
 import { RiskScoreCard } from './RiskScoreCard';
@@ -222,7 +221,7 @@ export const ComparePage: React.FC = () => {
         />
       )}
 
-      {/* Org selection */}
+      {/* The two orgs, picked in the ribbon that names them */}
       <OrgSelector
         orgs={orgs}
         sourceOrgId={sourceOrgId}
@@ -230,13 +229,6 @@ export const ComparePage: React.FC = () => {
         onSourceChange={setSourceOrgId}
         onTargetChange={setTargetOrgId}
       />
-      {sourceOrgId && targetOrgId && (
-        <OrgRibbon
-          kind="compare"
-          source={orgs.find((org) => org.id === sourceOrgId) ?? sourceOrgId}
-          target={orgs.find((org) => org.id === targetOrgId) ?? targetOrgId}
-        />
-      )}
 
       {/* Category selection */}
       <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />

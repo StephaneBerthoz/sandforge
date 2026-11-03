@@ -1,10 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowRight, ShieldAlert } from 'lucide-react';
-import type { SalesforceOrg } from '@sandforge/shared';
 import { registeredOrgType } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { OrgTypeBadge } from './OrgBadge';
+import { isNotHeld, type OrgRibbonOrg } from './ribbonOrg';
 
 /** How the two sides of a ribbon are named. */
 export type OrgRibbonKind = 'copy' | 'compare' | 'load';
@@ -16,9 +16,6 @@ const SIDE_KEYS: Readonly<Record<OrgRibbonKind, { source: string; target: string
   load: { source: 'common.orgRibbon.frozenFrom', target: 'common.orgRibbon.writtenInto' },
 };
 
-/** An org as the store holds it, or a name alone for one this machine does not hold. */
-export type OrgRibbonOrg = SalesforceOrg | string | undefined;
-
 /** Props for {@link OrgRibbon}. */
 export interface OrgRibbonProps {
   /** Where the data comes from: a dataset's source may be known by its name alone. */
@@ -27,12 +24,18 @@ export interface OrgRibbonProps {
   target: OrgRibbonOrg;
   /** What the page does between the two orgs: `copy` unless it says otherwise. */
   kind?: OrgRibbonKind;
+  /**
+   * The controls that pick each org, drawn where the ribbon names it, with
+   * their own label: a page that picks the orgs on the screen that compares
+   * them named each twice, once in its picker and once in the ribbon under it.
+   */
+  pickers?: { source: React.ReactNode; target: React.ReactNode };
   className?: string;
 }
 
 /** Whether an org is read as a production org, as its type label names it. */
 function isProduction(org: OrgRibbonOrg): boolean {
-  if (org === undefined || typeof org === 'string') return false;
+  if (org === undefined || typeof org === 'string' || isNotHeld(org)) return false;
   return registeredOrgType(org.orgType, org.metadata?.edition) === 'Production';
 }
 
@@ -42,17 +45,49 @@ interface RibbonSideProps {
   label: string;
   /** The side the page writes to: framed, where the other is left quiet. */
   target: boolean;
+  /** The control that picks the org, named by its own label, in place of the side's name. */
+  picker?: React.ReactNode;
   testId: string;
 }
 
 /** One side of the ribbon: what it is, the org, its type and its instance. */
-const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, testId }) => {
+const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, picker, testId }) => {
   const { t, i18n } = useTranslation();
-  const known = typeof org === 'object' ? org : undefined;
-  const name = typeof org === 'object' ? org.alias || org.username : org;
+  const notHeld = isNotHeld(org) ? org.notHeld : undefined;
+  const known = typeof org === 'object' && !isNotHeld(org) ? org : undefined;
+  const name = known ? known.alias || known.username : typeof org === 'string' ? org : undefined;
   const production = isProduction(org);
   const statusKey = known ? `common.orgStatus_${known.status}` : '';
   const host = known?.instanceUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const hostSpan = host && (
+    <span
+      data-testid={`${testId}-url`}
+      title={known?.instanceUrl}
+      className="min-w-0 truncate text-[11px]"
+    >
+      {host}
+    </span>
+  );
+  /** The production word and a status other than connected: beside the name, or under a picker. */
+  const marks = (
+    <>
+      {/* The word beside the type's: a red badge says nothing to someone who
+          does not see the red, and PROD is an abbreviation. */}
+      {production && (
+        <span data-testid={`${testId}-production`} className="text-xs font-bold text-text-primary">
+          {t('common.orgRibbon.production')}
+        </span>
+      )}
+      {known && known.status !== 'connected' && (
+        <span data-testid={`${testId}-status`} className="text-xs text-status-warning">
+          {i18n.exists(statusKey) ? t(statusKey) : known.status}
+        </span>
+      )}
+    </>
+  );
+  const shield = production && (
+    <ShieldAlert size={16} aria-hidden="true" className="shrink-0 text-status-error" />
+  );
   return (
     <div
       data-testid={testId}
@@ -66,55 +101,66 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, testId }) =
         production && 'border-2 border-status-error bg-status-error/10',
       )}
     >
-      {/* In the primary colour on a production org's tint, where the secondary
-          one fell to 3.7:1 under a host that sets no colours. */}
-      <span
-        className={cn(
-          'flex items-baseline justify-between gap-2 text-xs',
-          production ? 'text-text-primary' : 'text-text-secondary',
-        )}
-      >
-        <span className="shrink-0">{label}</span>
-        {host && (
-          <span
-            data-testid={`${testId}-url`}
-            title={known?.instanceUrl}
-            className="min-w-0 truncate text-[11px]"
-          >
-            {host}
-          </span>
-        )}
-      </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        {production && (
-          <ShieldAlert size={16} aria-hidden="true" className="shrink-0 text-status-error" />
-        )}
-        <span
-          data-testid={`${testId}-name`}
-          className={cn(
-            'min-w-0 text-base text-text-primary [overflow-wrap:anywhere]',
-            target && name ? 'font-semibold' : 'font-medium',
+      {picker !== undefined ? (
+        <>
+          {/* The picker says the org, and its type in its options: under it,
+              what the ribbon adds — production said in words, a status, the
+              instance. */}
+          {picker}
+          {(production || host || (known && known.status !== 'connected')) && (
+            <span
+              className={cn(
+                'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs',
+                production ? 'text-text-primary' : 'text-text-secondary',
+              )}
+            >
+              {shield}
+              {marks}
+              {hostSpan}
+            </span>
           )}
-        >
-          {name || t('common.orgRibbon.notChosen')}
-        </span>
-        {known && <OrgTypeBadge org={known} />}
-        {/* The word beside the type's: a red badge says nothing to someone who
-            does not see the red, and PROD is an abbreviation. */}
-        {production && (
+        </>
+      ) : (
+        <>
+          {/* In the primary colour on a production org's tint, where the
+              secondary one fell to 3.7:1 under a host that sets no colours. */}
           <span
-            data-testid={`${testId}-production`}
-            className="text-xs font-bold text-text-primary"
+            className={cn(
+              'flex items-baseline justify-between gap-2 text-xs',
+              production ? 'text-text-primary' : 'text-text-secondary',
+            )}
           >
-            {t('common.orgRibbon.production')}
+            <span className="shrink-0">{label}</span>
+            {hostSpan}
           </span>
-        )}
-        {known && known.status !== 'connected' && (
-          <span data-testid={`${testId}-status`} className="text-xs text-status-warning">
-            {i18n.exists(statusKey) ? t(statusKey) : known.status}
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            {shield}
+            <span
+              data-testid={`${testId}-name`}
+              className={cn(
+                'min-w-0 text-base text-text-primary [overflow-wrap:anywhere]',
+                target && name ? 'font-semibold' : 'font-medium',
+              )}
+            >
+              {name ||
+                (notHeld !== undefined
+                  ? t('common.orgRibbon.notHeld')
+                  : t('common.orgRibbon.notChosen'))}
+            </span>
+            {/* The id second, for whoever has to find the org again. */}
+            {notHeld !== undefined && !name && (
+              <span
+                data-testid={`${testId}-id`}
+                className="min-w-0 font-mono text-xs text-text-secondary [overflow-wrap:anywhere]"
+              >
+                {notHeld}
+              </span>
+            )}
+            {known && <OrgTypeBadge org={known} />}
+            {marks}
           </span>
-        )}
-      </span>
+        </>
+      )}
     </div>
   );
 };
@@ -122,7 +168,7 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, testId }) =
 /**
  * Where a run comes from and where it writes, with the type of each org, from
  * past the choice of the orgs to the results: Forge's Review, Execution and
- * Results, Sync, Autopilot, a Frozen load and Compare.
+ * Results, Sync, Autopilot, a Frozen load and Compare, whose pickers it holds.
  *
  * The target is framed and bolder than the source, whatever the theme's
  * colours; a production org takes a shield, the word and a coloured border, so
@@ -134,6 +180,7 @@ export const OrgRibbon: React.FC<OrgRibbonProps> = ({
   source,
   target,
   kind = 'copy',
+  pickers,
   className,
 }) => {
   const { t } = useTranslation();
@@ -149,7 +196,13 @@ export const OrgRibbon: React.FC<OrgRibbonProps> = ({
         className,
       )}
     >
-      <RibbonSide org={source} label={t(sides.source)} target={false} testId="org-ribbon-source" />
+      <RibbonSide
+        org={source}
+        label={t(sides.source)}
+        target={false}
+        picker={pickers?.source}
+        testId="org-ribbon-source"
+      />
       <ArrowRight
         size={18}
         aria-hidden="true"
@@ -160,7 +213,13 @@ export const OrgRibbon: React.FC<OrgRibbonProps> = ({
         aria-hidden="true"
         className="self-center text-text-secondary min-[560px]:hidden"
       />
-      <RibbonSide org={target} label={t(sides.target)} target testId="org-ribbon-target" />
+      <RibbonSide
+        org={target}
+        label={t(sides.target)}
+        target
+        picker={pickers?.target}
+        testId="org-ribbon-target"
+      />
     </div>
   );
 };

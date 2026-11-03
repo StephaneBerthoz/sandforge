@@ -163,8 +163,13 @@ describe('FrozenLoadTab', () => {
     expect(ribbon.textContent).toContain('Frozen from');
     expect(ribbon.textContent).toContain('Written into');
     expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('DEV-SANDBOX');
-    // This machine no longer holds the source: its id is all the manifest says.
-    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('org-src');
+    // This machine no longer holds the source, and the manifest kept no alias:
+    // said in words, its id second. Printed as its name, the id read as an
+    // alias nobody had given.
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe(
+      'An org this machine no longer holds',
+    );
+    expect(screen.getByTestId('org-ribbon-source-id').textContent).toBe('org-src');
   });
 
   it('names the source by the alias the manifest kept, and says a target not picked yet', async () => {

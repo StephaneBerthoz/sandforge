@@ -72,9 +72,16 @@ export const ReviewFilesOption: React.FC = () => {
         />
         <span>{t('forge.files.toggle')}</span>
       </label>
-      <p id={descriptionId} className="text-[11px] text-text-secondary">
-        {t('forge.files.description')}
-      </p>
+      {/* What it copies behind a disclosure, as the boxes above it fold
+          theirs: in the column of the run, its four lines held Controls under
+          the column's fold at 800 pixels high. A screen reader reads it with
+          the box. */}
+      <details data-testid="forge-files-more" className="ml-5 text-[11px]">
+        <summary className="cursor-pointer text-text-secondary">{t('forge.files.more')}</summary>
+        <p id={descriptionId} className="mt-1 text-text-secondary">
+          {t('forge.files.description')}
+        </p>
+      </details>
 
       {fileCopy.enabled && (
         <>

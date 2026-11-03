@@ -588,4 +588,64 @@ describe('ReviewGapsTab', () => {
     render(<ReviewGapsTab />);
     expect(screen.getByTestId('review-save-template-open')).toBeTruthy();
   });
+
+  describe('held to what it must show first', () => {
+    // Opened on a single gap, the row was 420 pixels high: Plan to
+    // Automation went under the fold of a 1280 by 800 panel.
+    const follows = (a: Element, b: Element): boolean =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    it('shows the gap and its decision before the list for the admin and the template', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      render(<ReviewGapsTab />);
+
+      const gap = item(REQUIRED);
+      const decision = within(gap).getByTestId('gap-decisions');
+      const tools = screen.getByTestId('gaps-tools');
+      expect(follows(decision, tools)).toBe(true);
+      expect(tools.contains(screen.getByTestId('gaps-admin'))).toBe(true);
+      expect(tools.contains(screen.getByTestId('review-save-template-open'))).toBe(true);
+      // Which read found it is said on the gap's line, not over the list too.
+      expect(within(gap).getByTestId('gap-source').textContent).toBe(
+        "Read from the target's metadata",
+      );
+      expect(screen.queryByTestId('gaps-read')).toBeNull();
+    });
+
+    it('folds the list for the admin and what it is for, its copy at hand', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      render(<ReviewGapsTab />);
+
+      const list = screen.getByTestId('gaps-admin-list') as HTMLDetailsElement;
+      expect(list.tagName).toBe('DETAILS');
+      expect(list.open).toBe(false);
+      expect(list.querySelector('summary')?.textContent).toBe(
+        "For the target's admin Show the change",
+      );
+      expect(list.contains(screen.getByTestId('gaps-admin-text'))).toBe(true);
+      expect(list.textContent).toContain('SandForge changes none of it');
+      expect(list.contains(screen.getByTestId('gaps-admin-copy'))).toBe(false);
+    });
+
+    it('keeps the gravest group open and folds the others under their heading, counted', () => {
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
+      render(<ReviewGapsTab />);
+
+      expect(screen.queryByTestId('gaps-severity-blocking-more')).toBeNull();
+      const warnings = screen.getByTestId('gaps-severity-warning-more') as HTMLDetailsElement;
+      expect(warnings.open).toBe(false);
+      expect(warnings.querySelector('summary')?.textContent).toBe('May refuse or change rows (1)');
+      expect(warnings.contains(item(TOO_LONG))).toBe(true);
+      expect(follows(item(REQUIRED), warnings)).toBe(true);
+    });
+
+    it('opens a lesser group when nothing graver is left', () => {
+      useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
+      render(<ReviewGapsTab />);
+
+      expect(screen.queryByTestId('gaps-severity-warning-more')).toBeNull();
+      expect(screen.getByTestId('gaps-severity-warning').contains(item(TOO_LONG))).toBe(true);
+    });
+  });
 });

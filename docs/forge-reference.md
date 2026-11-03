@@ -43,7 +43,7 @@ The run's config keeps the decisions taken on them, with templates: a picklist v
 
 The discovery, Review and execution screens show a graph's objects either as a graph, drawn with its relationships, or as a table. On discovery and Review, each row has the box that includes or leaves out its object. The execution's table gives each object a row with what its node on the graph says: its status, its progress while it is written, its records and fields, its personal fields and the errors discovery met, updated as the run goes. The `sandforge.forge.graphView` setting chooses between them:
 
-- `auto` (the default): the graph up to 25 objects, the table past that;
+- `auto` (the default): the graph up to 25 objects, the table past that, and on a panel narrower than 560 pixels, where the strip the minimap keeps leaves no room for a node;
 - `graph` or `table`: always that view.
 
 On Review, the view is in the **Plan** row, drawn once that row is opened, and **Find an object in the graph** searches the objects by API name: those it matches are ringed on the graph, **Show** brings one into view, and **Leave out this branch** leaves out the object with every object only it reaches — what another way from the top of the graph reaches stays. The branch goes as unticked boxes go, kept in the run's `excludedObjects`, and **Put them back** takes it back at once. The run's root offers no branch: it would be the whole clone.

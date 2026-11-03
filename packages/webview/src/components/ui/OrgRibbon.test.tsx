@@ -101,6 +101,52 @@ describe('OrgRibbon', () => {
     expect(screen.queryByTestId('org-badge-type')).toBeNull();
   });
 
+  it('says in words an org this machine no longer holds and nothing names, its id second', () => {
+    // A frozen dataset whose manifest kept no alias was said to come from its id.
+    render(<OrgRibbon kind="load" source={{ notHeld: 'org-gone' }} target={QA} />);
+    const name = screen.getByTestId('org-ribbon-source-name');
+    const id = screen.getByTestId('org-ribbon-source-id');
+    expect(name.textContent).toBe('An org this machine no longer holds');
+    expect(id.textContent).toBe('org-gone');
+    expect(name.compareDocumentPosition(id) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('org-ribbon-source').dataset.production).toBeUndefined();
+    expect(screen.queryByTestId('org-ribbon-target-id')).toBeNull();
+  });
+
+  it('draws a picker where it names an org, with its own label, and the instance and production under it', () => {
+    // Compare picked the orgs over a ribbon that named both again.
+    render(
+      <OrgRibbon
+        kind="compare"
+        source={PROD}
+        target={QA}
+        pickers={{
+          source: <select aria-label="Source Org" data-testid="pick-source" />,
+          target: <select aria-label="Target Org" data-testid="pick-target" />,
+        }}
+      />,
+    );
+    const source = screen.getByTestId('org-ribbon-source');
+    expect(within(source).getByTestId('pick-source')).toBeDefined();
+    expect(
+      within(screen.getByTestId('org-ribbon-target')).getByTestId('pick-target'),
+    ).toBeDefined();
+    // The picker names the org: no second name, no side label beside it.
+    expect(screen.queryByTestId('org-ribbon-source-name')).toBeNull();
+    expect(screen.queryByTestId('org-ribbon-target-name')).toBeNull();
+    expect(screen.queryByText('Source')).toBeNull();
+    // What the ribbon adds stays: production in words, with the shield, and the instance.
+    expect(source.dataset.production).toBe('true');
+    expect(within(source).getByTestId('org-ribbon-source-production').textContent).toBe(
+      'Production org',
+    );
+    expect(source.querySelector('svg')).not.toBeNull();
+    expect(screen.getByTestId('org-ribbon-target-url').textContent).toBe(
+      'qa.example.my.salesforce.com',
+    );
+    expect(screen.getByTestId('org-ribbon-target').className).toContain('border-2');
+  });
+
   it('calls the sides source and target on a page that compares and writes nothing', () => {
     render(<OrgRibbon kind="compare" source={org()} target={QA} />);
     expect(screen.getByText('Source')).toBeDefined();

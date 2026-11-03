@@ -133,7 +133,7 @@ You type the org's name to go on, and Production Guard refuses a production org.
 
 ## Going further
 
-- [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that
+- [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that, or on a panel narrower than 560 pixels
 - [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** row, and what Review reads of the target's metadata
 - [Emails and phone numbers](forge-reference.md#emails-and-phone-numbers), neutralized unless you keep them, and [whether the emails go out](forge-reference.md#whether-the-emails-go-out)
 - [Before the run writes](forge-reference.md#before-the-run-writes): the target, what fires, what the run is about to read and to write
