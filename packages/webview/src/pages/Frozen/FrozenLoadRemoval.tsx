@@ -7,6 +7,7 @@ import type {
   ForgeTargetAutomation,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
+  FrozenReloadSweep as FrozenReloadSwept,
   FrozenReloadSweepListing,
   FrozenRemovalResult,
 } from '@sandforge/shared';
@@ -37,6 +38,7 @@ import {
 } from '../Forge/ForgeRunRemovalView';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import {
+  ForgeRunSweepResult,
   ForgeSweepListingView,
   useRemovalSweep,
   type SweepTicks,
@@ -68,10 +70,11 @@ interface RemoveAnswer {
   operationId: string;
 }
 
-/** What `frozen:remove:sweep` answers. */
+/** What `frozen:remove:sweep` answers: the load's sweep, and each other load's it sweeps with it. */
 interface SweepAnswer {
   loadedAt: string;
   listing: ForgeSweepListing;
+  otherLoads?: FrozenReloadSweepListing[];
 }
 
 /** What `frozen:remove:automation` answers. */
@@ -230,10 +233,11 @@ interface FrozenRemovalSweepProps {
   ticks: SweepTicks;
   onTicksChange: (ticks: SweepTicks) => void;
   /**
-   * Told what it read, `'failed'` once its read failed, null until it has:
-   * what the confirmation reads the automation of, and waits for.
+   * Told what it read — the load's list, then each other load's —, `'failed'`
+   * once its read failed, null until it has: what the confirmation reads the
+   * automation of, and waits for.
    */
-  onListing: (listing: ForgeSweepListing | 'failed' | null) => void;
+  onListings: (listings: readonly ForgeSweepListing[] | 'failed' | null) => void;
 }
 
 /**
@@ -242,7 +246,10 @@ interface FrozenRemovalSweepProps {
  * target's automation made for the load, as its user, that the load's mapping
  * does not hold, what it keeps and the ticks that take that too — Forge's
  * sweep, listed as Forge lists it. Read only; the sweep reads again as the
- * removal begins, and takes what it can before the load's records go.
+ * removal begins, and takes what it can before the load's records go. Each
+ * other load it sweeps with this one — one a reload replaced, kept for what
+ * its sweep left — is listed below it, by the date of its load: run for real,
+ * what the reloads' sweeps left was reached by no removal.
  */
 const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   orgId,
@@ -250,7 +257,7 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   org,
   ticks,
   onTicksChange,
-  onListing,
+  onListings,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -263,12 +270,16 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   useEffect(() => {
     mutate({ targetOrgId: orgId, loadedAt });
   }, [orgId, loadedAt, mutate]);
-  const listing = read.data?.loadedAt === loadedAt ? read.data.listing : null;
+  const answer = read.data?.loadedAt === loadedAt ? read.data : null;
+  const listing = answer?.listing ?? null;
+  const otherLoads = answer?.otherLoads;
   const failed = read.error !== null;
   useEffect(() => {
-    onListing(failed ? 'failed' : listing);
-  }, [listing, failed, onListing]);
-  useEffect(() => () => onListing(null), [onListing]);
+    onListings(
+      failed ? 'failed' : listing && [listing, ...(otherLoads ?? []).map((other) => other.listing)],
+    );
+  }, [listing, otherLoads, failed, onListings]);
+  useEffect(() => () => onListings(null), [onListings]);
 
   let body: React.ReactNode;
   if (read.error) {
@@ -284,7 +295,30 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
       </p>
     );
   } else {
-    body = <ForgeSweepListingView listing={listing} ticks={ticks} onTicksChange={onTicksChange} />;
+    body = (
+      <>
+        <ForgeSweepListingView listing={listing} ticks={ticks} onTicksChange={onTicksChange} />
+        {(otherLoads ?? []).map((other) => (
+          <div
+            key={other.loadedAt}
+            className="flex flex-col gap-1"
+            data-testid="frozen-removal-sweep-other-load"
+          >
+            <p className="font-medium">
+              {t('frozen.load.reloadConfirm.sweepOf', {
+                date:
+                  formatStoredDate(other.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+              })}
+            </p>
+            <ForgeSweepListingView
+              listing={other.listing}
+              ticks={ticks}
+              onTicksChange={onTicksChange}
+            />
+          </div>
+        ))}
+      </>
+    );
   }
   return (
     <section
@@ -402,6 +436,39 @@ export const FrozenReloadSweep: React.FC<FrozenReloadSweepProps> = ({
   );
 };
 
+/** Props for {@link ReloadSweeps}. */
+interface ReloadSweepsProps {
+  sweeps: readonly FrozenReloadSwept[];
+  /** The org they swept, as the user knows it. */
+  org: string;
+  testId: string;
+}
+
+/**
+ * What the sweep asked with a reload took and left for each load it
+ * replaced, as a removal's result says it: in the load's report, and beside
+ * the error of a reload that stopped or failed once its sweep had deleted;
+ * and what a removal's sweep took and left for each other load it swept with
+ * the one it removed.
+ */
+export const ReloadSweeps: React.FC<ReloadSweepsProps> = ({ sweeps, org, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-2" data-testid={testId}>
+      {sweeps.map((swept) => (
+        <div key={swept.loadedAt} className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-primary">
+            {t('frozen.report.sweptFor', {
+              date: formatStoredDate(swept.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+            })}
+          </span>
+          <ForgeRunSweepResult result={swept.result} org={org} />
+        </div>
+      ))}
+    </div>
+  );
+};
+
 /** The records a load created that the platform does not delete, per object, in words. */
 function keptObjects(kept: NonNullable<FrozenLoadRecordsInfo['keptByThePlatform']>): string {
   return kept.map((object) => `${object.objectApiName} (${object.count})`).join(', ');
@@ -485,8 +552,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
   const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
-  /** What the sweep's list says, while it is shown: what fires as its records go is read with the load's. */
-  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | 'failed' | null>(null);
+  /**
+   * What the sweep's lists say, the load's then each other load's, while they
+   * are shown: what fires as their records go is read with the load's.
+   */
+  const [sweepListings, setSweepListings] = useState<
+    readonly ForgeSweepListing[] | 'failed' | null
+  >(null);
   /** What the automation section's read covers, or that it failed: see `FrozenRemovalAutomation`. */
   const [automationRead, setAutomationRead] = useState<readonly string[] | 'failed' | undefined>(
     undefined,
@@ -576,10 +648,10 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     setConfirming(true);
   };
 
-  /** What the sweep's list says it takes, ticked: what fires as those records go. */
+  /** What the sweep's lists say it takes, ticked: what fires as those records go. */
   const sweptObjects =
-    sweep && sweepListing && sweepListing !== 'failed'
-      ? sweepTakenObjects(sweepListing, ticks)
+    sweep && sweepListings && sweepListings !== 'failed'
+      ? [...new Set(sweepListings.flatMap((listing) => sweepTakenObjects(listing, ticks)))]
       : [];
   /** Nothing of the load left: the sweep alone is what the confirmation is for. */
   const sweepAlone = created === 0 && sweep;
@@ -590,9 +662,9 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   // load's objects.
   const sweepHeld = !sweep
     ? undefined
-    : sweepListing === 'failed'
+    : sweepListings === 'failed'
       ? t('frozen.removal.heldUnread', { org: org ?? '' })
-      : sweepListing === null ||
+      : sweepListings === null ||
           (automationRead !== 'failed' &&
             !sweptObjects.every((object) => automationRead?.includes(object)))
         ? t('frozen.removal.heldReading', { org: org ?? '' })
@@ -748,6 +820,15 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               {...(removable && !removal.loading && !busy ? { onTakeBackMade: askSweep } : {})}
             />
           )}
+          {/* What its sweep took and left for each other load it swept: run
+              for real, that was left in the org, and said nowhere. */}
+          {removal.data?.result.otherLoadSweeps && (
+            <ReloadSweeps
+              sweeps={removal.data.result.otherLoadSweeps}
+              org={org ?? records.orgId}
+              testId="frozen-removal-other-sweeps"
+            />
+          )}
           {/* Under a removal that ended, which took back what the load created
               alone: the load's report offers the rewind until then. */}
           {records.removed && (
@@ -831,7 +912,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             org={org ?? ''}
             ticks={ticks}
             onTicksChange={setTicks}
-            onListing={setSweepListing}
+            onListings={setSweepListings}
           />
         )}
       </DangerConfirm>

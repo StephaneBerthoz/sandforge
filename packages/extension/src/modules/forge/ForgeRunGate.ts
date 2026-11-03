@@ -2580,7 +2580,9 @@ export function removalStepsAutomationLines(
     }
     if (lines.length === 1 && unread.length === 0) {
       const objects = new Set(Object.values(written).flat()).size;
-      lines.push(`  nothing fires on the ${objects} object(s) it writes records of`);
+      // A sweep only deletes: said to write, its line read as the purge's.
+      const writes = writer === 'reloadSweep' ? 'deletes' : 'writes';
+      lines.push(`  nothing fires on the ${objects} object(s) it ${writes} records of`);
     }
     return lines;
   };

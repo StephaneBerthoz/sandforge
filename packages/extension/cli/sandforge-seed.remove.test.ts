@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeSweepListing, ForgeTargetAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { REFUSED_UNTIED_LOOSE, refusedUntiedSweep } from '../src/test/refusedUntiedSweep.js';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -453,6 +454,39 @@ describe('sandforge-seed --remove', () => {
 
     expect(exit.code()).toBe(3);
     expect(org.all('Contact')).toEqual([]);
+  });
+
+  it('exits 3 and says partial when --sweep-untied was refused, where it ended 0 and a success', async () => {
+    const sweep = refusedUntiedSweep({
+      sweepParts: (
+        await vi.importActual<typeof import('../src/modules/forge/ForgeRunSweep.js')>(
+          '../src/modules/forge/ForgeRunSweep.js',
+        )
+      ).sweepParts,
+      removalOrg: (
+        await vi.importActual<typeof import('../src/modules/forge/ForgeRunRemoval.js')>(
+          '../src/modules/forge/ForgeRunRemoval.js',
+        )
+      ).removalOrg,
+    });
+    vi.mocked(sweepParts).mockImplementation(sweep.parts);
+    const exit = stubExit();
+
+    await expect(
+      main(argv('--remove', file, '--target', 'TGT', '--sweep', '--sweep-untied', '--json')),
+    ).rejects.toThrow('exit 3');
+
+    expect(exit.code()).toBe(3);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: {
+        status: 'partial',
+        sweep: {
+          status: 'partial',
+          left: [expect.objectContaining({ class: 'untied', refusal: expect.any(String) })],
+        },
+      },
+    });
+    expect(sweep.org.ids('Task')).toEqual([REFUSED_UNTIED_LOOSE]);
   });
 
   it('tells the sweep what ties a record to the run: the other runs of this machine in its window, the mute and the user its summary keeps', async () => {

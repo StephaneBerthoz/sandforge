@@ -324,6 +324,80 @@ describe('the exit code of a step', () => {
     ]);
   });
 
+  it('says what a removal’s sweep did for each other load it swept, after its own', () => {
+    const sweep = (deleted: number) => ({
+      status: 'success',
+      objects: [
+        {
+          objectApiName: 'Task',
+          found: deleted,
+          deleted,
+          alreadyGone: 0,
+          keptChanged: 0,
+          refused: 0,
+          reasons: [],
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        result: {
+          status: 'success',
+          objects: [],
+          sweep: sweep(30),
+          otherLoadSweeps: [{ loadedAt: '2026-10-01T10:05:00.000Z', result: sweep(60) }],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'sweep: SUCCESS',
+      '  Task: 30 deleted of 30',
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+      'sweep: SUCCESS',
+      '  Task: 60 deleted of 60',
+    ]);
+  });
+
+  it('lists, with --sweep-list, what the sweep takes for each other load apart, by the load', () => {
+    const listing = (count: number) => ({
+      window: { from: '2026-10-01T10:00:00Z', to: '2026-10-01T10:06:00Z' },
+      looked: ['Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count,
+          names: [],
+          classes: { made: count, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    const alone = messageLines({
+      type: 'frozen:remove:sweep:response',
+      payload: { loadedAt: '2026-10-02T10:05:00.000Z', listing: listing(1) },
+    });
+    const both = messageLines({
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-10-02T10:05:00.000Z',
+        listing: listing(1),
+        otherLoads: [{ loadedAt: '2026-10-01T10:05:00.000Z', listing: listing(30) }],
+      },
+    });
+
+    expect(alone.join('\n')).not.toContain('sweep of the load of');
+    expect(both.filter((line) => line.startsWith('sweep of the load of'))).toEqual([
+      'sweep of the load of 2026-10-02T10:05:00.000Z:',
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+    ]);
+    expect(both.join('\n')).toContain('  Task: 30 — 30 made for the run');
+  });
+
   it('gives a removal that left records of the load 3, as the other removals give it', () => {
     const removal = (status: string) => ({
       type: 'frozen:remove:response',

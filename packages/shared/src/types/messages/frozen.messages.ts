@@ -10,6 +10,7 @@ import type {
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenReloadSweepListing,
   FrozenRemovalPreview,
   FrozenRemovalResult,
   FrozenSelectionSummary,
@@ -418,10 +419,18 @@ export interface FrozenRemoveAutomationResponse extends BaseMessage {
   };
 }
 
-/** `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the load's removal would take. */
+/**
+ * `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the
+ * load's removal would take, and what it takes for each other load it sweeps
+ * with it (`FrozenRemovalResult.otherLoadSweeps`), read the same way.
+ */
 export interface FrozenRemoveSweepResponse extends BaseMessage {
   type: 'frozen:remove:sweep:response';
-  payload: { loadedAt: string; listing: ForgeSweepListing };
+  payload: {
+    loadedAt: string;
+    listing: ForgeSweepListing;
+    otherLoads?: FrozenReloadSweepListing[];
+  };
 }
 
 // ─── Frozen error channels (Extension -> WebView, via sendHandlerError) ─────

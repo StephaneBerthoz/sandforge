@@ -1793,7 +1793,11 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         return result;
       });
       const waiting = sweeps.some((sweep) => sweep.later.length > 0);
-      return { status: sweepStatus(objects, state === 'cancelled', waiting), objects, ...base };
+      return {
+        status: sweepStatus(objects, state === 'cancelled', waiting, askedAndLeft(base, options)),
+        objects,
+        ...base,
+      };
     },
   };
 }
@@ -1821,17 +1825,38 @@ export async function sweepRunRecords(
 /**
  * How a sweep ended: nothing it found left in the org is a success; some
  * deleted and some left, partial; none deleted and some left, a failure.
- * Records still waiting for the run's own are left.
+ * Records still waiting for the run's own are left, and so is a class it was
+ * asked to take and did not (`askedAndLeft`): a refused --sweep-untied ended
+ * a success, exit 0, above the thirty tasks it left, where the help says a
+ * sweep that did not take all it was asked to exits 3.
  */
 function sweepStatus(
   objects: readonly ForgeSweepObjectResult[],
   cancelled: boolean,
   waiting = false,
+  classLeft = false,
 ): ForgeUndoStatus {
   if (cancelled) return 'cancelled';
-  const left = waiting || objects.some((object) => object.keptChanged + object.refused > 0);
+  const left =
+    waiting || classLeft || objects.some((object) => object.keptChanged + object.refused > 0);
   if (!left) return 'success';
   return objects.some((object) => object.deleted > 0) ? 'partial' : 'failure';
+}
+
+/**
+ * Whether a sweep left a class it was asked to take (`sweepLeftOf`): what is
+ * tied to nothing, with `--sweep-untied`, while taking it is refused. A class
+ * left unasked was no part of what it had to do.
+ */
+function askedAndLeft(
+  result: Pick<ForgeSweepResult, 'left'>,
+  options: Pick<SweepOptions, 'sweepLate' | 'sweepUntied'>,
+): boolean {
+  return (result.left ?? []).some(
+    (left) =>
+      (left.class === 'late' && options.sweepLate === true) ||
+      (left.class === 'untied' && options.sweepUntied === true),
+  );
 }
 
 /**

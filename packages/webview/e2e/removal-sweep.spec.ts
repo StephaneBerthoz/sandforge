@@ -473,3 +473,73 @@ for (const theme of THEMES) {
     });
   }
 }
+
+/** The Frozen confirmation, whose removal sweeps the loads a reload kept for what their sweep left. */
+const FROZEN = CONFIRMATIONS.find((confirmation) => confirmation.name === 'a Frozen load');
+
+/** A load a reload replaced, kept with none of its records for what its sweep left. */
+const EARLIER_LOAD = '2026-10-14T09:02:00.000Z';
+
+for (const theme of THEMES) {
+  test.describe(`the sweep of a Frozen load and of the load a reload left (${theme})`, () => {
+    test('lists what it takes for that load too, says what it did of it, and passes axe', async ({
+      page,
+    }) => {
+      if (!FROZEN?.automation) throw new Error('no Frozen confirmation');
+      const bridge = await FROZEN.open(page, theme);
+      await page.getByTestId(FROZEN.toggle).check();
+      await answerAll(bridge, FROZEN.sweep.request, FROZEN.sweep.response, {
+        ...FROZEN.sweep.of,
+        listing: LISTING,
+        otherLoads: [{ loadedAt: EARLIER_LOAD, listing: REFUSED_LISTING }],
+      });
+
+      const other = page.getByTestId('frozen-removal-sweep-other-load');
+      await expect(other).toContainText('For the load of 2026-10-14');
+      await expect(other.getByTestId('forge-sweep-untied-refused')).toContainText(UNTIED_REFUSAL);
+      await answerAll(bridge, FROZEN.automation.request, FROZEN.automation.response, {
+        ...FROZEN.automation.of,
+        automation: { objectsRead: ['Contact', 'Task', 'Asset'], objects: [], unread: [] },
+        steps: { setToDraft: [], delete: ['Contact', 'Task', 'Asset'] },
+      });
+      await expectNoViolation(page);
+
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await answerAll(bridge, FROZEN.removal.request, FROZEN.removal.response, {
+        result: {
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-10-15T10:00:00.000Z',
+          objects: [{ ...HELD_OBJECT, deleted: 2, keptDependents: 0, heldBy: [] }],
+          sweep: { status: 'success', objects: [], unread: [], handWork: [] },
+          otherLoadSweeps: [
+            {
+              loadedAt: EARLIER_LOAD,
+              result: {
+                status: 'failure',
+                objects: [],
+                unread: [],
+                handWork: [],
+                left: [
+                  {
+                    class: 'untied',
+                    objects: [{ objectApiName: 'Task', count: 30 }],
+                    option: '--sweep-untied',
+                    refusal: UNTIED_REFUSAL,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        operationId: 'removal-1',
+      });
+
+      const swept = page.getByTestId('frozen-removal-other-sweeps');
+      await expect(swept).toContainText('Swept for the load of 2026-10-14');
+      await expect(swept.getByTestId('forge-sweep-left-untied')).toContainText(UNTIED_REFUSAL);
+      await expectNoViolation(page);
+    });
+  });
+}

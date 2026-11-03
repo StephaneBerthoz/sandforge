@@ -1123,6 +1123,38 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 
   /**
+   * Let go the loads before the last one that a removal's sweep took all it
+   * found of, once they name none of their records — as a reload lets go,
+   * among the loads it keeps, those whose sweep took all (`keptLoads`): kept
+   * with none of their records for what their sweep left, they are swept
+   * again by every removal asked to sweep until then. A load that still names
+   * records, the last load, and one no sweep took all of, stay.
+   *
+   * @param swept - When each load whose sweep took all wrote its last record,
+   *   as {@link recorded} named it.
+   * @returns Whether a load was let go, and the file written.
+   */
+  async letSweptGo(swept: readonly string[]): Promise<boolean> {
+    if (swept.length === 0) return false;
+    const { payload, journals } = await this.readWithJournals();
+    const last = loadPartsOf(payload);
+    if (payload === undefined || last === undefined) return false;
+    const took = new Set(swept);
+    const earlier = earlierOf(payload);
+    const kept = earlier.filter((load) => stillNamesSome(load) || !took.has(endedAtOf(load)));
+    if (kept.length === earlier.length) return false;
+    await this.write({
+      version: 1,
+      orgId: typeof payload.orgId === 'string' ? payload.orgId : '',
+      ...(payload.organizationId !== undefined ? { organizationId: payload.organizationId } : {}),
+      ...last,
+      ...(kept.length > 0 ? { earlier: kept } : {}),
+    });
+    await this.dropJournals(journals);
+    return true;
+  }
+
+  /**
    * Keep what a reload's purge left on records of the loads the file records
    * that it did not delete, by record id: the `LastModifiedDate` the org left
    * on each. Each load that names the record keeps it with what its removals

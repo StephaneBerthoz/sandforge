@@ -32,13 +32,13 @@ import { ribbonOrg } from '../../components/ui/ribbonOrg';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
-import { FrozenLoadRemoval, FrozenReloadSweep, FrozenRemovalAutomation } from './FrozenLoadRemoval';
 import {
-  ForgeRunSweepResult,
-  useRemovalSweep,
-  type RemovalSweepAsked,
-} from '../Forge/ForgeRemovalSweep';
-import { formatStoredDate } from '../../utils/formatters';
+  FrozenLoadRemoval,
+  FrozenReloadSweep,
+  FrozenRemovalAutomation,
+  ReloadSweeps,
+} from './FrozenLoadRemoval';
+import { useRemovalSweep, type RemovalSweepAsked } from '../Forge/ForgeRemovalSweep';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
@@ -87,37 +87,6 @@ function reloadSweepsOf(value: unknown): FrozenReloadSwept[] {
     );
   });
 }
-
-/** Props for {@link ReloadSweeps}. */
-interface ReloadSweepsProps {
-  sweeps: readonly FrozenReloadSwept[];
-  /** The org they swept, as the user knows it. */
-  org: string;
-  testId: string;
-}
-
-/**
- * What the sweep asked with a reload took and left for each load it
- * replaced, as a removal's result says it: in the load's report, and beside
- * the error of a reload that stopped or failed once its sweep had deleted.
- */
-const ReloadSweeps: React.FC<ReloadSweepsProps> = ({ sweeps, org, testId }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-2" data-testid={testId}>
-      {sweeps.map((swept) => (
-        <div key={swept.loadedAt} className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-text-primary">
-            {t('frozen.report.sweptFor', {
-              date: formatStoredDate(swept.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
-            })}
-          </span>
-          <ForgeRunSweepResult result={swept.result} org={org} />
-        </div>
-      ))}
-    </div>
-  );
-};
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {

@@ -431,6 +431,48 @@ describe('FrozenLoadRemoval', () => {
       });
     });
 
+    it('lists what it takes for each other load it sweeps, by the load’s date, and reads what fires on what they take too', () => {
+      // Run for real, the tasks a reload's sweep left of a load it replaced
+      // were reached by no removal: the removal sweeps that load too.
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+      fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+      answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+        loadedAt: LOADED_AT,
+        listing: LISTING,
+        otherLoads: [
+          {
+            loadedAt: '2026-09-23T10:05:00.000Z',
+            listing: {
+              looked: ['Note', 'Task'],
+              found: [
+                {
+                  objectApiName: 'Note',
+                  count: 2,
+                  names: ['Follow-up'],
+                  classes: { made: 2, madeOver: 0, late: 0, untied: 0 },
+                },
+              ],
+              unread: [],
+              handWork: [],
+              untied: { objects: [] },
+            },
+          },
+        ],
+      });
+
+      const other = screen.getByTestId('frozen-removal-sweep-other-load');
+      expect(other.textContent).toMatch(/^For the load of 2026-09-23 \d\d:\d\d/);
+      expect(within(other).getByTestId('forge-sweep-found-Note').textContent).toContain(
+        'Note: 2 records',
+      );
+      expect(sent('frozen:remove:automation')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED_AT,
+        sweptObjects: ['Task', 'Note'],
+      });
+    });
+
     describe('a sweep ticked with it', () => {
       const confirmButton = () => screen.getByTestId('danger-confirm-btn') as HTMLButtonElement;
 
@@ -640,6 +682,50 @@ describe('FrozenLoadRemoval', () => {
     expect(within(result).getAllByRole('heading')[0]?.className).toContain('text-status-warning');
     expect(screen.getByTestId('forge-sweep-result').textContent).toContain(
       'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+    );
+  });
+
+  it('says what its sweep took and left for each other load it swept, under its result', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+    confirmRemoval();
+
+    answerRemoval('frozen:remove:response', {
+      result: {
+        status: 'partial',
+        includeChanged: false,
+        finishedAt: '2026-09-24T11:00:00.000Z',
+        objects: [],
+        sweep: { status: 'success', objects: [], unread: [], handWork: [] },
+        otherLoadSweeps: [
+          {
+            loadedAt: '2026-09-23T10:05:00.000Z',
+            result: {
+              status: 'failure',
+              objects: [],
+              unread: [],
+              handWork: [],
+              left: [
+                {
+                  class: 'untied',
+                  objects: [{ objectApiName: 'Task', count: 30 }],
+                  option: '--sweep-untied',
+                  refusal: 'Another run of this machine wrote to the target in this run’s window.',
+                },
+              ],
+            },
+          },
+        ],
+      },
+      operationId: 'op-1',
+    });
+
+    const others = screen.getByTestId('frozen-removal-other-sweeps');
+    expect(others.textContent).toMatch(/^Swept for the load of 2026-09-23 \d\d:\d\d/);
+    expect(within(others).getByTestId('forge-sweep-result').textContent).toContain(
+      'The sweep deleted nothing from DEV-SANDBOX.',
+    );
+    expect(within(others).getByTestId('forge-sweep-left-untied').textContent).toContain(
+      'Another run of this machine',
     );
   });
 

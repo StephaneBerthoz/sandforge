@@ -574,10 +574,11 @@ removal, what the target runs as it deletes, without --accept-automation —,
 or the run produced only failures, or it stopped on an error (its file keeps
 what it created); 2 a bad command line, a template file that does not hold, a
 run id a run keeps already, or a summary or a file --remove cannot
-take a run back from; 3 the removal left records of the run in the org, or the
-run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the run,
-143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps
-what it created.
+take a run back from; 3 the removal left records of the run in the org, or its
+sweep was refused or did not take all it was asked to (a --sweep-untied refused
+included), or the run was partial and --fail-on-partial was given; 130 a Ctrl-C
+stopped the run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP:
+its file keeps what it created.
 `;
 
 /** Everything the command line settled. */

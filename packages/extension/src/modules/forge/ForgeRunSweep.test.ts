@@ -340,6 +340,49 @@ describe('sweepParts, what it takes and what it leaves', () => {
       }),
     ]);
   });
+
+  it('ends partial, never a success, when it was asked to take what is tied to nothing and that was refused', async () => {
+    // Run for real, a refused --sweep-untied ended "sweep: SUCCESS", exit 0,
+    // above the thirty tasks it left.
+    const others = { otherRuns: [{ ids: ['001000000000009AAA'] }] };
+    const asked = sweepParts(
+      sweepOrgOf(orgOfTheRun().conn as never, 'test'),
+      { ...run(), ties: others },
+      { includeChanged: false, removalSpans: [], sweepUntied: true },
+    );
+    await asked.first();
+    await asked.afterRemoval();
+    expect(asked.result()).toMatchObject({
+      status: 'partial',
+      objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+    });
+
+    // Nothing else to take: it deleted nothing, and says so.
+    const untiedOnly = orgOfTheRun();
+    untiedOnly.rows.set(
+      'Task',
+      (untiedOnly.rows.get('Task') ?? []).filter((task) => task.Id === '00T000000000002AAA'),
+    );
+    untiedOnly.rows.set('Event', []);
+    const none = sweepParts(
+      sweepOrgOf(untiedOnly.conn as never, 'test'),
+      { ...run(), ties: others },
+      { includeChanged: false, removalSpans: [], sweepUntied: true },
+    );
+    await none.first();
+    await none.afterRemoval();
+    expect(none.result().status).toBe('failure');
+
+    // Not asked, what it kept was no part of what it had to do.
+    const unasked = sweepParts(
+      sweepOrgOf(orgOfTheRun().conn as never, 'test'),
+      { ...run(), ties: others },
+      { includeChanged: false, removalSpans: [] },
+    );
+    await unasked.first();
+    await unasked.afterRemoval();
+    expect(unasked.result().status).toBe('success');
+  });
 });
 
 describe('listSweep', () => {

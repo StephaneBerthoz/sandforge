@@ -716,6 +716,42 @@ describe('SasReferenceIdMappingStore', () => {
       expect(loadRecordsLeft(first)).toEqual([]);
     });
 
+    it('lets that load go once a removal’s sweep took all it found, and keeps one that still names records', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+      await storeAt(dir, '2026-09-24T11:05:00.000Z').persist(
+        new Map([['Account-000001', SECOND_ACCOUNT]]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: new Date('2026-09-24T11:00:00.000Z'),
+          earlier: {
+            settled: [FIRST_ACCOUNT, FIRST_CONTACT],
+            stillToSweep: ['2026-09-24T10:05:00.000Z'],
+          },
+        },
+      );
+      const store = storeAt(dir, '2026-09-24T12:00:00.000Z');
+
+      // The last load, and a load no file holds, are not its to let go.
+      await expect(store.letSweptGo(['2026-09-24T11:05:00.000Z'])).resolves.toBe(false);
+      await expect(store.letSweptGo([])).resolves.toBe(false);
+      expect(await store.recordedLoads()).toHaveLength(2);
+
+      await expect(store.letSweptGo(['2026-09-24T10:05:00.000Z'])).resolves.toBe(true);
+      const loads = await store.recordedLoads();
+      expect(loads.map((load) => load.endedAt)).toEqual(['2026-09-24T11:05:00.000Z']);
+      await expect(store.load()).resolves.toEqual(new Map([['Account-000001', SECOND_ACCOUNT]]));
+
+      // One whose records are still to take stays, whatever its sweep took.
+      const other = makeTmpDir();
+      await firstLoad(other);
+      await secondLoad(other, []);
+      await expect(
+        storeAt(other, '2026-09-24T12:00:00.000Z').letSweptGo(['2026-09-24T10:05:00.000Z']),
+      ).resolves.toBe(false);
+      expect(await storeAt(other, '2026-09-24T12:00:00.000Z').recordedLoads()).toHaveLength(2);
+    });
+
     it('keeps nothing of a load written to another org than the target is', async () => {
       const dir = makeTmpDir();
       await firstLoad(dir);

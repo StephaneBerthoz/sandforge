@@ -7,6 +7,7 @@ import type {
   ForgeConfig,
   ForgeGraph,
   ForgeRemovalSteps,
+  ForgeSweepListing,
   ForgeSweepResult,
   FrozenControlReport,
   FrozenDiscoveryOrigin,
@@ -194,6 +195,7 @@ import {
   loadRecordsInfo,
   loadRecordsKept,
   loadRecordsLeft,
+  loadsSweptWith,
   loadToRemove,
   loadTokensFromSas,
   mappedOrgIds,
@@ -3578,12 +3580,14 @@ export class FrozenDatasetHandler implements DomainHandler {
     const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
 
     let store: SasReferenceIdMappingStore;
+    let recorded: RecordedLoad[];
     let load: RecordedLoad | undefined;
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
-      load = loadToRemove(await store.recordedLoads());
+      recorded = await store.recordedLoads();
+      load = loadToRemove(recorded);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'frozen:remove', 'frozen:remove:error', msg, err, {
         code: this.errorCodeFor(err, 'REMOVE_ERROR'),
@@ -3621,6 +3625,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         sweep: parsed.sweep === true,
         sweepLate: parsed.sweep === true && parsed.sweepLate === true,
         sweepUntied: parsed.sweep === true && parsed.sweepUntied === true,
+        alongside: parsed.sweep === true ? loadsSweptWith(recorded, load) : [],
         muteAutomation: parsed.muteAutomation === true,
         pending,
       });
@@ -3977,6 +3982,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       /** With the sweep, take too what it lists as made late, or tied to nothing of the load. */
       sweepLate?: boolean;
       sweepUntied?: boolean;
+      /**
+       * With the sweep, the other loads it sweeps around the load's records,
+       * each as its removal would: see `loadsSweptWith`.
+       */
+      alongside: readonly RecordedLoad[];
       /** Mute what it fires, what its sweep deletes included, through the target's own bypass. */
       muteAutomation: boolean;
       /** The hold a cancel of the removal before it started reaches. */
@@ -4138,11 +4148,14 @@ export class FrozenDatasetHandler implements DomainHandler {
     let runError: unknown;
     /** The sweep asked with the removal, in its parts around the load's records. */
     let sweeping: RemovalSweep | undefined;
+    /** The sweeps of the other loads it sweeps with it, in the same parts: see `loadsSweptWith`. */
+    const alongside: Array<{ loadedAt: string; sweep: RemovalSweep }> = [];
     /** What the removal muted of the target's automation, when it was asked to. */
     let mutedAutomation: MutedAutomation | undefined;
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sweptWith = new Set([load, ...args.alongside].map((swept) => swept.endedAt));
       // Made by the removal in its parts: the first once it has read the
       // load's records — a child the sweep deletes under one of them restamps
       // that record when a roll-up counts it, which read afterwards was a
@@ -4161,13 +4174,44 @@ export class FrozenDatasetHandler implements DomainHandler {
             operationId,
             // A sweep alone has no entry of the removal's to name its mute.
             muted: () => (total === 0 ? mutedAutomation : undefined),
+            sweptWith,
           })
         : undefined;
+      // Each load kept for what a reload's sweep left of it is swept with this
+      // one, in the same parts, as the reload sweeps every load it replaces:
+      // run for real, the removal swept the last load's window alone, and the
+      // tasks the reloads' sweeps had left stayed until deleted by hand.
+      for (const [index, other] of (sweeping ? args.alongside : []).entries()) {
+        alongside.push({
+          loadedAt: other.endedAt,
+          sweep: await this.sweepOfRemoval({
+            conn,
+            load: other,
+            store,
+            includeChanged,
+            sweepLate: args.sweepLate === true,
+            sweepUntied: args.sweepUntied === true,
+            signal: abortController.signal,
+            guard: productionGuard,
+            // One entry per load swept, apart in the audit trail.
+            operationId: `${operationId}-${index + 2}`,
+            muted: () => undefined,
+            sweptWith,
+          }),
+        });
+      }
       const sweepParts = sweeping;
+      const sweeps = [...(sweeping ? [sweeping] : []), ...alongside.map(({ sweep }) => sweep)];
+      /** Each sweep's part in turn: whether any deleted anything. */
+      const inTurn = async (part: (sweep: RemovalSweep) => Promise<boolean>): Promise<boolean> => {
+        let wrote = false;
+        for (const one of sweeps) if (await part(one)) wrote = true;
+        return wrote;
+      };
       // The sweep reads what it takes and asks Production Guard here, before
       // the lease: a person answering holds no permission set assigned. It
       // deletes at its turn, once the removal has read the load's records.
-      await sweepParts?.ask();
+      for (const one of sweeps) await one.ask();
       // Asked to mute, or on the command line, the removal reads what its
       // deletes fire, what the sweep deletes among them, plans the mute from
       // it, and takes the lease before its first delete; it is given back as
@@ -4178,7 +4222,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       // call. A sweep alone that found nothing to take fires nothing.
       let removalMute: RunMute | undefined;
       const asker = this.removalAsker;
-      const steps = removalStepsOfLoad(plan, sweepParts?.takes ?? []);
+      const steps = removalStepsOfLoad(
+        plan,
+        sweeps.flatMap((one) => one.takes),
+      );
       if (
         (args.muteAutomation || asker) &&
         !abortController.signal.aborted &&
@@ -4213,8 +4260,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       // Nothing of the load to remove: the sweep alone, and no record of it goes.
       const sweepAlone = async (): Promise<RunRemovalOutcome> => {
         await takeLease();
-        await sweepParts?.first();
-        await sweepParts?.afterRemoval();
+        await inTurn((one) => one.first());
+        await inTurn((one) => one.afterRemoval());
         return NOTHING_REMOVED;
       };
       const outcome = await (
@@ -4224,8 +4271,10 @@ export class FrozenDatasetHandler implements DomainHandler {
               ...removalSpanOf(load),
               ...(sweepParts
                 ? {
-                    sweep: () => sweepParts.first(),
-                    afterRemoval: () => sweepParts.afterRemoval(),
+                    sweep: () => inTurn((one) => one.first()),
+                    afterRemoval: () => inTurn((one) => one.afterRemoval()),
+                    // The other loads' records all went: what their sweeps
+                    // take holds none of this one's back.
                     automationMade: sweepParts.automationMade,
                   }
                 : {}),
@@ -4249,6 +4298,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       // What the sweep did, in all its parts, recorded beside the removal.
       const sweepResult = await sweeping?.settle();
+      const otherLoadSweeps = await this.settleReloadSweeps(alongside);
       // A removal after one that marked the load takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = load.removal?.removedAt;
@@ -4260,12 +4310,18 @@ export class FrozenDatasetHandler implements DomainHandler {
       // became of the load's records.
       const ownStatus = removalStatus(outcome.objects, outcome.cancelled);
       const result: FrozenRemovalResult = {
-        status: removalStatusWithSweep(ownStatus, sweepResult),
+        // A sweep of another load that did not take all it was asked to ends
+        // it partial, as its own sweep does.
+        status: otherLoadSweeps.reduce(
+          (status, swept) => removalStatusWithSweep(status, swept.result),
+          removalStatusWithSweep(ownStatus, sweepResult),
+        ),
         includeChanged,
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
         ...(sweepResult ? { sweep: sweepResult } : {}),
+        ...(otherLoadSweeps.length > 0 ? { otherLoadSweeps } : {}),
         ...(keptByThePlatform.length > 0 ? { keptByThePlatform } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
       };
@@ -4310,20 +4366,38 @@ export class FrozenDatasetHandler implements DomainHandler {
           );
         }
       }
+      // The loads before it that a sweep took all it found of go, once they
+      // name none of their records, as a reload lets them go; the others stay
+      // for the next sweep.
+      const took = [
+        ...(sweepResult && sweepTookAll(sweepResult) ? [load.endedAt] : []),
+        ...otherLoadSweeps
+          .filter((swept) => sweepTookAll(swept.result))
+          .map((swept) => swept.loadedAt),
+      ];
+      await store.letSweptGo(took).catch(() => false);
 
       const response = buildResponse(this.deps, msg, 'frozen:remove:response', {
         result,
         operationId,
       });
       this.deps.broker.postToWebview(response);
-      // A sweep alone ends as the sweep did.
+      // A sweep alone ends as the sweep did, or as the first of the others'
+      // that left what it was to take.
+      const sweptLeft = [sweepResult, ...otherLoadSweeps.map((swept) => swept.result)].find(
+        (swept) => swept !== undefined && swept.status !== 'success',
+      );
       const failed =
         result.status === 'failure'
           ? 'No record this load created could be removed.'
-          : total === 0 && sweepResult && sweepResult.status !== 'success'
-            ? (sweepResult.refusal ?? 'The sweep left records in the org.')
+          : total === 0 && sweptLeft
+            ? (sweptLeft.refusal ?? 'The sweep left records in the org.')
             : undefined;
-      if (result.status === 'cancelled' || sweepResult?.status === 'cancelled') {
+      if (
+        result.status === 'cancelled' ||
+        sweepResult?.status === 'cancelled' ||
+        otherLoadSweeps.some((swept) => swept.result.status === 'cancelled')
+      ) {
         sendOperationCompleted(this.deps, operationId, { aborted: true });
         this.liveTracker?.cancel(operationId);
       } else {
@@ -4343,6 +4417,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       runError = error;
       // What the sweep deleted before the removal threw is recorded all the same.
       await sweeping?.settle().catch(() => undefined);
+      for (const { sweep: other } of alongside) await other.settle().catch(() => undefined);
       // A mute refused, a lease that could not be taken, or what the command
       // line's question stopped: before the first delete.
       const stopped =
@@ -4389,6 +4464,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   }): Promise<Array<{ loadedAt: string; sweep: RemovalSweep }>> {
     if (await context.store.isStale()) return [];
     const loads = (await context.store.recordedLoads()).filter((load) => load.created);
+    // Every load it replaces is swept in the same go: none is another run of the others'.
+    const sweptWith = new Set(loads.map((load) => load.endedAt));
     const sweeps: Array<{ loadedAt: string; sweep: RemovalSweep }> = [];
     for (const [index, load] of loads.entries()) {
       sweeps.push({
@@ -4408,6 +4485,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           operationId: index === 0 ? context.operationId : `${context.operationId}-${index + 1}`,
           // The load's own entry names its mute.
           muted: () => undefined,
+          sweptWith,
         }),
       });
     }
@@ -4457,6 +4535,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     operationId: string;
     /** What a sweep alone muted, which no entry of the removal's records. */
     muted: () => MutedAutomation | undefined;
+    /** The loads swept in the same go, by when each wrote its last record: see `tiesOfLoad`. */
+    sweptWith: ReadonlySet<string>;
   }): Promise<RemovalSweep> {
     const { conn, load } = context;
     return removalSweepOf({
@@ -4466,6 +4546,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           load,
           context.signal,
           context.store,
+          context.sweptWith,
         ),
       org: sweepOrgOf(conn, 'frozen:remove sweep', context.signal),
       options: {
@@ -4523,9 +4604,9 @@ export class FrozenDatasetHandler implements DomainHandler {
     load: RecordedLoad,
     signal?: AbortSignal,
     store?: Pick<SasReferenceIdMappingStore, 'recordedLoads'>,
+    sweptWith: ReadonlySet<string> = new Set(),
   ): Promise<SweepInput> {
     const created = loadCreatedRecords(load);
-    const remap = new Set([...load.mapping.values()].map((recordId) => recordId.slice(0, 15)));
     const reader = this.targetAutomation;
     let automation: ForgeTargetAutomation | { error: string };
     try {
@@ -4541,6 +4622,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       automation = { error: extractErrorMessage(err) };
     }
     const writtenBetween = load.writtenBetween ?? (await seedWrittenBetween(org, created, signal));
+    // The sweep takes only what is tied to the load's records.
+    const { ties, sweptAlong } = await this.tiesOfLoad(load, writtenBetween, store, sweptWith);
+    const remap = new Set(
+      [...load.mapping.values(), ...sweptAlong].map((recordId) => recordId.slice(0, 15)),
+    );
     return withoutPlatformCopies(
       {
         writtenBetween,
@@ -4548,12 +4634,16 @@ export class FrozenDatasetHandler implements DomainHandler {
         remap,
         automation: sweepAutomationOf(automation),
         ...(load.runUserId ? { runUserId: load.runUserId } : {}),
-        // The sweep takes only what is tied to the load's records.
-        ties: await this.tiesOfLoad(load, writtenBetween, store),
+        ties,
         ...(signal ? { signal } : {}),
       },
       org,
     );
+  }
+
+  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
+  setOtherModuleRuns(runs: OtherModuleRuns): void {
+    this.otherModuleRuns = runs;
   }
 
   /**
@@ -4561,36 +4651,47 @@ export class FrozenDatasetHandler implements DomainHandler {
    * records of the other loads this sas recorded into the same org in its
    * window, when its first removal began, and what earlier sweeps found made
    * for it. What the load's mute kept quiet its mapping does not keep.
+   *
+   * A load swept in the same go (`sweptWith`) — one a reload replaces with it,
+   * or one a removal sweeps beside the load it removes — is no other run: what
+   * is tied to nothing in its window its own sweep takes, asked the same. Its
+   * records are never swept all the same, as the load's mapping's are not
+   * (`sweptAlong`). On the trap org, the reload that had replaced a load two
+   * minutes later counted as another run of this machine in that load's
+   * window, though their writes stood a minute apart: `--sweep-untied` was
+   * refused of it at that reload and at every one after, and its thirty tasks
+   * were deleted by hand.
    */
-  /** Where the runs of the other modules on an org are read from, for a sweep to be told of them. */
-  setOtherModuleRuns(runs: OtherModuleRuns): void {
-    this.otherModuleRuns = runs;
-  }
-
   private async tiesOfLoad(
     load: RecordedLoad,
     writtenBetween: SweepInput['writtenBetween'],
     store: Pick<SasReferenceIdMappingStore, 'recordedLoads'> | undefined,
-  ): Promise<SweepTies> {
+    sweptWith: ReadonlySet<string>,
+  ): Promise<{ ties: SweepTies; sweptAlong: string[] }> {
     const others: LocalRun[] = [];
+    const sweptAlong: string[] = [];
     for (const other of (await store?.recordedLoads().catch(() => [])) ?? []) {
       if (other.endedAt === load.endedAt || other.orgId !== load.orgId) continue;
+      const ids = loadCreatedRecords(other).flatMap((object) => object.ids);
+      if (sweptWith.has(other.endedAt)) {
+        sweptAlong.push(...ids);
+        continue;
+      }
       const first = Date.parse(other.writtenBetween?.first ?? other.startedAt ?? other.endedAt);
       const last = Date.parse(other.writtenBetween?.last ?? other.endedAt);
-      others.push({
-        ids: loadCreatedRecords(other).flatMap(({ ids }) => ids),
-        from: first,
-        to: Number.isFinite(last) ? last : first,
-      });
+      others.push({ ids, from: first, to: Number.isFinite(last) ? last : first });
     }
     // The runs of the other modules on the org, and a run writing to it now.
     others.push(...(await this.otherModuleRuns(load.orgId, writtenBetween).catch(() => [])));
     const began = removalBeganOf(load.removalSpans);
     return {
-      otherRuns: otherRunsInSweep(writtenBetween, others),
-      ...(began ? { removalBegan: began } : {}),
-      ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
-      ...(load.lateEarlier ? { lateEarlier: load.lateEarlier } : {}),
+      ties: {
+        otherRuns: otherRunsInSweep(writtenBetween, others),
+        ...(began ? { removalBegan: began } : {}),
+        ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
+        ...(load.lateEarlier ? { lateEarlier: load.lateEarlier } : {}),
+      },
+      sweptAlong,
     };
   }
 
@@ -4629,7 +4730,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.listReloadSweeps(msg, store, parsed);
         return;
       }
-      const load = loadToRemove(await store.recordedLoads());
+      const recorded = await store.recordedLoads();
+      const load = loadToRemove(recorded);
       if (!load) {
         refuse(
           'No load into this org was recorded in this sas: there is nothing to sweep.',
@@ -4644,7 +4746,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return;
       }
-      const listing = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
+      // What the removal's sweep takes for each other load it sweeps with
+      // this one, listed as that load's own (`loadsSweptWith`).
+      const alongside = loadsSweptWith(recorded, load);
+      const sweptWith = new Set([load, ...alongside].map((swept) => swept.endedAt));
+      const { listing, otherLoads } = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
         'frozen:remove:sweep',
         async () => {
           const conn = await getJsforceConnection(
@@ -4653,17 +4759,24 @@ export class FrozenDatasetHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = sweepOrgOf(conn, 'frozen:remove:sweep');
-          return listSweep(
-            org,
-            await this.sweepInputOfLoad(org, load, undefined, store),
-            load.removalSpans,
-          );
+          const listOf = async (swept: RecordedLoad): Promise<ForgeSweepListing> =>
+            listSweep(
+              org,
+              await this.sweepInputOfLoad(org, swept, undefined, store, sweptWith),
+              swept.removalSpans,
+            );
+          const others: FrozenReloadSweepListing[] = [];
+          for (const other of alongside) {
+            others.push({ loadedAt: other.endedAt, listing: await listOf(other) });
+          }
+          return { listing: await listOf(load), otherLoads: others };
         },
       );
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:remove:sweep:response', {
           loadedAt: load.endedAt,
           listing,
+          ...(otherLoads.length > 0 ? { otherLoads } : {}),
         }),
       );
     } catch (err: unknown) {
@@ -4716,13 +4829,14 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.deps.orgManager,
         );
         const org = sweepOrgOf(conn, 'frozen:remove:sweep');
+        const sweptWith = new Set(loads.map((load) => load.endedAt));
         const all: FrozenReloadSweepListing[] = [];
         for (const load of loads) {
           all.push({
             loadedAt: load.endedAt,
             listing: await listSweep(
               org,
-              await this.sweepInputOfLoad(org, load, undefined, store),
+              await this.sweepInputOfLoad(org, load, undefined, store, sweptWith),
               load.removalSpans,
             ),
           });

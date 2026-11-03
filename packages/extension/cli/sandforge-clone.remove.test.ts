@@ -61,6 +61,7 @@ import {
   writePathOrderDefects,
   type WritePathStep,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
+import { REFUSED_UNTIED_LOOSE, refusedUntiedSweep } from '../src/test/refusedUntiedSweep.js';
 import type { MutedAutomation } from '@sandforge/shared';
 import {
   main,
@@ -1745,6 +1746,38 @@ describe('sandforge-clone --remove', () => {
         ]);
         expect(writePathOrderDefects(events)).toEqual([]);
       });
+    });
+
+    it('exits 3 and says partial when --sweep-untied was refused, where it ended 0 and a success', async () => {
+      const sweep = refusedUntiedSweep({
+        sweepParts: (
+          await vi.importActual<typeof import('../src/modules/forge/ForgeRunSweep.js')>(
+            '../src/modules/forge/ForgeRunSweep.js',
+          )
+        ).sweepParts,
+        removalOrg: (
+          await vi.importActual<typeof import('../src/modules/forge/ForgeRunRemoval.js')>(
+            '../src/modules/forge/ForgeRunRemoval.js',
+          )
+        ).removalOrg,
+      });
+      vi.mocked(sweepParts).mockImplementation(sweep.parts);
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--sweep-untied', '--json']),
+      ).toBe(3);
+
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: {
+          status: 'partial',
+          sweep: {
+            status: 'partial',
+            left: [expect.objectContaining({ class: 'untied', refusal: expect.any(String) })],
+          },
+        },
+      });
+      expect(sweep.org.ids('Task')).toEqual([REFUSED_UNTIED_LOOSE]);
     });
 
     it('exits 3 when the sweep is refused, and records it in the audit trail', async () => {

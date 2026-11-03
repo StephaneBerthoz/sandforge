@@ -975,6 +975,14 @@ export interface FrozenRemovalResult {
    */
   sweep?: ForgeSweepResult;
   /**
+   * What that sweep did for each other load the mapping records whose records
+   * all went — a load a reload replaced, kept for what its sweep left — swept
+   * with this one, as a reload sweeps every load it replaces: what the
+   * reload's sweep left of a load was reached by no removal, and stayed in the
+   * org. Absent when none was swept so.
+   */
+  otherLoadSweeps?: FrozenReloadSweep[];
+  /**
    * Per object, records the load created that the removal kept, never sent to
    * be deleted: the platform does not delete them — business hours. Absent
    * when the load created none.

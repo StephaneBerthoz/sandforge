@@ -965,7 +965,8 @@ Exit codes:
   3  the run was partial and --fail-on-partial was given; the removal left
      records of the run in the org: kept, or refused, or found neither in the
      org nor in its recycle bin, as the user it ran as sees them; or the sweep
-     was refused, or left some of what it found
+     was refused, or did not take all it was asked to (a --sweep-untied
+     refused included)
   130  Ctrl-C stopped the clone: the summary says what it created by then
   143  a SIGTERM stopped it — a CI job cancelled or timed out —, 129 a SIGHUP:
        as Ctrl-C does, the summary and the journal say what it created

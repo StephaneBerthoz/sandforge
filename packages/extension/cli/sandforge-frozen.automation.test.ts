@@ -345,6 +345,141 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     expect(stdout).toContain('removal: PARTIAL');
   });
 
+  describe('asked to take what is tied to nothing while another load of the sas wrote in the window', () => {
+    const ACCOUNT_B = fakeId('001', 2);
+    const LOOSE = fakeId('00T', 9);
+
+    beforeEach(async () => {
+      // A second load into the target, three seconds into the first, which
+      // keeps its records: what is tied to nothing may be the first's.
+      org.add('Account', rec(ACCOUNT_B, 'Second account'));
+      org.shape('Task', {});
+      org.add('Task', { ...rec(LOOSE, 'Loose task'), CreatedDate: '2026-10-01T10:00:04.000+0000' });
+      await new SasReferenceIdMappingStore(dir, {
+        orgId: ORG_ID,
+        organizationId: ORG_ID,
+        now: () => new Date('2026-10-01T10:00:06.000Z'),
+      }).persist(new Map([['Account-000002', ACCOUNT_B]]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000002'] }],
+        startedAt: new Date('2026-10-01T10:00:03.000Z'),
+        writtenBetween: { first: '2026-10-01T10:00:03.000Z', last: '2026-10-01T10:00:06.000Z' },
+        earlier: { settled: [] },
+        runUserId: USER,
+      });
+    });
+
+    it('ends partial and exits 3 when --sweep-untied is refused, where it ended a success and 0', async () => {
+      // Run for real: "sweep: SUCCESS", exit 0, above "--sweep-untied is
+      // refused" and the thirty tasks it left.
+      expect(
+        await remove('--sweep', '--sweep-untied', '--accept-automation', '--yes', '--json'),
+      ).toBe(3);
+
+      const answer = JSON.parse(stdout) as {
+        status: string;
+        posted: Array<{ type: string; payload: { result?: Record<string, unknown> } }>;
+      };
+      expect(answer.status).toBe('partial');
+      expect(
+        answer.posted.find((m) => m.type === 'frozen:remove:response')?.payload.result,
+      ).toMatchObject({
+        status: 'partial',
+        sweep: {
+          status: 'failure',
+          left: [
+            expect.objectContaining({
+              class: 'untied',
+              refusal: expect.stringContaining('Another run of this machine'),
+            }),
+          ],
+        },
+      });
+      expect(org.ids('Account')).toEqual([ACCOUNT]);
+      expect(org.ids('Task')).toEqual([LOOSE]);
+    });
+
+    it('says so in words too', async () => {
+      expect(await remove('--sweep', '--sweep-untied', '--accept-automation', '--yes')).toBe(3);
+
+      expect(stdout).toContain('sweep: FAILURE');
+      expect(stdout).toContain('--sweep-untied is refused');
+      expect(stdout).toContain('removal: PARTIAL');
+    });
+
+    it('stays a success, exit 0, when what is tied to nothing was not asked for', async () => {
+      expect(await remove('--sweep', '--accept-automation', '--yes')).toBe(0);
+
+      expect(stdout).toContain('sweep: SUCCESS');
+      expect(org.ids('Task')).toEqual([LOOSE]);
+    });
+  });
+
+  describe('of a chain whose reload left what the load it replaced was to take', () => {
+    const ACCOUNT_B = fakeId('001', 3);
+    const FIRST_LOOSE = fakeId('00T', 11);
+    const SECOND_LOOSE = fakeId('00T', 12);
+
+    beforeEach(async () => {
+      // The reload two minutes later purged the first load's records and its
+      // sweep, unasked, left the task the flow opened on nothing: the first
+      // load stays, with none of its records, for that task.
+      org.rows.set('Account', []);
+      org.rows.set('Case', []);
+      org.rows.set('Asset', []);
+      org.add('Account', {
+        ...rec(ACCOUNT_B, 'Reloaded account'),
+        CreatedDate: '2026-10-01T10:02:02.000+0000',
+      });
+      org.shape('Task', {});
+      org.add(
+        'Task',
+        { ...rec(FIRST_LOOSE, 'Trap follow-up'), CreatedDate: '2026-10-01T10:00:03.000+0000' },
+        { ...rec(SECOND_LOOSE, 'Trap follow-up'), CreatedDate: '2026-10-01T10:02:03.000+0000' },
+      );
+      await new SasReferenceIdMappingStore(dir, {
+        orgId: ORG_ID,
+        organizationId: ORG_ID,
+        now: () => new Date('2026-10-01T10:02:06.000Z'),
+      }).persist(new Map([['Account-000001', ACCOUNT_B]]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+        startedAt: new Date('2026-10-01T10:02:00.000Z'),
+        writtenBetween: { first: '2026-10-01T10:02:00.000Z', last: '2026-10-01T10:02:05.000Z' },
+        earlier: { settled: [ACCOUNT, CASE], stillToSweep: [WRITTEN_OVER] },
+        runUserId: USER,
+      });
+    });
+
+    it('takes what both loads left with --sweep --sweep-untied, none of the tasks staying, exit 0', async () => {
+      // Run for real: sixty tasks stayed, which only a delete by hand took.
+      expect(
+        await remove('--sweep', '--sweep-untied', '--accept-automation', '--yes', '--json'),
+      ).toBe(0);
+
+      expect(org.ids('Task')).toEqual([]);
+      expect(org.ids('Account')).toEqual([]);
+      const answer = JSON.parse(stdout) as {
+        status: string;
+        posted: Array<{ type: string; payload: { result?: Record<string, unknown> } }>;
+      };
+      expect(answer.status).toBe('success');
+      expect(
+        answer.posted.find((m) => m.type === 'frozen:remove:response')?.payload.result,
+      ).toMatchObject({
+        status: 'success',
+        otherLoadSweeps: [{ loadedAt: WRITTEN_OVER, result: { status: 'success' } }],
+      });
+    });
+
+    it('lists both with --sweep-list, the first load’s task among what it would take, and deletes nothing', async () => {
+      expect(await remove('--sweep-list')).toBe(0);
+
+      expect(stdout).toContain(`sweep of the load of ${WRITTEN_OVER}:`);
+      expect(stdout).toContain('sweep of the load of 2026-10-01T10:02:06.000Z:');
+      expect(stdout).not.toContain('--sweep-untied is refused');
+      expect(org.ids('Task')).toEqual([FIRST_LOOSE, SECOND_LOOSE]);
+    });
+  });
+
   it('mutes what fires on what the sweep deletes, under a lease taken after the question, and says it under --json', async () => {
     expect(await remove('--sweep', '--mute-automation', '--yes', '--json')).toBe(0);
 
@@ -958,6 +1093,33 @@ describe('the words of what a removal runs into', () => {
       `TGT runs automation on the records this reload's sweep deletes: Asset: flow "Asset guard" (before delete).`,
     );
     expect(sweepAlone.refusal).not.toContain('purge');
+  });
+
+  it('says that nothing fires on what a reload’s sweep deletes in a sweep’s words, where it said it writes them', () => {
+    // Run for real on the trap org: "nothing fires on the 1 object(s) it
+    // writes records of", under the line of a sweep that only deletes.
+    const quiet = removalAutomation(
+      { read: automationOn(['Contact'], false), steps: { setToDraft: [], delete: ['Contact'] } },
+      'TGT',
+      'reload',
+      { setToDraft: [], delete: ['Task'] },
+    );
+    const sweepAlone = removalAutomation(
+      { read: automationOn(['Task'], false), steps: { setToDraft: [], delete: ['Task'] } },
+      'TGT',
+      'reloadSweep',
+    );
+
+    expect(quiet.lines).toEqual([
+      'reload automation: what TGT runs as the reload purges what earlier loads created',
+      '  nothing fires on the 1 object(s) it writes records of',
+      "reload automation: what TGT runs as the reload's sweep deletes what the target's automation made for the loads it replaces",
+      '  nothing fires on the 1 object(s) it deletes records of',
+    ]);
+    expect(sweepAlone.lines).toEqual([
+      "reload automation: what TGT runs as the reload's sweep deletes what the target's automation made for the loads it replaces",
+      '  nothing fires on the 1 object(s) it deletes records of',
+    ]);
   });
 });
 

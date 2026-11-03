@@ -4,10 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   BaseMessage,
+  ForgeSweepListing,
   ForgeTargetAutomation,
   FrozenLoadReportInfo,
   FrozenProjectConfig,
   FrozenReloadSweepListing,
+  FrozenRemovalResult,
 } from '@sandforge/shared';
 
 import { FrozenDatasetHandler, type FrozenRemovalQuestion } from './FrozenDatasetHandler.js';
@@ -695,6 +697,256 @@ describe('a reload asked to sweep what the automation made for the loads it repl
       expect(errors()).toEqual([]);
       expect(tied.ids('Task')).toEqual([]);
       expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
+    });
+  });
+
+  describe('a chain of reloads a few minutes apart, each load’s flow opening a task tied to nothing', () => {
+    /**
+     * Each reload of the chain, as the target dated it: two minutes after the
+     * load, then five after that, as the trap org's chain ran. Each writes its
+     * account and contact, and the target's flow opens a task on nothing.
+     */
+    const RELOADS = [
+      { n: 2, first: '2026-10-01T10:07:00.000Z', last: '2026-10-01T10:07:30.000Z' },
+      { n: 3, first: '2026-10-01T10:12:00.000Z', last: '2026-10-01T10:12:30.000Z' },
+    ] as const;
+    /** The task the flow opened as the first load wrote, tied to nothing of it. */
+    const FIRST_TASK = id('00T', 11);
+    const taskOf = (n: number): string => id('00T', 10 + n);
+    let reloaded = 0;
+
+    /** The recorded loads, as the next reload or removal reads them. */
+    const recordedLoads = () =>
+      new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+      }).recordedLoads();
+
+    beforeEach(() => {
+      reloaded = 0;
+      // The trap org's flow opens its follow-up task on no record.
+      tied.rows.set('Task', []);
+      tied.add('Task', {
+        Id: FIRST_TASK,
+        Name: 'Follow-up',
+        CreatedById: USER,
+        CreatedDate: WITH_IT,
+        LastModifiedDate: WITH_IT,
+        LastModifiedById: USER,
+        SystemModstamp: WITH_IT,
+      });
+      loaderLoad.mockImplementation(async (options: FrozenLoadOptions) => {
+        const { n, first, last } = RELOADS[reloaded++];
+        await options.purgeSweep?.first();
+        const purged: string[] = [];
+        for (const object of ['Contact', 'Account']) {
+          const ids = tied.ids(object);
+          purged.push(...ids);
+          if (ids.length > 0) await tied.conn.sobject(object).destroy(ids);
+        }
+        if (!options.signal?.aborted) await options.purgeSweep?.afterPurge();
+        const at = `${last.slice(0, 19)}.000+0000`;
+        const made = (recordId: string, name: string, more = {}) => ({
+          Id: recordId,
+          Name: name,
+          CreatedById: USER,
+          CreatedDate: at,
+          LastModifiedDate: at,
+          LastModifiedById: USER,
+          SystemModstamp: at,
+          ...more,
+        });
+        tied.add('Account', made(id('001', n), `Account ${n}`));
+        tied.add('Contact', made(id('003', n), `Contact ${n}`, { AccountId: id('001', n) }));
+        tied.add('Task', made(taskOf(n), `Follow-up ${n}`));
+        const stillToSweep = options.purgeSweep?.stillToSweep?.() ?? [];
+        await new SasReferenceIdMappingStore(sasDir, {
+          orgId: TARGET_ORG,
+          organizationId: ORGANIZATION,
+          now: () => new Date(last),
+        }).persist(
+          new Map([
+            ['Account-000001', id('001', n)],
+            ['Contact-000001', id('003', n)],
+          ]),
+          {
+            created: [
+              { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+              { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+            ],
+            startedAt: new Date(first),
+            writtenBetween: { first, last },
+            earlier: {
+              settled: purged,
+              ...(stillToSweep.length > 0 ? { stillToSweep } : {}),
+            },
+            runUserId: USER,
+          },
+        );
+        return reloadReport();
+      });
+    });
+
+    it('takes what the load it replaced left once asked, though the load that replaced it wrote within a quarter of an hour', async () => {
+      // Run for real: "--sweep-untied is refused: Another run of this machine
+      // wrote to the target in this run's window", the run being the reload
+      // that had replaced it two minutes later; the tasks went from 30 to 60.
+      await reload({ sweep: true });
+      expect(tied.ids('Task')).toEqual([FIRST_TASK, taskOf(2)]);
+      expect((await recordedLoads()).find((load) => load.endedAt === LAST_WRITE)).toMatchObject({
+        created: [],
+      });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await reload({ sweep: true, sweepUntied: true });
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([taskOf(3)]);
+      expect(report()?.sweeps).toEqual([
+        {
+          loadedAt: RELOADS[0].last,
+          result: expect.objectContaining({ status: 'success' }),
+        },
+        {
+          loadedAt: LAST_WRITE,
+          result: expect.objectContaining({
+            status: 'success',
+            objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+          }),
+        },
+      ]);
+      expect(report()?.status).toBe('completed');
+      expect((await recordedLoads()).map((load) => load.endedAt)).toEqual([RELOADS[1].last]);
+    });
+
+    it('lists it with the reload’s dry run, its tasks to take, where it listed them refused', async () => {
+      await reload({ sweep: true });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(
+        buildMsg('frozen:remove:sweep', {
+          targetOrgId: TARGET_ORG,
+          loadedAt: RELOADS[0].last,
+          reload: true,
+        }),
+      );
+
+      const loads = posted<BaseMessage & { payload: { loads: FrozenReloadSweepListing[] } }>(
+        'frozen:remove:sweep:response',
+      )[0]?.payload.loads;
+      expect(loads?.map((load) => load.loadedAt)).toEqual([RELOADS[0].last, LAST_WRITE]);
+      expect(loads?.every((load) => load.listing.untied?.refusal === undefined)).toBe(true);
+      expect(loads?.[1]?.listing.untied?.objects).toEqual([{ objectApiName: 'Task', count: 1 }]);
+    });
+
+    it('still keeps what is tied to nothing while a run it does not sweep wrote in the window', async () => {
+      // A run of another module is none of the loads the reload replaces:
+      // whose a task on nothing is cannot be told.
+      await reload({ sweep: true });
+      handler.setOtherModuleRuns(async () => [
+        { ids: [], idsUntold: true, from: Date.parse(LAST_WRITE), to: Date.parse(LAST_WRITE) },
+      ]);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await reload({ sweep: true, sweepUntied: true });
+
+      expect(tied.ids('Task')).toEqual(expect.arrayContaining([FIRST_TASK]));
+      expect(report()?.status).toBe('partial');
+    });
+
+    describe('removed with a sweep once a reload’s sweep left what it was to take', () => {
+      const answer = (): FrozenRemovalResult | undefined =>
+        posted<BaseMessage & { payload: { result: FrozenRemovalResult } }>(
+          'frozen:remove:response',
+        )[0]?.payload.result;
+      const remove = (payload: Record<string, unknown> = {}) =>
+        handler.handle(
+          buildMsg('frozen:remove', {
+            targetOrgId: TARGET_ORG,
+            loadedAt: RELOADS[0].last,
+            ...payload,
+          }),
+        );
+
+      beforeEach(async () => {
+        // The reload left the first load's task, unasked: the first load is
+        // kept with none of its records for that task.
+        await reload({ sweep: true });
+        vi.mocked(deps.broker.postToWebview).mockClear();
+      });
+
+      it('sweeps the load kept for what its sweep left with the one it removes, and lets it go once that is taken', async () => {
+        // Run for real: the removal swept the last load's window alone, and
+        // sixty tasks stayed that only a delete by hand took.
+        await remove({ sweep: true, sweepUntied: true });
+
+        expect(errors('frozen:remove:error')).toEqual([]);
+        expect(tied.ids('Task')).toEqual([]);
+        expect(tied.ids('Contact')).toEqual([]);
+        expect(answer()).toMatchObject({
+          status: 'success',
+          sweep: { status: 'success' },
+          otherLoadSweeps: [
+            {
+              loadedAt: LAST_WRITE,
+              result: expect.objectContaining({
+                status: 'success',
+                objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+              }),
+            },
+          ],
+        });
+        expect((await recordedLoads()).map((load) => load.endedAt)).toEqual([RELOADS[0].last]);
+      });
+
+      it('keeps it while its sweep leaves what it was not asked to take', async () => {
+        await remove({ sweep: true });
+
+        expect(tied.ids('Task')).toEqual([FIRST_TASK, taskOf(2)]);
+        expect(answer()).toMatchObject({
+          status: 'success',
+          otherLoadSweeps: [
+            {
+              loadedAt: LAST_WRITE,
+              result: expect.objectContaining({
+                status: 'success',
+                left: [expect.objectContaining({ class: 'untied' })],
+              }),
+            },
+          ],
+        });
+        expect((await recordedLoads()).find((load) => load.endedAt === LAST_WRITE)).toMatchObject({
+          created: [],
+        });
+      });
+
+      it('lists what it takes for that load too, before anything is deleted', async () => {
+        const deleted = tied.deletes.length;
+        await handler.handle(
+          buildMsg('frozen:remove:sweep', { targetOrgId: TARGET_ORG, loadedAt: RELOADS[0].last }),
+        );
+
+        const answered = posted<
+          BaseMessage & {
+            payload: {
+              loadedAt: string;
+              listing: ForgeSweepListing;
+              otherLoads?: FrozenReloadSweepListing[];
+            };
+          }
+        >('frozen:remove:sweep:response')[0]?.payload;
+        expect(answered?.loadedAt).toBe(RELOADS[0].last);
+        expect(answered?.listing.untied?.objects).toEqual([{ objectApiName: 'Task', count: 1 }]);
+        expect(answered?.otherLoads).toEqual([
+          {
+            loadedAt: LAST_WRITE,
+            listing: expect.objectContaining({
+              untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+            }),
+          },
+        ]);
+        expect(tied.deletes).toHaveLength(deleted);
+      });
     });
   });
 });

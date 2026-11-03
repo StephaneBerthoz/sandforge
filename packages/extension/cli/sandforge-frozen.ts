@@ -264,22 +264,27 @@ ${checkpointFirstHelp({
                          every record of the load; one that left records of its own
                          keeps its own status. Once the load's records went already,
                          the sweep runs alone, the way to take what such a sweep
-                         left (off otherwise). With load --reload: the sweep of
-                         each load the reload replaces, as its removal sweeps it,
-                         around the purge; what the target runs as it deletes is
-                         named once it has read what it takes, before the first
-                         delete, and answered as the purge's; with --dry-run, it
-                         lists what it would take. One refused, or that did not
-                         take all it was asked to, exits 3
+                         left (off otherwise). It sweeps too, each in its own
+                         window, every other load recorded whose records went — a
+                         load a reload replaced, kept for what its sweep left —,
+                         and lets it go once that sweep took all it found. With
+                         load --reload: the sweep of each load the reload
+                         replaces, as its removal sweeps it, around the purge;
+                         what the target runs as it deletes is named once it has
+                         read what it takes, before the first delete, and
+                         answered as the purge's; with --dry-run, it lists what
+                         it would take. One refused, or that did not take all it
+                         was asked to, exits 3
   --sweep-late           with --sweep: take too what it lists as made late
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
                          the load; refused when another run wrote to the target
-                         in the window, or when that user created records in the
-                         window on objects neither the load nor the automation
-                         reaches (hand work, likely)
+                         in the window — a load swept with it is none —, or when
+                         that user created records in the window on objects
+                         neither the load nor the automation reaches (hand work,
+                         likely)
   --sweep-list           with remove: list what --sweep would delete, per object
                          with a few names and how many it ties to the load, and
-                         delete nothing
+                         for each other load it sweeps with it, and delete nothing
   --preview              with remove: say what the removal would do, per object — the
                          records it would delete, those it would keep as changed since
                          the load and who changed them, those gone already, those it
@@ -1547,6 +1552,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         status: string;
         leftBy?: string;
         sweep?: ForgeSweepResult;
+        otherLoadSweeps?: FrozenReloadSweep[];
         mutedAutomation?: MutedAutomation;
         objects: Array<{
           objectApiName: string;
@@ -1573,6 +1579,11 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       return [
         // The sweep ran first, before the load's records went.
         ...(r.sweep ? sweepLines(r.sweep) : []),
+        // Then, around them, the sweep of each other load it swept with it.
+        ...(r.otherLoadSweeps ?? []).flatMap(({ loadedAt, result }) => [
+          `sweep of the load of ${loadedAt}:`,
+          ...sweepLines(result),
+        ]),
         ...(alone
           ? []
           : [
@@ -1602,6 +1613,17 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         return loads.flatMap(({ loadedAt, listing }) => [
           `sweep of the load of ${loadedAt}:`,
           ...sweepListingLines(listing, 'the target org', take),
+        ]);
+      }
+      // A removal's: the load's, then each other load it sweeps with it.
+      const others = (p.otherLoads as FrozenReloadSweepListing[] | undefined) ?? [];
+      if (others.length > 0) {
+        return [
+          { loadedAt: String(p.loadedAt), listing: p.listing as ForgeSweepListing },
+          ...others,
+        ].flatMap(({ loadedAt, listing }) => [
+          `sweep of the load of ${loadedAt}:`,
+          ...sweepListingLines(listing, 'the target org'),
         ]);
       }
       return sweepListingLines(p.listing as ForgeSweepListing, 'the target org');

@@ -484,9 +484,11 @@ than it has left today, emails it delivers without --accept-emails
 without --accept-automation — or the run produced only failures, or it
 stopped on an error (its file keeps what it created); 2 a bad command line,
 or a summary or a file --remove cannot take a run back from; 3 the removal
-left records of the run in the target, or the run was partial and
---fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a SIGTERM (a CI
-job cancelled or timed out), 129 a SIGHUP: its file keeps what it created.
+left records of the run in the target, or its sweep was refused or did not
+take all it was asked to (a --sweep-untied refused included), or the run was
+partial and --fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a
+SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps what it
+created.
 `;
 
 /** One object to sync, as the command line describes it. */
