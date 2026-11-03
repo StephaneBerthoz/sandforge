@@ -78,6 +78,40 @@ describe('LiveOperationTracker', () => {
     expect(tracker.getAll()).toHaveLength(0);
   });
 
+  it('marks a run that ended with part of its work not done as partial, where it stopped', () => {
+    tracker.register('op-1', 'seed', 'Seeding');
+    tracker.updateProgress('op-1', 80, 80, 100, 'Contact');
+    tracker.partial('op-1');
+
+    const op = tracker.get('op-1');
+    expect(op?.status).toBe('partial');
+    expect(op?.percentage).toBe(80);
+    expect(op?.error).toBeUndefined();
+  });
+
+  it('counts a partial run as ended, and keeps it listed as long as a failed one', () => {
+    tracker.register('op-1', 'seed', 'Seeding');
+    tracker.partial('op-1');
+
+    expect(tracker.getActive()).toEqual([]);
+    expect(tracker.activeCount).toBe(0);
+    vi.advanceTimersByTime(59_999);
+    expect(tracker.getAll()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(tracker.getAll()).toHaveLength(0);
+  });
+
+  it('notifies of a partial end, and ignores one for an unknown operation', () => {
+    const handler = vi.fn();
+    tracker.register('op-1', 'seed', 'Seeding');
+    tracker.onChange(handler);
+
+    tracker.partial('op-1');
+    tracker.partial('nonexistent');
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('pauses and resumes an operation', () => {
     tracker.register('op-1', 'sync', 'Syncing', 100);
     tracker.pause('op-1');

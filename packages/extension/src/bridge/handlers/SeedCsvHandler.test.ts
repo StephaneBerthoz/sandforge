@@ -737,6 +737,19 @@ describe('SeedCsvHandler', () => {
       tracker.dispose();
     });
 
+    it('lists an import the org refused a row of as partial', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '001TGT1', success: true, errors: [] },
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ records: [{ name: 'Acme' }, { name: 'Beta' }] })),
+      );
+
+      expect(tracker.get(OPERATION_ID)?.status).toBe('partial');
+    });
+
     it('lists an import while it runs, with its rows, under the id its Cancel reaches it by', async () => {
       let listed: LiveOperation[] = [];
       writer.insert.mockImplementation(async () => {

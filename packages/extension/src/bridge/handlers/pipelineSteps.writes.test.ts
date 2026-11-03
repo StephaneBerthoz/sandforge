@@ -344,7 +344,7 @@ describe('the Seed step', () => {
       })),
     });
     const result = await executorWith(flows).execute(step('seed', SEED), context());
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
     expect(result.error).toContain(
       "3 records in dev, which stay there; take them back from Seed's",
     );
@@ -657,7 +657,7 @@ describe('the Rewind step', () => {
       step('rewind', REWIND),
       context(),
     );
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
     expect(result.error).toContain('Undo on the Checkpoints page takes it back');
   });
 
@@ -670,7 +670,7 @@ describe('the Rewind step', () => {
       context(),
     );
     expect(rewind).toHaveBeenCalledTimes(1);
-    expect(result.cancelled).toBe(true);
+    expect(result.status).toBe('stopped');
   });
 });
 

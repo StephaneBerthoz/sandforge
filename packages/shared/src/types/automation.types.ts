@@ -245,7 +245,14 @@ export interface PipelineStepResult {
   stepId: UUID;
   stepName: string;
   stepType: PipelineStepType;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  /**
+   * `stopped`: a person stopped the step, or the run it belongs to, before it
+   * finished — a Cancel, on the page or in Live Operations, or the work it
+   * started cancelled from there, a Backup's snapshot. It is no failure: it
+   * was not tried again, its run ends cancelled, and `error` says what the
+   * stop left. A step's own timeout is a failure.
+   */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
   output?: Record<string, unknown>;
   /**
    * What the step did, in one sentence: the records a backup took, the
@@ -254,13 +261,6 @@ export interface PipelineStepResult {
    */
   summary?: string;
   error?: string;
-  /**
-   * Set when the work the step started was cancelled rather than failed: a
-   * Backup whose snapshot was cancelled from Live Operations. The step is not
-   * tried again, and its run ends cancelled. Its status stays `failed`, as for
-   * the step a cancelled run stops: it did not do its work.
-   */
-  cancelled?: boolean;
   /** For an Approval step: who answered it, when, and how — or that nobody did. */
   approval?: PipelineApprovalRecord;
   startTime?: ISODateString;
@@ -277,7 +277,7 @@ export interface PipelineHistoryStep {
   duration?: number;
   /** What the step did (see {@link PipelineStepResult.summary}). */
   summary?: string;
-  /** Why the step failed. */
+  /** Why the step failed, or what its stop left. */
   error?: string;
   /** For an Approval step: who answered it, when, and how (see {@link PipelineStepResult.approval}). */
   approval?: PipelineApprovalRecord;

@@ -726,6 +726,41 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
   });
 });
 
+describe('useAutomationPageData — a stopped run says so', () => {
+  it('names the step it stopped at, as news and not as an error', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('pipeline:execute').data = {
+      id: 'run-1',
+      status: 'cancelled',
+      stepResults: [
+        { stepId: 'a', stepName: 'Snapshot', status: 'completed' },
+        { stepId: 'b', stepName: 'Pause', status: 'stopped', error: 'Stopped before it finished.' },
+      ],
+    };
+    rerender();
+
+    const message = 'The pipeline run was stopped at step "Pause": the steps after it did not run.';
+    expect(messages(message)).toHaveLength(1);
+    expect(messages(message)[0].level).toBe('info');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('says it stopped between two steps when no step was going', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('pipeline:execute').data = {
+      id: 'run-2',
+      status: 'cancelled',
+      stepResults: [{ stepId: 'a', stepName: 'Snapshot', status: 'completed' }],
+    };
+    rerender();
+
+    expect(messages('The pipeline run was stopped: the steps left did not run.')).toHaveLength(1);
+    expect(result.current.error).toBeNull();
+  });
+});
+
 describe('useAutomationPageData — a failed run says why', () => {
   it('reports the host reason under a translated headline', () => {
     const { result, rerender } = renderHook(() => useAutomationPageData());
@@ -858,6 +893,24 @@ describe('useAutomationPageData — a run in progress', () => {
       'pending',
     ]);
     expect(result.current.executionData?.steps[0].summary).toBe('Waited 1 s.');
+    expect(result.current.executionData?.progress).toBe(50);
+  });
+
+  it('counts a stopped step among the steps that ended, and shows it stopped', () => {
+    const { result } = startRun();
+    const [first] = result.current.pipeline?.steps ?? [];
+
+    receive('pipeline:step', {
+      operationId: 'wv-run-1',
+      stepId: first.id,
+      status: 'stopped',
+      error: 'Step was stopped before it finished.',
+    });
+
+    expect(result.current.executionData?.steps.map((s) => s.status)).toEqual([
+      'stopped',
+      'pending',
+    ]);
     expect(result.current.executionData?.progress).toBe(50);
   });
 

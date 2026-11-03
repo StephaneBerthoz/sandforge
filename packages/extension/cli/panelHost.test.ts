@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createPanelHost, orgFromIdentity, problemLine, settles } from './panelHost.js';
 import type { PostedMessage } from './panelHost.js';
+import type { InfraServices } from '../src/bridge/ExtensionHandlers.js';
+import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 
 const session = {
   alias: 'TGT',
@@ -192,6 +194,102 @@ describe('createPanelHost', () => {
       expect(lines).toContain('  notification: Headless: Done.');
       // Each step reached the page as it went.
       expect(host.posted.filter((m) => m.type === 'pipeline:step')).toHaveLength(4);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('hands the Monitor a pipeline that carried on past a failed step as partial', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      const host = createPanelHost({ storeDir: dir, log: () => undefined, waitMs: 5_000 });
+
+      const run = await host.request({
+        type: 'pipeline:execute',
+        responseType: 'pipeline:run:response',
+        payload: {
+          pipeline: {
+            id: 'p-partial',
+            name: 'Part done',
+            steps: [
+              {
+                id: 's1',
+                name: 'Too short',
+                type: 'delay',
+                config: { seconds: 5 },
+                timeout: 10,
+                continueOnError: true,
+              },
+              { id: 's2', name: 'Wait', type: 'delay', config: { seconds: 0 } },
+            ],
+          },
+        },
+      });
+      const listed = await host.request({ type: 'monitor:live-operations' });
+
+      expect((run.message?.payload as { status?: string }).status).toBe('completed_with_warnings');
+      expect((listed.message?.payload as { operations?: unknown }).operations).toEqual([
+        expect.objectContaining({ module: 'automation', status: 'partial' }),
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('answers a pipeline stopped from the page with the step stopped, not failed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      const registry = new BackgroundOperationRegistry();
+      let stopping: Promise<unknown> | undefined;
+      const host: ReturnType<typeof createPanelHost> = createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        compose: ({ handlers }) => {
+          handlers.setBackgroundRegistry(registry);
+          handlers.setInfraServices({
+            backgroundRegistry: registry,
+          } as Partial<InfraServices> as InfraServices);
+        },
+        // The run's first step started: Cancel, as the page sends it.
+        onPost: (message) => {
+          if (message.type !== 'pipeline:step' || stopping) return;
+          const { operationId } = message.payload as { operationId: string };
+          stopping = Promise.resolve().then(() =>
+            host.request({ type: 'execution:abort', payload: { operationId } }),
+          );
+        },
+      });
+
+      const run = await host.request({
+        type: 'pipeline:execute',
+        responseType: 'pipeline:run:response',
+        payload: {
+          pipeline: {
+            id: 'p-stopped',
+            name: 'Stopped',
+            steps: [
+              { id: 's1', name: 'Long', type: 'delay', config: { seconds: 60 } },
+              { id: 's2', name: 'Next', type: 'delay', config: { seconds: 0 } },
+            ],
+          },
+        },
+      });
+      await stopping;
+      const listed = await host.request({ type: 'monitor:live-operations' });
+
+      expect(run.message?.payload).toMatchObject({
+        status: 'cancelled',
+        stepResults: [{ stepId: 's1', status: 'stopped' }],
+      });
+      expect(host.posted.filter((m) => m.type === 'pipeline:step').at(-1)?.payload).toMatchObject({
+        stepId: 's1',
+        status: 'stopped',
+      });
+      expect((listed.message?.payload as { operations?: unknown }).operations).toEqual([
+        expect.objectContaining({ module: 'automation', status: 'cancelled' }),
+      ]);
+      registry.dispose();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -156,6 +156,28 @@ describe('useRecentOpsFeed', () => {
     expect(useRecentOpsStore.getState().ops[0]?.status).toBe('cancelled');
   });
 
+  it.each([
+    ['a run that wrote part of what it was asked', { status: 'partial' }],
+    ['a backup a cap cut short', { status: 'partial', totalRecords: 1500 }],
+    ['a pipeline that carried on past a failed step', { status: 'completed_with_warnings' }],
+    ['a Frozen load the org refused part of', { status: 'completed-with-errors' }],
+  ])('marks the op as partial, not as a success: %s', (_what, result) => {
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-6',
+        module: 'seed',
+        description: 'Seed data generation',
+      });
+    });
+    act(() => {
+      dispatchMessage('operation:completed', { operationId: 'op-6', result });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.status).toBe('partial');
+  });
+
   it('marks the op as failed on operation:failed', () => {
     renderHook(() => useRecentOpsFeed());
 

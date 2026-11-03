@@ -30,17 +30,30 @@ function toRecentOpType(module: string): RecentOp['type'] {
 }
 
 /**
+ * The words a run that ended with part of its work not done completes with:
+ * a run's own, a pipeline's that carried on past a failed step, a Frozen
+ * load's that the org refused part of.
+ */
+const PARTIAL_STATUSES: ReadonlySet<unknown> = new Set([
+  'partial',
+  'completed_with_warnings',
+  'completed-with-errors',
+]);
+
+/**
  * The status an `operation:completed` result gives its operation.
  *
  * A completion is not always a success. A run that ends with a failure status
  * — nothing written, or refused — failed, however it ended. A run that was
  * stopped says so in one of two ways: `aborted: true` (a Forge discovery
  * cancelled or replaced, a snapshot cancelled) or a `cancelled` status (a
- * pipeline run). Both were listed as successes.
+ * pipeline run). Both were listed as successes, and so was a run that wrote
+ * part of what it was asked.
  */
 function completedStatus(result: Record<string, unknown>): RecentOp['status'] {
   if (result['aborted'] === true || result['status'] === 'cancelled') return 'cancelled';
-  return result['status'] === 'failure' ? 'failed' : 'success';
+  if (result['status'] === 'failure') return 'failed';
+  return PARTIAL_STATUSES.has(result['status']) ? 'partial' : 'success';
 }
 
 /** Extract a record count from the loose operation:completed result bag. */

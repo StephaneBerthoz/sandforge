@@ -23,7 +23,7 @@ import type { SchedulerCalendarProps } from './SchedulerCalendar';
 const LoadedRewindStepConfirm = lazy(() =>
   withEnglish(
     () => import('./RewindStepConfirm'),
-    ['checkpoint', 'orgAutomation', 'runRemoval'],
+    ['automationMute', 'checkpoint', 'orgAutomation', 'runRemoval'],
   )().then((module) => ({
     default: module.RewindStepConfirm,
   })),

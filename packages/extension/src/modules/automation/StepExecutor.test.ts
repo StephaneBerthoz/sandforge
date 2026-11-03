@@ -191,7 +191,7 @@ describe('StepExecutor', () => {
       // Settled with 59 s of the wait still on the clock.
       expect(settled).toBe(true);
       const result = await promise;
-      expect(result.status).toBe('failed');
+      expect(result.status).toBe('stopped');
       expect(result.error).toBe('Step "Pause" was stopped before it finished.');
       expect(vi.getTimerCount()).toBe(0);
     });
@@ -205,7 +205,7 @@ describe('StepExecutor', () => {
         createContext({ signal: aborter.signal }),
       );
 
-      expect(result.status).toBe('failed');
+      expect(result.status).toBe('stopped');
       expect(result.error).toBe('Step "Pause" was stopped before it started.');
       expect(vi.getTimerCount()).toBe(0);
     });
@@ -501,7 +501,7 @@ describe('StepExecutor', () => {
       expect(attempts).toBe(3);
     });
 
-    it('does not try again a step whose work was cancelled, and says it was cancelled', async () => {
+    it('does not try again a step whose work was cancelled, and says it was stopped', async () => {
       // A Backup cancelled from Live Operations failed like any other error,
       // and each retry took a new snapshot of what the person had stopped.
       const handler = vi.fn(async () => {
@@ -516,13 +516,12 @@ describe('StepExecutor', () => {
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({
-        status: 'failed',
+        status: 'stopped',
         error: 'Backup was cancelled before it finished.',
-        cancelled: true,
       });
     });
 
-    it('marks no other failure cancelled', async () => {
+    it('marks no other failure stopped', async () => {
       executor.registerHandler('backup', async () => {
         throw new Error('socket hang up');
       });
@@ -530,7 +529,7 @@ describe('StepExecutor', () => {
       const result = await executor.execute(createStep({ type: 'backup' }), createContext());
 
       expect(result.error).toBe('socket hang up');
-      expect(result).not.toHaveProperty('cancelled');
+      expect(result.status).toBe('failed');
     });
   });
 

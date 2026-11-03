@@ -242,6 +242,7 @@
       "noOperations": "No operations running",
       "cancel": "Cancel",
       "resumeRun": "Resume",
+      "partialHint": "Not everything went through: its results say what was left.",
       "resumeRunHint": "Take this clone up where it stopped",
       "resumeRunRefused": "The clone could not be taken up",
       "recsPerSec": "rec/s",
@@ -2492,6 +2493,7 @@
       "cancelled": "Cancelled",
       "pending": "Pending",
       "skipped": "Skipped",
+      "stopped": "Stopped",
       "missed": "Missed"
     },
     "scheduler": "Scheduler",
@@ -2533,6 +2535,8 @@
     "noMarketplaceTemplatesDesc": "Community templates will appear here",
     "installTemplate": "Install",
     "runFailed": "The pipeline run failed: {{reason}}",
+    "runStopped": "The pipeline run was stopped: the steps left did not run.",
+    "runStoppedAt": "The pipeline run was stopped at step \"{{step}}\": the steps after it did not run.",
     "runRefusedUnknownType": "The pipeline did not start: step \"{{step}}\" is a \"{{type}}\" step, a step type SandForge does not have. Remove the step, or update SandForge.",
     "runnability": {
       "cannotRun": "Cannot run",
@@ -3561,6 +3565,7 @@
     },
     "opStatus": {
       "success": "Succeeded",
+      "partial": "Partial",
       "running": "Running",
       "paused": "Paused",
       "failed": "Failed",

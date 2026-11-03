@@ -2870,6 +2870,8 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
       if (result.status === 'failure') {
         this.liveTracker?.fail(operationId, 'Forge execution finished with a failure status.');
+      } else if (result.status === 'partial') {
+        this.liveTracker?.partial(operationId);
       } else {
         this.liveTracker?.complete(operationId);
       }
@@ -5842,6 +5844,8 @@ export class ForgeHandler implements DomainHandler {
         if (failed) {
           runError = new Error(failed);
           this.liveTracker?.fail(operationId, failed);
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

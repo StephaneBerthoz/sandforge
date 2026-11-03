@@ -494,6 +494,37 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
       expect(conn.describe.mock.calls.map(([name]) => name)).toEqual(['Contact']);
     });
 
+    it('asks the org for each object once on the page too, over two objects and a snapshot', async () => {
+      const lead = describeOf('Lead', [
+        'Id',
+        'FirstName',
+        'LastName',
+        'Email',
+        'Phone',
+        'Street',
+        'City',
+        'PostalCode',
+      ]);
+      const { conn } = orgOf(contactsOf(3), { describes: { Lead: lead } });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'mask-two',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-dev',
+            templateId: 'tpl-gdpr-standard',
+            objects: ['Contact', 'Lead'],
+            snapshot: true,
+          },
+        }),
+      );
+
+      expect(posted('dataops:anonymize:response')).toHaveLength(1);
+      expect(conn.describe.mock.calls.map(([name]) => name)).toEqual(['Contact', 'Lead']);
+    });
+
     it('refuses an object the template has no rule for, and masks one it has', async () => {
       const { update } = orgOf(contactsOf(3));
 

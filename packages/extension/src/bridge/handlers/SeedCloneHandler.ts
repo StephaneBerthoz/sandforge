@@ -1977,6 +1977,8 @@ export class SeedCloneHandler implements DomainHandler {
         });
         if (cloneFailed !== undefined) {
           this.liveTracker?.fail(operationId, cloneFailed);
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

@@ -242,6 +242,7 @@
       "noOperations": "Keine laufenden Operationen",
       "cancel": "Abbrechen",
       "resumeRun": "Fortsetzen",
+      "partialHint": "Nicht alles wurde ausgeführt: Die Ergebnisse nennen, was offen blieb.",
       "resumeRunHint": "Diesen Klon dort fortsetzen, wo er stoppte",
       "resumeRunRefused": "Der Klon konnte nicht fortgesetzt werden",
       "recsPerSec": "DS/s",
@@ -2492,6 +2493,7 @@
       "cancelled": "Abgebrochen",
       "pending": "Ausstehend",
       "skipped": "Übersprungen",
+      "stopped": "Angehalten",
       "missed": "Verpasst"
     },
     "scheduler": "Planer",
@@ -2533,6 +2535,8 @@
     "noMarketplaceTemplatesDesc": "Community-Vorlagen erscheinen hier",
     "installTemplate": "Installieren",
     "runFailed": "Die Pipeline-Ausführung ist fehlgeschlagen: {{reason}}",
+    "runStopped": "Die Pipeline-Ausführung wurde angehalten: Die übrigen Schritte wurden nicht ausgeführt.",
+    "runStoppedAt": "Die Pipeline-Ausführung wurde bei Schritt „{{step}}“ angehalten: Die folgenden Schritte wurden nicht ausgeführt.",
     "runRefusedUnknownType": "Die Pipeline wurde nicht gestartet: Der Schritt „{{step}}“ hat den Typ „{{type}}“, den SandForge nicht kennt. Entfernen Sie den Schritt oder aktualisieren Sie SandForge.",
     "runnability": {
       "cannotRun": "Nicht ausführbar",
@@ -3561,6 +3565,7 @@
     },
     "opStatus": {
       "success": "Erfolgreich",
+      "partial": "Teilweise",
       "running": "Läuft",
       "paused": "Pausiert",
       "failed": "Fehlgeschlagen",

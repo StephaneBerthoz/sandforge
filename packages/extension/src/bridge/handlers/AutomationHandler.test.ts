@@ -925,9 +925,16 @@ describe('AutomationHandler', () => {
       const result = runResponse(deps);
       expect(result.status).toBe('cancelled');
       expect(result.stepResults).toEqual([
-        expect.objectContaining({ stepId: 's1', status: 'failed' }),
+        expect.objectContaining({ stepId: 's1', status: 'stopped' }),
       ]);
-      expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
+      const entry = onlyHistoryEntry(deps);
+      expect(entry['status']).toBe('cancelled');
+      // The stop is no error, and the page hears of the step as it stopped.
+      expect(entry['errorCount']).toBe(0);
+      expect(posted(deps, 'pipeline:step').at(-1)?.payload).toMatchObject({
+        stepId: 's1',
+        status: 'stopped',
+      });
       expect(posted(deps, 'operation:failed')).toHaveLength(0);
     });
 
@@ -965,6 +972,21 @@ describe('AutomationHandler', () => {
       await started;
 
       expect(tracker.get('run-listed')?.status).toBe('cancelled');
+      tracker.dispose();
+    });
+
+    it('lists a run that carried on past a failed step as partial', async () => {
+      deps.services = servicesReturning({
+        id: 'run-abc',
+        status: 'completed_with_warnings',
+        stepResults: [{ stepId: 's1', status: 'failed', error: 'socket hang up' }],
+      });
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      await run([{ type: 'delay', config: { seconds: 0 }, continueOnError: true }], 'run-warned');
+
+      expect(tracker.get('run-warned')?.status).toBe('partial');
       tracker.dispose();
     });
 
@@ -1016,10 +1038,9 @@ describe('AutomationHandler', () => {
       expect(result.stepResults).toEqual([
         expect.objectContaining({
           stepId: 's1',
-          status: 'failed',
+          status: 'stopped',
           error:
             'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.',
-          cancelled: true,
         }),
       ]);
       expect(flows.notify).not.toHaveBeenCalled();
@@ -1164,9 +1185,14 @@ describe('AutomationHandler', () => {
       expect(result.error).toBe(
         'Pipeline ran out of time: sandforge.pipeline.timeout stopped it after 30 ms.',
       );
+      // Nobody stopped its step: it failed with the run, on the page too.
       expect(result.stepResults).toEqual([
         expect.objectContaining({ stepId: 's1', status: 'failed' }),
       ]);
+      expect(posted(deps, 'pipeline:step').at(-1)?.payload).toMatchObject({
+        stepId: 's1',
+        status: 'failed',
+      });
 
       const [failure] = posted(deps, 'operation:failed') as unknown as Array<{
         payload: { error: string; retryable: boolean };

@@ -1233,6 +1233,50 @@ describe('SyncOpsHandler', () => {
       tracker.dispose();
     });
 
+    it.each([
+      ['partial', { status: 'partial' }, { status: 'partial' }],
+      [
+        'failed, with what stopped it',
+        { status: 'failure', error: 'Sync refused: no field in common.' },
+        { status: 'failed', error: 'Sync refused: no field in common.' },
+      ],
+      [
+        'failed, every record refused',
+        { status: 'failure' },
+        { status: 'failed', error: 'No record could be synced.' },
+      ],
+    ])('lists a run that resolved %s as it ended', async (_name, resolved, listed) => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return { execute: vi.fn().mockResolvedValue(resolved) };
+        }),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        limitInfo: undefined,
+      } as never);
+
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
+        id: 'sync-live-ended',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      });
+
+      await handler.handle(msg);
+
+      expect(tracker.get('sync-live-ended')).toMatchObject(listed);
+      tracker.dispose();
+    });
+
     it('tracks scheduled executions as well', async () => {
       const tracker = new LiveOperationTracker();
       handler.setLiveOperationTracker(tracker);

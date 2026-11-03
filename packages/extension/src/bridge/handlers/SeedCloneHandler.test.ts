@@ -2318,6 +2318,24 @@ describe('SeedCloneHandler', () => {
       expect(tracker.get(OPERATION_ID)?.status).toBe('completed');
     });
 
+    it('lists a clone the org refused part of as partial', async () => {
+      writer.insert.mockImplementation(async (name: string) =>
+        name === 'Contact'
+          ? [{ id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: LastName'] }]
+          : [{ id: '001TGT', success: true, errors: [] }],
+      );
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }] }),
+        ),
+      );
+
+      expect(tracker.get(OPERATION_ID)?.status).toBe('partial');
+    });
+
     it('counts the objects already written in as the upload of the next one goes', async () => {
       linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
       fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>

@@ -242,6 +242,7 @@
       "noOperations": "Aucune opération en cours",
       "cancel": "Annuler",
       "resumeRun": "Reprendre",
+      "partialHint": "Tout n'est pas passé : ses résultats disent ce qui reste.",
       "resumeRunHint": "Reprendre ce clonage là où il s'est arrêté",
       "resumeRunRefused": "Le clonage n'a pas pu être repris",
       "recsPerSec": "enr/s",
@@ -2492,6 +2493,7 @@
       "cancelled": "Annulé",
       "pending": "En attente",
       "skipped": "Ignoré",
+      "stopped": "Arrêté",
       "missed": "Manqué"
     },
     "scheduler": "Planificateur",
@@ -2533,6 +2535,8 @@
     "noMarketplaceTemplatesDesc": "Les modèles communautaires apparaîtront ici",
     "installTemplate": "Installer",
     "runFailed": "L'exécution du pipeline a échoué : {{reason}}",
+    "runStopped": "L'exécution du pipeline a été arrêtée : les étapes restantes n'ont pas été lancées.",
+    "runStoppedAt": "L'exécution du pipeline a été arrêtée à l'étape « {{step}} » : les étapes suivantes n'ont pas été lancées.",
     "runRefusedUnknownType": "Le pipeline n'a pas démarré : l'étape « {{step}} » est de type « {{type}} », un type d'étape que SandForge n'a pas. Retirez l'étape, ou mettez SandForge à jour.",
     "runnability": {
       "cannotRun": "Non exécutable",
@@ -3561,6 +3565,7 @@
     },
     "opStatus": {
       "success": "Réussie",
+      "partial": "Partielle",
       "running": "En cours",
       "paused": "En pause",
       "failed": "Échouée",

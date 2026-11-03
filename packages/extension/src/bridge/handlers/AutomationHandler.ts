@@ -1118,6 +1118,14 @@ export class AutomationHandler implements DomainHandler {
       pipeline.steps.length,
     );
 
+    /**
+     * A step as the run's reader is told of it. One the time budget stopped
+     * failed, with its run: nobody stopped it, and it did not do its work in
+     * the time it was given.
+     */
+    const asEnded = (step: PipelineStepResult): PipelineStepResult =>
+      outOfTime && step.status === 'stopped' ? { ...step, status: 'failed' } : step;
+
     const stepCompletedListener = (_event: unknown, data: unknown): void => {
       const stepData = data as {
         runId: string;
@@ -1138,16 +1146,16 @@ export class AutomationHandler implements DomainHandler {
       this.postStepUpdate({ operationId, stepId, status: 'running' });
     };
     const stepEndedListener = (_event: unknown, data: unknown): void => {
-      const { stepResult } = data as { stepResult: PipelineStepResult };
+      const stepResult = asEnded((data as { stepResult: PipelineStepResult }).stepResult);
       this.postStepUpdate({
         operationId,
         stepId: stepResult.stepId,
         status:
-          stepResult.status === 'failed'
-            ? 'failed'
-            : stepResult.status === 'skipped'
-              ? 'skipped'
-              : 'completed',
+          stepResult.status === 'failed' ||
+          stepResult.status === 'skipped' ||
+          stepResult.status === 'stopped'
+            ? stepResult.status
+            : 'completed',
         ...(stepResult.duration !== undefined ? { duration: stepResult.duration } : {}),
         ...(stepResult.summary !== undefined ? { summary: stepResult.summary } : {}),
         ...(stepResult.error !== undefined ? { error: stepResult.error } : {}),
@@ -1214,6 +1222,7 @@ export class AutomationHandler implements DomainHandler {
           ...run,
           status: 'failed',
           error: `Pipeline ran out of time: sandforge.pipeline.timeout stopped it after ${pipelineTimeout} ms.`,
+          stepResults: run.stepResults.map(asEnded),
         }
       : run;
     settleRegistered(
@@ -1221,6 +1230,7 @@ export class AutomationHandler implements DomainHandler {
     );
     if (result.status === 'failed') live.fail(result.error ?? 'Pipeline failed');
     else if (result.status === 'cancelled') live.cancel();
+    else if (result.status === 'completed_with_warnings') live.partial();
     else live.complete();
 
     this.deps.infraServices?.performanceTracker?.complete(operationId);

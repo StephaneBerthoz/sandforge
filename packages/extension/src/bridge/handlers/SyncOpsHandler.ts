@@ -2786,7 +2786,15 @@ export class SyncOpsHandler implements DomainHandler {
         sendOperationCompleted(this.deps, operationId, {
           status: (result as { status?: string }).status ?? 'completed',
         });
-        this.liveTracker?.complete(operationId);
+        // A run the org refused whole, or that a check stopped, resolves too:
+        // it is no more a success in Live Operations than on the Sync page.
+        if (result.status === 'failure') {
+          this.liveTracker?.fail(operationId, result.error ?? 'No record could be synced.');
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
       }
       this.dmlTracker.markCompleted(operationId);
       if (config.files) {

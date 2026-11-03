@@ -618,6 +618,16 @@ describe('forge:undo', () => {
     expect(history()[0].undo).toMatchObject({ deleted: 1, kept: 2 });
   });
 
+  it('lists a removal that kept records as partial in Live Operations', async () => {
+    (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+    expect(tracker.getAll()).toEqual([
+      expect.objectContaining({ module: 'forge', status: 'partial' }),
+    ]);
+  });
+
   it('removes a contact modified since the run when the request includes it', async () => {
     (org.rows.get('Contact') ?? [])[0].LastModifiedDate = AFTER_RUN;
 

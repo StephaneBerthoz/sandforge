@@ -1604,7 +1604,13 @@ describe('DataOpsHandler', () => {
       });
 
       it('calls a partly rejected restore partial, not a success', async () => {
+        const tracker = new LiveOperationTracker();
+        handler.setLiveOperationTracker(tracker);
+
         await mixedRestore();
+
+        expect(tracker.get('msg-rb')?.status).toBe('partial');
+        tracker.dispose();
 
         // Same three words Seed and Sync use for a run that did not fully land.
         expect(rollbackPayload()?.status).toBe('partial');
@@ -2125,7 +2131,9 @@ describe('DataOpsHandler', () => {
       expect(Object.keys(rows[0] ?? {})).toHaveLength(fields.length);
     });
 
-    it('says a backup the cap cut short is partial, in its answer and in the list', async () => {
+    it('says a backup the cap cut short is partial, in its answer, the list and Live Operations', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
       // Live: 1 220 contacts on a Developer Edition, 500 read, said complete.
       const full = Array.from({ length: 2_000 }, (_, i) => ({ Id: `001${i}`, Name: `A${i}` }));
       const conn = mockOrg(full, ['Id', 'Name']);
@@ -2182,6 +2190,11 @@ describe('DataOpsHandler', () => {
       expect(list?.payload).toMatchObject({
         backups: [{ partial: true, objectResults: [held] }],
       });
+      expect(tracker.get('bk-partial')?.status).toBe('partial');
+      expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
+        result: { status: 'partial' },
+      });
+      tracker.dispose();
     });
 
     it('says an object read whole is not cut short, the same way in its answer, its metadata and the list', async () => {
@@ -2512,7 +2525,13 @@ describe('DataOpsHandler', () => {
     });
 
     it('calls it partial, not a completed anonymization', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
       await mixedAnonymize();
+
+      expect(tracker.get('an-partial')?.status).toBe('partial');
+      tracker.dispose();
 
       expect(anonymizePayload()?.status).toBe('partial');
       expect(anonymizePayload()?.message).not.toBe('Anonymization completed: 1 records processed.');

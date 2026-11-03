@@ -2015,6 +2015,14 @@ describe('ForgeHandler', () => {
       expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'failed' })]);
     });
 
+    it('ends a clone the org refused part of as partial', async () => {
+      vi.mocked(orchestrator.execute).mockResolvedValue(createMockResult({ status: 'partial' }));
+
+      await execute();
+
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+    });
+
     it('ends a clone a cancel stopped as cancelled', async () => {
       vi.mocked(orchestrator.execute).mockRejectedValue(
         new ForgeAbortedError('Forge execution was aborted by user request.'),

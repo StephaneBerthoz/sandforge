@@ -1937,9 +1937,11 @@ export class DataOpsHandler implements DomainHandler {
           recordCount: r.recordCount,
         })),
         totalRecords: backupMeta.totalRecords,
+        ...(backupMeta.partial ? { status: 'partial' } : {}),
       });
       this.dmlTracker.markCompleted(operationId);
-      live?.complete();
+      if (backupMeta.partial) live?.partial();
+      else live?.complete();
 
       return {
         operationId,
@@ -3322,6 +3324,7 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markCompleted(rollbackOpId);
       if (cancelled) live.cancel();
       else if (status === 'failure') live.fail(`The org refused the ${totalFailed} record(s)`);
+      else if (status === 'partial') live.partial();
       else live.complete();
 
       // A backup that holds only part of an object — stopped at the cap, a
@@ -4578,6 +4581,7 @@ export class DataOpsHandler implements DomainHandler {
           totalNotMasked: recordsNotMasked,
         });
         if (status === 'failure') live?.fail(`The org refused the ${recordsFailed} record(s)`);
+        else if (status === 'partial') live?.partial();
         else live?.complete();
       }
 

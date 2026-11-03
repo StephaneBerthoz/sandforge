@@ -1638,6 +1638,9 @@ export class AutopilotHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
       if (result.stopped) this.liveTracker?.cancel(msg.id);
+      else if (status === 'failure') {
+        this.liveTracker?.fail(msg.id, result.fatalError ?? 'No record could be written.');
+      } else if (status === 'partial') this.liveTracker?.partial(msg.id);
       else this.liveTracker?.complete(msg.id);
       settle();
     } catch (err: unknown) {

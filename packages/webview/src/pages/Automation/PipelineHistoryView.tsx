@@ -108,6 +108,7 @@ const STEP_STATUS_VARIANT: Record<
   completed: 'success',
   failed: 'error',
   skipped: 'default',
+  stopped: 'default',
 };
 
 /**
@@ -202,7 +203,13 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                       </Badge>
                       {step.duration !== undefined && <span>{formatDuration(step.duration)}</span>}
                       {(step.error ?? step.summary) && (
-                        <span className={step.error ? 'text-status-error' : undefined}>
+                        <span
+                          className={
+                            step.error && step.status !== 'stopped'
+                              ? 'text-status-error'
+                              : undefined
+                          }
+                        >
                           {step.error ?? step.summary}
                         </span>
                       )}

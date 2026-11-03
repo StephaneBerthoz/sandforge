@@ -173,12 +173,15 @@ is written as failed, with one error per step that cannot run, and the page
 says why under its header. A run cut off by the pipeline timeout is stopped
 where it is -- a Delay stops waiting, a Backup stops between two objects and
 saves nothing, and no later step starts -- and is written as failed, and the
-page says it ran out of time. A run stopped by an error before it returns
-leaves no entry. The tab shows for each run:
+page says it ran out of time. A run you stop is written as cancelled, and a
+notification names the step it stopped at: that step reads **Stopped**, neither
+failed nor completed, with what the stop left, and no later step starts. A run
+stopped by an error before it returns leaves no entry. The tab shows for each
+run:
 
 - Its status, trigger, start time -- in your language and time zone -- and duration
 - How many steps ran, and how many of them failed
-- Each step, with its status, how long it took, and what it did or why it failed: the records a Backup took, the counts a Compare found, what a Pre-Check read, the records a Sync wrote, and how an Approval was answered, where and when
+- Each step, with its status, how long it took, and what it did, why it failed or what its stop left: the records a Backup took, the counts a Compare found, what a Pre-Check read, the records a Sync wrote, and how an Approval was answered, where and when
 
 A start a trigger owed and did not make is written there too, as **Missed**:
 when it fell due, how many fell due when there were several, and why -- VS Code

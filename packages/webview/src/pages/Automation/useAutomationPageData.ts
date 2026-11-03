@@ -380,6 +380,18 @@ function runFailureMessage(t: TFunction, run: Record<string, unknown>): string |
   return undefined;
 }
 
+/**
+ * The sentence a stopped run is reported with: the step it stopped at, when
+ * one was going, and that the steps after it did not run.
+ */
+function runStoppedMessage(t: TFunction, run: Record<string, unknown>): string {
+  const steps = Array.isArray(run.stepResults) ? run.stepResults.map(asRecord) : [];
+  const at = steps.find((result) => result.status === 'stopped');
+  return typeof at?.stepName === 'string'
+    ? t('automation.runStoppedAt', { step: at.stepName })
+    : t('automation.runStopped');
+}
+
 /** Return type for the useAutomationPageData hook. */
 export interface AutomationPageData {
   /** Currently active pipeline definition. */
@@ -889,7 +901,11 @@ export function useAutomationPageData(): AutomationPageData {
       };
     });
     const ended = steps.filter(
-      (s) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped',
+      (s) =>
+        s.status === 'completed' ||
+        s.status === 'failed' ||
+        s.status === 'skipped' ||
+        s.status === 'stopped',
     ).length;
     const lastHeard = Math.max(runStartedAt, ...Object.values(stepUpdates).map((u) => u.at));
     return {
@@ -1001,9 +1017,19 @@ export function useAutomationPageData(): AutomationPageData {
   // nothing new to fetch.
   //
   // A failed run is also said here. It used to reach only the History tab, as
-  // a red badge and an error count, with no word of what went wrong.
+  // a red badge and an error count, with no word of what went wrong. So is a
+  // stopped one, as news and not as an error: the view of the run closed with
+  // nothing said, and only the History tab knew how far it got.
   const settleRun = useLatestRef((run: Record<string, unknown>) => {
     historyQuery.refetch();
+    if (run.status === 'cancelled') {
+      addNotification({
+        level: 'info',
+        title: t('automation.title'),
+        message: runStoppedMessage(t, run),
+      });
+      return;
+    }
     if (run.status !== 'failed') return;
     const message = runFailureMessage(t, run);
     if (message === undefined) return;

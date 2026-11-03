@@ -1,7 +1,17 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Activity, Pause, Play, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
+import {
+  Activity,
+  Pause,
+  Play,
+  X,
+  Clock,
+  Zap,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
+} from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
@@ -26,6 +36,10 @@ import { uiLocale } from '../../utils/formatters';
  * A Forge clone of whole tables that stopped part way — cancelled, or failed —
  * is offered to be taken up where it stopped, while the panel lists it: the
  * extension says which (`resumeRun`, the run's id in the Forge history).
+ *
+ * A run that ended with part of its work not done is listed as partial, by a
+ * word and not by its icon alone, and is sent to its results: it was listed
+ * with the tick of a run that did all it was asked.
  */
 export interface LiveOperationsPanelProps {
   /** Array of live operation snapshots. */
@@ -69,6 +83,7 @@ const STATUS_NAME_KEYS: Record<LiveOperationSnapshot['status'], string> = {
   running: 'home.opStatus.running',
   paused: 'home.opStatus.paused',
   completed: 'home.opStatus.success',
+  partial: 'home.opStatus.partial',
   failed: 'home.opStatus.failed',
   cancelled: 'home.opStatus.cancelled',
 };
@@ -91,6 +106,7 @@ function statusVariant(status: LiveOperationSnapshot['status']): 'default' | 'wa
     case 'failed':
       return 'error';
     case 'paused':
+    case 'partial':
       return 'warning';
     default:
       return 'default';
@@ -127,6 +143,8 @@ const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status']; t: TFuncti
       return <Pause {...name} className="w-3.5 h-3.5 text-status-warning" />;
     case 'completed':
       return <CheckCircle {...name} className="w-3.5 h-3.5 text-status-success" />;
+    case 'partial':
+      return <AlertCircle {...name} className="w-3.5 h-3.5 text-status-warning" />;
     case 'failed':
       return <AlertTriangle {...name} className="w-3.5 h-3.5 text-status-error" />;
     case 'cancelled':
@@ -158,7 +176,9 @@ const OperationRow: React.FC<{
           ? 'border-status-error/30'
           : operation.status === 'running'
             ? 'border-status-info/30'
-            : 'border-subtle',
+            : operation.status === 'partial'
+              ? 'border-status-warning/30'
+              : 'border-subtle',
       )}
       data-testid={`live-op-${operation.operationId}`}
     >
@@ -168,6 +188,9 @@ const OperationRow: React.FC<{
         <span className="text-xs font-medium text-text-primary flex-1 truncate">
           {operation.description}
         </span>
+        {operation.status === 'partial' && (
+          <Badge variant="warning">{t(STATUS_NAME_KEYS.partial)}</Badge>
+        )}
         <Badge variant={moduleBadgeVariant(operation.module)}>
           {moduleKey ? t(moduleKey) : operation.module}
         </Badge>
@@ -208,6 +231,16 @@ const OperationRow: React.FC<{
 
       {/* Current step */}
       <div className="text-[10px] text-text-secondary truncate">{operation.currentStep}</div>
+
+      {/* What a partial run leaves to be read */}
+      {operation.status === 'partial' && (
+        <div
+          className="text-[10px] text-text-secondary"
+          data-testid={`live-op-partial-${operation.operationId}`}
+        >
+          {t('monitor.liveOps.partialHint')}
+        </div>
+      )}
 
       {/* Error message */}
       {operation.error && (

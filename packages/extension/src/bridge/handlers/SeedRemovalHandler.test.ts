@@ -590,6 +590,17 @@ describe('SeedRemovalHandler', () => {
       expect(kept?.removal?.undo).toMatchObject({ deleted: 3 });
     });
 
+    it('lists a removal that kept a record as partial in Live Operations', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      org.touch('Contact', C2, new Date().toISOString());
+
+      await remove();
+
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+      tracker.dispose();
+    });
+
     it('keeps a record changed since the run unless told to take it too', async () => {
       org.touch('Contact', C2, new Date().toISOString());
 

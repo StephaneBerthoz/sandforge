@@ -104,6 +104,39 @@ describe('PipelineExecutionView', () => {
     expect(screen.getByTestId('exec-error-step-1').textContent).toContain('Connection timeout');
   });
 
+  it('reads a stopped step as neither failed nor completed, and what the stop left in no red', () => {
+    const stopped: PipelineExecutionData = {
+      ...execution,
+      steps: [
+        {
+          stepId: 'step-1',
+          stepName: 'Pause',
+          stepType: 'delay',
+          status: 'stopped',
+          error: 'Step "Pause" was stopped before it finished.',
+        },
+      ],
+    };
+    render(<PipelineExecutionView execution={stopped} />);
+
+    const badge = screen.getByTestId('exec-step-status-step-1').firstElementChild;
+    expect(badge?.textContent).toBe('Stopped');
+    expect(badge?.className).not.toContain('status-error');
+    expect(badge?.className).not.toContain('status-success');
+    const left = screen.getByTestId('exec-error-step-1');
+    expect(left.textContent).toContain('was stopped before it finished');
+    expect(left.className).not.toContain('status-error');
+    expect(screen.queryByText(/failed/i)).toBeNull();
+  });
+
+  it('reads a cancelled run in the neutral colour History reads it in', () => {
+    render(<PipelineExecutionView execution={{ ...execution, status: 'cancelled' }} />);
+
+    const badge = screen.getByTestId('execution-status').firstElementChild;
+    expect(badge?.textContent).toBe('Cancelled');
+    expect(badge?.className).not.toContain('status-error');
+  });
+
   it('should show failed step count', () => {
     const withFailed: PipelineExecutionData = {
       ...execution,

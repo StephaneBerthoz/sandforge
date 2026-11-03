@@ -30,12 +30,12 @@ export interface PipelineStepUpdate extends BaseMessage {
   payload: {
     operationId: string;
     stepId: string;
-    status: 'running' | 'completed' | 'failed' | 'skipped';
+    status: 'running' | 'completed' | 'failed' | 'skipped' | 'stopped';
     /** How long the step ran, in milliseconds, once it has ended. */
     duration?: number;
     /** What the step did (see `PipelineStepResult.summary`). */
     summary?: string;
-    /** Why the step failed. */
+    /** Why the step failed, or what its stop left. */
     error?: string;
     /**
      * Set while an Approval step waits for an answer: the message it asks

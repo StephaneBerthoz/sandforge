@@ -15,6 +15,7 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import {
   AutopilotExecutor,
   type AutopilotExecutorDeps,
@@ -564,6 +565,22 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
       errors: [],
     });
 
+    it('is listed failed in Live Operations once the org refused every record', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      await runIt(
+        () => refused('REQUIRED_FIELD_MISSING', 'Required fields are missing: [Name]', ['Name']),
+        () => [],
+      );
+
+      expect(tracker.get('exec-lookups')).toMatchObject({
+        status: 'failed',
+        error: 'No record could be written.',
+      });
+      tracker.dispose();
+    });
+
     it('ends partial on the page and in the audit, every record written, saying what is left and why', async () => {
       // Counted written and in no failure: the run ended a success, and neither
       // the page nor the audit named the record standing without its parent.
@@ -572,8 +589,12 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
         'insufficient access rights on cross-reference id',
         [],
       );
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
       const result = await runIt(writeAll, () => [noAccess]);
 
+      expect(tracker.get('exec-lookups')?.status).toBe('partial');
+      tracker.dispose();
       expect(result).toMatchObject({ totalSuccess: 2, totalFailure: 0, failedObjects: [] });
       const refusal = {
         statusCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',

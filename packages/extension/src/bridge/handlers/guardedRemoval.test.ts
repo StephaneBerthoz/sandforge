@@ -269,6 +269,26 @@ describe('runGuardedRemoval', () => {
       tracker.dispose();
     });
 
+    it('is listed as partial once the org refused part of what it was to delete', async () => {
+      const { d } = listed();
+      const tracker = new LiveOperationTracker();
+
+      const result = await runGuardedRemoval(
+        d,
+        removal({
+          run: async (onObject) => {
+            const counts = { done: 1, failed: 1, errors: [] };
+            onObject('Contact', counts);
+            return [{ objectApiName: 'Contact', counts }];
+          },
+        }),
+        tracker,
+      );
+
+      expect(tracker.get(result.operationId)?.status).toBe('partial');
+      tracker.dispose();
+    });
+
     it('stops before its next call once cancelled, says so, and records it cancelled with what it deleted', async () => {
       const { d, registry } = listed();
       const tracker = new LiveOperationTracker();

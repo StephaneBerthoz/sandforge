@@ -881,6 +881,8 @@ export class SeedCsvHandler implements DomainHandler {
         });
         if (importFailed !== undefined) {
           this.liveTracker?.fail(operationId, importFailed);
+        } else if (reached === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

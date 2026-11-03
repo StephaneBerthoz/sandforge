@@ -1319,6 +1319,8 @@ export class SyncRemovalHandler implements DomainHandler {
         if (result.status === 'failure') {
           runError = new Error('Nothing this run created could be removed.');
           this.liveTracker?.fail(operationId, 'Nothing this run created could be removed.');
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

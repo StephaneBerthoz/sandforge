@@ -2620,6 +2620,8 @@ export class SeedOpsHandler implements DomainHandler {
         sendOperationCompleted(this.deps, operationId, { status: result.status, totalRecords });
         if (result.status === 'failure') {
           this.liveTracker?.fail(operationId, seedFailureReason(result));
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

@@ -233,7 +233,8 @@ export async function runGuardedRemoval(
       live.fail(refused);
       settle(new Error(refused));
     } else {
-      live.complete();
+      if (outcome.status === 'partial') live.partial();
+      else live.complete();
       settle();
     }
     return { ran: true, operationId, outcome, ...(guard ? { guard } : {}) };

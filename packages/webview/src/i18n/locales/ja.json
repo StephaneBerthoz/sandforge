@@ -230,6 +230,7 @@
       "noOperations": "実行中の操作はありません",
       "cancel": "キャンセル",
       "resumeRun": "再開",
+      "partialHint": "一部は完了していません。残った内容は結果で確認できます。",
       "resumeRunHint": "停止した箇所からこのクローンを再開します",
       "resumeRunRefused": "クローンを再開できませんでした",
       "recsPerSec": "レコード/秒",
@@ -2335,6 +2336,7 @@
       "cancelled": "キャンセル済み",
       "pending": "保留中",
       "skipped": "スキップ",
+      "stopped": "停止",
       "missed": "見逃し"
     },
     "scheduler": "スケジューラー",
@@ -2376,6 +2378,8 @@
     "noMarketplaceTemplatesDesc": "コミュニティテンプレートがここに表示されます",
     "installTemplate": "インストール",
     "runFailed": "パイプラインの実行に失敗しました：{{reason}}",
+    "runStopped": "パイプラインの実行は停止しました。残りのステップは実行されていません。",
+    "runStoppedAt": "パイプラインの実行はステップ「{{step}}」で停止しました。以降のステップは実行されていません。",
     "runRefusedUnknownType": "パイプラインは開始されませんでした。ステップ「{{step}}」の種類「{{type}}」は SandForge にない種類です。ステップを削除するか、SandForge を更新してください。",
     "runnability": {
       "cannotRun": "実行できません",
@@ -3374,6 +3378,7 @@
     },
     "opStatus": {
       "success": "成功",
+      "partial": "一部成功",
       "running": "実行中",
       "paused": "一時停止中",
       "failed": "失敗",

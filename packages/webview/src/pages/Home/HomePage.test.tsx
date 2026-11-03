@@ -683,6 +683,25 @@ describe('HomePage', () => {
     expect(screen.getAllByTestId('recent-op-item').length).toBe(1);
   });
 
+  it('says a partial op was partial, and not a success', () => {
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'seed',
+          label: 'Seed Accounts',
+          status: 'partial',
+          timestamp: Date.now() - 60000,
+        },
+      ],
+    });
+
+    render(<HomePage />);
+
+    const badge = within(screen.getByTestId('recent-op-item')).getByText('Partial');
+    expect(badge.className).toContain('bg-status-warning');
+  });
+
   it('says a cancelled op was cancelled, in the panel’s language and not as a success', async () => {
     // A cancelled backup or Forge discovery used to read as a success here,
     // and every status was printed as stored, in English.

@@ -6203,6 +6203,8 @@ for (const theme of SCANNED_THEMES) {
           run('op-clone', 'clone', 'completed', { percentage: 100 }),
           run('op-csv', 'csv', 'failed', { error: 'REQUIRED_FIELD_MISSING: Name' }),
           run('op-frozen', 'frozen', 'cancelled', { processedRecords: 0, recordsPerSecond: 0 }),
+          // A run that ended with part of its work not done.
+          run('op-seed-partial', 'seed', 'partial', { percentage: 80 }),
           // A clone that stopped part way, offered to be taken up where it stopped.
           run('op-forge-stopped', 'forge', 'failed', {
             error: 'Forge execution finished with a failure status.',
@@ -6220,6 +6222,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('pause-op-forge')).toHaveCount(0);
       await expect(page.getByTestId('resume-run-op-forge-stopped')).toBeVisible();
       await expect(page.getByRole('img', { name: 'Cancelled' })).toBeVisible();
+      await expect(page.getByTestId('live-op-partial-op-seed-partial')).toBeVisible();
       await page.getByTestId('live-op-op-csv').scrollIntoViewIfNeeded();
 
       const results = await checkAccessibility(page);
@@ -7566,6 +7569,31 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Automation pipeline with a step stopped before it finished', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      await page.getByTestId('palette-delay').click();
+      await page.locator('[data-testid^="canvas-step-"]').first().click();
+      await page.getByTestId('config-seconds').fill('5');
+      await page.getByTestId('run-pipeline-btn').click();
+      const request = await bridge.waitForMessage('pipeline:execute');
+      const stepId = (request.payload as { pipeline: { steps: Array<{ id: string }> } }).pipeline
+        .steps[0].id;
+      await sendExtensionMessage(page, {
+        type: 'pipeline:step',
+        id: 'step-stopped',
+        payload: {
+          operationId: request.id,
+          stepId,
+          status: 'stopped',
+          error: 'Step "Delay" was stopped before it finished.',
+        },
+      });
+      await page.getByTestId(`exec-error-${stepId}`).waitFor({ state: 'visible', timeout: 5000 });
+
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Compare deployment confirmation open over the Deploy tab', async ({ page }) => {
