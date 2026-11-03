@@ -144,6 +144,10 @@
       "format_date": "日付フォーマット",
       "format_number": "数値フォーマット",
       "custom_formula": "カスタム数式"
+    },
+    "noCliOrgs": {
+      "title": "インポート",
+      "message": "Salesforce CLI にはまだ接続済みの組織がありません。組織ページの「ブラウザでログイン」を使用してください。Salesforce のログイン画面が開きます。"
     }
   },
   "status": {
@@ -2797,6 +2801,121 @@
       },
       "decisionRows_other": "({{count}}行)",
       "user": "ユーザー {{user}}"
+    },
+    "reportTypes": {
+      "forge_execution": "Forge クローン",
+      "seed_execution": "Seed 実行",
+      "sync_execution": "Sync 実行",
+      "compare_result": "比較",
+      "backup_result": "バックアップ",
+      "anonymization_result": "マスキング",
+      "pipeline_run": "パイプライン実行",
+      "data_quality": "データ品質",
+      "org_health": "組織の健全性",
+      "audit_trail": "監査ログ",
+      "custom": "カスタム"
+    },
+    "detailLine": "{{label}}: {{value}}",
+    "detailField": {
+      "forgeId": "Forge 実行",
+      "runId": "実行",
+      "expected": "想定",
+      "present": "存在",
+      "deleted": "削除済み",
+      "notVisible": "参照不可",
+      "changed": "変更あり",
+      "linksChecked": "確認した参照項目",
+      "linksBroken": "壊れた参照項目",
+      "linksLeftEmptyByFilter": "フィルターで空のままの参照項目",
+      "linksSetByAutomation": "自動化が設定した参照項目",
+      "attempts": "試行回数",
+      "sweep": "一掃",
+      "found": "検出",
+      "keptChanged": "保持（その後変更あり）",
+      "refused": "拒否",
+      "handWork": "手動で削除するもの",
+      "loadedAt": "読み込み日時",
+      "contactPoints": "メールと電話番号",
+      "contactPointFields": "メールと電話の項目",
+      "contactPointValues": "メールと電話の値",
+      "deliverability": "メールの到達性",
+      "confirmed": "承認",
+      "triggeredBy": "開始元",
+      "checkpointRefusal": "チェックポイントの拒否",
+      "pipeline": "パイプライン",
+      "step": "ステップ",
+      "decision": "決定",
+      "via": "回答元",
+      "answeredBy": "回答者",
+      "trigger": "トリガー",
+      "grantedAt": "承認日時",
+      "checkpointId": "チェックポイント",
+      "records": "レコード",
+      "objects": "オブジェクト",
+      "files": "ファイル",
+      "bytes": "サイズ",
+      "alreadyKept": "このマシンに保持済み",
+      "rewindId": "巻き戻し",
+      "status": "ステータス",
+      "passes": "パス数",
+      "limitedTo": "対象",
+      "sampled": "サンプル",
+      "judged": "判定済み",
+      "passed": "合格",
+      "linked": "リンク済み",
+      "notJudged": "未判定",
+      "updatesJudged": "判定した更新",
+      "updatesRefused": "拒否された更新",
+      "updatesNotRehearsed": "リハーサルしていない更新",
+      "calls": "API コール",
+      "recordsLeft": "組織に残ったレコード",
+      "reason": "理由",
+      "code": "コード"
+    },
+    "detailValue": {
+      "contactPoints": {
+        "neutralized": "無効化",
+        "kept": "読み取ったまま保持"
+      },
+      "deliverability": {
+        "all": "すべてのメールが送信される",
+        "withheld": "組織がメールを保留",
+        "unread": "読み取れず"
+      },
+      "confirmed": {
+        "emails": "メールを送信"
+      },
+      "triggeredBy": {
+        "manual": "ユーザー",
+        "schedule": "スケジュール",
+        "rerun": "再実行",
+        "pipeline": "パイプライン"
+      },
+      "decision": {
+        "approved": "承認",
+        "rejected": "却下",
+        "timedOut": "タイムアウト",
+        "cancelled": "キャンセル"
+      },
+      "via": {
+        "notification": "通知",
+        "page": "自動化ページ"
+      },
+      "status": {
+        "success": "成功",
+        "partial": "一部成功",
+        "failure": "失敗",
+        "unstable": "不安定",
+        "cancelled": "キャンセル"
+      },
+      "trigger": {
+        "manual": "手動",
+        "schedule": "スケジュール",
+        "event": "イベント",
+        "webhook": "Webhook",
+        "sandbox_refresh": "Sandbox の更新",
+        "deployment_complete": "デプロイ完了"
+      }
     }
   },
   "settings": {
@@ -3357,7 +3476,7 @@
       "confirm": "開く",
       "cancel": "キャンセル",
       "confirmMsg": "{{org}} の {{action}} を開きますか？",
-      "reasonEmpty": "Sandbox は空です — デモデータを投入しましょう",
+      "reasonEmpty": "組織は空です — デモデータを投入しましょう",
       "reasonClone": "ソース組織にデータがあります — ターゲットにクローンしましょう",
       "reasonSync": "両方の組織にデータがあります — 同期して整合を保ちましょう",
       "whyTooltip": "この推奨の理由は？",
@@ -4214,7 +4333,8 @@
           "loosenLookupFilter": "{{field}}: ルックアップ検索条件を任意にするか、クローンが指すレコードを受け付けるようにする (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
           "deactivateValidationRule": "入力規則 {{value}} を無効にするか、SandForge が書き込むユーザーにそれを回避するカスタム権限を付与する (設定 > オブジェクトマネージャー > {{object}} > 入力規則)。",
           "deactivateDuplicateRule": "重複ルール {{value}} を無効にするか、作成時にレコードを許可するよう設定する (設定 > 重複ルール)。",
-          "grantCreate": "SandForge が書き込むユーザーに {{object}} の作成権限を付与する (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。"
+          "grantCreate": "SandForge が書き込むユーザーに {{object}} の作成権限を付与する (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。",
+          "installPackage": "ターゲットに名前空間 {{namespace}} のパッケージをインストールまたは更新してください。レコードタイプ {{value}} はこのパッケージに含まれ、設定画面からは作成できません。"
         }
       }
     },

@@ -218,6 +218,11 @@ function adminStep(t: TFunction, change: ForgeAdminChange, recordType: string | 
       return t('forgeRun.gaps.admin.step.widenNumber', named);
     case 'create_record_type':
       return t('forgeRun.gaps.admin.step.createRecordType', named);
+    case 'install_package':
+      return t('forgeRun.gaps.admin.step.installPackage', {
+        ...named,
+        namespace: change.namespace ?? '',
+      });
     case 'open_record_type':
       return t('forgeRun.gaps.admin.step.openRecordType', named);
     case 'activate_currency':

@@ -12,7 +12,7 @@ import {
 describe('seedsStandardPricebook', () => {
   const toBook = {
     ruleType: 'reference' as const,
-    config: { referenceObject: 'Pricebook2', referenceField: 'Id' },
+    config: { referenceObject: 'Pricebook2' },
   };
 
   it('reads a reference to a price book a seed does not write as the standard one', () => {

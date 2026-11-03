@@ -329,7 +329,7 @@ describe('HomePage', () => {
     render(<HomePage />);
     const summary = screen.getByTestId('health-summary');
     expect(within(summary).getAllByTestId('kpi-card')).toHaveLength(2);
-    expect(summary.textContent).toContain('Health Score');
+    expect(summary.textContent).toContain('Health score');
     expect(summary.textContent).toContain('API usage');
     expect(summary.textContent).not.toContain('Active jobs');
     expect(summary.textContent).not.toContain('Connected orgs');
@@ -431,7 +431,7 @@ describe('HomePage', () => {
     useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox', staging: true })] });
     render(<HomePage />);
     expect(screen.queryByTestId('sandbox-banner')).toBeNull();
-    expect(screen.getByTestId('home-page').textContent).not.toContain('Your sandbox is empty');
+    expect(screen.getByTestId('home-page').textContent).not.toContain('Your org is empty');
   });
 
   /* ---------------------------------------------------------------- */
@@ -511,7 +511,7 @@ describe('HomePage', () => {
     connectTwoOrgs();
     render(<HomePage />);
     expect(screen.getByTestId('forge-hero-card')).toBeDefined();
-    expect(screen.getByText('Forge a Sandbox')).toBeDefined();
+    expect(screen.getByText('Forge a sandbox')).toBeDefined();
     expect(
       screen.getByText('Copy a real record and everything around it into another org'),
     ).toBeDefined();
@@ -631,8 +631,8 @@ describe('HomePage', () => {
 
     const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
     expect(monitorCall?.skip).toBe(true);
-    expect(kpiValue('Limit Warnings')).toBe('—');
-    expect(kpiValue('Health Score')).toBe('—');
+    expect(kpiValue('Limit warnings')).toBe('—');
+    expect(kpiValue('Health score')).toBe('—');
     expect(kpiValue('API usage')).toBe('—');
   });
 
@@ -651,8 +651,8 @@ describe('HomePage', () => {
     const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
     expect(monitorCall?.payload).toEqual({ orgId: 'org-1' });
     expect(monitorCall?.skip).toBe(false);
-    expect(kpiValue('Limit Warnings')).toBe('2');
-    expect(kpiValue('Health Score')).toBe('72%');
+    expect(kpiValue('Limit warnings')).toBe('2');
+    expect(kpiValue('Health score')).toBe('72%');
     expect(kpiValue('API usage')).toBe('75%');
   });
 
@@ -661,7 +661,7 @@ describe('HomePage', () => {
     mockMonitorState.loading = true;
     render(<HomePage />);
 
-    expect(screen.queryByText('Limit Warnings')).toBeNull();
+    expect(screen.queryByText('Limit warnings')).toBeNull();
     expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
   });
 

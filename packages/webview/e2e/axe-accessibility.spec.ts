@@ -5799,7 +5799,7 @@ for (const theme of SCANNED_THEMES) {
       await answerAll(page, 'reports:audit', 'reports:audit:response', REPORTS_AUDIT);
       await answerAll(page, 'reports:lineage', 'reports:lineage:response', REPORTS_LINEAGE);
 
-      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.getByRole('tab', { name: 'Audit trail' }).click();
       await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
       // The skipped object's row is scanned with the rest of the entry, and
       // so are the records written without a field the target refused.
@@ -5811,14 +5811,14 @@ for (const theme of SCANNED_THEMES) {
       );
       // So is the line a removal of what an earlier one left carries.
       await expect(page.getByTestId('audit-left-by-audit-removal')).toBeVisible();
-      // Each module goes by its navigation name, said once: "Cleanup Delete
-      // frozen", "Forge Clone forge".
+      // Each module goes by its navigation name, said once: "Cleanup delete
+      // frozen", "Forge clone forge".
       await expect(page.getByTestId('audit-module-audit-removal')).toHaveText('Frozen Dataset');
       await expect(page.getByTestId('audit-module-audit-restore')).toHaveText('DataOps');
       await expect(page.getByTestId('audit-module-audit-forge')).toHaveCount(0);
       await expect(page.getByTestId('module-filter').locator('option')).toHaveText([
         'Filter by module',
-        'All Modules',
+        'All modules',
         'DataOps',
         'Forge',
         'Frozen Dataset',
@@ -5853,7 +5853,7 @@ for (const theme of SCANNED_THEMES) {
       expect(content).toContain(`"'=1+1"`);
       expectNoViolations(await checkAccessibility(page));
 
-      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.getByRole('tab', { name: 'Data lineage' }).click();
       await page.waitForSelector('[data-testid="lineage-run"]', { timeout: 10_000 });
       await expect(page.locator('.react-flow__edge-text')).toHaveCount(2, { timeout: 10_000 });
       expect(await edgeLabelsUnderNodes(page, 'lineage-flow')).toEqual([]);
@@ -5873,11 +5873,11 @@ for (const theme of SCANNED_THEMES) {
         runs: [],
       });
 
-      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.getByRole('tab', { name: 'Audit trail' }).click();
       await page.waitForSelector('[data-testid="reports-audit-empty"]', { timeout: 10_000 });
       expectNoViolations(await checkAccessibility(page));
 
-      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.getByRole('tab', { name: 'Data lineage' }).click();
       await page.waitForSelector('[data-testid="reports-lineage-empty"]', { timeout: 10_000 });
       expectNoViolations(await checkAccessibility(page));
     });

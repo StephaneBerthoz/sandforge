@@ -71,7 +71,7 @@ The clone's report is kept as an artifact whether the job passed or not:
 - `clone-summary.json`, which `--summary` writes as the run goes, after each object it ends, and whole once it ends: what `--remove` takes the run back from. A clone that fails part way, or is stopped, keeps there what it created by then, where its stdout carries no summary
 - `clone-output.json`, what the run printed on stdout
 - `sandforge-journal/forge-runs/`, the clone's journal: what the run wrote, read and still owes, line by line, ids only. `--remove` takes a run back from it however it ended — killed at the job's timeout included — and `--resume` takes it up. In the runner's home, its default, it went away with a hosted runner
-- `remap.csv`, the ids the run gave, and `clone-audit.json`, the audit trail entry of a real clone and of a removal, as the panel's Reports → Audit Trail keeps one (a dry run adds none)
+- `remap.csv`, the ids the run gave, and `clone-audit.json`, the audit trail entry of a real clone and of a removal, as the panel's Reports → Audit trail keeps one (a dry run adds none)
 - after a removal, `clone-removal.json` and `clone-summary.removals.json`, what the removal wrote to the records it left, which the next removal of the same summary reads
 
 ## Setup

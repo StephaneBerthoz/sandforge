@@ -49,6 +49,7 @@ const NOTIFICATION_CODE_KEYS: Readonly<Record<string, { message: string; title?:
     message: 'common.frozenSalt.created',
     title: 'common.frozenSalt.createdTitle',
   },
+  NO_CLI_ORGS: { message: 'common.noCliOrgs.message', title: 'common.noCliOrgs.title' },
 };
 
 /** Props for BridgeProvider. */

@@ -139,7 +139,7 @@ describe('ReportsContainer', () => {
     answer('reports:list', { reports: [report('r-1')], summary: undefined });
     answer('reports:audit', { entries: [entry], total: 1, offset: 0, facets });
     const first = render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
     fireEvent.change(screen.getByTestId('org-filter'), {
       target: { value: '00D000000000001AAA' },
     });
@@ -149,7 +149,7 @@ describe('ReportsContainer', () => {
 
     render(<ReportsContainer />);
 
-    expect(screen.getByRole('tab', { name: 'Audit Trail' }).getAttribute('aria-selected')).toBe(
+    expect(screen.getByRole('tab', { name: 'Audit trail' }).getAttribute('aria-selected')).toBe(
       'true',
     );
     expect(lastPayload('reports:audit')).toMatchObject({ orgId: '00D000000000001AAA' });
@@ -234,7 +234,7 @@ describe('ReportsContainer', () => {
       'The reports could not be read: timed out',
     );
     expect(screen.queryByText('No reports generated yet')).toBeNull();
-    expect(screen.queryByText('Total Reports')).toBeNull();
+    expect(screen.queryByText('Total reports')).toBeNull();
     fireEvent.click(screen.getByTestId('reports-executions-error-retry'));
     expect(refetches['reports:list']).toHaveBeenCalledTimes(1);
 
@@ -287,7 +287,7 @@ describe('ReportsContainer', () => {
     });
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
 
     expect(screen.getByTestId('reports-audit-empty')).toBeDefined();
     expect(screen.getByText('Nothing recorded yet')).toBeDefined();
@@ -299,7 +299,7 @@ describe('ReportsContainer', () => {
     answer('reports:audit', { entries: [entry], total: 240, offset: 0, facets });
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
 
     expect(screen.getByTestId('audit-aud-1')).toBeDefined();
     expect(screen.getByText('240')).toBeDefined();
@@ -308,7 +308,7 @@ describe('ReportsContainer', () => {
   it('asks the host again with the org picked, from the newest entry', () => {
     answer('reports:audit', { entries: [entry], total: 240, offset: 0, facets });
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
 
     fireEvent.click(screen.getByTestId('audit-show-more'));
     expect(lastPayload('reports:audit')).toEqual({ limit: 200 });
@@ -323,7 +323,7 @@ describe('ReportsContainer', () => {
     queries['reports:audit'] = { data: null, loading: false, error: 'timed out' };
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
 
     expect(screen.getByTestId('reports-audit-error')).toBeDefined();
     expect(screen.queryByTestId('reports-audit-empty')).toBeNull();
@@ -336,7 +336,7 @@ describe('ReportsContainer', () => {
     function openTrail(): void {
       answer('reports:audit', { entries: [entry, seed], total: 240, offset: 0, facets });
       render(<ReportsContainer />);
-      fireEvent.click(screen.getByText('Audit Trail'));
+      fireEvent.click(screen.getByText('Audit trail'));
     }
 
     it('asks for every entry the filters match, not the page, and saves them as a CSV file', () => {
@@ -410,7 +410,7 @@ describe('ReportsContainer', () => {
     answer('reports:lineage', { lineage: null, runs: [] });
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Data Lineage'));
+    fireEvent.click(screen.getByText('Data lineage'));
 
     expect(screen.getByTestId('reports-lineage-empty')).toBeDefined();
     expect(screen.queryByTestId('reports-lineage-soon')).toBeNull();
@@ -427,11 +427,11 @@ describe('ReportsContainer', () => {
     });
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.click(screen.getByText('Audit trail'));
     fireEvent.click(screen.getByTestId('audit-view-run-aud-1'));
 
     expect(lastPayload('reports:lineage')).toEqual({ operationId: 'op-1' });
-    expect(screen.getByRole('tab', { name: 'Data Lineage' }).getAttribute('aria-selected')).toBe(
+    expect(screen.getByRole('tab', { name: 'Data lineage' }).getAttribute('aria-selected')).toBe(
       'true',
     );
   });
@@ -446,7 +446,7 @@ describe('ReportsContainer', () => {
     });
 
     render(<ReportsContainer />);
-    fireEvent.click(screen.getByText('Data Lineage'));
+    fireEvent.click(screen.getByText('Data lineage'));
 
     expect(await screen.findByTestId('lineage-graph')).toBeDefined();
     fireEvent.change(screen.getByTestId('lineage-run'), { target: { value: 'op-1' } });

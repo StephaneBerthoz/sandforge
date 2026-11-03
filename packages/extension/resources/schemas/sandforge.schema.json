@@ -376,11 +376,6 @@
                                 "markdownDescription": "With `reference`, which needs it: the object the field points at, one of its records the run wrote, drawn at random.",
                                 "description": "With `reference`, which needs it: the object the field points at, one of its records the run wrote, drawn at random."
                               },
-                              "referenceField": {
-                                "type": "string",
-                                "markdownDescription": "Kept as the Seed panel saves it: a run does not read it.",
-                                "description": "Kept as the Seed panel saves it: a run does not read it."
-                              },
                               "picklistValues": {
                                 "type": "array",
                                 "items": {
@@ -429,6 +424,11 @@
                                 "type": "string",
                                 "markdownDescription": "With `ai_generate`: what AI Data Generation is asked for the field. The command line that applies the file has no AI key: give such a field a `faker` rule.",
                                 "description": "With `ai_generate`: what AI Data Generation is asked for the field. The command line that applies the file has no AI key: give such a field a `faker` rule."
+                              },
+                              "referenceField": {
+                                "type": "string",
+                                "markdownDescription": "Accepted from a file an older Seed panel saved: a run does not read it.",
+                                "description": "Accepted from a file an older Seed panel saved: a run does not read it."
                               }
                             },
                             "additionalProperties": false,

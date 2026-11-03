@@ -47,13 +47,13 @@ const FR_BUNDLE = JSON.parse(
 
 /** Home-page strings, in the two languages this file exercises. */
 const EN = {
-  heroTitle: 'Forge a Sandbox',
+  heroTitle: 'Forge a sandbox',
   startForge: 'Start Forge',
-  quickActions: 'Quick Actions',
+  quickActions: 'Quick actions',
   recordIdPlaceholder: 'Record ID (e.g. 001...)',
 };
 const FR = {
-  heroTitle: 'Forger une Sandbox',
+  heroTitle: 'Forger une sandbox',
   startForge: 'Lancer Forge',
   quickActions: 'Actions rapides',
   recordIdPlaceholder: "ID d'enregistrement (ex. 001...)",

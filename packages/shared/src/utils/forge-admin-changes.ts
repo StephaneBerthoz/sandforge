@@ -15,6 +15,9 @@ import { forgeGapParts } from './forge-gaps.js';
  * - `lengthen_field`: a text field made as long as the longest value;
  * - `widen_number`: a number field given more digits before its point;
  * - `create_record_type`: a record type of the source created in the target;
+ * - `install_package`: the package that brings a record type of the source
+ *   installed in the target, or upgraded there: a namespaced record type is
+ *   its package's to create, and New in Setup would make another one;
  * - `open_record_type`: a record type made available to the user the run
  *   writes as;
  * - `activate_currency`: a currency activated;
@@ -31,6 +34,7 @@ export type ForgeAdminChangeKind =
   | 'lengthen_field'
   | 'widen_number'
   | 'create_record_type'
+  | 'install_package'
   | 'open_record_type'
   | 'activate_currency'
   | 'loosen_lookup_filter'
@@ -52,6 +56,8 @@ export interface ForgeAdminChange {
   value?: string;
   /** Of a dependent value, the field whose value decides. */
   controllingField?: string;
+  /** Of a package to install, its namespace. */
+  namespace?: string;
   /** Of a text, the length of the longest value the rows hold. */
   length?: number;
   /** How many of the run's rows it touches; 0 when read from metadata alone. */
@@ -91,6 +97,15 @@ function ruleName(gap: ForgeGap): string {
   );
 }
 
+/**
+ * The namespace a record type's name says, as the host writes one: `ns__Retail`
+ * is package `ns`'s Retail, a bare `Retail` the org's own.
+ */
+function recordTypeNamespace(name: string | undefined): string | undefined {
+  const at = name?.indexOf('__') ?? -1;
+  return name !== undefined && at > 0 && at < name.length - 2 ? name.slice(0, at) : undefined;
+}
+
 /** The step in Setup a change takes, in English. */
 function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | undefined): string {
   const object = `Setup > Object Manager > ${change.objectApiName}`;
@@ -116,6 +131,8 @@ function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | u
       return `${field} > Edit: give it more digits before the decimal point`;
     case 'create_record_type':
       return `${object} > Record Types > New: ${change.value ?? ''}`;
+    case 'install_package':
+      return `Install or upgrade the package with namespace ${change.namespace ?? ''} in the target: record type ${change.value ?? ''} comes with it, and Setup cannot create it`;
     case 'open_record_type':
       return `${user} > Edit: make record type ${recordType ?? ''} available`;
     case 'activate_currency':
@@ -179,8 +196,12 @@ function changeOf(gap: ForgeGap): Omit<ForgeAdminChange, 'setup'> | undefined {
     }
     case 'number_out_of_range':
       return { ...base, change: 'widen_number' };
-    case 'record_type_unmapped':
-      return { ...base, ...value, change: 'create_record_type' };
+    case 'record_type_unmapped': {
+      const namespace = recordTypeNamespace(gap.value);
+      return namespace !== undefined
+        ? { ...base, ...value, namespace, change: 'install_package' }
+        : { ...base, ...value, change: 'create_record_type' };
+    }
     case 'record_type_unavailable':
       return { ...base, change: 'open_record_type' };
     case 'currency_inactive':

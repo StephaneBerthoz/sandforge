@@ -183,7 +183,7 @@ export class ReportsHandler implements DomainHandler {
     return {
       id: `forge-${run.forgeId}`,
       definitionId: `forge-${run.forgeId}`,
-      type: 'seed_execution',
+      type: 'forge_execution',
       title: `Forge clone — ${objects} object(s)`,
       summary:
         `${run.status} · ${records} record(s) across ${objects} object(s) · ` +

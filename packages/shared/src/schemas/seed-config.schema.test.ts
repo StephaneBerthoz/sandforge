@@ -245,6 +245,16 @@ describe('seedObjectConfigSchema', () => {
 });
 
 describe('fieldRuleSchema', () => {
+  it('reads a rule saved with a referenceField, and leaves the key behind: nothing reads it', () => {
+    const { config } = fieldRuleSchema.parse({
+      fieldApiName: 'AccountId',
+      ruleType: 'reference',
+      config: { referenceObject: 'Account', referenceField: 'Id' },
+    });
+
+    expect(config).toEqual({ referenceObject: 'Account' });
+  });
+
   it('should parse a valid faker field rule', () => {
     const result = fieldRuleSchema.parse({
       fieldApiName: 'Name',

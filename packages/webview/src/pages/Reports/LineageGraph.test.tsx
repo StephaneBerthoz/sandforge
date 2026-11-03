@@ -98,12 +98,57 @@ describe('LineageGraph', () => {
 
   it('should show lineage title', () => {
     render(<LineageGraph lineage={lineage} />);
-    expect(screen.getByText('Data Lineage')).toBeDefined();
+    expect(screen.getByText('Data lineage')).toBeDefined();
   });
 
   it('should accept custom className', () => {
     const { container } = render(<LineageGraph lineage={lineage} className="custom-class" />);
     expect((container.firstChild as HTMLElement).className).toContain('custom-class');
+  });
+
+  describe('its box', () => {
+    /** The box the graph of `rows` objects between two ends is drawn in. */
+    const boxOf = (rows: number): HTMLElement => {
+      render(
+        <LineageGraph
+          lineage={{
+            ...lineage,
+            nodes: [
+              { id: 'source', type: 'source', label: 'Source' },
+              ...Array.from({ length: rows }, (_, index) => ({
+                id: `object:${index}`,
+                type: 'object' as const,
+                label: `Object ${index}`,
+              })),
+              { id: 'target', type: 'destination', label: 'Target' },
+            ],
+            edges: [],
+          }}
+        />,
+      );
+      return screen.getByTestId('lineage-flow');
+    };
+
+    it('asks the room three columns take at the zoom that keeps them readable', () => {
+      const box = boxOf(2);
+      // 820 pixels of graph, its fit's 10%, at 0.9. A wider panel takes over.
+      expect(box.style.minWidth).toBe('812px');
+      expect(box.style.width).toBe('100%');
+      // A graph of few rows keeps the page's 250.
+      expect(box.style.height).toBe('250px');
+    });
+
+    it('grows with its tallest column, which the fit would shrink for', () => {
+      // 19 rows of 90 and a node of 50, its fit's 10%, at 0.9.
+      expect(boxOf(20).style.height).toBe('1743px');
+    });
+
+    it('scrolls in a named region the keyboard can reach', () => {
+      render(<LineageGraph lineage={lineage} />);
+      const region = screen.getByRole('region', { name: 'Data lineage' });
+      expect(region.tabIndex).toBe(0);
+      expect(region.className).toContain('overflow-x-auto');
+    });
   });
 
   describe('a run traced as it is recorded', () => {

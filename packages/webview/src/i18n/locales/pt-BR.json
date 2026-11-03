@@ -153,6 +153,10 @@
       "format_date": "Formato de data",
       "format_number": "Formato de número",
       "custom_formula": "Fórmula personalizada"
+    },
+    "noCliOrgs": {
+      "title": "Importação",
+      "message": "A Salesforce CLI ainda não tem nenhuma org conectada. Use Entrar pelo navegador na página Organizações: ele abre a página de login do Salesforce."
     }
   },
   "status": {
@@ -2792,14 +2796,14 @@
     "title": "Notificações"
   },
   "reports": {
-    "title": "Relatórios e Analíticos",
+    "title": "Relatórios e análises",
     "executions": "Execuções",
-    "analytics": "Analíticos",
+    "analytics": "Análises",
     "audit": "Registro de auditoria",
     "lineage": "Linhagem de dados",
     "noReports": "Nenhum relatório gerado",
     "reportsUnreadable": "Não foi possível ler os relatórios: {{error}}",
-    "analyticsUnreadable": "Não foi possível carregar os analíticos: eles vêm com os relatórios, que não puderam ser lidos.",
+    "analyticsUnreadable": "Não foi possível carregar as análises: elas vêm com os relatórios, que não puderam ser lidos.",
     "generateReport": "Gerar relatório",
     "exportReport": "Exportar relatório",
     "reportType": "Tipo de relatório",
@@ -2978,6 +2982,121 @@
       "decisionRows_one": "({{count}} linha)",
       "decisionRows_other": "({{count}} linhas)",
       "user": "Usuário {{user}}"
+    },
+    "reportTypes": {
+      "forge_execution": "Clonagem Forge",
+      "seed_execution": "Execução do Seed",
+      "sync_execution": "Execução do Sync",
+      "compare_result": "Comparação",
+      "backup_result": "Backup",
+      "anonymization_result": "Mascaramento",
+      "pipeline_run": "Execução de pipeline",
+      "data_quality": "Qualidade dos dados",
+      "org_health": "Saúde da org",
+      "audit_trail": "Registro de auditoria",
+      "custom": "Personalizado"
+    },
+    "detailLine": "{{label}}: {{value}}",
+    "detailField": {
+      "forgeId": "Execução do Forge",
+      "runId": "Execução",
+      "expected": "Esperados",
+      "present": "Presentes",
+      "deleted": "Excluídos",
+      "notVisible": "Não visíveis",
+      "changed": "Alterados",
+      "linksChecked": "Vínculos verificados",
+      "linksBroken": "Vínculos quebrados",
+      "linksLeftEmptyByFilter": "Vínculos deixados vazios por um filtro",
+      "linksSetByAutomation": "Vínculos preenchidos por uma automação",
+      "attempts": "Tentativas",
+      "sweep": "Varredura",
+      "found": "Encontrados",
+      "keptChanged": "Mantidos, alterados desde então",
+      "refused": "Recusados",
+      "handWork": "A remover à mão",
+      "loadedAt": "Carregado em",
+      "contactPoints": "E-mails e telefones",
+      "contactPointFields": "Campos de e-mail e telefone",
+      "contactPointValues": "Valores de e-mail e telefone",
+      "deliverability": "Capacidade de entrega de e-mail",
+      "confirmed": "Confirmado",
+      "triggeredBy": "Iniciado por",
+      "checkpointRefusal": "Ponto de verificação recusado",
+      "pipeline": "Pipeline",
+      "step": "Etapa",
+      "decision": "Decisão",
+      "via": "Resposta por",
+      "answeredBy": "Resposta de",
+      "trigger": "Gatilho",
+      "grantedAt": "Confirmado em",
+      "checkpointId": "Ponto de verificação",
+      "records": "Registros",
+      "objects": "Objetos",
+      "files": "Arquivos",
+      "bytes": "Tamanho",
+      "alreadyKept": "Já nesta máquina",
+      "rewindId": "Retrocesso",
+      "status": "Status",
+      "passes": "Passagens",
+      "limitedTo": "Limitado a",
+      "sampled": "Amostra",
+      "judged": "Avaliados",
+      "passed": "Aceitos",
+      "linked": "Vinculados",
+      "notJudged": "Não avaliados",
+      "updatesJudged": "Atualizações avaliadas",
+      "updatesRefused": "Atualizações recusadas",
+      "updatesNotRehearsed": "Atualizações não ensaiadas",
+      "calls": "Chamadas de API",
+      "recordsLeft": "Registros que ficaram na org",
+      "reason": "Motivo",
+      "code": "Código"
+    },
+    "detailValue": {
+      "contactPoints": {
+        "neutralized": "neutralizados",
+        "kept": "mantidos como lidos"
+      },
+      "deliverability": {
+        "all": "todos os e-mails saem",
+        "withheld": "e-mails retidos pela org",
+        "unread": "não foi possível ler"
+      },
+      "confirmed": {
+        "emails": "os e-mails saem"
+      },
+      "triggeredBy": {
+        "manual": "você",
+        "schedule": "um agendamento",
+        "rerun": "uma repetição",
+        "pipeline": "um pipeline"
+      },
+      "decision": {
+        "approved": "aprovado",
+        "rejected": "recusado",
+        "timedOut": "tempo esgotado",
+        "cancelled": "cancelado"
+      },
+      "via": {
+        "notification": "uma notificação",
+        "page": "a página Automação"
+      },
+      "status": {
+        "success": "concluído",
+        "partial": "parcial",
+        "failure": "com falha",
+        "unstable": "instável",
+        "cancelled": "cancelado"
+      },
+      "trigger": {
+        "manual": "à mão",
+        "schedule": "agendamento",
+        "event": "evento",
+        "webhook": "webhook",
+        "sandbox_refresh": "atualização de sandbox",
+        "deployment_complete": "implantação concluída"
+      }
     }
   },
   "settings": {
@@ -3371,7 +3490,7 @@
     "startTour": "Iniciar tour guiado",
     "autopilotContent": "Em três etapas:\n1. Escolha a org de origem e a de destino\n2. Selecione os objetos a copiar\n3. Revise o plano (ondas, registros, chamadas de API, campos PII) e execute-o. E-mails e números de telefone são neutralizados, a menos que você desmarque — cada endereço sob .invalid, cada número fictício — e Avançado escolhe um framework de conformidade que anonimiza mais (GDPR, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "A Migração converte um export.json do SFDMU em uma configuração do Sync:\n- A importação lê o arquivo e não altera nada em nenhuma org\n- Salva como configuração do Sync, com as orgs de origem e destino e um nome, ela abre com Abrir no Sync: Simular a verifica ali, e Executar a sincronização a grava\n- Um arquivo CSV de registros vai para o Upload CSV do Seed, que carrega as linhas dele",
-    "reportsContent": "Relatórios mostra o que as execuções do SandForge fizeram:\n- Execuções: cada execução do Forge e do Sync com status, duração e número de registros, exportável em JSON\n- Analíticos: taxas de sucesso calculadas a partir dessas execuções\n- Registro de auditoria: cada execução que grava em uma org — uma clonagem Forge, uma sincronização, um seed, uma importação CSV, uma clonagem de registros, uma execução do Autopilot, uma restauração, um mascaramento ou uma carga de dataset congelado — com o que gravou em cada objeto e o que o Production Guard decidiu\n- Linhagem de dados: de onde vieram os registros que uma execução gravou — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos de cada objeto",
+    "reportsContent": "Relatórios mostra o que as execuções do SandForge fizeram:\n- Execuções: cada execução do Forge e do Sync com status, duração e número de registros, exportável em JSON\n- Análises: taxas de sucesso calculadas a partir dessas execuções\n- Registro de auditoria: cada execução que grava em uma org — uma clonagem Forge, uma sincronização, um seed, uma importação CSV, uma clonagem de registros, uma execução do Autopilot, uma restauração, um mascaramento ou uma carga de dataset congelado — com o que gravou em cada objeto e o que o Production Guard decidiu\n- Linhagem de dados: de onde vieram os registros que uma execução gravou — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos de cada objeto",
     "orgsContent": "Conecte uma org de uma de duas formas, ambas pela Salesforce CLI (sf):\n- Importar da Salesforce CLI adiciona cada org que a CLI já tem. Uma CLI que ainda não tem nenhuma org é indicada como informação, não como erro: entre pelo navegador em vez disso.\n- Entrar pelo navegador abre a página de login do Salesforce; o alias é opcional.\n- URL de login: Produção / Desenvolvedor ou Sandbox; para uma org que bloqueia as duas, Domínio personalizado (My Domain)… recebe a URL de login dela como Configuração → Meu domínio a mostra.\n- Usuário / Senha não precisa da CLI; JWT Bearer e OAuth (dispositivo) ficam em Mais métodos.\n\nO Forge, as cargas do Dataset congelado, os Pontos de verificação e a implantação da Comparação recusam uma org de produção; as exclusões também são recusadas ali; qualquer outra gravação ali pergunta antes, e nenhuma configuração desativa isso. Uma sandbox com dados reais (cópia completa, UAT): abra a caixa Editar Org dela na página Organizações e marque Staging, e o Production Guard passa a perguntar antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros.\n\nUma org que não conecta: veja Solução de problemas.",
     "fullGuide": "Guia completo: {{section}}",
     "notFoundFaq": "Não encontrou aqui? Leia as perguntas frequentes completas",
@@ -3539,7 +3658,7 @@
       "confirm": "Abrir",
       "cancel": "Cancelar",
       "confirmMsg": "Abrir {{action}} para {{org}}?",
-      "reasonEmpty": "Sua sandbox está vazia — preencha-a com dados de demonstração",
+      "reasonEmpty": "Sua org está vazia — preencha-a com dados de demonstração",
       "reasonClone": "A org de origem tem dados — clone-os para o destino",
       "reasonSync": "Ambas as orgs têm dados — sincronize para mantê-las alinhadas",
       "whyTooltip": "Por que esta recomendação?",
@@ -4460,7 +4579,8 @@
           "loosenLookupFilter": "{{field}}: tornar o filtro de pesquisa opcional, ou fazê-lo aceitar os registros que a clonagem indica (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
           "deactivateValidationRule": "Desativar a regra de validação {{value}}, ou dar ao usuário com que o SandForge grava a permissão personalizada que a ignora (Configuração > Gerenciador de objetos > {{object}} > Regras de validação).",
           "deactivateDuplicateRule": "Desativar a regra de duplicidade {{value}}, ou fazê-la permitir o registro na criação (Configuração > Regras de duplicidade).",
-          "grantCreate": "Dar ao usuário com que o SandForge grava a permissão de criação em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}})."
+          "grantCreate": "Dar ao usuário com que o SandForge grava a permissão de criação em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}}).",
+          "installPackage": "Instale ou atualize no destino o pacote com o namespace {{namespace}}: o tipo de registro {{value}} vem com ele, e a Configuração não pode criá-lo."
         }
       }
     },

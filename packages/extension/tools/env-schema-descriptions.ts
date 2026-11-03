@@ -286,7 +286,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'With `reference`, which needs it: the object the field points at, one of its records ' +
     'the run wrote, drawn at random.',
   'resources.<name>{seed}.objects[].fields[].config.referenceField':
-    'Kept as the Seed panel saves it: a run does not read it.',
+    'Accepted from a file an older Seed panel saved: a run does not read it.',
   'resources.<name>{seed}.objects[].fields[].config.picklistValues':
     'With `picklist_random`, which needs one at least: the values drawn from, one at random ' +
     'for each record.',

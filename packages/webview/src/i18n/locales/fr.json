@@ -153,6 +153,10 @@
       "format_date": "Format de date",
       "format_number": "Format de nombre",
       "custom_formula": "Formule personnalisée"
+    },
+    "noCliOrgs": {
+      "title": "Import",
+      "message": "La Salesforce CLI ne contient encore aucune org connectée. Utilisez Se connecter dans le navigateur sur la page Organisations : la page de connexion Salesforce s'y ouvre."
     }
   },
   "status": {
@@ -2978,6 +2982,121 @@
       "decisionRows_one": "({{count}} ligne)",
       "decisionRows_other": "({{count}} lignes)",
       "user": "Utilisateur {{user}}"
+    },
+    "reportTypes": {
+      "forge_execution": "Clonage Forge",
+      "seed_execution": "Exécution seed",
+      "sync_execution": "Exécution sync",
+      "compare_result": "Comparaison",
+      "backup_result": "Sauvegarde",
+      "anonymization_result": "Masquage",
+      "pipeline_run": "Exécution de pipeline",
+      "data_quality": "Qualité des données",
+      "org_health": "Santé de l'org",
+      "audit_trail": "Journal d'audit",
+      "custom": "Personnalisé"
+    },
+    "detailLine": "{{label}} : {{value}}",
+    "detailField": {
+      "forgeId": "Exécution Forge",
+      "runId": "Exécution",
+      "expected": "Attendus",
+      "present": "Présents",
+      "deleted": "Supprimés",
+      "notVisible": "Non visibles",
+      "changed": "Modifiés",
+      "linksChecked": "Liens vérifiés",
+      "linksBroken": "Liens rompus",
+      "linksLeftEmptyByFilter": "Liens laissés vides par un filtre",
+      "linksSetByAutomation": "Liens remplis par une automatisation",
+      "attempts": "Tentatives",
+      "sweep": "Balayage",
+      "found": "Trouvés",
+      "keptChanged": "Gardés, modifiés depuis",
+      "refused": "Refusés",
+      "handWork": "À retirer à la main",
+      "loadedAt": "Chargé le",
+      "contactPoints": "E-mails et téléphones",
+      "contactPointFields": "Champs e-mail et téléphone",
+      "contactPointValues": "Valeurs e-mail et téléphone",
+      "deliverability": "Délivrabilité des e-mails",
+      "confirmed": "Confirmé",
+      "triggeredBy": "Lancé par",
+      "checkpointRefusal": "Point de contrôle refusé",
+      "pipeline": "Pipeline",
+      "step": "Étape",
+      "decision": "Décision",
+      "via": "Réponse depuis",
+      "answeredBy": "Réponse de",
+      "trigger": "Déclencheur",
+      "grantedAt": "Confirmé le",
+      "checkpointId": "Point de contrôle",
+      "records": "Enregistrements",
+      "objects": "Objets",
+      "files": "Fichiers",
+      "bytes": "Taille",
+      "alreadyKept": "Déjà sur cette machine",
+      "rewindId": "Retour arrière",
+      "status": "Statut",
+      "passes": "Passes",
+      "limitedTo": "Limité à",
+      "sampled": "Échantillon",
+      "judged": "Évalués",
+      "passed": "Acceptés",
+      "linked": "Liés",
+      "notJudged": "Non évalués",
+      "updatesJudged": "Mises à jour évaluées",
+      "updatesRefused": "Mises à jour refusées",
+      "updatesNotRehearsed": "Mises à jour non essayées",
+      "calls": "Appels API",
+      "recordsLeft": "Enregistrements restés dans l'org",
+      "reason": "Raison",
+      "code": "Code"
+    },
+    "detailValue": {
+      "contactPoints": {
+        "neutralized": "neutralisés",
+        "kept": "gardés tels que lus"
+      },
+      "deliverability": {
+        "all": "tous les e-mails partent",
+        "withheld": "e-mails retenus par l'org",
+        "unread": "illisible"
+      },
+      "confirmed": {
+        "emails": "les e-mails partent"
+      },
+      "triggeredBy": {
+        "manual": "vous",
+        "schedule": "une planification",
+        "rerun": "une relance",
+        "pipeline": "un pipeline"
+      },
+      "decision": {
+        "approved": "approuvé",
+        "rejected": "refusé",
+        "timedOut": "délai dépassé",
+        "cancelled": "annulé"
+      },
+      "via": {
+        "notification": "une notification",
+        "page": "la page d'automatisation"
+      },
+      "status": {
+        "success": "réussi",
+        "partial": "partiel",
+        "failure": "échoué",
+        "unstable": "instable",
+        "cancelled": "annulé"
+      },
+      "trigger": {
+        "manual": "à la main",
+        "schedule": "planification",
+        "event": "événement",
+        "webhook": "webhook",
+        "sandbox_refresh": "actualisation d'une sandbox",
+        "deployment_complete": "déploiement terminé"
+      }
     }
   },
   "settings": {
@@ -3529,7 +3648,7 @@
     "activeJobs": "Jobs actifs",
     "opsLast7d": "Ops (7 jours)",
     "limitWarnings": "Alertes limites",
-    "forgeASandbox": "Forger une Sandbox",
+    "forgeASandbox": "Forger une sandbox",
     "recordIdPlaceholder": "ID d'enregistrement (ex. 001...)",
     "startForge": "Lancer Forge",
     "invalidRecordId": "ID d'enregistrement ou URL Salesforce invalide",
@@ -3539,7 +3658,7 @@
       "confirm": "Ouvrir",
       "cancel": "Annuler",
       "confirmMsg": "Ouvrir {{action}} pour {{org}} ?",
-      "reasonEmpty": "Votre sandbox est vide — alimentez-la avec des données de démo",
+      "reasonEmpty": "Votre org est vide — remplissez-la de données de démonstration",
       "reasonClone": "L'org source contient des données — clonez-les vers votre cible",
       "reasonSync": "Les deux orgs ont des données — synchronisez pour les aligner",
       "whyTooltip": "Pourquoi cette recommandation ?",
@@ -4460,7 +4579,8 @@
           "loosenLookupFilter": "{{field}} : rendre son filtre de recherche facultatif, ou lui faire accepter les enregistrements que le clonage désigne (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
           "deactivateValidationRule": "Désactiver la règle de validation {{value}}, ou donner à l'utilisateur sous lequel SandForge écrit l'autorisation personnalisée qui la contourne (Configuration > Gestionnaire d'objets > {{object}} > Règles de validation).",
           "deactivateDuplicateRule": "Désactiver la règle de doublons {{value}}, ou lui faire autoriser l'enregistrement à la création (Configuration > Règles de doublons).",
-          "grantCreate": "Donner à l'utilisateur sous lequel SandForge écrit le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}})."
+          "grantCreate": "Donner à l'utilisateur sous lequel SandForge écrit le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+          "installPackage": "Installez ou mettez à jour dans la cible le package d'espace de noms {{namespace}} : le type d'enregistrement {{value}} vient avec lui, et la Configuration ne peut pas le créer."
         }
       }
     },

@@ -3,8 +3,12 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import { createInstance, type i18n as I18n } from 'i18next';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import '../../i18n';
+import de from '../../i18n/locales/de.json';
 import en from '../../i18n/locales/en.json';
+import es from '../../i18n/locales/es.json';
 import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import type { SalesforceOrg, SmartActionRecommendation } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -59,6 +63,26 @@ describe('SmartActionCard', () => {
     expect(screen.getByTestId('smart-action-card')).toBeDefined();
     expect(screen.getByTestId('smart-action-execute-btn')).toBeDefined();
     expect(screen.getByTestId('smart-action-why-btn')).toBeDefined();
+  });
+
+  it('says an empty org is empty, whatever its kind: a Developer Edition is no sandbox', () => {
+    useOrgStore.setState({ orgs: [createOrg({ orgType: 'Developer' })] });
+    render(
+      <SmartActionCard
+        recommendation={createRecommendation()}
+        onExecute={vi.fn()}
+        showConfirmation={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('smart-action-card').textContent).toContain(
+      'Your org is empty — fill it with demo data',
+    );
+    for (const locale of [en, fr, de, es, ptBR, ja]) {
+      expect(locale.home.smartAction.reasonEmpty).not.toMatch(/sandbox/i);
+    }
   });
 
   it('should return null when action is none', () => {
@@ -151,7 +175,7 @@ describe('SmartActionCard', () => {
 
 /*
  * One act, filling an org with demo data, read "Set it up", then "Open Quick
- * Seed for <org>?": the side panel, Organizations and Home's Quick Actions say
+ * Seed for <org>?": the side panel, Organizations and Home's Quick actions say
  * "Fill <org> with demo data" and open Seed's gallery at once.
  */
 describe('SmartActionCard names a fill as every other surface does', () => {

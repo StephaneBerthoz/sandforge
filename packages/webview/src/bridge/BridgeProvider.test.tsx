@@ -256,6 +256,39 @@ describe('BridgeProvider', () => {
     );
   });
 
+  it('words the toast of an import that found no org in the language of the page', async () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    const switched = changeLanguageLazy('fr');
+    await act(async () => {
+      await answerCapturedLocaleRequests(mockPostMessage);
+      expect(await switched).toBe(true);
+    });
+
+    fireMessage({
+      id: 'n-no-cli-orgs',
+      type: 'notification',
+      timestamp: Date.now(),
+      payload: {
+        level: 'info',
+        title: 'Import',
+        message: 'The Salesforce CLI holds no connected org yet.',
+        code: 'NO_CLI_ORGS',
+      },
+    });
+
+    const toast = useNotificationStore.getState().notifications[0];
+    expect(toast.message).toContain('Se connecter dans le navigateur');
+    expect(toast.message).not.toContain('Salesforce CLI holds');
+
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
+  });
+
   it('should surface a bridge:error as an error notification', () => {
     // The broker drops the offending message, so nothing else will ever
     // report it — without this listener the sender just waits out a timeout.

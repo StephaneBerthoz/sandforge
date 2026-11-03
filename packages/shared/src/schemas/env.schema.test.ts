@@ -118,6 +118,21 @@ describe('the file', () => {
     ]);
   });
 
+  it('still reads a field rule an older panel saved with a referenceField, which nothing reads', () => {
+    const saved = (config: Record<string, unknown>) =>
+      exampleWith(
+        ['resources', 'accounts', 'objects', 0, 'fields'],
+        [{ fieldApiName: 'ParentId', ruleType: 'reference', config }],
+      );
+
+    expect(
+      envFileSchema.safeParse(saved({ referenceObject: 'Account', referenceField: 'Id' })).success,
+    ).toBe(true);
+    expect(refusalsOf(saved({ referenceObject: 'Account', referenceFieldd: 'Id' }))).toEqual([
+      expect.stringContaining('"referenceFieldd" is not a key of a field rule’s config'),
+    ]);
+  });
+
   it('refuses a file with no version, or one written for a later SandForge', () => {
     expect(refusalsOf(exampleWith(['version'], undefined))).toEqual([
       'version: The file names no version: write version: 1 at its top',

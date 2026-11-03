@@ -10,7 +10,12 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (importOriginal) => 
 
 import { execFileSync } from 'node:child_process';
 import { refreshTokenViaCli } from '../src/core/connection/ConnectionHelper.js';
-import { buildExecutorDeps, loadSfOrgs, READ_ONLY_RECIPE } from './recipe-forge-grappe.js';
+import {
+  buildExecutorDeps,
+  loadRecordTypeMappings,
+  loadSfOrgs,
+  READ_ONLY_RECIPE,
+} from './recipe-forge-grappe.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 
 /** What CLI 2.150 prints where `sf org display` used to print the token. */
@@ -216,5 +221,47 @@ describe('buildExecutorDeps', () => {
     expect(target.writes.create).not.toHaveBeenCalled();
     expect(target.writes.upsert).not.toHaveBeenCalled();
     expect(target.writes.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('loadRecordTypeMappings', () => {
+  type Row = Record<string, string | null>;
+
+  /** An org that answers the columns a query names, and no other: as SOQL does. */
+  const orgHolding = (rows: Row[]): Connection =>
+    ({
+      query: vi.fn(async (soql: string) => {
+        const columns = (/SELECT (.+) FROM/.exec(soql)?.[1] ?? '').split(', ');
+        return {
+          records: rows.map((row) =>
+            Object.fromEntries(columns.map((column) => [column, row[column]])),
+          ),
+        };
+      }),
+    }) as unknown as Connection;
+
+  /** A record type of Account, of package `namespacePrefix` or of the org's own. */
+  const recordType = (id: string, namespacePrefix: string | null): Row => ({
+    Id: id,
+    Name: 'Retail',
+    DeveloperName: 'Retail',
+    NamespacePrefix: namespacePrefix,
+    SobjectType: 'Account',
+  });
+
+  it("does not take a package's record type for the org's own of the same name", async () => {
+    const mappings = await loadRecordTypeMappings(
+      orgHolding([recordType('012S', 'ns')]),
+      orgHolding([recordType('012T', null)]),
+    );
+    expect(mappings).toEqual([]);
+  });
+
+  it('maps the same package in both orgs, under its namespaced name', async () => {
+    const mappings = await loadRecordTypeMappings(
+      orgHolding([recordType('012S', 'ns')]),
+      orgHolding([recordType('012T', 'ns')]),
+    );
+    expect(mappings).toEqual([expect.objectContaining({ developerName: 'ns__Retail' })]);
   });
 });

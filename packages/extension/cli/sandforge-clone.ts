@@ -774,7 +774,7 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          content cannot be anonymized. Required with --files
                          when --anonymize is on.
   --audit <file>         record the run in an audit trail kept in <file>
-                         The entry the panel keeps in Reports -> Audit Trail:
+                         The entry the panel keeps in Reports -> Audit trail:
                          per object the records created, updated and lost,
                          the orgs, the outcome, the user as a hash of the
                          username, and, for a run refused before it wrote,

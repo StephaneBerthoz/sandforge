@@ -107,7 +107,7 @@ SandForge ships 15 modules in a single extension:
 | **Organizations**  | Org registry with SF CLI import and tier-based safety coloring; when SandForge first opens a view in a window, expired sessions are refreshed through the sf CLI.                                                                                                                                                                                                     |
 | **Reports**        | Execution reports and success rates from your Forge and Sync run history, an audit trail of every run that writes to an org, and the data lineage of the records each run carried. [Guide](docs/modules/reports.md)                                                                                                                                                   |
 
-Safety is on by default: Forge and a Frozen Dataset load refuse a Production org as a target, Checkpoints never takes a checkpoint of a Production org nor rewinds one, and for every other module Production Guard asks for confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.
+Safety is on by default: Forge and a Frozen Dataset load refuse a Production org as a target, Checkpoints never takes a checkpoint of a Production org nor rewinds one, and for every other module Production Guard asks for confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit trail.
 
 ---
 

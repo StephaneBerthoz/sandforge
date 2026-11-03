@@ -30,8 +30,12 @@ import type {
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import type { ForgeExecutorDeps, FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
-import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
-import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
+import {
+  parseRecordTypeRows,
+  RECORD_TYPES_SOQL,
+  RecordTypeMapper,
+} from '../src/modules/sync/RecordTypeMapper.js';
+import type { RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { loadOrg } from '../cli/sfSession.js';
 import type { SfOrg } from '../cli/sfSession.js';
@@ -485,27 +489,22 @@ export function buildExecutorDeps(
   };
 }
 
-async function loadRecordTypeMappings(
+/**
+ * The record type mappings of a source and a target, read as a run reads them:
+ * with the namespace, without which a package's record type and the org's own
+ * of the same DeveloperName were mapped to each other, which no run does.
+ */
+export async function loadRecordTypeMappings(
   sourceConn: Connection,
   targetConn: Connection,
 ): Promise<RecordTypeMapping[]> {
-  // SobjectType is read so the match stays within one object: Account and
-  // Opportunity can each have a "Business" record type.
-  const soql = 'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
-  type RecordTypeRow = { Id: string; Name: string; DeveloperName: string; SobjectType: string };
   const [sourceRes, targetRes] = await Promise.all([
-    sourceConn.query<RecordTypeRow>(soql),
-    targetConn.query<RecordTypeRow>(soql),
+    sourceConn.query(RECORD_TYPES_SOQL),
+    targetConn.query(RECORD_TYPES_SOQL),
   ]);
-  const toInfo = (r: RecordTypeRow): RecordTypeInfo => ({
-    id: r.Id,
-    name: r.Name,
-    developerName: r.DeveloperName,
-    sobjectType: r.SobjectType,
-  });
   return new RecordTypeMapper().buildMapping(
-    sourceRes.records.map(toInfo),
-    targetRes.records.map(toInfo),
+    parseRecordTypeRows(sourceRes.records),
+    parseRecordTypeRows(targetRes.records),
   );
 }
 

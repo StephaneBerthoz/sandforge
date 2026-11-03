@@ -153,6 +153,10 @@
       "format_date": "Datumsformat",
       "format_number": "Zahlenformat",
       "custom_formula": "Benutzerdefinierte Formel"
+    },
+    "noCliOrgs": {
+      "title": "Import",
+      "message": "Die Salesforce CLI enthält noch keine verbundene Org. Nutzen Sie Im Browser anmelden auf der Seite Organisationen: Die Salesforce-Anmeldeseite öffnet sich dort."
     }
   },
   "status": {
@@ -2792,7 +2796,7 @@
     "title": "Benachrichtigungen"
   },
   "reports": {
-    "title": "Berichte & Analysen",
+    "title": "Berichte und Analysen",
     "executions": "Ausführungen",
     "analytics": "Analysen",
     "audit": "Audit-Protokoll",
@@ -2978,6 +2982,121 @@
       "decisionRows_one": "({{count}} Zeile)",
       "decisionRows_other": "({{count}} Zeilen)",
       "user": "Benutzer {{user}}"
+    },
+    "reportTypes": {
+      "forge_execution": "Forge-Klon",
+      "seed_execution": "Seed-Lauf",
+      "sync_execution": "Sync-Lauf",
+      "compare_result": "Vergleich",
+      "backup_result": "Sicherung",
+      "anonymization_result": "Maskierung",
+      "pipeline_run": "Pipeline-Lauf",
+      "data_quality": "Datenqualität",
+      "org_health": "Org-Zustand",
+      "audit_trail": "Audit-Protokoll",
+      "custom": "Benutzerdefiniert"
+    },
+    "detailLine": "{{label}}: {{value}}",
+    "detailField": {
+      "forgeId": "Forge-Lauf",
+      "runId": "Lauf",
+      "expected": "Erwartet",
+      "present": "Vorhanden",
+      "deleted": "Gelöscht",
+      "notVisible": "Nicht sichtbar",
+      "changed": "Geändert",
+      "linksChecked": "Verknüpfungen geprüft",
+      "linksBroken": "Verknüpfungen defekt",
+      "linksLeftEmptyByFilter": "Verknüpfungen durch einen Filter leer",
+      "linksSetByAutomation": "Verknüpfungen durch Automatisierung gesetzt",
+      "attempts": "Versuche",
+      "sweep": "Aufräumen",
+      "found": "Gefunden",
+      "keptChanged": "Behalten, seitdem geändert",
+      "refused": "Abgelehnt",
+      "handWork": "Von Hand zu entfernen",
+      "loadedAt": "Geladen am",
+      "contactPoints": "E-Mails und Telefonnummern",
+      "contactPointFields": "Felder für E-Mail und Telefon",
+      "contactPointValues": "Werte für E-Mail und Telefon",
+      "deliverability": "E-Mail-Zustellbarkeit",
+      "confirmed": "Bestätigt",
+      "triggeredBy": "Gestartet durch",
+      "checkpointRefusal": "Prüfpunkt abgelehnt",
+      "pipeline": "Pipeline",
+      "step": "Schritt",
+      "decision": "Entscheidung",
+      "via": "Antwort über",
+      "answeredBy": "Antwort von",
+      "trigger": "Auslöser",
+      "grantedAt": "Bestätigt am",
+      "checkpointId": "Prüfpunkt",
+      "records": "Datensätze",
+      "objects": "Objekte",
+      "files": "Dateien",
+      "bytes": "Größe",
+      "alreadyKept": "Bereits auf diesem Rechner",
+      "rewindId": "Zurücksetzen",
+      "status": "Status",
+      "passes": "Durchgänge",
+      "limitedTo": "Beschränkt auf",
+      "sampled": "Stichprobe",
+      "judged": "Beurteilt",
+      "passed": "Bestanden",
+      "linked": "Verknüpft",
+      "notJudged": "Nicht beurteilt",
+      "updatesJudged": "Aktualisierungen beurteilt",
+      "updatesRefused": "Aktualisierungen abgelehnt",
+      "updatesNotRehearsed": "Aktualisierungen nicht geprobt",
+      "calls": "API-Aufrufe",
+      "recordsLeft": "In der Org verbliebene Datensätze",
+      "reason": "Grund",
+      "code": "Code"
+    },
+    "detailValue": {
+      "contactPoints": {
+        "neutralized": "neutralisiert",
+        "kept": "wie gelesen behalten"
+      },
+      "deliverability": {
+        "all": "alle E-Mails gehen raus",
+        "withheld": "von der Org zurückgehalten",
+        "unread": "nicht lesbar"
+      },
+      "confirmed": {
+        "emails": "E-Mails gehen raus"
+      },
+      "triggeredBy": {
+        "manual": "Sie",
+        "schedule": "einen Zeitplan",
+        "rerun": "einen erneuten Lauf",
+        "pipeline": "eine Pipeline"
+      },
+      "decision": {
+        "approved": "genehmigt",
+        "rejected": "abgelehnt",
+        "timedOut": "Zeit abgelaufen",
+        "cancelled": "abgebrochen"
+      },
+      "via": {
+        "notification": "eine Benachrichtigung",
+        "page": "die Seite Automatisierung"
+      },
+      "status": {
+        "success": "erfolgreich",
+        "partial": "teilweise",
+        "failure": "fehlgeschlagen",
+        "unstable": "instabil",
+        "cancelled": "abgebrochen"
+      },
+      "trigger": {
+        "manual": "von Hand",
+        "schedule": "Zeitplan",
+        "event": "Ereignis",
+        "webhook": "Webhook",
+        "sandbox_refresh": "Sandbox-Aktualisierung",
+        "deployment_complete": "Bereitstellung abgeschlossen"
+      }
     }
   },
   "settings": {
@@ -3539,7 +3658,7 @@
       "confirm": "Öffnen",
       "cancel": "Abbrechen",
       "confirmMsg": "{{action}} für {{org}} öffnen?",
-      "reasonEmpty": "Ihre Sandbox ist leer — füllen Sie sie mit Demodaten",
+      "reasonEmpty": "Ihre Org ist leer — füllen Sie sie mit Demodaten",
       "reasonClone": "Die Quell-Org enthält Daten — klonen Sie sie in Ihr Ziel",
       "reasonSync": "Beide Orgs enthalten Daten — synchronisieren Sie, um sie abzugleichen",
       "whyTooltip": "Warum diese Empfehlung?",
@@ -4460,7 +4579,8 @@
           "loosenLookupFilter": "{{field}}: den Nachschlagefilter optional machen oder die Datensätze zulassen, die der Klon angibt (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
           "deactivateValidationRule": "Die Validierungsregel {{value}} deaktivieren oder dem Benutzer, mit dem SandForge schreibt, die benutzerdefinierte Berechtigung geben, die sie umgeht (Setup > Objekt-Manager > {{object}} > Validierungsregeln).",
           "deactivateDuplicateRule": "Die Duplikatregel {{value}} deaktivieren oder den Datensatz beim Erstellen zulassen (Setup > Duplikatregeln).",
-          "grantCreate": "Dem Benutzer, mit dem SandForge schreibt, das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}})."
+          "grantCreate": "Dem Benutzer, mit dem SandForge schreibt, das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+          "installPackage": "Installieren oder aktualisieren Sie im Ziel das Paket mit dem Namespace {{namespace}}: Der Datensatztyp {{value}} gehört dazu, und das Setup kann ihn nicht anlegen."
         }
       }
     },

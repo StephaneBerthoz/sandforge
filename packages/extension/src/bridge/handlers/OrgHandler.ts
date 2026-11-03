@@ -289,9 +289,11 @@ export class OrgHandler implements DomainHandler {
         // Something to do before trying again, so the toast stays until it is
         // dismissed, and the banner that outlives it carries the same step: it
         // used to stop at "No connected orgs found in SF CLI.", then named a
-        // terminal command. The page opens the browser sign-in on the code.
+        // terminal command. The page opens the browser sign-in on the code, and
+        // the code words the toast in the panel's language.
         sendNotification(this.deps, 'info', 'Import', NO_CLI_ORGS_MESSAGE, {
           autoDismissMs: null,
+          code: 'NO_CLI_ORGS',
         });
         this.failConnect(msg, NO_CLI_ORGS_MESSAGE, 'NO_CLI_ORGS');
         return;

@@ -554,6 +554,23 @@ describe('ReviewGapsTab', () => {
       expect(within(admin).getByTestId('gaps-admin-copied').textContent).toBe('Copied');
     });
 
+    it('asks for the package of a record type only its package can bring', () => {
+      useForgeStore.getState().setGaps('simulation', [
+        {
+          ...UNMAPPED,
+          id: forgeGapId('record_type_unmapped', 'Case', undefined, undefined, 'ns__Retail'),
+          value: 'ns__Retail',
+        },
+      ]);
+      render(<ReviewGapsTab />);
+
+      const list = screen.getByTestId('gaps-admin').textContent;
+      expect(list).toContain(
+        'Install or upgrade the package with namespace ns in the target: record type ns__Retail comes with it, and Setup cannot create it.',
+      );
+      expect(list).not.toContain('Create record type');
+    });
+
     it('is absent when no gap asks a change of the target, or its object is left out', () => {
       useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
       const { unmount } = render(<ReviewGapsTab />);

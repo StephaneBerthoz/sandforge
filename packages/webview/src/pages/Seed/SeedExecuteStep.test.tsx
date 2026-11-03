@@ -28,7 +28,7 @@ const CONTACT: ObjectFieldConfig = {
       type: 'reference',
       required: false,
       ruleType: 'reference',
-      config: { referenceObject: 'Account', referenceField: 'Id' },
+      config: { referenceObject: 'Account' },
       referenceTo: ['Account'],
     },
   ],

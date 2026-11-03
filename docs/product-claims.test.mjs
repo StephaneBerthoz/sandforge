@@ -2370,9 +2370,9 @@ test("no user-facing surface keeps Production Guard's decisions to the session",
     "these keep Production Guard's decisions to the session, and the rule lets them through",
   );
   const honest = [
-    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.',
+    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit trail.',
     '- All DML goes through the existing **Production Guard** (tier check; each decision is recorded with the load in the audit trail, unless `sandforge.safety.auditLogging` is off).',
-    'Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.',
+    'Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit trail). Off, runs are still recorded, without the decisions.',
     'Production Guard の安全性チェックの判定を、対象の実行とともに監査ログ（レポート → 監査ログ）に記録します。オフにすると、実行は判定なしで記録されます。',
   ];
   assert.deepEqual(

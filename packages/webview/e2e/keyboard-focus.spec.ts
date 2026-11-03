@@ -842,11 +842,11 @@ test.describe('Keyboard and screen reader — Reports', () => {
         },
       ],
     });
-    await page.getByRole('tab', { name: 'Audit Trail' }).click();
+    await page.getByRole('tab', { name: 'Audit trail' }).click();
 
     await pressWithKeyboard(page, 'audit-view-run-audit-forge');
 
-    const lineageTab = page.getByRole('tab', { name: 'Data Lineage' });
+    const lineageTab = page.getByRole('tab', { name: 'Data lineage' });
     await expect(lineageTab).toBeFocused();
     await expect(lineageTab).toHaveAttribute('aria-selected', 'true');
   });

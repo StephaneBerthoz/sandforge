@@ -264,10 +264,18 @@ const checkpointSettingsSchema = strictObject('checkpoint', {
  */
 export const ENV_SEED_MAX_OBJECTS = 100;
 
-/** A field rule, as the panel saves it (`seed-config.schema.ts`), held strict. */
+/**
+ * A field rule, as the panel saves it (`seed-config.schema.ts`), held strict.
+ * The panel saved a `referenceField` beside `referenceObject` until no run was
+ * found to read it: a file copied from one of those still validates, the key
+ * saying nothing.
+ */
 const fieldRuleFileSchema = strictObject('a field rule', {
   ...fieldRuleSchema.shape,
-  config: strictObject('a field rule’s config', fieldRuleConfigSchema.shape),
+  config: strictObject('a field rule’s config', {
+    ...fieldRuleConfigSchema.shape,
+    referenceField: z.string().optional(),
+  }),
 });
 
 const seedObjectFileSchema = strictObject('an object of a seed resource', {

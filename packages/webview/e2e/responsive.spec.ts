@@ -415,6 +415,157 @@ test.describe('Responsive layout', () => {
     });
   });
 
+  test.describe('the lineage graph of a run', () => {
+    /** Every kind of node the graph draws, five columns, as Reports asks them of the host. */
+    const FIVE_COLUMNS = {
+      lineage: {
+        operationId: 'op-lineage',
+        generatedAt: '2026-09-12T10:00:00.000Z',
+        module: 'forge',
+        action: 'forge_execute',
+        nodes: [
+          { id: 'source', type: 'source', label: DEV_SANDBOX.alias, origin: 'org' },
+          { id: 'mask', type: 'transform', label: 'Anonymize email' },
+          { id: 'active', type: 'filter', label: 'Active only' },
+          { id: 'object:Account', type: 'object', label: 'Account', recordCount: 1200 },
+          { id: 'target', type: 'destination', label: QA_SANDBOX.alias, origin: 'org' },
+        ],
+        edges: [
+          { sourceId: 'source', targetId: 'mask', recordCount: 1200 },
+          { sourceId: 'mask', targetId: 'active', recordCount: 1200 },
+          { sourceId: 'active', targetId: 'object:Account', recordCount: 1200 },
+          { sourceId: 'object:Account', targetId: 'target', recordCount: 1200 },
+        ],
+      },
+      runs: [
+        {
+          operationId: 'op-lineage',
+          generatedAt: '2026-09-12T10:00:00.000Z',
+          module: 'forge',
+          action: 'forge_execute',
+          target: QA_SANDBOX.alias,
+        },
+      ],
+    };
+
+    /** A run of many objects: one tall column between its two ends. */
+    const MANY_OBJECTS = {
+      ...FIVE_COLUMNS,
+      lineage: {
+        ...FIVE_COLUMNS.lineage,
+        nodes: [
+          { id: 'source', type: 'source', label: DEV_SANDBOX.alias, origin: 'org' },
+          ...Array.from({ length: 20 }, (_, index) => ({
+            id: `object:${index}`,
+            type: 'object',
+            label: `Object_${index}__c`,
+            recordCount: 10,
+          })),
+          { id: 'target', type: 'destination', label: QA_SANDBOX.alias, origin: 'org' },
+        ],
+        edges: Array.from({ length: 20 }, (_, index) => ({
+          sourceId: `object:${index}`,
+          targetId: 'target',
+          recordCount: 10,
+        })),
+      },
+    };
+
+    /** Open Reports on its lineage tab at `viewport`, the host answering `answer`. */
+    async function openLineageAt(
+      page: Page,
+      viewport: { width: number; height: number },
+      answer: typeof FIVE_COLUMNS,
+    ): Promise<void> {
+      await page.setViewportSize(viewport);
+      const bridge = new MockBridge();
+      await bridge.setup(page);
+      await page.addInitScript(() => {
+        (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'reports';
+      });
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('reports-page').waitFor({ timeout: 10_000 });
+      await page.getByRole('tab', { name: 'Data lineage' }).click();
+      const answered = new Set<string>();
+      await expect
+        .poll(
+          async () => {
+            await respondToAll(
+              page,
+              'reports:lineage',
+              'reports:lineage:response',
+              answer,
+              answered,
+            );
+            return page.locator('.react-flow__node').count();
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(answer.lineage.nodes.length);
+    }
+
+    /**
+     * The zoom React Flow draws the graph at, once it holds still: the fit
+     * comes a frame or more after the nodes are measured.
+     */
+    async function settledZoom(page: Page): Promise<number> {
+      const zoom = (): Promise<number> =>
+        page
+          .locator('.react-flow__viewport')
+          .evaluate((viewport) => new DOMMatrix(getComputedStyle(viewport).transform).a);
+      await expect.poll(zoom, { timeout: 10_000 }).not.toBe(1);
+      return zoom();
+    }
+
+    test('stays readable in an 800-pixel panel: it scrolls sideways rather than shrink', async ({
+      page,
+    }) => {
+      await openLineageAt(page, { width: 800, height: 600 }, FIVE_COLUMNS);
+      // 11-pixel text at 0.9 is the 10 pixels of the page's smallest text.
+      expect(await settledZoom(page)).toBeGreaterThanOrEqual(0.9);
+
+      const scroller = page.getByRole('region', { name: 'Data lineage' });
+      const { clientWidth, scrollWidth } = await scroller.evaluate((box) => ({
+        clientWidth: box.clientWidth,
+        scrollWidth: box.scrollWidth,
+      }));
+      expect(scrollWidth).toBeGreaterThan(clientWidth);
+      // What overflows stays in the graph's box: the page does not scroll sideways.
+      const { documentClientWidth, documentScrollWidth } = await measureOverflow(page);
+      expect(documentScrollWidth).toBeLessThanOrEqual(documentClientWidth);
+
+      // The keyboard reaches the columns past the edge, which no drag can.
+      await scroller.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => scroller.evaluate((box) => box.scrollLeft)).toBeGreaterThan(0);
+      for (let press = 0; press < 30; press++) await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.react-flow__node').last()).toBeInViewport();
+    });
+
+    test('keeps a column of twenty objects readable, its box as tall as it needs', async ({
+      page,
+    }) => {
+      await openLineageAt(page, { width: 800, height: 600 }, MANY_OBJECTS);
+      expect(await settledZoom(page)).toBeGreaterThanOrEqual(0.9);
+    });
+
+    test('on a wide panel the whole graph is in view, with nothing to scroll', async ({ page }) => {
+      await openLineageAt(page, LARGE_DESKTOP, FIVE_COLUMNS);
+      await settledZoom(page);
+
+      const scroller = page.getByRole('region', { name: 'Data lineage' });
+      const { clientWidth, scrollWidth } = await scroller.evaluate((box) => ({
+        clientWidth: box.clientWidth,
+        scrollWidth: box.scrollWidth,
+      }));
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+      for (const node of await page.locator('.react-flow__node').all()) {
+        await expect(node).toBeInViewport({ ratio: 1 });
+      }
+    });
+  });
+
   test('content area is scrollable when content overflows', async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.setViewportSize({ width: 1280, height: 400 });

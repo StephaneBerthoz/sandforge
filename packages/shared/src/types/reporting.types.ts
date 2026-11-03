@@ -4,6 +4,7 @@ import type { ForgeGapDecisionKind, ForgeVerificationVerdict } from './forge.typ
 
 /** Report type */
 export type ReportType =
+  | 'forge_execution'
   | 'seed_execution'
   | 'sync_execution'
   | 'compare_result'

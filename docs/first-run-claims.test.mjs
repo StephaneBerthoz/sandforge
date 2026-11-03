@@ -284,6 +284,17 @@ test('the FAQ answers the person account, currency and empty-org questions', () 
   );
 });
 
+test('no paragraph of the FAQ runs past 1,500 characters', () => {
+  const faq = read('docs', 'faq.md').split('\n');
+  // Positive control: the answers are read as the long lines they are.
+  assert.ok(faq.some((line) => line.length > 1000));
+  assert.deepEqual(
+    faq.filter((line) => line.length > 1500).map((line) => line.slice(0, 60)),
+    [],
+    'an answer that long is not read: move the detail to the page it links to',
+  );
+});
+
 /**
  * What SandForge keeps on disk, each read from the code that writes it: a
  * reader deciding whether to try it on a shared machine is owed the list.

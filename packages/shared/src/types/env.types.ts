@@ -21,7 +21,7 @@ import type {
 } from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
 import type { ForgeDepth } from './forge.types.js';
-import type { FieldRule, SeedRelation, SeedTemplate } from './seed.types.js';
+import type { FieldRule, FieldRuleConfig, SeedRelation, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
 
@@ -77,12 +77,23 @@ export interface EnvForgeAccept extends EnvAccept {
   realData?: boolean;
 }
 
+/** A field rule's config in a file, with the `referenceField` an older panel saved. */
+interface EnvFieldRuleConfig extends FieldRuleConfig {
+  /** No run reads it. */
+  referenceField?: string;
+}
+
+/** A field rule of a seed resource, as the panel saves it. */
+interface EnvFieldRule extends Omit<FieldRule, 'config'> {
+  config: EnvFieldRuleConfig;
+}
+
 /** An object a seed resource writes. */
 export interface EnvSeedObject {
   object: string;
   count: number;
   /** Seed's field rules, as the panel saves them. */
-  fields?: FieldRule[];
+  fields?: EnvFieldRule[];
   /** Record types by DeveloperName; several take turns at random. */
   recordTypes?: string[];
   batchSize?: number;

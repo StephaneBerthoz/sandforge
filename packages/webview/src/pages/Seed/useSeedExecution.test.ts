@@ -279,7 +279,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'User', referenceField: 'Id' },
+            config: { referenceObject: 'User' },
           },
           {
             fieldApiName: 'AccountId',
@@ -287,7 +287,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'Account', referenceField: 'Id' },
+            config: { referenceObject: 'Account' },
           },
         ],
       },
@@ -323,7 +323,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: true,
             ruleType: 'reference',
-            config: { referenceObject: 'Invoice__c', referenceField: 'Id' },
+            config: { referenceObject: 'Invoice__c' },
           },
         ],
       },
@@ -357,7 +357,7 @@ describe('useSeedExecution', () => {
       type: 'reference',
       required,
       ruleType: 'reference' as const,
-      config: { referenceObject: object, referenceField: 'Id' },
+      config: { referenceObject: object },
     });
     const configs: ObjectFieldConfig[] = [
       {
@@ -423,7 +423,7 @@ describe('useSeedExecution', () => {
       type: 'reference',
       required: false,
       ruleType: 'reference' as const,
-      config: { referenceObject: object, referenceField: 'Id' },
+      config: { referenceObject: object },
     });
     const configs: ObjectFieldConfig[] = [
       {
@@ -490,7 +490,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: false,
             ruleType: 'reference',
-            config: { referenceObject: 'Account', referenceField: 'Id' },
+            config: { referenceObject: 'Account' },
           },
         ],
       },
@@ -610,7 +610,7 @@ describe('useSeedExecution', () => {
             type: 'reference',
             required: true,
             ruleType: 'reference',
-            config: { referenceObject: 'RecordType', referenceField: 'Id' },
+            config: { referenceObject: 'RecordType' },
           },
         ],
       },

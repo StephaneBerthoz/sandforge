@@ -112,6 +112,40 @@ describe('adminChangesOf', () => {
     ]);
   });
 
+  it('asks for the package of a namespaced record type, which New in Setup cannot create', () => {
+    const [group] = adminChangesOf([
+      gap('record_type_unmapped', 'Account', { field: 'RecordTypeId', value: 'ns__Retail' }),
+      gap('record_type_unmapped', 'Account', { field: 'RecordTypeId', value: 'Wholesale' }),
+    ]);
+
+    expect(group?.changes).toEqual([
+      expect.objectContaining({
+        change: 'install_package',
+        value: 'ns__Retail',
+        namespace: 'ns',
+        setup:
+          'Install or upgrade the package with namespace ns in the target: record type ns__Retail comes with it, and Setup cannot create it',
+      }),
+      expect.objectContaining({
+        change: 'create_record_type',
+        value: 'Wholesale',
+        setup: 'Setup > Object Manager > Account > Record Types > New: Wholesale',
+      }),
+    ]);
+    expect(group?.changes[1]).not.toHaveProperty('namespace');
+  });
+
+  it('reads a double underscore at either end of a name as no namespace', () => {
+    const [group] = adminChangesOf([
+      gap('record_type_unmapped', 'Account', { value: '__Retail' }),
+      gap('record_type_unmapped', 'Account', { value: 'Retail__' }),
+    ]);
+    expect(group?.changes.map(({ change }) => change)).toEqual([
+      'create_record_type',
+      'create_record_type',
+    ]);
+  });
+
   it('names the controlling field of a value its controlling value refuses', () => {
     const [group] = adminChangesOf([
       gap('picklist_value_refused', 'Case', {

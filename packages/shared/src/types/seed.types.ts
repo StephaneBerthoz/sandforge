@@ -192,7 +192,6 @@ export interface FieldRuleConfig {
   sequencePrefix?: string;
   formula?: string;
   referenceObject?: string;
-  referenceField?: string;
   picklistValues?: string[];
   regexPattern?: string;
   csvColumn?: string;
