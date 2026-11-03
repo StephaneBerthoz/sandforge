@@ -74,8 +74,9 @@ export const ReviewFilesOption: React.FC = () => {
       </label>
       {/* What it copies behind a disclosure, as the boxes above it fold
           theirs: in the column of the run, its four lines held Controls under
-          the column's fold at 800 pixels high. A screen reader reads it with
-          the box. */}
+          the column's fold at 800 pixels high. It describes the box once
+          opened: Chromium describes a box by nothing a closed disclosure
+          holds, and a screen reader opens it as anyone does. */}
       <details data-testid="forge-files-more" className="ml-5 text-[11px]">
         <summary className="cursor-pointer text-text-secondary">{t('forge.files.more')}</summary>
         <p id={descriptionId} className="mt-1 text-text-secondary">

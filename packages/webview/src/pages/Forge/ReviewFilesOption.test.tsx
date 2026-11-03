@@ -34,7 +34,7 @@ describe('ReviewFilesOption', () => {
     expect(screen.queryByTestId('forge-files-as-is')).toBeNull();
   });
 
-  it('folds what it copies under the box, which a screen reader reads with it', () => {
+  it('folds what it copies under the box, which describes the box once opened', () => {
     // Four lines in the column of the run held Controls under its fold.
     render(<ReviewFilesOption />);
 

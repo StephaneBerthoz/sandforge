@@ -37,6 +37,13 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
   }));
 
   const sameOrg = sourceOrgId && targetOrgId && sourceOrgId === targetOrgId;
+  /**
+   * The id a picker shows: none for an org this machine no longer holds,
+   * which the ribbon says under it. Given the old id, which no option holds,
+   * the picker showed the first org left, and picking that one changed
+   * nothing.
+   */
+  const shown = (id: string): string => (orgs.some((org) => org.id === id) ? id : '');
 
   return (
     <div className={className} data-testid="org-selector">
@@ -49,7 +56,7 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
             <Select
               label={t('compareParts.source')}
               options={options}
-              value={sourceOrgId}
+              value={shown(sourceOrgId)}
               onChange={(e) => onSourceChange(e.target.value)}
               placeholder={t('compareParts.selectSource')}
             />
@@ -58,7 +65,7 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
             <Select
               label={t('compareParts.target')}
               options={options}
-              value={targetOrgId}
+              value={shown(targetOrgId)}
               onChange={(e) => onTargetChange(e.target.value)}
               placeholder={t('compareParts.selectTarget')}
             />

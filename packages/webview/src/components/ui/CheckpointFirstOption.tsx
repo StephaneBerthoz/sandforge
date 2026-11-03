@@ -145,7 +145,9 @@ export interface CheckpointFirstOptionProps {
   /**
    * Keep what it holds and its estimate in view, and the rest behind a
    * disclosure: in Forge's column of the run, five paragraphs pushed everything
-   * else out of it. A screen reader reads them all with the box.
+   * else out of it. A screen reader hears with the box what is in view, and
+   * opens the rest as anyone does: Chromium describes a box by nothing a
+   * closed disclosure holds.
    */
   foldDetails?: boolean;
   /** Test id of the option; its checkbox takes `-toggle`. */

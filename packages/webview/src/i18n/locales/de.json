@@ -7267,6 +7267,8 @@
       "labelShort": "Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten",
       "more": "Über ihren eigenen Bypass: was stummgeschaltet wird und was trotzdem läuft",
       "moreUnread": "Über ihren eigenen Bypass: was stummgeschaltet wird, was trotzdem läuft und was nicht gelesen werden konnte",
+      "moreLifts": "Hebt außerdem {{lifts}} auf",
+      "moreLiftsUnread": "Hebt außerdem {{lifts}} auf, vielleicht mehr: Nicht alles konnte gelesen werden",
       "assigns_one": "Weist den Berechtigungssatz {{sets}} dem Benutzer zu, als der der Durchlauf in {{org}} schreibt, nur für diesen Durchlauf, und entzieht ihn wieder, wenn der Durchlauf endet.",
       "assigns_other": "Weist die Berechtigungssätze {{sets}} dem Benutzer zu, als der der Durchlauf in {{org}} schreibt, nur für diesen Durchlauf, und entzieht sie wieder, wenn der Durchlauf endet.",
       "silences": "Für den Durchlauf stummgeschaltet:",

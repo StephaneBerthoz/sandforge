@@ -141,10 +141,77 @@ describe('AutomationMuteBox', () => {
         "Through its own bypass: what it silences, what still runs, and what couldn't be read",
       );
       expect(summary.className).toContain('text-status-warning');
-      // A screen reader still reads it all with the box.
+      // The line describes the box to a screen reader, the rest a disclosure
+      // away as for anyone: Chromium leaves a closed one out of a
+      // description, which forge-review.spec.ts reads from Chromium itself.
       const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
-      expect(described?.textContent).toContain('Assigns the permission set Bypass_Automation');
-      expect(described?.textContent).toContain('Still runs:');
+      expect(described?.contains(summary)).toBe(true);
+    });
+
+    // The trap org's set, assigned for a flow's bypass, also granted the
+    // permission two validation rules of Contact test. Folded, the line said
+    // only what it silences: nothing before the write said that the contacts
+    // both rules refuse would go in.
+    const LIFTS: MutePlan = {
+      ...PLAN,
+      alsoLifts: [
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule',
+          name: 'Email_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'Bypass_Automation',
+        },
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule',
+          name: 'Phone_Format',
+          permission: 'Bypass_VR',
+          permissionSet: 'Bypass_Automation',
+        },
+      ],
+    };
+
+    it('names on the line each rule its sets lift beside, flagged, every grant and rule read', () => {
+      render(
+        <AutomationMuteBox
+          offer={LIFTS}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+          foldDetails
+        />,
+      );
+
+      const summary = screen.getByTestId('mute-more-summary');
+      expect((screen.getByTestId('mute-more') as HTMLDetailsElement).open).toBe(false);
+      expect(summary.textContent).toBe(
+        'Also lifts Validation rule: Email_Required and Validation rule: Phone_Format',
+      );
+      expect(summary.className).toContain('text-status-warning');
+      expect(summary.querySelector('svg')).not.toBeNull();
+      // Their objects and the sets that lift them, under the line.
+      expect(screen.getByTestId('mute-also-lifts').textContent).toContain(
+        'Contact: Validation rule: Email_Required · Bypass_VR, in Bypass_Automation',
+      );
+    });
+
+    it('names what it lifts and says that more may be, when not everything was read', () => {
+      render(
+        <AutomationMuteBox
+          offer={{ ...LIFTS, liftsUnread: [{ part: 'validationRules', rules: 2 }] }}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+          foldDetails
+        />,
+      );
+
+      expect(screen.getByTestId('mute-more-summary').textContent).toBe(
+        'Also lifts Validation rule: Email_Required and Validation rule: Phone_Format, and perhaps more: not everything could be read',
+      );
     });
 
     it('flags nothing unread when everything was read', () => {

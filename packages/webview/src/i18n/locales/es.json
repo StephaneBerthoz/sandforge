@@ -7267,6 +7267,8 @@
       "labelShort": "Silenciar las automatizaciones del destino en esta ejecución",
       "more": "Mediante su propio bypass: qué se silencia y qué se ejecuta igualmente",
       "moreUnread": "Mediante su propio bypass: qué se silencia, qué se ejecuta igualmente y qué no se pudo leer",
+      "moreLifts": "También levanta {{lifts}}",
+      "moreLiftsUnread": "También levanta {{lifts}}, y quizá más: no se pudo leer todo",
       "assigns_one": "Asigna el conjunto de permisos {{sets}} al usuario con el que la ejecución escribe en {{org}}, solo para esta ejecución, y lo retira cuando la ejecución termina.",
       "assigns_other": "Asigna los conjuntos de permisos {{sets}} al usuario con el que la ejecución escribe en {{org}}, solo para esta ejecución, y los retira cuando la ejecución termina.",
       "silences": "Silenciados durante la ejecución:",

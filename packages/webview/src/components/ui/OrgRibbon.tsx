@@ -105,9 +105,14 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, picker, tes
         <>
           {/* The picker says the org, and its type in its options: under it,
               what the ribbon adds — production said in words, a status, the
-              instance. */}
+              instance, or that the org picked is no longer held, its id
+              second: disconnected while Compare kept it picked, the picker
+              showed another org and nothing said the one picked was gone. */}
           {picker}
-          {(production || host || (known && known.status !== 'connected')) && (
+          {(production ||
+            host ||
+            (known && known.status !== 'connected') ||
+            notHeld !== undefined) && (
             <span
               className={cn(
                 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs',
@@ -117,6 +122,19 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, picker, tes
               {shield}
               {marks}
               {hostSpan}
+              {notHeld !== undefined && (
+                <>
+                  <span data-testid={`${testId}-not-held`} className="text-status-warning">
+                    {t('common.orgRibbon.notHeld')}
+                  </span>
+                  <span
+                    data-testid={`${testId}-id`}
+                    className="min-w-0 font-mono [overflow-wrap:anywhere]"
+                  >
+                    {notHeld}
+                  </span>
+                </>
+              )}
             </span>
           )}
         </>

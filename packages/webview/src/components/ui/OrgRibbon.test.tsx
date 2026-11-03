@@ -147,6 +147,34 @@ describe('OrgRibbon', () => {
     expect(screen.getByTestId('org-ribbon-target').className).toContain('border-2');
   });
 
+  it('says under a picker an org this machine no longer holds, its id second', () => {
+    // On Compare, an org disconnected while picked was drawn as nothing: the
+    // picker showed another org, and no word said the one picked was gone.
+    render(
+      <OrgRibbon
+        kind="compare"
+        source={{ notHeld: 'org-gone' }}
+        target={QA}
+        pickers={{
+          source: <select aria-label="Source Org" data-testid="pick-source" />,
+          target: <select aria-label="Target Org" data-testid="pick-target" />,
+        }}
+      />,
+    );
+    const source = screen.getByTestId('org-ribbon-source');
+    const said = within(source).getByTestId('org-ribbon-source-not-held');
+    const id = within(source).getByTestId('org-ribbon-source-id');
+    expect(said.textContent).toBe('An org this machine no longer holds');
+    expect(said.className).toContain('text-status-warning');
+    expect(id.textContent).toBe('org-gone');
+    expect(said.compareDocumentPosition(id) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      within(source).getByTestId('pick-source').compareDocumentPosition(said) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByTestId('org-ribbon-target-not-held')).toBeNull();
+  });
+
   it('calls the sides source and target on a page that compares and writes nothing', () => {
     render(<OrgRibbon kind="compare" source={org()} target={QA} />);
     expect(screen.getByText('Source')).toBeDefined();

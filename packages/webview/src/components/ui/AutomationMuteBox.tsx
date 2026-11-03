@@ -127,8 +127,10 @@ export interface AutomationMuteBoxProps {
    * Say in a line what it does, and fold the rest under a disclosure, as
    * Checkpoint first folds its own: in Forge's column of the run, the box
    * took fourteen lines at 320 pixels, and Controls went under the fold of the
-   * column at 800 pixels high. What could not be read is still flagged on the
-   * line. A screen reader reads it all with the box.
+   * column at 800 pixels high. What its sets lift beside is named on the line,
+   * and what could not be read flagged there. A screen reader hears with the
+   * box what the line says, and opens the rest as anyone does: Chromium
+   * describes a box by nothing a closed disclosure holds.
    */
   foldDetails?: boolean;
 }
@@ -199,6 +201,26 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   );
   /** Something its sets grant was not read: folded, the line says so. */
   const unreadFolded = offer !== 'atStart' && (offer.liftsUnread?.length ?? 0) > 0;
+  /**
+   * What its sets lift beside what they are assigned for, each by its kind
+   * and name: folded, the line names them, and the fold their objects and the
+   * sets that lift them. On the trap org, the set assigned for a flow's bypass
+   * lifted two validation rules beside it: under a line that said only what
+   * it silences, nothing before the write said so. With their objects, two
+   * rules took a third line, which put Controls under the column's fold at
+   * 800 pixels.
+   */
+  const lifted =
+    offer === 'atStart'
+      ? []
+      : (offer.alsoLifts ?? []).map((entry) => t(KIND_KEYS[entry.kind], { name: entry.name }));
+  const flagged = unreadFolded || lifted.length > 0;
+  const summary =
+    lifted.length > 0
+      ? t(unreadFolded ? 'automationMute.box.moreLiftsUnread' : 'automationMute.box.moreLifts', {
+          lifts: list(lifted),
+        })
+      : t(unreadFolded ? 'automationMute.box.moreUnread' : 'automationMute.box.more');
   return (
     <div
       data-testid={testId}
@@ -226,17 +248,17 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
               data-testid={`${testId}-more-summary`}
               className={cn(
                 'cursor-pointer',
-                unreadFolded ? 'text-status-warning' : 'text-text-secondary',
+                flagged ? 'text-status-warning' : 'text-text-secondary',
               )}
             >
-              {unreadFolded && (
+              {flagged && (
                 <AlertTriangle
                   size={11}
                   aria-hidden="true"
                   className="mr-1 inline-block align-[-1px]"
                 />
               )}
-              {t(unreadFolded ? 'automationMute.box.moreUnread' : 'automationMute.box.more')}
+              {summary}
             </summary>
             <div className="mt-1 flex flex-col gap-1">{detail}</div>
           </details>

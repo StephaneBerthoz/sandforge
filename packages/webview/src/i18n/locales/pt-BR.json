@@ -7267,6 +7267,8 @@
       "labelShort": "Silenciar as automações do destino nesta execução",
       "more": "Pelo próprio bypass dele: o que é silenciado e o que roda mesmo assim",
       "moreUnread": "Pelo próprio bypass dele: o que é silenciado, o que roda mesmo assim e o que não foi possível ler",
+      "moreLifts": "Também libera {{lifts}}",
+      "moreLiftsUnread": "Também libera {{lifts}}, e talvez mais: nem tudo pôde ser lido",
       "assigns_one": "Atribui o conjunto de permissões {{sets}} ao usuário com o qual a execução grava em {{org}}, só para esta execução, e o retira quando a execução termina.",
       "assigns_other": "Atribui os conjuntos de permissões {{sets}} ao usuário com o qual a execução grava em {{org}}, só para esta execução, e os retira quando a execução termina.",
       "silences": "Silenciados durante a execução:",

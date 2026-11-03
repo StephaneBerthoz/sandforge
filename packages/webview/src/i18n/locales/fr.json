@@ -7267,6 +7267,8 @@
       "labelShort": "Rendre muettes les automatisations de la cible pour cette exécution",
       "more": "Par son propre contournement : ce qui est rendu muet et ce qui s'exécute quand même",
       "moreUnread": "Par son propre contournement : ce qui est rendu muet, ce qui s'exécute quand même et ce qui n'a pas pu être lu",
+      "moreLifts": "Lève aussi {{lifts}}",
+      "moreLiftsUnread": "Lève aussi {{lifts}}, et peut-être davantage : tout n'a pas pu être lu",
       "assigns_one": "Attribue l'ensemble d'autorisations {{sets}} à l'utilisateur sous lequel l'exécution écrit dans {{org}}, pour cette exécution seulement, et le retire à la fin de l'exécution.",
       "assigns_other": "Attribue les ensembles d'autorisations {{sets}} à l'utilisateur sous lequel l'exécution écrit dans {{org}}, pour cette exécution seulement, et les retire à la fin de l'exécution.",
       "silences": "Rendus muets pour l'exécution :",

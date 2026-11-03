@@ -160,6 +160,34 @@ const AUTOMATION = {
   ],
 };
 
+/**
+ * The same read on the trap org's shape: the one set that holds the flow's
+ * bypass grants as well the permission two validation rules of Contact test,
+ * every grant and rule read. Assigned for the flow, it lets through the
+ * contacts both rules refuse.
+ */
+const LIFTING_AUTOMATION = {
+  ...AUTOMATION,
+  bypassGrants: [
+    {
+      permission: 'Load_Data',
+      permissionSets: [
+        {
+          name: 'Data_Load',
+          label: 'Data load',
+          grants: 2,
+          customPermissions: ['Load_Data', 'Skip_Rules'],
+        },
+      ],
+    },
+  ],
+  validationRuleBypasses: [
+    { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Skip_Rules'] },
+    { objectApiName: 'Contact', name: 'Phone_Format', permissions: ['Skip_Rules'] },
+  ],
+  validationRulesNotRead: 0,
+};
+
 /** Answer every pending request of a type: StrictMode can send one twice. */
 async function answerAll(
   page: Page,
@@ -191,11 +219,13 @@ interface ReviewOptions {
   graph?: Record<string, unknown>;
   gaps?: readonly Record<string, unknown>[];
   orgs?: readonly unknown[];
+  /** The read of the target's automation: a flow a permission set keeps quiet unless given. */
+  automation?: Record<string, unknown>;
 }
 
 /** Open Review of a run, every read answered. */
 async function openReview(page: Page, options: ReviewOptions = {}): Promise<MockBridge> {
-  const { theme = 'Dark 2026', graph = GRAPH, gaps = [], orgs } = options;
+  const { theme = 'Dark 2026', graph = GRAPH, gaps = [], orgs, automation = AUTOMATION } = options;
   const bridge = new MockBridge();
   await bridge.setup(page);
   if (theme !== null) await paintHostTheme(page, theme);
@@ -225,7 +255,7 @@ async function openReview(page: Page, options: ReviewOptions = {}): Promise<Mock
     diffs: [],
   });
   await answerAll(page, 'forge:automation:request', 'forge:automation:response', {
-    automation: AUTOMATION,
+    automation,
   });
   await answerAll(page, 'forge:gaps:request', 'forge:gaps:response', {
     gaps: { gaps, unread: [], requests: 5 },
@@ -246,6 +276,32 @@ async function inSight(page: Page, testId: string): Promise<boolean> {
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
     return hit !== null && element.contains(hit);
   });
+}
+
+/**
+ * The description Chromium itself gives the element `testId`, read from its
+ * accessibility tree. Playwright's own reckoning reads the inside of a closed
+ * `<details>` into it, which Chromium leaves out: by Playwright's, a box
+ * described by a folded paragraph was described; by Chromium's, by nothing.
+ */
+async function describedByChromium(page: Page, testId: string): Promise<string> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Accessibility.enable');
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+    const { nodeId } = await cdp.send('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector: `[data-testid="${testId}"]`,
+    });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', {
+      nodeId,
+      fetchRelatives: false,
+    });
+    const description: unknown = nodes[0]?.description?.value;
+    return typeof description === 'string' ? description : '';
+  } finally {
+    await cdp.detach();
+  }
 }
 
 /** Scroll the panel to `top`, in pixels. */
@@ -361,6 +417,58 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     await page.getByTestId('automation-mute-more-summary').click();
     await expect(page.getByTestId('automation-mute-assigns')).toBeVisible();
     expect(await inSight(page, 'execute-button')).toBe(true);
+  });
+
+  test('names on the folded mute the rules its set lifts beside, to the eye and to a screen reader, Controls in sight', async ({
+    page,
+  }) => {
+    // On the trap org's shape the line said only what the mute silences: the
+    // two rules it lets the contacts past sat in the closed disclosure, and
+    // Chromium described the box by that line alone.
+    await openReview(page, { gaps: [REFUSING_GAP], automation: LIFTING_AUTOMATION });
+    const line = page.getByTestId('automation-mute-more-summary');
+    await expect(line).toHaveText(
+      'Also lifts Validation rule: Email_Required and Validation rule: Phone_Format',
+    );
+    await expect(page.getByTestId('automation-mute-more')).not.toHaveAttribute('open', '');
+    expect(await inSight(page, 'automation-mute-more-summary')).toBe(true);
+    expect(await describedByChromium(page, 'automation-mute-toggle')).toBe(
+      'Also lifts Validation rule: Email_Required and Validation rule: Phone_Format',
+    );
+    // Said in two lines, as the line it replaces: the column still holds.
+    expect(await inSight(page, 'review-row-controls-summary')).toBe(true);
+    expect(await inSight(page, 'execute-button')).toBe(true);
+
+    await line.click();
+    await expect(page.getByTestId('automation-mute-also-lifts-Contact').first()).toHaveText(
+      'Contact: Validation rule: Email_Required · Skip_Rules, in Data_Load',
+    );
+  });
+
+  test('describes each box of the column by what it shows, its fold read once opened', async ({
+    page,
+  }) => {
+    // Chromium leaves the inside of a closed disclosure out of a description,
+    // whether the box points at it or at what holds it.
+    await openReview(page, { gaps: [REFUSING_GAP] });
+    await page.getByTestId('automation-mute').waitFor();
+    const mute = await describedByChromium(page, 'automation-mute-toggle');
+    expect(mute).toBe(
+      "Through its own bypass: what it silences, what still runs, and what couldn't be read",
+    );
+    expect(await describedByChromium(page, 'controls-checkpoint-first-toggle')).toMatch(
+      /^Before its first write, the run takes a checkpoint of .*What it leaves out and what it costs$/,
+    );
+    expect(await describedByChromium(page, 'forge-files-toggle')).toBe('');
+
+    await page.getByTestId('automation-mute-more-summary').click();
+    await page.getByTestId('forge-files-more').locator('summary').click();
+    expect(await describedByChromium(page, 'automation-mute-toggle')).toContain(
+      'Assigns the permission set Data_Load to the user the run writes as',
+    );
+    expect(await describedByChromium(page, 'forge-files-toggle')).toMatch(
+      /^Salesforce Files, the latest version of each/,
+    );
   });
 
   test('names the two orgs over the How to, and the run under it', async ({ page }) => {

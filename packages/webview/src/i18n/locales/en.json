@@ -7267,6 +7267,8 @@
       "labelShort": "Mute the target's automation for this run",
       "more": "Through its own bypass: what it silences and what still runs",
       "moreUnread": "Through its own bypass: what it silences, what still runs, and what couldn't be read",
+      "moreLifts": "Also lifts {{lifts}}",
+      "moreLiftsUnread": "Also lifts {{lifts}}, and perhaps more: not everything could be read",
       "assigns_one": "Assigns the permission set {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes it back as the run ends.",
       "assigns_other": "Assigns the permission sets {{sets}} to the user the run writes as in {{org}}, for this run alone, and takes them back as the run ends.",
       "silences": "Silenced for the run:",
