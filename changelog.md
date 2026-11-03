@@ -5,6 +5,15 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.73.1] - 2026-11-03
+
+Import from Salesforce CLI reads the orgs on a laptop where the CLI, started by the editor, printed its list nowhere the extension reads.
+
+### Fixed
+
+- **Organizations**: Import from Salesforce CLI reads the orgs when `sf org list --json` ends without an error and prints nothing on the pipe the extension reads: it runs it again with its output sent to a file in the temp folder, reads it and removes it. When that file is empty too, the error names the `sf` this window runs, what its `sf --version` printed, how long each run took and how it ended, and asks for `where.exe sf`, as `where` alone prints nothing in PowerShell; the Output channel adds every `sf` and `node` found, stderr, the folder `sf` runs from and which proxy, certificate and `SF_` variables are set, by name, without any personal path. Every `sf` run starts without the variables VS Code keeps out of its own terminals, `ELECTRON_RUN_AS_NODE` among them.
+- **Organizations**: the check that the Salesforce CLI is installed gives `sf --version` 30 s, where it said a CLI that answered past 10 s was missing.
+
 ## [1.73.0] - 2026-11-03
 
 A `success` hides nothing any more, and nothing fires in an org without a question first. A run that left part of its work undone says partial on its page, in Live Operations and on the command line; a Frozen Dataset removal or reload, a muted rewind and a pipeline's Rewind step read what the target runs before they write; an SFDMU `export.json` imports as SFDMU runs it, its deletes shown before they run. Forge's Review says the run in one sentence over rows that open, and a ribbon names the org copied from and the org written into. Several changes reach your scripts: each is under Changed, with what to change.
