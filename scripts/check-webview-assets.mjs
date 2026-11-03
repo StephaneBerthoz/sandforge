@@ -254,9 +254,12 @@ export function panelShellNamespaces(source) {
  * its Executions tab, Monitor and Sync more than 1.1 MB: libraries their
  * first screen does not draw (Recharts, React Flow), zod for a constant, and
  * whole namespaces of English for a few words. 900 kB is what every page
- * reached once those came on demand, Sync the heaviest at 882 kB.
+ * reached once those came on demand, Sync the heaviest at 882 kB. Raised to
+ * 950 kB in 1.73.0, when Frozen's removal came to read and mute the target's
+ * automation (909 kB): what grows the budget is what a page draws on its first
+ * screen, never a library it does not.
  */
-export const PAGE_FIRST_PAINT_BUDGET = 900_000;
+export const PAGE_FIRST_PAINT_BUDGET = 950_000;
 
 /**
  * The pages that check something against a schema before they paint, and
