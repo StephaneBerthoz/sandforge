@@ -262,7 +262,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 
 1. Check the Monitor dashboard for current API usage -- high consumption slows API responses
 2. Reduce concurrent operations if multiple are running simultaneously
-3. Split very large loads into several smaller runs — SandForge executes a run sequentially, so splitting is what actually shortens it. (The Grappe page shows such a run's progress partition by partition once `sandforge.grappe.enabled` is on; it does not run the partitions concurrently, so it shortens nothing.)
+3. Split very large loads into several smaller runs — Forge, Sync, Seed and Frozen Dataset write a run's objects one after another, and Autopilot writes side by side only the objects of a wave that do not point at each other, so splitting is what actually shortens it. (Once `sandforge.grappe.enabled` is on, the Grappe page shows a Seed or Sync run's progress partition by partition, and of an Autopilot run only its start and its end; it does not run the partitions concurrently, so it shortens nothing.)
 4. The sandbox type does not change the API budget: API requests per 24 h are the same for every sandbox type; tiers differ in storage (Developer 200 MB, Developer Pro 1 GB, Partial Copy 5 GB of data, Full as production). Spread a large run over several days, or split it, rather than moving to another sandbox type
 5. Close unused VSCode extension panels to free memory
 
