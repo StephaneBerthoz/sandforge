@@ -10409,6 +10409,26 @@ describe('ForgeExecutor', () => {
         });
       });
 
+      it('lists the task the platform wrote with the email among no records the target held, in a run or a dry run', async () => {
+        // Listed there, the results said "the target refused these records
+        // because it already holds them" of a task that did not exist before
+        // the run, and that nothing had sent.
+        for (const dryRun of [false, true]) {
+          const { orgDeps } = orgs();
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            { ...scoped, dryRun },
+          );
+
+          expect(summary.linkedCount, `dryRun ${String(dryRun)}`).toBe(1);
+          expect(summary.existingRecords, `dryRun ${String(dryRun)}`).toEqual([]);
+        }
+      });
+
       it('writes the task itself, after the email, when the platform wrote none with it', async () => {
         // Each email a clone wrote into a sandbox whose quote it could not
         // write went in related to nothing, and the target gave it no task.

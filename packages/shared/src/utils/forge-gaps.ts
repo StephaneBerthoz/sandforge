@@ -1,4 +1,5 @@
 import type { ForgeGap, ForgeGapKind, ForgeGapSeverity } from '../types/forge.types.js';
+import type { MutedAutomationAlsoLifted } from './automation-mute.js';
 
 /**
  * The id of a gap, the same however often the target is read: the Gaps tab
@@ -202,4 +203,28 @@ export function gapAssignments(gap: Pick<ForgeGap, 'detail'>): ForgeGapAssignmen
       },
     ];
   });
+}
+
+/**
+ * What a run's mute lifts of the validation rule `gap` is, if anything: the
+ * entry of the mute's plan (`MutePlan.alsoLifts`) that names the rule on its
+ * object. A rule it lifts refuses no row of the run, whose rows go in whole
+ * rather than again without the rule's field: the clone's lines and Review's
+ * Gaps tab say it lifted from this one match. On the trap org, the lines said
+ * the rule's rows would go again without Email while the mute let them
+ * through whole, and the panel said nothing of it.
+ */
+export function gapLiftedBy(
+  gap: Pick<ForgeGap, 'kind' | 'objectApiName' | 'detail'>,
+  lifted: readonly MutedAutomationAlsoLifted[] | undefined,
+): MutedAutomationAlsoLifted | undefined {
+  if (gap.kind !== 'validation_rule' || !lifted) return undefined;
+  const rule = gap.detail?.['rule'];
+  if (typeof rule !== 'string') return undefined;
+  return lifted.find(
+    (entry) =>
+      entry.kind === 'validationRule' &&
+      entry.name === rule &&
+      entry.objectApiName.toLowerCase() === gap.objectApiName.toLowerCase(),
+  );
 }

@@ -10,8 +10,9 @@ import type {
   ForgeGapKind,
   ForgeGapSeverity,
   ForgeGapSource,
+  MutedAutomationAlsoLifted,
 } from '@sandforge/shared';
-import { adminChangesOf, gapAssignments } from '@sandforge/shared';
+import { adminChangesOf, gapAssignments, gapLiftedBy } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -346,12 +347,15 @@ interface GapItemProps {
   onReadAgain?: () => void;
   /** The read asked for with {@link onReadAgain} is on its way. */
   readingAgain: boolean;
+  /** What of the mute ticked for the run lifts this validation rule, if it does. */
+  lifted?: MutedAutomationAlsoLifted;
 }
 
 /**
  * One gap: what it is and where it was found, what would keep a validation
- * rule quiet for the user the run writes as, then the decisions it offers,
- * or the one taken and the way to take it back.
+ * rule quiet for the user the run writes as — or that the mute ticked lifts
+ * it, as the clone's lines say it —, then the decisions it offers, or the one
+ * taken and the way to take it back.
  */
 const GapItem: React.FC<GapItemProps> = ({
   gap,
@@ -360,6 +364,7 @@ const GapItem: React.FC<GapItemProps> = ({
   target,
   onReadAgain,
   readingAgain,
+  lifted,
 }) => {
   const { t } = useTranslation();
   const id = useId();
@@ -444,12 +449,23 @@ const GapItem: React.FC<GapItemProps> = ({
           shown and never run. Named without what held it, the bypass was
           left for the user to look up in Setup. Read again once the command
           has run, the rule shows as kept quiet: the tab showed what Review
-          read as it opened until Review was opened again. */}
-      <BypassAssistant
-        assignments={assignments}
-        {...(target ? { target } : {})}
-        {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
-      />
+          read as it opened until Review was opened again. A rule the mute
+          lifts needs no command, the mute assigning the set for the run, and
+          its rows go in whole, never again without its field. */}
+      {lifted ? (
+        <p data-testid="gap-lifted" className="text-text-primary">
+          {t('forgeRun.gaps.lifted', {
+            permission: lifted.permission,
+            set: lifted.permissionSet,
+          })}
+        </p>
+      ) : (
+        <BypassAssistant
+          assignments={assignments}
+          {...(target ? { target } : {})}
+          {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
+        />
+      )}
       {chosen ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p data-testid="gap-decided" className="font-medium text-text-primary">
@@ -468,7 +484,7 @@ const GapItem: React.FC<GapItemProps> = ({
         </div>
       ) : (
         <>
-          {gap.defaultDecision && (
+          {gap.defaultDecision && !lifted && (
             <p data-testid="gap-default" className="text-text-secondary">
               {t('forgeRun.gaps.byDefault', {
                 decision: t(`forgeRun.gaps.decision.${gap.defaultDecision}`),
@@ -697,12 +713,18 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
  * @param onReadAgain - Read the target's gaps again, as it stands now: the
  *   gaps read stay shown until the answer lands. Without it, nothing offers to.
  * @param readingAgain - A read of the gaps is on its way.
+ * @param lifted - What the mute ticked for the run lifts beside what it
+ *   silences (`MutePlan.alsoLifts`); absent while it is not ticked. A
+ *   validation rule it lifts refuses nothing, as one whose bypass the user
+ *   holds, and is said lifted in the clone's words: the tab said the rule
+ *   might refuse the contacts the mute let in whole.
  */
 export const ReviewGapsTab: React.FC<{
   target?: BypassTarget;
   onReadAgain?: () => void;
   readingAgain?: boolean;
-}> = ({ target, onReadAgain, readingAgain = false }) => {
+  lifted?: readonly MutedAutomationAlsoLifted[];
+}> = ({ target, onReadAgain, readingAgain = false, lifted }) => {
   const { t, i18n } = useTranslation();
   const gaps = useForgeStore((s) => s.gaps);
   const gapReads = useForgeStore((s) => s.gapReads);
@@ -743,8 +765,12 @@ export const ReviewGapsTab: React.FC<{
     keptTitleRef.current?.focus();
   });
 
+  /** A gap's severity for this run: a rule the mute lifts refuses nothing. */
+  const severityOf = (gap: ForgeGap): ForgeGapSeverity =>
+    gapLiftedBy(gap, lifted) ? 'info' : gap.severity;
+
   /** The gravest severity a gap shown has: its group is open, the others fold under their heading. */
-  const gravest = SEVERITIES.find((severity) => shown.some((gap) => gap.severity === severity));
+  const gravest = SEVERITIES.find((severity) => shown.some((gap) => severityOf(gap) === severity));
 
   /*
    * The gaps and their decisions first, then what they leave: what the reads
@@ -774,7 +800,7 @@ export const ReviewGapsTab: React.FC<{
         </>
       )}
       {SEVERITIES.map((severity) => {
-        const ofSeverity = shown.filter((gap) => gap.severity === severity);
+        const ofSeverity = shown.filter((gap) => severityOf(gap) === severity);
         if (ofSeverity.length === 0) return null;
         const objects = [...new Set(ofSeverity.map((gap) => gap.objectApiName))];
         const heading = (
@@ -794,17 +820,21 @@ export const ReviewGapsTab: React.FC<{
             <ul className="flex flex-col gap-1">
               {ofSeverity
                 .filter((gap) => gap.objectApiName === object)
-                .map((gap) => (
-                  <GapItem
-                    key={gap.id}
-                    gap={gap}
-                    config={config}
-                    decide={decide}
-                    {...(target ? { target } : {})}
-                    {...(onReadAgain ? { onReadAgain } : {})}
-                    readingAgain={readingAgain}
-                  />
-                ))}
+                .map((gap) => {
+                  const liftedBy = gapLiftedBy(gap, lifted);
+                  return (
+                    <GapItem
+                      key={gap.id}
+                      gap={gap}
+                      config={config}
+                      decide={decide}
+                      {...(target ? { target } : {})}
+                      {...(onReadAgain ? { onReadAgain } : {})}
+                      readingAgain={readingAgain}
+                      {...(liftedBy ? { lifted: liftedBy } : {})}
+                    />
+                  );
+                })}
             </ul>
           </div>
         ));

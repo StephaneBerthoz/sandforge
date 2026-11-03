@@ -145,7 +145,10 @@ function targetOrg() {
         }
         const deal = held.get(String(record['OpportunityId']));
         const priced = held.get(String(record['PricebookEntryId']));
-        if (!priced || priced['CurrencyIsoCode'] !== deal?.['CurrencyIsoCode']) {
+        // An id the target holds no record of, as the source's own is: an
+        // org refuses a lookup at a record of another org.
+        if (!priced) return refused('INVALID_CROSS_REFERENCE_KEY: invalid cross reference id');
+        if (priced['CurrencyIsoCode'] !== deal?.['CurrencyIsoCode']) {
           return refused('FIELD_INTEGRITY_EXCEPTION: pricebook entry currency code');
         }
       }
@@ -488,5 +491,183 @@ describe('SyncOrchestrator — a catalog whose price books the target takes none
       ['Opportunity', 1, 1],
       ['OpportunityLineItem', 1, 1],
     ]);
+  });
+
+  describe('a price left out for one the run holds back', () => {
+    /*
+     * The products upserted on a key the target does not match an upsert
+     * on, so the run leaves them out, and the source's prices in a currency
+     * the target does not hold: each GBP price is left out for the source's
+     * own USD price of the same product and book, which the run holds back
+     * with its product. The deal goes, its book written; its line names the
+     * GBP price. Neither linked nor refused, that price let the line go with
+     * the source's id of it, which the target refuses, where the gate had
+     * counted the line held back.
+     */
+    const PRICED: Record<string, TargetWriteFields> = {
+      ...KEYED,
+      Product2: targetWriteFieldsOf({
+        name: 'Product2',
+        createable: true,
+        updateable: true,
+        fields: [
+          { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+          { ...field('Name'), idLookup: false, externalId: false },
+          { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+        ],
+      }),
+      PricebookEntry: targetWriteFieldsOf({
+        name: 'PricebookEntry',
+        fields: [
+          lookup('Pricebook2Id', 'Pricebook2'),
+          lookup('Product2Id', 'Product2'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+        ],
+      }),
+      Opportunity: targetWriteFieldsOf({
+        name: 'Opportunity',
+        fields: [
+          field('Name'),
+          lookup('Pricebook2Id', 'Pricebook2'),
+          field('CurrencyIsoCode', 'picklist'),
+          { ...field('Amount', 'currency'), scale: 2 },
+        ],
+      }),
+      OpportunityLineItem: targetWriteFieldsOf({
+        name: 'OpportunityLineItem',
+        fields: [
+          lookup('OpportunityId', 'Opportunity'),
+          lookup('PricebookEntryId', 'PricebookEntry'),
+          field('CurrencyIsoCode', 'picklist', false),
+          { ...field('UnitPrice', 'currency'), scale: 2 },
+          { ...field('TotalPrice', 'currency'), scale: 2 },
+        ],
+      }),
+    };
+    const PRICED_ROWS: Record<string, Array<Record<string, unknown>>> = {
+      ...SOURCE_ROWS,
+      Product2: [{ Id: WIDGET, Name: 'Widget', Catalog_Key__c: 'WIDGET' }],
+    };
+    const PRICED_CONFIG: SyncConfig = {
+      ...CONFIG,
+      objects: CONFIG.objects.map((o) =>
+        o.objectApiName === 'Product2'
+          ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+          : o,
+      ),
+    };
+
+    function pricedOrchestrator(
+      target: ReturnType<typeof targetOrg>,
+      writeGate: SyncWriteGate,
+      describes: Record<string, TargetWriteFields> = PRICED,
+    ) {
+      const unused = async (): Promise<OperationOutcome[]> => [];
+      const describeTargetFields = async (object: string) => describes[object];
+      return new SyncOrchestrator({
+        dataSync: new DataSync({
+          insert: (object, records) => target.insert(object, records),
+          update: unused,
+          upsert: unused,
+          delete: unused,
+          describeTargetFields,
+        }),
+        conflictResolver: new ConflictResolver(),
+        fieldMapping: new FieldMappingService(),
+        transformPipeline: new TransformPipeline(),
+        querySource: async (_org, config) =>
+          PRICED_ROWS[config.objectApiName].map((r) => ({ ...r })),
+        countSource: async (_org, config) => PRICED_ROWS[config.objectApiName].length,
+        queryTarget: async () => [],
+        findInTarget: async () => new Map(),
+        describeTargetFields,
+        currencies: async () => CURRENCIES,
+        standardPricebooks: async () => ({ source: SOURCE_STANDARD, target: TARGET_STANDARD }),
+        writeGate,
+      });
+    }
+
+    it('holds back the line that names it, as its gate counted it, and sends the target nothing of it', async () => {
+      const target = targetOrg();
+      const ran = gate();
+
+      const result = await pricedOrchestrator(target, ran.writeGate).execute(PRICED_CONFIG);
+
+      expect(ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')).toEqual(
+        {
+          objectApiName: 'OpportunityLineItem',
+          rows: 1,
+          parent: 'PricebookEntry',
+          field: 'PricebookEntryId',
+        },
+      );
+      const line = result.objectResults.find((r) => r.objectApiName === 'OpportunityLineItem');
+      expect([line?.success, line?.failed]).toEqual([0, 1]);
+      expect(line?.errors.join(' ')).toContain(
+        'PARENT_REFUSED: 1 OpportunityLineItem record held back, not sent: the PricebookEntry ' +
+          'record their PricebookEntryId names was refused in this run',
+      );
+      expect(target.calls.filter((c) => c.object === 'OpportunityLineItem')).toEqual([]);
+      // The deal it is on goes all the same: only the line waits on its price.
+      expect(result.objectResults.find((r) => r.objectApiName === 'Opportunity')?.success).toBe(1);
+    });
+
+    it('counts the line held back in its dry run, as the dry run’s gate counts it', async () => {
+      const simulated = gate();
+
+      const simulation = await pricedOrchestrator(targetOrg(), simulated.writeGate).simulate(
+        PRICED_CONFIG,
+      );
+
+      expect(simulation.error).toBeUndefined();
+      expect(
+        simulated.measured[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')
+          ?.rows,
+      ).toBe(1);
+      const line = simulation.objects.find((o) => o.objectApiName === 'OpportunityLineItem');
+      expect([line?.insert, line?.refused ?? 0]).toEqual([0, 1]);
+    });
+
+    it('holds back the line on a price left out with the prices the target takes none of', async () => {
+      // The prices upserted on a key the target does not match an upsert on:
+      // the run leaves them out, the one in GBP among them.
+      const target = targetOrg();
+      const ran = gate();
+      const config: SyncConfig = {
+        ...CONFIG,
+        objects: CONFIG.objects.map((o) =>
+          o.objectApiName === 'PricebookEntry'
+            ? { ...o, operation: 'upsert' as const, externalIdField: 'Catalog_Key__c' }
+            : o,
+        ),
+      };
+      const keyedPrices: Record<string, TargetWriteFields> = {
+        ...PRICED,
+        Product2: DESCRIBES.Product2,
+        PricebookEntry: targetWriteFieldsOf({
+          name: 'PricebookEntry',
+          createable: true,
+          updateable: true,
+          fields: [
+            { name: 'Id', type: 'id', createable: false, idLookup: true, externalId: false },
+            { ...field('Catalog_Key__c'), idLookup: false, externalId: false },
+            lookup('Pricebook2Id', 'Pricebook2'),
+            lookup('Product2Id', 'Product2'),
+            field('CurrencyIsoCode', 'picklist'),
+            { ...field('UnitPrice', 'currency'), scale: 2 },
+          ],
+        }),
+      };
+
+      const result = await pricedOrchestrator(target, ran.writeGate, keyedPrices).execute(config);
+
+      expect(
+        ran.held[0]?.heldBack?.find((h) => h.objectApiName === 'OpportunityLineItem')?.rows,
+      ).toBe(1);
+      const line = result.objectResults.find((r) => r.objectApiName === 'OpportunityLineItem');
+      expect([line?.success, line?.failed]).toEqual([0, 1]);
+      expect(target.calls.filter((c) => c.object === 'OpportunityLineItem')).toEqual([]);
+    });
   });
 });

@@ -4600,6 +4600,7 @@
         "targetRecordTypes": "Tipos de registro del destino"
       },
       "byDefault": "Si no se decide nada: {{decision}}.",
+      "lifted": "El silenciamiento la levanta ({{permission}}, en {{set}}).",
       "decision": {
         "map_value": "se escribe otro valor",
         "leave_empty": "el campo se deja vacío",

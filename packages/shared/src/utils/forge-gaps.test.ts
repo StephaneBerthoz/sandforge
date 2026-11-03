@@ -6,6 +6,7 @@ import {
   ignoredGapEntry,
   gapAssignEntry,
   gapAssignments,
+  gapLiftedBy,
   mergeGaps,
   picklistMappingEntry,
   skippedRowsEntry,
@@ -198,5 +199,35 @@ describe("a gap's assignments", () => {
     expect(gapAssignments(merged)).toEqual([
       { permission: 'Bypass_VR', permissionSet: { name: 'Bypass' }, others: [] },
     ]);
+  });
+});
+
+describe('what a mute lifts of a gap', () => {
+  const rule = gap({
+    id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+    kind: 'validation_rule',
+    objectApiName: 'Contact',
+    field: 'Email',
+    detail: { rule: 'Email_Required', bypasses: ['$Permission.Bypass_VR'] },
+  });
+  const lifts = {
+    objectApiName: 'contact',
+    kind: 'validationRule' as const,
+    name: 'Email_Required',
+    permission: 'Bypass_VR',
+    permissionSet: 'Data_Load',
+  };
+
+  it('finds the entry that names the rule on its object, whatever the case of the object', () => {
+    expect(gapLiftedBy(rule, [lifts])).toEqual(lifts);
+  });
+
+  it('finds none for another rule, another object, a flow of the same name or no plan', () => {
+    expect(gapLiftedBy(rule, [{ ...lifts, name: 'Phone_Format' }])).toBeUndefined();
+    expect(gapLiftedBy(rule, [{ ...lifts, objectApiName: 'Lead' }])).toBeUndefined();
+    expect(gapLiftedBy(rule, [{ ...lifts, kind: 'flow' }])).toBeUndefined();
+    expect(gapLiftedBy(rule, undefined)).toBeUndefined();
+    // Only a validation rule is lifted: a duplicate rule of that name is not.
+    expect(gapLiftedBy({ ...rule, kind: 'duplicate_rule' }, [lifts])).toBeUndefined();
   });
 });

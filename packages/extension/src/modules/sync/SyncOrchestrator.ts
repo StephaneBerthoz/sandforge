@@ -743,6 +743,29 @@ function noteSourcesRefused(
 }
 
 /**
+ * Each price left out for the source's own in the currency written
+ * (`SettledSyncRows.standsFor`), once the write of that one has answered:
+ * linked to its copy, or refused with it when the run set out to create it
+ * and did not — held back with its product, or refused by the target. Linked
+ * to nothing, a price whose stand was held back was neither, and a line naming
+ * it went with the source's id of it, which the target refused, where the
+ * gate had counted it held back; the dry run counted it written.
+ */
+function linkWhatStoodIn(
+  links: SyncRunLinks,
+  objectConfig: SyncObjectConfig,
+  standsFor: ReadonlyMap<string, string>,
+): void {
+  for (const [left, stand] of standsFor) {
+    const copy = links.targetOf(stand);
+    if (copy !== undefined) links.noteMatched(left, copy);
+    else if (createsRecords(objectConfig.operation) && links.refusedObjectOf(stand) !== undefined) {
+      links.noteRefused(left, objectConfig.objectApiName);
+    }
+  }
+}
+
+/**
  * Why a run of `config` is refused before it reads anything, or undefined: a
  * transform rule of it that names no field would change every field of every
  * record. Each start of a run refuses it first (the bridge, the command line);
@@ -2342,6 +2365,7 @@ export class SyncOrchestrator {
     // before it were written.
     if (refusal && prepared.records.length > 0) {
       noteSourcesRefused(run.links, objectConfig, prepared.sources);
+      if (settled) linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
       return withEncryptedLeftOut<SyncObjectSimulation>(
         {
           objectApiName: objectConfig.objectApiName,
@@ -2492,6 +2516,8 @@ export class SyncOrchestrator {
           run.links.noteWritten(id, id);
         }
       });
+      // And a price left out for one of them follows it, as in the run.
+      if (settled) linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
     }
 
     // Of the records it would create, those it sends without a record type,
@@ -2585,6 +2611,7 @@ export class SyncOrchestrator {
     if (asRead.records.length === 0) return;
     const settled = await this.pricesSettled(objectConfig, asRead, run);
     noteSourcesRefused(run.links, objectConfig, settled.sources);
+    linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
   }
 
   /**
@@ -2637,13 +2664,8 @@ export class SyncOrchestrator {
       ...(settled.standardFirst > 0 ? { standardFirst: settled.standardFirst } : {}),
     };
     // A price left out for the source's own in the currency written is linked
-    // to that one's copy, once the write has made it.
-    const linkWhatStoodIn = (): void => {
-      for (const [left, stand] of settled.standsFor) {
-        const copy = run.links.targetOf(stand);
-        if (copy !== undefined) run.links.noteMatched(left, copy);
-      }
-    };
+    // to that one's copy once the write has made it, or refused with it.
+    const linkStandIns = (): void => linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
 
     // Reading a large object takes a while: a pause or a cancel that came
     // meanwhile is honoured before its first record is written.
@@ -2686,7 +2708,7 @@ export class SyncOrchestrator {
         );
         if (read && lookupsUnset !== undefined) read.lookupsUnset = lookupsUnset;
         note(outcomes);
-        linkWhatStoodIn();
+        linkStandIns();
         if (lookupsToSet) onLookupsToSet?.(lookupsToSet);
         return asCopied(
           withRowsLeftOut(
@@ -2717,7 +2739,7 @@ export class SyncOrchestrator {
       records,
       writeRun,
     );
-    linkWhatStoodIn();
+    linkStandIns();
     return asCopied(withRowsLeftOut(withPricesSettled(synced, settled), leftOut));
   }
 

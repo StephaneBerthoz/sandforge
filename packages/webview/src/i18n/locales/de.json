@@ -4600,6 +4600,7 @@
         "targetRecordTypes": "Datensatztypen des Ziels"
       },
       "byDefault": "Ohne Entscheidung: {{decision}}.",
+      "lifted": "Das Stummschalten hebt sie auf ({{permission}}, im Satz {{set}}).",
       "decision": {
         "map_value": "ein anderer Wert wird geschrieben",
         "leave_empty": "das Feld bleibt leer",

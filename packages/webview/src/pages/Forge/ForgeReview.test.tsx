@@ -1201,6 +1201,74 @@ describe('ForgeReview', () => {
         sendFromExtension('forge:automation:response', { automation: mutable });
         expect(screen.queryByTestId('forge-mute-execute-hint')).toBeNull();
       });
+
+      describe('a validation rule its set lifts beside', () => {
+        // On the trap org's shape: the set assigned for the flow grants the
+        // permission a rule of Contact tests as well. Ticked, the Gaps tab
+        // said the rule may refuse the contacts it lets through whole.
+        const lifting = {
+          ...mutable,
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [
+                {
+                  name: 'Data_Load',
+                  label: 'Data load',
+                  grants: 2,
+                  customPermissions: ['Load_Data', 'Skip_Rules'],
+                },
+              ],
+            },
+          ],
+          validationRuleBypasses: [
+            { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Skip_Rules'] },
+          ],
+          validationRulesNotRead: 0,
+        };
+        const RULE: ForgeGap = {
+          id: 'validation_rule|Contact|Email||Email_Required',
+          kind: 'validation_rule',
+          severity: 'warning',
+          source: 'metadata',
+          objectApiName: 'Contact',
+          field: 'Email',
+          value: 'Email_Required',
+          rows: 0,
+          detail: {
+            rule: 'Email_Required',
+            bypasses: ['$Permission.Skip_Rules'],
+            assign: ['Skip_Rules=Data_Load'],
+          },
+          decisions: ['leave_empty', 'ignore'],
+          defaultDecision: 'leave_empty',
+        };
+
+        it('says on the Gaps tab that the mute lifts it once the box is ticked', () => {
+          mockMuteAutomation = true;
+          mockGaps = { ...mockGaps, metadata: [RULE] };
+          render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation: lifting });
+          fireEvent.click(screen.getByTestId('tab-gaps'));
+
+          expect(screen.getByTestId('gap-lifted').textContent).toBe(
+            'The mute lifts it (Skip_Rules, in Data_Load).',
+          );
+          expect(screen.queryByTestId('gap-default')).toBeNull();
+        });
+
+        it('says the rule as it was while the box is not ticked', () => {
+          mockGaps = { ...mockGaps, metadata: [RULE] };
+          render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation: lifting });
+          fireEvent.click(screen.getByTestId('tab-gaps'));
+
+          expect(screen.queryByTestId('gap-lifted')).toBeNull();
+          expect(screen.getByTestId('gap-default').textContent).toBe(
+            'If nothing is decided: the field is left empty.',
+          );
+        });
+      });
     });
 
     it('stops saying it is reading again once that read fails, and offers it again', () => {

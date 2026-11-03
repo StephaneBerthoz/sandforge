@@ -4341,6 +4341,7 @@
         "targetRecordTypes": "ターゲットのレコードタイプ"
       },
       "byDefault": "判断しない場合: {{decision}}。",
+      "lifted": "ミュートで解除されます ({{set}} の {{permission}})。",
       "decision": {
         "map_value": "別の値が書き込まれます",
         "leave_empty": "項目は空のままになります",

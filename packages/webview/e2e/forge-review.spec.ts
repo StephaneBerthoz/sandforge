@@ -188,6 +188,30 @@ const LIFTING_AUTOMATION = {
   validationRulesNotRead: 0,
 };
 
+/**
+ * A validation rule of Contact the set of {@link LIFTING_AUTOMATION} lifts:
+ * the metadata read names the set that holds its bypass.
+ */
+const LIFTED_RULE_GAP = {
+  id: 'validation_rule|Contact|Email||Email_Required',
+  kind: 'validation_rule',
+  severity: 'warning',
+  source: 'metadata',
+  objectApiName: 'Contact',
+  field: 'Email',
+  value: 'Email_Required',
+  rows: 0,
+  detail: {
+    rule: 'Email_Required',
+    message: 'An email is required.',
+    formula: 'read',
+    bypasses: ['$Permission.Skip_Rules'],
+    assign: ['Skip_Rules=Data_Load'],
+  },
+  decisions: ['leave_empty', 'ignore'],
+  defaultDecision: 'leave_empty',
+};
+
 /** Answer every pending request of a type: StrictMode can send one twice. */
 async function answerAll(
   page: Page,
@@ -443,6 +467,84 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     await expect(page.getByTestId('automation-mute-also-lifts-Contact').first()).toHaveText(
       'Contact: Validation rule: Email_Required · Skip_Rules, in Data_Load',
     );
+  });
+
+  test('says on the Gaps row a rule the ticked mute lifts, no row moved, Execute in sight', async ({
+    page,
+  }) => {
+    // The clone's lines said the mute lifts the rule; the Gaps tab said it may
+    // refuse the contacts, the field left empty, under the command that
+    // assigns the set the mute assigns itself.
+    await openReview(page, {
+      gaps: [REFUSING_GAP, LIFTED_RULE_GAP],
+      automation: LIFTING_AUTOMATION,
+    });
+    const rule = page.getByTestId(`gap-${LIFTED_RULE_GAP.id}`);
+    const rows = ['gaps', 'plan', 'anonymization', 'compliance', 'metadata', 'automation'];
+    /** Where each row stands. */
+    const layout = async (): Promise<number[]> => {
+      const tops: number[] = [];
+      for (const testId of rows.map((row) => `tab-${row}`)) {
+        tops.push(Math.round((await page.getByTestId(testId).boundingBox())!.y));
+      }
+      return tops;
+    };
+    const before = await layout();
+    const warnings = page.getByTestId('gaps-severity-warning-more');
+    await warnings.locator('summary').click();
+    await expect(rule.getByTestId('gap-default')).toHaveText(
+      'If nothing is decided: the field is left empty.',
+    );
+    await expect(rule.getByTestId('gap-lifted')).toHaveCount(0);
+    const unticked = (await rule.boundingBox())!.height;
+    await warnings.locator('summary').click();
+
+    await page.getByTestId('automation-mute-toggle').check();
+    // Among the gaps that refuse nothing, folded as the row opens: no row of
+    // Review moves, and Execute stays in sight.
+    await expect(page.getByTestId('gaps-severity-warning')).toHaveCount(0);
+    await expect(page.getByTestId('gaps-severity-info-more')).not.toHaveAttribute('open', '');
+    expect(await layout()).toEqual(before);
+    expect(await inSight(page, 'execute-button')).toBe(true);
+
+    await page.getByTestId('gaps-severity-info-more').locator('summary').click();
+    await expect(rule.getByTestId('gap-lifted')).toHaveText(
+      'The mute lifts it (Skip_Rules, in Data_Load).',
+    );
+    await expect(rule.getByTestId('gap-default')).toHaveCount(0);
+    await expect(rule.getByTestId('bypass-assistant')).toHaveCount(0);
+    expect(await inSight(page, 'gap-lifted')).toBe(true);
+    // Its line stands where the command stood: the gap takes no more room.
+    expect((await rule.boundingBox())!.height).toBeLessThanOrEqual(unticked);
+  });
+
+  test('pushes no row further down once the mute ticked lifts the rule the Gaps row shows', async ({
+    page,
+  }) => {
+    await openReview(page, { gaps: [LIFTED_RULE_GAP], automation: LIFTING_AUTOMATION });
+    await page.getByTestId('tab-gaps').click();
+    await expect(page.getByTestId('bypass-assistant')).toBeVisible();
+    const rows = ['plan', 'anonymization', 'compliance', 'metadata', 'automation'];
+    const tops = async (): Promise<number[]> => {
+      const at: number[] = [];
+      for (const row of rows) {
+        at.push(Math.round((await page.getByTestId(`tab-${row}`).boundingBox())!.y));
+      }
+      return at;
+    };
+    const unticked = await tops();
+
+    await page.getByTestId('automation-mute-toggle').check();
+    await expect(page.getByTestId('gap-lifted')).toHaveText(
+      'The mute lifts it (Skip_Rules, in Data_Load).',
+    );
+    const ticked = await tops();
+    for (const [index, row] of rows.entries()) {
+      expect(ticked[index], row).toBeLessThanOrEqual(unticked[index]);
+    }
+    expect(await inSight(page, 'gap-lifted')).toBe(true);
+    expect(await inSight(page, 'review-row-controls-summary')).toBe(true);
+    expect(await inSight(page, 'execute-button')).toBe(true);
   });
 
   test('describes each box of the column by what it shows, its fold read once opened', async ({

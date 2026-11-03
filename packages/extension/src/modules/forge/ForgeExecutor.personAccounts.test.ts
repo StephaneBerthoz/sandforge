@@ -302,9 +302,10 @@ describe('ForgeExecutor, person accounts', () => {
       CONTACT,
     ]);
     expect(summary.linkedCount).toBe(1);
-    expect(summary.existingRecords).toEqual([
-      { objectApiName: 'Contact', linked: 1, unidentified: 0 },
-    ]);
+    // Written by the platform with the account the run created, it is no
+    // record the target held: listed with them, the results said the target
+    // had refused it because it already held it.
+    expect(summary.existingRecords).toEqual([]);
     // The account's lookup at its contact is owed nothing: the platform
     // refuses an update of it.
     expect(updated.flatMap(({ rows }) => rows).some((row) => 'PersonContactId' in row)).toBe(false);
@@ -519,6 +520,7 @@ describe('ForgeExecutor, person accounts', () => {
     expect(summary.remapTable[PERSON_CONTACT]).toBe(
       personContactOf.get(summary.remapTable[PERSON].slice(0, 15)),
     );
+    expect(summary.existingRecords).toEqual([]);
   });
 
   it('takes no order from a lookup the fields say no write sets, where the graph does not say it', async () => {
@@ -658,6 +660,11 @@ describe('ForgeExecutor, person accounts', () => {
 
     expect(summary.existingSourceIds).toContain(PERSON_CONTACT);
     expect(summary.withTheirRecordSourceIds).toBeUndefined();
+    // The target held it with its account before the run: listed with them.
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 1, unidentified: 0 },
+      { objectApiName: 'Contact', linked: 1, unidentified: 0 },
+    ]);
   });
 
   describe('a target that writes no contact with the account', () => {
@@ -1126,5 +1133,7 @@ describe('ForgeExecutor, person accounts', () => {
     expect(lastLines(events).get('Contact')).toBe(
       'Simulated Contact: 1 would be inserted, 1 written by the platform with their person account, 0 failed',
     );
+    // Not in the target before the run, nor after a dry run.
+    expect(summary.existingRecords).toEqual([]);
   });
 });

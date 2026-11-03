@@ -61,6 +61,7 @@ import {
   forgeGapId,
   gapAssignEntry,
   gapAssignments,
+  gapLiftedBy,
   mergeGaps,
 } from '@sandforge/shared';
 import * as z from 'zod';
@@ -1464,21 +1465,6 @@ function gapLine(
     : `answered by the run's decision: ${answer} — ${gapWords(gap)}`;
 }
 
-/** What a run's mute lifts of the validation rule `gap` is, if anything. */
-function liftedRule(
-  gap: ForgeGap,
-  lifted: readonly MutedAutomationAlsoLifted[] | undefined,
-): MutedAutomationAlsoLifted | undefined {
-  if (gap.kind !== 'validation_rule' || !lifted) return undefined;
-  const rule = text(gap.detail?.rule);
-  return lifted.find(
-    (entry) =>
-      entry.kind === 'validationRule' &&
-      entry.name === rule &&
-      entry.objectApiName.toLowerCase() === gap.objectApiName.toLowerCase(),
-  );
-}
-
 /** How each part the read could not read is said in the command's lines. */
 const PART_WORDS: Readonly<Record<GapUnreadPart, string>> = {
   validationRules: 'the validation rules',
@@ -1641,7 +1627,7 @@ export function gapLines(
   for (const object of objects) {
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
-      const lifted = liftedRule(gap, options.lifted);
+      const lifted = gapLiftedBy(gap, options.lifted);
       lines.push(`    ${gapLine(gap, options.decisions, lifted)}`);
       // The mute assigns the set for the run: no command to show.
       if (!lifted) lines.push(...assignLines(gap, target, options.username));

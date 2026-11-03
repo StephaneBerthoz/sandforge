@@ -4600,6 +4600,7 @@
         "targetRecordTypes": "Types d'enregistrement de la cible"
       },
       "byDefault": "Sans décision : {{decision}}.",
+      "lifted": "Levée quand les automatisations sont rendues muettes ({{permission}}, dans {{set}}).",
       "decision": {
         "map_value": "une autre valeur est écrite",
         "leave_empty": "le champ est laissé vide",

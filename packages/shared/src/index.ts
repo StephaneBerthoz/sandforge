@@ -271,6 +271,7 @@ export {
   skippedRowsEntry,
   gapAssignEntry,
   gapAssignments,
+  gapLiftedBy,
   mergeGaps,
 } from './utils/forge-gaps.js';
 export type { ForgeGapAssignment, ForgeGapParts } from './utils/forge-gaps.js';

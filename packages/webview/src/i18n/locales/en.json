@@ -4600,6 +4600,7 @@
         "targetRecordTypes": "Target record types"
       },
       "byDefault": "If nothing is decided: {{decision}}.",
+      "lifted": "The mute lifts it ({{permission}}, in {{set}}).",
       "decision": {
         "map_value": "another value is written",
         "leave_empty": "the field is left empty",

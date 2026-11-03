@@ -225,6 +225,82 @@ describe('ReviewGapsTab', () => {
       expect(within(item(rule)).queryByTestId('bypass-assistant-command')).toBeNull();
     });
 
+    describe('a rule the mute lifts', () => {
+      // On the trap org's shape, the set the mute assigns for a flow grants
+      // the permission Email_Required tests as well: the contacts it refuses
+      // go in whole. The clone's lines said the mute lifts it; the tab said
+      // the rule may refuse them, the field left empty, and the command that
+      // assigns the set.
+      const RULE: ForgeGap = {
+        id: forgeGapId('validation_rule', 'Contact', 'Email', undefined, 'Email_Required'),
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        field: 'Email',
+        value: 'Email_Required',
+        rows: 0,
+        detail: {
+          rule: 'Email_Required',
+          bypasses: ['$Permission.Skip_Rules'],
+          assign: ['Skip_Rules=Data_Load'],
+        },
+        decisions: ['leave_empty', 'ignore'],
+        defaultDecision: 'leave_empty',
+      };
+      const LIFTS = {
+        objectApiName: 'Contact',
+        kind: 'validationRule' as const,
+        name: 'Email_Required',
+        permission: 'Skip_Rules',
+        permissionSet: 'Data_Load',
+      };
+      const TARGET = { alias: 'TGT', username: 'loader@example.com' };
+
+      it('says the mute lifts it in the words of the command line, among the gaps that refuse nothing', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        render(<ReviewGapsTab target={TARGET} lifted={[LIFTS]} />);
+        const gap = item(RULE);
+
+        expect(within(gap).getByTestId('gap-lifted').textContent).toBe(
+          'The mute lifts it (Skip_Rules, in Data_Load).',
+        );
+        // Its rows go in whole, and the mute assigns the set for the run.
+        expect(within(gap).queryByTestId('gap-default')).toBeNull();
+        expect(within(gap).queryByTestId('bypass-assistant')).toBeNull();
+        expect(
+          within(screen.getByTestId('gaps-severity-info')).getByTestId(`gap-${RULE.id}`),
+        ).toBeTruthy();
+        expect(
+          within(screen.getByTestId('gaps-severity-warning')).queryByTestId(`gap-${RULE.id}`),
+        ).toBeNull();
+      });
+
+      it('says nothing of the mute for a rule it does not lift, nor once it is not ticked', () => {
+        act(() => useForgeStore.getState().setGaps('metadata', [RULE]));
+        const { rerender } = render(
+          <ReviewGapsTab target={TARGET} lifted={[{ ...LIFTS, name: 'Phone_Format' }]} />,
+        );
+        const said = (): void => {
+          const gap = item(RULE);
+          expect(within(gap).queryByTestId('gap-lifted')).toBeNull();
+          expect(within(gap).getByTestId('gap-default').textContent).toBe(
+            'If nothing is decided: the field is left empty.',
+          );
+          expect(within(gap).getByTestId('bypass-assistant-command').textContent).toBe(
+            'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of loader@example.com',
+          );
+          expect(
+            within(screen.getByTestId('gaps-severity-warning')).getByTestId(`gap-${RULE.id}`),
+          ).toBeTruthy();
+        };
+        said();
+
+        rerender(<ReviewGapsTab target={TARGET} />);
+        said();
+      });
+    });
+
     describe('reading the target again', () => {
       // The tab showed what Review read as it opened: a bypass assigned with
       // the command it copied showed as not held until Review opened again.

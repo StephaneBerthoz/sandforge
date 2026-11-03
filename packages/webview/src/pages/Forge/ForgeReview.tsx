@@ -267,6 +267,13 @@ export const ForgeReview: React.FC = () => {
   useEffect(() => {
     if (automation && muteAutomation && !muteOffered(muteOffer)) setMuteAutomation(false);
   }, [automation, muteAutomation, muteOffer, setMuteAutomation]);
+  /**
+   * What the mute ticked lifts beside what it silences, which the Gaps tab
+   * says of the validation rules it names, as the clone's lines do: nothing
+   * while it is not ticked.
+   */
+  const liftedByMute =
+    muteAutomation && muteOffer && muteOffer !== 'atStart' ? muteOffer.alsoLifts : undefined;
 
   /** What fires as the run inserts its records, on the objects it still writes. */
   const firedAtInsert = useMemo(
@@ -365,7 +372,10 @@ export const ForgeReview: React.FC = () => {
     row?.scrollIntoView?.({ block: 'start' });
   });
 
-  /** Run with the gaps as they are: the rows they refuse are refused. */
+  /**
+   * Run with the gaps as they are: the rows they refuse are refused, but for
+   * those of a validation rule the mute ticked lifts, which go in whole.
+   */
   const executeAnyway = useCallback(() => {
     setAskingAboutGaps(false);
     setGapsAccepted(true);
@@ -497,6 +507,7 @@ export const ForgeReview: React.FC = () => {
               <ReviewGapsTab
                 onReadAgain={readGapsAgain}
                 readingAgain={gapsRead.pending}
+                {...(liftedByMute ? { lifted: liftedByMute } : {})}
                 {...(targetOrg?.alias && targetOrg.username
                   ? { target: { alias: targetOrg.alias, username: targetOrg.username } }
                   : {})}

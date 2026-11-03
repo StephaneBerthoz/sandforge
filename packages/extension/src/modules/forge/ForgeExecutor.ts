@@ -9046,10 +9046,10 @@ export class ForgeExecutor {
       return false;
     });
     const linked = rows.length - kept.length;
-    if (linked > 0) {
-      state.linkedCount += linked;
-      state.existingRecords.push({ objectApiName: TASK, linked, unidentified: 0 });
-    }
+    // Linked, and none of them among the records the target held: each came
+    // with an email the run created, and was not there before the run. Listed
+    // with them, the results said the target had refused a task nothing sent.
+    if (linked > 0) state.linkedCount += linked;
     return { rows: kept, linked };
   }
 
@@ -9757,6 +9757,8 @@ export class ForgeExecutor {
     contacts: readonly Record<string, unknown>[],
   ): { linked: number; notSent: HeldBackReason[] } {
     let linked = 0;
+    /** Linked to the contact the platform wrote with an account the run created. */
+    let withTheirAccount = 0;
     let accountNotWritten = 0;
     let contactNotFound = 0;
     for (const row of contacts) {
@@ -9765,15 +9767,24 @@ export class ForgeExecutor {
       if (target) {
         state.remapper.addExisting(id, target, CONTACT);
         linked++;
+        if (state.withTheirRecord.has(id)) withTheirAccount++;
         continue;
       }
       const account = row['AccountId'];
       if (typeof account === 'string' && state.remapper.get(account)) contactNotFound++;
       else accountNotWritten++;
     }
-    if (linked > 0) {
-      state.linkedCount += linked;
-      state.existingRecords.push({ objectApiName: CONTACT, linked, unidentified: 0 });
+    if (linked > 0) state.linkedCount += linked;
+    // Only those the target held with an account it held before the run are
+    // among the records it held, as for an opportunity's team: listed with
+    // them, a contact the platform wrote with the run's account was said
+    // refused by a target that never had it.
+    if (linked > withTheirAccount) {
+      state.existingRecords.push({
+        objectApiName: CONTACT,
+        linked: linked - withTheirAccount,
+        unidentified: 0,
+      });
     }
     const notSent: HeldBackReason[] = [
       ...(accountNotWritten > 0
