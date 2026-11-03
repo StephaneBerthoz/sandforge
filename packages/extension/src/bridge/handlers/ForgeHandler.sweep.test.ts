@@ -924,6 +924,60 @@ describe('a sweep asked with a removal', () => {
       expect(permissions.assignments()).toEqual([]);
     });
 
+    describe('of a user who may not delete the cases', () => {
+      /** What the org was told by the time the question was put. */
+      let seenAsked: string[][];
+      let removeTheRest: boolean;
+
+      beforeEach(() => {
+        const conn = org.conn as unknown as {
+          describe: (object: string) => Promise<Record<string, unknown>>;
+        };
+        // The case's describe, as a profile without Delete on it gives it.
+        mockGetConn.mockResolvedValue({
+          ...org.conn,
+          describe: async (object: string) => ({
+            ...(await conn.describe(object)),
+            deletable: object !== 'Case',
+          }),
+        } as never);
+        seenAsked = [];
+        removeTheRest = false;
+        (
+          deps.infraServices as { confirmRemovalLeavingUndeletable?: () => Promise<boolean> }
+        ).confirmRemovalLeavingUndeletable = vi.fn(async () => {
+          seenAsked.push(steps());
+          return removeTheRest;
+        });
+      });
+
+      it('asks before it assigns anything, and assigns nothing once told to stop', async () => {
+        // Taken before the question, the lease held the sets assigned while
+        // it stayed open, for nothing once it was answered no.
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+        );
+
+        expect(seenAsked).toHaveLength(1);
+        expect(seenAsked[0]).not.toContain('leaseAcquire');
+        expect(steps()).not.toContain('leaseAcquire');
+        expect(permissions.assignments()).toEqual([]);
+      });
+
+      it('takes the lease once told to remove the rest, before its first delete', async () => {
+        removeTheRest = true;
+
+        await handler.handle(
+          buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, muteAutomation: true }),
+        );
+
+        expect(seenAsked[0]).not.toContain('leaseAcquire');
+        expect(steps()).toContain('leaseAcquire');
+        expect(steps().indexOf('leaseAcquire')).toBeLessThan(steps().indexOf('write'));
+        expect(permissions.assignments()).toEqual([]);
+      });
+    });
+
     describe('of what a Flow fires on the asset the sweep deletes', () => {
       /** What the org runs: a Flow on the asset alone, as the real reader says only what it is asked. */
       const onAsset = async (_org: string, objects: readonly string[]) =>

@@ -235,6 +235,28 @@ function filledForPersons(
   return objectApiName === 'Account' && field === 'Name' && isPersonAccountRow(source);
 }
 
+/**
+ * The fields the target requires at insert that a row leaves empty, as a run
+ * sends it: what a `required_field_missing` gap counts, and what a simulation
+ * counts the row refused for (`ForgeExecutor.simulateWrite`), as the target
+ * refuses it — `REQUIRED_FIELD_MISSING`.
+ *
+ * @param fields - The target's describe of the object.
+ */
+export function requiredLeftEmpty(
+  objectApiName: string,
+  payload: Readonly<Record<string, unknown>>,
+  source: Readonly<Record<string, unknown>>,
+  fields: readonly FieldInfo[],
+): FieldInfo[] {
+  return fields.filter(
+    (field) =>
+      requiredInTarget(field) &&
+      isEmpty(payload[field.name]) &&
+      !filledForPersons(objectApiName, field.name, source),
+  );
+}
+
 /** A number's value, read as a payload holds it: a number, or a numeric text. */
 function numberOf(value: unknown): number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
@@ -303,10 +325,7 @@ export function rowGapsOf(input: RowChecksInput, gaps: SimulationGaps): void {
   );
 
   for (const { payload, source, typed } of rows) {
-    for (const field of required) {
-      if (!isEmpty(payload[field.name]) || filledForPersons(objectApiName, field.name, source)) {
-        continue;
-      }
+    for (const field of requiredLeftEmpty(objectApiName, payload, source, required)) {
       gaps.add({
         kind: 'required_field_missing',
         severity: 'blocking',

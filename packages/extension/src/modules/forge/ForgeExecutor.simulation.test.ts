@@ -260,11 +260,17 @@ async function run(deps: ForgeExecutorDeps, options: ExecuteOptions) {
 const gapOf = (summary: ExecutionSummary, gapId: string) =>
   summary.gaps?.find((gap) => gap.id === gapId);
 
+/** The region the target requires of an order, given each row by a decision. */
+const REGION_GIVEN: NonNullable<ExecuteOptions['decisions']> = {
+  defaultValues: [{ object: 'Order__c', field: 'Region__c', value: 'North' }],
+};
+
 describe('ForgeExecutor, a simulation through the write stage', () => {
   it('writes nothing, and gives back none of the ids it used in place of the target’s', async () => {
     const { deps } = fakeOrgs();
 
-    const { summary } = await run(deps, { ...OPTIONS, dryRun: true });
+    // The region the target requires given, as a real run would have to.
+    const { summary } = await run(deps, { ...OPTIONS, dryRun: true, decisions: REGION_GIVEN });
 
     expect(deps.insertRecords).not.toHaveBeenCalled();
     expect(deps.updateRecords).not.toHaveBeenCalled();
@@ -304,11 +310,25 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
   it('ends each object on what its write would have done', async () => {
     const { deps } = fakeOrgs();
 
-    const { events } = await run(deps, { ...OPTIONS, dryRun: true });
+    const { events } = await run(deps, { ...OPTIONS, dryRun: true, decisions: REGION_GIVEN });
 
     const last = events.filter((e) => e.objectName === 'Order__c').at(-1);
     expect(last?.status).toBe('done');
     expect(last?.message).toMatch(/^Simulated Order__c: 3 would be inserted, 0 failed/);
+  });
+
+  it('ends an object whose every row leaves a field the target requires empty on its refusal', async () => {
+    const { deps } = fakeOrgs();
+
+    const { summary, events } = await run(deps, { ...OPTIONS, dryRun: true });
+
+    const last = events.filter((e) => e.objectName === 'Order__c').at(-1);
+    expect(last?.status).toBe('error');
+    expect(summary.wouldInsertCount).toBe(1);
+    expect(summary.failedCount).toBe(3);
+    expect(
+      summary.errors.find((error) => error.objectApiName === 'Order__c')?.samples[0]?.messages,
+    ).toEqual(['REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]']);
   });
 
   it('finds the picklist values a record type refuses, with what a real run writes instead', async () => {
@@ -681,7 +701,7 @@ describe('ForgeExecutor, the rows the user chose to hold back', () => {
     const { summary } = await run(deps, {
       ...OPTIONS,
       dryRun: true,
-      decisions: { skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
+      decisions: { ...REGION_GIVEN, skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
     });
 
     expect(summary.wouldInsertCount).toBe(3);
@@ -895,5 +915,125 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
     // The org's own Retail goes where the decision says; the package's keeps its own.
     expect(sentTypes(sent)).toEqual([TARGET_WHOLESALE, TARGET_WHOLESALE, TARGET_PACKAGED]);
     expect(JSON.stringify(summary.errors)).not.toContain('was not applied');
+  });
+});
+
+describe('ForgeExecutor, a simulation of the rows the target refuses for a field it requires', () => {
+  const OPPORTUNITY = id('006', 1);
+  const MEMBER = id('00q', 1);
+  const SOURCE_OWNER = id('005', 1);
+
+  const opportunityFields: FieldInfo[] = [field('Id'), field('Name', { type: 'string' })];
+  /**
+   * An opportunity team member, as both orgs describe it: its user is
+   * required, and a user is never copied, so the lookup goes empty.
+   */
+  const memberFields: FieldInfo[] = [
+    field('Id'),
+    field('OpportunityId', { isReference: true, referenceTo: ['Opportunity'], nillable: false }),
+    field('UserId', { isReference: true, referenceTo: ['User'], nillable: false }),
+    field('TeamMemberRole', { type: 'picklist' }),
+  ];
+  const graph: ForgeGraph = {
+    nodes: [node('Opportunity', 0), node('OpportunityTeamMember', 1)],
+    edges: [
+      {
+        sourceObject: 'Opportunity',
+        targetObject: 'OpportunityTeamMember',
+        relationshipName: 'OpportunityTeamMembers',
+        type: 'lookup',
+      },
+    ],
+    totalRecords: 2,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+  const source: Record<string, FakeRow[]> = {
+    Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal 05' }],
+    OpportunityTeamMember: [
+      {
+        Id: MEMBER,
+        OpportunityId: OPPORTUNITY,
+        UserId: SOURCE_OWNER,
+        TeamMemberRole: 'Opportunity Owner',
+      },
+    ],
+  };
+
+  /** Both orgs, the target refusing a member without its user as a real org refused it. */
+  function teamOrgs() {
+    let next = 0;
+    const deps = {
+      describeFields: vi.fn(async (_org: string, object: string) =>
+        object === 'Opportunity' ? opportunityFields : memberFields,
+      ),
+      queryRecords: vi.fn(async (org: string, soql: string) =>
+        org === 'src' ? selectRows(source, soql) : [],
+      ),
+      insertRecords: vi.fn(async (_org: string, object: string, rows: Record<string, unknown>[]) =>
+        rows.map((row): InsertResult => {
+          if (object === 'OpportunityTeamMember' && !row['UserId']) {
+            return {
+              id: '',
+              success: false,
+              errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]'],
+            };
+          }
+          next++;
+          return { id: id('006', 100 + next), success: true, errors: [] };
+        }),
+      ),
+      updateRecords: vi.fn(async () => []),
+      upsertRecords: vi.fn(async () => []),
+      describeObject: vi.fn(async (_org: string, object: string): Promise<TargetObjectInfo> => ({
+        keyPrefix: object === 'Opportunity' ? '006' : '00q',
+        recordTypes: [],
+      })),
+    } satisfies ForgeExecutorDeps;
+    return deps;
+  }
+
+  const options: ExecuteOptions = {
+    rootRecordId: OPPORTUNITY,
+    rootObjectApiName: 'Opportunity',
+  };
+  const execute = (deps: ForgeExecutorDeps, more: Partial<ExecuteOptions>) =>
+    new ForgeExecutor(deps).execute(graph, 'src', 'tgt', () => {}, { ...options, ...more });
+  const refused = (summary: ExecutionSummary) =>
+    summary.errors.find((error) => error.objectApiName === 'OpportunityTeamMember');
+
+  it('counts refused, in the org’s words, what the write is refused, where it said all would be inserted', async () => {
+    // Run for real with Team Selling on, the clone of an opportunity had its
+    // team member refused, REQUIRED_FIELD_MISSING [UserId], and its dry run
+    // had said it would be inserted, nothing refused.
+    const real = await execute(teamOrgs(), {});
+    const dry = await execute(teamOrgs(), { dryRun: true });
+
+    expect(real.successCount).toBe(1);
+    expect(real.failedCount).toBe(1);
+    expect(refused(real)?.samples[0]?.messages).toEqual([
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]',
+    ]);
+    expect(dry.wouldInsertCount).toBe(1);
+    expect(dry.failedCount).toBe(1);
+    expect(refused(dry)).toMatchObject({ failedCount: 1, attemptedCount: 1 });
+    expect(refused(dry)?.samples[0]?.messages).toEqual([
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]',
+    ]);
+    expect(
+      gapOf(dry, forgeGapId('required_field_missing', 'OpportunityTeamMember', 'UserId')),
+    ).toMatchObject({ severity: 'blocking', rows: 1 });
+  });
+
+  it('counts the row as would be inserted once a decision gives the field a value', async () => {
+    const dry = await execute(teamOrgs(), {
+      dryRun: true,
+      decisions: {
+        defaultValues: [{ object: 'OpportunityTeamMember', field: 'UserId', value: id('005', 9) }],
+      },
+    });
+
+    expect(dry.wouldInsertCount).toBe(2);
+    expect(dry.failedCount).toBe(0);
   });
 });

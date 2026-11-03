@@ -448,6 +448,91 @@ describe('sandforge-clone --summary', () => {
     expect(printed).toContain(interruptedLine(undefined));
   });
 
+  describe('a run the target refused records of', () => {
+    /**
+     * A target that refuses every contact as a real org refused a clone's
+     * opportunity team member, whose user the clone does not carry: in its
+     * words, the account going in.
+     */
+    function refusingContacts(): ReturnType<typeof fakeOrg> {
+      const target = fakeOrg();
+      const sobject = target.conn.sobject.bind(target.conn);
+      (target.conn as unknown as { sobject: (name: string) => unknown }).sobject = (name) => {
+        const real = sobject(name) as unknown as Record<string, unknown>;
+        if (name !== 'Contact') return real;
+        return {
+          ...real,
+          create: async (records: unknown[]) =>
+            records.map(() => ({
+              success: false,
+              errors: [
+                {
+                  statusCode: 'REQUIRED_FIELD_MISSING',
+                  message: 'Required fields are missing: [UserId]',
+                  fields: ['UserId'],
+                },
+              ],
+            })),
+        };
+      };
+      return target;
+    }
+
+    it('ends partial, says so on its first line and under result.status, and exits 0', async () => {
+      withOrgs(refusingContacts());
+
+      expect(await run(argv('--json'))).toBeUndefined();
+
+      const document = JSON.parse(stdout) as { result: Record<string, unknown> };
+      expect(document.result.successCount).toBe(1);
+      expect(document.result.failedCount).toBe(1);
+      expect(document.result.status).toBe('partial');
+      expect(stderr).not.toContain('status:');
+
+      stdout = '';
+      printed = [];
+      withOrgs(refusingContacts());
+      expect(await run(argv())).toBeUndefined();
+      expect(printed).toContain('status:  partial');
+      expect(printed.indexOf('status:  partial')).toBeLessThan(printed.indexOf('success: 1'));
+    });
+
+    it('exits 3 with --fail-on-partial, as Sync and Seed do', async () => {
+      withOrgs(refusingContacts());
+
+      expect(await run(argv('--json', '--fail-on-partial'))).toBe(3);
+
+      expect((JSON.parse(stdout) as { result: { status: string } }).result.status).toBe('partial');
+    });
+
+    it('says success of a run the target refused nothing of, and exits 0 with --fail-on-partial', async () => {
+      withOrgs();
+
+      expect(await run(argv('--json', '--fail-on-partial'))).toBeUndefined();
+
+      expect((JSON.parse(stdout) as { result: { status: string } }).result.status).toBe('success');
+    });
+
+    it('keeps the status out of the summary a run writes as it goes, which is no end', async () => {
+      withOrgs(refusingContacts());
+      const path = join(dir, 'clone-summary.json');
+
+      expect(await run(argv('--summary', path, '--json'))).toBeUndefined();
+
+      const writes = writesOf(path);
+      expect(
+        writes.map((document) => [
+          document.running,
+          (document.result as { status?: string }).status,
+        ]),
+      ).toEqual([
+        [true, undefined],
+        [true, undefined],
+        [undefined, 'partial'],
+      ]);
+    });
+  });
+
   it('says before the run what may refuse a removal of its records, and gives it under removalRisks', async () => {
     withOrgs(fakeOrg([ACCOUNT_GUARD]));
 

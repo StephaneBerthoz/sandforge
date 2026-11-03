@@ -686,6 +686,57 @@ describe('sandforge-sync --remove', () => {
     });
   });
 
+  it('takes the duplicate record sets its deletes left empty, keeps one still holding a record that stays, and names them', async () => {
+    // Run for real on a Developer Edition, two runs of the same two contacts:
+    // the second's duplicate rule put each of its contacts in a set with the
+    // first's, two items a set, made by the Automated Process user. Each
+    // removal took its contacts and their items, and both left the sets,
+    // empty: 57 sets before, 59 after.
+    const LEFT = fakeId('0GK', 1);
+    const SHARED = fakeId('0GK', 2);
+    const OTHER_RUNS = fakeId('003', 9);
+    org = new MemoryRemovalOrg({
+      Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+    });
+    const at = new Date(Date.now() - 10 * 60_000).toISOString();
+    org.add('Account', { Id: A1 }, at);
+    org.add('Account', { Id: A2 }, at);
+    org.add('Contact', { Id: C1, AccountId: A1 }, at);
+    org.add('Contact', { Id: OTHER_RUNS }, at);
+    org.add('DuplicateRecordSet', { Id: LEFT }, at);
+    org.add('DuplicateRecordSet', { Id: SHARED }, at);
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: LEFT },
+      at,
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 2), RecordId: C1, DuplicateRecordSetId: SHARED },
+      at,
+    );
+    org.add(
+      'DuplicateRecordItem',
+      { Id: fakeId('0GL', 3), RecordId: OTHER_RUNS, DuplicateRecordSetId: SHARED },
+      at,
+    );
+    vi.mocked(removalOrg).mockReturnValue(org);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+    expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SHARED]);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: {
+        status: 'success',
+        planned: 3,
+        objects: expect.arrayContaining([
+          expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, deleted: 1 }),
+        ]),
+      },
+    });
+  });
+
   it('exits 3 when it leaves records of the run in the org, and takes them on the next removal', async () => {
     org.touch('Account', A2, new Date(Date.now() + 60_000).toISOString());
     const exit = stubExit();

@@ -605,7 +605,10 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
   });
 
-  it('gives in its refusal the command that assigns the smallest permission set holding the bypass, and runs none', async () => {
+  it('names in its refusal the smallest permission set holding the bypass, which --mute-automation assigns, and no command that assigns it by hand', async () => {
+    // Run on the trap org, the refusal gave `sf org assign permset ...
+    // --on-behalf-of <username>`, the user's name in clear: run, it left the
+    // set assigned past the clone, outside the lease another run held.
     withOrgs(
       fakeOrg({
         permissionSets: [
@@ -624,17 +627,26 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight'))).toBe(1);
 
     expect(stderr).toContain(
-      'Data_Load is the smallest permission set of TGT that holds Load_Data; Integration holds ' +
-        'it too. Assigned to the user the clone writes as, it keeps quiet what Load_Data ' +
-        'excludes: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
-        'loader@example.com.dev',
+      'With --mute-automation, the clone assigns Data_Load to the user it writes as for the ' +
+        'clone alone, under a lease, and what it keeps quiet does not fire.',
     );
     expect(printed).toContain(
-      '    Load_Data: held by permission set Data_Load, the smallest; also held by Integration: ' +
-        'sf org assign permset --name Data_Load --target-org TGT --on-behalf-of loader@example.com.dev',
+      '    Load_Data: held by permission set Data_Load, the smallest; also held by Integration',
     );
-    // Shown, never run: nothing was assigned, nor written.
+    for (const said of [stderr, ...printed]) {
+      expect(said).not.toContain('sf org assign permset');
+      expect(said).not.toContain('loader@example.com.dev');
+    }
+    // Nothing was assigned, nor written.
     expect(orgs.TGT.written).toEqual([]);
+  });
+
+  it('offers no mute in its refusal once --mute-automation was given', async () => {
+    withOrgs(fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] }));
+
+    await run(argv('--skip-preflight', '--mute-automation'));
+
+    expect(stderr).not.toContain('With --mute-automation');
   });
 
   it('writes nothing when it could not read what fires, unless told to go on', async () => {
@@ -719,7 +731,7 @@ describe('sandforge-clone target automation', () => {
       expect(orgs.TGT.written).toEqual([]);
     });
 
-    it('names under a rule the smallest permission set that keeps it quiet, and the command that assigns it', async () => {
+    it('names under a rule the smallest permission set that keeps it quiet, and no command that assigns it by hand', async () => {
       withOrgs(
         fakeOrg({
           noFlows: true,
@@ -741,10 +753,9 @@ describe('sandforge-clone target automation', () => {
 
       const rule = printed.findIndex((line) => line.includes('validation rule "Name_Format"'));
       expect(printed[rule + 1]).toBe(
-        '      Load_Data: held by permission set Data_Load, the smallest; also held by ' +
-          'Integration: sf org assign permset --name Data_Load --target-org TGT --on-behalf-of ' +
-          'loader@example.com.dev',
+        '      Load_Data: held by permission set Data_Load, the smallest; also held by Integration',
       );
+      expect(printed.join('\n')).not.toContain('loader@example.com.dev');
       // Shown, never run.
       expect(orgs.TGT.written).toEqual([]);
     });

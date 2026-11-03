@@ -1710,7 +1710,10 @@ describe('sandforge-clone --remove', () => {
             return true;
           }),
         }));
+        // As the removal goes: what goes before its first write once its
+        // questions are answered, then the sweep, the run's records, the rest.
         vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) => {
+          await options.beforeFirstWrite?.();
           await options.sweep?.();
           events.push('write');
           said.push('the run’s records');

@@ -772,6 +772,46 @@ describe('a sweep asked with the removal of a Sync run', () => {
       expect(answer()).toMatchObject({ status: 'partial', sweep: { status: 'failure' } });
     });
 
+    it('takes the duplicate record set its deletes left empty, as Seed’s removal does, and leaves one that still names a record', async () => {
+      // Run for real on a Developer Edition, two Syncs of the same contacts:
+      // the second's duplicate rule put each in a set with the first's, and
+      // the removals of both left the sets, empty.
+      const THE_RUNS = id('0GK', 1);
+      const SHARED = id('0GK', 2);
+      const OTHER_CONTACT = id('003', 9);
+      const reported = (recordId: string, item: number, set: string) => ({
+        ...rec(id('0GL', item), `Item ${item}`, USER, JUST_AFTER),
+        RecordId: recordId,
+        DuplicateRecordSetId: set,
+      });
+      tied.shape('Contact', {
+        references: { AccountId: ['Account'] },
+        children: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+      });
+      tied.shape('DuplicateRecordItem', {
+        references: { RecordId: ['Contact'], DuplicateRecordSetId: ['DuplicateRecordSet'] },
+      });
+      tied.add('DuplicateRecordSet', rec(THE_RUNS, 'The run’s set', USER, JUST_AFTER));
+      tied.add('DuplicateRecordSet', rec(SHARED, 'A shared set', USER, JUST_AFTER));
+      tied.add('Contact', rec(OTHER_CONTACT, 'Someone else', USER, LONG_AFTER));
+      tied.add('DuplicateRecordItem', reported(CONTACT, 1, THE_RUNS));
+      tied.add('DuplicateRecordItem', reported(CONTACT, 2, SHARED));
+      tied.add('DuplicateRecordItem', reported(OTHER_CONTACT, 3, SHARED));
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases' }));
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Contact')).toEqual([OTHER_CONTACT]);
+      expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(answer()?.objects.at(-1)).toMatchObject({
+        objectApiName: 'DuplicateRecordSet',
+        planned: 1,
+        deleted: 1,
+        refused: 0,
+      });
+    });
+
     it('takes what is tied to nothing when asked, and not while another run of this machine wrote in the window', async () => {
       await handler.handle(
         buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),
@@ -957,6 +997,61 @@ describe('a sweep asked with the removal of a Sync run', () => {
         const path = [...made.map((step) => (step === 'undelete' ? 'write' : step)), 'result'];
         expect(writePathOrderDefects(path as WritePathStep[])).toEqual([]);
         expect(permissions.assignments()).toEqual([]);
+      });
+
+      describe('of a user who may not delete the cases', () => {
+        /** What the org was told by the time the question was put. */
+        let seenAsked: string[][];
+        let removeTheRest: boolean;
+
+        beforeEach(async () => {
+          // The connection the mute's set-up hands out, its describe wrapped.
+          const handed = vi.mocked(getJsforceConnection) as unknown as () => Promise<unknown>;
+          const conn = (await handed()) as {
+            describe: (object: string) => Promise<Record<string, unknown>>;
+          };
+          const describe = conn.describe.bind(conn);
+          // The case's describe, as a profile without Delete on it gives it.
+          vi.mocked(getJsforceConnection).mockResolvedValue({
+            ...conn,
+            describe: async (object: string) => ({
+              ...(await describe(object)),
+              deletable: object !== 'Case',
+            }),
+          } as never);
+          seenAsked = [];
+          removeTheRest = false;
+          (
+            deps.infraServices as { confirmRemovalLeavingUndeletable?: () => Promise<boolean> }
+          ).confirmRemovalLeavingUndeletable = vi.fn(async () => {
+            seenAsked.push([...steps()]);
+            return removeTheRest;
+          });
+        });
+
+        it('asks before it assigns anything, and assigns nothing once told to stop', async () => {
+          await handler.handle(
+            buildMsg('sync:remove', { runId: 'run-cases', muteAutomation: true }),
+          );
+
+          expect(seenAsked).toHaveLength(1);
+          expect(seenAsked[0]).not.toContain('leaseAcquire');
+          expect(steps()).not.toContain('leaseAcquire');
+          expect(tied.deletes).toEqual([]);
+        });
+
+        it('takes the lease once told to remove the rest, before its first delete', async () => {
+          removeTheRest = true;
+
+          await handler.handle(
+            buildMsg('sync:remove', { runId: 'run-cases', muteAutomation: true }),
+          );
+
+          expect(seenAsked[0]).not.toContain('leaseAcquire');
+          expect(steps()).toContain('leaseAcquire');
+          expect(steps().indexOf('leaseAcquire')).toBeLessThan(steps().indexOf('write'));
+          expect(permissions.assignments()).toEqual([]);
+        });
       });
 
       it('plans the mute on the asset the sweep deletes, read once it has read, or the org refuses it', async () => {

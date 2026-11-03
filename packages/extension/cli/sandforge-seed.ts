@@ -176,6 +176,7 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalStepsWithSweep, removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
@@ -3451,11 +3452,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const automation = removalMute?.automation ?? read;
     const automationStop = removalStepsAutomationRefusal(automation, args.target, {
       steps,
-      assign: bypassesToAssign(
-        automation,
-        removalStepsBypassesOf(automation, steps),
-        session.username ? { alias: args.target, username: session.username } : undefined,
-      ),
+      // The sets that keep it quiet, which --mute-automation assigns under a
+      // lease: never a command assigning them by hand, with the user's name.
+      assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
+      mayMute: removalMute === undefined,
     });
     if (automationStop && !args.acceptAutomation) {
       releaseStop();
@@ -3464,20 +3464,25 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
-  // The lease is taken before the removal's first delete and given back as it
-  // ends, whatever it ended on.
-  const held =
-    removalMute?.prepared && !stop.signal.aborted
-      ? await removalMute.prepared
-          .acquire(`sandforge-seed --remove ${run.runId}`)
-          .catch((err: unknown) => {
-            if (!isMuteRefusedError(err)) throw err;
-            releaseStop();
-            process.stderr.write(`${err.message}\n`);
-            process.exit(1);
-          })
-      : undefined;
-  let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+  // The lease, taken right before the first write, once every question is
+  // answered: the removal asks what to do of the records its user may not
+  // delete once it has read them, and a lease taken before it kept the sets
+  // assigned while the question stayed open, for nothing once it was answered
+  // no. A stop before then assigns nothing.
+  let held: HeldMute | undefined;
+  let mutedAutomation: MutedAutomation | undefined = removalMute?.muted;
+  const takeTheLease = async (): Promise<void> => {
+    if (!removalMute?.prepared || stop.signal.aborted) return;
+    held = await removalMute.prepared
+      .acquire(`sandforge-seed --remove ${run.runId}`)
+      .catch((err: unknown) => {
+        if (!isMuteRefusedError(err)) throw err;
+        releaseStop();
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      });
+    mutedAutomation = held.outcome;
+  };
   const removalTarget = removalOrg(conn, 'sandforge-seed --remove');
   // Read before the first delete: the items that name them go with the records.
   const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
@@ -3489,6 +3494,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...sweepPartsOptions(parts),
       ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
       onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+      beforeFirstWrite: takeTheLease,
       signal: stop.signal,
       store: {
         // Kept beside the summary, or beside the run's file, whatever the
@@ -3721,11 +3727,8 @@ async function previewRemoval(
   for (const line of removalStepsAutomationLines(automation, args.target, steps)) say(line);
   const automationStop = removalStepsAutomationRefusal(automation, args.target, {
     steps,
-    assign: bypassesToAssign(
-      automation,
-      removalStepsBypassesOf(automation, steps),
-      session.username ? { alias: args.target, username: session.username } : undefined,
-    ),
+    assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
+    mayMute: !args.muteAutomation,
   });
   if (automationStop && !args.acceptAutomation) refusals.push(automationStop);
 

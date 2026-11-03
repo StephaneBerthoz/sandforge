@@ -274,6 +274,14 @@ export interface ForgeEmailsPerInsert {
   perRecord: number;
   /** The flows, processes and rules that send them, by label. */
   sentBy: string[];
+  /**
+   * Set on the single emails of an object whose records fire email alerts,
+   * where the org counts its alerts against its single emails too, as a
+   * Developer Edition does: the alerts are among `perRecord`. What tells it,
+   * once the single emails a flow sends are counted against the workflow
+   * emails as well.
+   */
+  alertsAmong?: true;
 }
 
 /**

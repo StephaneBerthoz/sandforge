@@ -9043,6 +9043,7 @@ function contactAutomationAnswer(asked: {
           limit: 'SingleEmail',
           perRecord: 3,
           sentBy: ['Contact_Welcome', 'Welcome Email'],
+          alertsAmong: true,
         },
       ],
       limits: {

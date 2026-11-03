@@ -676,6 +676,12 @@ export interface SeedEmailsPerRecord {
   perRecord: number;
   /** The flows, processes and rules that send them, by label. */
   sentBy: string[];
+  /**
+   * Set on the single emails of an object whose records fire email alerts,
+   * where the org counts its alerts against its single emails too: the
+   * alerts are among `perRecord`.
+   */
+  alertsAmong?: true;
 }
 
 /**

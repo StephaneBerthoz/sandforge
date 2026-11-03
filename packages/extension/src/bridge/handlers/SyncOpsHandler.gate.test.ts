@@ -189,6 +189,7 @@ function mockOrgs(
                 ? {
                     DataStorageMB: { Max: 5, Remaining: remainingMB },
                     SingleEmail: { Max: 15, Remaining: emails },
+                    DailyWorkflowEmails: { Max: 8_040, Remaining: 8_040 },
                   }
                 : {},
             deliverabilityAsked,
@@ -348,7 +349,11 @@ describe('a Sync run held to what the target has left, before its first write', 
     expect(answer.payload.writeCheck).toMatchObject({
       total: 30,
       verdict: 'asks',
-      emails: [expect.objectContaining({ emails: 60, verdict: 'exceeds' })],
+      emails: [
+        expect.objectContaining({ limit: 'SingleEmail', emails: 60, verdict: 'exceeds' }),
+        // A Developer Edition counts a flow's single emails against its workflow emails too.
+        expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 60, verdict: 'fits' }),
+      ],
     });
     expect(asked.questions).toEqual([]);
   });

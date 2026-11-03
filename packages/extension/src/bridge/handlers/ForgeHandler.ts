@@ -5651,15 +5651,23 @@ export class ForgeHandler implements DomainHandler {
         asked.muteAutomation === true && (total > 0 || sweptObjects.length > 0)
           ? await this.removalMute(targetOrgId, objectsIn(plan), sweptObjects)
           : undefined;
-      // The lease is taken before the first delete, and given back once the
-      // removal ends, whatever it ended on.
-      const held =
-        removalMute?.prepared && !stop.signal.aborted
-          ? await removalMute.prepared.acquire(operationId)
-          : undefined;
-      mutedAutomation = held?.outcome ?? removalMute?.muted;
+      // The lease, taken right before the first delete, once every question
+      // is answered, and given back once the removal ends, whatever it ended
+      // on: the removal asks what to do of the records its user may not
+      // delete once it has read them, and a lease taken before it kept the
+      // sets assigned while the question stayed open, for nothing once it was
+      // answered no. A stop before then assigns nothing.
+      let held: HeldMute | undefined;
+      mutedAutomation = removalMute?.muted;
+      const takeLease = async (): Promise<void> => {
+        const prepared = removalMute?.prepared;
+        if (!prepared || stop.signal.aborted) return;
+        held = await prepared.acquire(operationId);
+        mutedAutomation = held.outcome;
+      };
       // Nothing of the run to remove: the sweep alone, and no record of the run goes.
       const sweepAlone = async (): Promise<RunRemovalOutcome> => {
+        await takeLease();
         await sweepParts?.first();
         await sweepParts?.afterRemoval();
         return NOTHING_REMOVED;
@@ -5686,6 +5694,7 @@ export class ForgeHandler implements DomainHandler {
                 : {}),
               includeChanged,
               onUndeletable: undeletableAsker(this.deps, targetOrgId, 'forge:undo'),
+              beforeFirstWrite: takeLease,
               signal: stop.signal,
               onProgress: (settled, of, objectApiName) => {
                 const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

@@ -58,6 +58,7 @@ import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { runExitCode } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 import type {
@@ -225,7 +226,7 @@ import {
   forgeCarried,
 } from '../src/modules/forge/forgeAudit.js';
 import { ForgeRunAudit } from '../src/modules/forge/forgeRunAudit.js';
-import { finishedRunStatus } from '../src/modules/forge/runResult.js';
+import { finishedRunStatus, type ForgeRunStatus } from '../src/modules/forge/runResult.js';
 import {
   TargetAutomationReader,
   answerOf,
@@ -389,6 +390,8 @@ export interface CliArgs {
   skipPreflight: boolean;
   /** Emit JSON summary on stdout (machine-readable for CI integration). */
   json: boolean;
+  /** Exit 3, not 0, when the run was partial (`--fail-on-partial`), as Sync and Seed do. */
+  failOnPartial: boolean;
   /**
    * Where the run writes its summary as it goes (`--summary`): after each
    * object, then whole once it ends, or once Ctrl-C stopped it. undefined =
@@ -523,8 +526,8 @@ Usage:
   filled in once its record exists, an order or a contract given back its
   status — or the target would not say what it runs, nothing is written
   unless --accept-automation is given. A bypass the user does not hold is
-  given with the permission set of the target that holds it and the
-  sf org assign permset command that would assign it, never run.
+  given with the permission set of the target that holds it, which
+  --mute-automation assigns for the run alone, under a lease.
 
   It then says what the target holds against the rows, read from its
   metadata: its active validation rules and what keeps them quiet, its
@@ -697,6 +700,10 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          A run refused before its first write prints
                          "refused": {"code", "message"} instead, the code its
                          line names: refused (MAX_TOTAL_EXCEEDED): ...
+                         How a run ended is under result.status: success,
+                         partial or failure, as its status: line says it.
+  --fail-on-partial      exit 3, not 0, when the run wrote some records and
+                         the target refused others        (default: off)
   --summary <file>       write the summary to <file> as the run goes
                          The JSON --json prints, written after each object
                          with what the run has created so far ("running":
@@ -927,7 +934,8 @@ Environment:
                          ended.
 
 Exit codes:
-  0  the clone ran; the rehearsal ran, whatever it found refused; the removal
+  0  the clone ran, a run the target refused some records of too unless
+     --fail-on-partial; the rehearsal ran, whatever it found refused; the removal
      took every record it set out to take; the preview said what a removal
      would do, refusals included
   1  the clone or the removal could not run; the clone produced only failures,
@@ -943,9 +951,10 @@ Exit codes:
      requests than it has left today (nothing is written or deleted then)
   2  a bad command line, or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there
-  3  the removal left records of the run in the org: kept, or refused, or
-     found neither in the org nor in its recycle bin, as the user it ran as
-     sees them; or the sweep was refused, or left some of what it found
+  3  the run was partial and --fail-on-partial was given; the removal left
+     records of the run in the org: kept, or refused, or found neither in the
+     org nor in its recycle bin, as the user it ran as sees them; or the sweep
+     was refused, or left some of what it found
   130  Ctrl-C stopped the clone: the summary says what it created by then
   143  a SIGTERM stopped it — a CI job cancelled or timed out —, 129 a SIGHUP:
        as Ctrl-C does, the summary and the journal say what it created
@@ -1301,6 +1310,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--apply-assignment-rules',
     '--skip-preflight',
     '--json',
+    '--fail-on-partial',
     '--write-uncertain',
     '--files',
     '--files-as-is',
@@ -1714,6 +1724,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
       has('--apply-assignment-rules') || template?.config.applyAssignmentRules === true,
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
+    failOnPartial: has('--fail-on-partial'),
     summary,
     fieldExclusions,
     excludedObjects,
@@ -5335,11 +5346,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const automation = removalMute?.automation ?? read;
     const automationStop = removalAutomationRefusal(automation, args.target, {
       drafted,
-      assign: bypassesToAssign(
-        automation,
-        removalBypassesOf(automation, drafted),
-        session.username ? { alias: args.target, username: session.username } : undefined,
-      ),
+      // The sets that keep it quiet, which --mute-automation assigns under a
+      // lease: never a command assigning them by hand, with the user's name.
+      assign: bypassesToAssign(automation, removalBypassesOf(automation, drafted)),
+      mayMute: removalMute === undefined,
     });
     if (automationStop && !args.acceptAutomation) {
       recordRemoval({ outcome: 'stopped', code: 'AUTOMATION_NOT_ACCEPTED' });
@@ -5371,7 +5381,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   /** The removal of what is left of the run, its sweep first, recorded as it always was. */
   async function removeThePlan(): Promise<RunRemovalOutcome> {
-    const held = await takeTheLease();
+    // The lease, taken right before the first write, once every question is
+    // answered: the removal asks what to do of the records its user may not
+    // delete once it has read them, and a lease taken before it kept the sets
+    // assigned while the question stayed open, for nothing once it was answered
+    // no. A stop before then assigns nothing.
+    let held: HeldMute | undefined;
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
     let removal: RunRemovalOutcome;
@@ -5396,6 +5411,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ...(runUserId ? { runUserId } : {}),
         includeChanged: args.includeChanged,
         onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+        beforeFirstWrite: async () => {
+          held = await takeTheLease();
+        },
         signal: stop.signal,
       });
     } finally {
@@ -5680,11 +5698,8 @@ async function previewRemoval(
   }
   const automationStop = removalAutomationRefusal(automation, args.target, {
     drafted,
-    assign: bypassesToAssign(
-      automation,
-      removalBypassesOf(automation, drafted),
-      session.username ? { alias: args.target, username: session.username } : undefined,
-    ),
+    assign: bypassesToAssign(automation, removalBypassesOf(automation, drafted)),
+    mayMute: !args.muteAutomation,
   });
   if (automationStop && !args.acceptAutomation) refusals.push(automationStop);
 
@@ -6577,7 +6592,6 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   say('');
   for (const line of automationLines(targetAutomation, args.target, {
     applyAssignmentRules: args.applyAssignmentRules,
-    username: targetOrg.username,
   })) {
     say(line);
   }
@@ -6638,7 +6652,6 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     : undefined;
   say('');
   for (const line of gapLines(targetGaps, args.target, {
-    username: targetOrg.username,
     decisions: gapDecisions,
     ...(liftedByMute ? { lifted: liftedByMute } : {}),
   })) {
@@ -6722,14 +6735,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const gated = mute?.automation ?? targetAutomation;
   const automationStop = automationRefusal(gated, args.target, {
     updated,
+    // The sets that keep it quiet, which --mute-automation assigns under a
+    // lease: never a command assigning them by hand, with the user's name.
     assign: bypassesToAssign(
       gated,
       runBypassesOf(
         gated,
         updated.map((object) => object.objectApiName),
       ),
-      targetOrg.username ? { alias: args.target, username: targetOrg.username } : undefined,
     ),
+    mayMute: !muteAutomation,
   });
   runAudit().automationRead({ automation: gated }, updated);
   if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
@@ -7283,11 +7298,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * The summary --json prints and --summary writes, of the run as `counted`
    * has it at `at`: the whole run once it ended, what it has created so far
    * while it goes, what it had created when it was stopped.
+   *
+   * @param ended - How the run ended, once it did: first in `result`, as
+   *   Sync and Seed give it. A run that ended with refusals was said only by
+   *   its counts, and a CI job reading the summary took it for a success.
    */
   const runDocument = (
     counted: ExecutionSummary,
     at: Date,
     state: { running?: true; interrupted?: true; error?: string } = {},
+    ended?: ForgeRunStatus,
   ) => ({
     tool: 'sandforge-clone',
     version: 1,
@@ -7345,7 +7365,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     ...dryRunAdminChanges(args.dryRun, targetGaps, counted.gaps),
     // The external ids --upsert may match by that the run writes neutralized.
     ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
-    result: jsonResult(counted, args.readCeiling),
+    result: {
+      ...(ended ? { status: ended } : {}),
+      ...jsonResult(counted, args.readCeiling),
+    },
     // Of a dry run, what its gate counted, and what a real run would be refused for.
     ...(args.dryRun && dryRunWritePlan !== undefined ? { writePlan: dryRunWritePlan } : {}),
     // The checkpoint it took of what it writes before its first write
@@ -7662,8 +7685,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // created, updated and lost, what it carried from the source, the contact
   // points it neutralized, and how it was set up.
   const tallies = auditTalliesOf(summary);
+  // How it ended, as its entry, its summary, its first line and its exit code say it.
+  const status = finishedRunStatus(summary);
   recordClone({
-    outcome: finishedRunStatus(summary),
+    outcome: status,
     objects: forgeAuditObjects(tallies),
     ...(sourceOrgId ? { source: { origin: 'org' as const, orgId: sourceOrgId } } : {}),
     carried: forgeCarried(tallies),
@@ -7680,7 +7705,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // file, when asked for, takes the run's end over what it said as it went:
   // kept before the CSV is written, which could fail once every record was
   // written and left the run with no summary but its journal.
-  const document = runDocument(summary, finishedAt);
+  const document = runDocument(summary, finishedAt, {}, status);
   keepSummary(document);
 
   // BA reconciliation export. Written before the JSON/text summary so a
@@ -7713,6 +7738,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.stdout.write(JSON.stringify(document, null, 2) + '\n');
   } else {
     console.log('');
+    console.log(`status:  ${status}`);
     const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
     for (const line of summaryLines(summary, args.dryRun, args.readCeiling, muteAssigns)) {
       console.log(line);
@@ -7723,9 +7749,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.stderr.write(`${remapRefused}: the summary names what the run created.\n`);
     process.exit(1);
   }
-  if (failedOutright(summary)) {
-    process.exit(1);
-  }
+  // Of the run, as Sync's and Seed's: 1 when it produced only failures, 0 when
+  // it did part of its work, unless --fail-on-partial, which makes it 3.
+  const code = runExitCode(status, args.failOnPartial);
+  if (code !== 0) process.exit(code);
 }
 
 // Only when run as a script: importing the module must not start a clone.

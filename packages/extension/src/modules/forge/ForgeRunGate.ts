@@ -964,29 +964,63 @@ export function alertsCountAsSingle(limits: Partial<Record<ForgeEmailLimit, Emai
 }
 
 /**
+ * Whether the single emails the flows of an org send count against its
+ * workflow emails too: a Developer Edition's do ({@link alertsCountAsSingle}),
+ * where its limits list its workflow emails.
+ *
+ * Measured on the trap Developer Edition on 2026-11-02, a contact at a time,
+ * its quotas read from `/limits`: the workflow rule's alert alone took one
+ * single email and one workflow email, the flow's two Send Email actions
+ * alone two of each. Counted against the single emails alone, a contact was
+ * said to take one workflow email, the rule's alert, and took three. No org
+ * of another edition was measured, and one is counted as Salesforce says: an
+ * alert against the workflow emails, a Send Email against the single emails.
+ * A Developer Edition's fifteen single emails run out long before its
+ * thousands of workflow emails, which every email there counts against: one
+ * whose limits do not list them is not asked about them.
+ */
+export function singleCountAsWorkflow(
+  limits: Partial<Record<ForgeEmailLimit, EmailLimit>>,
+): boolean {
+  return alertsCountAsSingle(limits) && limits.DailyWorkflowEmails !== undefined;
+}
+
+/**
  * The emails each record of an object makes the org send, per daily limit,
  * as the org counts them: the email alerts counted against the single emails
- * as well where the org counts them there.
+ * as well where the org counts them there, and the single emails a flow sends
+ * against the workflow emails as well where it counts them there.
  *
  * @param alertsAsSingle - Whether the org counts its email alerts against its
  *   single emails ({@link alertsCountAsSingle}).
+ * @param singleAsWorkflow - Whether it counts its single emails against its
+ *   workflow emails ({@link singleCountAsWorkflow}).
  */
 export function emailsCountedPerRecord(
   perInsert: readonly ForgeEmailsPerInsert[],
   alertsAsSingle: boolean,
+  singleAsWorkflow = false,
 ): ForgeEmailsPerInsert[] {
   const out = perInsert.map((sending) => ({ ...sending, sentBy: [...sending.sentBy] }));
-  if (!alertsAsSingle) return out;
-  for (const alert of perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails')) {
-    const single = out.find(
-      (sending) => sending.objectApiName === alert.objectApiName && sending.limit === 'SingleEmail',
+  /** Count what `from` sends against `limit` too, from what the records were given. */
+  const countAlso = (from: ForgeEmailsPerInsert, limit: ForgeEmailLimit): ForgeEmailsPerInsert => {
+    const into = out.find(
+      (sending) => sending.objectApiName === from.objectApiName && sending.limit === limit,
     );
-    if (!single) {
-      out.push({ ...alert, limit: 'SingleEmail', sentBy: [...alert.sentBy] });
-      continue;
+    if (!into) {
+      const added = { ...from, limit, sentBy: [...from.sentBy] };
+      out.push(added);
+      return added;
     }
-    single.perRecord += alert.perRecord;
-    for (const name of alert.sentBy) if (!single.sentBy.includes(name)) single.sentBy.push(name);
+    into.perRecord += from.perRecord;
+    for (const name of from.sentBy) if (!into.sentBy.includes(name)) into.sentBy.push(name);
+    return into;
+  };
+  const single = perInsert.filter((sending) => sending.limit === 'SingleEmail');
+  const alerts = perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails');
+  if (singleAsWorkflow) for (const sending of single) countAlso(sending, 'DailyWorkflowEmails');
+  if (alertsAsSingle) {
+    for (const alert of alerts) countAlso(alert, 'SingleEmail').alertsAmong = true;
   }
   return out;
 }
@@ -1090,7 +1124,12 @@ export function countedEmailChecksOf(
   limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
 ): EmailCheck[] {
   const alertsAsSingle = !isUnread(limits) && alertsCountAsSingle(limits);
-  const checks = emailChecksOf(plan, emailsCountedPerRecord(perInsert, alertsAsSingle), limits);
+  const singleAsWorkflow = !isUnread(limits) && singleCountAsWorkflow(limits);
+  const checks = emailChecksOf(
+    plan,
+    emailsCountedPerRecord(perInsert, alertsAsSingle, singleAsWorkflow),
+    limits,
+  );
   if (!alertsAsSingle) return checks;
   const written = new Set(
     plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
@@ -2271,19 +2310,45 @@ export function bypassAssistantSentences(
 }
 
 /**
+ * What a refusal says of `--mute-automation` when the command can mute what
+ * fires itself, the flag not given yet: the sets that would keep it quiet,
+ * which a mute assigns for the run alone, under a lease. Never a command that
+ * assigns them by hand: given with the user's name, run on the trap org, it
+ * left the set assigned past the run, outside any lease, where another
+ * session's run held one.
+ *
+ * @param run - What the command does: "clone", "removal".
+ */
+function muteSentences(assign: readonly BypassToAssign[], run: string, mayMute: boolean): string[] {
+  const sets = [...new Set(assign.flatMap((entry) => entry.permissionSet ?? []))];
+  if (!mayMute || sets.length === 0) return [];
+  return [
+    `With --mute-automation, the ${run} assigns ${sets.join(', ')} to the user it writes as ` +
+      `for the ${run} alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
+      'quiet does not fire.',
+  ];
+}
+
+/**
  * Why the command line will not write without `--accept-automation`: what the
  * target runs as the clone inserts its records, and as it updates those of
  * `updated`, named, or what of it could not be read; then, for a bypass the
- * user does not hold, the permission set and the command that would assign
- * it. Nothing when nothing fires and everything was read.
+ * user does not hold, the permission set that holds it, which
+ * `--mute-automation` assigns. Nothing when nothing fires and everything was
+ * read.
  *
- * @param options - The objects the clone updates after inserting them, and
- *   the bypasses to assign ({@link bypassesToAssign}).
+ * @param options - The objects the clone updates after inserting them, the
+ *   bypasses to assign ({@link bypassesToAssign}), and whether the clone can
+ *   mute them itself (`--mute-automation`, not asked yet).
  */
 export function automationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { updated?: readonly UpdatedAfterInsert[]; assign?: readonly BypassToAssign[] } = {},
+  options: {
+    updated?: readonly UpdatedAfterInsert[];
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+  } = {},
 ): string | undefined {
   const updated = options.updated ?? [];
   const fired = firedOnInsertOf(automation);
@@ -2316,6 +2381,7 @@ export function automationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the clone'));
+  parts.push(...muteSentences(options.assign ?? [], 'clone', options.mayMute === true));
   parts.push(
     `Nothing was written. Add --accept-automation to clone all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -2330,13 +2396,18 @@ export function automationRefusal(
  * named, or what of it could not be read; then the bypasses to assign.
  * Nothing when nothing fires and everything was read.
  *
- * @param options - The objects the removal sets back to Draft, and the
- *   bypasses to assign ({@link bypassesToAssign}).
+ * @param options - The objects the removal sets back to Draft, the bypasses
+ *   to assign ({@link bypassesToAssign}), and whether the removal can mute
+ *   them itself (`--mute-automation`, not asked yet).
  */
 export function removalAutomationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { drafted?: readonly string[]; assign?: readonly BypassToAssign[] } = {},
+  options: {
+    drafted?: readonly string[];
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+  } = {},
 ): string | undefined {
   const fired = firedOnRemovalOf(automation, options.drafted ?? []);
   const unread = automationUnreadOf(automation);
@@ -2365,6 +2436,7 @@ export function removalAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  parts.push(...muteSentences(options.assign ?? [], 'removal', options.mayMute === true));
   parts.push(
     `Nothing was deleted. Add --accept-automation to remove all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -2510,14 +2582,7 @@ export function removalStepsAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
-  const sets = [...new Set((options.assign ?? []).flatMap((entry) => entry.permissionSet ?? []))];
-  if (options.mayMute === true && sets.length > 0) {
-    parts.push(
-      `With --mute-automation, the removal assigns ${sets.join(', ')} to the user it writes as ` +
-        `for the removal alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
-        'quiet does not fire.',
-    );
-  }
+  parts.push(...muteSentences(options.assign ?? [], 'removal', options.mayMute === true));
   parts.push(
     `Nothing was written or deleted. Add --accept-automation to remove all the same, or turn ` +
       `that automation off in ${target} first.`,

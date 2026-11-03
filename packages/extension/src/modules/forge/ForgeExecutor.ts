@@ -62,6 +62,7 @@ import {
   currencyGapOf,
   picklistGapsOf,
   recordTypeGapOf,
+  requiredLeftEmpty,
   rowGapsOf,
   uniqueCollisionGapOf,
 } from './stages/SimulationGaps.js';
@@ -156,6 +157,7 @@ import {
   addWrittenWithoutFields,
   carriesRecordTypeId,
   emptyBatchWriteResult,
+  summarizeRecordForError,
   writtenWithoutFieldsNote,
   type BatchWriteResult,
   type InsertCallJournal,
@@ -11132,6 +11134,16 @@ export class ForgeExecutor {
    * given an id of the simulation's own, so that the rows after it are
    * cleaned as a real run cleans them; its lookups left for the second pass
    * are owed as a real run owes them, to a pass the simulation never sends.
+   *
+   * A row that leaves empty a field the target requires is counted refused,
+   * in the target's words, and given no id: what names it goes as what names
+   * a row the target refused. Run for real, a clone's opportunity team
+   * member, its user never copied, was refused `REQUIRED_FIELD_MISSING
+   * [UserId]`, and its dry run had said it would be inserted, nothing
+   * refused, the gap it found beside it.
+   *
+   * @param targetFields - The target's describe of the object; none, and no
+   *   row is held to it.
    */
   private simulateWrite(
     state: ExecutionState,
@@ -11141,6 +11153,7 @@ export class ForgeExecutor {
     tally: BatchWriteResult,
     onProgress: (event: ForgeProgressEvent) => void,
     createdWithoutType?: (built: CleanedRecord) => void,
+    targetFields?: readonly FieldInfo[],
   ): void {
     const { simulated } = state;
     if (!simulated) return;
@@ -11153,6 +11166,24 @@ export class ForgeExecutor {
       message: `Simulating the write of ${round.records.length} ${objectApiName} records: nothing is sent...`,
     });
     for (const [index, built] of round.cleaned.entries()) {
+      const payload = round.records[index] ?? {};
+      const missing = targetFields
+        ? requiredLeftEmpty(objectApiName, payload, built.source, targetFields)
+        : [];
+      if (missing.length > 0) {
+        tally.failureCount++;
+        if (tally.errorSamples.length < 3) {
+          tally.errorSamples.push({
+            recordSummary: summarizeRecordForError(payload),
+            messages: [
+              `REQUIRED_FIELD_MISSING: Required fields are missing: [${missing
+                .map((field) => field.name)
+                .join(', ')}]`,
+            ],
+          });
+        }
+        continue;
+      }
       const id = simulated.idFor(keyPrefix);
       tally.successCount++;
       // Created without a record type, as a real run would send it.
@@ -12248,6 +12279,7 @@ export class ForgeExecutor {
               writeResult,
               onProgress,
               createdWithoutType,
+              targetFields,
             );
             continue;
           }

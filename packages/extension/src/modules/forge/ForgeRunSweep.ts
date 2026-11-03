@@ -75,10 +75,11 @@ import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
 import { emptyCounts } from '../audit/auditTrail.js';
 import type { CompositeReader } from '../checkpoint/compositeQueries.js';
 import { describedObjectSchema, type DescribedObject } from '../dataops/DataQualityScanner.js';
-import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { idLists, readRecordsById, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
   deleteBatch,
   removalOrder,
+  takenAlong,
   type DeleteOutcome,
   type RecordKeys,
   type RemovalOrg,
@@ -1728,6 +1729,26 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
             state = 'cancelled';
             return deleted() > before;
           }
+        }
+      }
+      // What the org still refused is read back, as the removal reads back
+      // its own (`takenAlong`): one it no longer holds went with a record of
+      // the run, and is gone. Run for real with Team Selling on, the member
+      // the org adds to an opportunity's team was refused before the
+      // opportunity, went with it, and the sweep still said it refused one:
+      // the removal ended partial with nothing left. The sweep found each of
+      // them by a query, so the session saw them; a read that fails leaves
+      // them refused. Nothing is decided from it: what it deletes was shown.
+      for (const sweep of sweeps) {
+        if (stopped()) break;
+        const { gone } = await takenAlong(
+          [...sweep.refused.keys()],
+          (ids) => readRecordsById(org, sweep.result.objectApiName, [], ids),
+          () => true,
+        );
+        for (const id of gone) {
+          sweep.refused.delete(id);
+          sweep.result.alreadyGone++;
         }
       }
       state = 'done';

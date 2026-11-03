@@ -53,6 +53,7 @@ const SEED_INSERTS = (_objectApiName: string, write: ForgeAutomationWrite): bool
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   alertsCountAsSingle,
+  singleCountAsWorkflow,
   emailChecksOf,
   emailsCountedPerRecord,
   type EmailCheck,
@@ -125,7 +126,14 @@ export function seedAutomationPreview(
   // quiet, the email alerts counted against the single emails as well where
   // the org counts them there.
   const alertsAsSingle = read !== undefined && alertsCountAsSingle(read);
-  const emailsPerRecord = emailsCountedPerRecord(emailsPerInsertOf(automation), alertsAsSingle);
+  // And its single emails against its workflow emails too, as a Developer
+  // Edition counts them.
+  const singleAsWorkflow = read !== undefined && singleCountAsWorkflow(read);
+  const emailsPerRecord = emailsCountedPerRecord(
+    emailsPerInsertOf(automation),
+    alertsAsSingle,
+    singleAsWorkflow,
+  );
   const bypasses = objects.flatMap((object) => object.entries.flatMap((entry) => entry.bypasses));
   const held = sortedOnce(bypasses.filter((b) => b.held === true).map((b) => b.name));
   const toAssign = sortedOnce(bypasses.map((b) => b.name)).filter((name) => !held.includes(name));
@@ -157,6 +165,7 @@ export function seedAutomationPreview(
           emailsPerRecordMuted: emailsCountedPerRecord(
             emailsPerInsertOf(mutedAutomationOf(automation, mutePermissionsOf(mute))),
             alertsAsSingle,
+            singleAsWorkflow,
           ),
         }
       : {}),
@@ -476,10 +485,9 @@ export function seedAutomationLines(read: SeedAutomationRead, target: string): s
             'was found to hold it',
     );
   }
-  if (
-    preview.alertsAsSingle &&
-    preview.emailsPerRecord.some((sending) => sending.limit === 'DailyWorkflowEmails')
-  ) {
+  // Told by the single emails the alerts are among: a flow's single emails
+  // count against the workflow emails too, alerts or not.
+  if (preview.alertsAsSingle && preview.emailsPerRecord.some((sending) => sending.alertsAmong)) {
     lines.push(
       `  ${target} counts its email alerts against its single emails too, as a Developer ` +
         'Edition does',

@@ -138,18 +138,22 @@ describe('seedAutomationPreview', () => {
         ],
       },
     ]);
+    // As the trap Developer Edition took them, a contact at a time: the rule's
+    // alert one single and one workflow email, the flow's two single emails
+    // two of each.
     expect(preview.emailsPerRecord).toEqual([
       {
         objectApiName: 'Contact',
         limit: 'DailyWorkflowEmails',
-        perRecord: 1,
-        sentBy: ['Contact_Welcome'],
+        perRecord: 3,
+        sentBy: ['Contact_Welcome', 'Welcome Email'],
       },
       {
         objectApiName: 'Contact',
         limit: 'SingleEmail',
         perRecord: 3,
         sentBy: ['Welcome Email', 'Contact_Welcome'],
+        alertsAmong: true,
       },
     ]);
     expect(preview).toMatchObject({
@@ -436,7 +440,7 @@ describe('seedEmailGate', () => {
     );
     expect(gate.refusal).toBeUndefined();
     expect(gate.checks.map((c) => [c.limit, c.emails, c.verdict])).toEqual([
-      ['DailyWorkflowEmails', 5, 'fits'],
+      ['DailyWorkflowEmails', 15, 'fits'],
       ['SingleEmail', 15, 'fits'],
     ]);
   });

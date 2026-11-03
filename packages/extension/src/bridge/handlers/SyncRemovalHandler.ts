@@ -17,6 +17,7 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  type HeldMute,
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
@@ -90,7 +91,7 @@ import {
   type IngestJobReading,
 } from '../../modules/sync/inFlightJob.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
-import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
+import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
   sweepAuditDetails,
@@ -1226,18 +1227,30 @@ export class SyncRemovalHandler implements DomainHandler {
           writes: removalStepsWrites(steps),
         });
       }
-      const held =
-        removalMute?.prepared && !abortController.signal.aborted
-          ? await removalMute.prepared.acquire(operationId)
-          : undefined;
-      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+      // The lease, taken right before the first write, once every question
+      // is answered: the removal asks what to do of the records its user may
+      // not delete once it has read them, and a lease taken before it kept the
+      // sets assigned while the question stayed open, for nothing once it was
+      // answered no. A stop before then assigns nothing.
+      let held: HeldMute | undefined;
+      let mutedAutomation: MutedAutomation | undefined = removalMute?.muted;
+      const takeLease = async (): Promise<void> => {
+        const prepared = removalMute?.prepared;
+        if (!prepared || abortController.signal.aborted) return;
+        held = await prepared.acquire(operationId);
+        mutedAutomation = held.outcome;
+      };
+      const org = removalOrg(conn, 'sync:remove');
+      // Read before the first delete, as Seed's removal reads them: the items
+      // that name them go with the records.
+      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       const {
         result: removed,
         notes,
         earlierStamped,
       } = await removeSyncRun({
         run,
-        org: removalOrg(conn, 'sync:remove'),
+        org,
         includeChanged,
         ...(again ? { again } : {}),
         store,
@@ -1259,6 +1272,7 @@ export class SyncRemovalHandler implements DomainHandler {
           : {}),
         ...(run.runUserId ? { runUserId: run.runUserId } : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'sync:remove'),
+        beforeFirstWrite: takeLease,
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
@@ -1273,7 +1287,11 @@ export class SyncRemovalHandler implements DomainHandler {
       });
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
-      for (const note of notes) this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
+      // Stopped, it makes no call to the org it can do without.
+      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take();
+      for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
+        this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
+      }
       for (const { runId, records } of earlierStamped ?? []) {
         this.deps.log(
           `[INFO] sync:remove ${operationId}: ${records} record(s) given back hold the values of ` +
@@ -1282,6 +1300,7 @@ export class SyncRemovalHandler implements DomainHandler {
       }
       const result: SyncRemovalResult = {
         ...removed,
+        objects: emptied.object ? [...removed.objects, emptied.object] : removed.objects,
         status: removalStatusWithSweep(removed.status, swept),
         ...(swept ? { sweep: swept } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),

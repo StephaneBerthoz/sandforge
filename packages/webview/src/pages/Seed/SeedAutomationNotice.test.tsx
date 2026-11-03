@@ -59,18 +59,22 @@ function trapPreview(overrides: Partial<SeedAutomationPreview> = {}): SeedAutoma
         ],
       },
     ],
+    // As the extension counts them on a Developer Edition, as the trap took
+    // them: the rule's alert and the flow's two single emails, each against
+    // both limits.
     emailsPerRecord: [
       {
         objectApiName: 'Contact',
         limit: 'DailyWorkflowEmails',
-        perRecord: 1,
-        sentBy: ['Contact_Welcome'],
+        perRecord: 3,
+        sentBy: ['Contact_Welcome', 'Welcome Email'],
       },
       {
         objectApiName: 'Contact',
         limit: 'SingleEmail',
         perRecord: 3,
         sentBy: ['Contact_Welcome', 'Welcome Email'],
+        alertsAmong: true,
       },
     ],
     limits: {
@@ -278,6 +282,34 @@ describe('SeedAutomationNotice', () => {
     );
   });
 
+  it('says no alert counted among the single emails when only a flow sends, its single emails counted as workflow emails too', () => {
+    // A Developer Edition counts a flow's single emails against its workflow
+    // emails too: a workflow email counted is no alert.
+    const flowOnly = trapPreview({
+      emailsPerRecord: [
+        {
+          objectApiName: 'Contact',
+          limit: 'SingleEmail',
+          perRecord: 2,
+          sentBy: ['Welcome Email'],
+        },
+        {
+          objectApiName: 'Contact',
+          limit: 'DailyWorkflowEmails',
+          perRecord: 2,
+          sentBy: ['Welcome Email'],
+        },
+      ],
+    });
+
+    render(<SeedAutomationNotice automation={read(flowOnly)} orgName="my-dev-org" records={CRM} />);
+
+    expect(screen.queryByTestId('seed-automation-alerts-as-single')).toBeNull();
+    expect(screen.getByTestId('seed-automation-emails-DailyWorkflowEmails').textContent).toBe(
+      'Workflow emails these records make my-dev-org send: about 150, with 8,040 of 8,040 left today.',
+    );
+  });
+
   it('says the seed would be refused past the emails left today, with the figures and the ways out', () => {
     render(
       <SeedAutomationNotice automation={read(trapPreview())} orgName="my-dev-org" records={CRM} />,
@@ -298,7 +330,7 @@ describe('SeedAutomationNotice', () => {
         '“Contact_Welcome” and “Welcome Email” quiet.',
     ]);
     expect(screen.getByTestId('seed-automation-emails-DailyWorkflowEmails').textContent).toBe(
-      'Workflow emails these records make my-dev-org send: about 75, with 8,040 of 8,040 left today.',
+      'Workflow emails these records make my-dev-org send: about 225, with 8,040 of 8,040 left today.',
     );
   });
 

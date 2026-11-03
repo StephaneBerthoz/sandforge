@@ -173,6 +173,12 @@ export interface SyncRunRemovalInput {
    * some objects of the run: see `RunRemovalOptions.onUndeletable`.
    */
   onUndeletable?: RunRemovalOptions['onUndeletable'];
+  /**
+   * Called once, right before the removal's first write — its undeletes,
+   * the values it gives back and its sweep included —, once `onUndeletable`
+   * has been answered: see `RunRemovalOptions.beforeFirstWrite`.
+   */
+  beforeFirstWrite?: RunRemovalOptions['beforeFirstWrite'];
 }
 
 /** What a removal of a run's creations did, and what the follow-ups it made noted. */
@@ -383,6 +389,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(input.automationMade ? { automationMade: input.automationMade } : {}),
     ...(input.runUserId ? { runUserId: input.runUserId } : {}),
     ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),
+    ...(input.beforeFirstWrite ? { beforeFirstWrite: input.beforeFirstWrite } : {}),
     signal: input.signal,
     onProgress: input.onProgress,
   });

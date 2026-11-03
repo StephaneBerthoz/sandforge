@@ -1769,9 +1769,11 @@ describe('forge:execute, the gate before the first write', () => {
     });
 
     it('asks nothing of emails when the target says it has enough of them left', async () => {
+      // A Developer Edition's /limits, which list both.
       limits = {
         DataStorageMB: { Max: 200, Remaining: 150 },
         SingleEmail: { Max: 15, Remaining: 15 },
+        DailyWorkflowEmails: { Max: 8_040, Remaining: 8_040 },
       };
       const sending: ForgeTargetAutomation = {
         ...FIRES,

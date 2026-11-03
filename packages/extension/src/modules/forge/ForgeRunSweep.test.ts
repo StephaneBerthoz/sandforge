@@ -1401,6 +1401,92 @@ describe('what a sweep takes', () => {
     }
   });
 
+  it('counts gone, not refused, what the org refused that went with a record of the run, and ends a success', async () => {
+    // Team Selling on, the org adds an opportunity's owner to its team as the
+    // opportunity goes in, and its describe calls the lookup no cascade. Run
+    // for real, the sweep's delete of that member, before the opportunity,
+    // was refused; the opportunity then took it along, nothing was left, and
+    // the sweep still said it refused one: the removal ended partial, exit 3.
+    const org = tiedOrg();
+    const opportunity = id('006', 1);
+    const member = id('00q', 1);
+    org.shape('Opportunity', {
+      children: [{ childSObject: 'OpportunityTeamMember', field: 'OpportunityId' }],
+    });
+    org.shape('OpportunityTeamMember', { references: { OpportunityId: ['Opportunity'] } });
+    org.add('Opportunity', recWith(opportunity, 'Cloned deal', RUN_USER, AT_CASE, {}));
+    org.add(
+      'OpportunityTeamMember',
+      recWith(member, 'User User', RUN_USER, AT_CASE, { OpportunityId: opportunity }),
+    );
+    const destroy = org.destroy.bind(org);
+    org.destroy = async (objectApiName: string, ids: string[]): Promise<unknown> => {
+      if (objectApiName === 'OpportunityTeamMember') {
+        org.deletes.push({ object: objectApiName, ids: [...ids] });
+        return ids.map((recordId) => ({
+          id: recordId,
+          success: false,
+          errors: [
+            { statusCode: 'INVALID_CROSS_REFERENCE_KEY', message: 'invalid cross reference id' },
+          ],
+        }));
+      }
+      // The org takes the member along with its opportunity, whatever its
+      // describe says of the lookup.
+      const along = (org.rows.get('OpportunityTeamMember') ?? []).filter(
+        (row) => objectApiName === 'Opportunity' && ids.includes(String(row.OpportunityId)),
+      );
+      const answer = await destroy(objectApiName, ids);
+      org.rows.set(
+        'OpportunityTeamMember',
+        (org.rows.get('OpportunityTeamMember') ?? []).filter((row) => !along.includes(row)),
+      );
+      return answer;
+    };
+    const runInput = tiedInput(
+      {},
+      { created: [...tiedInput().created, { objectApiName: 'Opportunity', ids: [opportunity] }] },
+    );
+    const parts = sweepParts(org, runInput, NO_SPANS);
+
+    await parts.first();
+    expect(org.deletes.some((call) => call.object === 'OpportunityTeamMember')).toBe(true);
+    await org.destroy('Opportunity', [opportunity]);
+    await org.destroy('Case', [CASE]);
+    await org.destroy('Contact', [CONTACT]);
+    await org.destroy('Account', [ACCOUNT]);
+    await parts.afterRemoval();
+
+    expect(org.ids('OpportunityTeamMember')).toEqual([]);
+    const result = parts.result();
+    expect(result.objects.find((o) => o.objectApiName === 'OpportunityTeamMember')).toMatchObject({
+      found: 1,
+      deleted: 0,
+      alreadyGone: 1,
+      refused: 0,
+      reasons: [],
+    });
+    expect(result.status).toBe('success');
+  });
+
+  it('keeps refused, in the org’s words, what it refused that is still there once the removal ended', async () => {
+    const org = tiedOrg();
+    org.refusals.set(id('00T', 2), 'W47 gate: this task cannot be deleted.');
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+
+    await parts.first();
+    await org.destroy('Case', [CASE]);
+    await org.destroy('Contact', [CONTACT]);
+    await org.destroy('Account', [ACCOUNT]);
+    await parts.afterRemoval();
+
+    expect(org.ids('Task')).toContain(id('00T', 2));
+    expect(parts.result().objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      refused: 1,
+      reasons: ['DELETE_FAILED: W47 gate: this task cannot be deleted.'],
+    });
+  });
+
   it('says the asset the org refused while the case that names it stays, in the org’s words', async () => {
     const org = tiedOrg();
     const result = await sweepRunRecords(org, tiedInput(), NO_SPANS);

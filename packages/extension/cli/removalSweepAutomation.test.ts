@@ -14,7 +14,7 @@ vi.mock('./sfSession.js', async (original) => ({
   makeConn: vi.fn(),
 }));
 
-import { makeConn } from './sfSession.js';
+import { loadOrg, makeConn } from './sfSession.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
 import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
 import { tiedTargetOrg, type TiedRow, type TiedTargetOrg } from '../src/test/tiedTargetOrg.js';
@@ -328,6 +328,72 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
     // Read once, on what both delete: the sweep's own read of what the run's
     // objects fire comes before it, and tells nothing of the asset.
     expect(steps.at(-1)).toBe('read Account Asset Case');
+  });
+
+  it('names the set that keeps it quiet, which --mute-automation assigns, and no command with the user’s name', async () => {
+    // Run on the trap org, the refusal gave `sf org assign permset ...
+    // --on-behalf-of <username>`, the name in clear: run, it assigned the set
+    // past the removal, outside the lease another run held.
+    vi.mocked(loadOrg).mockImplementation(async (alias: string) => ({
+      alias,
+      username: 'loader@example.com.dev',
+      instanceUrl: 'https://tgt.example.com',
+      accessToken: 'token',
+    }));
+
+    expect(await remove('--sweep')).toBe(1);
+
+    expect(stderr).toContain(
+      'With --mute-automation, the removal assigns Data_Load to the user it writes as for the ' +
+        'removal alone, under a lease, and what it keeps quiet does not fire.',
+    );
+    expect(`${stdout}${stderr}`).not.toContain('sf org assign permset');
+    expect(`${stdout}${stderr}`).not.toContain('loader@example.com.dev');
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('says which records its user may not delete before it assigns anything, and assigns nothing once it stops there', async () => {
+    // Taken before the question, the lease held the sets assigned while it
+    // stayed open, for nothing once it was answered no.
+    const conn = vi.mocked(makeConn)({} as never) as unknown as {
+      describe: (object: string) => Promise<Record<string, unknown>>;
+    };
+    const describe = conn.describe.bind(conn);
+    conn.describe = async (object: string) => ({
+      ...(await describe(object)),
+      deletable: object !== 'Case',
+    });
+
+    expect(await remove('--sweep', '--mute-automation')).toBe(1);
+
+    expect(stderr).toContain('may not delete the records of Case');
+    expect(steps).not.toContain('lease');
+    expect(permissions.assignments()).toEqual([]);
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('takes the lease once told to leave what its user may not delete, before its first delete', async () => {
+    const conn = vi.mocked(makeConn)({} as never) as unknown as {
+      describe: (object: string) => Promise<Record<string, unknown>>;
+    };
+    const describe = conn.describe.bind(conn);
+    let asked = -1;
+    conn.describe = async (object: string) => ({
+      ...(await describe(object)),
+      deletable: object !== 'Case',
+    });
+    const write = vi.mocked(process.stderr.write).getMockImplementation();
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      if (String(chunk).includes('may not delete the records of Case')) asked = steps.length;
+      return write?.(chunk) ?? true;
+    }) as never);
+
+    await remove('--sweep', '--mute-automation', '--leave-undeletable');
+
+    expect(asked).toBeGreaterThan(-1);
+    expect(steps.slice(0, asked)).not.toContain('lease');
+    expect(steps.indexOf('lease')).toBeGreaterThanOrEqual(asked);
+    expect(org.deletes.length).toBeGreaterThan(0);
   });
 
   it('has the swept delete refused without the bypass, as the org refused it, automation accepted or not', async () => {

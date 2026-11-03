@@ -783,6 +783,43 @@ describe('a sweep asked with the removal of a Seed run', () => {
       expect(await handler.localRunsOn('another-org')).toEqual([]);
     });
 
+    it('asks about the records its user may not delete before it assigns anything, and assigns nothing once told to stop', async () => {
+      // Taken before the question, the lease held the sets assigned while it
+      // stayed open, for nothing once it was answered no.
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-undeletable-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        handler.setTargetAutomation({ read: vi.fn(async () => ON_DELETE) });
+        const { conn } = leasedConnection(tied, USER);
+        const describe = (conn as unknown as { describe: (o: string) => Promise<object> }).describe;
+        // The contact's describe, as a profile without Delete on it gives it.
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          describe: async (object: string) => ({
+            ...(await describe(object)),
+            deletable: object !== 'Contact',
+          }),
+        } as never);
+        const seenAsked: string[][] = [];
+        (
+          deps.infraServices as { confirmRemovalLeavingUndeletable?: () => Promise<boolean> }
+        ).confirmRemovalLeavingUndeletable = vi.fn(async () => {
+          seenAsked.push([...(tied.events as string[])]);
+          return false;
+        });
+
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-seed', sweep: true, muteAutomation: true }),
+        );
+
+        expect(seenAsked).toHaveLength(1);
+        expect(tied.events as string[]).not.toContain('leaseAcquire');
+        expect(tied.ids('Contact')).toEqual([CONTACT]);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
     it('assigns nothing once a stop came while the sweep asked', async () => {
       const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sweep-stop-'));
       try {

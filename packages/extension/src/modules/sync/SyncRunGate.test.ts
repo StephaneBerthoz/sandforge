@@ -58,7 +58,10 @@ function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures
     readStorage: async () => ({ maxMB: 5, remainingMB: 3 }),
     readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
     readAutomation: async () => QUIET,
-    readLimits: async () => ({ SingleEmail: { max: 15, remaining: 12 } }),
+    readLimits: async () => ({
+      SingleEmail: { max: 15, remaining: 12 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+    }),
     // An org that delivers none of the emails of its automation: no question.
     readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
     emails: { target: 'TRAP', accepted: false },
@@ -253,6 +256,8 @@ describe('measureSyncWrite', () => {
       measures({ readAutomation: async () => WELCOME_FLOW }),
     );
 
+    // A Developer Edition counts a flow's single emails against its workflow
+    // emails too, as the trap took them.
     expect(check.emails).toEqual([
       {
         limit: 'SingleEmail',
@@ -260,6 +265,14 @@ describe('measureSyncWrite', () => {
         verdict: 'exceeds',
         remaining: 12,
         max: 15,
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+      },
+      {
+        limit: 'DailyWorkflowEmails',
+        emails: 40,
+        verdict: 'fits',
+        remaining: 8_040,
+        max: 8_040,
         objects: [{ objectApiName: 'Contact', perRecord: 2 }],
       },
     ]);

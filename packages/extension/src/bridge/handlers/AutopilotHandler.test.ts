@@ -1731,6 +1731,7 @@ describe('AutopilotHandler', () => {
               options.limits ?? {
                 DataStorageMB: { Max: 200, Remaining: options.remainingMB },
                 SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
+                DailyWorkflowEmails: { Max: 8_040, Remaining: 8_040 },
               },
           ).request,
         ),

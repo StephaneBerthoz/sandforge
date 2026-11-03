@@ -102,7 +102,7 @@ import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
-import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
 import { madeKept } from '../src/modules/forge/sweepTies.js';
 import { keepRunUser } from '../src/modules/sync/runUser.js';
@@ -221,6 +221,7 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  type HeldMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalStepsWithSweep, removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
@@ -3517,11 +3518,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     const automation = removalMute?.automation ?? read;
     const automationStop = removalStepsAutomationRefusal(automation, args.target, {
       steps,
-      assign: bypassesToAssign(
-        automation,
-        removalStepsBypassesOf(automation, steps),
-        session.username ? { alias: args.target, username: session.username } : undefined,
-      ),
+      // The sets that keep it quiet, which --mute-automation assigns under a
+      // lease: never a command assigning them by hand, with the user's name.
+      assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
+      mayMute: removalMute === undefined,
     });
     if (automationStop && !args.acceptAutomation) {
       releaseStop();
@@ -3530,28 +3530,38 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
-  // The lease is taken before the removal's first write and given back as it
-  // ends, whatever it ended on.
-  const held =
-    removalMute?.prepared && !stop.signal.aborted
-      ? await removalMute.prepared
-          .acquire(`sandforge-sync --remove ${run.runId}`)
-          .catch((err: unknown) => {
-            if (!isMuteRefusedError(err)) throw err;
-            releaseStop();
-            process.stderr.write(`${err.message}\n`);
-            process.exit(1);
-          })
-      : undefined;
-  let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+  // The lease, taken right before the first write, once every question is
+  // answered: the removal asks what to do of the records its user may not
+  // delete once it has read them, and a lease taken before it kept the sets
+  // assigned while the question stayed open, for nothing once it was answered
+  // no. A stop before then assigns nothing.
+  let held: HeldMute | undefined;
+  let mutedAutomation: MutedAutomation | undefined = removalMute?.muted;
+  const takeTheLease = async (): Promise<void> => {
+    if (!removalMute?.prepared || stop.signal.aborted) return;
+    held = await removalMute.prepared
+      .acquire(`sandforge-sync --remove ${run.runId}`)
+      .catch((err: unknown) => {
+        if (!isMuteRefusedError(err)) throw err;
+        releaseStop();
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      });
+    mutedAutomation = held.outcome;
+  };
+  const removalTarget = removalOrg(conn, 'sandforge-sync --remove');
+  // Read before the first delete, as Seed's removal reads them: the items
+  // that name them go with the records.
+  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
   try {
     outcome = await removeSyncRun({
       run,
-      org: removalOrg(conn, 'sandforge-sync --remove'),
+      org: removalTarget,
       includeChanged: args.includeChanged,
       ...sweepPartsOptions(parts),
       ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
       onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+      beforeFirstWrite: takeTheLease,
       signal: stop.signal,
       // The configuration's store, told what the removal took: its
       // watermarks and copied files, and which records its runs wrote.
@@ -3601,7 +3611,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // Stopped before its first delete, for objects the user may not delete:
   // named above, and nothing was removed.
   if (outcome.stoppedForUndeletable) process.exit(1);
-  for (const note of outcome.notes) process.stderr.write(`${note}\n`);
+  // Stopped, it makes no call to the org it can do without.
+  const emptied = outcome.result.status === 'cancelled' ? {} : await duplicateSets.take();
+  for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
+    process.stderr.write(`${note}\n`);
+  }
   const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);
   if (subject.configId !== undefined && !configs && took) {
     process.stderr.write(
@@ -3616,7 +3630,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const status = removalStatusWithSweep(outcome.result.status, sweep);
   output(
     status,
-    outcome.result.objects,
+    emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,
     outcome.planned,
     {
       ...(readWhole ? { readWhole } : {}),

@@ -16,6 +16,7 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  type HeldMute,
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
@@ -987,11 +988,19 @@ export class SeedRemovalHandler implements DomainHandler {
           writes: removalStepsWrites(steps),
         });
       }
-      const held =
-        removalMute?.prepared && !abortController.signal.aborted
-          ? await removalMute.prepared.acquire(operationId)
-          : undefined;
-      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
+      // The lease, taken right before the first write, once every question
+      // is answered: the removal asks what to do of the records its user may
+      // not delete once it has read them, and a lease taken before it kept the
+      // sets assigned while the question stayed open, for nothing once it was
+      // answered no. A stop before then assigns nothing.
+      let held: HeldMute | undefined;
+      let mutedAutomation: MutedAutomation | undefined = removalMute?.muted;
+      const takeLease = async (): Promise<void> => {
+        const prepared = removalMute?.prepared;
+        if (!prepared || abortController.signal.aborted) return;
+        held = await prepared.acquire(operationId);
+        mutedAutomation = held.outcome;
+      };
       const org = removalOrg(conn, 'seed:remove');
       // Read before the first delete: the items that name them go with the records.
       const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
@@ -1010,6 +1019,7 @@ export class SeedRemovalHandler implements DomainHandler {
           : {}),
         ...(run.runUserId ? { runUserId: run.runUserId } : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'seed:remove'),
+        beforeFirstWrite: takeLease,
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

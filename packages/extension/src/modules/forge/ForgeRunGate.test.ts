@@ -34,6 +34,7 @@ import {
   emailChecksOf,
   emailRefusal,
   emailsCountedPerRecord,
+  singleCountAsWorkflow,
   emailsUncountedOf,
   farPastTheSimulation,
   firedOnInsertOf,
@@ -402,10 +403,22 @@ describe('emailsCountedPerRecord', () => {
 
   it('adds the alerts of each object to its single emails where the org counts them there', () => {
     expect(emailsCountedPerRecord(perInsert, true)).toEqual([
-      { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 3, sentBy: ['A', 'B'] },
+      {
+        objectApiName: 'Contact',
+        limit: 'SingleEmail',
+        perRecord: 3,
+        sentBy: ['A', 'B'],
+        alertsAmong: true,
+      },
       { objectApiName: 'Contact', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['B'] },
       { objectApiName: 'Case', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['C'] },
-      { objectApiName: 'Case', limit: 'SingleEmail', perRecord: 1, sentBy: ['C'] },
+      {
+        objectApiName: 'Case',
+        limit: 'SingleEmail',
+        perRecord: 1,
+        sentBy: ['C'],
+        alertsAmong: true,
+      },
     ]);
     // What it was given is left as it was.
     expect(perInsert[0]).toEqual({
@@ -416,8 +429,58 @@ describe('emailsCountedPerRecord', () => {
     });
   });
 
-  it('leaves them to the workflow emails elsewhere', () => {
+  it('adds the single emails of each object to its workflow emails where the org counts them there', () => {
+    expect(emailsCountedPerRecord(perInsert, true, true)).toEqual([
+      {
+        objectApiName: 'Contact',
+        limit: 'SingleEmail',
+        perRecord: 3,
+        sentBy: ['A', 'B'],
+        alertsAmong: true,
+      },
+      { objectApiName: 'Contact', limit: 'DailyWorkflowEmails', perRecord: 3, sentBy: ['B', 'A'] },
+      { objectApiName: 'Case', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['C'] },
+      {
+        objectApiName: 'Case',
+        limit: 'SingleEmail',
+        perRecord: 1,
+        sentBy: ['C'],
+        alertsAmong: true,
+      },
+    ]);
+    expect(
+      emailsCountedPerRecord(
+        [{ objectApiName: 'Lead', limit: 'SingleEmail', perRecord: 1, sentBy: ['Lead flow'] }],
+        true,
+        true,
+      ),
+    ).toEqual([
+      { objectApiName: 'Lead', limit: 'SingleEmail', perRecord: 1, sentBy: ['Lead flow'] },
+      { objectApiName: 'Lead', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['Lead flow'] },
+    ]);
+  });
+
+  it('leaves them to the workflow emails elsewhere, and the single emails to the single emails', () => {
     expect(emailsCountedPerRecord(perInsert, false)).toEqual(perInsert);
+  });
+});
+
+describe('singleCountAsWorkflow', () => {
+  it('holds for a Developer Edition whose limits list its workflow emails, and nowhere else', () => {
+    expect(
+      singleCountAsWorkflow({
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8_040, remaining: 8_035 },
+      }),
+    ).toBe(true);
+    // Its fifteen single emails run out first: it is not asked about the others.
+    expect(singleCountAsWorkflow({ SingleEmail: { max: 15, remaining: 15 } })).toBe(false);
+    expect(
+      singleCountAsWorkflow({
+        SingleEmail: { max: 5_000, remaining: 5_000 },
+        DailyWorkflowEmails: { max: 1_000_000, remaining: 999_000 },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -483,15 +546,56 @@ describe('countedEmailChecksOf', () => {
     ).toEqual(['DailyWorkflowEmails']);
   });
 
+  it('counts the single emails a flow sends against the workflow emails too, as a Developer Edition took them', () => {
+    // Measured on the trap Developer Edition, a contact at a time, its quotas
+    // read from /limits: the workflow rule's alert alone took one single and
+    // one workflow email, the flow's two Send Email actions alone two of
+    // each. Counted as before, a contact was said to take one workflow email,
+    // and took three.
+    const contact = { objects: [{ objectApiName: 'Contact', rows: 1, storageBytes: 0 }] };
+    const sending = [
+      {
+        objectApiName: 'Contact',
+        limit: 'SingleEmail' as const,
+        perRecord: 2,
+        sentBy: ['Contact welcome email'],
+      },
+      {
+        objectApiName: 'Contact',
+        limit: 'DailyWorkflowEmails' as const,
+        perRecord: 1,
+        sentBy: ['Contact welcome rule'],
+      },
+    ];
+
+    const checks = countedEmailChecksOf(contact, sending, {
+      SingleEmail: { max: 15, remaining: 15 },
+      DailyWorkflowEmails: { max: 8_040, remaining: 8_035 },
+    });
+
+    expect(checks.map(({ limit, emails }) => ({ limit, emails }))).toEqual([
+      { limit: 'SingleEmail', emails: 3 },
+      { limit: 'DailyWorkflowEmails', emails: 3 },
+    ]);
+    expect(checks.find((check) => check.limit === 'DailyWorkflowEmails')?.objects).toEqual([
+      {
+        objectApiName: 'Contact',
+        rows: 1,
+        perRecord: 3,
+        sentBy: ['Contact welcome rule', 'Contact welcome email'],
+      },
+    ]);
+  });
+
   it('says no alert among the single emails when the records written fire none', () => {
     const flowOnly = [
       { objectApiName: 'Contact', limit: 'SingleEmail' as const, perRecord: 1, sentBy: ['Flow'] },
       { objectApiName: 'Case', limit: 'DailyWorkflowEmails' as const, perRecord: 1, sentBy: ['R'] },
     ];
 
-    expect(countedEmailChecksOf(plan, flowOnly, developerEdition)).toEqual([
-      expect.not.objectContaining({ alertsCounted: true }),
-    ]);
+    const checks = countedEmailChecksOf(plan, flowOnly, developerEdition);
+    expect(checks.map((check) => check.limit)).toEqual(['SingleEmail', 'DailyWorkflowEmails']);
+    for (const check of checks) expect(check).not.toHaveProperty('alertsCounted');
   });
 });
 
@@ -538,7 +642,10 @@ describe('countedTargetEmails', () => {
       plan,
       objects: plan.objects.map((object) => object.objectApiName),
       readAutomation: async () => automation,
-      readLimits: async () => ({ SingleEmail: { max: 15, remaining: 15 } }),
+      readLimits: async () => ({
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+      }),
     });
 
   it('says the emails of a flow whose definition was not read were not counted, naming it, beside those it counted', async () => {
@@ -557,6 +664,7 @@ describe('countedTargetEmails', () => {
 
     expect(emails.checks).toEqual([
       expect.objectContaining({ limit: 'SingleEmail', emails: 10, verdict: 'fits' }),
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 10, verdict: 'fits' }),
     ]);
     expect(emails.unread).toBe('the definition of Contact nurture on Contact');
   });
@@ -614,7 +722,10 @@ describe('countedTargetEmails', () => {
     );
 
     expect(emails.unread).toBeUndefined();
-    expect(emails.checks).toEqual([expect.objectContaining({ emails: 10 })]);
+    expect(emails.checks).toEqual([
+      expect.objectContaining({ limit: 'SingleEmail', emails: 10 }),
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 10 }),
+    ]);
   });
 
   it('names ten of the flows of an object, and how many more', async () => {

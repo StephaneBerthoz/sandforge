@@ -137,9 +137,10 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
     const preview = emailsCountedFor(automation.preview, mute?.checked === true);
     const written = preview.objects.filter((o) => (records[o.objectApiName] ?? 0) > 0);
     const estimates = seedEmailEstimates(preview, records);
+    // Told by the single emails they are among: a flow's single emails count
+    // against the workflow emails too, alerts or not.
     const alerts = preview.emailsPerRecord.some(
-      (sending) =>
-        sending.limit === 'DailyWorkflowEmails' && (records[sending.objectApiName] ?? 0) > 0,
+      (sending) => sending.alertsAmong === true && (records[sending.objectApiName] ?? 0) > 0,
     );
     const figures = (estimate: SeedEmailEstimate) => ({
       org,
