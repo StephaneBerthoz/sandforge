@@ -531,6 +531,65 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned.OwnerId).toBe('005TARGET');
   });
 
+  it('writes a split with the user and the type the run found in the target, and owes neither to pass 2', () => {
+    // Left to the rules for a lookup at a user, the split went without its
+    // owner, and the target refused it: "You can't create an Opportunity
+    // Split for a user unless they're part of the opportunity team". Its type,
+    // which no write of the run maps, was emptied and owed to pass 2.
+    const lookupAt = (name: string, target: string): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      updateable: name === 'SplitTypeId',
+      isReference: true,
+      referenceTo: [target],
+    });
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      lookupAt('OpportunityId', 'Opportunity'),
+      lookupAt('SplitOwnerId', 'User'),
+      lookupAt('SplitTypeId', 'OpportunitySplitType'),
+      { name: 'SplitPercentage', queryable: true, createable: true, isReference: false },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('006SOURCE', '006TARGET', 'Opportunity');
+    const row = {
+      Id: '049SOURCE',
+      OpportunityId: '006SOURCE',
+      SplitOwnerId: '005SOURCE',
+      SplitTypeId: '149SOURCE',
+      SplitPercentage: 40,
+    };
+    const unresolved = { ...row, Id: '049OTHER' };
+
+    const [out, other] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'OpportunitySplit',
+        records: [row, unresolved],
+        fieldInfos: fields,
+        remapper,
+        resolvedLookups: new Map([[row, { SplitOwnerId: '005TARGET', SplitTypeId: '149TARGET' }]]),
+        creatableFields: new Set([
+          'OpportunityId',
+          'SplitOwnerId',
+          'SplitTypeId',
+          'SplitPercentage',
+        ]),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({
+      OpportunityId: '006TARGET',
+      SplitOwnerId: '005TARGET',
+      SplitTypeId: '149TARGET',
+      SplitPercentage: 40,
+    });
+    expect(out.nullifiedFks).toEqual([]);
+    // A row the run found nothing for goes by the rules, as before.
+    expect(other.cleaned).toEqual({ OpportunityId: '006TARGET', SplitPercentage: 40 });
+    expect(other.nullifiedFks.map((f) => f.field)).toEqual(['SplitTypeId']);
+  });
+
   it('does not queue a lookup at an uncopyable object for pass 2', () => {
     const fields: FieldInfo[] = [
       { name: 'Id', queryable: true, createable: false, isReference: false },

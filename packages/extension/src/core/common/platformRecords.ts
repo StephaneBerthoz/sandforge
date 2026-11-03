@@ -691,6 +691,354 @@ export async function personContactsOfAccounts(
   return found;
 }
 
+/** An opportunity's team member: a user `UserId` names, with a role and an access. */
+export const OPPORTUNITY_TEAM_MEMBER = 'OpportunityTeamMember';
+
+/** A share of an opportunity's amount, credited to the team member `SplitOwnerId` names. */
+export const OPPORTUNITY_SPLIT = 'OpportunitySplit';
+
+/** The opportunity a team member or a split is of. */
+const OPPORTUNITY = 'Opportunity';
+
+/** A split's type, which no copy writes: the target has its own, matched by name. */
+const SPLIT_TYPE = 'OpportunitySplitType';
+
+/** A split's lookup at its type. */
+const SPLIT_TYPE_FIELD = 'SplitTypeId';
+
+/** Per object of an opportunity's team, the lookup at the user each row is of. */
+export const TEAM_USER_FIELD: Readonly<Record<string, string>> = {
+  [OPPORTUNITY_TEAM_MEMBER]: 'UserId',
+  [OPPORTUNITY_SPLIT]: 'SplitOwnerId',
+};
+
+/** Whether rows of `objectApiName` are of an opportunity's team: its members, or its splits. */
+export function isOpportunityTeamObject(objectApiName: string): boolean {
+  return TEAM_USER_FIELD[objectApiName] !== undefined;
+}
+
+/**
+ * The order an opportunity's team members and its splits are written in, as
+ * an edge between the objects a run writes: the members first.
+ *
+ * A split goes in only for a member of the team: in a real org with Team
+ * Selling and Splits on, a split of a user not on it was refused —
+ * `INVALID_CROSS_REFERENCE_KEY`, "You can't create an Opportunity Split for a
+ * user unless they're part of the opportunity team" — and the same split went
+ * in once the member was written. Nothing in a split names a member, so the
+ * graph orders nothing between the two: a clone wrote the splits first.
+ *
+ * @param objects - The objects the run writes; the edge joins two of them only.
+ */
+export function opportunityTeamWriteEdges(objects: ReadonlySet<string>): ForgeGraphEdge[] {
+  if (!objects.has(OPPORTUNITY_TEAM_MEMBER) || !objects.has(OPPORTUNITY_SPLIT)) return [];
+  return [
+    {
+      sourceObject: OPPORTUNITY_TEAM_MEMBER,
+      targetObject: OPPORTUNITY_SPLIT,
+      relationshipName: `${OPPORTUNITY_TEAM_MEMBER}Before${OPPORTUNITY_SPLIT}`,
+      type: 'lookup',
+      required: true,
+    },
+  ];
+}
+
+/** What a copy reads of the two orgs to write an opportunity's team. */
+export interface OpportunityTeamOrgs {
+  readonly source: SoqlQuery;
+  readonly target: SoqlQuery;
+  /** The target's record the run wrote, or linked to, for a source id. */
+  readonly targetIdOf: (sourceId: string) => string | undefined;
+  /** The target's user the run maps a source user to, as it maps the owners of its records. */
+  readonly mappedUser: (sourceUserId: string) => string | undefined;
+  /**
+   * Set by a simulation, which wrote no opportunity: the owner each of them
+   * would get in the target, in place of the one read there, and an id of the
+   * simulation's own for each record the platform would write with one.
+   */
+  readonly simulated?: {
+    readonly ownerOf: (sourceOwnerId: string) => string;
+    readonly idFor: () => string;
+  };
+}
+
+/** Why a row of an opportunity's team is not written, and the lookup that says it. */
+export interface TeamRowNotWritten {
+  readonly field: string;
+  readonly parentObject: string;
+  readonly why: string;
+}
+
+/** What a copy does with the rows of an opportunity's team it read. */
+export interface OpportunityTeamRows {
+  /**
+   * The rows to write, each with its lookups as the target has them: its
+   * user, and a split's type. Their lookups are none the run's ids map.
+   */
+  readonly lookups: Map<Record<string, unknown>, Readonly<Record<string, string>>>;
+  /**
+   * The rows the target holds already, each with the target's id: the
+   * owner's member and split the platform wrote with the opportunity, or one
+   * the team of an opportunity the target held has. `owners` is set for those
+   * of the opportunity's owner.
+   */
+  readonly linked: Map<Record<string, unknown>, { readonly id: string; readonly owners: boolean }>;
+  /** The rows not written, each with why. */
+  readonly held: Map<Record<string, unknown>, TeamRowNotWritten>;
+}
+
+/** An id as a key that its 15- and its 18-character forms share. */
+const idKey = (id: string): string => id.slice(0, 15);
+
+/** The rows of `soql` asked of `ids`, `IN` list by `IN` list: `soql` ends with `IN `. */
+async function rowsOfIds(
+  query: SoqlQuery,
+  soql: string,
+  ids: readonly string[],
+): Promise<Array<Record<string, unknown>>> {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += WRITTEN_CHUNK) {
+    const inList = ids
+      .slice(i, i + WRITTEN_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    rows.push(...(await query(`${soql}(${inList})`)));
+  }
+  return rows;
+}
+
+/** Per id, the value of `field` a row read of it holds, by {@link idKey}. */
+function byId(rows: readonly Record<string, unknown>[], field: string): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const row of rows) {
+    const value = row[field];
+    if (typeof row['Id'] === 'string' && typeof value === 'string' && value !== '') {
+      found.set(idKey(row['Id']), value);
+    }
+  }
+  return found;
+}
+
+/** The text of a row's field, or nothing. */
+const textOf = (row: Record<string, unknown>, field: string): string | undefined => {
+  const value = row[field];
+  return typeof value === 'string' && value !== '' ? value : undefined;
+};
+
+/**
+ * What a copy does with the team members or the splits of opportunities it
+ * read (`objectApiName` says which), whose opportunity it wrote or linked to:
+ * each linked to the record the target holds, written with its user and type
+ * as the target has them, or held back with why. A row whose opportunity has
+ * no record in the target is left to the write, as any row whose parent the
+ * run did not write.
+ *
+ * Learnt in a real org with Team Selling and Splits on. The platform writes,
+ * as it takes an opportunity, its owner's team member — role "Opportunity
+ * Owner", access All — and its owner's Revenue split at 100 %, and nothing
+ * more: no Overlay split. A clone sent both again as it read them, without
+ * their user, which no copy writes, and the target refused them:
+ * `REQUIRED_FIELD_MISSING [UserId]`, and `INVALID_CROSS_REFERENCE_KEY` "You
+ * can't create an Opportunity Split for a user unless they're part of the
+ * opportunity team" with `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY` "You can't
+ * adjust necessary split percentages from the opportunity owner's split". Sent
+ * with the owner's user, the Revenue split is refused, `DUPLICATE_VALUE` "The
+ * user has already been entered for that split type", and the member goes in
+ * as the platform's own: the insert answers with its id and changes its role.
+ *
+ * So the row of the source opportunity's owner is that of the target
+ * opportunity's owner, which the target is asked for — the user the run
+ * writes as, or the one an owner mapping gives — and a row the target holds
+ * for the same opportunity, user and type is linked to, never sent. A
+ * simulation, which wrote no opportunity, links the owner's member and the
+ * owner's split of each type the target holds to a total of 100 %, as the
+ * platform writes them. Another user is the one an owner mapping gives, or one
+ * of the same id that the target holds active — two sandboxes of one
+ * production share their users' ids; a user of none of them is the reason the
+ * row is held back. A split's type is the target's active type of the same
+ * developer name: sent without it, a split goes in as a Revenue one, and with
+ * the source's id it is refused (`INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`).
+ *
+ * A split of another member goes in after the member (`opportunityTeamWriteEdges`),
+ * and a Revenue split of one is taken by the platform from the owner's: 40 %
+ * written for a member left the owner 60 %, as the source had it.
+ */
+export async function opportunityTeamOf(
+  objectApiName: string,
+  rows: readonly Record<string, unknown>[],
+  orgs: OpportunityTeamOrgs,
+): Promise<OpportunityTeamRows> {
+  const team: OpportunityTeamRows = { lookups: new Map(), linked: new Map(), held: new Map() };
+  const userField = TEAM_USER_FIELD[objectApiName];
+  if (userField === undefined) return team;
+  const split = objectApiName === OPPORTUNITY_SPLIT;
+  const ofWritten = rows.filter((row) => {
+    const opportunity = textOf(row, 'OpportunityId');
+    return opportunity !== undefined && orgs.targetIdOf(opportunity) !== undefined;
+  });
+  if (ofWritten.length === 0) return team;
+  const sourceOpportunities = [...new Set(ofWritten.map((row) => String(row['OpportunityId'])))];
+  const sourceOwners = byId(
+    await rowsOfIds(
+      orgs.source,
+      `SELECT Id, OwnerId FROM ${OPPORTUNITY} WHERE Id IN `,
+      sourceOpportunities,
+    ),
+    'OwnerId',
+  );
+  const targetOf = (row: Record<string, unknown>): string =>
+    orgs.targetIdOf(String(row['OpportunityId'])) as string;
+  const targetOpportunities = [...new Set(ofWritten.map(targetOf))];
+  const { simulated } = orgs;
+  const targetOwners = simulated
+    ? undefined
+    : byId(
+        await rowsOfIds(
+          orgs.target,
+          `SELECT Id, OwnerId FROM ${OPPORTUNITY} WHERE Id IN `,
+          targetOpportunities,
+        ),
+        'OwnerId',
+      );
+  /** The source opportunity's owner of a row, and that owner's counterpart in the target. */
+  const ownersOf = (row: Record<string, unknown>): { source?: string; target?: string } => {
+    const source = sourceOwners.get(idKey(String(row['OpportunityId'])));
+    if (source === undefined) return {};
+    return {
+      source,
+      target: simulated ? simulated.ownerOf(source) : targetOwners?.get(idKey(targetOf(row))),
+    };
+  };
+  const isOwners = (row: Record<string, unknown>): boolean => {
+    const user = textOf(row, userField);
+    const owner = ownersOf(row).source;
+    return user !== undefined && owner !== undefined && idKey(user) === idKey(owner);
+  };
+  // The other users, asked of the target by their id.
+  const others = [
+    ...new Set(
+      ofWritten.flatMap((row) => {
+        const user = textOf(row, userField);
+        return user === undefined || isOwners(row) || orgs.mappedUser(user) !== undefined
+          ? []
+          : [user];
+      }),
+    ),
+  ];
+  const sameUsers =
+    others.length > 0
+      ? new Set(
+          (
+            await rowsOfIds(
+              orgs.target,
+              'SELECT Id FROM User WHERE IsActive = true AND Id IN ',
+              others,
+            )
+          ).flatMap((row) => (typeof row['Id'] === 'string' ? [idKey(row['Id'])] : [])),
+        )
+      : new Set<string>();
+  // A split's type, by its developer name in the target.
+  const sourceTypes = split
+    ? byId(
+        await rowsOfIds(orgs.source, `SELECT Id, DeveloperName FROM ${SPLIT_TYPE} WHERE Id IN `, [
+          ...new Set(ofWritten.flatMap((row) => textOf(row, SPLIT_TYPE_FIELD) ?? [])),
+        ]),
+        'DeveloperName',
+      )
+    : new Map<string, string>();
+  const targetTypes = new Map<string, { id: string; total: boolean }>();
+  if (split) {
+    for (const row of await orgs.target(
+      `SELECT Id, DeveloperName, IsTotalValidated FROM ${SPLIT_TYPE} WHERE IsActive = true`,
+    )) {
+      if (typeof row['Id'] === 'string' && typeof row['DeveloperName'] === 'string') {
+        targetTypes.set(row['DeveloperName'], {
+          id: row['Id'],
+          total: row['IsTotalValidated'] === true || row['IsTotalValidated'] === 'true',
+        });
+      }
+    }
+  }
+  // What the target holds of these opportunities' teams, by opportunity, user and type.
+  const held = new Map<string, string>();
+  const heldKey = (opportunity: string, user: string, type?: string): string =>
+    [opportunity, user, type ?? ''].map(idKey).join('|');
+  if (!simulated) {
+    const soql = split
+      ? `SELECT Id, OpportunityId, SplitOwnerId, ${SPLIT_TYPE_FIELD} FROM ${OPPORTUNITY_SPLIT} WHERE OpportunityId IN `
+      : `SELECT Id, OpportunityId, UserId FROM ${OPPORTUNITY_TEAM_MEMBER} WHERE OpportunityId IN `;
+    for (const row of await rowsOfIds(orgs.target, soql, targetOpportunities)) {
+      const opportunity = textOf(row, 'OpportunityId');
+      const user = textOf(row, userField);
+      if (typeof row['Id'] !== 'string' || opportunity === undefined || user === undefined)
+        continue;
+      held.set(
+        heldKey(opportunity, user, split ? textOf(row, SPLIT_TYPE_FIELD) : undefined),
+        row['Id'],
+      );
+    }
+  }
+  for (const row of ofWritten) {
+    const user = textOf(row, userField);
+    if (user === undefined) continue;
+    const owners = isOwners(row);
+    const targetUser = owners
+      ? ownersOf(row).target
+      : (orgs.mappedUser(user) ?? (sameUsers.has(idKey(user)) ? user : undefined));
+    if (targetUser === undefined) {
+      team.held.set(row, {
+        field: userField,
+        parentObject: 'User',
+        why: owners
+          ? `${userField} names the owner of its opportunity, whose owner in the target could not be read.`
+          : `${userField} names a user the target has no counterpart of: a team member and a split ` +
+            "go in for the opportunity's owner, which is the owner of its copy in the target, for a " +
+            'user an owner mapping gives, or for a user of the same id the target holds active.',
+      });
+      continue;
+    }
+    const lookups: Record<string, string> = { [userField]: targetUser };
+    let total = false;
+    if (split) {
+      const sourceType = textOf(row, SPLIT_TYPE_FIELD);
+      if (sourceType !== undefined) {
+        const name = sourceTypes.get(idKey(sourceType));
+        const type = name === undefined ? undefined : targetTypes.get(name);
+        if (type === undefined) {
+          team.held.set(row, {
+            field: SPLIT_TYPE_FIELD,
+            parentObject: SPLIT_TYPE,
+            why:
+              `${SPLIT_TYPE_FIELD} names ${name === undefined ? 'a split type' : `the split type ${name}`}, ` +
+              'which the target holds no active one of by that name: sent without it, the split ' +
+              'would go in as one of the Revenue type.',
+          });
+          continue;
+        }
+        lookups[SPLIT_TYPE_FIELD] = type.id;
+        total = type.total;
+      }
+    }
+    const opportunity = targetOf(row);
+    if (simulated) {
+      // The platform writes the owner's member, and the owner's split of each
+      // type held to 100 %, with the opportunity.
+      if (owners && (!split || total)) {
+        team.linked.set(row, { id: simulated.idFor(), owners });
+        continue;
+      }
+    } else {
+      const id = held.get(heldKey(opportunity, targetUser, lookups[SPLIT_TYPE_FIELD]));
+      if (id !== undefined) {
+        team.linked.set(row, { id, owners });
+        continue;
+      }
+    }
+    team.lookups.set(row, lookups);
+  }
+  return team;
+}
+
 /**
  * Per relation object, the lookup that names its activity: a task relation's
  * task, an event relation's event.

@@ -289,6 +289,11 @@ export class RunDecisions {
     return this.picklists.has(objectApiName) || this.defaults.has(objectApiName);
   }
 
+  /** Whether a decision gives `field` of `objectApiName` a value where a row leaves it empty. */
+  givesDefault(objectApiName: string, field: string): boolean {
+    return this.defaults.get(objectApiName)?.some((value) => value.field === field) === true;
+  }
+
   /**
    * Apply to one cleaned row of `objectApiName` the picklist mappings that hold
    * for it, then the defaults of the fields it leaves empty. Changes `row` in

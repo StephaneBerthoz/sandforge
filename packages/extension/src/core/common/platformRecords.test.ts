@@ -21,6 +21,8 @@ import {
   leftToThePlatformReason,
   leftToThePlatformSummary,
   lookupsThePlatformFills,
+  opportunityTeamOf,
+  opportunityTeamWriteEdges,
   accountsOfPersonContactsSoql,
   personAccountWriteEdges,
   personContactsOfAccounts,
@@ -36,6 +38,8 @@ import {
   type RelationUpdate,
   type SoqlQuery,
 } from './platformRecords.js';
+import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import { TeamSellingOrg } from '../../test/teamSellingOrg.js';
 
 describe('standardPriceIds', () => {
   it('names the entries of the standard price book among those asked about', async () => {
@@ -1319,5 +1323,200 @@ describe('draftStartOf', () => {
 
   it('leaves the record alone when the target has no Draft status to start from', () => {
     expect(draftStartOf('ST004', { ...categories, draft: undefined })).toBeUndefined();
+  });
+});
+
+describe('opportunityTeamWriteEdges', () => {
+  it("writes an opportunity's team members before its splits", () => {
+    expect(
+      opportunityTeamWriteEdges(
+        new Set(['Opportunity', 'OpportunitySplit', 'OpportunityTeamMember']),
+      ),
+    ).toEqual([
+      {
+        sourceObject: 'OpportunityTeamMember',
+        targetObject: 'OpportunitySplit',
+        relationshipName: 'OpportunityTeamMemberBeforeOpportunitySplit',
+        type: 'lookup',
+        required: true,
+      },
+    ]);
+  });
+
+  it('orders nothing in a run that does not write both', () => {
+    expect(opportunityTeamWriteEdges(new Set(['Opportunity', 'OpportunitySplit']))).toEqual([]);
+    expect(opportunityTeamWriteEdges(new Set(['Opportunity', 'OpportunityTeamMember']))).toEqual(
+      [],
+    );
+  });
+});
+
+describe('opportunityTeamOf', () => {
+  const SOURCE_OWNER = '005SRC000000001AAA';
+  const SOURCE_REP = '005SRC000000002AAA';
+  const DEAL = '006SRC000000001AAA';
+  const OTHER_DEAL = '006SRC000000002AAA';
+  const RUNNING_USER = '005TGT000000001AAA';
+  const REVENUE = '149TGT000000001AAA';
+  const OVERLAY = '149TGT000000002AAA';
+
+  /** The source: the deals, their owner, and the split types. */
+  const source: Record<string, FakeRow[]> = {
+    Opportunity: [
+      { Id: DEAL, OwnerId: SOURCE_OWNER },
+      { Id: OTHER_DEAL, OwnerId: SOURCE_OWNER },
+    ],
+    OpportunitySplitType: [
+      { Id: '149SRC000000001AAA', DeveloperName: 'Revenue' },
+      { Id: '149SRC000000002AAA', DeveloperName: 'Overlay' },
+      { Id: '149SRC000000003AAA', DeveloperName: 'Partner_Credit' },
+    ],
+  };
+  const member = (id: string, user: string): Record<string, unknown> => ({
+    Id: id,
+    OpportunityId: DEAL,
+    UserId: user,
+  });
+  const split = (id: string, user: string, type: string): Record<string, unknown> => ({
+    Id: id,
+    OpportunityId: DEAL,
+    SplitOwnerId: user,
+    SplitTypeId: type,
+  });
+
+  /** A target with Team Selling and Splits on, the deal copied into it. */
+  function target(users: string[] = []): { org: TeamSellingOrg; deal: string } {
+    const org = new TeamSellingOrg({
+      runningUser: RUNNING_USER,
+      users,
+      splitTypes: [
+        { Id: REVENUE, DeveloperName: 'Revenue', IsTotalValidated: true },
+        { Id: OVERLAY, DeveloperName: 'Overlay', IsTotalValidated: false },
+      ],
+    });
+    const [{ id: deal }] = org.insert('Opportunity', [{ Name: 'Deal' }]);
+    return { org, deal };
+  }
+
+  function orgsFor(org: TeamSellingOrg, deal: string, mapped: Record<string, string> = {}) {
+    return {
+      source: vi.fn<SoqlQuery>(async (soql) => selectRows(source, soql)),
+      target: vi.fn<SoqlQuery>(async (soql) => org.query(soql)),
+      targetIdOf: (id: string) => (id === DEAL ? deal : undefined),
+      mappedUser: (user: string): string | undefined => mapped[user],
+    };
+  }
+
+  it("links the owner's member and Revenue split to the platform's, and gives the owner's Overlay split the target's user and type", async () => {
+    const { org, deal } = target();
+    const rows = [
+      split('049SRC000000001AAA', SOURCE_OWNER, '149SRC000000001AAA'),
+      split('049SRC000000002AAA', SOURCE_OWNER, '149SRC000000002AAA'),
+    ];
+    const members = [member('00qSRC000000001AAA', SOURCE_OWNER)];
+
+    const splits = await opportunityTeamOf('OpportunitySplit', rows, orgsFor(org, deal));
+    const team = await opportunityTeamOf('OpportunityTeamMember', members, orgsFor(org, deal));
+
+    expect([...team.linked.values()]).toEqual([{ id: org.teamOf(deal)[0]['Id'], owners: true }]);
+    expect(team.lookups.size).toBe(0);
+    expect([...splits.linked]).toEqual([
+      [rows[0], { id: org.splitsOf(deal)[0]['Id'], owners: true }],
+    ]);
+    expect([...splits.lookups]).toEqual([
+      [rows[1], { SplitOwnerId: RUNNING_USER, SplitTypeId: OVERLAY }],
+    ]);
+    expect(splits.held.size).toBe(0);
+  });
+
+  it('gives another user the one an owner mapping names, or the same id the target holds active, and holds back the rest with why', async () => {
+    const MAPPED = '005TGT000000007AAA';
+    const SHARED = '005SHR000000001AAA';
+    const { org, deal } = target([MAPPED, SHARED]);
+    const rows = [
+      member('00qSRC000000002AAA', SOURCE_REP),
+      member('00qSRC000000003AAA', SHARED),
+      member('00qSRC000000004AAA', '005SRC000000009AAA'),
+    ];
+    const orgs = orgsFor(org, deal, { [SOURCE_REP]: MAPPED });
+
+    const team = await opportunityTeamOf('OpportunityTeamMember', rows, orgs);
+
+    expect([...team.lookups.values()]).toEqual([{ UserId: MAPPED }, { UserId: SHARED }]);
+    expect([...team.held]).toEqual([
+      [
+        rows[2],
+        {
+          field: 'UserId',
+          parentObject: 'User',
+          why: expect.stringMatching(/^UserId names a user the target has no counterpart of: /),
+        },
+      ],
+    ]);
+    // Only the users neither the owner nor a mapping gives are asked about.
+    expect(orgs.target).toHaveBeenCalledWith(
+      "SELECT Id FROM User WHERE IsActive = true AND Id IN ('005SHR000000001AAA', '005SRC000000009AAA')",
+    );
+  });
+
+  it('holds back a split whose type the target holds no active one of by its name', async () => {
+    const { org, deal } = target();
+    const row = split('049SRC000000003AAA', SOURCE_OWNER, '149SRC000000003AAA');
+
+    const splits = await opportunityTeamOf('OpportunitySplit', [row], orgsFor(org, deal));
+
+    expect(splits.held.get(row)).toEqual({
+      field: 'SplitTypeId',
+      parentObject: 'OpportunitySplitType',
+      why:
+        'SplitTypeId names the split type Partner_Credit, which the target holds no active ' +
+        'one of by that name: sent without it, the split would go in as one of the Revenue type.',
+    });
+  });
+
+  it('leaves to the write a row whose opportunity the run has no record of in the target', async () => {
+    const { org, deal } = target();
+    const row = { ...member('00qSRC000000005AAA', SOURCE_OWNER), OpportunityId: OTHER_DEAL };
+    const orgs = orgsFor(org, deal);
+
+    const team = await opportunityTeamOf('OpportunityTeamMember', [row], orgs);
+
+    expect([team.linked.size, team.lookups.size, team.held.size]).toEqual([0, 0, 0]);
+    expect(orgs.source).not.toHaveBeenCalled();
+  });
+
+  it("in a simulation, links the owner's member and split of a type held to 100 % to ids of its own, and reads none of the target's records", async () => {
+    const { org } = target();
+    const ids = ['049SIM000000001AAA'];
+    const orgs = {
+      ...orgsFor(org, '006SIM000000001AAA'),
+      targetIdOf: (id: string) => (id === DEAL ? '006SIM000000001AAA' : undefined),
+      simulated: { ownerOf: () => '005SIM000000001AAA', idFor: () => ids.shift() as string },
+    };
+    const rows = [
+      split('049SRC000000001AAA', SOURCE_OWNER, '149SRC000000001AAA'),
+      split('049SRC000000002AAA', SOURCE_OWNER, '149SRC000000002AAA'),
+    ];
+
+    const splits = await opportunityTeamOf('OpportunitySplit', rows, orgs);
+
+    expect([...splits.linked.values()]).toEqual([{ id: '049SIM000000001AAA', owners: true }]);
+    expect([...splits.lookups.values()]).toEqual([
+      { SplitOwnerId: '005SIM000000001AAA', SplitTypeId: OVERLAY },
+    ]);
+    // The split types are the target's to read; its records are not.
+    expect(orgs.target.mock.calls.map(([soql]) => soql)).toEqual([
+      'SELECT Id, DeveloperName, IsTotalValidated FROM OpportunitySplitType WHERE IsActive = true',
+    ]);
+  });
+
+  it('reads nothing for an object that is no part of a team', async () => {
+    const { org, deal } = target();
+    const orgs = orgsFor(org, deal);
+
+    const team = await opportunityTeamOf('Contact', [{ Id: '003A' }], orgs);
+
+    expect([team.linked.size, team.lookups.size, team.held.size]).toEqual([0, 0, 0]);
+    expect(orgs.source).not.toHaveBeenCalled();
   });
 });

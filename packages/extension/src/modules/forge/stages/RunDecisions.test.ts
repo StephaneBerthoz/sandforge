@@ -179,6 +179,19 @@ describe('RunDecisions.applyToRow', () => {
   });
 });
 
+describe('RunDecisions.givesDefault', () => {
+  it('says which field of which object a decision gives a value', () => {
+    const decisions = new RunDecisions({
+      defaultValues: [{ object: 'OpportunityTeamMember', field: 'UserId', value: '005T' }],
+    });
+
+    expect(decisions.givesDefault('OpportunityTeamMember', 'UserId')).toBe(true);
+    expect(decisions.givesDefault('OpportunitySplit', 'UserId')).toBe(false);
+    expect(decisions.givesDefault('OpportunityTeamMember', 'TeamMemberRole')).toBe(false);
+    expect(new RunDecisions(undefined).givesDefault('OpportunityTeamMember', 'UserId')).toBe(false);
+  });
+});
+
 describe('RunDecisions.holdsBack', () => {
   const refused = (value: string, recordType?: string): string =>
     forgeGapId('picklist_value_refused', 'Case', 'Origin', recordType, value);

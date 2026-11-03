@@ -1002,24 +1002,27 @@ describe('ForgeExecutor, a simulation of the rows the target refuses for a field
   const refused = (summary: ExecutionSummary) =>
     summary.errors.find((error) => error.objectApiName === 'OpportunityTeamMember');
 
-  it('counts refused, in the org’s words, what the write is refused, where it said all would be inserted', async () => {
+  it('holds back, in a dry run as in the real run, a member whose user the target has no counterpart of, where it said all would be inserted', async () => {
     // Run for real with Team Selling on, the clone of an opportunity had its
     // team member refused, REQUIRED_FIELD_MISSING [UserId], and its dry run
-    // had said it would be inserted, nothing refused.
+    // had said it would be inserted, nothing refused. The user is none the
+    // target has — not the opportunity's owner, which the source does not
+    // say here, nor one a mapping gives — so neither sends it.
     const real = await execute(teamOrgs(), {});
     const dry = await execute(teamOrgs(), { dryRun: true });
 
+    const why = [
+      "Not written: UserId names a user the target has no counterpart of: a team member and a split go in for the opportunity's owner, which is the owner of its copy in the target, for a user an owner mapping gives, or for a user of the same id the target holds active.",
+    ];
     expect(real.successCount).toBe(1);
     expect(real.failedCount).toBe(1);
-    expect(refused(real)?.samples[0]?.messages).toEqual([
-      'REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]',
-    ]);
+    expect(refused(real)).toMatchObject({ failedCount: 1, attemptedCount: 0 });
+    expect(refused(real)?.samples[0]?.messages).toEqual(why);
     expect(dry.wouldInsertCount).toBe(1);
     expect(dry.failedCount).toBe(1);
-    expect(refused(dry)).toMatchObject({ failedCount: 1, attemptedCount: 1 });
-    expect(refused(dry)?.samples[0]?.messages).toEqual([
-      'REQUIRED_FIELD_MISSING: Required fields are missing: [UserId]',
-    ]);
+    expect(refused(dry)).toMatchObject({ failedCount: 1, attemptedCount: 0 });
+    expect(refused(dry)?.samples[0]?.messages).toEqual(why);
+    // The gap a decision can close, as for any field the target requires.
     expect(
       gapOf(dry, forgeGapId('required_field_missing', 'OpportunityTeamMember', 'UserId')),
     ).toMatchObject({ severity: 'blocking', rows: 1 });

@@ -58,6 +58,7 @@ import {
 } from './stages/RunDecisions.js';
 import {
   CURRENCY_FIELD,
+  SIMULATION_DECISIONS,
   SimulationGaps,
   currencyGapOf,
   picklistGapsOf,
@@ -176,15 +177,19 @@ import {
   TASK,
   draftStartOf,
   emailWriteEdges,
+  isOpportunityTeamObject,
   isPersonAccountRow,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
+  opportunityTeamOf,
+  opportunityTeamWriteEdges,
   personAccountWriteEdges,
   personContactsOfAccounts,
   statusCategories,
   tasksWrittenWithEmails,
   waitsForItsTask,
+  type OpportunityTeamRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
@@ -2312,6 +2317,12 @@ interface ParentNotWritten {
    * the id the lookup names: see `rowsWhoseParentTheTargetLacks`.
    */
   notInTarget?: true;
+  /**
+   * Why, when the run looked for the parent in the target itself and found
+   * none to write the row with: the user of an opportunity's team member or
+   * split, and a split's type (`opportunityTeamOf`).
+   */
+  reason?: string;
 }
 
 /**
@@ -2330,12 +2341,13 @@ function groupsOfParentsNotWritten(
   held: Iterable<ParentNotWritten>,
   into: Map<string, ParentNotWritten & { count: number }> = new Map(),
 ): Map<string, ParentNotWritten & { count: number }> {
-  for (const { field, parentObject, notInTarget } of held) {
-    const key = `${field}|${parentObject}|${notInTarget === true ? 'outside' : ''}`;
+  for (const { field, parentObject, notInTarget, reason } of held) {
+    const key = `${field}|${parentObject}|${notInTarget === true ? 'outside' : ''}|${reason ?? ''}`;
     const group = into.get(key) ?? {
       field,
       parentObject,
       ...(notInTarget ? { notInTarget } : {}),
+      ...(reason !== undefined ? { reason } : {}),
       count: 0,
     };
     group.count++;
@@ -2352,16 +2364,18 @@ function samplesOfParentsNotWritten(
   return [...groups.values()]
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
-    .map(({ field, parentObject, notInTarget, count }) => ({
+    .map(({ field, parentObject, notInTarget, reason, count }) => ({
       recordSummary: `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
       messages: [
-        notInTarget
-          ? `Not written: ${field} may not be left empty, and the target holds no ` +
-            `${parentObject} record of the id it names, outside the run.`
-          : `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
-            (failedObjects.has(parentObject)
-              ? 'failed in this run.'
-              : 'was not written by this run.'),
+        reason !== undefined
+          ? `Not written: ${reason}`
+          : notInTarget
+            ? `Not written: ${field} may not be left empty, and the target holds no ` +
+              `${parentObject} record of the id it names, outside the run.`
+            : `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
+              (failedObjects.has(parentObject)
+                ? 'failed in this run.'
+                : 'was not written by this run.'),
       ],
     }));
 }
@@ -3149,6 +3163,9 @@ const AUDIT_DATE_FIELDS: ReadonlySet<string> = new Set(['CreatedDate', 'LastModi
 function epochOf(value: unknown): number {
   return typeof value === 'string' ? Date.parse(value) : Number.NaN;
 }
+
+/** The three characters every user id begins with, in every org. */
+const USER_PREFIX = '005';
 
 /**
  * The ids a simulation gives the rows it would have written, in place of the
@@ -6394,7 +6411,8 @@ export class ForgeExecutor {
    * an org with person accounts, the accounts go before the contacts the
    * platform writes with them: see `personAccountWriteEdges`; and the quotes
    * before the opportunity's products, so that the sync is on as they go in:
-   * see `syncedQuoteWriteEdges`.
+   * see `syncedQuoteWriteEdges`; and an opportunity's team members before its
+   * splits, which go in only for a member: see `opportunityTeamWriteEdges`.
    *
    * The objects outside the graph the run reads records of for the rows that
    * cannot be written without them are written too, each in a turn of its
@@ -6448,6 +6466,7 @@ export class ForgeExecutor {
       ...emailWriteEdges(objects),
       ...personAccountWriteEdges(objects, fieldsByObject),
       ...syncedQuoteWriteEdges(objects, fieldsByObject),
+      ...opportunityTeamWriteEdges(objects),
     ]);
   }
 
@@ -6475,6 +6494,8 @@ export class ForgeExecutor {
    * the accounts before the contacts in an org with person accounts, which
    * the describes of the two tell — asked only of a run that writes both, and
    * answered from the describes its reads hold: see `personAccountWriteEdges`.
+   * And an opportunity's team members before its splits:
+   * see `opportunityTeamWriteEdges`.
    */
   private async singlePassOrder(state: ExecutionState): Promise<ForgeGraphNode[]> {
     const included = state.graph.nodes.filter((n) => n.included);
@@ -6492,6 +6513,7 @@ export class ForgeExecutor {
       return sortNodesForWriting(withWhatTheFieldsSayOfEdges(state.graph, people), [
         ...emailWriteEdges(objects),
         ...personAccountWriteEdges(objects, people),
+        ...opportunityTeamWriteEdges(objects),
       ]);
     }
     const fieldsByObject = new Map<string, readonly FieldInfo[]>();
@@ -8979,6 +9001,98 @@ export class ForgeExecutor {
       state.existingRecords.push({ objectApiName: TASK, linked, unidentified: 0 });
     }
     return { rows: kept, linked };
+  }
+
+  /**
+   * The rows of an opportunity's team still to be written once those the
+   * target holds are linked to — the owner's member and split, which the
+   * platform writes with the opportunity — with the lookups the others go in
+   * with and the rows held back: see `opportunityTeamOf`. The rows of any
+   * other object come back as they are.
+   *
+   * A row linked to is the target's record, never sent: sent, the owner's
+   * member went in as the platform's own, its role changed, and the owner's
+   * split was refused as a second one. Its opportunity one the run created,
+   * the platform deletes it with that opportunity (the owner's split and the
+   * member it is of are not deleted on their own: "Can't delete the
+   * opportunity owner's split").
+   *
+   * @param keyPrefix - The object's key prefix in the target, for the ids a
+   *   simulation gives the records the platform would write.
+   */
+  private async teamOfTheOpportunities(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    keyPrefix: string | null | undefined,
+  ): Promise<{
+    rows: Record<string, unknown>[];
+    lookups: OpportunityTeamRows['lookups'];
+    held: OpportunityTeamRows['held'];
+    linked: number;
+    owners: number;
+  }> {
+    if (!isOpportunityTeamObject(objectApiName) || rows.length === 0) {
+      return { rows, lookups: new Map(), held: new Map(), linked: 0, owners: 0 };
+    }
+    const { config, remapper, simulated } = state;
+    // A simulation does not ask the target which user it writes as: an id of
+    // its own stands for that user, the owner of each opportunity no owner
+    // mapping gives another.
+    let writesAs: string | undefined;
+    const team = await opportunityTeamOf(objectApiName, rows, {
+      source: (soql) => this.deps.queryRecords(state.sourceOrgId, soql),
+      target: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+      targetIdOf: (sourceId) => remapper.get(sourceId),
+      mappedUser: (sourceUserId) => config.ownerMappings[sourceUserId],
+      ...(simulated
+        ? {
+            simulated: {
+              ownerOf: (sourceOwnerId: string) =>
+                config.ownerMappings[sourceOwnerId] ?? (writesAs ??= simulated.idFor(USER_PREFIX)),
+              idFor: () => simulated.idFor(keyPrefix),
+            },
+          }
+        : {}),
+    });
+    for (const [row, { field, parentObject }] of team.held) {
+      if (parentObject !== 'User') continue;
+      // A decision gives the user a value: the row goes, and the write gives it.
+      if (config.decisions.givesDefault(objectApiName, field)) {
+        team.held.delete(row);
+        continue;
+      }
+      // Which a simulation offers, as for any field the target requires and
+      // the run leaves empty.
+      state.gaps?.add({
+        kind: 'required_field_missing',
+        severity: 'blocking',
+        objectApiName,
+        field,
+        rows: 1,
+        detail: { type: 'reference' },
+        decisions: [...(SIMULATION_DECISIONS.required_field_missing ?? [])],
+      });
+    }
+    let owners = 0;
+    for (const [row, { id, owners: ofTheOwner }] of team.linked) {
+      const source = String(row['Id']);
+      remapper.addExisting(source, id, objectApiName);
+      if (remapper.isCreated(String(row['OpportunityId']))) state.withTheirRecord.add(source);
+      if (ofTheOwner) owners++;
+    }
+    const linked = team.linked.size;
+    if (linked > 0) {
+      state.linkedCount += linked;
+      state.existingRecords.push({ objectApiName, linked, unidentified: 0 });
+    }
+    return {
+      rows: linked > 0 ? rows.filter((row) => !team.linked.has(row)) : rows,
+      lookups: team.lookups,
+      held: team.held,
+      linked,
+      owners,
+    };
   }
 
   /**
@@ -11849,6 +11963,19 @@ export class ForgeExecutor {
         withTheirEmail = tasks.linked;
       }
 
+      // The owner's team member and split the platform wrote with one of the
+      // run's opportunities are linked to, never sent again; the other rows
+      // of a team go with their user and their type as the target has them,
+      // or are held back below with why. See `teamOfTheOpportunities`.
+      const team = await this.teamOfTheOpportunities(
+        state,
+        node.objectApiName,
+        toWrite,
+        targetObject?.keyPrefix,
+      );
+      toWrite = team.rows;
+      if (page) page.linked += team.linked;
+
       // A lookup the rows may not leave empty and that can name several
       // objects decides row by row: see `rowsWithoutTheirParent`. Counted as
       // failed, as the rows of a record type held back are — the run read
@@ -11871,6 +11998,18 @@ export class ForgeExecutor {
       )) {
         if (!withoutParent.has(index)) withoutParent.set(index, why);
       }
+      // And a team member or a split whose user or type the target has no
+      // counterpart of: see `opportunityTeamOf`.
+      toWrite.forEach((row, index) => {
+        const why = team.held.get(row);
+        if (why && !withoutParent.has(index)) {
+          withoutParent.set(index, {
+            field: why.field,
+            parentObject: why.parentObject,
+            reason: why.why,
+          });
+        }
+      });
       if (withoutParent.size > 0) {
         toWrite = toWrite.filter((_, index) => !withoutParent.has(index));
         state.failedCount += withoutParent.size;
@@ -11888,7 +12027,9 @@ export class ForgeExecutor {
             samples: parentNotWrittenSamples(withoutParent, state.failedObjects),
           });
         }
-        if (toWrite.length === 0) {
+        // Every row held back, the object failed — but for a team whose other
+        // rows the target holds already, which its line says with these.
+        if (toWrite.length === 0 && team.linked === 0) {
           if (page) return;
           state.failedObjects.add(node.objectApiName);
           // Ending the node, the line counts the rows an exclusion held back
@@ -12075,6 +12216,7 @@ export class ForgeExecutor {
         failedObjects: state.failedObjects,
         writtenObjects: state.writtenObjects,
         ownerMappings: config.ownerMappings,
+        ...(team.lookups.size > 0 ? { resolvedLookups: team.lookups } : {}),
         ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),
         excludedFields,
         fieldRename,
@@ -12405,7 +12547,12 @@ export class ForgeExecutor {
       // its children have a parent to point at. Nor is one the run retried
       // wrote, nor a person account's contact linked to the platform's.
       const settled =
-        nodeSuccess + nodeUpdated + nodeLinked + writtenBefore.length + withTheirAccount.linked;
+        nodeSuccess +
+        nodeUpdated +
+        nodeLinked +
+        writtenBefore.length +
+        withTheirAccount.linked +
+        team.linked;
       const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
@@ -12451,6 +12598,16 @@ export class ForgeExecutor {
         withTheirAccount.linked > 0
           ? `, ${withTheirAccount.linked} written by the platform with their person account`
           : '';
+      // The owner's member and split, which the platform writes with the
+      // opportunity, and the rows of a team the target held already.
+      const teamOthers = team.linked - team.owners;
+      const writtenWithTheirOpportunity =
+        (team.owners > 0
+          ? `, ${team.owners} written by the platform with their opportunity, for its owner`
+          : '') +
+        (teamOthers > 0
+          ? `, ${teamOthers} on the team of their opportunity in the target already`
+          : '');
       // Counted with the rows written or refused, as any contact is: which of
       // them were person accounts' contacts the target wrote none for. Only
       // those the write sent — the first rows it handed over, where a cancel
@@ -12493,7 +12650,7 @@ export class ForgeExecutor {
           : '';
       const counts = (reasons: readonly HeldBackReason[]): string =>
         `${nodeSuccess} ${succeeded}${takenFromTheSync}${updated}${linked}${writtenWithTheirEmail}` +
-        `${writtenWithTheirAccount}${already}, ` +
+        `${writtenWithTheirAccount}${writtenWithTheirOpportunity}${already}, ` +
         `${nodeFailure + heldBackCount(reasons)} failed${unidentified}${ofThemHeldBack(reasons)}`;
       const rest = `${sentOnTheirOwn}${waitForTheirTask}${flagsNotKept}${picklists}${withoutFields}${waiting === 0 ? leftToThePlatform : ''}${readById}`;
 

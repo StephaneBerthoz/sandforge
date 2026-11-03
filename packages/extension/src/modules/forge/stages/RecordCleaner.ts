@@ -233,6 +233,15 @@ export interface CleanNodeRecordsInput {
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
   /**
+   * Per row, as it was read, lookups the run found the target's record of
+   * itself, by field: the user of an opportunity's team member or split, and a
+   * split's type (`opportunityTeamOf`). Each goes with the row as given,
+   * whatever `referenceFallback` says: a lookup at a user is otherwise left
+   * out for the platform to fill, which it does not for these, and the id of a
+   * split type no write of the run maps is otherwise emptied.
+   */
+  resolvedLookups?: ReadonlyMap<Record<string, unknown>, Readonly<Record<string, string>>>;
+  /**
    * Ids a lookup at an object no clone creates names — a user, a queue — or
    * at an object outside the run, that the target was asked for and holds no
    * record of. A run that carries such ids as read (`referenceFallback:
@@ -341,6 +350,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     failedObjects,
     writtenObjects,
     ownerMappings,
+    resolvedLookups,
     targetLacks,
     excludedFields,
     fieldRename,
@@ -420,11 +430,14 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedFks: NullifiedFk[] = [];
     /** The fields of `nullifiedFks` by the name the row was read with. */
     const nullifiedAsRead: string[] = [];
+    const resolved = resolvedLookups?.get(r);
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
       // Excluded by the user, a field is never written: neither at insert nor
       // by the second pass, which filled it in once its record came after.
       if (excludedFields.has(field.name)) continue;
+      // Found in the target already: no second pass owes it.
+      if (resolved?.[field.name] !== undefined) continue;
       // A lookup no write of the run can set is the platform's to fill — a
       // person account's contact, a quote's account read from its
       // opportunity — or one the user the run writes as may not set. It goes
@@ -478,6 +491,9 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     for (const field of nullifiedAsRead) {
       remapped[field] = null;
     }
+    for (const [field, id] of Object.entries(resolved ?? {})) {
+      remapped[field] = id;
+    }
     // Apply per-object owner remap (BA need: clone records authored by
     // ex-employees onto a sandbox where their User no longer exists).
     // Only applies to OwnerId — the generic remapper doesn't see User
@@ -520,6 +536,11 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         continue;
       }
       if (!creatableFields.has(key)) continue;
+      // A target id the run found itself, which no rule below second-guesses.
+      if (resolved?.[key] !== undefined) {
+        cleaned[key] = resolved[key];
+        continue;
+      }
       /*
        * A lookup that can only ever point at something a clone never creates
        * — `OwnerId` at a `User`, and the other provisioning and metadata
