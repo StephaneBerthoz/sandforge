@@ -267,8 +267,11 @@ export interface PersistedLoad {
    * has to find them. `settled` names, by record id, what this load took from
    * them — purged, reused as its own, or, of a load that does not say what it
    * created, judged by the purge. Absent, the mapping holds this load alone.
+   * `stillToSweep` names, by when each wrote its last record, the loads whose
+   * sweep asked with this reload left what it was to take: kept, none of
+   * their records left, for the next sweep of them.
    */
-  earlier?: { settled: readonly string[] };
+  earlier?: { settled: readonly string[]; stillToSweep?: readonly string[] };
   /**
    * The person accounts' contacts the load linked to the one the platform
    * wrote with each account, by their key, each with the key of its account.

@@ -219,6 +219,13 @@ describe('sweepTiesOf: the run’s records and their creators', () => {
     expect(ties.get(task)?.class).toBe('made');
   });
 
+  it('keeps for late what an earlier sweep found made late and left, its tie since cleared by a purge', () => {
+    const ties = sweepTiesOf(
+      input([found(task, 5_000, [], true)], { lateEarlier: new Set([task]) }),
+    );
+    expect(ties.get(task)?.class).toBe('late');
+  });
+
   it('goes with a record of the run only by lookups that cascade', () => {
     const feedItem = key('0D5', 1);
     const comment = key('0D7', 1);

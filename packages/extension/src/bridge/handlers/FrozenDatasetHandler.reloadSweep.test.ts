@@ -19,6 +19,7 @@ import {
   buildFrozenManifest,
   SasReferenceIdMappingStore,
   type FrozenLoadOptions,
+  type FrozenDatasetLoaderDeps,
 } from '../../modules/frozendataset/index.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -47,10 +48,10 @@ vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../modules/frozendataset/index.js')>();
   return {
     ...actual,
-    FrozenDatasetLoader: vi.fn().mockImplementation(function () {
+    FrozenDatasetLoader: vi.fn().mockImplementation(function (deps: FrozenDatasetLoaderDeps) {
       return {
         gateLoad: async () => 'allowed',
-        load: (options: FrozenLoadOptions) => loaderLoad(options),
+        load: (options: FrozenLoadOptions) => loaderLoad(options, deps),
       };
     }),
   };
@@ -363,7 +364,8 @@ describe('a reload asked to sweep what the automation made for the loads it repl
     await reload({ sweep: true });
 
     expect(tied.ids('Task')).toEqual([TASK]);
-    expect(report()?.status).toBe('completed');
+    // Said completed, the Load tab drew a green badge above a refused sweep.
+    expect(report()?.status).toBe('partial');
     expect(report()?.sweeps?.[0]?.result).toMatchObject({
       status: 'refused',
       refusal: expect.stringContaining('no deletes of tasks here'),
@@ -373,6 +375,22 @@ describe('a reload asked to sweep what the automation made for the loads it repl
     ).toMatchObject({
       result: { status: 'partial' },
     });
+    expect(store.get<{ status: string }>('frozen:lastRun')?.status).toBe('partial');
+  });
+
+  it('stays completed when its sweep took all it was asked to and kept what came late', async () => {
+    // Made five minutes after the contact: late, listed and kept unasked.
+    const LATE = '2026-10-01T10:10:00.000+0000';
+    Object.assign(tied.row('Task', TASK)!, {
+      CreatedDate: LATE,
+      LastModifiedDate: LATE,
+      SystemModstamp: LATE,
+    });
+
+    await reload({ sweep: true });
+
+    expect(report()?.sweeps?.[0]?.result.status).toBe('success');
+    expect(report()?.status).toBe('completed');
   });
 
   it('mutes what fires as the sweep deletes, read with the rest, or the flow on the task runs', async () => {
@@ -471,6 +489,42 @@ describe('a reload asked to sweep what the automation made for the loads it repl
     expect(tied.deletes).toEqual([]);
   });
 
+  it('lists nothing to take of a target refreshed since, rather than another load recorded since', async () => {
+    // The command line reads this list before a reload with a sweep, and
+    // stopped on its error: a refreshed target, which leaves the sweep
+    // nothing, could not be reloaded.
+    tied.rows.set('Organization', [{ Id: id('00D', 8) }]);
+
+    await handler.handle(
+      buildMsg('frozen:remove:sweep', {
+        targetOrgId: TARGET_ORG,
+        loadedAt: LAST_WRITE,
+        reload: true,
+      }),
+    );
+
+    expect(errors('frozen:remove:sweep:error')).toEqual([]);
+    expect(
+      posted<BaseMessage & { payload: { loads: FrozenReloadSweepListing[] } }>(
+        'frozen:remove:sweep:response',
+      )[0]?.payload.loads,
+    ).toEqual([]);
+  });
+
+  it('refuses a list of a load another one replaced since it was shown', async () => {
+    await handler.handle(
+      buildMsg('frozen:remove:sweep', {
+        targetOrgId: TARGET_ORG,
+        loadedAt: '2026-09-01T00:00:00.000Z',
+        reload: true,
+      }),
+    );
+
+    expect(errors('frozen:remove:sweep:error').map((e) => e.payload.code)).toEqual([
+      'LOAD_CHANGED',
+    ]);
+  });
+
   it('reads what fires on what the sweep takes with the purge’s deletes', async () => {
     await handler.handle(
       buildMsg('frozen:remove:automation', {
@@ -486,5 +540,161 @@ describe('a reload asked to sweep what the automation made for the loads it repl
     )[0]?.payload;
     expect(answer?.steps.delete).toEqual(['Contact', 'Account', 'Task']);
     expect(read).toHaveBeenCalledWith(TARGET_ORG, ['Contact', 'Account', 'Task']);
+  });
+
+  describe('what its sweep leaves, kept the load’s for the next sweep', () => {
+    /** The records the reload inserts, as the target dated them the next day. */
+    const NEW_ACCOUNT = id('001', 2);
+    const NEW_CONTACT = id('003', 2);
+    const RELOAD_FIRST = '2026-10-02T09:00:00.000Z';
+    const RELOAD_LAST = '2026-10-02T09:05:00.000Z';
+    const RELOADED_AT = '2026-10-02T09:04:50.000+0000';
+
+    /** The recorded loads, as the next reload reads them. */
+    const recordedLoads = () =>
+      new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+      }).recordedLoads();
+
+    /** Production Guard refusing every delete of a task, the rest let through. */
+    function refusingTasks(): void {
+      const guard = new ProductionGuard();
+      const check = guard.check.bind(guard);
+      vi.spyOn(guard, 'check').mockImplementation((request) =>
+        request.objectName === 'Task'
+          ? { ...check(request), allowed: false, blockedReason: 'no deletes of tasks here' }
+          : check(request),
+      );
+      deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];
+      handler = new FrozenDatasetHandler(deps);
+      handler.setTargetAutomation({ read });
+    }
+
+    /** Production Guard as it stands by default, letting deletes on a sandbox through. */
+    function lettingThrough(): void {
+      deps.infraServices = {
+        productionGuard: new ProductionGuard(),
+      } as unknown as HandlerDeps['infraServices'];
+      handler = new FrozenDatasetHandler(deps);
+      handler.setTargetAutomation({ read });
+    }
+
+    beforeEach(() => {
+      // The purge as the loader runs it, then the mapping kept as the loader
+      // keeps it: the records it inserted, and the loads before it without
+      // what it purged — those whose sweep it is told still owe one kept.
+      loaderLoad.mockImplementation(
+        async (options: FrozenLoadOptions, loaderDeps: FrozenDatasetLoaderDeps) => {
+          await options.purgeSweep?.first();
+          const purged: string[] = [];
+          for (const object of ['Contact', 'Account']) {
+            const ids = tied.ids(object);
+            purged.push(...ids);
+            if (ids.length > 0) await tied.conn.sobject(object).destroy(ids);
+          }
+          if (!options.signal?.aborted) await options.purgeSweep?.afterPurge();
+          const made = (recordId: string, name: string, more = {}) => ({
+            Id: recordId,
+            Name: name,
+            CreatedById: USER,
+            CreatedDate: RELOADED_AT,
+            LastModifiedDate: RELOADED_AT,
+            LastModifiedById: USER,
+            SystemModstamp: RELOADED_AT,
+            ...more,
+          });
+          tied.add('Account', made(NEW_ACCOUNT, 'Reloaded account'));
+          tied.add('Contact', made(NEW_CONTACT, 'Reloaded contact', { AccountId: NEW_ACCOUNT }));
+          const stillToSweep = options.purgeSweep?.stillToSweep?.() ?? [];
+          await loaderDeps.mappingStore.persist(
+            new Map([
+              ['Account-000001', NEW_ACCOUNT],
+              ['Contact-000001', NEW_CONTACT],
+            ]),
+            {
+              created: [
+                { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+                { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+              ],
+              startedAt: new Date(RELOAD_FIRST),
+              writtenBetween: { first: RELOAD_FIRST, last: RELOAD_LAST },
+              earlier: {
+                settled: purged,
+                ...(stillToSweep.length > 0 ? { stillToSweep } : {}),
+              },
+              runUserId: USER,
+            },
+          );
+          return reloadReport();
+        },
+      );
+    });
+
+    it('lets the load it replaced go once its sweep took all it found', async () => {
+      await reload({ sweep: true });
+
+      expect(tied.ids('Task')).toEqual([]);
+      expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
+    });
+
+    it('keeps the load a refused sweep left its task of, and the next reload’s sweep takes it', async () => {
+      refusingTasks();
+      await reload({ sweep: true });
+
+      expect(tied.ids('Task')).toEqual([TASK]);
+      expect(tied.ids('Contact')).toEqual([NEW_CONTACT]);
+      const replaced = (await recordedLoads()).find((load) => load.endedAt === LAST_WRITE);
+      expect(replaced).toMatchObject({ created: [], madeEarlier: [TASK] });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      lettingThrough();
+      await reload({ sweep: true });
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([]);
+      expect(report()?.sweeps).toEqual(
+        expect.arrayContaining([
+          {
+            loadedAt: LAST_WRITE,
+            result: expect.objectContaining({
+              status: 'success',
+              objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+            }),
+          },
+        ]),
+      );
+      expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
+    });
+
+    it('keeps the task the flow made late, which a reload asked to take what came late then takes', async () => {
+      // Five minutes after the contact: what a scheduled path opens.
+      const LATE = '2026-10-01T10:10:00.000+0000';
+      Object.assign(tied.row('Task', TASK)!, {
+        CreatedDate: LATE,
+        LastModifiedDate: LATE,
+        SystemModstamp: LATE,
+      });
+
+      await reload({ sweep: true });
+
+      expect(tied.ids('Task')).toEqual([TASK]);
+      expect(report()?.sweeps?.[0]?.result.left).toEqual([
+        expect.objectContaining({ class: 'late', option: '--sweep-late' }),
+      ]);
+      const replaced = (await recordedLoads()).find((load) => load.endedAt === LAST_WRITE);
+      expect(replaced).toMatchObject({ created: [], lateEarlier: [TASK] });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await reload({ sweep: true });
+      expect(tied.ids('Task')).toEqual([TASK]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await reload({ sweep: true, sweepLate: true });
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Task')).toEqual([]);
+      expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
+    });
   });
 });

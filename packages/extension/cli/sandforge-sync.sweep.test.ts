@@ -63,6 +63,7 @@ function partsAnswering(
   return (_org, input, options) => ({
     automationMade: new Set<string>(),
     made: new Set<string>(),
+    late: new Set<string>(),
     ask: vi.fn(async () => undefined),
     listing: undefined,
     takes: [],

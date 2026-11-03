@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { SWEEP_MADE_PER_OBJECT } from '../forge/ForgeRemovalPlanStore.js';
+import { loadRecordsLeft } from './loadRecords.js';
 import { InsideRepoPathError, SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import {
   REFERENCEID_MAPPING_FILENAME,
@@ -688,6 +689,33 @@ describe('SasReferenceIdMappingStore', () => {
       );
     });
 
+    it('keeps a load nothing is left of while the reload’s sweep of it still owes, with its dates and its user', async () => {
+      const dir = makeTmpDir();
+      await firstLoad(dir);
+
+      await storeAt(dir, '2026-09-24T11:05:00.000Z').persist(
+        new Map([['Account-000001', SECOND_ACCOUNT]]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: new Date('2026-09-24T11:00:00.000Z'),
+          earlier: {
+            settled: [FIRST_ACCOUNT, FIRST_CONTACT],
+            stillToSweep: ['2026-09-24T10:05:00.000Z'],
+          },
+        },
+      );
+
+      const [, first] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+      expect(first).toMatchObject({
+        endedAt: '2026-09-24T10:05:00.000Z',
+        earlier: true,
+        created: [],
+        writtenBetween: { first: '2026-09-24T10:00:02.000Z', last: '2026-09-24T10:04:58.000Z' },
+      });
+      // What it linked is not its own to purge or remove.
+      expect(loadRecordsLeft(first)).toEqual([]);
+    });
+
     it('keeps nothing of a load written to another org than the target is', async () => {
       const dir = makeTmpDir();
       await firstLoad(dir);
@@ -1056,6 +1084,17 @@ describe('SasReferenceIdMappingStore', () => {
       await expect(store.recordMade(ENDED, [TASK.slice(0, 15)])).resolves.toBe(true);
 
       expect((await store.recorded())?.madeEarlier).toEqual([TASK, FEED]);
+    });
+
+    it('keeps apart what a sweep found made late for the load, and writes no empty list', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+
+      await expect(store.recordMade(ENDED, [], [TASK])).resolves.toBe(true);
+
+      expect(await store.recorded()).toMatchObject({ lateEarlier: [TASK] });
+      expect(await store.recorded()).not.toHaveProperty('madeEarlier');
     });
 
     it('keeps it through the removal that follows the sweep', async () => {

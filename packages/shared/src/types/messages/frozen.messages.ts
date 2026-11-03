@@ -405,7 +405,17 @@ export interface FrozenRemovePreviewResponse extends BaseMessage {
 /** `frozen:remove:automation:response`. Extension -> WebView. What the target runs as a removal of the load writes, step by step. */
 export interface FrozenRemoveAutomationResponse extends BaseMessage {
   type: 'frozen:remove:automation:response';
-  payload: { loadedAt: string; automation: ForgeTargetAutomation; steps: ForgeRemovalSteps };
+  payload: {
+    loadedAt: string;
+    automation: ForgeTargetAutomation;
+    steps: ForgeRemovalSteps;
+    /**
+     * For a reload asked with what its sweep deletes (`sweptObjects`): what
+     * its purge alone writes, which `steps` holds with the sweep's deletes.
+     * What fires on each is said with what deletes it.
+     */
+    purge?: ForgeRemovalSteps;
+  };
 }
 
 /** `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the load's removal would take. */

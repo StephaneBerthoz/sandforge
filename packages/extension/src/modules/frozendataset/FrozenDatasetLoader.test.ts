@@ -2718,6 +2718,46 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
       expect(sweep.afterPurge).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the load it replaced whose sweep still owes, its records purged, and lets the others go', async () => {
+      // Dropped once the purge took its records, the load replaced took with
+      // it what tied to it what its sweep left: the next sweep found nothing.
+      const recorded = async (sasDir: string) =>
+        new SasReferenceIdMappingStore(sasDir, {
+          guard: new SasPathGuard(repoRoot),
+        }).recordedLoads();
+      const reloadOwing = async (owes: boolean) => {
+        const dataset = makeAccountContactDataset();
+        const sasDir = makeTmpDir();
+        await seedPreviousMapping(sasDir, {
+          'Account-000001': '001OLD-ACCOUNT',
+          'Contact-000001': '003OLD-CONTACT',
+        });
+        const [replaced] = await recorded(sasDir);
+        const calls: DmlCall[] = [];
+        const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+        const sweep = {
+          ...sweepNoted(calls),
+          stillToSweep: () => (owes ? [replaced.endedAt] : []),
+        };
+        await new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+        );
+        return { replaced, after: await recorded(sasDir) };
+      };
+
+      const owing = await reloadOwing(true);
+      expect(owing.after).toHaveLength(2);
+      expect(owing.after[1]).toMatchObject({
+        endedAt: owing.replaced.endedAt,
+        created: [],
+        earlier: true,
+      });
+      expect([...owing.after[1].mapping.values()]).toEqual([]);
+
+      const through = await reloadOwing(false);
+      expect(through.after.map((load) => load.endedAt)).not.toContain(through.replaced.endedAt);
+    });
+
     it('runs none of it for a pilot, which purges nothing, nor its last part once a cancel stopped the purge', async () => {
       const dataset = makeAccountContactDataset();
       const sasDir = makeTmpDir();

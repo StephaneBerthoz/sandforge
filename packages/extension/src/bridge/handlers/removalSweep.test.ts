@@ -117,6 +117,32 @@ describe('removalSweepOf', () => {
     expect([...request.kept[0]]).toEqual([TASK]);
   });
 
+  it('says what it did so far without recording it, and keeps what it found made though Production Guard refused it', async () => {
+    const org = orgAfterRun();
+    const request = requestOf(org, {
+      guard: {
+        check: () => ({
+          allowed: false,
+          requiresConfirmation: false,
+          warnings: [],
+          impactSummary: '',
+          blockedReason: 'no deletes here',
+        }),
+        confirmIfNeeded: async () => false,
+      } as never,
+    });
+    const sweep = await removalSweepOf(request);
+
+    await sweep.ask();
+    expect(sweep.result()).toMatchObject({ status: 'refused' });
+    expect(request.recorded).toEqual([]);
+
+    await sweep.settle();
+    expect(org.ids('Task')).toEqual([TASK]);
+    expect(request.recorded).toHaveLength(1);
+    expect([...request.kept[0]]).toEqual([TASK]);
+  });
+
   it('says the objects it deletes records of once it has read, and none of a sweep refused', async () => {
     const org = orgAfterRun();
     const sweep = await removalSweepOf(requestOf(org));

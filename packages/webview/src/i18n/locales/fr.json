@@ -5196,6 +5196,7 @@
       "stopping": "Arrêt en cours : le chargement s'arrête avant sa prochaine écriture. Ce qu'il a écrit reste dans l'org, nommé dans le mapping pour une suppression ou un rechargement.",
       "cancelRefused": "Impossible d'annuler le chargement",
       "cancelRefusedDetail": "Le chargement n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
+      "sweptBeforeEnd": "Avant la fin du chargement, son balayage avait déjà fait ceci :",
       "pilotHint": "Charge un enregistrement racine et ce qui en dépend, pour essayer le chargement avant tout le jeu de données.",
       "reloadHint": "Supprime de la cible ce que les chargements antérieurs de ce jeu de données ont créé et que celui-ci ne retrouve pas, puis charge.",
       "runReload": "Recharger",
@@ -5261,7 +5262,8 @@
       "title": "Rapport de chargement",
       "status": {
         "completed": "Terminé",
-        "completed-with-errors": "Terminé avec erreurs"
+        "completed-with-errors": "Terminé avec erreurs",
+        "partial": "Partiel : le balayage a laissé des enregistrements"
       },
       "inserted": "Insérés",
       "reused": "Réutilisés",

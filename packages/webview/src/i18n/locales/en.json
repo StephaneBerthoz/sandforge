@@ -5196,6 +5196,7 @@
       "stopping": "Stopping: the load ends before its next write. What it wrote stays in the org, named in the mapping for a removal or a reload.",
       "cancelRefused": "Could not cancel the load",
       "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window.",
+      "sweptBeforeEnd": "Before the load ended, its sweep had already done this:",
       "pilotHint": "Loads one root record and what hangs under it, to try the load before the whole dataset.",
       "reloadHint": "Deletes from the target what earlier loads of this dataset created and this one does not find again, then loads.",
       "runReload": "Reload",
@@ -5261,7 +5262,8 @@
       "title": "Load report",
       "status": {
         "completed": "Completed",
-        "completed-with-errors": "Completed with errors"
+        "completed-with-errors": "Completed with errors",
+        "partial": "Partial: the sweep left records"
       },
       "inserted": "Inserted",
       "reused": "Reused",

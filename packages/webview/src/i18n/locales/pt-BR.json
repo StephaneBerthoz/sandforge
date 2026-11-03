@@ -5196,6 +5196,7 @@
       "stopping": "Parando: a carga termina antes da próxima gravação. O que ela gravou fica na org, nomeado no mapeamento para uma remoção ou uma recarga.",
       "cancelRefused": "Não foi possível cancelar a carga",
       "cancelRefusedDetail": "A carga não está mais em andamento, ou não foi iniciada a partir desta janela.",
+      "sweptBeforeEnd": "Antes de o carregamento terminar, a varredura dele já tinha feito isto:",
       "pilotHint": "Carrega um registro raiz e o que está abaixo dele, para testar a carga antes do dataset inteiro.",
       "reloadHint": "Exclui do destino o que as cargas anteriores deste dataset criaram e esta não reencontra, depois carrega.",
       "runReload": "Recarregar",
@@ -5261,7 +5262,8 @@
       "title": "Relatório de carga",
       "status": {
         "completed": "Concluída",
-        "completed-with-errors": "Concluída com erros"
+        "completed-with-errors": "Concluída com erros",
+        "partial": "Parcial: a varredura deixou registros"
       },
       "inserted": "Inseridos",
       "reused": "Reutilizados",

@@ -2531,29 +2531,43 @@ export function removalStepsAutomationLines(
   target: string,
   steps: ForgeRemovalSteps,
   subject: RemovalStepsSubject = 'removal',
+  sweep?: ForgeRemovalSteps,
 ): string[] {
-  const lines = [
-    subject === 'reload'
-      ? `reload automation: what ${target} runs as the reload purges what earlier loads created`
-      : `removal automation: what ${target} runs as the removal takes the run back`,
-  ];
-  for (const entry of firedOnRemovalStepsOf(automation, steps)) {
-    lines.push(
-      entry.step === 'delete'
-        ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
-        : `  ${entry.objectApiName}: ${REMOVAL_STEP_WORDS[entry.step]}: ${firedWords(entry)}`,
-    );
-  }
   const unread = automationUnreadOf(automation);
-  if (lines.length === 1 && unread.length === 0) {
-    const objects = new Set(Object.values(steps).flat()).size;
-    lines.push(`  nothing fires on the ${objects} object(s) it writes records of`);
-  }
-  for (const { part, reason } of unread) {
-    lines.push(`  ${UNREAD_WORDS[part]} could not be read: ${reason}`);
-  }
-  return lines;
+  /** One writer's lines: what fires as it writes, or that nothing does. */
+  const linesOf = (written: ForgeRemovalSteps, writer: RemovalStepsSubject): string[] => {
+    const lines = [REMOVAL_STEPS_HEADINGS[writer](target)];
+    for (const entry of firedOnRemovalStepsOf(automation, written)) {
+      lines.push(
+        entry.step === 'delete'
+          ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
+          : `  ${entry.objectApiName}: ${REMOVAL_STEP_WORDS[entry.step]}: ${firedWords(entry)}`,
+      );
+    }
+    if (lines.length === 1 && unread.length === 0) {
+      const objects = new Set(Object.values(written).flat()).size;
+      lines.push(`  nothing fires on the ${objects} object(s) it writes records of`);
+    }
+    return lines;
+  };
+  return [
+    ...linesOf(steps, subject),
+    // What a reload's sweep deletes, said apart from its purge: a task the
+    // sweep took was said to be one the purge deleted.
+    ...(sweep ? linesOf(sweep, 'reloadSweep') : []),
+    ...unread.map(({ part, reason }) => `  ${UNREAD_WORDS[part]} could not be read: ${reason}`),
+  ];
 }
+
+/** The first line of what fires as each {@link RemovalStepsSubject} writes. */
+const REMOVAL_STEPS_HEADINGS: Readonly<Record<RemovalStepsSubject, (target: string) => string>> = {
+  removal: (target) => `removal automation: what ${target} runs as the removal takes the run back`,
+  reload: (target) =>
+    `reload automation: what ${target} runs as the reload purges what earlier loads created`,
+  reloadSweep: (target) =>
+    `reload automation: what ${target} runs as the reload's sweep deletes what the target's ` +
+    'automation made for the loads it replaces',
+};
 
 /**
  * Why the command line will not take a whole run back without
@@ -2576,11 +2590,18 @@ export function removalStepsAutomationRefusal(
     assign?: readonly BypassToAssign[];
     mayMute?: boolean;
     subject?: RemovalStepsSubject;
+    /**
+     * What the sweep asked with a reload deletes, named apart from what its
+     * purge writes (`steps`): each with what deletes it. Said as the purge's,
+     * a task the sweep took read as one the purge deleted.
+     */
+    sweep?: ForgeRemovalSteps;
   },
 ): string | undefined {
   const fired = firedOnRemovalStepsOf(automation, options.steps);
+  const swept = options.sweep ? firedOnRemovalStepsOf(automation, options.sweep) : [];
   const unread = automationUnreadOf(automation);
-  if (fired.length === 0 && unread.length === 0) return undefined;
+  if (fired.length === 0 && swept.length === 0 && unread.length === 0) return undefined;
   const of = (step: ForgeRemovalStep): ForgeFiredOnRemovalStep[] =>
     fired.filter((entry) => entry.step === step);
   const words = REMOVAL_STEPS_SUBJECT_WORDS[options.subject ?? 'removal'];
@@ -2611,6 +2632,15 @@ export function removalStepsAutomationRefusal(
       `${target} runs automation on the records ${words.this} deletes: ${named.join('; ')}.`,
     );
   }
+  if (swept.length > 0) {
+    const named = swept.map(
+      (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
+    );
+    parts.push(
+      `${target} runs automation on the records ${REMOVAL_STEPS_SUBJECT_WORDS.reloadSweep.this} ` +
+        `deletes: ${named.join('; ')}.`,
+    );
+  }
   for (const { part, reason } of unread) {
     parts.push(
       `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
@@ -2627,12 +2657,14 @@ export function removalStepsAutomationRefusal(
 }
 
 /**
- * What writes the steps a refusal names: a removal that takes a run back, or
- * the purge a reload runs before it loads, which deletes as a removal does.
- * Said in a removal's words, the refusal of a reload told a pipeline to
- * "remove all the same" a load it had asked to replace.
+ * What writes the steps a refusal names: a removal that takes a run back,
+ * the purge a reload runs before it loads, which deletes as a removal does,
+ * or the sweep asked with that reload. Said in a removal's words, the refusal
+ * of a reload told a pipeline to "remove all the same" a load it had asked to
+ * replace; said in the purge's, the sweep's refusal named the tasks it took as
+ * the purge's deletes.
  */
-export type RemovalStepsSubject = 'removal' | 'reload';
+export type RemovalStepsSubject = 'removal' | 'reload' | 'reloadSweep';
 
 /** The words of each {@link RemovalStepsSubject}: what writes, as whom, and what to add. */
 const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
@@ -2648,6 +2680,13 @@ const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
   reload: {
     this: "this reload's purge",
     the: "the reload's purge",
+    who: 'the reload',
+    run: 'reload',
+    verb: 'reload',
+  },
+  reloadSweep: {
+    this: "this reload's sweep",
+    the: "the reload's sweep",
     who: 'the reload',
     run: 'reload',
     verb: 'reload',

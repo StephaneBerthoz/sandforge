@@ -190,6 +190,12 @@ export interface SweepTieInput {
   removalBegan: number;
   /** Keys an earlier sweep found `made`, whose tie a removal since may have cleared: `made` still. */
   madeEarlier?: ReadonlySet<string>;
+  /**
+   * Keys an earlier sweep found `late` and left, whose tie a removal or a
+   * reload's purge since may have cleared: `late` still, taken only when
+   * what came late is asked for.
+   */
+  lateEarlier?: ReadonlySet<string>;
 }
 
 /** What a sweep tells of one record it found. */
@@ -326,6 +332,7 @@ export function sweepTiesOf(input: SweepTieInput): Map<string, SweepTie> {
     if (!best && input.madeEarlier?.has(candidate.key) && !candidate.automatedProcess) {
       best = { class: 'made', sameSave: false };
     }
+    if (!best && input.lateEarlier?.has(candidate.key)) best = { class: 'late', sameSave: false };
     const turn: SweepTurn = restricted.has(candidate.key)
       ? 'after'
       : withCreated(candidate.key, 1, new Set())

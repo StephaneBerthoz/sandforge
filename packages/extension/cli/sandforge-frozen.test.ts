@@ -1120,6 +1120,100 @@ describe('messageLines', () => {
     expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
   });
 
+  it('counts with a reload’s dry run what --sweep-untied takes, and names it no more as what would take it', () => {
+    // Run for real on the trap org: "would delete 1 of them" and "Task: 30
+    // (--sweep-untied takes them)", the flag given, and the reload then
+    // deleted the 30 tasks.
+    const listed = {
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-10-16T10:05:00.000Z',
+        reload: true,
+        loads: [
+          {
+            loadedAt: '2026-10-16T10:05:00.000Z',
+            listing: {
+              window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
+              looked: ['Contact', 'Task', 'FeedItem'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 30,
+                  names: [],
+                  classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+                },
+                {
+                  objectApiName: 'FeedItem',
+                  count: 1,
+                  names: [],
+                  classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+                },
+              ],
+              untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+              late: [],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    };
+
+    const taken = messageLines(listed, { sweepUntied: true });
+    expect(taken).toContain(
+      'it found 31 record(s) and would delete 31 of them, children first; per object, all it found:',
+    );
+    expect(taken.join('\n')).not.toContain('--sweep-untied takes them');
+
+    const kept = messageLines(listed);
+    expect(kept).toContain(
+      'it found 31 record(s) and would delete 1 of them, children first; per object, all it found:',
+    );
+    expect(kept.join('\n')).toContain('Task: 30 (--sweep-untied takes them)');
+  });
+
+  it('says beside the error of a reload what its sweep had taken before the load ended', () => {
+    // Said in the audit trail alone, under a message that nothing was purged.
+    const lines = messageLines({
+      type: 'frozen:load:error',
+      payload: {
+        message:
+          'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+        code: 'LOAD_CANCELLED',
+        sweeps: [
+          {
+            loadedAt: '2026-10-16T10:05:00.000Z',
+            result: {
+              status: 'cancelled',
+              objects: [
+                {
+                  objectApiName: 'Task',
+                  found: 230,
+                  deleted: 200,
+                  alreadyGone: 0,
+                  keptChanged: 0,
+                  refused: 0,
+                  reasons: [],
+                },
+              ],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(lines[0]).toBe(
+      '! frozen:load:error: The load was cancelled before it created or purged a record: the mapping is left as it was. [LOAD_CANCELLED]',
+    );
+    expect(lines.slice(1, 3)).toEqual([
+      'before the load ended, its sweep had already done this:',
+      'sweep of the load of 2026-10-16T10:05:00.000Z:',
+    ]);
+    expect(lines.join('\n')).toContain('Task: 200 deleted of 230');
+  });
+
   it('says a verification that found the load wrote part of the dataset partial', () => {
     const lines = messageLines({
       type: 'frozen:verify:result',

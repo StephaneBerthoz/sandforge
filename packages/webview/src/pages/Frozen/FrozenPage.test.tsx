@@ -1137,7 +1137,7 @@ describe('FrozenPage', () => {
       tab: 'load',
       status: statusFixture(),
       loadReport: {
-        status: 'completed',
+        status: 'partial',
         orgId: 'org-2',
         mode: { pilot: false, reload: true },
         startedAt: '2026-10-16T11:00:00Z',
@@ -1170,6 +1170,10 @@ describe('FrozenPage', () => {
     const sweeps = screen.getByTestId('frozen-report-sweeps');
     expect(sweeps.textContent).toContain('Swept for the load of 2026-10-15');
     expect(sweeps.textContent).toContain('no deletes of tasks here');
+    // A green Completed stood above the refused sweep.
+    const report = screen.getByTestId('frozen-load-report');
+    expect(report.textContent).toContain('Partial: the sweep left records');
+    expect(report.textContent).not.toContain('Completed');
   });
 
   it('names the links the load left unresolved, by object and lookup, with what each cost', () => {

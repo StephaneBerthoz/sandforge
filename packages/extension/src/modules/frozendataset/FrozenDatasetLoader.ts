@@ -324,8 +324,17 @@ export interface FrozenLoadOptions {
    * and not after a cancel or a failure. Purged alone, the loads replaced
    * left the tasks a flow had opened on each contact they inserted, one set
    * per load. Ignored for a pilot, which purges nothing.
+   *
+   * `stillToSweep` names, as the mapping is kept, the loads replaced whose
+   * sweep has not taken all it was to: the mapping keeps them once the purge
+   * took their records, as a removal keeps the load it took back, for the next
+   * sweep of them (`PersistedLoad.earlier`).
    */
-  purgeSweep?: { first: () => Promise<unknown>; afterPurge: () => Promise<unknown> };
+  purgeSweep?: {
+    first: () => Promise<unknown>;
+    afterPurge: () => Promise<unknown>;
+    stillToSweep?: () => readonly string[];
+  };
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -2015,11 +2024,15 @@ export class FrozenDatasetLoader {
     const persistMapping = async (): Promise<void> => {
       const writtenBetween = await this.readWrittenBetween(orgId, created, mapping);
       const linkedContacts = personContactOutcome?.linked ?? new Map<string, string>();
+      const stillToSweep = options.pilot ? undefined : options.purgeSweep?.stillToSweep?.();
       await this.deps.mappingStore.persist(mapping, {
         created: created.list(carried),
         startedAt,
         ...(writtenBetween ? { writtenBetween } : {}),
-        earlier: { settled: [...settled] },
+        earlier: {
+          settled: [...settled],
+          ...(stillToSweep && stillToSweep.length > 0 ? { stillToSweep: [...stillToSweep] } : {}),
+        },
         ...(linkedContacts.size > 0 ? { personContacts: Object.fromEntries(linkedContacts) } : {}),
         ...(withTheirRecord.size > 0
           ? { withTheirRecord: Object.fromEntries(withTheirRecord) }

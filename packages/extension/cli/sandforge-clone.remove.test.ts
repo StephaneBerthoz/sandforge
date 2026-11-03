@@ -229,6 +229,7 @@ function partsAnswering(
   return (_org, _input, options) => ({
     automationMade: new Set(made),
     made: new Set(made),
+    late: new Set<string>(),
     ask: vi.fn(async () => {
       if (listing && !takesNothing) await options.approve?.(listing);
     }),

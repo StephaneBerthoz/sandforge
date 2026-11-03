@@ -358,6 +358,12 @@ export interface SweepTies {
    * cleared the lookup that told it.
    */
   madeEarlier?: readonly string[];
+  /**
+   * The records an earlier sweep found made late for the run and left, by
+   * id: `late` still, though the record they were tied to went since and the
+   * org cleared the lookup that told it.
+   */
+  lateEarlier?: readonly string[];
 }
 
 /** What a sweep is told of the run it sweeps after. */
@@ -1340,6 +1346,7 @@ async function findTied(
     window,
     removalBegan,
     madeEarlier: new Set((ties.madeEarlier ?? []).map(recordKey)),
+    lateEarlier: new Set((ties.lateEarlier ?? []).map(recordKey)),
   });
   classify(found, tied, ties, findings, window, removalSpans);
   listing.found.push(...overBound);
@@ -1514,8 +1521,17 @@ export interface SweepParts {
    * The ids of what the sweep found made for the run (`made`, `madeOver`),
    * as the org wrote them: what the run keeps beside it for the next sweep
    * (`SweepTies.madeEarlier`), once a lookup that told the tie may be gone.
+   * Filled by `ask`, whatever its question is answered: a sweep refused
+   * there left them tied to a run whose records a reload's purge then took.
    */
   readonly made: ReadonlySet<string>;
+  /**
+   * The ids of what the sweep found made late for the run (`late`), filled by
+   * `ask` as `made` is: what the run keeps for the next sweep
+   * (`SweepTies.lateEarlier`), which takes them when what came late is asked
+   * for. Its record gone, nothing else told them the run's.
+   */
+  readonly late: ReadonlySet<string>;
   /**
    * Once the run's records are deleted: delete what waited for them, what
    * should have gone with them still in the org, then send once more what
@@ -1541,6 +1557,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   const stopped = (): boolean => input.signal?.aborted === true;
   const automationMade = new Set<string>();
   const made = new Set<string>();
+  const late = new Set<string>();
   const sweeps: ObjectSweep[] = [];
   let state: 'new' | 'asked' | 'cancelled' | 'refused' | 'first' | 'done' = 'new';
   let refusal: string | undefined;
@@ -1616,6 +1633,14 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         state = 'cancelled';
         return;
       }
+      // What it found tied to the run, kept for the next sweep whatever is
+      // answered below.
+      for (const rows of findings.rows.values()) {
+        for (const row of rows) {
+          if (row.class === 'made' || row.class === 'madeOver') made.add(row.id);
+          else if (row.class === 'late') late.add(row.id);
+        }
+      }
       if (listing.refusal !== undefined) {
         state = 'refused';
         refusal = listing.refusal;
@@ -1650,6 +1675,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   return {
     automationMade,
     made,
+    late,
 
     get listing() {
       return found && !found.stopped ? found.listing : undefined;
@@ -1690,7 +1716,6 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         sweeps.push(sweep);
         const before: string[] = [];
         for (const row of all) {
-          if (row.class === 'made' || row.class === 'madeOver') made.add(row.id);
           if (changedSince(row, window, options.removalSpans) && !options.includeChanged) {
             sweep.result.keptChanged++;
             continue;

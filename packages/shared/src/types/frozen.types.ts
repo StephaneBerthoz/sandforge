@@ -501,7 +501,13 @@ export interface FrozenPerObjectLoadResult {
 
 /** Final load report — every exclusion/adjustment is listed. */
 export interface FrozenLoadReportInfo {
-  status: 'completed' | 'completed-with-errors';
+  /**
+   * How the load ended: `partial` for a reload that wrote all it was to and
+   * whose sweep (`sweeps`) was refused or did not take all it was asked to,
+   * as the removal a sweep goes with ends. Said `completed`, the panel drew a
+   * green badge above a sweep Production Guard had refused.
+   */
+  status: 'completed' | 'completed-with-errors' | 'partial';
   /**
    * What the run muted of the target's automation, when it was asked to
    * (`muteAutomation`): the permission sets assigned to the user it wrote as

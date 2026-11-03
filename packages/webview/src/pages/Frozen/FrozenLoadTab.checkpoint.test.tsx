@@ -254,6 +254,57 @@ describe('FrozenLoadTab, Take a checkpoint now', () => {
       );
     });
 
+    it('says what the sweep of a reload it stopped took, beside its error', () => {
+      // Said in the audit trail alone, under a message that nothing was purged.
+      render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      const load = lastSent('frozen:load');
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'err-2',
+              type: 'frozen:load:error',
+              timestamp: Date.now(),
+              correlationId: load?.id,
+              payload: {
+                message:
+                  'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+                code: 'LOAD_CANCELLED',
+                sweeps: [
+                  {
+                    loadedAt: '2026-10-22T09:00:00.000Z',
+                    result: {
+                      status: 'cancelled',
+                      objects: [
+                        {
+                          objectApiName: 'Task',
+                          found: 230,
+                          deleted: 200,
+                          alreadyGone: 0,
+                          keptChanged: 0,
+                          refused: 0,
+                          reasons: [],
+                        },
+                      ],
+                      unread: [],
+                      handWork: [],
+                    },
+                  },
+                  { loadedAt: 'not a sweep' },
+                ],
+              },
+            },
+          }),
+        );
+      });
+      const swept = screen.getByTestId('frozen-load-error-sweeps');
+      expect(swept).toHaveTextContent('Before the load ended, its sweep had already done this:');
+      expect(swept).toHaveTextContent('Swept for the load of 2026-10-22');
+      expect(within(swept).getByTestId('forge-sweep-result-Task')).toHaveTextContent('200');
+      expect(within(swept).getAllByTestId('forge-sweep-result')).toHaveLength(1);
+    });
+
     it('says what the preview found it would hold and cost', () => {
       render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
       fireEvent.click(screen.getByTestId('frozen-load-checkpoint-first-toggle'));

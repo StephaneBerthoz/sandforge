@@ -10,6 +10,7 @@ import type {
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
+  FrozenReloadSweep as FrozenReloadSwept,
   FrozenReloadSweepListing,
   FrozenVerifyVerdict,
   RunCheckpointInfo,
@@ -63,6 +64,60 @@ const RELOAD_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
 
 /** The requests a reload is refused on: the load, and its preview. */
 const RELOAD_REQUESTS: ReadonlySet<string> = new Set(['frozen:load', 'frozen:load:preview']);
+
+/**
+ * What the sweeps asked with a reload did, as the error that ended it carries
+ * them (`sweeps`), or none: read from the host's message, each kept only when
+ * it reads as one.
+ */
+function reloadSweepsOf(value: unknown): FrozenReloadSwept[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is FrozenReloadSwept => {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { loadedAt, result } = entry as Record<string, unknown>;
+    if (typeof loadedAt !== 'string' || typeof result !== 'object' || result === null) {
+      return false;
+    }
+    const { status, objects, unread, handWork } = result as Record<string, unknown>;
+    return (
+      typeof status === 'string' &&
+      Array.isArray(objects) &&
+      Array.isArray(unread) &&
+      Array.isArray(handWork)
+    );
+  });
+}
+
+/** Props for {@link ReloadSweeps}. */
+interface ReloadSweepsProps {
+  sweeps: readonly FrozenReloadSwept[];
+  /** The org they swept, as the user knows it. */
+  org: string;
+  testId: string;
+}
+
+/**
+ * What the sweep asked with a reload took and left for each load it
+ * replaced, as a removal's result says it: in the load's report, and beside
+ * the error of a reload that stopped or failed once its sweep had deleted.
+ */
+const ReloadSweeps: React.FC<ReloadSweepsProps> = ({ sweeps, org, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-2" data-testid={testId}>
+      {sweeps.map((swept) => (
+        <div key={swept.loadedAt} className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-primary">
+            {t('frozen.report.sweptFor', {
+              date: formatStoredDate(swept.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+            })}
+          </span>
+          <ForgeRunSweepResult result={swept.result} org={org} />
+        </div>
+      ))}
+    </div>
+  );
+};
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -200,6 +255,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const [checkpointAfterError, setCheckpointAfterError] = useState<RunCheckpointInfo | undefined>(
     undefined,
   );
+  /**
+   * What the sweep asked with a reload did before a cancel or a failure ended
+   * it, as the error says: its deletes were said only in the audit trail,
+   * under a message that the load had purged nothing.
+   */
+  const [sweepsAfterError, setSweepsAfterError] = useState<FrozenReloadSwept[]>([]);
   const [writeEncrypted, setWriteEncrypted] = useState(false);
   // A dataset whose manifest does not say its extraction left out the
   // encrypted fields it read masked may hold their masks: its load leaves out
@@ -229,11 +290,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   useEffect(() => {
     if (loadRequestId !== null) lastLoadId.current = loadRequestId;
   }, [loadRequestId]);
-  useMessageListener<BaseMessage & { payload?: { checkpoint?: unknown } }>(
+  useMessageListener<BaseMessage & { payload?: { checkpoint?: unknown; sweeps?: unknown } }>(
     'frozen:load:error',
     (msg) => {
       if (msg.correlationId === lastLoadId.current) {
         setCheckpointAfterError(runCheckpointOf(msg.payload?.checkpoint));
+        setSweepsAfterError(reloadSweepsOf(msg.payload?.sweeps));
       }
     },
   );
@@ -319,6 +381,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     setLoadReport(null);
     setVerdict(null);
     setCheckpointAfterError(undefined);
+    setSweepsAfterError([]);
     previewMutation.reset();
     // Only the load mutes: its preview writes nothing.
     loadMutation.mutate({
@@ -886,6 +949,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             compact
             testId="frozen-load-error-checkpoint"
           />
+          {!loadReport && sweepsAfterError.length > 0 && (
+            <div className="flex flex-col gap-1" data-testid="frozen-load-error-sweeps">
+              <span className="text-xs font-medium text-text-primary">
+                {t('frozen.load.sweptBeforeEnd')}
+              </span>
+              <ReloadSweeps
+                sweeps={sweepsAfterError}
+                org={targetName}
+                testId="frozen-load-error-sweeps-list"
+              />
+            </div>
+          )}
           {verifyMutation.error && (
             <ErrorBanner message={verifyMutation.error} code={verifyMutation.errorCode} />
           )}
@@ -1393,20 +1468,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               {/* What the sweep asked with the reload took for each load it
                   replaced, and what it left, as a removal's result says it. */}
               {(loadReport.sweeps ?? []).length > 0 && (
-                <div className="flex flex-col gap-2" data-testid="frozen-report-sweeps">
-                  {(loadReport.sweeps ?? []).map((swept) => (
-                    <div key={swept.loadedAt} className="flex flex-col gap-1">
-                      <span className="text-xs font-medium text-text-primary">
-                        {t('frozen.report.sweptFor', {
-                          date:
-                            formatStoredDate(swept.loadedAt, 'yyyy-MM-dd HH:mm') ??
-                            t('common.dateUnknown'),
-                        })}
-                      </span>
-                      <ForgeRunSweepResult result={swept.result} org={targetName} />
-                    </div>
-                  ))}
-                </div>
+                <ReloadSweeps
+                  sweeps={loadReport.sweeps ?? []}
+                  org={targetName}
+                  testId="frozen-report-sweeps"
+                />
               )}
 
               {removalRows.length > 0 && (

@@ -13548,11 +13548,36 @@ for (const theme of STATE_THEMES) {
           'takes it back, and a reload purges it or finds it again.',
         code: 'LOAD_CANCELLED',
         retryable: false,
+        // What the sweep asked with the reload took before the cancel, said beside it.
+        sweeps: [
+          {
+            loadedAt: '2026-10-22T09:00:00.000Z',
+            result: {
+              status: 'cancelled',
+              objects: [
+                {
+                  objectApiName: 'Task',
+                  found: 230,
+                  deleted: 200,
+                  alreadyGone: 0,
+                  keptChanged: 0,
+                  refused: 0,
+                  reasons: [],
+                },
+              ],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
       });
       const lines = page.getByTestId('frozen-load-progress').locator('li');
       await expect(lines).toHaveCount(4, { timeout: 10_000 });
       await expect(lines.last().locator('span').first()).toHaveClass(/bg-status-warning/);
       await page.getByTestId('frozen-error').waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-load-error-sweeps')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
     });

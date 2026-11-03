@@ -5196,6 +5196,7 @@
       "stopping": "Wird angehalten: Der Ladevorgang endet vor seinem nächsten Schreibvorgang. Was er geschrieben hat, bleibt in der Org und ist im Mapping für ein Entfernen oder ein Neuladen benannt.",
       "cancelRefused": "Der Ladevorgang konnte nicht abgebrochen werden",
       "cancelRefusedDetail": "Der Ladevorgang läuft nicht mehr, oder er wurde nicht aus diesem Fenster gestartet.",
+      "sweptBeforeEnd": "Bevor der Ladevorgang endete, hatte sein Aufräumen bereits Folgendes getan:",
       "pilotHint": "Lädt einen Stammdatensatz und was darunter hängt, um das Laden vor dem ganzen Dataset zu erproben.",
       "reloadHint": "Löscht aus dem Ziel, was frühere Ladevorgänge dieses Datasets erstellt haben und dieser nicht wiederfindet, und lädt dann.",
       "runReload": "Neu laden",
@@ -5261,7 +5262,8 @@
       "title": "Ladebericht",
       "status": {
         "completed": "Abgeschlossen",
-        "completed-with-errors": "Mit Fehlern abgeschlossen"
+        "completed-with-errors": "Mit Fehlern abgeschlossen",
+        "partial": "Teilweise: Das Aufräumen hat Datensätze übrig gelassen"
       },
       "inserted": "Eingefügt",
       "reused": "Wiederverwendet",

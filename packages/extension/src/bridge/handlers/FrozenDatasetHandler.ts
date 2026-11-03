@@ -7,6 +7,7 @@ import type {
   ForgeConfig,
   ForgeGraph,
   ForgeRemovalSteps,
+  ForgeSweepResult,
   FrozenControlReport,
   FrozenDiscoveryOrigin,
   FrozenGraphCoverage,
@@ -324,6 +325,16 @@ function removalStepsOfLoad(
 ): ForgeRemovalSteps {
   const removed = [...new Set(plan.map((object) => object.objectApiName))];
   return removalStepsWithSweep({ setToDraft: setBackToDraftOf(removed), delete: removed }, swept);
+}
+
+/**
+ * Whether a sweep took all it was asked to and left nothing it found: no
+ * record refused, kept as changed since, or still waiting, and nothing made
+ * late or tied to nothing kept. A reload keeps the load it swept recorded
+ * otherwise, for the next sweep of it.
+ */
+function sweepTookAll(result: ForgeSweepResult): boolean {
+  return result.status === 'success' && (result.left ?? []).length === 0;
 }
 
 /** ConfigStore category for all frozen-dataset data. */
@@ -2746,7 +2757,11 @@ export class FrozenDatasetHandler implements DomainHandler {
           // gave its records; as it ends, below, whatever it ended on.
           ...(held ? { lease: { giveBack: () => held.release() } } : {}),
           // Under the lease, around the purge: each load's first part before
-          // it, its last once the purge's deletes are through.
+          // it, its last once the purge's deletes are through. A load whose
+          // sweep left what it was to take stays recorded once the purge took
+          // its records, as a removal keeps the load it took back: dropped,
+          // what its sweep left was tied to no load, and the option its result
+          // named took nothing.
           ...(sweeps.length > 0
             ? {
                 purgeSweep: {
@@ -2756,6 +2771,10 @@ export class FrozenDatasetHandler implements DomainHandler {
                   afterPurge: async () => {
                     for (const { sweep } of sweeps) await sweep.afterRemoval();
                   },
+                  stillToSweep: () =>
+                    sweeps
+                      .filter(({ sweep }) => !sweepTookAll(sweep.result()))
+                      .map(({ loadedAt }) => loadedAt),
                 },
               }
             : {}),
@@ -2769,6 +2788,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       const swepts = await this.settleReloadSweeps(sweeps);
       /** Whether a sweep left what it was asked to take: the load then ends partial. */
       const sweepLeft = swepts.some((swept) => swept.result.status !== 'success');
+      // A sweep that left what it was to take ends the load partial, as it
+      // ends the removal it is asked with: never a success, in the report,
+      // the last run, Live Operations and the command line alike.
+      const status: FrozenLoadReportInfo['status'] =
+        report.status === 'completed' && sweepLeft ? 'partial' : report.status;
       // Kept once the load wrote a record, whatever it came to; deleted when
       // it wrote none.
       if (taken) checkpoint = await this.settleCheckpoint(taken, recordsWritten(report) > 0);
@@ -2783,7 +2807,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         datasetDir,
         manifestPath: path.join(datasetDir, 'manifest.json'),
         targetOrgId: parsed.targetOrgId,
-        status: report.status,
+        status,
         at: new Date().toISOString(),
       };
       this.recordLastRun(lastRun);
@@ -2791,17 +2815,14 @@ export class FrozenDatasetHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'frozen:load:response', {
         report: {
           ...toLoadReportInfo(report),
+          status,
           ...(mutedAutomation ? { mutedAutomation } : {}),
           ...(checkpoint ? { checkpoint } : {}),
           ...(swepts.length > 0 ? { sweeps: swepts } : {}),
         },
       });
       this.deps.broker.postToWebview(response);
-      // A sweep that left what it was to take ends the load partial, as it
-      // ends the removal it is asked with: never a success.
-      sendOperationCompleted(this.deps, operationId, {
-        status: report.status === 'completed' && sweepLeft ? 'partial' : report.status,
-      });
+      sendOperationCompleted(this.deps, operationId, { status });
       ended = true;
       // Records the org refused: listed partial, as the report says.
       if (report.status === 'completed-with-errors' || sweepLeft) {
@@ -3639,10 +3660,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
       let steps: ForgeRemovalSteps;
+      /** The purge's own steps, said apart from what the reload's sweep deletes. */
+      let purge: ForgeRemovalSteps | undefined;
       if (parsed.reload === true) {
         // What a sweep asked with the reload takes is deleted around the
         // purge, and fires as much.
         steps = await this.purgeStepsOf(store, config, parsed.sweptObjects ?? []);
+        if ((parsed.sweptObjects ?? []).length > 0) purge = await this.purgeStepsOf(store, config);
       } else {
         const load = loadToRemove(await store.recordedLoads());
         const refused = removalRefusalOf(load, parsed);
@@ -3673,6 +3697,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           loadedAt: parsed.loadedAt,
           automation,
           steps,
+          ...(purge ? { purge } : {}),
         }),
       );
     } catch (err: unknown) {
@@ -4473,8 +4498,8 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
       },
-      keepMade: async (made) => {
-        await context.store.recordMade(load.endedAt, made);
+      keepMade: async (made, late) => {
+        await context.store.recordMade(load.endedAt, made, late);
       },
     });
   }
@@ -4565,6 +4590,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       otherRuns: otherRunsInSweep(writtenBetween, others),
       ...(began ? { removalBegan: began } : {}),
       ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
+      ...(load.lateEarlier ? { lateEarlier: load.lateEarlier } : {}),
     };
   }
 
@@ -4660,10 +4686,14 @@ export class FrozenDatasetHandler implements DomainHandler {
     store: SasReferenceIdMappingStore,
     request: { targetOrgId: string; loadedAt: string },
   ): Promise<void> {
-    const loads = (await store.isStale())
-      ? []
-      : (await store.recordedLoads()).filter((load) => load.created);
-    if (!loads.some((load) => load.endedAt === request.loadedAt)) {
+    // A target refreshed since took the loads' records with it, and leaves a
+    // sweep nothing to take: said as such, not as another load recorded since,
+    // which the command line now reads before a reload and stopped it on.
+    // A load that does not say what it created is swept by no reload, which
+    // refuses it in its own words.
+    const recorded = (await store.isStale()) ? undefined : await store.recordedLoads();
+    const loads = (recorded ?? []).filter((load) => load.created);
+    if (recorded && !recorded.some((load) => load.endedAt === request.loadedAt)) {
       sendHandlerError(
         this.deps,
         'frozen:remove:sweep',
@@ -4679,6 +4709,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     const listed = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
       'frozen:remove:sweep',
       async () => {
+        if (loads.length === 0) return [];
         const conn = await getJsforceConnection(
           request.targetOrgId,
           this.deps.orgRegistry,

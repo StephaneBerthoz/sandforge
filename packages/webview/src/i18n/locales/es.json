@@ -5196,6 +5196,7 @@
       "stopping": "Deteniendo: la carga termina antes de su próxima escritura. Lo que escribió queda en la org, nombrado en el mapeo para una eliminación o una recarga.",
       "cancelRefused": "No se pudo cancelar la carga",
       "cancelRefusedDetail": "La carga ya no está en curso, o no se inició desde esta ventana.",
+      "sweptBeforeEnd": "Antes de que terminara la carga, su barrido ya había hecho esto:",
       "pilotHint": "Carga un registro raíz y lo que cuelga de él, para probar la carga antes de todo el dataset.",
       "reloadHint": "Borra del destino lo que las cargas anteriores de este dataset crearon y esta no vuelve a encontrar, y luego carga.",
       "runReload": "Recargar",
@@ -5261,7 +5262,8 @@
       "title": "Informe de carga",
       "status": {
         "completed": "Completada",
-        "completed-with-errors": "Completada con errores"
+        "completed-with-errors": "Completada con errores",
+        "partial": "Parcial: el barrido dejó registros"
       },
       "inserted": "Insertados",
       "reused": "Reutilizados",

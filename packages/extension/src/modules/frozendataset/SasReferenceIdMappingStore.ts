@@ -275,6 +275,12 @@ interface LoadPayload {
    * after the lookup that told it may be gone.
    */
   madeEarlier?: string[];
+  /**
+   * What those sweeps found made late for it and left, by record id: tied to
+   * it once, those stay its own, late still, for the next sweep asked to take
+   * what came late.
+   */
+  lateEarlier?: string[];
 }
 
 /** On-disk shape of the persisted mapping: the last load, and the ones it kept. */
@@ -356,6 +362,7 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
   const withTheirRecord = readAs(keyLinksSchema, raw.withTheirRecord);
   const runUserId = readAs(recordIdSchema, raw.runUserId);
   const madeEarlier = readAs(z.array(recordIdSchema), raw.madeEarlier);
+  const lateEarlier = readAs(z.array(recordIdSchema), raw.lateEarlier);
   return {
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
     mapping,
@@ -369,6 +376,7 @@ function loadPartsOf(value: unknown): LoadPayload | undefined {
     ...(withTheirRecord ? { withTheirRecord } : {}),
     ...(runUserId ? { runUserId } : {}),
     ...(madeEarlier ? { madeEarlier } : {}),
+    ...(lateEarlier ? { lateEarlier } : {}),
   };
 }
 
@@ -441,6 +449,8 @@ export interface RecordedLoad {
   runUserId?: string;
   /** What sweeps of its removals found made for the load, by record id: see `recordMade`. */
   madeEarlier?: readonly string[];
+  /** What they found made late for it and left, by record id: see `recordMade`. */
+  lateEarlier?: readonly string[];
   /** Set for a load before the last one, which the last load kept. */
   earlier?: true;
 }
@@ -823,6 +833,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       ...(load.withTheirRecord ? { withTheirRecord: load.withTheirRecord } : {}),
       ...(load.runUserId ? { runUserId: load.runUserId } : {}),
       ...(load.madeEarlier ? { madeEarlier: load.madeEarlier } : {}),
+      ...(load.lateEarlier ? { lateEarlier: load.lateEarlier } : {}),
     };
   }
 
@@ -933,19 +944,26 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * The loads the file records that a load keeping them carries on, newest
    * first, each without what the load settled: none when the file was written
    * to another org, a registered one or the one a refresh left, and none of a
-   * load left with nothing a reload or a removal would look for.
+   * load left with nothing a reload or a removal would look for — but for
+   * those `stillToSweep` names, whose sweep left what it was to take: kept
+   * with none of their records, as a removal keeps the load it took back, so
+   * that the next sweep of them still finds what it left. Dropped, a reload's
+   * sweep refused by Production Guard, or that left tasks made late, named
+   * an option that took them, and nothing tied them to a load any more.
    */
   private async keptLoads(
     payload: MappingFilePayload | undefined,
     settled: readonly string[],
+    stillToSweep: readonly string[] = [],
   ): Promise<LoadPayload[]> {
     if (payload === undefined || payload.orgId !== this.orgId) return [];
     if (await this.writtenToAnotherOrg(payload)) return [];
     const keys = new Set(settled.map(recordKey));
+    const owed = new Set(stillToSweep);
     const last = loadPartsOf(payload);
     return [...(last ? [last] : []), ...earlierOf(payload)]
       .map((load) => withoutRecords(load, keys))
-      .filter(stillNamesSome);
+      .filter((load) => stillNamesSome(load) || owed.has(endedAtOf(load)));
   }
 
   /**
@@ -965,7 +983,9 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    */
   async persist(mapping: ReadonlyMap<string, string>, load?: PersistedLoad): Promise<void> {
     const { payload, journals } = await this.readWithJournals();
-    const kept = load?.earlier ? await this.keptLoads(payload, load.earlier.settled) : [];
+    const kept = load?.earlier
+      ? await this.keptLoads(payload, load.earlier.settled, load.earlier.stillToSweep)
+      : [];
     const organizationId = await this.currentOrganizationId();
     const endedAt = this.now().toISOString();
     const named = (links: Readonly<Record<string, string>> | undefined): Record<string, string> =>
@@ -1060,19 +1080,36 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * once, up to {@link SWEEP_MADE_PER_OBJECT} of an object, as Forge keeps
    * them.
    *
+   * What it found made late for the load is kept the same way, apart: late
+   * still for the next sweep, which takes it only when asked to take what
+   * came late.
+   *
    * @param endedAt - When the load wrote its last record, as {@link recorded}
    *   named it.
    * @returns Whether the file still recorded that load, and was written.
    */
-  async recordMade(endedAt: string, made: Iterable<string>): Promise<boolean> {
+  async recordMade(
+    endedAt: string,
+    made: Iterable<string>,
+    late: Iterable<string> = [],
+  ): Promise<boolean> {
     const { payload, journals } = await this.readWithJournals();
     const last = loadPartsOf(payload);
     if (payload === undefined || last === undefined) return false;
     const loads = [last, ...earlierOf(payload)];
     const swept = loads.findIndex((load) => endedAtOf(load) === endedAt);
     if (swept < 0) return false;
+    const withMade = (load: LoadPayload): LoadPayload => {
+      const madeEarlier = madeKept(load.madeEarlier, made);
+      const lateEarlier = madeKept(load.lateEarlier, late);
+      return {
+        ...load,
+        ...(madeEarlier.length > 0 ? { madeEarlier } : {}),
+        ...(lateEarlier.length > 0 ? { lateEarlier } : {}),
+      };
+    };
     const [nextLast, ...nextEarlier] = loads.map((load, index) =>
-      index === swept ? { ...load, madeEarlier: madeKept(load.madeEarlier, made) } : load,
+      index === swept ? withMade(load) : load,
     );
     await this.write({
       version: 1,

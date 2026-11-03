@@ -132,6 +132,11 @@ export interface RemovalSweep {
   /** What the sweep takes, which holds none of the run's records back: filled by `first`. */
   readonly automationMade: ReadonlySet<string>;
   /**
+   * What the sweep did so far, recording and keeping nothing: what `settle`
+   * says once it is through.
+   */
+  result(): ForgeSweepResult;
+  /**
    * What the sweep did, recorded in the audit trail beside the removal, and
    * what it found made for the run kept for the next one: once, however
    * often it is asked.
@@ -157,8 +162,12 @@ export interface RemovalSweepRequest {
    * sweep that asked nothing.
    */
   onGuardDecision: (result: ForgeSweepResult, decision: GuardDecision | undefined) => void;
-  /** Keep what it found made for the run, for the next sweep (`SweepTies.madeEarlier`). */
-  keepMade?: (made: ReadonlySet<string>) => Promise<void>;
+  /**
+   * Keep what it found made for the run, for the next sweep
+   * (`SweepTies.madeEarlier`), and what it found made late
+   * (`SweepTies.lateEarlier`).
+   */
+  keepMade?: (made: ReadonlySet<string>, late: ReadonlySet<string>) => Promise<void>;
 }
 
 /**
@@ -225,6 +234,7 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
     },
     first: () => part((sweep) => sweep.first()),
     afterRemoval: () => part((sweep) => sweep.afterRemoval()),
+    result: () => stopped ?? parts?.result() ?? SWEEP_NOT_RUN,
     settle: () => {
       settled ??= (async () => {
         const result = stopped ?? parts?.result() ?? SWEEP_NOT_RUN;
@@ -232,9 +242,9 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
         // What it found made for the run, read before its first delete: once
         // a removal deleted the record one was tied to, the org may have
         // cleared the lookup that told it, and the next sweep listed it as
-        // tied to nothing.
-        if (parts && parts.made.size > 0) {
-          await request.keepMade?.(parts.made).catch(() => undefined);
+        // tied to nothing — or, made late, found it in no class.
+        if (parts && (parts.made.size > 0 || parts.late.size > 0)) {
+          await request.keepMade?.(parts.made, parts.late).catch(() => undefined);
         }
         return result;
       })();

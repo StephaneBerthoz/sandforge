@@ -1595,6 +1595,19 @@ describe('what a sweep takes', () => {
     });
   });
 
+  it('keeps what it found made for the run, and made late, whatever its question is answered', async () => {
+    // Refused, it kept nothing: a reload's purge then took the records they
+    // were tied to, and the next sweep found them tied to nothing.
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), { ...NO_SPANS, approve: async () => 'Declined.' });
+
+    await parts.ask();
+
+    expect(org.deletes).toEqual([]);
+    expect([...parts.made]).toContain(id('00T', 1));
+    expect([...parts.late].sort()).toEqual([id('00T', 4), id('00T', 5)].sort());
+  });
+
   it('reads as cancelled when it was asked and the removal never reached its first part', async () => {
     const org = tiedOrg();
     const parts = sweepParts(org, tiedInput(), NO_SPANS);

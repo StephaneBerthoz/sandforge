@@ -579,12 +579,40 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(answered().refused).toMatchObject({
         code: 'AUTOMATION_NOT_ACCEPTED',
         message: expect.stringContaining(
-          "TGT runs automation on the records this reload's purge deletes: Asset",
+          "TGT runs automation on the records this reload's sweep deletes: Asset",
         ),
       });
       expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
       expect(org.deletes).toEqual([]);
       expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('names before anything is written what fires on the purge’s deletes and on the sweep’s, each with what deletes it', async () => {
+      // Run for real on the trap org, the refusal named the flow on the
+      // contacts the purge deletes alone; the one on the tasks the sweep
+      // takes met whoever had turned the first off.
+      onCase = true;
+
+      expect(await reloadStep('--sweep', '--yes', '--json')).toBe(1);
+
+      expect(answered().refused).toMatchObject({ code: 'AUTOMATION_NOT_ACCEPTED' });
+      expect(answered().refused?.message).toContain(
+        `TGT runs automation on the records this reload's purge deletes: Case: flow "Case audit" (after delete). ` +
+          `TGT runs automation on the records this reload's sweep deletes: Asset: flow "Asset guard" (before delete).`,
+      );
+      expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('writes nothing when what its sweep would take could not be read', async () => {
+      vi.mocked(getJsforceConnection).mockRejectedValue(new Error('INVALID_SESSION_ID'));
+
+      expect(await reloadStep('--sweep', '--accept-automation', '--yes')).toBe(1);
+
+      expect(stdout + stderr).toContain('! frozen:remove:sweep:error: ');
+      expect(stdout + stderr).toContain('Nothing written.');
+      expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+      expect(org.deletes).toEqual([]);
     });
 
     it('takes the asset once accepted, and says what the sweep left: the org refused it', async () => {
@@ -597,6 +625,12 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
         { loadedAt: WRITTEN_OVER, result: expect.objectContaining({ status: 'failure' }) },
       ]);
       expect(org.ids('Asset')).toEqual([ASSET]);
+      // The sweep's own question, once it read what it takes, in the sweep's
+      // words: never under the purge's.
+      expect(stderr).not.toContain(
+        'reload automation: what TGT runs as the reload purges what earlier loads created\n  Asset',
+      );
+      expect(stderr.split("as the reload's sweep deletes").length - 1).toBe(2);
     });
 
     it('mutes what fires on what its sweep deletes, and takes it', async () => {
@@ -640,7 +674,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(stdout).toContain(`sweep of the load of ${WRITTEN_OVER}:`);
       expect(stdout).toContain('Asset');
       expect(stdout).toContain(
-        "a load would be refused: TGT runs automation on the records this reload's purge deletes: Asset",
+        "a load would be refused: TGT runs automation on the records this reload's sweep deletes: Asset",
       );
       expect(org.deletes).toEqual([]);
       expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
@@ -886,6 +920,44 @@ describe('the words of what a removal runs into', () => {
     );
     expect(unread.refusal).toContain('Add --accept-automation to reload all the same');
     expect(`${fires.refusal ?? ''}${unread.refusal ?? ''}`).not.toContain('removal');
+  });
+
+  it('names what fires on what a reload’s sweep deletes as the sweep’s, apart from its purge’s', () => {
+    // Run for real on the trap org, the sweep's question said "this
+    // reload's purge deletes: Task", tasks the sweep took and the purge
+    // never touched.
+    const both = removalAutomation(
+      {
+        read: automationOn(['Case', 'Asset'], true),
+        steps: { setToDraft: [], delete: ['Case'] },
+      },
+      'TGT',
+      'reload',
+      { delete: ['Asset'] },
+    );
+    const sweepAlone = removalAutomation(
+      { read: automationOn(['Asset'], false), steps: { setToDraft: [], delete: ['Asset'] } },
+      'TGT',
+      'reloadSweep',
+    );
+
+    expect(both.lines).toEqual([
+      'reload automation: what TGT runs as the reload purges what earlier loads created',
+      '  Case: after delete: flow "Case audit"',
+      "reload automation: what TGT runs as the reload's sweep deletes what the target's automation made for the loads it replaces",
+      '  Asset: before delete: flow "Asset guard"',
+    ]);
+    expect(both.refusal).toContain(
+      `TGT runs automation on the records this reload's purge deletes: Case: flow "Case audit" (after delete). ` +
+        `TGT runs automation on the records this reload's sweep deletes: Asset: flow "Asset guard" (before delete).`,
+    );
+    expect(sweepAlone.lines[0]).toBe(
+      "reload automation: what TGT runs as the reload's sweep deletes what the target's automation made for the loads it replaces",
+    );
+    expect(sweepAlone.refusal).toContain(
+      `TGT runs automation on the records this reload's sweep deletes: Asset: flow "Asset guard" (before delete).`,
+    );
+    expect(sweepAlone.refusal).not.toContain('purge');
   });
 });
 
