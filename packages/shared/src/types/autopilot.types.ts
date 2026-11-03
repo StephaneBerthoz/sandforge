@@ -27,8 +27,9 @@ export type AutopilotNodeStatus =
   | 'skipped';
 
 /**
- * How a run ended: a failure when it died or wrote none of what it was sent;
- * partial when it wrote some of it and not all it set out to do.
+ * How a run ended: a failure when it died or wrote and linked none of what it
+ * was sent; partial when it wrote some of it and not all it set out to do, or
+ * was stopped, however much it wrote.
  */
 export type AutopilotRunStatus = 'success' | 'partial' | 'failure';
 

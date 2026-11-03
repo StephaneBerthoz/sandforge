@@ -3,7 +3,9 @@ import type { ExecutionResult } from './AutopilotExecutor.js';
 
 /**
  * How a run ended: the one reading of its result that its exit code, `--json`,
- * the panel and the audit trail all give. A failure when it died or produced
+ * the panel and the audit trail all give — but for a stopped run, which the
+ * audit trail records stopped, or cancelled once it wrote or had a record
+ * refused. A failure when it died or produced
  * only failures. Partial when the target refused some of what it wrote, an
  * object of it failed, a record it wrote stands without a lookup it tried to
  * fill or at the draft status it was born with, or it was stopped.

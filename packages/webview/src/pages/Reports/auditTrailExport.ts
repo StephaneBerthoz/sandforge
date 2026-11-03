@@ -21,6 +21,7 @@ const COUNT_COLUMNS = [
   'lookupsLeftEmpty',
   'lookupsNotFilled',
   'statusesNotGivenBack',
+  'statusesNotApplied',
   'deleted',
   'failed',
   'mayHaveBeenWritten',

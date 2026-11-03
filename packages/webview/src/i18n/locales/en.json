@@ -2911,7 +2911,9 @@
       "lookupsNotFilled_one": "{{count}} kept a lookup empty, filling it failed",
       "lookupsNotFilled_other": "{{count}} kept a lookup empty, filling it failed",
       "statusesNotGivenBack_one": "{{count}} left a draft, the run stopped",
-      "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped"
+      "statusesNotGivenBack_other": "{{count}} left drafts, the run stopped",
+      "statusesNotApplied_one": "{{count}} left a draft, its status refused",
+      "statusesNotApplied_other": "{{count}} left drafts, their status refused"
     },
     "auditShowing": "Showing {{shown}} of {{total}}",
     "showMore": "Show more",
@@ -6351,6 +6353,10 @@
         "explanation": "A record this one points to belongs to an object whose write failed in this run, so this one was held back rather than written without it.",
         "action": "Fix what made that object's write fail — its node says why — then run again."
       }
+    },
+    "cutWithParent": {
+      "explanation": "The record this lookup names was read, then held back: since the fit, it came to name a record the fit cut. This one, written before it, keeps the lookup empty.",
+      "action": "Fit the plan again to take in what moved in the source since, or set the lookup in the target org."
     },
     "personAccountNotWritten": {
       "explanation": "This contact's person account is not in the target org, and Salesforce writes a person account's contact with its account.",

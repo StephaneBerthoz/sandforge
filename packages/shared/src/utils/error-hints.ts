@@ -433,6 +433,13 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     own: true,
     keys: ['errors.parentNotWritten.explanation', 'errors.parentNotWritten.action'],
   },
+  // A lookup Autopilot left empty: the record it names was read, then held
+  // back with a record the fit of the plan cut, which it came to name since.
+  CUT_WITH_PARENT: {
+    severity: 'warning',
+    own: true,
+    keys: ['errors.cutWithParent.explanation', 'errors.cutWithParent.action'],
+  },
   PERSON_ACCOUNT_NOT_WRITTEN: {
     severity: 'warning',
     own: true,

@@ -2737,7 +2737,8 @@
       "mayHaveBeenWritten_other": "{{count}}件は呼び出しに応答がなく、ターゲットにある可能性あり",
       "lookupsLeftEmpty_other": "{{count}}件は参照項目が空のまま（実行停止）",
       "lookupsNotFilled_other": "{{count}}件は参照項目が空のまま（設定に失敗）",
-      "statusesNotGivenBack_other": "{{count}}件はドラフトのまま（実行停止）"
+      "statusesNotGivenBack_other": "{{count}}件はドラフトのまま（実行停止）",
+      "statusesNotApplied_other": "{{count}}件はドラフトのまま（ステータスが拒否された）"
     },
     "auditShowing": "{{total}}件中{{shown}}件を表示",
     "showMore": "さらに表示",
@@ -5992,6 +5993,10 @@
         "explanation": "このレコードが参照するレコードは、この実行で書き込みに失敗したオブジェクトのものです。そのため、そのレコードなしで書き込まずにこのレコードを保留しました。",
         "action": "そのオブジェクトの書き込みが失敗した原因を修正してから (理由はそのノードに表示されます)、もう一度実行してください。"
       }
+    },
+    "cutWithParent": {
+      "explanation": "この参照項目が指すレコードは読み取られた後に保留されました。調整後に、調整で外したレコードを参照するようになったためです。先に書き込まれたこのレコードの参照項目は空のままです。",
+      "action": "その後ソースで変わった内容を取り込むように計画を再調整するか、ターゲット組織で参照項目を設定してください。"
     },
     "personAccountNotWritten": {
       "explanation": "この取引先責任者の個人取引先がターゲット組織にありません。Salesforce は個人取引先の取引先責任者を取引先と一緒に書き込みます。",

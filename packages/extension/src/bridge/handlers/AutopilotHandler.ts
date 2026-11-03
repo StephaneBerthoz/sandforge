@@ -1585,20 +1585,17 @@ export class AutopilotHandler implements DomainHandler {
           }
           // Written, and left a draft: as above, the page and the audit named
           // neither, an order standing at Draft in a run called a success.
-          const statusesRefused = (statuses?.refusals ?? []).reduce(
-            (sum, refusal) => sum + refusal.count,
-            0,
-          );
-          if (statuses && statusesRefused > 0) {
+          // Each record once, whatever reasons the target gave — summed by
+          // reason, one order read as two — and in a column of its own: in
+          // the stop's, a run that never stopped read "the run stopped".
+          const leftDraft = statuses?.leftDraft ?? 0;
+          if (statuses && leftDraft > 0) {
             statusesNotApplied.push({
               objectApiName: name,
-              records: statusesRefused,
+              records: leftDraft,
               refusals: statuses.refusals,
             });
-            written.set(name, {
-              ...counted(),
-              statusesNotGivenBack: statusesNotGivenBack + statusesRefused,
-            });
+            written.set(name, { ...counted(), statusesNotApplied: leftDraft });
           }
         }
       }

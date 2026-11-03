@@ -270,6 +270,11 @@ export interface ObjectOutcome {
    */
   notSent?: number;
   /**
+   * Set when a read or a write of the object threw part way, what it threw:
+   * the object failed, and the counts are those of what went before it.
+   */
+  threw?: string;
+  /**
    * Set when the run was stopped: records it wrote without a lookup its
    * second pass would have filled — the record pointed at is in the target,
    * or was in a wave the stop cut short — and never sent that pass. They keep
@@ -352,6 +357,11 @@ export interface StatusOutcome {
   applied: number;
   /** Why the others were not: those records stay in the target as drafts. */
   refusals: AutopilotRefusal[];
+  /**
+   * Records left drafts, each counted once however many reasons the target
+   * gave: `refusals` counts a record under each. Absent when there are none.
+   */
+  leftDraft?: number;
 }
 
 /** Execution result summary */
@@ -783,8 +793,8 @@ interface FitHeldTo {
   holds: ReadonlyMap<string, readonly FitHold[]>;
   /** Of each fitted object, the first fifteen characters of the ids kept. */
   kept: ReadonlyMap<string, ReadonlySet<string>>;
-  /** The records that stayed out so far, by the same fifteen characters. */
-  stayedOut: Set<string>;
+  /** The records that stayed out so far, by the same fifteen characters, each with its object. */
+  stayedOut: Map<string, string>;
 }
 
 /** What a run of a fitted plan starts from. */
@@ -796,7 +806,7 @@ function fitHeldToOf(fit: AutopilotRunFit): FitHeldTo {
   return {
     holds,
     kept: new Map([...fit.kept].map(([name, ids]) => [name, new Set(ids.map(idKey))])),
-    stayedOut: new Set(),
+    stayedOut: new Map(),
   };
 }
 
@@ -813,6 +823,11 @@ interface ObjectResult {
   /** Set when the stop cut the object short: the records it never sent. */
   notSent?: number;
   cutSinceFit: number;
+  /**
+   * Set when a read or a write of the object threw part way: what it threw.
+   * The counts are those of what went before it, in the target and mapped.
+   */
+  threw?: string;
 }
 
 /** A lookup a written record went in without, owed until the record it points at is in. */
@@ -1540,6 +1555,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             ? { withTheirPersonAccount: this.personContactsLinked }
             : {}),
           ...(objResult.cutSinceFit > 0 ? { cutSinceFit: objResult.cutSinceFit } : {}),
+          ...(objResult.threw !== undefined ? { threw: objResult.threw } : {}),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -1550,17 +1566,26 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         }
 
         // A node that wrote nothing is still whole when every record it
-        // holds is in the target: linked to, its children point at it.
-        if (objResult.errors.length > 0 && objResult.success + objResult.linked === 0) {
+        // holds is in the target: linked to, its children point at it. One
+        // whose read or write threw is not, whatever went before it.
+        const { threw } = objResult;
+        if (
+          threw !== undefined ||
+          (objResult.errors.length > 0 && objResult.success + objResult.linked === 0)
+        ) {
           result.failedObjects.push(objectApiName);
-          nodeErrors[objectApiName] = objResult.errors[0];
+          // What it wrote before the throw is mapped; a record naming any
+          // other of its records is held back.
+          if (threw !== undefined) this.notWritten.set(objectApiName, 'failed');
+          const errors = threw !== undefined ? [threw, ...objResult.errors] : objResult.errors;
+          nodeErrors[objectApiName] = errors[0];
           this.emit(
             'node-failed',
             this.makeEvent({
               type: 'node-failed' as const,
               timestamp: '',
               objectApiName: objectApiName as ApiName,
-              errors: objResult.errors,
+              errors,
               partialSuccessCount: objResult.success,
               failureCount: objResult.failure,
               linkedCount: objResult.linked,
@@ -1659,6 +1684,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.stoppedObjects = stoppedObjects;
         this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
+        // What is still owed at a record the run refused or did not write is
+        // no doing of the stop: said as a run that ends says it.
+        await this.sayLookupsLeftOwed(edges, lookups);
         // The waves before the stop had their second pass: what it filled and
         // what the target refused it stays said.
         if (Object.keys(lookups).length > 0) result.lookups = lookups;
@@ -1833,7 +1861,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const refusals = new RefusalTally();
       for (const refusal of known?.refusals ?? []) refusals.addCounted(refusal);
       for (let i = 0; i < records.length; i += this.batchSize) {
-        if (this.stopped()) {
+        // A pause holds the updates as it holds every other write of the run.
+        if (await this.checkPause()) {
           // Never sent: those records keep the lookups empty, and are said so.
           this.noteLeftByStop(
             objectApiName,
@@ -1883,8 +1912,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * The lookups still owed once every wave is written, each at a record no
    * wave wrote. A record of a cycle went in before the record its lookup
    * names, and that record never followed: the target refused it or the run
-   * held it back (`PARENT_REFUSED`), or its object was skipped or its write
-   * threw (`PARENT_NOT_WRITTEN`). The second pass dropped them unsaid, and
+   * held it back (`PARENT_REFUSED`), it stayed out of a fitted plan with a
+   * record the fit cut (`CUT_WITH_PARENT`), or its object was skipped or its
+   * write threw (`PARENT_NOT_WRITTEN`). The second pass dropped them unsaid, and
    * the record stood in the target without its parent, counted written.
    * Counted among the lookups not filled, with the parent's object and why. A
    * lookup at a record the run never set out to write, outside what it read,
@@ -1929,6 +1959,17 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         message:
           `the ${refusedParent} record its ${fieldApiName} names was refused in this run, ` +
           `and this record, written before it, keeps its ${fieldApiName} empty.`,
+      };
+    }
+    // Read, and kept out since the fit: it came to name a record the fit cut.
+    const cutIn = this.fit?.stayedOut.get(idKey(sourceId));
+    const cutParent = lookup.parents.find((parent) => parent === cutIn);
+    if (cutParent) {
+      return {
+        statusCode: CUT_WITH_PARENT,
+        message:
+          `the ${cutParent} record its ${fieldApiName} names stayed out with a record the fit ` +
+          `cut, and this record, written before it, keeps its ${fieldApiName} empty.`,
       };
     }
     for (const parent of lookup.parents) {
@@ -1991,6 +2032,27 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       };
     };
 
+    try {
+      return await this.writeEveryPage(objectApiName, edges, rules, totalRecords, state, finish);
+    } catch (err) {
+      // What went in before the throw is in the target: counted, and the node
+      // failed with what threw. Thrown on, the counts were lost with the
+      // state, and a run whose second page timed out said it wrote no record
+      // — and a run that wrote nothing else had the checkpoint taken before
+      // it deleted, the one way back for the records it had written.
+      return { ...finish(), threw: extractErrorMessage(err) };
+    }
+  }
+
+  /** The reads and writes of {@link executeObject}, counted into `state` as they go. */
+  private async writeEveryPage(
+    objectApiName: ApiName,
+    edges: AutopilotEdge[],
+    rules: AnonymizationRule[],
+    totalRecords: number,
+    state: ObjectState,
+    finish: () => ObjectResult,
+  ): Promise<ObjectResult> {
     // A run translates a record type into the target's own but never picks
     // another one, so there is no default to fall back on without the user
     // choosing it: a record on a type the running user cannot use in the
@@ -3038,7 +3100,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       if (!cut) return true;
       state.cutSinceFit++;
       const id = row['Id'];
-      if (typeof id === 'string' && id !== '') fit.stayedOut.add(idKey(id));
+      if (typeof id === 'string' && id !== '') fit.stayedOut.set(idKey(id), objectApiName);
       return false;
     });
   }
@@ -3324,9 +3386,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
     for (const [objectApiName, entries] of byObject) {
       let applied = 0;
+      let leftDraft = 0;
       const refusals = new RefusalTally();
       for (let i = 0; i < entries.length; i += this.batchSize) {
-        if (this.stopped()) {
+        // Held by a pause too: a status given back fires the target's
+        // automation on the record, as any update does.
+        if (await this.checkPause()) {
           // Never sent: those records stay drafts, and are said so.
           this.noteLeftByStop(
             objectApiName,
@@ -3343,11 +3408,19 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         );
         part.forEach((_, index) => {
           const outcome = results[index];
-          if (outcome?.success) applied++;
-          else refusals.add(detailsOf(outcome));
+          if (outcome?.success) {
+            applied++;
+            return;
+          }
+          leftDraft++;
+          refusals.add(detailsOf(outcome));
         });
       }
-      outcomes[objectApiName] = { applied, refusals: refusals.list() };
+      outcomes[objectApiName] = {
+        applied,
+        refusals: refusals.list(),
+        ...(leftDraft > 0 ? { leftDraft } : {}),
+      };
     }
     this.deferredStatuses.length = 0;
     return outcomes;
@@ -3416,8 +3489,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * A lookup still owed is counted when the second pass could have filled
    * it — the record it points at is in the target — or when that record was
    * in an object the stop cut short or kept from the target: the stop is what
-   * left it empty. One whose record no wave was to write would have stayed
-   * empty all the same, and is not.
+   * left it empty. One whose record the run refused or did not write would
+   * have stayed empty all the same: it stays owed, for `sayLookupsLeftOwed`
+   * to say as it says it of a run that was not stopped.
    */
   private countWhatTheStopLeft(
     stoppedObjects: readonly string[],
@@ -3431,6 +3505,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           this.deps.remapper.getTargetId(parent, lookup.sourceId) !== undefined,
       );
       if (keptByTheStop) this.noteLeftByStop(lookup.objectApiName, 'lookups', [lookup.recordId]);
+      else this.owedLookups.push(lookup);
     }
     const statuses = this.deferredStatuses.splice(0, this.deferredStatuses.length);
     for (const entry of statuses) this.noteLeftByStop(entry.objectApiName, 'statuses', [entry.id]);

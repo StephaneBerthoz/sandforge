@@ -436,7 +436,7 @@ describe('AutopilotHandler — what each node came to', () => {
       failedObjects: [],
       skippedObjects: [],
       objectOutcomes: { Account: { written: 5, linked: 0, failed: 0, refusals: [] } },
-      statuses: { Account: { applied: 3, refusals: [refusedStatus] } },
+      statuses: { Account: { applied: 3, refusals: [refusedStatus], leftDraft: 1 } },
     });
 
     const progress = await execute(executePlan);

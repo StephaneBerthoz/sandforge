@@ -90,7 +90,8 @@ const GUARD_VARIANTS: Record<GuardDecision, BadgeVariant> = {
  * written, among which they are counted; the run's
  * results say which refused each field, the entry only how many records went
  * without one. So do the records a stopped run wrote and left unfinished — a
- * lookup its second pass would have filled, a status it set aside. Of the
+ * lookup its second pass would have filled, a status it set aside — and
+ * those whose lookup or status the target refused once the run set it. Of the
  * failed, those a call may have written before its answer was lost follow
  * them: they may be in the org all the same. What the run never sent comes
  * last —
@@ -105,6 +106,7 @@ const COUNT_COLUMNS = [
   'lookupsLeftEmpty',
   'lookupsNotFilled',
   'statusesNotGivenBack',
+  'statusesNotApplied',
   'deleted',
   'failed',
   'mayHaveBeenWritten',

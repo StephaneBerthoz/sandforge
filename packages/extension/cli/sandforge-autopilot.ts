@@ -231,9 +231,10 @@ ${checkpointFirstHelp({
 })}
   --json                 emit the run summary as JSON, with the id
                          of every record the run created          (default: off)
-  --fail-on-partial      exit 3, not 0, when the run wrote some records and
-                         the target refused others, or a record it wrote keeps
-                         a lookup it could not fill               (default: off)
+  --fail-on-partial      exit 3, not 0, when the run was partial: the target
+                         refused some of its records, or a record it wrote keeps
+                         a lookup it could not fill or stays a draft, its
+                         status refused                           (default: off)
   --help                 this text
 
 A selected object is copied whole, unless the plan is fitted. Of any other
@@ -245,18 +246,20 @@ records: past any, nothing is written. Where the target delivers those emails,
 or would not say whether it does, it writes only with --accept-emails.
 
 Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
-says what it wrote and which objects it did not, and --json names every record
-it created. Ctrl-C again ends the process at once.
+says what it wrote, which objects it did not, and the records it left with a
+lookup empty or as drafts, and --json names every record it created. Ctrl-C
+again ends the process at once.
 
 A production target is refused before the scan: Autopilot writes to sandboxes
 and Developer Edition orgs only, and --plan-only, which only reads, runs
 against any org.
 
-Exit codes: 0 the run finished, some of its records refused or left without a
-lookup included (read the summary for per-object failures, and --json's
-result.status); 1 the run could not be started or was
+Exit codes: 0 the run finished, some of its records refused, left without a
+lookup or left a draft included (read the summary for per-object failures, and
+--json's result.status); 1 the run could not be started or was
 refused, among them emails not accepted (EMAILS_NOT_ACCEPTED) and a checkpoint
-asked first refused or not taken, or it died or produced only failures; 2 a bad
+asked first refused or not taken, or it died or produced only failures -- a run
+that died prints no summary, and what it wrote before it died stays; 2 a bad
 command line; 3 the run was partial and --fail-on-partial was given; 130 Ctrl-C
 stopped the run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP.
 `;
@@ -1429,6 +1432,22 @@ export function outcomeLines(result: ExecutionResult): string[] {
         `refused ${outcome.failed}${notSent > 0 ? `  not sent ${notSent}` : ''}`,
     );
     reasons(outcome.refusals);
+    // Its read or write threw part way: failed, beside what went before it.
+    if (outcome.threw !== undefined) lines.push(`      FAILED part way: ${outcome.threw}`);
+    // Written, and left unfinished by a stop: the panel and the audit said
+    // them, and a Ctrl-C's summary named neither.
+    if (outcome.lookupsLeftEmpty !== undefined) {
+      lines.push(
+        `      ${outcome.lookupsLeftEmpty} record(s) keep a lookup empty: the stop came before ` +
+          'the second pass filled it',
+      );
+    }
+    if (outcome.statusesNotGivenBack !== undefined) {
+      lines.push(
+        `      ${outcome.statusesNotGivenBack} record(s) stay drafts: the stop came before their ` +
+          'status was given back',
+      );
+    }
     // Not sent: the target filled each in itself — the running user as owner.
     for (const lookup of outcome.leftToDefault ?? []) {
       lines.push(`      left to the target's default: ${lookup.field} x${lookup.count}`);
@@ -1464,14 +1483,18 @@ export function outcomeLines(result: ExecutionResult): string[] {
     if (result.objectOutcomes?.[name]) continue;
     lines.push(`  ${name.padEnd(28)} FAILED: ${result.nodeErrors?.[name] ?? '(no message)'}`);
   }
+  // The records refused, each once: a reason counts a record under each it
+  // was refused for, and summed, one order refused for two read as two.
   for (const [name, lookups] of Object.entries(result.lookups ?? {})) {
-    const refused = lookups.refusals.reduce((sum, refusal) => sum + refusal.count, 0);
-    lines.push(`  ${name.padEnd(28)} lookups filled ${lookups.filled}  refused ${refused}`);
+    lines.push(
+      `  ${name.padEnd(28)} lookups filled ${lookups.filled}  refused ${lookups.leftEmpty ?? 0}`,
+    );
     reasons(lookups.refusals);
   }
   for (const [name, statuses] of Object.entries(result.statuses ?? {})) {
-    const refused = statuses.refusals.reduce((sum, refusal) => sum + refusal.count, 0);
-    lines.push(`  ${name.padEnd(28)} statuses applied ${statuses.applied}  refused ${refused}`);
+    lines.push(
+      `  ${name.padEnd(28)} statuses applied ${statuses.applied}  refused ${statuses.leftDraft ?? 0}`,
+    );
     reasons(statuses.refusals);
   }
   // The record types the target gave the records created without one, read

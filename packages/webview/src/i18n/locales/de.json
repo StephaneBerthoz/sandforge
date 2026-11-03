@@ -2911,7 +2911,9 @@
       "lookupsNotFilled_one": "{{count}} mit leer gebliebener Verknüpfung, Füllen fehlgeschlagen",
       "lookupsNotFilled_other": "{{count}} mit leer gebliebener Verknüpfung, Füllen fehlgeschlagen",
       "statusesNotGivenBack_one": "{{count}} als Entwurf geblieben, Lauf gestoppt",
-      "statusesNotGivenBack_other": "{{count}} als Entwürfe geblieben, Lauf gestoppt"
+      "statusesNotGivenBack_other": "{{count}} als Entwürfe geblieben, Lauf gestoppt",
+      "statusesNotApplied_one": "{{count}} als Entwurf geblieben, Status abgelehnt",
+      "statusesNotApplied_other": "{{count}} als Entwürfe geblieben, Status abgelehnt"
     },
     "auditShowing": "{{shown}} von {{total}} angezeigt",
     "showMore": "Mehr anzeigen",
@@ -6351,6 +6353,10 @@
         "explanation": "Ein Datensatz, auf den dieser verweist, gehört zu einem Objekt, dessen Schreiben in diesem Lauf fehlgeschlagen ist, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
         "action": "Beheben Sie, was das Schreiben dieses Objekts fehlschlagen ließ — sein Knoten nennt den Grund —, und starten Sie dann erneut."
       }
+    },
+    "cutWithParent": {
+      "explanation": "Der Datensatz, auf den diese Verknüpfung zeigt, wurde gelesen und dann zurückgehalten: Seit der Anpassung verweist er auf einen weggelassenen Datensatz. Dieser hier wurde vorher geschrieben und behält die Verknüpfung leer.",
+      "action": "Passen Sie den Plan erneut an, damit er aufnimmt, was sich seitdem in der Quelle verschoben hat, oder setzen Sie die Verknüpfung in der Ziel-Org."
     },
     "personAccountNotWritten": {
       "explanation": "Das Personenkonto dieses Kontakts ist nicht in der Ziel-Org, und Salesforce schreibt den Kontakt eines Personenkontos mit seinem Konto.",

@@ -4,11 +4,13 @@ import { writeOrderOf } from '../../core/common/insertionOrder.js';
 import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import {
   AutopilotExecutor,
+  CUT_WITH_PARENT,
   PARENT_REFUSED,
   type AutopilotRunOptions,
   type ExecutionResult,
 } from './AutopilotExecutor.js';
 import { RecordIdRemapper } from './RecordIdRemapper.js';
+import { autopilotRunStatus } from './autopilotRunStatus.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { AutopilotRunFit, FitLink } from './autopilotFit.js';
 
@@ -311,6 +313,46 @@ describe('a record that came to name what the fit cut', () => {
     expect(result).not.toHaveProperty('cutSinceFit');
     expect(result.lookups ?? {}).toEqual({});
     expect(result.totalFailure).toBe(0);
+  });
+
+  it('says a lookup left empty at a record read that stayed out since the fit, and the run partial', async () => {
+    // The account's key contact, kept by the fit, came to name an account the
+    // fit cut: it stayed out, and the account written before it kept the
+    // lookup empty. Nothing said so, and the run ended a success.
+    const cycle = planOf(['Account', 'Contact']);
+    const all = { Account: [ACCOUNT_KEPT], Contact: [CONTACT_KEPT, CONTACT_MOVED] };
+
+    const { result, written } = await run(
+      cycle,
+      [edge('Account', 'Contact', 'AccountId'), edge('Contact', 'Account', 'Primary_Contact__c')],
+      {
+        Account: [{ Id: ACCOUNT_KEPT, Primary_Contact__c: CONTACT_MOVED }],
+        Contact: [
+          { Id: CONTACT_KEPT, AccountId: ACCOUNT_KEPT },
+          { Id: CONTACT_MOVED, AccountId: ACCOUNT_CUT },
+        ],
+      },
+      all,
+      { fit: fitOf(all, [HOLDS_CONTACT]) },
+    );
+
+    expect(written.map((w) => w.record['Id'])).toEqual([ACCOUNT_KEPT, CONTACT_KEPT]);
+    expect(result.cutSinceFit).toBe(1);
+    expect(result.lookups?.['Account']).toEqual({
+      filled: 0,
+      refusals: [
+        {
+          statusCode: CUT_WITH_PARENT,
+          fields: ['Primary_Contact__c'],
+          count: 1,
+          message:
+            'the Contact record its Primary_Contact__c names stayed out with a record the fit ' +
+            'cut, and this record, written before it, keeps its Primary_Contact__c empty.',
+        },
+      ],
+      leftEmpty: 1,
+    });
+    expect(autopilotRunStatus(result)).toBe('partial');
   });
 
   it('leaves a parent the target refused to the hold that says so', async () => {

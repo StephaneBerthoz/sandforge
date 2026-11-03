@@ -2911,7 +2911,9 @@
       "lookupsNotFilled_one": "{{count}} com um vínculo vazio, não foi possível preenchê-lo",
       "lookupsNotFilled_other": "{{count}} com um vínculo vazio, não foi possível preenchê-lo",
       "statusesNotGivenBack_one": "{{count}} ficou como rascunho, execução parada",
-      "statusesNotGivenBack_other": "{{count}} ficaram como rascunhos, execução parada"
+      "statusesNotGivenBack_other": "{{count}} ficaram como rascunhos, execução parada",
+      "statusesNotApplied_one": "{{count}} ficou como rascunho, seu status recusado",
+      "statusesNotApplied_other": "{{count}} ficaram como rascunhos, seu status recusado"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar mais",
@@ -6351,6 +6353,10 @@
         "explanation": "Um registro para o qual este aponta pertence a um objeto cuja gravação falhou nesta execução, então este foi retido em vez de ser gravado sem ele.",
         "action": "Corrija o que fez a gravação desse objeto falhar — o nó dele diz por quê — e execute de novo."
       }
+    },
+    "cutWithParent": {
+      "explanation": "O registro para o qual este vínculo aponta foi lido e depois retido: desde o ajuste, ele referencia um registro que o ajuste cortou. Este, gravado antes, mantém o vínculo vazio.",
+      "action": "Ajuste o plano de novo para incluir o que mudou na origem desde então, ou preencha o vínculo na org de destino."
     },
     "personAccountNotWritten": {
       "explanation": "A conta pessoal deste contato não está na org de destino, e o Salesforce grava o contato de uma conta pessoal junto com a conta.",

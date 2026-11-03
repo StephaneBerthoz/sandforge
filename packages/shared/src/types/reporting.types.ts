@@ -133,6 +133,13 @@ export interface AuditObjectCounts {
    */
   statusesNotGivenBack?: number;
   /**
+   * Of the records written, those written at a draft status whose status from
+   * the source the target refused once the run gave it back: they stay
+   * drafts. Each counted once, however many reasons the target gave. Absent
+   * when there are none.
+   */
+  statusesNotApplied?: number;
+  /**
    * Records of a call whose answer never came back: the target may hold any
    * of them under an id the run never learned. Counted among the failed, and
    * apart, because they may be in the org all the same. Absent when there are

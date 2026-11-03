@@ -26,6 +26,13 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { AutopilotExecutor } from '../../modules/autopilot/AutopilotExecutor.js';
+import {
+  AutopilotOrchestrator,
+  type AutopilotOrchestratorDeps,
+} from '../../modules/autopilot/AutopilotOrchestrator.js';
+import { RecordIdRemapper } from '../../modules/autopilot/RecordIdRemapper.js';
+import type { SmartAnonymizer } from '../../modules/autopilot/SmartAnonymizer.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -211,10 +218,18 @@ describe('autopilot:execute, the checkpoint taken first', () => {
     return port;
   }
 
-  /** Scan, plan and execute the plan of leads, the run writing `written` of them. */
-  async function run(payload: Record<string, unknown>, written = 30) {
-    const executePlan = vi.fn(async () => {
+  /**
+   * Scan, plan and execute the plan of leads, the run writing `written` of
+   * them — or, given an orchestrator, the run its executor makes.
+   */
+  async function run(
+    payload: Record<string, unknown>,
+    written = 30,
+    orchestrator?: AutopilotOrchestrator,
+  ) {
+    const executePlan = vi.fn(async (...args: Parameters<AutopilotOrchestrator['executePlan']>) => {
       calls.push('written');
+      if (orchestrator) return orchestrator.executePlan(...args);
       return {
         totalSuccess: written,
         totalFailure: 0,
@@ -402,6 +417,52 @@ describe('autopilot:execute, the checkpoint taken first', () => {
       checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
     });
     expect(runs()[0]).not.toHaveProperty('checkpointId');
+  });
+
+  it('keeps the checkpoint of a run whose read threw after its first call went in, and says it partial', async () => {
+    // Ten leads a call: the first ten went in, and the read of the next page
+    // timed out. Counted nowhere, the run said it wrote no record and the
+    // checkpoint, the one way back for the ten in the target, was deleted.
+    const port = checkpointsAnswering();
+    target();
+    const leads = Array.from({ length: 30 }, (_, n) => ({ Id: `led${n}`, LastName: `L${n}` }));
+    const inTarget: string[] = [];
+    const orchestrator = new AutopilotOrchestrator({
+      createExecutor: () =>
+        new AutopilotExecutor({
+          query: async (_objectApiName, afterId, limit) => {
+            if (afterId !== undefined) {
+              throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+            }
+            return leads.slice(0, limit).map((row) => ({ ...row }));
+          },
+          insert: async (_objectApiName, records) =>
+            records.map((record) => {
+              inTarget.push(String(record['LastName']));
+              return { id: `00QT${inTarget.length}`, success: true, errors: [] };
+            }),
+          anonymizer: {
+            anonymize: (records: Record<string, unknown>[]) => records,
+          } as unknown as SmartAnonymizer,
+          remapper: new RecordIdRemapper(),
+          batchSize: 10,
+        }),
+    } as unknown as AutopilotOrchestratorDeps);
+
+    await run({ checkpointFirst: {} }, 0, orchestrator);
+
+    expect(inTarget).toHaveLength(10);
+    expect(port.settle).toHaveBeenCalledWith(TAKEN, true);
+    expect(posted('autopilot:completed')[0]?.payload).toMatchObject({
+      status: 'partial',
+      totalSuccessCount: 10,
+      checkpoint: TAKEN,
+    });
+    expect(runs()[0]).toMatchObject({
+      outcome: 'partial',
+      checkpointId: TAKEN.checkpointId,
+      objects: [expect.objectContaining({ objectApiName: 'Lead', created: 10, failed: 0 })],
+    });
   });
 
   it('deletes the checkpoint again when the lease is refused after it: nothing written', async () => {

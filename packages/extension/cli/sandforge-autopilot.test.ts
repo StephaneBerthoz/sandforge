@@ -159,6 +159,7 @@ describe('sandforge-autopilot — the run summary', () => {
               message: 'Commande sans produit',
             },
           ],
+          leftDraft: 1,
         },
       },
     });
@@ -166,6 +167,60 @@ describe('sandforge-autopilot — the run summary', () => {
     expect(lines.slice(1)).toEqual([
       `  ${'Order'.padEnd(28)} statuses applied 2  refused 1`,
       '      FIELD_INTEGRITY_EXCEPTION x1: Commande sans produit',
+    ]);
+  });
+
+  it('counts the records the target refused a status or a lookup, once each, whatever reasons it gave', () => {
+    // Summed by reason, one order refused for two read "refused 2".
+    const two = [
+      { statusCode: 'FIELD_INTEGRITY_EXCEPTION', fields: ['Status'], count: 1, message: 'a' },
+      { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', fields: [], count: 1, message: 'b' },
+    ];
+    const lines = outcomeLines({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Order', 'Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      lookups: { Account: { filled: 0, refusals: two, leftEmpty: 1 } },
+      statuses: { Order: { applied: 0, refusals: two, leftDraft: 1 } },
+    });
+
+    expect(lines).toContain(`  ${'Account'.padEnd(28)} lookups filled 0  refused 1`);
+    expect(lines).toContain(`  ${'Order'.padEnd(28)} statuses applied 0  refused 1`);
+  });
+
+  it('says the records a stop left with a lookup empty or as drafts', () => {
+    // Ctrl-C after a wave: the panel and the audit said them, the summary
+    // named neither.
+    const lines = outcomeLines({
+      totalSuccess: 8,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Order'],
+      failedObjects: [],
+      skippedObjects: [],
+      stopped: true,
+      stoppedObjects: ['OrderItem'],
+      objectOutcomes: {
+        Order: {
+          written: 8,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          lookupsLeftEmpty: 3,
+          statusesNotGivenBack: 5,
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Order'.padEnd(28)} written 8  linked 0  refused 0`,
+      '      3 record(s) keep a lookup empty: the stop came before the second pass filled it',
+      '      5 record(s) stay drafts: the stop came before their status was given back',
     ]);
   });
 
@@ -198,6 +253,7 @@ describe('sandforge-autopilot — the run summary', () => {
               message: 'Le contact doit appartenir au compte',
             },
           ],
+          leftEmpty: 1,
         },
       },
     });
@@ -401,12 +457,15 @@ describe('sandforge-autopilot — the run summary', () => {
       { keepContactPoints: true },
     );
 
+    // The deal written before the read threw is counted on its line, the
+    // error under it: the line said FAILED and nothing of the deal written.
     expect(outcomeLines(result)).toEqual([
+      `  ${'Opportunity'.padEnd(28)} written 1  linked 0  refused 0`,
+      '      FAILED part way: QUERY_TIMEOUT: Your query request was running for too long.',
       `  ${'OpportunityLineItem'.padEnd(28)} written 1  linked 0  refused 1`,
       '      PARENT_NOT_WRITTEN [OpportunityId] x1: the Opportunity record its OpportunityId ' +
         "names was not written: the run's write of Opportunity failed, and written without it " +
         'this record would stand without its Opportunity.',
-      `  ${'Opportunity'.padEnd(28)} FAILED: QUERY_TIMEOUT: Your query request was running for too long.`,
     ]);
   });
 

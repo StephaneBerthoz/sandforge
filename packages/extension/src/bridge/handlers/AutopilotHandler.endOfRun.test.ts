@@ -522,6 +522,66 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
     expect(settled['Lead']).toMatchObject({ status: 'stopped', recordCount: 0, notSent: 2 });
   });
 
+  it('counts an order whose status the target refused, for two reasons, once, apart from what a stop leaves', async () => {
+    // Summed per reason, one order read as two drafts; and the audit said it
+    // under the stop's column, "left a draft, the run stopped", of a run that
+    // never stopped.
+    const rows = { Order: [{ Id: 'ord1', Status: 'Activated' }] };
+    const { running } = await startRun({
+      id: 'exec-status-refused',
+      plan: planOf(['Order']),
+      rows,
+      edges: [],
+      batchSize: 200,
+      query: sourceOf(rows),
+      insert: (_name, records) =>
+        records.map((_, i) => ({ id: `801T${i}`, success: true, errors: [] })),
+      orgs: {
+        queryTarget: async (soql) =>
+          soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+            ? [
+                { ApiName: 'Draft', StatusCode: 'Draft' },
+                { ApiName: 'Activated', StatusCode: 'Activated' },
+              ]
+            : [],
+        update: async (_name, records) =>
+          records.map(() => ({
+            id: '',
+            success: false,
+            errors: ['two'],
+            errorDetails: [
+              {
+                statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+                message: 'You cannot activate an order with no products.',
+                fields: ['Status'],
+              },
+              {
+                statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                message: 'PO required',
+                fields: [],
+              },
+            ],
+          })),
+      },
+    });
+    await running;
+
+    const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
+    const completed = postToWebview.mock.calls
+      .map(([message]) => message as BaseMessage & { payload: Record<string, unknown> })
+      .find((message) => message.type === 'autopilot:completed');
+    expect(completed?.payload).toMatchObject({
+      status: 'partial',
+      statusesNotApplied: [{ objectApiName: 'Order', records: 1 }],
+    });
+    const [entry] = new AuditTrailStore(deps.configStore as ConfigStore).list().entries;
+    expect(entry?.outcome).toBe('partial');
+    expect(entry?.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Order', created: 1, statusesNotApplied: 1 }),
+    ]);
+    expect(entry?.objects?.[0]).not.toHaveProperty('statusesNotGivenBack');
+  });
+
   describe('a lookup the second pass could not fill', () => {
     /** A child account read before the parent it names. */
     const rows = {

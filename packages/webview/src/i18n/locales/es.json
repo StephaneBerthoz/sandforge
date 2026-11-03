@@ -2911,7 +2911,9 @@
       "lookupsNotFilled_one": "{{count}} con un vínculo vacío, no se pudo rellenar",
       "lookupsNotFilled_other": "{{count}} con un vínculo vacío, no se pudo rellenar",
       "statusesNotGivenBack_one": "{{count}} quedó como borrador, ejecución detenida",
-      "statusesNotGivenBack_other": "{{count}} quedaron como borradores, ejecución detenida"
+      "statusesNotGivenBack_other": "{{count}} quedaron como borradores, ejecución detenida",
+      "statusesNotApplied_one": "{{count}} quedó como borrador, su estado rechazado",
+      "statusesNotApplied_other": "{{count}} quedaron como borradores, su estado rechazado"
     },
     "auditShowing": "Mostrando {{shown}} de {{total}}",
     "showMore": "Mostrar más",
@@ -6351,6 +6353,10 @@
         "explanation": "Un registro al que apunta este pertenece a un objeto cuya escritura falló en esta ejecución, así que este se retuvo en lugar de escribirse sin él.",
         "action": "Corrija lo que hizo fallar la escritura de ese objeto — su nodo indica por qué — y vuelva a ejecutar."
       }
+    },
+    "cutWithParent": {
+      "explanation": "El registro al que apunta este vínculo se leyó y luego se retuvo: desde el ajuste, hace referencia a un registro que el ajuste omitió. Este, escrito antes, mantiene el vínculo vacío.",
+      "action": "Vuelva a ajustar el plan para incluir lo que cambió en el origen desde entonces, o rellene el vínculo en la org de destino."
     },
     "personAccountNotWritten": {
       "explanation": "La cuenta personal de este contacto no está en la org de destino, y Salesforce escribe el contacto de una cuenta personal con su cuenta.",

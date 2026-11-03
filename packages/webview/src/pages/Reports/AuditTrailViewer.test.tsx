@@ -294,6 +294,33 @@ describe('AuditTrailViewer', () => {
     );
   });
 
+  it('says the records left drafts by a refused status, on a run that never stopped, as such', () => {
+    // Under the stop's column, an order whose activation the target refused
+    // read "left a draft, the run stopped" on a run that ran to its end.
+    const run: AuditLogEntry = {
+      ...forgeRun,
+      id: 'aud-autopilot-statuses',
+      action: 'autopilot_execute',
+      module: 'autopilot',
+      outcome: 'partial',
+      objects: [
+        {
+          objectApiName: 'Order',
+          created: 3,
+          updated: 0,
+          deleted: 0,
+          failed: 0,
+          statusesNotApplied: 1,
+        },
+      ],
+    };
+    render(<AuditTrailViewer entries={[run]} />);
+
+    expect(
+      screen.getByTestId('audit-aud-autopilot-statuses').querySelector('li')?.textContent,
+    ).toBe('Order 3 created · 1 left a draft, its status refused');
+  });
+
   it('names an object of a clone a cancel stopped before it wrote, with the rows it never sent', () => {
     // Nothing created, nothing failed: what the cancel kept from the target
     // is all there is to say of the object, and the entry says why it stopped.

@@ -2911,7 +2911,9 @@
       "lookupsNotFilled_one": "{{count}} avec un lien resté vide, son remplissage a échoué",
       "lookupsNotFilled_other": "{{count}} avec un lien resté vide, son remplissage a échoué",
       "statusesNotGivenBack_one": "{{count}} resté en brouillon, l'exécution arrêtée",
-      "statusesNotGivenBack_other": "{{count}} restés en brouillon, l'exécution arrêtée"
+      "statusesNotGivenBack_other": "{{count}} restés en brouillon, l'exécution arrêtée",
+      "statusesNotApplied_one": "{{count}} resté en brouillon, son statut refusé",
+      "statusesNotApplied_other": "{{count}} restés en brouillon, leur statut refusé"
     },
     "auditShowing": "{{shown}} affichées sur {{total}}",
     "showMore": "Afficher plus",
@@ -6351,6 +6353,10 @@
         "explanation": "Un enregistrement vers lequel celui-ci pointe appartient à un objet dont l'écriture a échoué dans cette exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
         "action": "Corrigez ce qui a fait échouer l'écriture de cet objet — son nœud dit pourquoi — puis relancez."
       }
+    },
+    "cutWithParent": {
+      "explanation": "L'enregistrement que ce lien désigne a été lu, puis retenu : depuis l'ajustement, il désigne un enregistrement que l'ajustement a coupé. Celui-ci, écrit avant lui, garde le lien vide.",
+      "action": "Ajustez à nouveau le plan pour prendre en compte ce qui a bougé dans la source depuis, ou renseignez le lien dans l'org cible."
     },
     "personAccountNotWritten": {
       "explanation": "Le compte personnel de ce contact n'est pas dans l'org cible, et Salesforce écrit le contact d'un compte personnel avec son compte.",
