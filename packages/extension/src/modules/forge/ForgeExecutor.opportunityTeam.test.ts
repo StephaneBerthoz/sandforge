@@ -5,6 +5,7 @@ import type { FieldInfo, ForgeExecutorDeps, ForgeProgressEvent } from './ForgeEx
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { TeamSellingOrg } from '../../test/teamSellingOrg.js';
+import { RehearsalWriter, rehearsalExecutorDeps } from './rehearsal/RehearsalWriter.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -291,8 +292,10 @@ describe('ForgeExecutor, an opportunity with Team Selling and Splits on', () => 
     );
     expect(summary.withTheirRecordSourceIds).not.toContain(OWNERS_OVERLAY);
     const messages = said.map((event) => event.message);
+    // The source's member gives the owner Edit; the platform's holds All.
     expect(messages).toContain(
-      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed',
+      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
     );
     expect(messages).toContain(
       'Completed OpportunitySplit: 1 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed',
@@ -378,7 +381,8 @@ describe('ForgeExecutor, an opportunity with Team Selling and Splits on', () => 
       },
     ]);
     expect(said.map((event) => event.message)).toContain(
-      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 1 failed, 1 of them held back for want of their parent',
+      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 1 failed, 1 of them held back for want of their parent, ' +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
     );
   });
 
@@ -451,10 +455,360 @@ describe('ForgeExecutor, an opportunity with Team Selling and Splits on', () => 
     expect(summary.wouldInsertCount).toBe(1 /* deal */ + 1 /* account */ + 1 /* Overlay */);
     const messages = said.map((event) => event.message);
     expect(messages).toContain(
-      'Simulated OpportunityTeamMember: 0 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed',
+      'Simulated OpportunityTeamMember: 0 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
     );
     expect(messages).toContain(
       'Simulated OpportunitySplit: 1 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed',
     );
+  });
+});
+
+describe('ForgeExecutor, a decision giving a user to a team row whose user the target has no counterpart of', () => {
+  const SANDBOX_USER = '005TGT000000009AAA';
+  const REPS_MEMBER = '00qSRC000000002AAA';
+
+  /** The rep on the team with the Overlay split at 40 %, the owner with the whole revenue. */
+  function withARepsOverlay(): Record<string, FakeRow[]> {
+    const tables = sourceRows();
+    tables['OpportunitySplit'] = tables['OpportunitySplit'].filter(
+      (s) => s['Id'] !== OWNERS_OVERLAY,
+    );
+    tables['OpportunityTeamMember'].push({
+      Id: REPS_MEMBER,
+      OpportunityId: DEAL,
+      UserId: SOURCE_REP,
+      TeamMemberRole: 'Sales Rep',
+      OpportunityAccessLevel: 'Read',
+    });
+    tables['OpportunitySplit'].push({
+      Id: '049SRC000000003AAA',
+      OpportunityId: DEAL,
+      SplitOwnerId: SOURCE_REP,
+      SplitTypeId: SOURCE_OVERLAY,
+      SplitPercentage: '40',
+      SplitNote: null,
+    });
+    return tables;
+  }
+
+  /** The same user given to both gaps of the dry run, as Review gives it. */
+  const givenTo = (user: string) => ({
+    defaultValues: [
+      { object: 'OpportunityTeamMember', field: 'UserId', value: user },
+      { object: 'OpportunitySplit', field: 'SplitOwnerId', value: user },
+    ],
+  });
+
+  it("writes the rep's split as an Overlay one of the user the decision gives, never as a Revenue one", async () => {
+    const { deps, target } = orgs(withARepsOverlay(), [SANDBOX_USER]);
+
+    const summary = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { ...ROOTED_AT_THE_DEAL, decisions: givenTo(SANDBOX_USER) },
+    );
+
+    const deal = copyOf(target);
+    // Sent without its type, the split went in as a Revenue one, and the
+    // platform took its 40 % from the owner's.
+    expect(
+      target.splitsOf(deal).map((s) => [s['SplitOwnerId'], s['SplitTypeId'], s['SplitPercentage']]),
+    ).toEqual([
+      [RUNNING_USER, TARGET_REVENUE, '100'],
+      [SANDBOX_USER, TARGET_OVERLAY, '40'],
+    ]);
+    expect(target.teamOf(deal).map((m) => m['UserId'])).toEqual([RUNNING_USER, SANDBOX_USER]);
+    expect(summary.errors).toEqual([]);
+    expect(summary.decisionsApplied).toEqual([
+      {
+        kind: 'set_default',
+        objectApiName: 'OpportunityTeamMember',
+        field: 'UserId',
+        to: SANDBOX_USER,
+        rows: 1,
+      },
+      {
+        kind: 'set_default',
+        objectApiName: 'OpportunitySplit',
+        field: 'SplitOwnerId',
+        to: SANDBOX_USER,
+        rows: 1,
+      },
+    ]);
+  });
+
+  it('holds back a split the decision gives a user to, whose type the target holds none of by its name', async () => {
+    const tables = withARepsOverlay();
+    tables['OpportunitySplitType'][1]['DeveloperName'] = 'Partner_Credit';
+    const { deps, target } = orgs(tables, [SANDBOX_USER]);
+
+    const summary = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { ...ROOTED_AT_THE_DEAL, decisions: givenTo(SANDBOX_USER) },
+    );
+
+    expect(target.sent['OpportunitySplit']).toBeUndefined();
+    expect(summary.errors).toEqual([
+      expect.objectContaining({
+        objectApiName: 'OpportunitySplit',
+        failedCount: 1,
+        samples: [
+          expect.objectContaining({
+            recordSummary: 'SplitTypeId → OpportunitySplitType (1 record)',
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("links the rep's member to the platform's when the decision gives it the user the run writes as, the copy's owner", async () => {
+    const { deps, target } = orgs(withARepsOverlay());
+    const said: ForgeProgressEvent[] = [];
+
+    const summary = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { ...ROOTED_AT_THE_DEAL, decisions: givenTo(RUNNING_USER) },
+    );
+
+    const deal = copyOf(target);
+    // Sent, the member went in as the platform's own, its role changed, and
+    // was counted created: the platform's member, which its removal is refused.
+    expect(target.sent['OpportunityTeamMember']).toBeUndefined();
+    expect(target.teamOf(deal)).toEqual([
+      expect.objectContaining({ UserId: RUNNING_USER, TeamMemberRole: 'Opportunity Owner' }),
+    ]);
+    expect(
+      target.splitsOf(deal).map((s) => [s['SplitOwnerId'], s['SplitTypeId'], s['SplitPercentage']]),
+    ).toEqual([
+      [RUNNING_USER, TARGET_REVENUE, '100'],
+      [RUNNING_USER, TARGET_OVERLAY, '40'],
+    ]);
+    expect(summary.existingSourceIds).toEqual(expect.arrayContaining([OWNERS_MEMBER, REPS_MEMBER]));
+    expect(summary.withTheirRecordSourceIds).toEqual(
+      expect.arrayContaining([OWNERS_MEMBER, REPS_MEMBER]),
+    );
+    expect(said.map((event) => event.message)).toContainEqual(
+      expect.stringMatching(
+        /^Completed OpportunityTeamMember: 0 succeeded, 2 written by the platform with their opportunity, for its owner, 0 failed/,
+      ),
+    );
+  });
+});
+
+describe('ForgeExecutor, the values of a team row linked to the record the platform wrote', () => {
+  it("says which of the source's values the owner's member and Revenue split went without", async () => {
+    const tables = sourceRows();
+    tables['OpportunityTeamMember'][0]['TeamMemberRole'] = 'Sales Manager';
+    tables['OpportunityTeamMember'][0]['OpportunityAccessLevel'] = 'All';
+    tables['OpportunitySplit'][0]['SplitNote'] = 'Q3 reorg';
+    const { deps, target } = orgs(tables);
+    const said: ForgeProgressEvent[] = [];
+
+    const summary = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      ROOTED_AT_THE_DEAL,
+    );
+
+    // Linked, never written: the target keeps the platform's values.
+    expect(target.teamOf(copyOf(target))[0]['TeamMemberRole']).toBe('Opportunity Owner');
+    expect(finishedRunStatus(summary)).toBe('success');
+    const messages = said.map((event) => event.message);
+    expect(messages).toContain(
+      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's TeamMemberRole: the target's record keeps its own",
+    );
+    expect(messages).toContain(
+      'Completed OpportunitySplit: 1 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's SplitNote: the target's record keeps its own",
+    );
+  });
+
+  it('says it in a dry run too, of the values the platform writes', async () => {
+    const tables = sourceRows();
+    tables['OpportunityTeamMember'][0]['TeamMemberRole'] = 'Sales Manager';
+    tables['OpportunitySplit'][0]['SplitNote'] = 'Q3 reorg';
+    const { deps } = orgs(tables);
+    const said: ForgeProgressEvent[] = [];
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', (event) => said.push(event), {
+      ...ROOTED_AT_THE_DEAL,
+      dryRun: true,
+    });
+
+    const messages = said.map((event) => event.message);
+    expect(messages).toContain(
+      'Simulated OpportunityTeamMember: 0 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's TeamMemberRole: the target's record keeps its own, " +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
+    );
+    expect(messages).toContain(
+      'Simulated OpportunitySplit: 1 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's SplitNote: the target's record keeps its own",
+    );
+  });
+});
+
+describe('ForgeExecutor, where the records the platform wrote with the run’s opportunity are said', () => {
+  it('lists none of them among the records the target held already, in a run or in a dry run', async () => {
+    for (const dryRun of [false, true]) {
+      const { deps } = orgs();
+
+      const summary = await new ForgeExecutor(deps).execute(
+        dealGraph(),
+        'src',
+        'tgt',
+        () => undefined,
+        { ...ROOTED_AT_THE_DEAL, dryRun },
+      );
+
+      expect(summary.existingRecords).toEqual([]);
+      expect(summary.linkedCount).toBe(2);
+    }
+  });
+
+  it('says them, in a run of whole tables read page by page, as a run read whole says them', async () => {
+    const tables = sourceRows();
+    const { deps } = orgs(tables);
+    /** A whole table's read, as a run of whole tables asks it, in the order of the ids. */
+    const whole = (soql: string): FakeRow[] | undefined => {
+      const match =
+        /^SELECT .+? FROM (\w+)(?: WHERE Id > '(\w+)')?(?: ORDER BY Id)?(?: LIMIT (\d+))?$/.exec(
+          soql,
+        );
+      if (!match) return undefined;
+      const [, object, after, limit] = match;
+      return [...(tables[object] ?? [])]
+        .sort((a, b) => String(a['Id']).localeCompare(String(b['Id'])))
+        .filter((row) => after === undefined || String(row['Id']) > after)
+        .slice(0, limit === undefined ? undefined : Number(limit));
+    };
+    const read = (soql: string): FakeRow[] => whole(soql) ?? selectRows(tables, soql);
+    const paged = {
+      ...deps,
+      queryRecords: vi.fn(async (org: string, soql: string) =>
+        org === 'src' ? read(soql) : deps.queryRecords(org, soql),
+      ),
+      queryPages: (org: string, soql: string) =>
+        (async function* pages(): AsyncGenerator<FakeRow[]> {
+          if (org !== 'src') return;
+          const rows = read(soql);
+          if (rows.length === 0) yield [];
+          for (let at = 0; at < rows.length; at += 1) yield rows.slice(at, at + 1);
+        })(),
+      countRecords: vi.fn(
+        async (_org: string, soql: string) =>
+          tables[/FROM (\w+)/.exec(soql)?.[1] ?? '']?.length ?? 0,
+      ),
+    } satisfies ForgeExecutorDeps;
+    const said: ForgeProgressEvent[] = [];
+
+    const summary = await new ForgeExecutor(paged).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { stream: { pageSize: 1 } },
+    );
+
+    const messages = said.map((event) => event.message);
+    expect(messages).toContainEqual(
+      expect.stringMatching(
+        /^Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed/,
+      ),
+    );
+    expect(messages).toContainEqual(
+      expect.stringMatching(
+        /^Completed OpportunitySplit: 1 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed/,
+      ),
+    );
+    expect(summary.existingRecords).toEqual([]);
+    expect(finishedRunStatus(summary)).toBe('success');
+  });
+});
+
+describe('ForgeExecutor, a rehearsal of an opportunity with Team Selling and Splits on', () => {
+  const KEY_PREFIXES: Record<string, string> = {
+    Account: '001',
+    Opportunity: '006',
+    OpportunityTeamMember: '00q',
+    OpportunitySplit: '049',
+  };
+
+  /** The rows the rehearsal's writer keeps, prepared as the CLI's `--rehearse` prepares them. */
+  async function rehearsed(runningUser?: () => Promise<string | undefined>) {
+    const { deps, target } = orgs();
+    const writer = new RehearsalWriter(
+      async (object) => KEY_PREFIXES[object] ?? null,
+      ...(runningUser ? [runningUser] : []),
+    );
+    await new ForgeExecutor(rehearsalExecutorDeps(deps, writer)).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      ROOTED_AT_THE_DEAL,
+    );
+    return { writer, target, deps };
+  }
+
+  it("hands its writer the owner's Overlay split the run writes, under the user the run writes as, and not what the platform writes", async () => {
+    const { writer, target } = await rehearsed(async () => RUNNING_USER);
+
+    const deal = writer.rows.find((row) => row.objectApiName === 'Opportunity');
+    expect(writer.rows.map((row) => row.objectApiName)).toEqual([
+      'Account',
+      'Opportunity',
+      'OpportunitySplit',
+    ]);
+    expect(writer.rows[2].fields).toEqual({
+      OpportunityId: deal?.placeholderId,
+      SplitOwnerId: RUNNING_USER,
+      SplitTypeId: TARGET_OVERLAY,
+      SplitPercentage: '40',
+      SplitNote: 'Overlay credit',
+    });
+    // Nothing reached the target.
+    expect(target.tables['Opportunity']).toEqual([]);
+  });
+
+  it('gives the split the owner the opportunity is sent with, when an owner mapping gives it one', async () => {
+    const MAPPED = '005TGT000000007AAA';
+    const { deps } = orgs(sourceRows(), [MAPPED]);
+    const writer = new RehearsalWriter(
+      async (object) => KEY_PREFIXES[object] ?? null,
+      async () => RUNNING_USER,
+    );
+
+    await new ForgeExecutor(rehearsalExecutorDeps(deps, writer)).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { ...ROOTED_AT_THE_DEAL, ownerMappings: { [SOURCE_OWNER]: MAPPED } },
+    );
+
+    expect(
+      writer.rows
+        .filter((row) => row.objectApiName === 'OpportunitySplit')
+        .map((row) => row.fields['SplitOwnerId']),
+    ).toEqual([MAPPED]);
+  });
+
+  it('holds the team back, as before, when the user the run writes as cannot be told', async () => {
+    const { writer } = await rehearsed(async () => undefined);
+
+    expect(writer.rows.map((row) => row.objectApiName)).toEqual(['Account', 'Opportunity']);
   });
 });

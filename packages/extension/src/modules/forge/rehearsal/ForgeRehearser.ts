@@ -31,6 +31,11 @@ export interface ForgeRehearserDeps {
   ) => Promise<unknown>;
   /** An org's REST API path, `/services/data/vXX.X`. */
   apiPath: (orgId: string) => Promise<string>;
+  /**
+   * The id of the user a run writes to an org as. Optional: see
+   * `RehearsalDeps.runningUser`.
+   */
+  runningUser?: (orgId: string) => Promise<string | undefined>;
 }
 
 /** What one rehearsal is given besides the graph and the config. */
@@ -65,6 +70,7 @@ export class ForgeRehearser {
     options: RehearseOptions,
   ): Promise<ForgeRehearsal> {
     const { targetOrgId } = config;
+    const { runningUser } = this.deps;
     const recordTypeNames = new Map(
       (options.recordTypeMappings ?? []).map((m) => [m.targetId.slice(0, 15), m.developerName]),
     );
@@ -103,6 +109,7 @@ export class ForgeRehearser {
       },
       keyPrefixOf: async (objectApiName) =>
         (await this.deps.reads.describeObject?.(targetOrgId, objectApiName))?.keyPrefix ?? null,
+      ...(runningUser ? { runningUser: () => runningUser(targetOrgId) } : {}),
       composite: (body) =>
         this.deps.composite(
           targetOrgId,

@@ -78,6 +78,14 @@ export interface RehearsalDeps {
   prepare: (writer: RehearsalWriter) => Promise<void>;
   /** The target's key prefix of an object, from the describe the run holds. */
   keyPrefixOf: (objectApiName: string) => Promise<string | null>;
+  /**
+   * The id of the user the run writes to the target as: the owner the
+   * platform gives an opportunity sent without one, whose member and splits
+   * it writes with the opportunity (`RehearsalWriter.guardQueries`).
+   * Optional: without it, the team of an opportunity the run creates under
+   * that user is held back, as when the target does not say.
+   */
+  runningUser?: () => Promise<string | undefined>;
   /** Send one composite request to the target, and resolve with its answer. */
   composite: (body: CompositeRequestBody) => Promise<unknown>;
   /** The target's REST API path, `/services/data/vXX.X`. */
@@ -409,7 +417,7 @@ function plannedCallsOf(
  * run alone.
  */
 export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
-  const writer = new RehearsalWriter(deps.keyPrefixOf);
+  const writer = new RehearsalWriter(deps.keyPrefixOf, deps.runningUser);
   await deps.prepare(writer);
   const rows = writer.rows;
   const rowOf = (value: unknown): RehearsedRow | undefined => writer.rowOf(value);

@@ -9,6 +9,8 @@ import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { GraphDiscoveryService } from '../GraphDiscoveryService.js';
 import { ForgeRehearser, type ForgeRehearserDeps } from './ForgeRehearser.js';
 import { RehearsalCancelledError } from './rehearse.js';
+import { selectRows, type FakeRow } from '../../../test/fakeSoql.js';
+import { TeamSellingOrg } from '../../../test/teamSellingOrg.js';
 
 type Composite = ForgeRehearserDeps['composite'];
 
@@ -327,5 +329,135 @@ describe('a rehearsal of a run, through the run’s own executor', () => {
       value: 'Acme',
       detail: expect.objectContaining({ reason: 'record-type' }),
     });
+  });
+});
+
+describe('a rehearsal of an opportunity under Team Selling and Splits', () => {
+  const DEAL = id('006', 5);
+  const SOURCE_OWNER = id('005', 1);
+  const RUNNING_USER = id('005', 9);
+  const OVERLAY = id('149', 2);
+  const reference = (name: string, target: string): FieldInfo =>
+    field(name, {
+      isReference: true,
+      referenceTo: [target],
+      nillable: target === 'OpportunitySplitType',
+    });
+  const TEAM_FIELDS: Record<string, FieldInfo[]> = {
+    Opportunity: [
+      field('Id'),
+      field('Name'),
+      { ...reference('OwnerId', 'User'), defaultedOnCreate: true },
+    ],
+    OpportunityTeamMember: [
+      field('Id'),
+      reference('OpportunityId', 'Opportunity'),
+      reference('UserId', 'User'),
+      field('TeamMemberRole'),
+    ],
+    OpportunitySplit: [
+      field('Id'),
+      reference('OpportunityId', 'Opportunity'),
+      reference('SplitOwnerId', 'User'),
+      reference('SplitTypeId', 'OpportunitySplitType'),
+      field('SplitPercentage'),
+    ],
+  };
+  /** The deal of the real run: its owner's member, Revenue split at 100 % and Overlay split at 40 %. */
+  const source: Record<string, FakeRow[]> = {
+    Opportunity: [{ Id: DEAL, Name: 'Deal 05', OwnerId: SOURCE_OWNER }],
+    OpportunityTeamMember: [
+      {
+        Id: id('00q', 1),
+        OpportunityId: DEAL,
+        UserId: SOURCE_OWNER,
+        TeamMemberRole: 'Opportunity Owner',
+      },
+    ],
+    OpportunitySplit: [
+      {
+        Id: id('049', 1),
+        OpportunityId: DEAL,
+        SplitOwnerId: SOURCE_OWNER,
+        SplitTypeId: id('149', 11),
+        SplitPercentage: '100',
+      },
+      {
+        Id: id('049', 2),
+        OpportunityId: DEAL,
+        SplitOwnerId: SOURCE_OWNER,
+        SplitTypeId: id('149', 12),
+        SplitPercentage: '40',
+      },
+    ],
+    OpportunitySplitType: [
+      { Id: id('149', 11), DeveloperName: 'Revenue' },
+      { Id: id('149', 12), DeveloperName: 'Overlay' },
+    ],
+  };
+  const PREFIXES: Record<string, string> = {
+    Opportunity: '006',
+    OpportunityTeamMember: '00q',
+    OpportunitySplit: '049',
+  };
+  const graph: ForgeGraph = {
+    nodes: [node('Opportunity', 0), node('OpportunitySplit', 1), node('OpportunityTeamMember', 1)],
+    edges: ['OpportunitySplit', 'OpportunityTeamMember'].map((child) => ({
+      sourceObject: 'Opportunity',
+      targetObject: child,
+      relationshipName: `OpportunityTo${child}`,
+      type: 'lookup' as const,
+      required: true,
+    })),
+    totalRecords: 4,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it("sends the owner's Overlay split under the user the run writes to the target as, asked of the target", async () => {
+    const target = new TeamSellingOrg({
+      runningUser: RUNNING_USER,
+      splitTypes: [
+        { Id: id('149', 1), DeveloperName: 'Revenue', IsTotalValidated: true },
+        { Id: OVERLAY, DeveloperName: 'Overlay', IsTotalValidated: false },
+      ],
+    });
+    const run: ForgeExecutorDeps = {
+      ...reads(),
+      describeFields: vi.fn(async (_org: string, object: string) => TEAM_FIELDS[object] ?? []),
+      queryRecords: vi.fn(async (org: string, soql: string) => {
+        if (org === 'src') return selectRows(source, soql);
+        return /\bFROM (Opportunity\w*|User)\b/.test(soql) ? target.query(soql) : [];
+      }),
+      describeObject: vi.fn(async (_org: string, object: string) => ({
+        keyPrefix: PREFIXES[object] ?? null,
+        recordTypes: [],
+      })),
+    };
+    const runningUser = vi.fn(async () => RUNNING_USER);
+    const composite = everyRowPasses();
+
+    const result = await new ForgeRehearser({
+      reads: run,
+      discoveryService: { personalFields: vi.fn(() => []) } as unknown as GraphDiscoveryService,
+      composite,
+      apiPath: async () => '/services/data/v66.0',
+      runningUser,
+    }).rehearse(graph, { ...CONFIG, recordId: DEAL }, { confirm: async () => {} });
+
+    expect(runningUser).toHaveBeenCalledWith('tgt');
+    expect(result).toMatchObject({ rows: 2, judged: 2, passed: 2 });
+    const records = composite.mock.calls[0][1].compositeRequest
+      .slice(0, -1)
+      .flatMap((sub) => (sub.body as { records: Array<Record<string, unknown>> }).records);
+    expect(records[1]).toEqual({
+      attributes: { type: 'OpportunitySplit' },
+      OpportunityId: '@{rows0[0].id}',
+      SplitOwnerId: RUNNING_USER,
+      SplitTypeId: OVERLAY,
+      SplitPercentage: '40',
+    });
+    // Rehearsed, never written.
+    expect(target.tables['Opportunity']).toEqual([]);
   });
 });

@@ -699,6 +699,12 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return `/services/data/v${conn.version}`;
           },
+          // The owner of an opportunity the run sends without one, whose
+          // team the platform writes with it.
+          runningUser: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            return (await conn.identity()).user_id;
+          },
         });
 
         const forgeOrchestrator = new ForgeOrchestrator({

@@ -743,6 +743,107 @@ export function opportunityTeamWriteEdges(objects: ReadonlySet<string>): ForgeGr
   ];
 }
 
+/**
+ * What the platform writes on the owner's member and splits besides their
+ * lookups, as it takes an opportunity: read in a real org with Team Selling
+ * and Splits on, the member's role "Opportunity Owner" and its access All; a
+ * split, its percentage alone.
+ */
+export const WRITTEN_BY_THE_PLATFORM: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  [OPPORTUNITY_TEAM_MEMBER]: {
+    TeamMemberRole: 'Opportunity Owner',
+    OpportunityAccessLevel: 'All',
+  },
+  [OPPORTUNITY_SPLIT]: {},
+};
+
+/**
+ * Fields of a team's row a link to the target's record is never said to go
+ * without: the platform sets them. A split's percentage and amount follow the
+ * splits of the other members — the owner's Revenue split at 100 % went to
+ * 60 % once a member's 40 % was written — and a row's currency its
+ * opportunity's.
+ */
+const SET_BY_THE_PLATFORM: ReadonlySet<string> = new Set([
+  'SplitPercentage',
+  'SplitAmount',
+  'CurrencyIsoCode',
+]);
+
+/** The query that reads the owner of opportunities, ending with `IN `. */
+const OPPORTUNITY_OWNERS_SOQL = `SELECT Id, OwnerId FROM ${OPPORTUNITY} WHERE Id IN `;
+
+/** The query that reads the target's active split types. */
+export const ACTIVE_SPLIT_TYPES_SOQL = `SELECT Id, DeveloperName, IsTotalValidated FROM ${SPLIT_TYPE} WHERE IsActive = true`;
+
+/** An `IN` list of `ids`, in parentheses. */
+const inListOf = (ids: readonly string[]): string =>
+  `(${ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ')})`;
+
+/** The ids an `IN (…)` list names, in its order. */
+const idsOfInList = (list: string): string[] =>
+  [...list.matchAll(/'([^']*)'/g)].map(([, id]) => id);
+
+/** The query that reads the owner of each of the opportunities `ids`. */
+export function opportunityOwnersSoql(ids: readonly string[]): string {
+  return `${OPPORTUNITY_OWNERS_SOQL}${inListOf(ids)}`;
+}
+
+/**
+ * The opportunities a query of {@link opportunityOwnersSoql} asks about, in
+ * the order it names them; undefined for any other query. What answers that
+ * query in place of the target — a rehearsal, which wrote no opportunity —
+ * reads it so.
+ */
+export function opportunitiesOfOwnersSoql(soql: string): string[] | undefined {
+  if (!soql.startsWith(OPPORTUNITY_OWNERS_SOQL)) return undefined;
+  const list = soql.slice(OPPORTUNITY_OWNERS_SOQL.length);
+  return /^\(.*\)$/.test(list) ? idsOfInList(list) : undefined;
+}
+
+/**
+ * The query that reads what the target holds of the teams of opportunities —
+ * their members, or their splits — with `fields` besides, ending with `IN `.
+ */
+function teamOfOpportunitiesSoql(objectApiName: string, fields: readonly string[]): string {
+  const userField = TEAM_USER_FIELD[objectApiName];
+  const lookups = objectApiName === OPPORTUNITY_SPLIT ? [userField, SPLIT_TYPE_FIELD] : [userField];
+  return (
+    `SELECT ${['Id', 'OpportunityId', ...lookups, ...fields].join(', ')} ` +
+    `FROM ${objectApiName} WHERE OpportunityId IN `
+  );
+}
+
+/** The same query, of the opportunities `ids`. */
+export function opportunityTeamSoql(
+  objectApiName: string,
+  fields: readonly string[],
+  ids: readonly string[],
+): string {
+  return `${teamOfOpportunitiesSoql(objectApiName, fields)}${inListOf(ids)}`;
+}
+
+const OPPORTUNITY_TEAM_SOQL_RE =
+  /^SELECT Id, OpportunityId, (?:UserId|SplitOwnerId, SplitTypeId)((?:, \w+)*) FROM (OpportunityTeamMember|OpportunitySplit) WHERE OpportunityId IN (\(.*\))$/;
+
+/**
+ * The object, the fields besides its lookups and the opportunities a query
+ * of {@link opportunityTeamSoql} asks about; undefined for any other query.
+ * What answers it in place of the target — a rehearsal — reads it so.
+ */
+export function opportunityTeamOfSoql(
+  soql: string,
+): { objectApiName: string; fields: string[]; opportunities: string[] } | undefined {
+  const asked = OPPORTUNITY_TEAM_SOQL_RE.exec(soql);
+  if (!asked) return undefined;
+  const [, tail, objectApiName, list] = asked;
+  return {
+    objectApiName,
+    fields: tail.split(', ').filter((field) => field !== ''),
+    opportunities: idsOfInList(list),
+  };
+}
+
 /** What a copy reads of the two orgs to write an opportunity's team. */
 export interface OpportunityTeamOrgs {
   readonly source: SoqlQuery;
@@ -751,6 +852,18 @@ export interface OpportunityTeamOrgs {
   readonly targetIdOf: (sourceId: string) => string | undefined;
   /** The target's user the run maps a source user to, as it maps the owners of its records. */
   readonly mappedUser: (sourceUserId: string) => string | undefined;
+  /**
+   * The user a decision of the run gives the user lookup where a row leaves
+   * it empty: that of a row of another user the target has no counterpart of,
+   * which goes in as that user's, as a row of a mapped user does.
+   */
+  readonly defaultUser?: string;
+  /**
+   * The fields besides its lookups the run writes a row with: those a row
+   * linked to the target's record is said to go without, when it gives one a
+   * value the target's record does not hold.
+   */
+  readonly written?: readonly string[];
   /**
    * Set by a simulation, which wrote no opportunity: the owner each of them
    * would get in the target, in place of the one read there, and an id of the
@@ -780,11 +893,18 @@ export interface OpportunityTeamRows {
    * The rows the target holds already, each with the target's id: the
    * owner's member and split the platform wrote with the opportunity, or one
    * the team of an opportunity the target held has. `owners` is set for those
-   * of the opportunity's owner.
+   * of the target opportunity's owner; `notKept` names the fields of
+   * {@link OpportunityTeamOrgs.written} the row gives a value the target's
+   * record does not hold, which keeps its own.
    */
-  readonly linked: Map<Record<string, unknown>, { readonly id: string; readonly owners: boolean }>;
+  readonly linked: Map<
+    Record<string, unknown>,
+    { readonly id: string; readonly owners: boolean; readonly notKept: readonly string[] }
+  >;
   /** The rows not written, each with why. */
   readonly held: Map<Record<string, unknown>, TeamRowNotWritten>;
+  /** The rows of `lookups` that go in as the user a decision gives ({@link OpportunityTeamOrgs.defaultUser}). */
+  readonly defaulted: Set<Record<string, unknown>>;
 }
 
 /** An id as a key that its 15- and its 18-character forms share. */
@@ -854,10 +974,20 @@ const textOf = (row: Record<string, unknown>, field: string): string | undefined
  * owner's split of each type the target holds to a total of 100 %, as the
  * platform writes them. Another user is the one an owner mapping gives, or one
  * of the same id that the target holds active — two sandboxes of one
- * production share their users' ids; a user of none of them is the reason the
- * row is held back. A split's type is the target's active type of the same
- * developer name: sent without it, a split goes in as a Revenue one, and with
- * the source's id it is refused (`INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`).
+ * production share their users' ids — or the one a decision of the run gives;
+ * a user of none of them is the reason the row is held back. A split's type is
+ * the target's active type of the same developer name: sent without it, a
+ * split goes in as a Revenue one, and with the source's id it is refused
+ * (`INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`). Whatever gives a row its
+ * user, its type is looked up so, and a row of the target opportunity's owner
+ * is linked as the owner's is: a decision that gave a rep's Overlay split a
+ * user, the split went past the type and in as a Revenue one, taken from the
+ * owner's; one that gave a rep's member the owner, the insert answered with
+ * the platform's member, counted created.
+ *
+ * A row linked to is never written: the values it gives the fields the run
+ * writes, and the target's record holds others of, are named
+ * (`OpportunityTeamRows.linked`), the record keeping its own.
  *
  * A split of another member goes in after the member (`opportunityTeamWriteEdges`),
  * and a Revenue split of one is taken by the platform from the owner's: 40 %
@@ -868,7 +998,12 @@ export async function opportunityTeamOf(
   rows: readonly Record<string, unknown>[],
   orgs: OpportunityTeamOrgs,
 ): Promise<OpportunityTeamRows> {
-  const team: OpportunityTeamRows = { lookups: new Map(), linked: new Map(), held: new Map() };
+  const team: OpportunityTeamRows = {
+    lookups: new Map(),
+    linked: new Map(),
+    held: new Map(),
+    defaulted: new Set(),
+  };
   const userField = TEAM_USER_FIELD[objectApiName];
   if (userField === undefined) return team;
   const split = objectApiName === OPPORTUNITY_SPLIT;
@@ -879,11 +1014,7 @@ export async function opportunityTeamOf(
   if (ofWritten.length === 0) return team;
   const sourceOpportunities = [...new Set(ofWritten.map((row) => String(row['OpportunityId'])))];
   const sourceOwners = byId(
-    await rowsOfIds(
-      orgs.source,
-      `SELECT Id, OwnerId FROM ${OPPORTUNITY} WHERE Id IN `,
-      sourceOpportunities,
-    ),
+    await rowsOfIds(orgs.source, OPPORTUNITY_OWNERS_SOQL, sourceOpportunities),
     'OwnerId',
   );
   const targetOf = (row: Record<string, unknown>): string =>
@@ -892,14 +1023,7 @@ export async function opportunityTeamOf(
   const { simulated } = orgs;
   const targetOwners = simulated
     ? undefined
-    : byId(
-        await rowsOfIds(
-          orgs.target,
-          `SELECT Id, OwnerId FROM ${OPPORTUNITY} WHERE Id IN `,
-          targetOpportunities,
-        ),
-        'OwnerId',
-      );
+    : byId(await rowsOfIds(orgs.target, OPPORTUNITY_OWNERS_SOQL, targetOpportunities), 'OwnerId');
   /** The source opportunity's owner of a row, and that owner's counterpart in the target. */
   const ownersOf = (row: Record<string, unknown>): { source?: string; target?: string } => {
     const source = sourceOwners.get(idKey(String(row['OpportunityId'])));
@@ -948,9 +1072,7 @@ export async function opportunityTeamOf(
     : new Map<string, string>();
   const targetTypes = new Map<string, { id: string; total: boolean }>();
   if (split) {
-    for (const row of await orgs.target(
-      `SELECT Id, DeveloperName, IsTotalValidated FROM ${SPLIT_TYPE} WHERE IsActive = true`,
-    )) {
+    for (const row of await orgs.target(ACTIVE_SPLIT_TYPES_SOQL)) {
       if (typeof row['Id'] === 'string' && typeof row['DeveloperName'] === 'string') {
         targetTypes.set(row['DeveloperName'], {
           id: row['Id'],
@@ -959,32 +1081,55 @@ export async function opportunityTeamOf(
       }
     }
   }
+  // The fields a row linked to is said to go without, compared with the
+  // target's record: its lookups are the run's to give, and what the platform
+  // sets is its own.
+  const compared = (orgs.written ?? []).filter(
+    (field) =>
+      field !== 'Id' &&
+      field !== 'OpportunityId' &&
+      field !== userField &&
+      field !== SPLIT_TYPE_FIELD &&
+      !SET_BY_THE_PLATFORM.has(field),
+  );
+  /** The fields `row` gives a value the target's record `held` does not hold. */
+  const notKeptBy = (
+    row: Record<string, unknown>,
+    held: Readonly<Record<string, unknown>>,
+  ): string[] =>
+    compared.filter((field) => {
+      const value = row[field];
+      if (value === undefined || value === null || value === '' || value === false) return false;
+      return String(value) !== String(held[field] ?? '');
+    });
   // What the target holds of these opportunities' teams, by opportunity, user and type.
-  const held = new Map<string, string>();
+  const held = new Map<string, Record<string, unknown>>();
   const heldKey = (opportunity: string, user: string, type?: string): string =>
     [opportunity, user, type ?? ''].map(idKey).join('|');
   if (!simulated) {
-    const soql = split
-      ? `SELECT Id, OpportunityId, SplitOwnerId, ${SPLIT_TYPE_FIELD} FROM ${OPPORTUNITY_SPLIT} WHERE OpportunityId IN `
-      : `SELECT Id, OpportunityId, UserId FROM ${OPPORTUNITY_TEAM_MEMBER} WHERE OpportunityId IN `;
-    for (const row of await rowsOfIds(orgs.target, soql, targetOpportunities)) {
+    for (const row of await rowsOfIds(
+      orgs.target,
+      teamOfOpportunitiesSoql(objectApiName, compared),
+      targetOpportunities,
+    )) {
       const opportunity = textOf(row, 'OpportunityId');
       const user = textOf(row, userField);
       if (typeof row['Id'] !== 'string' || opportunity === undefined || user === undefined)
         continue;
-      held.set(
-        heldKey(opportunity, user, split ? textOf(row, SPLIT_TYPE_FIELD) : undefined),
-        row['Id'],
-      );
+      held.set(heldKey(opportunity, user, split ? textOf(row, SPLIT_TYPE_FIELD) : undefined), row);
     }
   }
   for (const row of ofWritten) {
     const user = textOf(row, userField);
     if (user === undefined) continue;
     const owners = isOwners(row);
-    const targetUser = owners
-      ? ownersOf(row).target
+    const targetOwner = ownersOf(row).target;
+    let targetUser = owners
+      ? targetOwner
       : (orgs.mappedUser(user) ?? (sameUsers.has(idKey(user)) ? user : undefined));
+    // Of none of them, a row of another user goes in as the one a decision gives.
+    const defaulted = !owners && targetUser === undefined && orgs.defaultUser !== undefined;
+    if (defaulted) targetUser = orgs.defaultUser;
     if (targetUser === undefined) {
       team.held.set(row, {
         field: userField,
@@ -1020,21 +1165,32 @@ export async function opportunityTeamOf(
       }
     }
     const opportunity = targetOf(row);
+    // The row of the target opportunity's owner, whoever it was of in the source.
+    const ofTheOwner = targetOwner !== undefined && idKey(targetUser) === idKey(targetOwner);
     if (simulated) {
       // The platform writes the owner's member, and the owner's split of each
       // type held to 100 %, with the opportunity.
-      if (owners && (!split || total)) {
-        team.linked.set(row, { id: simulated.idFor(), owners });
+      if (ofTheOwner && (!split || total)) {
+        team.linked.set(row, {
+          id: simulated.idFor(),
+          owners: true,
+          notKept: notKeptBy(row, WRITTEN_BY_THE_PLATFORM[objectApiName] ?? {}),
+        });
         continue;
       }
     } else {
-      const id = held.get(heldKey(opportunity, targetUser, lookups[SPLIT_TYPE_FIELD]));
-      if (id !== undefined) {
-        team.linked.set(row, { id, owners });
+      const found = held.get(heldKey(opportunity, targetUser, lookups[SPLIT_TYPE_FIELD]));
+      if (found !== undefined) {
+        team.linked.set(row, {
+          id: String(found['Id']),
+          owners: ofTheOwner,
+          notKept: notKeptBy(row, found),
+        });
         continue;
       }
     }
     team.lookups.set(row, lookups);
+    if (defaulted) team.defaulted.add(row);
   }
   return team;
 }

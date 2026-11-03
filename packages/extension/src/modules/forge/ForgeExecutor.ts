@@ -175,6 +175,7 @@ import {
   STATUS_LIFECYCLES,
   STATUS_NEEDS_CHILDREN,
   TASK,
+  TEAM_USER_FIELD,
   draftStartOf,
   emailWriteEdges,
   isOpportunityTeamObject,
@@ -1434,6 +1435,13 @@ interface PageCarry {
   writtenBefore: number;
   /** Person accounts' contacts linked to the one the platform wrote. */
   withTheirAccount: number;
+  /**
+   * Rows of an opportunity's team linked to the target opportunity owner's
+   * member or split, which the platform writes with the opportunity, and to
+   * the other records of a team the target held: never sent.
+   */
+  teamOwners: number;
+  teamOthers: number;
   /** Person accounts' contacts never sent, the target holding none of them. */
   personContactsUnlinked: number;
   /** Person accounts' contacts sent on their own, and why. */
@@ -1490,6 +1498,8 @@ function emptyPageCarry(): PageCarry {
     unidentified: 0,
     writtenBefore: 0,
     withTheirAccount: 0,
+    teamOwners: 0,
+    teamOthers: 0,
     personContactsUnlinked: 0,
     sentOnTheirOwn: 0,
     onTheirOwnWhy: '',
@@ -1504,6 +1514,22 @@ function emptyPageCarry(): PageCarry {
     lookupsOutsideTheRun: new Map(),
     flagsNotKept: [],
   };
+}
+
+/**
+ * The rows of an object read page by page that are in the target, written or
+ * not: none of them failed, and what hangs from them has a parent.
+ */
+function settledOfCarry(carry: PageCarry): number {
+  return (
+    carry.succeeded +
+    carry.updated +
+    carry.linked +
+    carry.writtenBefore +
+    carry.withTheirAccount +
+    carry.teamOwners +
+    carry.teamOthers
+  );
 }
 
 /** Count `reasons` into the rows a carry says were held back before the write. */
@@ -2752,6 +2778,7 @@ function pagedCounts(
     carry.withTheirAccount > 0
       ? `, ${carry.withTheirAccount} written by the platform with their person account`
       : '';
+  const withTheirOpportunity = teamLinkedNote(carry.teamOwners, carry.teamOthers);
   const already =
     carry.writtenBefore > 0 ? `, ${writtenBeforeNote(config, carry.writtenBefore)}` : '';
   const unidentified =
@@ -2759,8 +2786,25 @@ function pagedCounts(
       ? ` (${carry.unidentified} already in the target without Salesforce naming the record — their children lose the link)`
       : '';
   return (
-    `${carry.succeeded} ${succeeded}${updated}${linked}${withTheirAccount}${already}, ` +
+    `${carry.succeeded} ${succeeded}${updated}${linked}${withTheirAccount}${withTheirOpportunity}${already}, ` +
     `${carry.failed + heldBackCount(held)} failed${unidentified}${ofThemHeldBack(held)}`
+  );
+}
+
+/**
+ * What the line of an object of an opportunity's team says of its rows linked
+ * to the target's records, read whole or page by page: the owner's member and
+ * split, which the platform writes with the opportunity, and the rows of a
+ * team the target held already. Said as "linked to records already in the
+ * target", a page counted the platform's records of the run's opportunity
+ * among the records the target held before the run.
+ */
+function teamLinkedNote(owners: number, others: number): string {
+  return (
+    (owners > 0
+      ? `, ${owners} written by the platform with their opportunity, for its owner`
+      : '') +
+    (others > 0 ? `, ${others} on the team of their opportunity in the target already` : '')
   );
 }
 
@@ -5541,8 +5585,7 @@ export class ForgeExecutor {
       fail(nothingWrittenMessage(object, heldOfNode));
       return;
     }
-    const settled =
-      carry.succeeded + carry.updated + carry.linked + carry.writtenBefore + carry.withTheirAccount;
+    const settled = settledOfCarry(carry);
     if (
       carry.personContactsUnlinked > 0 &&
       carry.withTheirAccount === 0 &&
@@ -5625,8 +5668,7 @@ export class ForgeExecutor {
     this.mergePageReports(state, object, carry);
     this.saySentOnTheirOwn(state, carry.sentOnTheirOwn, carry.onTheirOwnWhy);
     const held = [...heldOfCarry(carry), ...heldForExclusionsOf(state, object)];
-    const settled =
-      carry.succeeded + carry.updated + carry.linked + carry.writtenBefore + carry.withTheirAccount;
+    const settled = settledOfCarry(carry);
     const total = settled + carry.failed;
     const failedNode =
       carry.failed > 0 &&
@@ -9023,27 +9065,41 @@ export class ForgeExecutor {
    * split was refused as a second one. Its opportunity one the run created,
    * the platform deletes it with that opportunity (the owner's split and the
    * member it is of are not deleted on their own: "Can't delete the
-   * opportunity owner's split").
+   * opportunity owner's split"), and it was in the target before the run no
+   * more than the opportunity was: none of the records the target held. The
+   * values its row gives the fields the run writes, which the target's record
+   * holds others of, are said (`notKept`), the record keeping its own: the
+   * row the run read goes through none of what prepares a row to be written,
+   * the anonymization among it, so none of it is written over the record.
+   *
+   * A row of another user that a decision gives the user goes in, or is
+   * linked, as one of that user: see `opportunityTeamOf`.
    *
    * @param keyPrefix - The object's key prefix in the target, for the ids a
    *   simulation gives the records the platform would write.
+   * @param written - The fields besides its lookups the run writes a row of
+   *   the object with.
    */
   private async teamOfTheOpportunities(
     state: ExecutionState,
     objectApiName: string,
     rows: Record<string, unknown>[],
     keyPrefix: string | null | undefined,
+    written: readonly string[],
   ): Promise<{
     rows: Record<string, unknown>[];
     lookups: OpportunityTeamRows['lookups'];
     held: OpportunityTeamRows['held'];
     linked: number;
     owners: number;
+    notKept: string;
   }> {
     if (!isOpportunityTeamObject(objectApiName) || rows.length === 0) {
-      return { rows, lookups: new Map(), held: new Map(), linked: 0, owners: 0 };
+      return { rows, lookups: new Map(), held: new Map(), linked: 0, owners: 0, notKept: '' };
     }
     const { config, remapper, simulated } = state;
+    const userField = TEAM_USER_FIELD[objectApiName];
+    const defaultUser = config.decisions.defaultOf(objectApiName, userField);
     // A simulation does not ask the target which user it writes as: an id of
     // its own stands for that user, the owner of each opportunity no owner
     // mapping gives another.
@@ -9053,6 +9109,8 @@ export class ForgeExecutor {
       target: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
       targetIdOf: (sourceId) => remapper.get(sourceId),
       mappedUser: (sourceUserId) => config.ownerMappings[sourceUserId],
+      ...(defaultUser !== undefined ? { defaultUser } : {}),
+      written,
       ...(simulated
         ? {
             simulated: {
@@ -9063,13 +9121,15 @@ export class ForgeExecutor {
           }
         : {}),
     });
-    for (const [row, { field, parentObject }] of team.held) {
+    // Counted as the decision's, as any default the write gives a row is.
+    if (team.defaulted.size > 0 && defaultUser !== undefined) {
+      state.decisionsApplied.add(
+        { kind: 'set_default', objectApiName, field: userField, to: defaultUser },
+        team.defaulted.size,
+      );
+    }
+    for (const [, { field, parentObject }] of team.held) {
       if (parentObject !== 'User') continue;
-      // A decision gives the user a value: the row goes, and the write gives it.
-      if (config.decisions.givesDefault(objectApiName, field)) {
-        team.held.delete(row);
-        continue;
-      }
       // Which a simulation offers, as for any field the target requires and
       // the run leaves empty.
       state.gaps?.add({
@@ -9083,16 +9143,27 @@ export class ForgeExecutor {
       });
     }
     let owners = 0;
-    for (const [row, { id, owners: ofTheOwner }] of team.linked) {
+    let withTheirOpportunity = 0;
+    /** How many rows were linked without each field's value, in the order first met. */
+    const notKept = new Map<string, number>();
+    for (const [row, { id, owners: ofTheOwner, notKept: fields }] of team.linked) {
       const source = String(row['Id']);
       remapper.addExisting(source, id, objectApiName);
-      if (remapper.isCreated(String(row['OpportunityId']))) state.withTheirRecord.add(source);
+      if (remapper.isCreated(String(row['OpportunityId']))) {
+        state.withTheirRecord.add(source);
+        withTheirOpportunity++;
+      }
       if (ofTheOwner) owners++;
+      for (const field of fields) notKept.set(field, (notKept.get(field) ?? 0) + 1);
     }
     const linked = team.linked.size;
-    if (linked > 0) {
-      state.linkedCount += linked;
-      state.existingRecords.push({ objectApiName, linked, unidentified: 0 });
+    if (linked > 0) state.linkedCount += linked;
+    if (linked > withTheirOpportunity) {
+      state.existingRecords.push({
+        objectApiName,
+        linked: linked - withTheirOpportunity,
+        unidentified: 0,
+      });
     }
     return {
       rows: linked > 0 ? rows.filter((row) => !team.linked.has(row)) : rows,
@@ -9100,6 +9171,12 @@ export class ForgeExecutor {
       held: team.held,
       linked,
       owners,
+      notKept: [...notKept]
+        .map(
+          ([field, count]) =>
+            `${count} linked without the source's ${field}: the target's record keeps its own`,
+        )
+        .join(', '),
     };
   }
 
@@ -11975,14 +12052,29 @@ export class ForgeExecutor {
       // run's opportunities are linked to, never sent again; the other rows
       // of a team go with their user and their type as the target has them,
       // or are held back below with why. See `teamOfTheOpportunities`.
+      const leftOutOfTheWrite = new Set(config.fieldExclusions[node.objectApiName] ?? []);
+      const renames = config.fieldMappings[node.objectApiName] ?? {};
       const team = await this.teamOfTheOpportunities(
         state,
         node.objectApiName,
         toWrite,
         targetObject?.keyPrefix,
+        // The fields a row is written with under its own name, but lookups.
+        fieldInfos.flatMap((field) =>
+          !field.isReference &&
+          effectiveCreatableSet.has(field.name) &&
+          !leftOutOfTheWrite.has(field.name) &&
+          renames[field.name] === undefined
+            ? [field.name]
+            : [],
+        ),
       );
       toWrite = team.rows;
-      if (page) page.linked += team.linked;
+      if (page) {
+        page.teamOwners += team.owners;
+        page.teamOthers += team.linked - team.owners;
+        if (team.notKept) page.flagsNotKept.push(team.notKept);
+      }
 
       // A lookup the rows may not leave empty and that can name several
       // objects decides row by row: see `rowsWithoutTheirParent`. Counted as
@@ -11992,8 +12084,6 @@ export class ForgeExecutor {
       // And, in a run of whole tables, a lookup they may not leave empty at
       // an object outside the run, naming a record the target holds none of:
       // see `rowsWhoseParentTheTargetLacks`.
-      const leftOutOfTheWrite = new Set(config.fieldExclusions[node.objectApiName] ?? []);
-      const renames = config.fieldMappings[node.objectApiName] ?? {};
       for (const [index, why] of await this.rowsWhoseParentTheTargetLacks(
         node,
         state,
@@ -12606,16 +12696,7 @@ export class ForgeExecutor {
         withTheirAccount.linked > 0
           ? `, ${withTheirAccount.linked} written by the platform with their person account`
           : '';
-      // The owner's member and split, which the platform writes with the
-      // opportunity, and the rows of a team the target held already.
-      const teamOthers = team.linked - team.owners;
-      const writtenWithTheirOpportunity =
-        (team.owners > 0
-          ? `, ${team.owners} written by the platform with their opportunity, for its owner`
-          : '') +
-        (teamOthers > 0
-          ? `, ${teamOthers} on the team of their opportunity in the target already`
-          : '');
+      const writtenWithTheirOpportunity = teamLinkedNote(team.owners, team.linked - team.owners);
       // Counted with the rows written or refused, as any contact is: which of
       // them were person accounts' contacts the target wrote none for. Only
       // those the write sent — the first rows it handed over, where a cancel
@@ -12634,8 +12715,11 @@ export class ForgeExecutor {
       const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
       // A relation linked to without a flag its row carried, or a field of
       // the answer that goes with it: the who the event also invites, and
-      // how it answered, which the platform's relation leaves out.
-      const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
+      // how it answered, which the platform's relation leaves out. And a row
+      // of a team linked to without a value it gave a field the run writes.
+      const flagsNotKept = [writeResult.flagsNotKept, team.notKept]
+        .flatMap((note) => (note ? [`, ${note}`] : []))
+        .join('');
       // A row written without the fields the target refused it on: which
       // field it went without, what refused it — a validation rule, or a
       // restricted picklist refusing its value — and the refusal's words.

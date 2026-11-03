@@ -289,9 +289,13 @@ export class RunDecisions {
     return this.picklists.has(objectApiName) || this.defaults.has(objectApiName);
   }
 
-  /** Whether a decision gives `field` of `objectApiName` a value where a row leaves it empty. */
-  givesDefault(objectApiName: string, field: string): boolean {
-    return this.defaults.get(objectApiName)?.some((value) => value.field === field) === true;
+  /**
+   * The value a decision gives `field` of `objectApiName` where a row leaves
+   * it empty, as a text; undefined when none does.
+   */
+  defaultOf(objectApiName: string, field: string): string | undefined {
+    const given = this.defaults.get(objectApiName)?.find((value) => value.field === field);
+    return given === undefined ? undefined : String(given.value);
   }
 
   /**

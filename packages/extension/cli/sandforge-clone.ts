@@ -7036,6 +7036,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           );
         },
         keyPrefixOf: async (name) => (await describeObjectInfo(target, name)).keyPrefix,
+        // The owner of an opportunity the run sends without one, whose team
+        // the platform writes with it.
+        runningUser: async () => (await target.identity()).user_id,
         composite: (body) =>
           target.request({
             method: 'POST',

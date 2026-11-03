@@ -179,16 +179,22 @@ describe('RunDecisions.applyToRow', () => {
   });
 });
 
-describe('RunDecisions.givesDefault', () => {
-  it('says which field of which object a decision gives a value', () => {
+describe('RunDecisions.defaultOf', () => {
+  it('gives the value a decision gives a field of an object, as a text, and none for the others', () => {
     const decisions = new RunDecisions({
-      defaultValues: [{ object: 'OpportunityTeamMember', field: 'UserId', value: '005T' }],
+      defaultValues: [
+        { object: 'OpportunityTeamMember', field: 'UserId', value: '005T' },
+        { object: 'Account', field: 'NumberOfEmployees', value: 12 },
+      ],
     });
 
-    expect(decisions.givesDefault('OpportunityTeamMember', 'UserId')).toBe(true);
-    expect(decisions.givesDefault('OpportunitySplit', 'UserId')).toBe(false);
-    expect(decisions.givesDefault('OpportunityTeamMember', 'TeamMemberRole')).toBe(false);
-    expect(new RunDecisions(undefined).givesDefault('OpportunityTeamMember', 'UserId')).toBe(false);
+    expect(decisions.defaultOf('OpportunityTeamMember', 'UserId')).toBe('005T');
+    expect(decisions.defaultOf('Account', 'NumberOfEmployees')).toBe('12');
+    expect(decisions.defaultOf('OpportunitySplit', 'UserId')).toBeUndefined();
+    expect(decisions.defaultOf('OpportunityTeamMember', 'TeamMemberRole')).toBeUndefined();
+    expect(
+      new RunDecisions(undefined).defaultOf('OpportunityTeamMember', 'UserId'),
+    ).toBeUndefined();
   });
 });
 
