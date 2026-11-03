@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -24,7 +24,9 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import { otherRunsInSweep } from '../src/bridge/handlers/removalSweep.js';
 import {
+  commandLineOtherRuns,
   failsTheStep,
   frozenStepExit,
   main,
@@ -285,5 +287,60 @@ describe('failsTheStep', () => {
     ).toBe(true);
     expect(failsTheStep({ type: 'frozen:remove:response', payload: {} })).toBe(false);
     expect(messageLines(removal('ALREADY_REMOVED'))).toEqual(['nothing to remove: refused']);
+  });
+});
+
+describe('commandLineOtherRuns', () => {
+  let dir: string;
+  const ORG = '00D000000000001AAA';
+  /** When the load being removed wrote. */
+  const WRITTEN = { first: '2026-11-03T15:00:00.000Z', last: '2026-11-03T15:05:00.000Z' };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sandforge-frozen-other-runs-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A Sync run's file in the folder, as sandforge-sync keeps one. */
+  function syncRan(runId: string, from: string, to: string, ids: string[]): void {
+    mkdirSync(join(dir, 'sync-runs'), { recursive: true });
+    const lines = [
+      {
+        run: {
+          runId,
+          configId: 'sandforge-sync',
+          configName: runId,
+          sourceOrgId: 'SRC',
+          targetOrgId: 'TGT',
+          targetOrganizationId: ORG,
+          startedAt: from,
+        },
+      },
+      { object: 'Task', created: ids, at: from },
+      { end: { at: to, status: 'success' } },
+    ];
+    writeFileSync(
+      join(dir, 'sync-runs', `${runId}.ndjson`),
+      `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`,
+    );
+  }
+
+  it('names a Sync run of this machine that wrote in the load’s window, which a sweep then never takes', async () => {
+    syncRan('beside', '2026-11-03T15:02:00.000Z', '2026-11-03T15:03:00.000Z', [
+      '00T000000000007AAA',
+    ]);
+    const runs = await commandLineOtherRuns('TGT', dir)(ORG, WRITTEN);
+    expect(otherRunsInSweep(WRITTEN, runs)).toEqual([{ ids: ['00T000000000007AAA'] }]);
+  });
+
+  it('names none written well apart from the load, and none when the load’s window is not known', async () => {
+    syncRan('before', '2026-11-03T10:00:00.000Z', '2026-11-03T10:01:00.000Z', [
+      '00T000000000008AAA',
+    ]);
+    expect(await commandLineOtherRuns('TGT', dir)(ORG, WRITTEN)).toEqual([]);
+    expect(await commandLineOtherRuns('TGT', dir)(ORG, undefined)).toEqual([]);
   });
 });

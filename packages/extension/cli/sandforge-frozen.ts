@@ -82,12 +82,14 @@ import {
   SWEEP_CLASS_FLAGS,
   automationHeldLines,
   journalDirOf,
+  otherRunsOf,
   platformCopiesWords,
   sweepClassArgsOf,
   sweepLines,
   sweepListingLines,
   targetAutomationReader,
 } from './sandforge-clone.js';
+import type { OtherModuleRuns } from '../src/bridge/handlers/removalSweep.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
 import {
   muteLines,
@@ -937,6 +939,30 @@ const VERDICT_EXIT: Readonly<Record<string, number>> = {
   unstable: UNSTABLE_EXIT,
   failed: FAILED_EXIT,
 };
+
+/**
+ * The runs of this machine's other command lines on the target, clones and
+ * Sync and Seed runs, as the panel tells the handler of its own modules'
+ * (`ExtensionHandlers`): while one wrote in a load's window, a sweep takes
+ * nothing tied to nothing of the load, whose it is cannot be told. Without
+ * it, `--sweep-untied` took what a Sync run had just written. Each is dated
+ * by the load's window it was found in. Exported so it can be tested.
+ */
+export function commandLineOtherRuns(target: string, journalDir?: string): OtherModuleRuns {
+  return async (organizationId, written) => {
+    const from = Date.parse(written?.first ?? '');
+    const to = Math.max(from, Date.parse(written?.last ?? ''));
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
+    const runs = await otherRunsOf({
+      organizationId,
+      alias: target,
+      span: { from, to },
+      own: { ids: [] },
+      ...(journalDir !== undefined ? { journalDir } : {}),
+    });
+    return runs.map(({ ids }) => ({ ids, from, to }));
+  };
+}
 
 /**
  * The exit code of a step that ran through, from what it posted: `verify` by
@@ -1866,6 +1892,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
   // The salt from the environment, or the file given; none is made up here.
   handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
+  if (args.target) handler.setOtherModuleRuns(commandLineOtherRuns(args.target));
 
   // The extraction, the load and the removal are listed while they run, as in
   // the extension: what Ctrl-C stops them through, as the panel's Cancel does.

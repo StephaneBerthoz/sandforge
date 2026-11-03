@@ -41,6 +41,7 @@ vi.mock('../src/bridge/handlers/FrozenDatasetHandler.js', () => ({
     }
     setTargetAutomation(): void {}
     setSaltKeeper(): void {}
+    setOtherModuleRuns(): void {}
     async handle(msg: { id: string; type: string }): Promise<boolean> {
       if (msg.type !== 'frozen:load') return true;
       const controller = new AbortController();
