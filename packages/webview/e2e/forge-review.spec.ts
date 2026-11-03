@@ -188,6 +188,15 @@ const LIFTING_AUTOMATION = {
   validationRulesNotRead: 0,
 };
 
+/** The same set lifting a third rule of Contact: the folded line names three. */
+const THREE_LIFTS_AUTOMATION = {
+  ...LIFTING_AUTOMATION,
+  validationRuleBypasses: [
+    ...LIFTING_AUTOMATION.validationRuleBypasses,
+    { objectApiName: 'Contact', name: 'Mailing_Country_Valid', permissions: ['Skip_Rules'] },
+  ],
+};
+
 /**
  * A validation rule of Contact the set of {@link LIFTING_AUTOMATION} lifts:
  * the metadata read names the set that holds its bypass.
@@ -469,6 +478,49 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     );
   });
 
+  test('keeps Controls in sight once the mute is ticked over a gap that refuses rows undecided', async ({
+    page,
+  }) => {
+    // Ticked, the mute was said in two lines under Execute, beside the gaps
+    // left to decide: the foot of the column grew over Controls.
+    await openReview(page, { gaps: [REFUSING_GAP] });
+    await page.getByTestId('automation-mute-toggle').check();
+    await expect(page.getByTestId('forge-mute-execute-hint')).toHaveCount(1);
+    await expect(page.getByTestId('forge-gaps-undecided')).toBeVisible();
+
+    expect(await inSight(page, 'automation-mute-toggle')).toBe(true);
+    expect(await inSight(page, 'tab-controls')).toBe(true);
+    expect(await inSight(page, 'review-row-controls-summary')).toBe(true);
+    expect(await inSight(page, 'forge-gaps-decide')).toBe(true);
+    expect(await inSight(page, 'execute-button')).toBe(true);
+    // The box ticked stands above it: Execute still says, to a screen reader, that it mutes.
+    expect(await describedByChromium(page, 'execute-button')).toContain(
+      "Execute mutes the target's automation, as ticked above.",
+    );
+  });
+
+  test('names three rules lifted on the folded mute, Controls in sight ticked or not', async ({
+    page,
+  }) => {
+    await openReview(page, { gaps: [REFUSING_GAP], automation: THREE_LIFTS_AUTOMATION });
+    const line = page.getByTestId('automation-mute-more-summary');
+    await expect(line).toHaveText(
+      'Also lifts Validation rule: Email_Required, Validation rule: Phone_Format and Validation rule: Mailing_Country_Valid',
+    );
+    for (const ticked of [false, true]) {
+      await page.getByTestId('automation-mute-toggle').setChecked(ticked);
+      await expect(page.getByTestId('forge-mute-execute-hint')).toHaveCount(ticked ? 1 : 0);
+      for (const testId of [
+        'automation-mute-more-summary',
+        'tab-controls',
+        'review-row-controls-summary',
+        'execute-button',
+      ]) {
+        expect(await inSight(page, testId), `${testId}, ticked: ${String(ticked)}`).toBe(true);
+      }
+    }
+  });
+
   test('says on the Gaps row a rule the ticked mute lifts, no row moved, Execute in sight', async ({
     page,
   }) => {
@@ -498,8 +550,13 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     await expect(rule.getByTestId('gap-lifted')).toHaveCount(0);
     const unticked = (await rule.boundingBox())!.height;
     await warnings.locator('summary').click();
+    const admin = page.getByTestId('gaps-admin-text');
+    await expect(admin).toContainText('Turn off validation rule Email_Required');
 
     await page.getByTestId('automation-mute-toggle').check();
+    // Lifted, the rule asks nothing of the target's admin: the field it requires still does.
+    await expect(admin).not.toContainText('Email_Required');
+    await expect(admin).toContainText('Region__c: make it optional');
     // Among the gaps that refuse nothing, folded as the row opens: no row of
     // Review moves, and Execute stays in sight.
     await expect(page.getByTestId('gaps-severity-warning')).toHaveCount(0);
@@ -634,6 +691,21 @@ test.describe('Forge Review on a narrow panel', () => {
     await openEveryRow(page);
     await scrollPanelTo(page, 400);
     expect(await inSight(page, 'execute-button')).toBe(true);
+  });
+
+  test('says under Execute that it mutes, the box ticked out of sight', async ({ page }) => {
+    // The column under the rows, the box is a panel's height from Execute.
+    await openReview(page, { gaps: [REFUSING_GAP] });
+    await page.getByTestId('automation-mute-toggle').check();
+    await scrollPanelTo(page, 0);
+
+    expect(await inSight(page, 'automation-mute-toggle')).toBe(false);
+    await expect(page.getByTestId('forge-mute-execute-hint')).toHaveText(
+      "Execute mutes the target's automation, as ticked above.",
+    );
+    expect(await inSight(page, 'forge-mute-execute-hint')).toBe(true);
+    const hint = await page.getByTestId('forge-mute-execute-hint').boundingBox();
+    expect(hint!.height).toBeGreaterThan(10);
   });
 
   test('goes to the Gaps row from under Execute, however far the page has scrolled', async ({

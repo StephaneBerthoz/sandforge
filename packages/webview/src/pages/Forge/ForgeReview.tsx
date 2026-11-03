@@ -755,12 +755,16 @@ export const ForgeReview: React.FC = () => {
                 {t('forgeRun.files.asIsNeeded')}
               </p>
             )}
-            {/* Ticked above, the mute goes with Execute: said under it. */}
+            {/* Ticked above, the mute goes with Execute: said under it while
+                the column is under the rows and the box may be a panel's
+                height away. Beside the rows, the box ticked stands just above
+                and the line is Execute's description alone: its two lines
+                held Controls under the foot of the column at 1280 by 800. */}
             {muteAutomation && (
               <p
                 id="forge-mute-execute-hint"
                 data-testid="forge-mute-execute-hint"
-                className="text-xs text-text-secondary"
+                className="text-xs text-text-secondary min-[860px]:sr-only"
               >
                 {t('forgeRun.review.muting')}
               </p>

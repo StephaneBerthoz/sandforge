@@ -35,7 +35,12 @@ export interface ReviewRowProps {
   state?: ReviewRowState | undefined;
   open: boolean;
   onToggle: () => void;
-  /** In the run's column, too narrow for the row's columns at any panel width. */
+  /**
+   * In the run's column, too narrow for the row's columns at any panel width:
+   * what it comes to follows its name on the line, and wraps beside it when
+   * long. On a line of its own, it put Controls under the foot of the column
+   * at 1280 by 800.
+   */
   compact?: boolean;
   children: React.ReactNode;
 }
@@ -75,11 +80,13 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({
           aria-controls={`tabpanel-${id}`}
           onClick={onToggle}
           className={cn(
-            'grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-baseline gap-x-2 gap-y-0.5',
+            'grid w-full items-baseline gap-x-2 gap-y-0.5',
             // Underlined on hover rather than tinted: the list's hover colour
             // took the secondary text under the row to 3.7:1.
             'group scroll-mt-2 cursor-pointer py-2.5 text-left text-sm',
-            !compact && 'min-[640px]:grid-cols-[1rem_8rem_minmax(0,1fr)_auto] min-[640px]:gap-x-3',
+            compact
+              ? 'grid-cols-[1rem_auto_minmax(0,1fr)_auto]'
+              : 'grid-cols-[1rem_minmax(0,1fr)_auto] min-[640px]:grid-cols-[1rem_8rem_minmax(0,1fr)_auto] min-[640px]:gap-x-3',
           )}
         >
           <ChevronRight
@@ -94,8 +101,10 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({
           <span
             data-testid={`review-row-${id}-summary`}
             className={cn(
-              'col-span-2 col-start-2 row-start-2 min-w-0 text-text-primary [overflow-wrap:anywhere]',
-              !compact && 'min-[640px]:col-span-1 min-[640px]:col-start-3 min-[640px]:row-start-1',
+              'min-w-0 text-text-primary [overflow-wrap:anywhere]',
+              compact
+                ? 'col-start-3 row-start-1'
+                : 'col-span-2 col-start-2 row-start-2 min-[640px]:col-span-1 min-[640px]:col-start-3 min-[640px]:row-start-1',
             )}
           >
             {summary}
@@ -105,9 +114,9 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({
               data-testid={`review-row-${id}-state`}
               data-state={state}
               className={cn(
-                'col-start-3 row-start-1 flex items-center gap-1 justify-self-end',
+                'row-start-1 flex items-center gap-1 justify-self-end',
                 'whitespace-nowrap text-xs',
-                !compact && 'min-[640px]:col-start-4',
+                compact ? 'col-start-4' : 'col-start-3 min-[640px]:col-start-4',
                 said.className,
               )}
             >

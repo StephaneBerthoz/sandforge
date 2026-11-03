@@ -268,10 +268,21 @@ function adminListText(t: TFunction, groups: readonly ForgeAdminChangeGroup[]): 
  * copies it. Shown, never made: the run changes nothing of the target's
  * metadata, and the user is seldom the one who may. Nothing when no gap asks
  * a change of it.
+ *
+ * A validation rule the mute ticked lifts (`lifted`) is left out, as a gap
+ * that refuses nothing is: its rows go in whole with nothing changed in the
+ * target. Ticked, the tab said the rule lifted while the list under it still
+ * said to turn it off.
  */
-const AdminChanges: React.FC<{ gaps: readonly ForgeGap[] }> = ({ gaps }) => {
+const AdminChanges: React.FC<{
+  gaps: readonly ForgeGap[];
+  lifted: readonly MutedAutomationAlsoLifted[] | undefined;
+}> = ({ gaps, lifted }) => {
   const { t } = useTranslation();
-  const groups = useMemo(() => adminChangesOf(gaps), [gaps]);
+  const groups = useMemo(
+    () => adminChangesOf(gaps.filter((gap) => !gapLiftedBy(gap, lifted))),
+    [gaps, lifted],
+  );
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -716,8 +727,9 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
  * @param lifted - What the mute ticked for the run lifts beside what it
  *   silences (`MutePlan.alsoLifts`); absent while it is not ticked. A
  *   validation rule it lifts refuses nothing, as one whose bypass the user
- *   holds, and is said lifted in the clone's words: the tab said the rule
- *   might refuse the contacts the mute let in whole.
+ *   holds, is said lifted in the clone's words, and asks nothing of the
+ *   target's admin: the tab said the rule might refuse the contacts the mute
+ *   let in whole.
  */
 export const ReviewGapsTab: React.FC<{
   target?: BypassTarget;
@@ -919,7 +931,7 @@ export const ReviewGapsTab: React.FC<{
         data-testid="gaps-tools"
         className="flex flex-wrap items-start gap-x-6 gap-y-2 border-t border-subtle pt-2"
       >
-        <AdminChanges gaps={shown} />
+        <AdminChanges gaps={shown} lifted={lifted} />
         {/* Its form takes the line's width once opened. */}
         <ForgeSaveTemplate
           idPrefix="review-save-template"
