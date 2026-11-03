@@ -14,16 +14,12 @@ import { CompliancePicker } from './CompliancePicker';
 import { AutomationMuteBox } from '../../../components/ui/AutomationMuteBox';
 import { CheckpointFirstOption } from '../../../components/ui/CheckpointFirstOption';
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
-import { OrgBadge } from '../../../components/ui/OrgBadge';
-import { Icon } from '../../../components/ui/Icon';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { AutopilotFitSection, type AutopilotFitSectionProps } from './AutopilotFitPanel';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
-  /** Source org ID */
-  readonly sourceOrgId: string;
   /** Target org ID */
   readonly targetOrgId: string;
   /** Selected object API names */
@@ -79,7 +75,6 @@ export interface Step4ReviewProps {
  * compliance framework the plan anonymizes by.
  */
 export const Step4Review: React.FC<Step4ReviewProps> = ({
-  sourceOrgId,
   targetOrgId,
   selectedObjects,
   totalRecords,
@@ -107,7 +102,6 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   // them by the ids the store keys them on, a UUID in a real install, on the
   // one screen where the user checks which org is written to.
   const orgs = useOrgStore((s) => s.orgs);
-  const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   const targetName = targetOrg?.alias || targetOrg?.username || targetOrgId;
   const checkpointFirst = useAutopilotStore((s) => s.checkpointFirst);
@@ -427,28 +421,6 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           )}
         </div>
       )}
-
-      <div
-        className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
-        data-testid="step4-orgs"
-      >
-        <span className="text-sm font-medium text-text-primary">
-          {t('autopilot.step4.connectionSummary')}
-        </span>
-        {/* Each org by its alias, its type — the target's in the colour of
-            its tier — and its instance, as its badge names it elsewhere. */}
-        <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-          <span className="flex items-center gap-1" data-testid="step4-source-org">
-            {t('autopilot.step4.source')}
-            {sourceOrg ? <OrgBadge org={sourceOrg} /> : <span>{sourceOrgId}</span>}
-          </span>
-          <Icon name="arrow-right" className="text-text-primary" />
-          <span className="flex items-center gap-1" data-testid="step4-target-org">
-            {t('autopilot.step4.target')}
-            {targetOrg ? <OrgBadge org={targetOrg} /> : <span>{targetOrgId}</span>}
-          </span>
-        </div>
-      </div>
 
       <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
         <span className="text-sm font-medium text-text-primary">

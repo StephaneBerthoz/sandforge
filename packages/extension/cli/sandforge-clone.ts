@@ -458,7 +458,7 @@ export interface CliArgs {
    */
   rehearse: boolean;
   /**
-   * The decisions taken on Review's Gaps tab, from `--config` or `--template`:
+   * The decisions taken in Review's Gaps row, from `--config` or `--template`:
    * picklist values mapped, defaults, cuts, record types mapped, rows held
    * back, gaps ignored. undefined = none.
    */
@@ -758,7 +758,7 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          source field is dropped and the value written to
                          the target field name on insert.
   --config <file.json>   the run's choices from a JSON file: the decisions
-                         taken on Review's Gaps tab (picklistValueMappings,
+                         taken in Review's Gaps row (picklistValueMappings,
                          recordTypeMappings, defaultValues, truncateFields,
                          skippedRows, ignoredGaps), the fields and objects
                          left out (fieldExclusions, excludedObjects), the

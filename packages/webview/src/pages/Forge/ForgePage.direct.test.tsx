@@ -44,6 +44,7 @@ vi.mock('../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'Sandbox',
           safetyTier: 'low',
+          tags: [],
         },
         {
           id: 'org-target',
@@ -53,6 +54,7 @@ vi.mock('../../stores/useOrgStore', () => ({
           status: 'connected',
           orgType: 'Sandbox',
           safetyTier: 'low',
+          tags: [],
         },
       ],
       selectedOrgId: 'org-source',

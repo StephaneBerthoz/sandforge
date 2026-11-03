@@ -17,6 +17,7 @@ import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../../stores/useAutopilotStore';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
+import { OrgRibbon } from '../../../components/ui/OrgRibbon';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { Step1Connect } from './Step1_Connect';
 import { Step2Objects, pickableInTarget } from './Step2_Objects';
@@ -410,6 +411,13 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         subtitle={t('moduleSummary.autopilot')}
         icon="rocket"
       />
+      {/* Past the first step, whose pickers name them, the two orgs stay said. */}
+      {currentStep > 0 && (
+        <OrgRibbon
+          source={orgs.find((o) => o.id === sourceOrgId) ?? sourceOrgId ?? undefined}
+          target={targetOrg ?? targetOrgId ?? undefined}
+        />
+      )}
       <ModuleHowTo module="autopilot" />
 
       <SeedWizard
@@ -498,7 +506,6 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         )}
         {currentStep === 2 && (
           <Step4Review
-            sourceOrgId={sourceOrgId ?? ''}
             targetOrgId={targetOrgId ?? ''}
             selectedObjects={selectedObjects}
             totalRecords={totalRecords}

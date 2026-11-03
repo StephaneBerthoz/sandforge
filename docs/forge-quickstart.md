@@ -70,9 +70,9 @@ The main Forge journey, end to end — from a real record to a populated sandbox
    then "Execute Forge"
      → (Optional) pick an anonymization preset on the Review screen first:
        GDPR — default, GDPR — strict, Healthcare — PHI, Internal test — minimal;
-       its Anonymization tab turns anonymization on or off for the run,
+       its Anonymization row turns anonymization on or off for the run,
        with no new discovery
-     → the "Automation" tab says first what the target runs on the
+     → the "Automation" row says first what the target runs on the
        records: its flows, Apex triggers, processes and workflow rules,
        what of them sends messages or runs after commit, its assignment
        and duplicate rules, and what keeps a flow quiet (see the reference)
@@ -82,7 +82,7 @@ The main Forge journey, end to end — from a real record to a populated sandbox
        keeps its source Id, and the SandForge log names it
      → (Optional) tick "Copy the files of the cloned records" on the
        Review screen first (see the reference)
-     → (Optional) tick "Checkpoint first" on the "Controls" tab, to be
+     → (Optional) tick "Checkpoint first", beside "Execute Forge", to be
        able to rewind the objects the run writes (see the reference)
 ```
 
@@ -123,7 +123,7 @@ A lookup filter is not among them: which rows it refuses depends on the records 
 
 No Salesforce API validates a record without saving it: only a transaction that is rolled back gives the platform's own verdict — its validation rules, its triggers and flows, its duplicate rules, its restricted picklists. **Rehearse**, beside **Simulate** in Review's action bar, gets that verdict on the rows the run would write, and keeps none of them.
 
-Up to 200 rows, every one is rehearsed; past that, one row per object, record type and set of fields given a value. Each call to the target is rolled back whole, and a VS Code confirmation says first what the rehearsal costs and what a rollback cannot take back: platform events published immediately and callouts already made. Each refusal joins the **Gaps** tab. [The reference](forge-reference.md#rehearse-a-run) says how the calls are made and what the audit trail records.
+Up to 200 rows, every one is rehearsed; past that, one row per object, record type and set of fields given a value. Each call to the target is rolled back whole, and a VS Code confirmation says first what the rehearsal costs and what a rollback cannot take back: platform events published immediately and callouts already made. Each refusal joins the **Gaps** row. [The reference](forge-reference.md#rehearse-a-run) says how the calls are made and what the audit trail records.
 
 ## Remove what a run created
 
@@ -134,7 +134,7 @@ You type the org's name to go on, and Production Guard refuses a production org.
 ## Going further
 
 - [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that
-- [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** tab, and what Review reads of the target's metadata
+- [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** row, and what Review reads of the target's metadata
 - [Emails and phone numbers](forge-reference.md#emails-and-phone-numbers), neutralized unless you keep them, and [whether the emails go out](forge-reference.md#whether-the-emails-go-out)
 - [Before the run writes](forge-reference.md#before-the-run-writes): the target, what fires, what the run is about to read and to write
 - [Copy the files of the cloned records](forge-reference.md#copy-the-files-of-the-cloned-records)
@@ -234,7 +234,7 @@ A run that writes stops before it does, exit `1`, unless you accept what the tar
 | `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY` <a name="error-insufficient-access-on-cross-reference-entity"></a> | The running user cannot read a record the lookup points at, or edit the master of a master-detail: a record it neither owns nor is shared, such as one the target already held, which the clone linked to.                                                                                          | Share that record with the running user, give it View All or Modify All on the object, or connect the target with a user who has that access; then retry the failed objects.                                                                                         |
 | `NUMBER_OUTSIDE_VALID_RANGE` <a name="error-number-outside-valid-range"></a>                                       | A number has more digits before the decimal point than the target's field allows.                                                                                                                                                                                                                   | Give the field the same length and decimal places in both orgs, or change the source value.                                                                                                                                                                          |
 | `MALFORMED_ID` <a name="error-malformed-id"></a>                                                                   | A field the target takes as an ID got something else: a lookup on the target that is another type on the source, or a `--map` writing another field into it.                                                                                                                                        | Give the field the same type in both orgs, or leave it out with `--exclude Object.Field`.                                                                                                                                                                            |
-| `CANNOT_EXECUTE_FLOW_TRIGGER` <a name="error-cannot-execute-flow-trigger"></a>                                     | A Flow of the target, or a process, failed on save; the message names it. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the target has left today, a Flow that sends fails. | Deactivate or fix that Flow, or give the running user a custom permission its start condition skips (Review's **Automation** tab names them); then retry the failed objects. Past the day's emails, a bypass that keeps the Flow quiet, or a smaller run, avoids it. |
+| `CANNOT_EXECUTE_FLOW_TRIGGER` <a name="error-cannot-execute-flow-trigger"></a>                                     | A Flow of the target, or a process, failed on save; the message names it. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the target has left today, a Flow that sends fails. | Deactivate or fix that Flow, or give the running user a custom permission its start condition skips (Review's **Automation** row names them); then retry the failed objects. Past the day's emails, a bypass that keeps the Flow quiet, or a smaller run, avoids it. |
 
 The wizard's Errors and Notes panels show an explanation and an action hint under each message they recognize, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese, and so do the execution screen and the results under the error that stopped a run. A hint whose code has a row above links to that row. Each message the target gave ends with the fields its error named, in brackets, where the message does not already list them: a restricted picklist's refusal names the value it refused and not the field.
 

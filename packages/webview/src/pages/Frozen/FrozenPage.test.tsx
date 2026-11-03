@@ -14,7 +14,7 @@ import type { FrozenStatusInfo } from '@sandforge/shared';
 /* ---- Mocks ---- */
 
 let mockOrgState: Record<string, unknown> = {
-  orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected' }],
+  orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] }],
   selectedOrgId: 'org-1',
 };
 
@@ -116,7 +116,7 @@ function textBesideHint(cell: Element): string | null {
 describe('FrozenPage', () => {
   beforeEach(() => {
     mockOrgState = {
-      orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected' }],
+      orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] }],
       selectedOrgId: 'org-1',
     };
     mockNavigate.mockClear();
@@ -499,8 +499,8 @@ describe('FrozenPage', () => {
   it('dispatches frozen:load with the pilot flag', () => {
     mockOrgState = {
       orgs: [
-        { id: 'org-1', alias: 'Dev', status: 'connected' },
-        { id: 'org-2', alias: 'QA', status: 'connected' },
+        { id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] },
+        { id: 'org-2', alias: 'QA', status: 'connected', orgType: 'Sandbox', tags: [] },
       ],
       selectedOrgId: 'org-1',
     };
@@ -1377,9 +1377,9 @@ describe('FrozenPage', () => {
     beforeEach(() => {
       mockOrgState = {
         orgs: [
-          { id: 'org-1', alias: 'Dev', status: 'connected' },
-          { id: 'org-2', alias: 'QA', status: 'connected' },
-          { id: 'org-3', alias: 'UAT', status: 'connected' },
+          { id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] },
+          { id: 'org-2', alias: 'QA', status: 'connected', orgType: 'Sandbox', tags: [] },
+          { id: 'org-3', alias: 'UAT', status: 'connected', orgType: 'Sandbox', tags: [] },
         ],
         selectedOrgId: 'org-1',
       };

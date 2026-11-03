@@ -125,7 +125,6 @@ export const ReviewControlsTab: React.FC = () => {
         )}
       </section>
       <RunControls config={config} apply={apply} />
-      <BeforeWriting targetOrgId={config.targetOrgId} />
       <p role="status" data-testid="controls-said" className="text-text-primary">
         {said}
       </p>
@@ -140,10 +139,11 @@ export const ReviewControlsTab: React.FC = () => {
 
 /**
  * What the run does before its first write: the checkpoint it may take of what
- * it writes. Not part of the run's config, as the mute beside the target's
- * automation is not: a template or a past run never brings it back.
+ * it writes. Not part of the run's config, as the mute beside it is not: a
+ * template or a past run never brings it back. Set beside Execute, outside the
+ * controls, which open only when asked: it is what makes the run take back.
  */
-const BeforeWriting: React.FC<{ targetOrgId: string }> = ({ targetOrgId }) => {
+export const ReviewCheckpointFirst: React.FC<{ targetOrgId: string }> = ({ targetOrgId }) => {
   const { t } = useTranslation();
   const id = useId();
   const checkpointFirst = useForgeStore((s) => s.checkpointFirst);
@@ -159,6 +159,7 @@ const BeforeWriting: React.FC<{ targetOrgId: string }> = ({ targetOrgId }) => {
         onChange={setCheckpointFirst}
         orgId={targetOrgId}
         costSaid="simulation"
+        foldDetails
         estimate={
           estimate
             ? { of: estimate, lead: t('runResults.checkpoint.estimate.lastSimulation') }

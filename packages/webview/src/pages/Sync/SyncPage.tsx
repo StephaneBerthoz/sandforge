@@ -13,7 +13,7 @@ import { Badge } from '../../components/ui/Badge';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { OrgBadge } from '../../components/ui/OrgBadge';
+import { OrgRibbon } from '../../components/ui/OrgRibbon';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { orgToFill } from '../../utils/orgToFill';
 import { SyncWizard } from './SyncWizard';
@@ -48,7 +48,6 @@ import '../../stores/useCDCLiveStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
-import { Icon } from '../../components/ui/Icon';
 import { Input } from '../../components/ui/Input';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
@@ -434,23 +433,8 @@ export const SyncPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
-      <PageHeader
-        title={t('sync.title')}
-        subtitle={t('sync.selectOrgsDesc')}
-        icon="sync"
-        actions={
-          // The two badges go on two lines when the panel is too narrow for
-          // both: on one, the German header ran 43 pixels past an 800-pixel
-          // panel once each badge named its type in a word.
-          <div className="flex flex-wrap items-center justify-end gap-(--sf-space-2)">
-            {headerSource && <OrgBadge org={headerSource} />}
-            {headerSource && headerTarget && (
-              <Icon name="arrow-right" className="text-(--sf-text-secondary)" />
-            )}
-            {headerTarget && <OrgBadge org={headerTarget} />}
-          </div>
-        }
-      />
+      <PageHeader title={t('sync.title')} subtitle={t('sync.selectOrgsDesc')} icon="sync" />
+      {(headerSource || headerTarget) && <OrgRibbon source={headerSource} target={headerTarget} />}
       <ModuleHowTo module="sync" />
 
       {error && (

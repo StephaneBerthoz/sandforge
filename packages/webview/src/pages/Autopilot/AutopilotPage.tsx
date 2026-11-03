@@ -20,6 +20,7 @@ import type { AutopilotStep } from '../../stores/useAutopilotStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { OrgRibbon } from '../../components/ui/OrgRibbon';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
@@ -87,6 +88,8 @@ const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'review'];
 export const AutopilotPage: React.FC = () => {
   const { t } = useTranslation();
   const step = useAutopilotStore((s) => s.step);
+  const sourceOrgId = useAutopilotStore((s) => s.sourceOrgId);
+  const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
   const [showReport, setShowReport] = useState(false);
   /** Set once a stopped run has ended: the objects it did not write whole. */
   const [notWritten, setNotWritten] = useState<string[] | undefined>();
@@ -438,6 +441,11 @@ export const AutopilotPage: React.FC = () => {
             </button>
           )}
         </div>
+        <OrgRibbon
+          className="px-4 py-2 border-b border-(--sf-border)"
+          source={orgs.find((org) => org.id === sourceOrgId) ?? sourceOrgId ?? undefined}
+          target={orgs.find((org) => org.id === targetOrgId) ?? targetOrgId ?? undefined}
+        />
         {outlivedWait && step === 'executing' && executeMutation.error && (
           <p
             role="status"

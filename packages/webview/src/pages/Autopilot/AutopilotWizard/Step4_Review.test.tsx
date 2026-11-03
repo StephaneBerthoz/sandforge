@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import i18n from '../../../i18n';
@@ -52,7 +52,6 @@ afterEach(() => {
 });
 
 const defaultProps = {
-  sourceOrgId: 'org-1',
   targetOrgId: 'org-2',
   selectedObjects: ['Account', 'Contact', 'Opportunity'],
   totalRecords: 20700,
@@ -156,26 +155,6 @@ describe('Step4_Review', () => {
   it('should show object count', () => {
     render(<Step4Review {...defaultProps} />);
     expect(screen.getByTestId('stat-objects').textContent).toContain('3');
-  });
-
-  it('names both orgs by their alias, type and instance, never by the id the store keys them on', () => {
-    // The last panel before the write said "Source: org-1 → Target: org-2",
-    // a UUID in a real install, on the one screen where the target is checked.
-    render(<Step4Review {...defaultProps} />);
-
-    const orgs = screen.getByTestId('step4-orgs');
-    expect(orgs.textContent).not.toContain('org-1');
-    expect(orgs.textContent).not.toContain('org-2');
-    const source = within(screen.getByTestId('step4-source-org'));
-    expect(source.getByTestId('org-badge-alias').textContent).toBe('DevSandbox');
-    expect(source.getByTestId('org-badge-type').textContent).toBe('SANDBOX');
-    expect(source.getByTestId('org-badge-url').textContent).toBe('dev.example.my.salesforce.com');
-    const target = within(screen.getByTestId('step4-target-org'));
-    expect(target.getByTestId('org-badge-alias').textContent).toBe('QASandbox');
-    // A sandbox marked Staging is named so, in the warning colour of its tier.
-    expect(target.getByTestId('org-badge-type').textContent).toBe('STAGING');
-    expect(target.getByTestId('org-badge-type').className).toContain('bg-status-warning');
-    expect(target.getByTestId('org-badge-url').textContent).toBe('qa.example.my.salesforce.com');
   });
 
   it('names the target it writes into on the button that starts the run', () => {

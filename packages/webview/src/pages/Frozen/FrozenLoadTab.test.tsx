@@ -8,8 +8,8 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 const ORGS = [
-  { id: 'org-dev', alias: 'DEV-SANDBOX', status: 'connected' },
-  { id: 'org-qa', alias: 'QA-SANDBOX', status: 'connected' },
+  { id: 'org-dev', alias: 'DEV-SANDBOX', status: 'connected', orgType: 'Sandbox', tags: [] },
+  { id: 'org-qa', alias: 'QA-SANDBOX', status: 'connected', orgType: 'Sandbox', tags: [] },
 ];
 
 vi.mock('../../stores/useOrgStore', () => ({
@@ -155,6 +155,31 @@ describe('FrozenLoadTab', () => {
       verdict: null,
       lastError: null,
     });
+  });
+
+  it('says in the ribbon what the dataset was frozen from and where the load writes', async () => {
+    render(tab());
+    const ribbon = await screen.findByTestId('org-ribbon');
+    expect(ribbon.textContent).toContain('Frozen from');
+    expect(ribbon.textContent).toContain('Written into');
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('DEV-SANDBOX');
+    // This machine no longer holds the source: its id is all the manifest says.
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('org-src');
+  });
+
+  it('names the source by the alias the manifest kept, and says a target not picked yet', async () => {
+    const manifest = STATUS.manifest;
+    if (manifest === null || manifest === undefined) throw new Error('the fixture has a manifest');
+    useFrozenStore.setState({
+      status: {
+        ...STATUS,
+        manifest: { ...manifest, source: { ...manifest.source, orgAlias: 'Frozen-Source' } },
+      },
+      targetOrgId: '',
+    });
+    render(tab());
+    expect((await screen.findByTestId('org-ribbon-source-name')).textContent).toBe('Frozen-Source');
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('Not chosen');
   });
 
   it('lists the guards a load meets in plain words, without the salt, which only an extraction needs', () => {

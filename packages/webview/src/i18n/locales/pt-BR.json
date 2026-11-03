@@ -158,6 +158,16 @@
     "noCliOrgs": {
       "title": "Importação",
       "message": "A Salesforce CLI ainda não tem nenhuma org conectada. Use Entrar pelo navegador na página Organizações: ele abre a página de login do Salesforce."
+    },
+    "orgRibbon": {
+      "label": "As orgs desta execução",
+      "copiedFrom": "Copiado de",
+      "writtenInto": "Gravado em",
+      "source": "Origem",
+      "target": "Destino",
+      "frozenFrom": "Congelado de",
+      "production": "Org de produção",
+      "notChosen": "Não escolhida"
     }
   },
   "status": {
@@ -3825,7 +3835,7 @@
     "anonymizePII": "Anonimizar PII",
     "skipEmpty": "Ignorar objetos vazios",
     "discoverGraph": "Descobrir grafo",
-    "noTemplates": "Nenhum modelo salvo ainda. Salve um nos resultados de uma execução ou na aba Divergências da revisão, ou importe um de um arquivo.",
+    "noTemplates": "Nenhum modelo salvo ainda. Salve um nos resultados de uma execução ou em Divergências na revisão, ou importe um de um arquivo.",
     "discoveryStopped": "A descoberta foi interrompida antes de terminar. Inicie-a novamente para ver o grafo.",
     "discoverySuperseded": "A descoberta foi interrompida para dar lugar a uma mais recente, deste painel ou de outro: uma janela percorre apenas algumas de cada vez. Inicie-a novamente para ver o grafo.",
     "executeFailed": "A execução do Forge falhou",
@@ -4164,7 +4174,6 @@
       "inJournal_other": "Os Ids dos {{formatted}} registros que esta execução mapeou ficam no seu diário, não nos seus resultados: Salvar mapeamento de Ids os grava em um arquivo."
     },
     "preview": {
-      "title": "O que vai acontecer na execução",
       "truncatedAction": "Grafo cortado pelo teto de objetos — aumente-o e descubra de novo se algo estiver faltando",
       "willClone": "Será clonado",
       "willMap": "Será mapeado",
@@ -4265,7 +4274,6 @@
       "complianceTab": "Conformidade",
       "metadataTab": "Metadados",
       "automationTab": "Automação",
-      "tabs": "Abas de revisão",
       "back": "← Voltar à descoberta",
       "preset": "Predefinição",
       "presetCustom": "Personalizado (sem predefinição)",
@@ -4371,7 +4379,7 @@
       "undecidedGaps_one": "{{count}} divergência recusará linhas",
       "undecidedGaps_other": "{{count}} divergências recusarão linhas",
       "decideOnGaps": "Decidir em Divergências",
-      "undecidedGapsQuestion": "A org de destino recusa as linhas que estas divergências nomeiam até que cada uma seja decidida na aba Divergências: um valor mapeado ou definido, um campo deixado vazio, a divergência ignorada. Executado agora, essas linhas são recusadas, e as outras gravadas.",
+      "undecidedGapsQuestion": "A org de destino recusa as linhas que estas divergências nomeiam até que cada uma seja decidida em Divergências: um valor mapeado ou definido, um campo deixado vazio, a divergência ignorada. Executado agora, essas linhas são recusadas, e as outras gravadas.",
       "executeAnyway": "Executar mesmo assim",
       "controlsTab": "Ajustes",
       "graphSearch": {
@@ -4393,7 +4401,70 @@
         "leftOut": "Deixados de fora da execução: {{objects}}.",
         "putBack": "Incluí-los de novo"
       },
-      "muting": "Executar silencia as automações do destino, como marcado na guia Automação."
+      "muting": "Executar silencia as automações do destino, como marcado acima.",
+      "rows": "As partes desta execução",
+      "runColumn": "A execução",
+      "sentence": {
+        "counted_one": "Copiar {{formatted}} registro de {{source}} para {{target}}.",
+        "counted_other": "Copiar {{formatted}} registros de {{source}} para {{target}}.",
+        "atMost_one": "Copiar no máximo {{formatted}} registro de {{source}} para {{target}}.",
+        "atMost_other": "Copiar no máximo {{formatted}} registros de {{source}} para {{target}}.",
+        "notCounted_one": "Copiar os registros de {{count}} objeto de {{source}} para {{target}}.",
+        "notCounted_other": "Copiar os registros de {{count}} objetos de {{source}} para {{target}}.",
+        "oneRecord_one": "Copiar um registro e o que ele alcança em {{count}} objeto, de {{source}} para {{target}}.",
+        "oneRecord_other": "Copiar um registro e o que ele alcança em {{count}} objetos, de {{source}} para {{target}}."
+      },
+      "left": {
+        "none": "Não resta nada a decidir.",
+        "decisions_one": "Resta {{count}} decisão.",
+        "decisions_other": "Restam {{count}} decisões."
+      },
+      "nothingWritten": "Nada é gravado até você pressionar {{action}}.",
+      "state": {
+        "decide": "Requer decisão",
+        "ready": "Pronto",
+        "working": "Em andamento…",
+        "failed": "Falhou",
+        "toRead": "Para ler"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} divergência vai recusar linhas até ser decidida.",
+          "undecided_other": "{{count}} divergências vão recusar linhas até cada uma ser decidida.",
+          "failed": "Não foi possível ler o que a org de destino opõe às linhas.",
+          "found_one": "{{count}} divergência encontrada; nenhuma vai recusar linhas sem decisão.",
+          "found_other": "{{count}} divergências encontradas; nenhuma vai recusar linhas sem decisão.",
+          "partly": "Nada encontrado, mas parte da org de destino não pôde ser lida."
+        },
+        "anonymization": {
+          "none": "A descoberta não encontrou nenhum campo pessoal.",
+          "on_one": "{{count}} campo pessoal encontrado, anonimizado ao ser gravado pela execução.",
+          "on_other": "{{count}} campos pessoais encontrados, anonimizados ao serem gravados pela execução.",
+          "off_one": "{{count}} campo pessoal encontrado, gravado como a origem o mantém.",
+          "off_other": "{{count}} campos pessoais encontrados, gravados como a origem os mantém."
+        },
+        "compliance": {
+          "none": "Nenhuma estrutura selecionada.",
+          "failed": "Não foi possível gerar o relatório de conformidade.",
+          "report": "{{framework}}: {{verdict}}"
+        },
+        "metadata": {
+          "failed": "Não foi possível comparar os esquemas das duas orgs."
+        },
+        "automation": {
+          "failed": "Não foi possível ler o que a org de destino executa.",
+          "fires_one": "{{count}} automação dispara quando a execução insere seus registros.",
+          "fires_other": "{{count}} automações disparam quando a execução insere seus registros.",
+          "notOnInsert": "Nada dispara na inserção; leia o que roda nas atualizações.",
+          "none": "Nada do que a org de destino automatiza roda nestes objetos.",
+          "emails": "E-mails podem sair."
+        },
+        "controls": {
+          "none": "Nada ajustado nesta execução.",
+          "set_one": "{{count}} ajuste nesta execução.",
+          "set_other": "{{count}} ajustes nesta execução."
+        }
+      }
     },
     "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
     "cappedRead": "Parado em {{limit}} por objeto: {{objects}}. A origem tem mais linhas do que foram clonadas — aumente Registros por objeto para cloná-las.",
@@ -4603,7 +4674,7 @@
       }
     },
     "controls": {
-      "hint": "O que é ajustado aqui vai com a execução: a simulação, a execução, uma nova tentativa e um modelo salvo na revisão o levam. Primeiro um ponto de verificação é a exceção: só a simulação e a execução o levam. As contagens do plano foram lidas antes.",
+      "hint": "O que é ajustado aqui vai com a execução: a simulação, a execução, uma nova tentativa e um modelo salvo na revisão o levam. As contagens do plano foram lidas antes.",
       "objectTitle": "Por objeto",
       "object": "Objeto",
       "objectPlaceholder": "Escolher um objeto da execução…",
@@ -4726,9 +4797,6 @@
       "advancedCompliance": "Avançado: estrutura de conformidade",
       "noFrameworkHint": "Nenhuma estrutura de conformidade foi escolhida: nomes, endereços e os demais campos pessoais são copiados como a origem os contém. Escolha uma em “{{advanced}}” para anonimizar os que ela cobre.",
       "description": "Revise sua configuração antes de iniciar o Autopilot.",
-      "connectionSummary": "Resumo da conexão",
-      "source": "Origem",
-      "target": "Destino",
       "selectedObjects": "Objetos selecionados",
       "executing": "Executando...",
       "scope": {
@@ -5783,7 +5851,8 @@
         "costAtPreview": "Pré-visualizar diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina. A carga o cria sem perguntar.",
         "refused": "Um ponto de verificação recusado, ou que não pôde ser criado, recusa a execução: nada é gravado. Uma nova tentativa ou uma retomada não cria nenhum: ela nomeia o da execução que retoma.",
         "notOffered": "Não disponível: o SandForge não cria ponto de verificação de {{org}}, que ele não sabe se é uma sandbox, uma scratch org ou uma Developer Edition.",
-        "wayBack": "O SandForge não pode remover o que esta execução grava: o ponto de verificação criado primeiro é o caminho de volta."
+        "wayBack": "O SandForge não pode remover o que esta execução grava: o ponto de verificação criado primeiro é o caminho de volta.",
+        "more": "O que deixa de fora e quanto custa"
       },
       "estimate": {
         "lastSimulation": "Na última simulação:",
@@ -6276,7 +6345,7 @@
       "action": "Corrija o Flow, ou desative-o enquanto a execução grava, e execute de novo. Passados os emails do dia, um bypass que silencie o Flow, ou uma execução menor, evita isso.",
       "forge": {
         "explanation": "Um Flow da org de destino — um Flow acionado por registro, ou um processo, que roda como tal — falhou quando o registro foi salvo, e a org de destino o recusou; a mensagem nomeia o Flow e o que deu errado. A capacidade de entrega de email da org não é a causa: com Somente email do sistema ou Sem acesso, uma ação Enviar email é retida sem erro e o registro é salvo. Passados os emails que restam hoje ao destino, um Flow que envia falha.",
-        "action": "Desative esse Flow na org de destino durante a clonagem, ou corrija-o, e então tente de novo os objetos com falha; a aba Automação da revisão nomeia as permissões personalizadas que silenciam um Flow para o usuário que as tem. Passados os emails do dia, esse bypass, ou uma execução menor, evita isso."
+        "action": "Desative esse Flow na org de destino durante a clonagem, ou corrija-o, e então tente de novo os objetos com falha; a linha Automação da revisão nomeia as permissões personalizadas que silenciam um Flow para o usuário que as tem. Passados os emails do dia, esse bypass, ou uma execução menor, evita isso."
       },
       "seed": {
         "action": "Corrija o Flow, ou desative-o durante o seed."

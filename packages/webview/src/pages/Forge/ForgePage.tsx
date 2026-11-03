@@ -15,6 +15,7 @@ import {
   ForgeReview,
   preloadStepsAfter,
 } from './forgeSteps';
+import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
@@ -53,6 +54,8 @@ export const ForgePage: React.FC = () => {
   const { t } = useTranslation();
   const phase = useForgeStore((s) => s.phase);
   const stoppedAt = useForgeStore((s) => s.stoppedAt);
+  const sourceOrgId = useForgeStore((s) => s.config?.sourceOrgId);
+  const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
@@ -144,6 +147,18 @@ export const ForgePage: React.FC = () => {
         <AnimatePresence mode="wait">
           <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
             {phase === 'input' && <ForgeInput />}
+            {/* From Review on the two orgs are settled, and the discovery's
+                pickers gone: where the run copies from, and where it writes,
+                stays said. Waited for on its own: the step is not held for it. */}
+            {phase !== 'input' && phase !== 'discovery' && (
+              <Suspense fallback={null}>
+                <LazyOrgRibbon
+                  className="mb-4"
+                  source={orgs.find((org) => org.id === sourceOrgId) ?? sourceOrgId}
+                  target={orgs.find((org) => org.id === targetOrgId) ?? targetOrgId}
+                />
+              </Suspense>
+            )}
             {/* A step past the input comes in a chunk of its own, read from
                 the extension's folder in a few milliseconds. One that cannot
                 be read is said in its place: the execution step's chunk is

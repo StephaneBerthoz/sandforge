@@ -158,6 +158,16 @@
     "noCliOrgs": {
       "title": "Import",
       "message": "La Salesforce CLI ne contient encore aucune org connectée. Utilisez Se connecter dans le navigateur sur la page Organisations : la page de connexion Salesforce s'y ouvre."
+    },
+    "orgRibbon": {
+      "label": "Les orgs de cette exécution",
+      "copiedFrom": "Copié depuis",
+      "writtenInto": "Écrit dans",
+      "source": "Source",
+      "target": "Cible",
+      "frozenFrom": "Figé depuis",
+      "production": "Org de production",
+      "notChosen": "Non choisie"
     }
   },
   "status": {
@@ -3825,7 +3835,7 @@
     "anonymizePII": "Anonymiser les PII",
     "skipEmpty": "Ignorer les objets vides",
     "discoverGraph": "Découvrir le graphe",
-    "noTemplates": "Aucun modèle enregistré pour l'instant. Enregistrez-en un depuis les résultats d'une exécution ou depuis l'onglet Écarts de la revue, ou importez-en un depuis un fichier.",
+    "noTemplates": "Aucun modèle enregistré pour l'instant. Enregistrez-en un depuis les résultats d'une exécution ou depuis Écarts dans la revue, ou importez-en un depuis un fichier.",
     "discoveryStopped": "La découverte a été arrêtée avant la fin. Relancez-la pour voir le graphe.",
     "discoverySuperseded": "La découverte a été arrêtée pour laisser place à une plus récente, de ce panneau ou d'un autre : une fenêtre n'en parcourt que quelques-unes à la fois. Relancez-la pour voir le graphe.",
     "executeFailed": "L'exécution du Forge a échoué",
@@ -4164,7 +4174,6 @@
       "inJournal_other": "Les Ids des {{formatted}} enregistrements que cette exécution a mis en correspondance sont gardés dans son journal, pas dans ses résultats : Enregistrer la correspondance des Ids les écrit dans un fichier."
     },
     "preview": {
-      "title": "Ce qui va se passer à l'exécution",
       "truncatedAction": "Graphe coupé par le plafond d'objets — augmentez-le et relancez la découverte s'il manque quelque chose",
       "willClone": "Sera cloné",
       "willMap": "Sera mappé",
@@ -4265,7 +4274,6 @@
       "complianceTab": "Conformité",
       "metadataTab": "Métadonnées",
       "automationTab": "Automatisation",
-      "tabs": "Onglets de revue",
       "back": "← Retour à la découverte",
       "preset": "Préréglage",
       "presetCustom": "Personnalisé (aucun préréglage)",
@@ -4371,7 +4379,7 @@
       "undecidedGaps_one": "{{count}} écart refusera des lignes",
       "undecidedGaps_other": "{{count}} écarts refuseront des lignes",
       "decideOnGaps": "Trancher dans Écarts",
-      "undecidedGapsQuestion": "L'org cible refuse les lignes que ces écarts nomment tant que chacun n'est pas tranché dans l'onglet Écarts : une valeur associée ou fixée, un champ laissé vide, l'écart ignoré. Exécutées maintenant, ces lignes sont refusées, et les autres écrites.",
+      "undecidedGapsQuestion": "L'org cible refuse les lignes que ces écarts nomment tant que chacun n'est pas tranché dans Écarts : une valeur associée ou fixée, un champ laissé vide, l'écart ignoré. Exécutées maintenant, ces lignes sont refusées, et les autres écrites.",
       "executeAnyway": "Exécuter quand même",
       "controlsTab": "Réglages",
       "graphSearch": {
@@ -4393,7 +4401,70 @@
         "leftOut": "Laissés de côté : {{objects}}.",
         "putBack": "Les remettre"
       },
-      "muting": "Exécuter rend muettes les automatisations de la cible, comme coché dans l'onglet Automatisation."
+      "muting": "Exécuter rend muettes les automatisations de la cible, comme coché ci-dessus.",
+      "rows": "Les parties de cette exécution",
+      "runColumn": "L'exécution",
+      "sentence": {
+        "counted_one": "Copier {{formatted}} enregistrement de {{source}} vers {{target}}.",
+        "counted_other": "Copier {{formatted}} enregistrements de {{source}} vers {{target}}.",
+        "atMost_one": "Copier au plus {{formatted}} enregistrement de {{source}} vers {{target}}.",
+        "atMost_other": "Copier au plus {{formatted}} enregistrements de {{source}} vers {{target}}.",
+        "notCounted_one": "Copier les enregistrements de {{count}} objet de {{source}} vers {{target}}.",
+        "notCounted_other": "Copier les enregistrements de {{count}} objets de {{source}} vers {{target}}.",
+        "oneRecord_one": "Copier un enregistrement et ce qu'il atteint dans {{count}} objet, de {{source}} vers {{target}}.",
+        "oneRecord_other": "Copier un enregistrement et ce qu'il atteint dans {{count}} objets, de {{source}} vers {{target}}."
+      },
+      "left": {
+        "none": "Il ne reste rien à décider.",
+        "decisions_one": "Il reste {{count}} décision.",
+        "decisions_other": "Il reste {{count}} décisions."
+      },
+      "nothingWritten": "Rien n'est écrit tant que vous n'appuyez pas sur {{action}}.",
+      "state": {
+        "decide": "À décider",
+        "ready": "Prêt",
+        "working": "En cours…",
+        "failed": "Échec",
+        "toRead": "À lire"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} écart refusera des lignes tant qu'il n'est pas tranché.",
+          "undecided_other": "{{count}} écarts refuseront des lignes tant que chacun n'est pas tranché.",
+          "failed": "Ce que l'org cible oppose aux lignes n'a pas pu être lu.",
+          "found_one": "{{count}} écart trouvé ; aucun ne refusera de lignes sans décision.",
+          "found_other": "{{count}} écarts trouvés ; aucun ne refusera de lignes sans décision.",
+          "partly": "Rien de trouvé, mais une partie de l'org cible n'a pas pu être lue."
+        },
+        "anonymization": {
+          "none": "La découverte n'a trouvé aucun champ personnel.",
+          "on_one": "{{count}} champ personnel trouvé, anonymisé quand l'exécution l'écrit.",
+          "on_other": "{{count}} champs personnels trouvés, anonymisés quand l'exécution les écrit.",
+          "off_one": "{{count}} champ personnel trouvé, écrit tel que la source le détient.",
+          "off_other": "{{count}} champs personnels trouvés, écrits tels que la source les détient."
+        },
+        "compliance": {
+          "none": "Aucun référentiel sélectionné.",
+          "failed": "Le rapport de conformité n'a pas pu être établi.",
+          "report": "{{framework}} : {{verdict}}"
+        },
+        "metadata": {
+          "failed": "Les schémas des deux orgs n'ont pas pu être comparés."
+        },
+        "automation": {
+          "failed": "Ce que l'org cible exécute n'a pas pu être lu.",
+          "fires_one": "{{count}} automatisation se déclenche quand l'exécution insère ses enregistrements.",
+          "fires_other": "{{count}} automatisations se déclenchent quand l'exécution insère ses enregistrements.",
+          "notOnInsert": "Rien ne se déclenche quand l'exécution insère ses enregistrements ; lisez ce qui tourne sur ses mises à jour.",
+          "none": "Rien de ce que l'org cible automatise ne tourne sur ces objets.",
+          "emails": "Des e-mails peuvent partir."
+        },
+        "controls": {
+          "none": "Rien de réglé sur cette exécution.",
+          "set_one": "{{count}} réglage sur cette exécution.",
+          "set_other": "{{count}} réglages sur cette exécution."
+        }
+      }
     },
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
     "cappedRead": "Arrêté à {{limit}} par objet : {{objects}}. La source contient plus de lignes que ce qui a été cloné — augmentez Enregistrements / objet pour les cloner.",
@@ -4603,7 +4674,7 @@
       }
     },
     "controls": {
-      "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Point de contrôle d'abord fait exception : il ne part qu'avec la simulation et l'exécution. Les comptes du plan ont été lus avant.",
+      "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Les comptes du plan ont été lus avant.",
       "objectTitle": "Par objet",
       "object": "Objet",
       "objectPlaceholder": "Choisir un objet de l'exécution…",
@@ -4726,9 +4797,6 @@
       "advancedCompliance": "Avancé : cadre de conformité",
       "noFrameworkHint": "Aucun cadre de conformité n'est choisi : les noms, les adresses et les autres champs personnels sont copiés tels que la source les contient. Choisissez-en un sous « {{advanced}} » pour anonymiser ceux qu'il couvre.",
       "description": "Vérifiez votre configuration avant de lancer l'autopilot.",
-      "connectionSummary": "Résumé de la connexion",
-      "source": "Source",
-      "target": "Cible",
       "selectedObjects": "Objets sélectionnés",
       "executing": "En cours...",
       "scope": {
@@ -5783,7 +5851,8 @@
         "costAtPreview": "Aperçu dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine. Le chargement le prend sans poser de question.",
         "refused": "Un point de contrôle refusé, ou qui n'a pas pu être pris, refuse l'exécution : rien n'est écrit. Une nouvelle tentative ou une reprise n'en prend aucun : elle nomme celui de l'exécution qu'elle reprend.",
         "notOffered": "Non proposé : SandForge ne prend aucun point de contrôle de {{org}}, dont il ne sait pas que c'est une sandbox, une scratch org ou une Developer Edition.",
-        "wayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : le point de contrôle pris d'abord est le chemin du retour."
+        "wayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : le point de contrôle pris d'abord est le chemin du retour.",
+        "more": "Ce qu'il laisse de côté et ce qu'il coûte"
       },
       "estimate": {
         "lastSimulation": "À la dernière simulation :",
@@ -6276,7 +6345,7 @@
       "action": "Corrigez le Flow, ou désactivez-le le temps de l'écriture, puis relancez. Au-delà des e-mails du jour, un contournement qui fait taire le Flow, ou une exécution plus petite, l'évite.",
       "forge": {
         "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. La délivrabilité des e-mails de l'org n'en est pas la cause : en E-mail système uniquement ou Aucun accès, une action Envoyer un e-mail est retenue sans erreur et l'enregistrement est sauvegardé. Au-delà des e-mails qui restent à la cible aujourd'hui, un Flow qui envoie échoue.",
-        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Au-delà des e-mails du jour, un tel contournement, ou une exécution plus petite, l'évite."
+        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; la rangée Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Au-delà des e-mails du jour, un tel contournement, ou une exécution plus petite, l'évite."
       },
       "seed": {
         "action": "Corrigez le Flow, ou désactivez-le le temps du seed."

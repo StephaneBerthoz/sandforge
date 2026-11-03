@@ -725,6 +725,7 @@ test.describe('Keyboard and screen reader — the Forge flow', () => {
     await answerAll(page, 'forge:discover', 'forge:discover:response', { graph: WIDE_GRAPH });
     await page.getByTestId('forge-execute-btn').click();
     await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+    await page.getByTestId('tab-plan').click();
     const pane = page.getByTestId('live-graph');
     await pane.locator('.react-flow__node').first().waitFor({ timeout: 10_000 });
     const checkbox = (name: string) =>

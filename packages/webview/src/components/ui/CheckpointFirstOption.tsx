@@ -138,6 +138,12 @@ export interface CheckpointFirstOptionProps {
    * checkpoint is the only way to take it back (Autopilot).
    */
   recommendation?: string;
+  /**
+   * Keep what it holds and its estimate in view, and the rest behind a
+   * disclosure: in Forge's column of the run, five paragraphs pushed everything
+   * else out of it. A screen reader reads them all with the box.
+   */
+  foldDetails?: boolean;
   /** Test id of the option; its checkbox takes `-toggle`. */
   testId: string;
   className?: string;
@@ -165,6 +171,7 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
   costSaid,
   estimate,
   recommendation,
+  foldDetails = false,
   testId,
   className,
 }) => {
@@ -177,6 +184,31 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
   }, [offered, checked, onChange]);
   if (org === undefined) return null;
   const name = org.alias || org.username;
+  const leavesOut = (
+    <p data-testid={`${testId}-leaves-out`} className="text-text-secondary">
+      {t('runResults.checkpoint.option.leavesOut')}
+    </p>
+  );
+  const onMachine = (
+    <p data-testid={`${testId}-on-machine`} className="text-text-secondary">
+      {t('runResults.checkpoint.option.onMachine', { org: name, setting: KEEP_DAYS_SETTING })}
+    </p>
+  );
+  const costSaidLine = (
+    <p data-testid={`${testId}-cost-said`} className="text-text-secondary">
+      {t(COST_SAID_KEYS[costSaid])}
+    </p>
+  );
+  const refused = (
+    <p className="text-text-secondary">{t('runResults.checkpoint.option.refused')}</p>
+  );
+  const estimated = estimate ? (
+    <CheckpointFirstEstimate
+      estimate={estimate.of}
+      lead={estimate.lead}
+      testId={`${testId}-estimate`}
+    />
+  ) : null;
   return (
     <div
       data-testid={testId}
@@ -210,27 +242,29 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
             <p data-testid={`${testId}-holds`}>
               {t('runResults.checkpoint.option.holds', { org: name })}
             </p>
-            <p data-testid={`${testId}-leaves-out`} className="text-text-secondary">
-              {t('runResults.checkpoint.option.leavesOut')}
-            </p>
-            <p data-testid={`${testId}-on-machine`} className="text-text-secondary">
-              {t('runResults.checkpoint.option.onMachine', {
-                org: name,
-                setting: KEEP_DAYS_SETTING,
-              })}
-            </p>
-            {estimate ? (
-              <CheckpointFirstEstimate
-                estimate={estimate.of}
-                lead={estimate.lead}
-                testId={`${testId}-estimate`}
-              />
+            {foldDetails ? (
+              <>
+                {estimated}
+                <details data-testid={`${testId}-more`}>
+                  <summary className="cursor-pointer text-text-secondary">
+                    {t('runResults.checkpoint.option.more')}
+                  </summary>
+                  <div className="mt-1 flex flex-col gap-1">
+                    {leavesOut}
+                    {onMachine}
+                    {estimated ? null : costSaidLine}
+                    {refused}
+                  </div>
+                </details>
+              </>
             ) : (
-              <p data-testid={`${testId}-cost-said`} className="text-text-secondary">
-                {t(COST_SAID_KEYS[costSaid])}
-              </p>
+              <>
+                {leavesOut}
+                {onMachine}
+                {estimated ?? costSaidLine}
+                {refused}
+              </>
             )}
-            <p className="text-text-secondary">{t('runResults.checkpoint.option.refused')}</p>
             {recommendation !== undefined && !checked && (
               <p data-testid={`${testId}-recommended`} className="font-medium">
                 {recommendation}

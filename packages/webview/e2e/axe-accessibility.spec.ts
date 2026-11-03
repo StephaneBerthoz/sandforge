@@ -1684,35 +1684,6 @@ async function inSight(page: Page, testId: string): Promise<boolean> {
 }
 
 /**
- * Scroll the panel up until the element `testId` starts in a row of axe's
- * 200-pixel grid below the row where the graph pane `graph` ends.
- *
- * axe files an element under the grid cells its box covers once clipped by
- * its overflow-hidden ancestors, then tests a point against its whole box.
- * React Flow's viewport, scaled past its pane, is so filed in the row where
- * the pane ends and reported over any text in that row: "overlapped by
- * another element", and the text's contrast goes unmeasured, though the text
- * is on top. Reached at the end of a page that scrolls no further, Review's
- * files warning sat in that row.
- */
-async function outOfGraphCellRow(page: Page, testId: string, graph: string): Promise<void> {
-  await page.evaluate(
-    ({ testId: id, graph: pane }) => {
-      const panel = document.querySelector('[data-testid="panel-app"]') as HTMLElement;
-      const element = document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
-      const graphPane = document.querySelector(`[data-testid="${pane}"]`) as HTMLElement;
-      const row = (y: number) => Math.floor(y / 200);
-      for (let step = 0; step < 100; step += 1) {
-        const top = element.getBoundingClientRect().top;
-        if (row(top) > row(graphPane.getBoundingClientRect().bottom)) return;
-        panel.scrollTop -= 4;
-      }
-    },
-    { testId, graph },
-  );
-}
-
-/**
  * The edge labels of the graph `testId` that a node covers, by their text:
  * React Flow draws its edges under its nodes, and Lineage's columns, 220
  * pixels apart for nodes 180 wide, left an edge 40 pixels for "1,200
@@ -2975,7 +2946,8 @@ for (const theme of SCANNED_THEMES) {
         .waitFor({ state: 'visible', timeout: 5000 });
       expectNoViolations(await checkAccessibility(page));
       await page.getByTestId('forge-gaps-ask-decide').click();
-      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('tab-gaps')).toBeFocused();
       expect(await bridge.getMessages('forge:execute')).toHaveLength(0);
 
       await page.getByTestId('tab-anonymization').click();
@@ -3518,6 +3490,8 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // On Review the graph is drawn in the Plan row, once it is opened.
+      await page.getByTestId('tab-plan').click();
       await graphFitted(page, FORGE_GRAPH);
       expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(350);
       expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
@@ -3769,6 +3743,7 @@ for (const theme of SCANNED_THEMES) {
       await discoverForgeGraph(bridge, page, theme, FORGE_WIDE_GRAPH);
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-plan').click();
 
       // Review drew the graph whatever its size.
       const table = page.getByTestId('forge-review').getByTestId('forge-table-view');
@@ -3943,9 +3918,11 @@ for (const theme of SCANNED_THEMES) {
         automation: FORGE_TARGET_AUTOMATION,
       });
       await page.getByTestId('automation-object-Contact').waitFor({ timeout: 10_000 });
-      // Counted on the tab: the trigger before an account is inserted, and
+      // Counted on the row: the trigger before an account is inserted, and
       // the three flows, the workflow rule and the process of a contact's insert.
-      await expect(page.getByTestId('tab-automation')).toHaveText('Automation6');
+      await expect(page.getByTestId('review-row-automation-summary')).toContainText(
+        '6 automations fire as the run inserts its records.',
+      );
       await expect(page.getByTestId('automation-bypass')).toHaveText(
         'Assign the custom permission Load_Data to the user the run writes as in the target org, and the flows whose start condition excludes it stay quiet.',
       );
@@ -4060,6 +4037,11 @@ for (const theme of SCANNED_THEMES) {
       expect((request.payload as { config: { targetOrgId: string } }).config.targetOrgId).toBe(
         QA_SANDBOX.id,
       );
+      // Said on the row while it is closed, and at the head of the row once open.
+      await expect(page.getByTestId('review-row-gaps-summary')).toHaveText(
+        'Reading what the target org holds against the rows…',
+      );
+      await page.getByTestId('tab-gaps').click();
       await expect(page.getByTestId('forge-gaps-read')).toHaveText(
         'Reading what the target org holds against the rows…',
       );
@@ -4118,9 +4100,8 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, read, '[data-testid="forge-gaps-read"]'),
       ).toBeGreaterThan(2);
 
-      // The command the Gaps tab copied run, the target is read again from
+      // The command the Gaps row copied run, the target is read again from
       // the rule's bypass assistant, and the rule shows as kept quiet.
-      await page.getByTestId('tab-gaps').click();
       const rule = page.getByTestId('gap-validation_rule|Contact|Phone||Phone_Format');
       await expect(rule.getByTestId('bypass-assistant-command')).toHaveText(
         `sf org assign permset --name Data_Load --target-org ${QA_SANDBOX.alias} --on-behalf-of ${QA_SANDBOX.username}`,
@@ -4225,7 +4206,9 @@ for (const theme of SCANNED_THEMES) {
         { part: 'currencies', reason: 'INSUFFICIENT_ACCESS' },
       ]);
       await page.getByTestId('gaps-severity-blocking').waitFor({ timeout: 10_000 });
-      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps2');
+      await expect(page.getByTestId('review-row-gaps-summary')).toHaveText(
+        '2 gaps will refuse rows until each is decided.',
+      );
       // The rule's bypass, under it: checked with the rest of the tab.
       await expect(
         page.getByTestId(`gap-${FORGE_GAPS[3].id}`).getByTestId('bypass-assistant-Phone_Bypass'),
@@ -4251,7 +4234,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(refused.getByTestId('gap-decided')).toHaveText('Decided: written as “Customer”');
       await page.getByTestId(`gap-${FORGE_GAPS[2].id}`).getByTestId('gap-truncate').click();
       await page.getByTestId(`gap-${FORGE_GAPS[1].id}`).getByTestId('gap-exclude-object').click();
-      await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps');
+      await expect(page.getByTestId('review-row-gaps-state')).not.toHaveText('Needs you');
       await expect(page.getByTestId('gaps-kept-decisions')).toContainText(
         'Contact: left out of the run',
       );
@@ -4309,7 +4292,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('diff-0')).toContainText('Execute skips it');
       await expectReadable(page, theme);
 
-      await page.getByTestId('tab-gaps').click();
+      // A gap that refuses rows opened its row by itself.
       await expect(page.getByTestId('gaps-severity-blocking')).toContainText(
         'Object the user the clone writes as may not create in the target',
       );
@@ -4322,6 +4305,7 @@ for (const theme of SCANNED_THEMES) {
       await discoverForgeGraph(bridge, page, theme);
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-plan').click();
 
       // The search marks the object it matches on the graph, and offers to
       // leave out the branch it heads.
@@ -4401,10 +4385,11 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-preview-clone')).toContainText(
         '4 objects · records not counted',
       );
-      await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveText('Skipped (empty)0');
+      await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveCount(0);
       // The plan the extension makes of that graph reckons from its zeros:
-      // the Plan tab says the records are not counted, and no call or
+      // the Plan row says the records are not counted, and no call or
       // duration reckoned from them.
+      await page.getByTestId('tab-plan').click();
       await answerAll(page, 'forge:plan:request', 'forge:plan:response', {
         plan: {
           waves: [
@@ -4447,16 +4432,16 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('forge-execute-btn').click();
 
-      // The copy turned on: the size, and the confirmation that holds Execute.
-      // The dependency graph beside it is scanned too: its nodes were buttons
-      // holding their own checkbox (nested-interactive) until the card
+      // The copy turned on: the size, and the confirmation that holds Execute,
+      // in the column of the run. The graph, closed in its Plan row here, is
+      // scanned open on Review by the test of its minimap: its nodes were
+      // buttons holding their own checkbox (nested-interactive) until the card
       // stopped being one.
       const reviewScan = {};
       await page.getByTestId('forge-files-toggle').check();
       await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
       await expect(page.getByTestId('execute-button')).toBeDisabled();
       await toMiddle(page, 'forge-files-as-is');
-      await outOfGraphCellRow(page, 'forge-files-as-is', FORGE_GRAPH);
       const asked = await checkAccessibility(page, reviewScan);
       expectNoViolations(asked);
       expect(
@@ -7205,8 +7190,9 @@ for (const theme of SCANNED_THEMES) {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,
       });
-      await page.getByTestId('step4-orgs').waitFor({ state: 'visible', timeout: 5000 });
-      await expect(page.getByTestId('step4-target-org').getByTestId('org-badge-type')).toHaveText(
+      await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
+      await expect(page.getByTestId('org-ribbon-source-name')).toHaveText('DevSandbox');
+      await expect(page.getByTestId('org-ribbon-target').getByTestId('org-badge-type')).toHaveText(
         'STAGING',
       );
       await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
@@ -7214,10 +7200,10 @@ for (const theme of SCANNED_THEMES) {
         'Emails and phones neutralized',
       );
 
-      await toMiddle(page, 'step4-orgs');
+      await toMiddle(page, 'org-ribbon');
       const review = await checkAccessibility(page);
       expectNoViolations(review);
-      for (const testId of ['step4-source-org', 'step4-target-org', 'stat-personal-data']) {
+      for (const testId of ['org-ribbon-source', 'org-ribbon-target', 'stat-personal-data']) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
           0,
         );
@@ -11119,7 +11105,7 @@ for (const theme of STATE_THEMES) {
       );
       await page.goto('/');
       await bridge.seedOrgs(MOCK_ORGS);
-      const header = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
+      const header = page.getByTestId('org-ribbon').locator('[data-testid$="-name"]');
       await expect(header).toHaveText([QA_SANDBOX.alias, DEV_SANDBOX.alias]);
       // One way into Quick Sync on the first step.
       await expect(page.getByTestId('quick-sync-card')).toHaveCount(1);

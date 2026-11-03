@@ -2542,11 +2542,13 @@ describe('SyncPage Run now on a saved configuration', () => {
   });
 });
 
-/** The aliases the page header names, in order. */
+/** The aliases the ribbon under the page's header names, source first. */
 function headerAliases(): Array<string | null> {
-  return Array.from(
-    screen.getByTestId('page-header-actions').querySelectorAll('[data-testid="org-badge-alias"]'),
-  ).map((alias) => alias.textContent);
+  if (screen.queryByTestId('org-ribbon') === null) return [];
+  return [
+    screen.getByTestId('org-ribbon-source-name').textContent,
+    screen.getByTestId('org-ribbon-target-name').textContent,
+  ];
 }
 
 describe('SyncPage header while Quick Sync is open', () => {
@@ -2585,11 +2587,8 @@ describe('SyncPage header while Quick Sync is open', () => {
     // draft, another pair with one.
     render(<SyncPage />);
     expect(headerAliases()).toEqual(['dev1', 'dev2']);
-    expect(
-      screen
-        .getByTestId('page-header-actions')
-        .querySelector('svg[data-testid="icon-arrow-right"]'),
-    ).not.toBeNull();
+    // It replaces the two badges the header held: nothing names the orgs twice.
+    expect(screen.queryByTestId('page-header-actions')).toBeNull();
 
     fireEvent.click(screen.getByTestId('quick-sync-start-btn'));
 

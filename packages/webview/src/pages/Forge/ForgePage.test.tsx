@@ -74,6 +74,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     reset: vi.fn(),
     fileCopy: { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false },
     setFileCopy: vi.fn(),
+    gapReads: {},
   };
 
   const store = Object.assign(
@@ -220,6 +221,26 @@ describe('ForgePage', () => {
     // The mock's discovery has yet to answer, so ForgeDiscovery renders the
     // loading state, once its chunk has come.
     expect(await screen.findByTestId('forge-discovery-loading')).toBeDefined();
+  });
+
+  it.each([
+    ['input', false],
+    ['discovery', false],
+    ['review', true],
+    ['execution', true],
+    ['results', true],
+  ])('in the %s phase, shows the ribbon of the two orgs: %s', async (phase, shown) => {
+    // The discovery keeps its own pickers: the ribbon comes once they are gone.
+    mockPhase = phase as typeof mockPhase;
+    render(<ForgePage />);
+    if (shown) expect(await screen.findByTestId('org-ribbon')).toBeDefined();
+    else expect(screen.queryByTestId('org-ribbon')).toBeNull();
+  });
+
+  it('does not hold a step for the ribbon, whose chunk comes on its own', () => {
+    mockPhase = 'review';
+    render(<ForgePage />);
+    expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
   it('should show review view when phase is review', () => {

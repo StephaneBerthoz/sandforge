@@ -160,6 +160,22 @@ describe('AutopilotPage', () => {
     });
   });
 
+  it('names the two orgs in the ribbon while the run writes', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'executing',
+      executionStatus: 'executing',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-gone',
+    };
+
+    render(<AutopilotPage />);
+
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('DevSandbox');
+    // An org this machine no longer holds is named by what the run kept of it.
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('org-gone');
+  });
+
   it('stays on the run once it stops waiting for it, and says where to follow it', () => {
     // It went back to the review saying "Try again" while the run went on
     // writing: a second Execute wrote every table again.

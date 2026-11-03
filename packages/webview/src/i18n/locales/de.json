@@ -158,6 +158,16 @@
     "noCliOrgs": {
       "title": "Import",
       "message": "Die Salesforce CLI enthält noch keine verbundene Org. Nutzen Sie Im Browser anmelden auf der Seite Organisationen: Die Salesforce-Anmeldeseite öffnet sich dort."
+    },
+    "orgRibbon": {
+      "label": "Die Orgs dieses Durchlaufs",
+      "copiedFrom": "Kopiert aus",
+      "writtenInto": "Geschrieben in",
+      "source": "Quelle",
+      "target": "Ziel",
+      "frozenFrom": "Eingefroren aus",
+      "production": "Produktions-Org",
+      "notChosen": "Nicht gewählt"
     }
   },
   "status": {
@@ -3825,7 +3835,7 @@
     "anonymizePII": "PII anonymisieren",
     "skipEmpty": "Leere Objekte überspringen",
     "discoverGraph": "Graph ermitteln",
-    "noTemplates": "Noch keine gespeicherten Vorlagen. Speichern Sie eine aus den Ergebnissen eines Durchlaufs oder aus dem Tab „Abweichungen“ der Prüfung, oder importieren Sie eine aus einer Datei.",
+    "noTemplates": "Noch keine gespeicherten Vorlagen. Speichern Sie eine aus den Ergebnissen eines Durchlaufs oder unter „Abweichungen“ in der Prüfung, oder importieren Sie eine aus einer Datei.",
     "discoveryStopped": "Die Ermittlung wurde vor ihrem Ende gestoppt. Starten Sie sie erneut, um den Graph zu sehen.",
     "discoverySuperseded": "Die Ermittlung wurde für eine neuere gestoppt, aus diesem oder einem anderen Panel: Ein Fenster führt nur wenige Ermittlungen gleichzeitig aus. Starten Sie sie erneut, um den Graph zu sehen.",
     "executeFailed": "Forge-Ausführung fehlgeschlagen",
@@ -4164,7 +4174,6 @@
       "inJournal_other": "Die Ids der {{formatted}} Datensätze, die dieser Durchlauf zugeordnet hat, liegen in seinem Journal, nicht in seinen Ergebnissen: Id-Zuordnung speichern schreibt sie in eine Datei."
     },
     "preview": {
-      "title": "Was bei der Ausführung passiert",
       "truncatedAction": "Graph durch die Objektgrenze abgeschnitten — erhöhen Sie sie und erkennen Sie erneut, wenn etwas fehlt",
       "willClone": "Wird geklont",
       "willMap": "Wird zugeordnet",
@@ -4265,7 +4274,6 @@
       "complianceTab": "Compliance",
       "metadataTab": "Metadaten",
       "automationTab": "Automatisierung",
-      "tabs": "Prüfungs-Registerkarten",
       "back": "← Zurück zur Erkundung",
       "preset": "Voreinstellung",
       "presetCustom": "Benutzerdefiniert (keine Voreinstellung)",
@@ -4371,7 +4379,7 @@
       "undecidedGaps_one": "{{count}} Abweichung wird Zeilen ablehnen",
       "undecidedGaps_other": "{{count}} Abweichungen werden Zeilen ablehnen",
       "decideOnGaps": "In Abweichungen entscheiden",
-      "undecidedGapsQuestion": "Die Ziel-Org lehnt die Zeilen ab, die diese Abweichungen nennen, bis über jede auf der Registerkarte Abweichungen entschieden ist: ein zugeordneter oder gesetzter Wert, ein leer gelassenes Feld, die ignorierte Abweichung. Jetzt ausgeführt, werden diese Zeilen abgelehnt und die übrigen geschrieben.",
+      "undecidedGapsQuestion": "Die Ziel-Org lehnt die Zeilen ab, die diese Abweichungen nennen, bis über jede unter Abweichungen entschieden ist: ein zugeordneter oder gesetzter Wert, ein leer gelassenes Feld, die ignorierte Abweichung. Jetzt ausgeführt, werden diese Zeilen abgelehnt und die übrigen geschrieben.",
       "executeAnyway": "Trotzdem ausführen",
       "controlsTab": "Einstellungen",
       "graphSearch": {
@@ -4393,7 +4401,70 @@
         "leftOut": "Aus dem Lauf ausgelassen: {{objects}}.",
         "putBack": "Wieder aufnehmen"
       },
-      "muting": "Ausführen schaltet die Automatisierungen der Ziel-Org stumm, wie auf dem Tab „Automatisierung“ angehakt."
+      "muting": "Ausführen schaltet die Automatisierungen der Ziel-Org stumm, wie oben angehakt.",
+      "rows": "Die Teile dieses Durchlaufs",
+      "runColumn": "Der Durchlauf",
+      "sentence": {
+        "counted_one": "{{formatted}} Datensatz aus {{source}} nach {{target}} kopieren.",
+        "counted_other": "{{formatted}} Datensätze aus {{source}} nach {{target}} kopieren.",
+        "atMost_one": "Höchstens {{formatted}} Datensatz aus {{source}} nach {{target}} kopieren.",
+        "atMost_other": "Höchstens {{formatted}} Datensätze aus {{source}} nach {{target}} kopieren.",
+        "notCounted_one": "Die Datensätze von {{count}} Objekt aus {{source}} nach {{target}} kopieren.",
+        "notCounted_other": "Die Datensätze von {{count}} Objekten aus {{source}} nach {{target}} kopieren.",
+        "oneRecord_one": "Einen Datensatz und was er in {{count}} Objekt erreicht aus {{source}} nach {{target}} kopieren.",
+        "oneRecord_other": "Einen Datensatz und was er in {{count}} Objekten erreicht aus {{source}} nach {{target}} kopieren."
+      },
+      "left": {
+        "none": "Es bleibt nichts zu entscheiden.",
+        "decisions_one": "{{count}} Entscheidung bleibt offen.",
+        "decisions_other": "{{count}} Entscheidungen bleiben offen."
+      },
+      "nothingWritten": "Nichts wird geschrieben, bis Sie {{action}} drücken.",
+      "state": {
+        "decide": "Braucht Sie",
+        "ready": "Bereit",
+        "working": "In Arbeit…",
+        "failed": "Fehlgeschlagen",
+        "toRead": "Zu lesen"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} Abweichung lehnt Zeilen ab, bis über sie entschieden ist.",
+          "undecided_other": "{{count}} Abweichungen lehnen Zeilen ab, bis über jede entschieden ist.",
+          "failed": "Was die Ziel-Org gegen die Zeilen hat, konnte nicht gelesen werden.",
+          "found_one": "{{count}} Abweichung gefunden; keine lehnt unentschieden Zeilen ab.",
+          "found_other": "{{count}} Abweichungen gefunden; keine lehnt unentschieden Zeilen ab.",
+          "partly": "Nichts gefunden, aber ein Teil der Ziel-Org konnte nicht gelesen werden."
+        },
+        "anonymization": {
+          "none": "Die Ermittlung hat kein personenbezogenes Feld gefunden.",
+          "on_one": "{{count}} personenbezogenes Feld gefunden, beim Schreiben anonymisiert.",
+          "on_other": "{{count}} personenbezogene Felder gefunden, beim Schreiben anonymisiert.",
+          "off_one": "{{count}} personenbezogenes Feld gefunden, geschrieben, wie die Quelle es enthält.",
+          "off_other": "{{count}} personenbezogene Felder gefunden, geschrieben, wie die Quelle sie enthält."
+        },
+        "compliance": {
+          "none": "Kein Framework ausgewählt.",
+          "failed": "Der Compliance-Bericht konnte nicht erstellt werden.",
+          "report": "{{framework}}: {{verdict}}"
+        },
+        "metadata": {
+          "failed": "Die Schemata der beiden Orgs konnten nicht verglichen werden."
+        },
+        "automation": {
+          "failed": "Was die Ziel-Org ausführt, konnte nicht gelesen werden.",
+          "fires_one": "{{count}} Automatisierung löst aus, wenn der Durchlauf seine Datensätze einfügt.",
+          "fires_other": "{{count}} Automatisierungen lösen aus, wenn der Durchlauf seine Datensätze einfügt.",
+          "notOnInsert": "Beim Einfügen löst nichts aus; lesen Sie, was bei den Aktualisierungen läuft.",
+          "none": "Nichts, was die Ziel-Org automatisiert, läuft auf diesen Objekten.",
+          "emails": "E-Mails können versendet werden."
+        },
+        "controls": {
+          "none": "Für diesen Durchlauf ist nichts eingestellt.",
+          "set_one": "{{count}} Einstellung für diesen Durchlauf.",
+          "set_other": "{{count}} Einstellungen für diesen Durchlauf."
+        }
+      }
     },
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
     "cappedRead": "Bei {{limit}} pro Objekt angehalten: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — erhöhen Sie Datensätze pro Objekt, um sie zu klonen.",
@@ -4603,7 +4674,7 @@
       }
     },
     "controls": {
-      "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. „Zuerst ein Prüfpunkt“ ist die Ausnahme: Nur Simulation und Ausführung nehmen ihn mit. Die Zahlen des Plans wurden vorher gelesen.",
+      "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. Die Zahlen des Plans wurden vorher gelesen.",
       "objectTitle": "Je Objekt",
       "object": "Objekt",
       "objectPlaceholder": "Ein Objekt des Laufs wählen…",
@@ -4726,9 +4797,6 @@
       "advancedCompliance": "Erweitert: Compliance-Framework",
       "noFrameworkHint": "Kein Compliance-Framework ausgewählt: Namen, Adressen und die übrigen personenbezogenen Felder werden so kopiert, wie die Quelle sie enthält. Wählen Sie unter „{{advanced}}“ eines aus, um die Felder zu anonymisieren, die es abdeckt.",
       "description": "Überprüfen Sie Ihre Konfiguration, bevor Sie den Autopilot starten.",
-      "connectionSummary": "Verbindungsübersicht",
-      "source": "Quelle",
-      "target": "Ziel",
       "selectedObjects": "Ausgewählte Objekte",
       "executing": "Wird ausgeführt...",
       "scope": {
@@ -5783,7 +5851,8 @@
         "costAtPreview": "Die Vorschau sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner. Der Ladevorgang erstellt ihn ohne eigene Frage.",
         "refused": "Ein abgelehnter oder nicht erstellbarer Prüfpunkt lehnt den Lauf ab: Es wird nichts geschrieben. Ein erneuter Versuch oder eine Fortsetzung erstellt keinen: Sie nennt den Prüfpunkt des Laufs, den sie fortsetzt.",
         "notOffered": "Nicht angeboten: SandForge erstellt keinen Prüfpunkt von {{org}}, da nicht bekannt ist, dass es eine Sandbox, eine Scratch-Org oder eine Developer Edition ist.",
-        "wayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Der zuerst erstellte Prüfpunkt ist der Weg zurück."
+        "wayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Der zuerst erstellte Prüfpunkt ist der Weg zurück.",
+        "more": "Was er auslässt und was er kostet"
       },
       "estimate": {
         "lastSimulation": "Bei der letzten Simulation:",
@@ -6276,7 +6345,7 @@
       "action": "Beheben Sie den Flow, oder deaktivieren Sie ihn, solange der Lauf schreibt, und starten Sie dann erneut. Über die E-Mails des Tages hinaus vermeidet es ein Bypass, der den Flow still hält, oder ein kleinerer Lauf.",
       "forge": {
         "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Die E-Mail-Zustellbarkeit der Org ist nicht der Grund: Bei „Nur System-E-Mail“ oder „Kein Zugriff“ wird eine Aktion „E-Mail senden“ ohne Fehler zurückgehalten, und der Datensatz wird gespeichert. Über die E-Mails hinaus, die dem Ziel heute bleiben, schlägt ein sendender Flow fehl.",
-        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Über die E-Mails des Tages hinaus vermeidet es ein solcher Bypass oder ein kleinerer Lauf."
+        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; die Zeile „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Über die E-Mails des Tages hinaus vermeidet es ein solcher Bypass oder ein kleinerer Lauf."
       },
       "seed": {
         "action": "Korrigieren Sie den Flow oder deaktivieren Sie ihn während des Seeds."

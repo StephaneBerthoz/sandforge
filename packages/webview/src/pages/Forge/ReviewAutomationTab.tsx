@@ -27,7 +27,6 @@ import { Badge } from '../../components/ui/Badge';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
-import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import type { MuteOffer } from '../../utils/muteOffer';
 import { RunDeliverabilityLine } from '../shared/RunDeliverabilityLine';
 
@@ -196,13 +195,12 @@ export interface ReviewAutomationTabProps {
   readingAgain?: boolean;
   /**
    * The mute of the target's automation the run would make, planned from
-   * this read (`forgeRunMuteOffer`), whether it is ticked, and its toggle.
-   * Without it, no box is offered.
+   * this read (`forgeRunMuteOffer`), and whether it is ticked, in the run's
+   * column beside Execute: what it keeps quiet sends no email.
    */
   mute?: {
     offer: MuteOffer | null;
     checked: boolean;
-    onChange: (checked: boolean) => void;
     /** The target org, as the user knows it. */
     org: string;
   };
@@ -285,15 +283,6 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             ? t('forgeRun.review.automation.nothingSeen')
             : t('forgeRun.review.automation.none', { count: written })}
       </p>
-      {mute && (
-        <AutomationMuteBox
-          offer={mute.offer}
-          checked={mute.checked}
-          onChange={mute.onChange}
-          org={mute.org}
-          testId="automation-mute"
-        />
-      )}
       <ReviewEmails
         reading={automation.deliverability}
         automation={automation}

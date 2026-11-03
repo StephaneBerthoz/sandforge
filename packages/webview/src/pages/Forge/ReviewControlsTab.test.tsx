@@ -23,7 +23,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
-import { ReviewControlsTab } from './ReviewControlsTab';
+import { ReviewCheckpointFirst, ReviewControlsTab } from './ReviewControlsTab';
 
 /*
  * Review's Controls tab writes into the run's config what the run already
@@ -324,6 +324,15 @@ describe('ReviewControlsTab', () => {
           selectedOrgId: 'org-target',
         }),
       );
+      render(<ReviewCheckpointFirst targetOrgId="org-target" />);
+    });
+
+    it('leaves it to the column beside Execute: Controls holds none of its own', () => {
+      expect(
+        within(screen.getByTestId('review-controls-tab')).queryByTestId(
+          'controls-checkpoint-first-toggle',
+        ),
+      ).toBeNull();
     });
 
     it('offers the checkpoint first, off, and ticks it for the run', () => {

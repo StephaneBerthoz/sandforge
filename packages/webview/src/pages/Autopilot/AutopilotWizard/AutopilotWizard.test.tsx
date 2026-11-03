@@ -446,6 +446,24 @@ describe('AutopilotWizard', () => {
     expect(useAutopilotStore.getState().neutralizeContactPoints).toBe(false);
   });
 
+  it('names the two orgs in the ribbon past the step that picks them, by alias and never by id', () => {
+    // The review said "Source: org-1 → Target: org-2", a UUID in a real
+    // install, on the one screen where the target is checked.
+    const { rerender } = render(wizard());
+    expect(screen.queryByTestId('org-ribbon')).toBeNull();
+
+    toReview(rerender);
+
+    const ribbon = screen.getByTestId('org-ribbon');
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('DevSandbox');
+    expect(screen.getByTestId('org-ribbon-target-name').textContent).toBe('QASandbox');
+    expect(screen.getByTestId('org-ribbon-source-url').textContent).toBe('dev.salesforce.com');
+    expect(ribbon.textContent).not.toContain('org-1');
+    expect(ribbon.textContent).not.toContain('org-2');
+    // It replaces the header of the review: nothing names the orgs twice.
+    expect(screen.queryByTestId('step4-orgs')).toBeNull();
+  });
+
   it('should land on review with plan stats on plan-ready', () => {
     const { rerender } = render(wizard());
     toReview(rerender);

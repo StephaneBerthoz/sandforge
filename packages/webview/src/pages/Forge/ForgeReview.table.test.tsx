@@ -82,6 +82,7 @@ describe('ForgeReview — the table of a wide graph', () => {
 
   it('is not drawn again by what Review hears that is not the graph', () => {
     render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('tab-plan'));
     expect(screen.getByTestId('forge-table-view')).toBeDefined();
     tableDraws.count = 0;
 
@@ -104,6 +105,7 @@ describe('ForgeReview — the table of a wide graph', () => {
 
   it('is drawn again once the graph changes: a box ticked on one of its rows', () => {
     render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('tab-plan'));
     tableDraws.count = 0;
 
     fireEvent.click(screen.getByTestId('forge-table-include-Object4__c'));

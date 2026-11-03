@@ -35,7 +35,12 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ orgs: [{ id: 'org-target', alias: 'Target' }], selectedOrgId: 'org-target' }),
+    selector({
+      orgs: [
+        { id: 'org-target', alias: 'Target', orgType: 'Sandbox', status: 'connected', tags: [] },
+      ],
+      selectedOrgId: 'org-target',
+    }),
 }));
 
 vi.mock('../../stores/useAppStore', () => ({

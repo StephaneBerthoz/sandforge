@@ -682,8 +682,8 @@ test.describe('Sync panel — a configuration Migration saved and opened here', 
     await page.getByTestId('migration-open-in-sync-btn').click();
 
     await expect(page.getByTestId('sync-page')).toBeVisible();
-    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
-    await expect(types).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+    await expect(page.getByTestId('org-ribbon-source-name')).toHaveText(DEV_SANDBOX.alias);
+    await expect(page.getByTestId('org-ribbon-target-name')).toHaveText(QA_SANDBOX.alias);
     // Read back as it opens: Run waits until what each object does is said.
     await expect(page.getByTestId('sync-run')).toBeDisabled();
     const opened = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
@@ -709,7 +709,7 @@ test.describe('Sync panel — a configuration Migration saved and opened here', 
   });
 });
 
-test.describe('Sync panel — the orgs in the header', () => {
+test.describe('Sync panel — the orgs in the ribbon', () => {
   test('names each org by the type the pickers give it, a sandbox marked Staging as one', async ({
     page,
   }) => {
@@ -720,7 +720,7 @@ test.describe('Sync panel — the orgs in the header', () => {
     await source.selectOption(DEV_SANDBOX.id);
     await page.getByLabel('Target', { exact: true }).selectOption(QA_SANDBOX.id);
 
-    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-type');
+    const types = page.getByTestId('org-ribbon').getByTestId('org-badge-type');
     await expect(types).toHaveText(['SANDBOX', 'STAGING']);
     await expect(source.locator(`option[value="${DEV_SANDBOX.id}"]`)).toHaveText(
       'DevSandbox [SANDBOX]',

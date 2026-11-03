@@ -4,6 +4,7 @@ import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
 import type { ForgeConfig, ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { ReviewAutomationTab, forgeRunMuteOffer } from './ReviewAutomationTab';
 
 /** The run Review is about to start. */
@@ -208,7 +209,7 @@ describe('ReviewAutomationTab', () => {
       ],
     });
 
-    /** The tab with its box, planned from `read` as Review plans it. */
+    /** The box in the run's column, planned from `read` as Review plans it. */
     function withBox(
       read: ForgeTargetAutomation,
       checked = false,
@@ -216,15 +217,17 @@ describe('ReviewAutomationTab', () => {
       leftOut: ReadonlySet<string> = new Set(),
     ) {
       return render(
-        <ReviewAutomationTab
-          automation={read}
-          leftOut={leftOut}
-          mute={{ offer: forgeRunMuteOffer(read, leftOut), checked, onChange, org: 'DEV-SANDBOX' }}
+        <AutomationMuteBox
+          offer={forgeRunMuteOffer(read, leftOut)}
+          checked={checked}
+          onChange={onChange}
+          org="DEV-SANDBOX"
+          testId="automation-mute"
         />,
       );
     }
 
-    it('is offered, unticked, beside what fires, with the set it assigns, what it silences and what still runs', () => {
+    it('is offered, unticked, with the set it assigns, what it silences and what still runs', () => {
       const onChange = vi.fn();
       withBox(MUTABLE, false, onChange);
 
@@ -272,8 +275,17 @@ describe('ReviewAutomationTab', () => {
       expect(screen.queryByTestId('automation-mute')).toBeNull();
     });
 
-    it('is not offered without its owner', () => {
-      render(<ReviewAutomationTab automation={MUTABLE} />);
+    it("leaves the box to the run's column: the tab offers none of its own", () => {
+      render(
+        <ReviewAutomationTab
+          automation={MUTABLE}
+          mute={{
+            offer: forgeRunMuteOffer(MUTABLE, new Set()),
+            checked: false,
+            org: 'DEV-SANDBOX',
+          }}
+        />,
+      );
       expect(screen.queryByTestId('automation-mute')).toBeNull();
     });
   });
@@ -959,7 +971,6 @@ describe('ReviewAutomationTab', () => {
         mute={{
           offer: forgeRunMuteOffer(shown, options.leftOut ?? new Set<string>()),
           checked: options.muted === true,
-          onChange: vi.fn(),
           org: 'TGT-DEV',
         }}
       />

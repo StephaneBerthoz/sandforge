@@ -158,6 +158,16 @@
     "noCliOrgs": {
       "title": "Import",
       "message": "The Salesforce CLI holds no connected org yet. Use Log in with your browser on the Organizations page: it opens the Salesforce login page."
+    },
+    "orgRibbon": {
+      "label": "The orgs of this run",
+      "copiedFrom": "Copied from",
+      "writtenInto": "Written into",
+      "source": "Source",
+      "target": "Target",
+      "frozenFrom": "Frozen from",
+      "production": "Production org",
+      "notChosen": "Not chosen"
     }
   },
   "status": {
@@ -3825,7 +3835,7 @@
     "anonymizePII": "Anonymize PII",
     "skipEmpty": "Skip empty objects",
     "discoverGraph": "Discover Graph",
-    "noTemplates": "No saved templates yet. Save one from a run's results or from Review's Gaps tab, or import one from a file.",
+    "noTemplates": "No saved templates yet. Save one from a run's results or from Gaps on Review, or import one from a file.",
     "discoveryStopped": "The discovery was stopped before it finished. Discover again to see the graph.",
     "discoverySuperseded": "The discovery was stopped to make way for a newer one, from this panel or another: a window walks only a few discoveries at once. Discover again to see the graph.",
     "executeFailed": "Forge execution failed",
@@ -4164,7 +4174,6 @@
       "inJournal_other": "The ids of the {{formatted}} records this run mapped are kept in its journal, not in its results: Save the Id map writes them to a file."
     },
     "preview": {
-      "title": "What will happen on Execute",
       "truncatedAction": "Graph cut short by the object cap — raise it and discover again if something is missing",
       "willClone": "Will clone",
       "willMap": "Will map",
@@ -4265,7 +4274,6 @@
       "complianceTab": "Compliance",
       "metadataTab": "Metadata",
       "automationTab": "Automation",
-      "tabs": "Review tabs",
       "back": "← Back to Discovery",
       "preset": "Preset",
       "presetCustom": "Custom (no preset)",
@@ -4371,7 +4379,7 @@
       "undecidedGaps_one": "{{count}} gap will refuse rows",
       "undecidedGaps_other": "{{count}} gaps will refuse rows",
       "decideOnGaps": "Decide on Gaps",
-      "undecidedGapsQuestion": "The target org refuses the rows these gaps name until each is decided on the Gaps tab: a value mapped or set, a field left empty, the gap ignored. Executed now, those rows are refused, and the others written.",
+      "undecidedGapsQuestion": "The target org refuses the rows these gaps name until each is decided in Gaps: a value mapped or set, a field left empty, the gap ignored. Executed now, those rows are refused, and the others written.",
       "executeAnyway": "Execute anyway",
       "controlsTab": "Controls",
       "graphSearch": {
@@ -4393,7 +4401,70 @@
         "leftOut": "Left out of the run: {{objects}}.",
         "putBack": "Put them back"
       },
-      "muting": "Execute mutes the target's automation, as ticked on the Automation tab."
+      "muting": "Execute mutes the target's automation, as ticked above.",
+      "rows": "The parts of this run",
+      "runColumn": "The run",
+      "sentence": {
+        "counted_one": "Copy {{formatted}} record from {{source}} into {{target}}.",
+        "counted_other": "Copy {{formatted}} records from {{source}} into {{target}}.",
+        "atMost_one": "Copy at most {{formatted}} record from {{source}} into {{target}}.",
+        "atMost_other": "Copy at most {{formatted}} records from {{source}} into {{target}}.",
+        "notCounted_one": "Copy the records of {{count}} object from {{source}} into {{target}}.",
+        "notCounted_other": "Copy the records of {{count}} objects from {{source}} into {{target}}.",
+        "oneRecord_one": "Copy one record and what it reaches in {{count}} object, from {{source}} into {{target}}.",
+        "oneRecord_other": "Copy one record and what it reaches in {{count}} objects, from {{source}} into {{target}}."
+      },
+      "left": {
+        "none": "Nothing is left to decide.",
+        "decisions_one": "{{count}} decision is left.",
+        "decisions_other": "{{count}} decisions are left."
+      },
+      "nothingWritten": "Nothing is written until you press {{action}}.",
+      "state": {
+        "decide": "Needs you",
+        "ready": "Ready",
+        "working": "Working…",
+        "failed": "Failed",
+        "toRead": "To read"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} gap will refuse rows until it is decided.",
+          "undecided_other": "{{count}} gaps will refuse rows until each is decided.",
+          "failed": "What the target org holds against the rows could not be read.",
+          "found_one": "{{count}} gap found; none will refuse rows undecided.",
+          "found_other": "{{count}} gaps found; none will refuse rows undecided.",
+          "partly": "Nothing found, but part of the target org could not be read."
+        },
+        "anonymization": {
+          "none": "Discovery found no personal field.",
+          "on_one": "{{count}} personal field found, anonymized as the run writes it.",
+          "on_other": "{{count}} personal fields found, anonymized as the run writes them.",
+          "off_one": "{{count}} personal field found, written as the source holds it.",
+          "off_other": "{{count}} personal fields found, written as the source holds them."
+        },
+        "compliance": {
+          "none": "No framework selected.",
+          "failed": "The compliance report could not be made.",
+          "report": "{{framework}}: {{verdict}}"
+        },
+        "metadata": {
+          "failed": "The schemas of the two orgs could not be compared."
+        },
+        "automation": {
+          "failed": "What the target org runs could not be read.",
+          "fires_one": "{{count}} automation fires as the run inserts its records.",
+          "fires_other": "{{count}} automations fire as the run inserts its records.",
+          "notOnInsert": "Nothing fires as the run inserts its records; read what runs on its updates.",
+          "none": "Nothing the target org automates runs on these objects.",
+          "emails": "Emails may go out."
+        },
+        "controls": {
+          "none": "Nothing set on this run.",
+          "set_one": "{{count}} setting on this run.",
+          "set_other": "{{count}} settings on this run."
+        }
+      }
     },
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
     "cappedRead": "Stopped at {{limit}} per object: {{objects}}. The source holds more rows than were cloned — raise Records per object to clone them.",
@@ -4603,7 +4674,7 @@
       }
     },
     "controls": {
-      "hint": "What is set here goes with the run: Simulate, Execute, a retry and a template saved from Review carry it. Checkpoint first is the exception: it goes with Simulate and Execute alone. The plan's counts were read before it.",
+      "hint": "What is set here goes with the run: Simulate, Execute, a retry and a template saved from Review carry it. The plan's counts were read before it.",
       "objectTitle": "Per object",
       "object": "Object",
       "objectPlaceholder": "Pick an object of the run…",
@@ -4726,9 +4797,6 @@
       "advancedCompliance": "Advanced: compliance framework",
       "noFrameworkHint": "No compliance framework is picked: names, addresses and the other personal fields are copied as the source holds them. Pick one under \"{{advanced}}\" to anonymize those it covers.",
       "description": "Review your configuration before launching autopilot.",
-      "connectionSummary": "Connection summary",
-      "source": "Source",
-      "target": "Target",
       "selectedObjects": "Selected objects",
       "executing": "Executing...",
       "scope": {
@@ -5783,7 +5851,8 @@
         "costAtPreview": "Preview says what it would hold and cost — records, API requests, time, space on this machine. The load takes it with no question of its own.",
         "refused": "A checkpoint refused, or that could not be taken, refuses the run: nothing is written. A retry or a resume takes none: it names the checkpoint of the run it takes up.",
         "notOffered": "Not offered: SandForge takes no checkpoint of {{org}}, which it does not know to be a sandbox, a scratch org or a Developer Edition.",
-        "wayBack": "SandForge cannot remove what this run writes: the checkpoint taken first is the way back."
+        "wayBack": "SandForge cannot remove what this run writes: the checkpoint taken first is the way back.",
+        "more": "What it leaves out and what it costs"
       },
       "estimate": {
         "lastSimulation": "At the last simulation:",
@@ -6276,7 +6345,7 @@
       "action": "Fix the Flow, or deactivate it while the run writes, then run again. Past the day's emails, a bypass that keeps the Flow quiet, or a smaller run, avoids it.",
       "forge": {
         "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. The org's email deliverability is not why: on System email only or No access, a Send Email action is held back without an error and the record saves. Past the emails the target has left today, a Flow that sends fails.",
-        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Past the day's emails, such a bypass, or a smaller run, avoids it."
+        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation row names the custom permissions that keep a Flow quiet for the user who holds them. Past the day's emails, such a bypass, or a smaller run, avoids it."
       },
       "seed": {
         "action": "Fix the Flow, or deactivate it while you seed."

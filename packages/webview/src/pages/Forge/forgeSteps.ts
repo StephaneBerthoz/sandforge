@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import { loadOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { withEnglish } from '../../i18n/englishNamespaces';
 
 /*
@@ -60,7 +61,8 @@ export const ForgeResults = lazy(loadResults);
  * it is in the module map by the time Execute is pressed.
  */
 const NEXT_STEPS: Readonly<Record<string, readonly (() => Promise<unknown>)[]>> = {
-  discovery: [loadReview],
+  // The ribbon of the two orgs comes with Review: the steps before it draw none.
+  discovery: [loadReview, loadOrgRibbon],
   review: [loadExecution, loadResults],
 };
 

@@ -295,13 +295,13 @@ test.describe('Responsive layout', () => {
       await page.getByLabel('Quelle', { exact: true }).selectOption(DEV_SANDBOX.id);
       await page.getByLabel('Ziel', { exact: true }).selectOption(QA_SANDBOX.id);
 
-      const types = page.getByTestId('page-header-actions').getByTestId('org-badge-type');
+      const types = page.getByTestId('org-ribbon').getByTestId('org-badge-type');
       await expect(types).toHaveText(['DEV PRO', 'STAGING']);
       const overflow = await measureOverflow(page);
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
       expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.documentClientWidth);
-      for (const badge of await page.getByTestId('org-badge').all()) {
-        const box = await badge.boundingBox();
+      for (const side of ['org-ribbon-source', 'org-ribbon-target']) {
+        const box = await page.getByTestId(side).boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(overflow.clientWidth);
       }
     });

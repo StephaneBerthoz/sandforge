@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, Play, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import type {
@@ -25,6 +25,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
+import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
@@ -526,6 +527,22 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
       {lastError && !refusalOnCard && (
         <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
+      )}
+
+      {/* What the dataset was frozen from, known by its alias alone once this
+          machine no longer holds that org, and where the load writes. */}
+      {status?.manifest && sourceOrgId && (
+        <Suspense fallback={null}>
+          <LazyOrgRibbon
+            kind="load"
+            source={
+              orgs.find((o) => o.id === sourceOrgId) ??
+              status.manifest.source.orgAlias ??
+              sourceOrgId
+            }
+            target={orgs.find((o) => o.id === effectiveTarget) ?? (effectiveTarget || undefined)}
+          />
+        </Suspense>
       )}
 
       {/* ── Entry guards ──────────────────────────────────────────────── */}

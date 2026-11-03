@@ -127,7 +127,7 @@ async function answerAll(
   }
 }
 
-/** Open Review of a clone of the account, on its Controls tab. */
+/** Open Review of a clone of the account: the option stands beside Execute. */
 async function openControls(page: Page, theme: Theme): Promise<MockBridge> {
   const bridge = new MockBridge();
   await bridge.setup(page);
@@ -146,7 +146,6 @@ async function openControls(page: Page, theme: Theme): Promise<MockBridge> {
   await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
   await answerAll(page, 'forge:discover', 'forge:discover:response', { graph: GRAPH });
   await page.getByTestId('forge-execute-btn').click();
-  await page.getByTestId('tab-controls').click();
   await expect(page.getByTestId('controls-checkpoint-first')).toBeVisible();
   return bridge;
 }
@@ -173,6 +172,9 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('controls-checkpoint-first-holds')).toContainText(
         `takes a checkpoint of ${QA_SANDBOX.alias}`,
       );
+      // What it leaves out and costs, folded to keep the column short: axe reads it opened.
+      await expect(page.getByTestId('controls-checkpoint-first-leaves-out')).toBeHidden();
+      await page.getByTestId('controls-checkpoint-first-more').locator('summary').click();
       await expect(page.getByTestId('controls-checkpoint-first-leaves-out')).toContainText(
         'An Apex trigger, or a flow SandForge could not read',
       );

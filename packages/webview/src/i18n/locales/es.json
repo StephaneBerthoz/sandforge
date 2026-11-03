@@ -158,6 +158,16 @@
     "noCliOrgs": {
       "title": "Importación",
       "message": "La Salesforce CLI aún no tiene ninguna org conectada. Use Iniciar sesión en el navegador en la página Organizaciones: se abre la página de inicio de sesión de Salesforce."
+    },
+    "orgRibbon": {
+      "label": "Las orgs de esta ejecución",
+      "copiedFrom": "Copiado desde",
+      "writtenInto": "Escrito en",
+      "source": "Origen",
+      "target": "Destino",
+      "frozenFrom": "Congelado desde",
+      "production": "Org de producción",
+      "notChosen": "Sin elegir"
     }
   },
   "status": {
@@ -3825,7 +3835,7 @@
     "anonymizePII": "Anonimizar PII",
     "skipEmpty": "Omitir objetos vacíos",
     "discoverGraph": "Descubrir grafo",
-    "noTemplates": "Aún no hay plantillas guardadas. Guarde una desde los resultados de una ejecución o desde la pestaña Discrepancias de la revisión, o importe una desde un archivo.",
+    "noTemplates": "Aún no hay plantillas guardadas. Guarde una desde los resultados de una ejecución o desde Discrepancias en la revisión, o importe una desde un archivo.",
     "discoveryStopped": "El descubrimiento se detuvo antes de terminar. Vuelva a iniciarlo para ver el grafo.",
     "discoverySuperseded": "El descubrimiento se detuvo para dar paso a uno más reciente, de este panel o de otro: una ventana solo recorre unos pocos a la vez. Vuelva a iniciarlo para ver el grafo.",
     "executeFailed": "La ejecución de Forge ha fallado",
@@ -4164,7 +4174,6 @@
       "inJournal_other": "Los Ids de los {{formatted}} registros que esta ejecución asignó se guardan en su diario, no en sus resultados: Guardar correspondencia de Ids los escribe en un archivo."
     },
     "preview": {
-      "title": "Qué ocurrirá al ejecutar",
       "truncatedAction": "Grafo cortado por el tope de objetos — súbalo y vuelva a descubrir si falta algo",
       "willClone": "Se clonará",
       "willMap": "Se asignará",
@@ -4265,7 +4274,6 @@
       "complianceTab": "Cumplimiento",
       "metadataTab": "Metadatos",
       "automationTab": "Automatización",
-      "tabs": "Pestañas de revisión",
       "back": "← Volver al descubrimiento",
       "preset": "Preajuste",
       "presetCustom": "Personalizado (sin preajuste)",
@@ -4371,7 +4379,7 @@
       "undecidedGaps_one": "{{count}} discrepancia rechazará filas",
       "undecidedGaps_other": "{{count}} discrepancias rechazarán filas",
       "decideOnGaps": "Decidir en Discrepancias",
-      "undecidedGapsQuestion": "La org de destino rechaza las filas que nombran estas discrepancias hasta que cada una se decida en la pestaña Discrepancias: un valor asignado o fijado, un campo dejado vacío, la discrepancia ignorada. Si se ejecuta ahora, esas filas se rechazan y las demás se escriben.",
+      "undecidedGapsQuestion": "La org de destino rechaza las filas que nombran estas discrepancias hasta que cada una se decida en Discrepancias: un valor asignado o fijado, un campo dejado vacío, la discrepancia ignorada. Si se ejecuta ahora, esas filas se rechazan y las demás se escriben.",
       "executeAnyway": "Ejecutar de todos modos",
       "controlsTab": "Ajustes",
       "graphSearch": {
@@ -4393,7 +4401,70 @@
         "leftOut": "Excluidos de la ejecución: {{objects}}.",
         "putBack": "Volver a incluirlos"
       },
-      "muting": "Ejecutar silencia las automatizaciones del destino, como se marcó en la pestaña Automatización."
+      "muting": "Ejecutar silencia las automatizaciones del destino, como se marcó arriba.",
+      "rows": "Las partes de esta ejecución",
+      "runColumn": "La ejecución",
+      "sentence": {
+        "counted_one": "Copiar {{formatted}} registro de {{source}} a {{target}}.",
+        "counted_other": "Copiar {{formatted}} registros de {{source}} a {{target}}.",
+        "atMost_one": "Copiar como máximo {{formatted}} registro de {{source}} a {{target}}.",
+        "atMost_other": "Copiar como máximo {{formatted}} registros de {{source}} a {{target}}.",
+        "notCounted_one": "Copiar los registros de {{count}} objeto de {{source}} a {{target}}.",
+        "notCounted_other": "Copiar los registros de {{count}} objetos de {{source}} a {{target}}.",
+        "oneRecord_one": "Copiar un registro y lo que alcanza en {{count}} objeto, de {{source}} a {{target}}.",
+        "oneRecord_other": "Copiar un registro y lo que alcanza en {{count}} objetos, de {{source}} a {{target}}."
+      },
+      "left": {
+        "none": "No queda nada por decidir.",
+        "decisions_one": "Queda {{count}} decisión.",
+        "decisions_other": "Quedan {{count}} decisiones."
+      },
+      "nothingWritten": "No se escribe nada hasta que pulse {{action}}.",
+      "state": {
+        "decide": "Requiere decisión",
+        "ready": "Listo",
+        "working": "En curso…",
+        "failed": "Error",
+        "toRead": "Para leer"
+      },
+      "row": {
+        "gaps": {
+          "undecided_one": "{{count}} discrepancia rechazará filas hasta que se decida.",
+          "undecided_other": "{{count}} discrepancias rechazarán filas hasta que se decida cada una.",
+          "failed": "No se pudo leer lo que la org de destino opone a las filas.",
+          "found_one": "{{count}} discrepancia encontrada; ninguna rechazará filas sin decidir.",
+          "found_other": "{{count}} discrepancias encontradas; ninguna rechazará filas sin decidir.",
+          "partly": "No se encontró nada, pero parte de la org de destino no se pudo leer."
+        },
+        "anonymization": {
+          "none": "El descubrimiento no encontró ningún campo personal.",
+          "on_one": "{{count}} campo personal encontrado, anonimizado al escribirlo la ejecución.",
+          "on_other": "{{count}} campos personales encontrados, anonimizados al escribirlos la ejecución.",
+          "off_one": "{{count}} campo personal encontrado, escrito tal como lo tiene el origen.",
+          "off_other": "{{count}} campos personales encontrados, escritos tal como los tiene el origen."
+        },
+        "compliance": {
+          "none": "Ningún marco seleccionado.",
+          "failed": "No se pudo generar el informe de cumplimiento.",
+          "report": "{{framework}}: {{verdict}}"
+        },
+        "metadata": {
+          "failed": "No se pudieron comparar los esquemas de las dos orgs."
+        },
+        "automation": {
+          "failed": "No se pudo leer lo que ejecuta la org de destino.",
+          "fires_one": "{{count}} automatización se dispara al insertar la ejecución sus registros.",
+          "fires_other": "{{count}} automatizaciones se disparan al insertar la ejecución sus registros.",
+          "notOnInsert": "Nada se dispara al insertar; lea lo que se ejecuta en sus actualizaciones.",
+          "none": "Nada de lo que automatiza la org de destino se ejecuta en estos objetos.",
+          "emails": "Pueden salir correos."
+        },
+        "controls": {
+          "none": "Nada ajustado en esta ejecución.",
+          "set_one": "{{count}} ajuste en esta ejecución.",
+          "set_other": "{{count}} ajustes en esta ejecución."
+        }
+      }
     },
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
     "cappedRead": "Detenido en {{limit}} por objeto: {{objects}}. El origen tiene más filas de las que se clonaron: aumente Registros por objeto para clonarlas.",
@@ -4603,7 +4674,7 @@
       }
     },
     "controls": {
-      "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Primero un punto de control es la excepción: solo lo llevan la simulación y la ejecución. Los recuentos del plan se leyeron antes.",
+      "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Los recuentos del plan se leyeron antes.",
       "objectTitle": "Por objeto",
       "object": "Objeto",
       "objectPlaceholder": "Elegir un objeto de la ejecución…",
@@ -4726,9 +4797,6 @@
       "advancedCompliance": "Avanzado: marco de cumplimiento",
       "noFrameworkHint": "No se ha elegido ningún marco de cumplimiento: los nombres, las direcciones y los demás campos personales se copian tal como los tiene el origen. Elija uno en «{{advanced}}» para anonimizar los que cubre.",
       "description": "Revise su configuración antes de lanzar Autopilot.",
-      "connectionSummary": "Resumen de conexión",
-      "source": "Origen",
-      "target": "Destino",
       "selectedObjects": "Objetos seleccionados",
       "executing": "Ejecutando...",
       "scope": {
@@ -5783,7 +5851,8 @@
         "costAtPreview": "Vista previa dice lo que contendría y costaría — registros, solicitudes de API, tiempo, espacio en esta máquina. La carga lo toma sin preguntar.",
         "refused": "Un punto de control rechazado, o que no se pudo tomar, rechaza la ejecución: no se escribe nada. Un reintento o una reanudación no toma ninguno: nombra el de la ejecución que retoma.",
         "notOffered": "No disponible: SandForge no toma ningún punto de control de {{org}}, que no sabe si es un sandbox, una scratch org o una Developer Edition.",
-        "wayBack": "SandForge no puede quitar lo que escribe esta ejecución: el punto de control tomado primero es el camino de vuelta."
+        "wayBack": "SandForge no puede quitar lo que escribe esta ejecución: el punto de control tomado primero es el camino de vuelta.",
+        "more": "Qué deja fuera y cuánto cuesta"
       },
       "estimate": {
         "lastSimulation": "En la última simulación:",
@@ -6276,7 +6345,7 @@
       "action": "Corrija el Flow, o desactívelo mientras escribe la ejecución, y vuelva a ejecutar. Pasados los emails del día, lo evita un bypass que silencie el Flow o una ejecución más pequeña.",
       "forge": {
         "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. La capacidad de entrega de email de la org no es la causa: con Solo email del sistema o Sin acceso, una acción Enviar email se retiene sin error y el registro se guarda. Pasados los emails que le quedan hoy al destino, un Flow que envía falla.",
-        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. Pasados los emails del día, lo evita ese bypass o una ejecución más pequeña."
+        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la fila Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. Pasados los emails del día, lo evita ese bypass o una ejecución más pequeña."
       },
       "seed": {
         "action": "Corrija el Flow, o desactívelo mientras hace el seed."

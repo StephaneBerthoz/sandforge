@@ -1031,9 +1031,8 @@ async function previewRecord(
   await page.waitForSelector('[data-testid="forge-record-preview"]');
 }
 
-/** Decide the simulation's three gaps on Review's Gaps tab, as a user would before the run. */
+/** Decide the simulation's three gaps in Review's Gaps row, which they opened, as a user would. */
 async function decideSimulationGaps(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByTestId('tab-gaps').click();
   await page.waitForSelector('[data-testid="gaps-severity-blocking"]');
   await page
     .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
@@ -1360,9 +1359,8 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="forge-review"]');
     await answerReviewReads(page, 2);
 
-    // Two gaps decided, one left open: the tab counts the gap that still
+    // Two gaps decided, one left open: the row counts the gap that still
     // refuses rows, and the shot shows both a decision and the choices.
-    await page.getByTestId('tab-gaps').click();
     await page.waitForSelector('[data-testid="gaps-severity-blocking"]');
     await page
       .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
@@ -1441,7 +1439,7 @@ test.describe('Marketplace Screenshots', () => {
     await simulateFromReview(page, bridge);
     frames.push(await flowFrame(page, FLOW_FRAME_MS));
 
-    // Back on Review, every gap that refuses rows decided: the tabs at the
+    // Back on Review, every gap that refuses rows decided: the rows at the
     // top, for the decisions to fill the screen below them.
     await page.getByTestId('forge-results-simulation-review').click();
     await page.waitForSelector('[data-testid="forge-review"]');

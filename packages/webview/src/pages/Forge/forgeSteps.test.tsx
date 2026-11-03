@@ -18,6 +18,7 @@ vi.mock('./ForgeDiscovery', () => stand('ForgeDiscovery'));
 vi.mock('./ForgeReview', () => stand('ForgeReview'));
 vi.mock('./ForgeExecution', () => stand('ForgeExecution'));
 vi.mock('./ForgeResults', () => stand('ForgeResults'));
+vi.mock('../../components/ui/OrgRibbon', () => stand('OrgRibbon'));
 
 import * as steps from './forgeSteps';
 
@@ -35,6 +36,15 @@ describe('forgeSteps', () => {
     expect(screen.getByTestId('loading')).toBeDefined();
     expect(await screen.findByTestId('step-ForgeExecution')).toBeDefined();
     expect([...evaluated]).toEqual(['ForgeExecution']);
+  });
+
+  it('fetches the ribbon of the two orgs with Review, no sooner: the input does not draw it', async () => {
+    expect(evaluated.has('OrgRibbon')).toBe(false);
+    steps.preloadStepsAfter('input');
+    expect(evaluated.has('OrgRibbon')).toBe(false);
+
+    steps.preloadStepsAfter('discovery');
+    await vi.waitFor(() => expect(evaluated.has('OrgRibbon')).toBe(true));
   });
 
   it('loads each step under its own name', async () => {

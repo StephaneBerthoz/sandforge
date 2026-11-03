@@ -228,6 +228,20 @@ describe('ComparePage', () => {
     fireEvent.click(screen.getByTestId('cat-ApexClass'));
   }
 
+  it('names the two orgs in the ribbon once both are picked, as a source and a target: it writes nothing', () => {
+    render(<ComparePage />);
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    expect(screen.queryByTestId('org-ribbon')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+
+    const ribbon = screen.getByTestId('org-ribbon');
+    expect(screen.getByTestId('org-ribbon-source-name').textContent).toBe('Dev');
+    expect(ribbon.textContent).toContain('Source');
+    expect(ribbon.textContent).toContain('Target');
+    expect(ribbon.textContent).not.toContain('Written into');
+  });
+
   it('says under Run Comparison what it waits for: two different orgs, then a category', () => {
     // Categories start at none, so the button stayed off once two orgs were
     // picked, with nothing near it to say why.

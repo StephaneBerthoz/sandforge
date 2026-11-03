@@ -1400,7 +1400,7 @@ test('the FAQ says a sandbox marked Staging is a staging org, which Production G
 const FIRST_STEPS = [
   /Developer sandbox or a scratch org/,
   /Simulate first/,
-  /Automation and Gaps tabs/,
+  /Automation and Gaps rows/,
   /Emails and phone numbers are neutralized by default/,
   /Rehearse when the target has validation rules or triggers/,
   /Remove a run from Results/,
