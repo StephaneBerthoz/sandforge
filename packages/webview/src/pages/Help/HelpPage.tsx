@@ -609,7 +609,9 @@ export const HelpPage: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={() =>
-                          useAppStore.getState().setShowWhatsNew(true, __APP_VERSION__)
+                          useAppStore
+                            .getState()
+                            .setShowWhatsNew(true, __APP_VERSION__, undefined, true)
                         }
                         data-testid="help-show-whats-new"
                       >

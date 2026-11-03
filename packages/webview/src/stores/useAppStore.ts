@@ -121,6 +121,11 @@ export interface AppState {
    * alone, so an upgrade that skipped 1.69 still shows it.
    */
   whatsNewSince: string;
+  /**
+   * Whether a version that lists nothing shows the newest release listed
+   * before it: asked from Help, a patch release opened an empty overlay.
+   */
+  whatsNewStandIn: boolean;
   aiAvailable: boolean;
   /** Whether VS Code shows this panel; a hidden one keeps running. */
   panelVisible: boolean;
@@ -137,7 +142,7 @@ export interface AppState {
   setLoading: (loading: boolean) => void;
   setExtensionReady: (ready: boolean) => void;
   setShowWelcome: (show: boolean) => void;
-  setShowWhatsNew: (show: boolean, version?: string, since?: string) => void;
+  setShowWhatsNew: (show: boolean, version?: string, since?: string, standIn?: boolean) => void;
   setAiAvailable: (available: boolean) => void;
   setPanelVisible: (visible: boolean) => void;
   setGrappeEnabled: (enabled: boolean) => void;
@@ -154,6 +159,7 @@ export const useAppStore = create<AppState>((set) => ({
   showWhatsNew: false,
   whatsNewVersion: '',
   whatsNewSince: '',
+  whatsNewStandIn: false,
   aiAvailable: false,
   panelVisible: true,
   grappeEnabled: false,
@@ -186,8 +192,13 @@ export const useAppStore = create<AppState>((set) => ({
     set({ showWelcome: show });
   },
 
-  setShowWhatsNew(show: boolean, version?: string, since?: string): void {
-    set({ showWhatsNew: show, whatsNewVersion: version ?? '', whatsNewSince: since ?? '' });
+  setShowWhatsNew(show: boolean, version?: string, since?: string, standIn = false): void {
+    set({
+      showWhatsNew: show,
+      whatsNewVersion: version ?? '',
+      whatsNewSince: since ?? '',
+      whatsNewStandIn: standIn,
+    });
   },
 
   setAiAvailable(available: boolean): void {

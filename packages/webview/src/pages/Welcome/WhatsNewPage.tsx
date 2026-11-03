@@ -1048,9 +1048,14 @@ export interface ReleaseHighlights {
  * The releases to show, newest first: every listed one after `since` up to
  * `version`, or `version` alone when the version last opened is unknown or
  * not an earlier one. Only the current version's list was shown, so an
- * upgrade from 1.68 to 1.70 never told what 1.69 brought.
+ * upgrade from 1.68 to 1.70 never told what 1.69 brought. With `standIn`,
+ * a version that lists nothing shows the newest release listed before it.
  */
-export function releasesToShow(version: string, since?: string): ReleaseHighlights[] {
+export function releasesToShow(
+  version: string,
+  since?: string,
+  standIn = false,
+): ReleaseHighlights[] {
   if (
     !since ||
     !SEMVER.test(since) ||
@@ -1058,7 +1063,18 @@ export function releasesToShow(version: string, since?: string): ReleaseHighligh
     compareVersions(since, version) >= 0
   ) {
     const features = WHATS_NEW[version];
-    return features ? [{ version, features }] : [];
+    if (features) return [{ version, features }];
+    if (!standIn || !SEMVER.test(version)) return [];
+    // A patch release lists nothing of its own: asked from Help, on 1.73.1
+    // What's New opened nothing at all. The newest release listed at or
+    // before this one stands for it, under its own number.
+    const newest = Object.keys(WHATS_NEW)
+      .filter((listed) => compareVersions(listed, version) <= 0)
+      .sort((a, b) => compareVersions(b, a))[0];
+    const newestFeatures = newest === undefined ? undefined : WHATS_NEW[newest];
+    return newest !== undefined && newestFeatures
+      ? [{ version: newest, features: newestFeatures }]
+      : [];
   }
   return Object.entries(WHATS_NEW)
     .filter(
@@ -1085,7 +1101,8 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
   const since = useAppStore((s) => s.whatsNewSince);
-  const releases = releasesToShow(version, since);
+  const standIn = useAppStore((s) => s.whatsNewStandIn);
+  const releases = releasesToShow(version, since, standIn);
   const empty = releases.length === 0;
 
   // No highlights for these releases: close before the first paint, so the

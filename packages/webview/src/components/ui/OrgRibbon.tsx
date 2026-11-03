@@ -169,7 +169,12 @@ const RibbonSide: React.FC<RibbonSideProps> = ({ org, label, target, picker, tes
             {notHeld !== undefined && !name && (
               <span
                 data-testid={`${testId}-id`}
-                className="min-w-0 font-mono text-xs text-text-secondary [overflow-wrap:anywhere]"
+                className={cn(
+                  'min-w-0 font-mono text-xs [overflow-wrap:anywhere]',
+                  // On a production org's tint the secondary colour fell to
+                  // 3.6:1 under Light+, as the label above it once did.
+                  production ? 'text-text-primary' : 'text-text-secondary',
+                )}
               >
                 {notHeld}
               </span>
