@@ -58,6 +58,7 @@ import {
 } from '@sandforge/shared';
 import {
   alertsCountAsSingle,
+  singleCountAsWorkflow,
   deliverabilityAfterLeaseStop,
   deliverabilityGate,
   emailsCountedPerRecord,
@@ -250,11 +251,12 @@ export function checkpointEmails(
   limits: EmailLimits,
 ): CheckpointEmails[] {
   const alertsAsSingle = !isUnread(limits) && alertsCountAsSingle(limits);
+  const singleAsWorkflow = !isUnread(limits) && singleCountAsWorkflow(limits);
   const byLimit = new Map<ForgeEmailLimit, CheckpointEmails>();
   for (const write of WRITES) {
     const sending = emailsPerWriteOf(automation, write);
     if (sending.length === 0) continue;
-    const counted = emailsCountedPerRecord(sending, alertsAsSingle);
+    const counted = emailsCountedPerRecord(sending, alertsAsSingle, singleAsWorkflow);
     const alerting = new Set(
       sending
         .filter((each) => each.limit === 'DailyWorkflowEmails')

@@ -247,7 +247,7 @@ describe('checkpointEmails', () => {
     { objectApiName: 'Contact', write: 'delete' as const, records: 5 },
   ];
 
-  it('counts the emails each record given back sends, its alerts among the single emails of a Developer Edition, past what it has left', () => {
+  it('counts the emails each record given back sends, its alerts among the single emails of a Developer Edition and its single emails among the workflow ones, past what it has left', () => {
     expect(checkpointEmails(written, contactChanged, DEVELOPER_EDITION)).toEqual([
       {
         limit: 'SingleEmail',
@@ -268,14 +268,16 @@ describe('checkpointEmails', () => {
       },
       {
         limit: 'DailyWorkflowEmails',
-        emails: 20,
+        emails: 40,
         objects: [
           {
             objectApiName: 'Contact',
             write: 'update',
             records: 20,
-            perRecord: 1,
-            sentBy: ['Owner alert'],
+            // Measured on a Developer Edition: a flow's single email counts
+            // against its workflow emails too.
+            perRecord: 2,
+            sentBy: ['Owner alert', 'Contact changed'],
           },
         ],
         verdict: 'fits',
