@@ -1036,6 +1036,50 @@ describe('FrozenLoadTab', () => {
           ['frozen:load', { targetOrgId: 'org-dev', reload: true, muteAutomation: true }],
         ]);
       });
+
+      it.each([
+        ['while its read is on its way', { loading: true }],
+        [
+          'once its read found nothing a bypass silences on the purge',
+          {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: { ...AUTOMATION, objects: [] },
+              steps: { setToDraft: [], delete: ['Account'] },
+            },
+          },
+        ],
+      ])(
+        'keeps the mute ticked beside Load %s, and sends the load muted',
+        (_when, purgeRead: Answer) => {
+          // The box of the confirmation, offered nothing yet, unticked the one
+          // beside Load behind it: the purge and the inserts ran unmuted.
+          useFrozenStore.setState({
+            status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+          });
+          answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+          answers['frozen:remove:automation'] = purgeRead;
+          render(tab());
+          fireEvent.click(screen.getByTestId('frozen-load-mute-toggle'));
+          fireEvent.click(screen.getByTestId('frozen-load-reload'));
+          fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+          const box = within(screen.getByRole('dialog')).queryByTestId(
+            'frozen-removal-automation-mute-toggle',
+          ) as HTMLInputElement | null;
+          const shownTicked = box?.checked;
+          fireEvent.change(screen.getByTestId('danger-input'), {
+            target: { value: 'DEV-SANDBOX' },
+          });
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+            ['frozen:load', { targetOrgId: 'org-dev', reload: true, muteAutomation: true }],
+          ]);
+          // The same box as beside Load, said in the confirmation.
+          expect(shownTicked).toBe(true);
+        },
+      );
     });
 
     it('loads at once when the plan it reads purges nothing', () => {

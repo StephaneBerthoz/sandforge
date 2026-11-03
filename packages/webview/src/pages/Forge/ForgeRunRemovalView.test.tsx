@@ -215,6 +215,26 @@ describe('ForgeRunRemovalResult', () => {
       expect(title?.className).toContain('text-status-warning');
     });
 
+    it('blames no sweep that took all it was asked to, the removal partial for what it could not give back', () => {
+      // A Sync removal whose every record went, its sweep a success, ends
+      // partial for a value it could not give back, listed under it: the
+      // title said the sweep had left something.
+      render(
+        <ForgeRunRemovalResult
+          org="DEV-SANDBOX"
+          result={result({
+            status: 'partial',
+            objects: [outcome({ objectApiName: 'Case', planned: 3, deleted: 3 })],
+            sweep: { ...sweep, status: 'success' },
+          })}
+        />,
+      );
+
+      expect(screen.getAllByRole('heading')[0]?.textContent).toBe(
+        'Records this run created were removed from DEV-SANDBOX; the others stay, as listed.',
+      );
+    });
+
     it('says a partial removal as ever when records of the run stay too', () => {
       render(
         <ForgeRunRemovalResult

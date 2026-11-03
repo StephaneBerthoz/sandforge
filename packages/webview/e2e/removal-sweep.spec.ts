@@ -213,6 +213,11 @@ interface Confirmation {
   removal: { request: string; response: string; of: Record<string, unknown> };
   /** What a request says of the run, beside what is ticked. */
   asked: Record<string, unknown>;
+  /**
+   * The read of what fires on what the sweep takes, which the confirmation
+   * waits for before it can be confirmed, when it has one.
+   */
+  automation?: { request: string; response: string; of: Record<string, unknown> };
 }
 
 const CONFIRMATIONS: readonly Confirmation[] = [
@@ -324,6 +329,11 @@ const CONFIRMATIONS: readonly Confirmation[] = [
       of: {},
     },
     asked: { targetOrgId: QA_SANDBOX.id, loadedAt: LOAD_RECORDS.loadedAt },
+    automation: {
+      request: 'frozen:remove:automation',
+      response: 'frozen:remove:automation:response',
+      of: { loadedAt: LOAD_RECORDS.loadedAt },
+    },
   },
 ];
 
@@ -383,6 +393,19 @@ for (const theme of THEMES) {
 
         await page.getByTestId('forge-sweep-late-tick').check();
         await page.getByTestId('forge-sweep-untied-tick').check();
+        if (confirmation.automation) {
+          // Nothing fires, read on what the removal and its sweep delete.
+          await answerAll(
+            bridge,
+            confirmation.automation.request,
+            confirmation.automation.response,
+            {
+              ...confirmation.automation.of,
+              automation: { objectsRead: ['Contact', 'Task', 'Asset'], objects: [], unread: [] },
+              steps: { setToDraft: [], delete: ['Contact', 'Task', 'Asset'] },
+            },
+          );
+        }
         await expectNoViolation(page);
         await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
         await page.getByTestId('danger-confirm-btn').click();

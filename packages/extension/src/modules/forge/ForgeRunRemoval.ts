@@ -609,6 +609,16 @@ export interface RunRemovalOptions {
    */
   onUndeletable?: (objects: readonly UndeletableObject[]) => Promise<boolean>;
   /**
+   * Called once, right before the removal's first write — its sweep's
+   * included —, once `onUndeletable` has been answered and all it reads first
+   * is read: where a removal that mutes the target's automation takes its
+   * lease. A person answering the question then holds no permission set
+   * assigned; taken before it, the sets stayed assigned, renewed, for as long
+   * as the question stayed open, and for nothing once it was answered no. Not
+   * called by a preview, nor by a removal that stops before it writes.
+   */
+  beforeFirstWrite?: () => Promise<void>;
+  /**
    * Stops the removal before its next call to the org, but for the calls that
    * give a status it changed for a delete back to the records it leaves, and
    * the reads of what it left on them.
@@ -1455,6 +1465,7 @@ export async function removeRunRecords(
   });
 
   if (stopped()) return untouched();
+  await options.beforeFirstWrite?.();
   // The sweep, once what changed since the run has been read: a roll-up its
   // deletes recalculate stamps a record of the run as modified, which that
   // reading, taken before, never takes for a change. Swept first, on a

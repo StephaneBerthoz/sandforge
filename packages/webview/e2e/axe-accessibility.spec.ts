@@ -7914,6 +7914,11 @@ for (const theme of SCANNED_THEMES) {
       await openFrozenLastLoad(bridge, page, theme);
       await page.getByTestId('frozen-removal-remove').click();
       await page.getByTestId('frozen-removal-sweep-toggle').check();
+      // Held while the sweep's list is read: the line that says so, and the
+      // button it disables.
+      await expect(page.getByTestId('danger-held')).toBeVisible();
+      await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+      expectNoViolations(await checkAccessibility(page));
       await bridge.waitForMessage('frozen:remove:sweep', { timeout: 10_000 });
       await answerAll(page, 'frozen:remove:sweep', 'frozen:remove:sweep:response', {
         loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,

@@ -77,6 +77,7 @@ import {
   isMuteRefusedError,
   muteForRun,
   muteOrgOf,
+  type HeldMute,
   type MuteLeaseOptions,
   type RunMute,
 } from '../../modules/forge/AutomationMuteLease.js';
@@ -2740,7 +2741,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { status: report.status });
       ended = true;
-      this.liveTracker?.complete(operationId);
+      // Records the org refused: listed partial, as the report says.
+      if (report.status === 'completed-with-errors') this.liveTracker?.partial(operationId);
+      else this.liveTracker?.complete(operationId);
 
       // Chained post-load verification — read-only.
       await this.runVerification(msg, {
@@ -4090,13 +4093,22 @@ export class FrozenDatasetHandler implements DomainHandler {
         const stop = await asker?.({ read, steps, mute: removalMute });
         if (stop) throw new RemovalStopped(stop);
       }
-      const held =
-        removalMute?.prepared && !abortController.signal.aborted
-          ? await removalMute.prepared.acquire(operationId)
-          : undefined;
-      mutedAutomation = held?.outcome ?? removalMute?.muted;
+      mutedAutomation = removalMute?.muted;
+      let held: HeldMute | undefined;
+      // The lease, taken right before the first delete, once every question
+      // is answered: the removal asks what to do of the records its user may
+      // not delete after reading them, and a lease taken before it kept the
+      // sets assigned while the question stayed open, for nothing once it was
+      // answered no. A stop before then assigns nothing.
+      const takeLease = async (): Promise<void> => {
+        const prepared = removalMute?.prepared;
+        if (!prepared || abortController.signal.aborted) return;
+        held = await prepared.acquire(operationId);
+        mutedAutomation = held.outcome;
+      };
       // Nothing of the load to remove: the sweep alone, and no record of it goes.
       const sweepAlone = async (): Promise<RunRemovalOutcome> => {
+        await takeLease();
         await sweepParts?.first();
         await sweepParts?.afterRemoval();
         return NOTHING_REMOVED;
@@ -4114,6 +4126,7 @@ export class FrozenDatasetHandler implements DomainHandler {
                   }
                 : {}),
               onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
+              beforeFirstWrite: takeLease,
               includeChanged,
               signal: abortController.signal,
               onProgress: (settled, of, objectApiName) => {
@@ -4216,6 +4229,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         if (failed) {
           runError = new Error(failed);
           this.liveTracker?.fail(operationId, failed);
+        } else if (result.status === 'partial') {
+          this.liveTracker?.partial(operationId);
         } else {
           this.liveTracker?.complete(operationId);
         }

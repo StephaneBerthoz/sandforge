@@ -564,6 +564,42 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(JSON.parse(stdout)).toMatchObject({ mutedAutomation: { state: 'nothing' } });
     });
 
+    it('says the mute a user who cannot assign permission sets is refused, as the removal is', async () => {
+      // Planned from the read alone, the preview said "mute: planned" and
+      // refused nothing; the removal itself then ended MUTE_NO_RIGHT.
+      permissions = memoryPermissionOrg({
+        userId: USER,
+        organizationId: ORG_ID,
+        canAssign: false,
+        sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+      });
+      vi.mocked(TargetAutomationReader.prototype.read).mockImplementation(
+        async (_org, objects) => ({
+          ...automationOn(objects, false),
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [{ ...ASSET_FLOW, apiName: 'Case_Guard', label: 'Case guard' }],
+              triggers: [],
+            },
+          ],
+        }),
+      );
+
+      expect(await remove('--preview', '--mute-automation', '--json')).toBe(0);
+
+      const answer = JSON.parse(stdout) as { refusals?: string[]; mutedAutomation?: unknown };
+      expect(answer.refusals).toEqual([
+        expect.stringContaining('the user the run writes as cannot assign permission sets'),
+      ]);
+      expect(answer).not.toHaveProperty('mutedAutomation');
+      expect(permissions.assignments()).toEqual([]);
+
+      expect(await remove('--mute-automation', '--yes')).toBe(1);
+      expect(`${stdout}${stderr}`).toContain('[MUTE_NO_RIGHT]');
+      expect(org.deletes).toEqual([]);
+    });
+
     it('says a read that failed among what a removal would be refused for, its preview standing', async () => {
       vi.mocked(TargetAutomationReader.prototype.read).mockRejectedValue(
         new Error('REQUEST_LIMIT'),
@@ -583,7 +619,6 @@ describe('the words of what a removal runs into', () => {
     const { lines, refusal } = removalAutomation(
       { read: { unread: 'timed out' }, steps: { delete: ['Case'] } },
       'TGT',
-      undefined,
     );
 
     expect(lines).toEqual(['removal automation: what TGT runs could not be read: timed out']);
@@ -595,21 +630,53 @@ describe('the words of what a removal runs into', () => {
     const { refusal } = removalAutomation(
       { read: automationOn(['Account'], false), steps: { delete: ['Account'] } },
       'TGT',
-      undefined,
     );
 
     expect(refusal).toBeUndefined();
   });
 
-  it('gives the command that assigns the bypass of what fires', () => {
+  it('offers --mute-automation for what a bypass keeps quiet, never a command that assigns it by hand', () => {
+    // It gave `sf org assign permset … --on-behalf-of <the user>`: assigned
+    // so, the set stays assigned past the removal, outside any lease.
     const { refusal } = removalAutomation(
       { read: automationOn(['Asset'], false), steps: { delete: ['Asset'] } },
       'TGT',
-      { alias: 'TGT', username: 'someone@example.invalid' },
     );
 
-    expect(refusal).toContain('Data_Load');
-    expect(refusal).toContain('someone@example.invalid');
+    expect(refusal).toContain(
+      'With --mute-automation, the removal assigns Data_Load to the user it writes as for the removal alone, under a lease, and what it keeps quiet does not fire.',
+    );
+    expect(refusal).not.toContain('sf org assign permset');
+    expect(refusal).not.toContain('--on-behalf-of');
+  });
+
+  it('offers no mute to a removal that mutes already, nor for what no bypass keeps quiet', () => {
+    const asked = removalAutomation(
+      {
+        read: automationOn(['Asset'], false),
+        steps: { delete: ['Asset'] },
+        mute: {
+          automation: automationOn(['Asset'], false),
+          muted: {
+            state: 'planned',
+            assigned: ['Data_Load'],
+            held: [],
+            permissions: ['Load_Data'],
+            silenced: [],
+            stillRan: [],
+          },
+        },
+      },
+      'TGT',
+    );
+    const noBypass = removalAutomation(
+      { read: automationOn(['Case'], true), steps: { delete: ['Case'] } },
+      'TGT',
+    );
+
+    expect(asked.refusal).not.toContain('With --mute-automation');
+    expect(noBypass.refusal).toContain('Case audit');
+    expect(noBypass.refusal).not.toContain('--mute-automation');
   });
 });
 

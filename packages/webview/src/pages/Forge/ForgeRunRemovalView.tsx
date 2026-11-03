@@ -636,8 +636,13 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   if (result.sweep && result.objects.length === 0) {
     return <ForgeRunSweepResult result={result.sweep} org={org} />;
   }
+  // A sweep that took all it was asked to made nothing partial: a Sync
+  // removal is partial too for a value it could not give back, listed under it.
   const sweepLeft =
-    result.status === 'partial' && result.sweep !== undefined && tookAllItsRecords(result.objects);
+    result.status === 'partial' &&
+    result.sweep !== undefined &&
+    result.sweep.status !== 'success' &&
+    tookAllItsRecords(result.objects);
   const titleKey =
     (sweepLeft ? SWEEP_LEFT_KEYS[subject] : undefined) ?? RESULT_TITLE_KEYS[subject][result.status];
   return (

@@ -130,6 +130,19 @@ function answer(requestType: string, type: string, payload: unknown): void {
   });
 }
 
+/**
+ * Answer what fires as the removal and its sweep delete: nothing, read on the
+ * load's objects and on `takes`, as the confirmation waits for before a sweep
+ * can be confirmed.
+ */
+function answerWhatFires(takes: readonly string[]): void {
+  answer('frozen:remove:automation', 'frozen:remove:automation:response', {
+    loadedAt: LOADED.loadedAt,
+    automation: { objectsRead: [], objects: [], unread: [] },
+    steps: { setToDraft: [], delete: ['Contact', 'Account', ...takes] },
+  });
+}
+
 /** Open the confirmation and type the org's name into it. */
 function confirmRemoval(options: { includeChanged?: boolean } = {}): void {
   fireEvent.click(screen.getByTestId('frozen-removal-remove'));
@@ -418,6 +431,93 @@ describe('FrozenLoadRemoval', () => {
       });
     });
 
+    describe('a sweep ticked with it', () => {
+      const confirmButton = () => screen.getByTestId('danger-confirm-btn') as HTMLButtonElement;
+
+      /** The confirmation open, nothing firing on the load's objects, its sweep ticked and the org's name typed. */
+      function tickTheSweep(): void {
+        render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+        fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+        answer('frozen:remove:automation', 'frozen:remove:automation:response', {
+          loadedAt: LOADED_AT,
+          automation: { ...AUTOMATION, objects: [] },
+          steps: STEPS,
+        });
+        fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+        fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      }
+
+      it('cannot be confirmed before its list is read, nor once that read failed: unticked, the removal can', () => {
+        // The automation section read the load's objects alone, said nothing
+        // ran, and the typed name sent a sweep whose tasks fired their flows.
+        tickTheSweep();
+
+        expect(confirmButton().disabled).toBe(true);
+        expect(screen.getByTestId('danger-held').textContent).toBe(
+          'Waiting for what the sweep takes, and for what DEV-SANDBOX runs as it deletes it: the removal can be confirmed once both are read.',
+        );
+        answer('frozen:remove:sweep', 'frozen:remove:sweep:error', {
+          message: 'REQUEST_LIMIT_EXCEEDED',
+          code: 'SWEEP_ERROR',
+          retryable: true,
+        });
+        expect(confirmButton().disabled).toBe(true);
+        expect(screen.getByTestId('danger-held').textContent).toBe(
+          'What the sweep would take could not be read, nor what DEV-SANDBOX runs as it deletes it: a removal with this sweep cannot be confirmed.',
+        );
+        fireEvent.click(confirmButton());
+        expect(sent('frozen:remove')).toBeUndefined();
+
+        fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+        expect(screen.queryByTestId('danger-held')).toBeNull();
+        fireEvent.click(confirmButton());
+        expect(sent('frozen:remove')?.payload).toEqual({
+          targetOrgId: 'org-dev',
+          loadedAt: LOADED_AT,
+        });
+      });
+
+      it('cannot be confirmed until what fires on what it takes is read, the last read having said nothing ran', () => {
+        tickTheSweep();
+        answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+          loadedAt: LOADED_AT,
+          listing: LISTING,
+        });
+
+        expect(sent('frozen:remove:automation')?.payload).toMatchObject({ sweptObjects: ['Task'] });
+        expect(confirmButton().disabled).toBe(true);
+        answer('frozen:remove:automation', 'frozen:remove:automation:response', {
+          loadedAt: LOADED_AT,
+          automation: { ...AUTOMATION, objects: [] },
+          steps: { setToDraft: ['Order'], delete: ['Contact', 'Account', 'Order', 'Task'] },
+        });
+
+        expect(screen.queryByTestId('danger-held')).toBeNull();
+        fireEvent.click(confirmButton());
+        expect(sent('frozen:remove')?.payload).toEqual({
+          targetOrgId: 'org-dev',
+          loadedAt: LOADED_AT,
+          sweep: true,
+        });
+      });
+
+      it('can be confirmed once the read of what it takes failed: the section says it', () => {
+        tickTheSweep();
+        answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+          loadedAt: LOADED_AT,
+          listing: LISTING,
+        });
+        answer('frozen:remove:automation', 'frozen:remove:automation:error', {
+          message: 'REQUEST_LIMIT_EXCEEDED',
+          code: 'AUTOMATION_ERROR',
+          retryable: true,
+        });
+
+        expect(screen.getByTestId('frozen-removal-automation-error')).toBeTruthy();
+        expect(confirmButton().disabled).toBe(false);
+      });
+    });
+
     it('offers the box that mutes it once a set silences something, and says what still runs', () => {
       render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
       fireEvent.click(screen.getByTestId('frozen-removal-remove'));
@@ -573,6 +673,7 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('forge-sweep-takes').textContent).toContain('takes 1 record');
     expect(screen.getByTestId('forge-sweep-stays')).toBeTruthy();
     fireEvent.click(screen.getByTestId('forge-sweep-untied-tick'));
+    answerWhatFires(['Task']);
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
@@ -633,6 +734,11 @@ describe('FrozenLoadRemoval', () => {
         targetOrgId: 'org-dev',
         loadedAt: LOADED.loadedAt,
       });
+      answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+        loadedAt: LOADED.loadedAt,
+        listing: TOLD_LISTING,
+      });
+      answerWhatFires(['Task']);
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
       expect(sent('frozen:remove')?.payload).toEqual({
@@ -659,6 +765,11 @@ describe('FrozenLoadRemoval', () => {
 
     fireEvent.click(screen.getByTestId('frozen-removal-remove'));
     fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+      loadedAt: LOADED.loadedAt,
+      listing: TOLD_LISTING,
+    });
+    answerWhatFires(['Task']);
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
@@ -855,6 +966,7 @@ describe('FrozenLoadRemoval', () => {
       expect(screen.getByTestId('danger-confirm-btn').textContent).toContain(
         'Delete what the sweep takes',
       );
+      answerWhatFires(['Asset']);
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
@@ -863,6 +975,23 @@ describe('FrozenLoadRemoval', () => {
         loadedAt: LOADED_AT,
         sweep: true,
       });
+    });
+
+    it('says it deletes what the sweep takes, never the load’s records, which went', () => {
+      // Its confirmation kept the removal's words: the load's records to
+      // delete, and "the removal of … left these records:" over no record.
+      render(<FrozenLoadRemoval records={GONE} onAnswered={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId('frozen-removal-sweep-alone'));
+
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Take back from DEV-SANDBOX what its automation created for this load',
+      );
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'Nothing this load created is left in DEV-SANDBOX. This deletes only what the sweep below takes:',
+      );
+      expect(screen.queryByTestId('forge-removal-left-by')).toBeNull();
+      expect(screen.queryByTestId('forge-removal-plan')).toBeNull();
     });
 
     it('reads what fires on what the sweep’s list takes alone, never on the load, whose records went', () => {

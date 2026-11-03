@@ -114,6 +114,26 @@ describe('DangerConfirm', () => {
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
+  it('stays disarmed while it waits on a read, the word typed, and says what it waits for', () => {
+    const onConfirm = vi.fn();
+    const { rerender } = render(
+      <DangerConfirm {...baseProps} onConfirm={onConfirm} held="Reading what the sweep takes." />,
+    );
+    const input = screen.getByTestId('danger-input');
+    fireEvent.change(input, { target: { value: 'DELETE' } });
+
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('danger-held').textContent).toBe('Reading what the sweep takes.');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    rerender(<DangerConfirm {...baseProps} onConfirm={onConfirm} />);
+    expect(screen.queryByTestId('danger-held')).toBeNull();
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
   it('should not confirm on Enter key when text does not match', () => {
     const onConfirm = vi.fn();
     render(<DangerConfirm {...baseProps} onConfirm={onConfirm} />);

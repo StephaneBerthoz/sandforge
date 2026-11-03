@@ -89,7 +89,13 @@ import {
   targetAutomationReader,
 } from './sandforge-clone.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
-import { muteLines, planMute, type RunMute } from '../src/modules/forge/AutomationMuteLease.js';
+import {
+  muteLines,
+  muteOrgOf,
+  planMute,
+  prepareMute,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
 import type { MutedAutomation, MutePlan } from '@sandforge/shared';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
@@ -123,6 +129,7 @@ import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperat
 import { commandLineGuard } from './commandLineGuard.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { confirm, typed } from './prompt.js';
+import { refusedLine, type RunRefusal } from './runRefused.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import {
   DONE_EXIT,
@@ -243,9 +250,11 @@ ${checkpointFirstHelp({
                          created in the window tied to nothing of it. Such
                          records then keep none of the load's records as records
                          that stay. A sweep refused, or that did not take all it was
-                         asked to, ends the removal partial, exit 3; once the load's
-                         records went already, the sweep runs alone, the way to
-                         take what such a sweep left (off otherwise)
+                         asked to, exits 3, and ends partial a removal that took
+                         every record of the load; one that left records of its own
+                         keeps its own status. Once the load's records went already,
+                         the sweep runs alone, the way to take what such a sweep
+                         left (off otherwise)
   --sweep-late           with --sweep: take too what it lists as made late
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
                          the load; refused when another run wrote to the target
@@ -713,12 +722,14 @@ interface RemovalAutomationAsk {
  * Frozen removal read none of this, and its flows ran with no question.
  * Exported so it can be tested.
  *
- * @param user - The user it deletes as, whom a bypass's command assigns it to.
+ * A bypass a set holds is offered through `--mute-automation`, which assigns
+ * that set for the step alone, under a lease: never as a command that
+ * assigns it by hand, which a run on the trap org gave with the user's name,
+ * and which leaves the set assigned past the step, outside any lease.
  */
 export function removalAutomation(
   { read, steps, mute }: RemovalAutomationAsk,
   target: string,
-  user: { alias: string; username: string } | undefined,
 ): { lines: string[]; refusal?: string } {
   const muted = mute ? muteLines(mute.muted, target).map((line) => `  ${line}`) : [];
   // Read whole or not at all: what could not be read of it is said below.
@@ -737,7 +748,8 @@ export function removalAutomation(
   const automation = mute?.automation ?? read;
   const refusal = removalStepsAutomationRefusal(automation, target, {
     steps,
-    assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps), user),
+    assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
+    mayMute: mute === undefined,
   });
   return {
     lines: [...removalStepsAutomationLines(read, target, steps), ...muted],
@@ -1896,6 +1908,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const refusals: string[] = [];
   /** What a removal's preview says it would be refused for: a preview said exits 0. */
   const removalRefusals: string[] = [];
+  /** What refused the step itself before its first write, with its code. */
+  let stepRefused: RunRefusal | undefined;
   /** What a dry run or a preview asked to mute says a real step's mute would do. */
   let dryRunMute: FrozenAnswerContext['mute'];
   /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
@@ -1916,7 +1930,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
     process.stdout.write(
-      `${JSON.stringify({ ...answer, ...(ended ? { ended } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ ...answer, ...(stepRefused ? { refused: stepRefused } : {}), ...(ended ? { ended } : {}) }, null, 2)}\n`,
     );
   };
 
@@ -1961,12 +1975,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   log(`done in ${Date.now() - t0}ms`);
 
-  /** The user a removal deletes as, whom a bypass's command assigns it to. */
-  function userOfTarget(): { alias: string; username: string } | undefined {
-    const username = target?.session.username;
-    return args.target && username ? { alias: args.target, username } : undefined;
-  }
-
   /**
    * What the target runs as records of a load go, read as `asked` and said as
    * a removal says it before its first delete: a mute asked for is planned, and
@@ -1974,18 +1982,30 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    */
   async function automationOfDeletes(asked: Record<string, unknown>): Promise<{
     steps?: ForgeRemovalSteps;
-    planned?: ReturnType<typeof planMute>;
+    planned?: Pick<ReturnType<typeof planMute>, 'plan' | 'automation' | 'planned'>;
     refusal?: string;
+    /** The code of what refuses the step, beside its words. */
+    code?: string;
   }> {
     await send('frozen:remove:automation', asked);
     const payload = (type: string): Record<string, unknown> | undefined =>
       posted.find((m) => m.type === type)?.payload;
     const read = payload('frozen:remove:automation:response') as
       { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
-    const planned =
+    // A preview or a dry run plans it as the step does, asking the target:
+    // refused on a production org, or for a user who cannot assign permission
+    // sets, as the step is before anything else. Planned from the read alone,
+    // a preview said the mute was planned and refused nothing, and the removal
+    // then ended MUTE_NO_RIGHT. A real step's handler refuses it itself.
+    const prepared =
       read && args.muteAutomation
-        ? planMute(read.automation, removalStepsWrites(read.steps))
+        ? targetConn && (args.preview || args.dryRun)
+          ? await prepareMute(muteOrgOf(targetConn), read.automation, {
+              writes: removalStepsWrites(read.steps),
+            })
+          : planMute(read.automation, removalStepsWrites(read.steps))
         : undefined;
+    const planned = prepared && !('refused' in prepared) ? prepared : undefined;
     const { lines, refusal } = removalAutomation(
       {
         read: read?.automation ?? {
@@ -1995,13 +2015,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ...(planned ? { mute: { automation: planned.automation, muted: planned.planned } } : {}),
       },
       args.target ?? '',
-      userOfTarget(),
     );
     for (const line of lines) log(line);
+    const refused =
+      prepared && 'refused' in prepared
+        ? prepared.refused
+        : refusal !== undefined && !args.acceptAutomation
+          ? { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal }
+          : undefined;
     return {
       ...(read ? { steps: read.steps } : {}),
       ...(planned ? { planned } : {}),
-      ...(refusal !== undefined && !args.acceptAutomation ? { refusal } : {}),
+      ...(refused ? { refusal: refused.message, code: refused.code } : {}),
     };
   }
 
@@ -2130,8 +2155,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // said and answered before anything is asked or written, as a removal's.
         const purge = args.reload && !args.pilot ? await purgeAutomation() : undefined;
         if (purge?.refusal !== undefined) {
+          // With its code, as a refused clone, seed or sync gives it: the
+          // sentence alone, a pipeline could not tell why.
+          stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };
           refusals.push(purge.refusal);
-          log(purge.refusal);
+          log(refusedLine(stepRefused));
           failed = true;
           return 'ended';
         }
@@ -2289,7 +2317,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // as the panel lists it. A stop while the sweep read asks nothing.
         let declined = false;
         handler.setRemovalAsker(async (question) => {
-          const { lines, refusal } = removalAutomation(question, args.target ?? '', userOfTarget());
+          const { lines, refusal } = removalAutomation(question, args.target ?? '');
           for (const line of lines) log(line);
           if (refusal !== undefined && !args.acceptAutomation) {
             return { message: refusal, code: 'AUTOMATION_NOT_ACCEPTED' };

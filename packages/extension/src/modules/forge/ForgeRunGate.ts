@@ -2461,13 +2461,15 @@ export function removalStepsAutomationLines(
  * not be read; then the bypasses to assign. Nothing when nothing fires and
  * everything was read.
  *
- * @param options - What each step writes, and the bypasses to assign
- *   ({@link bypassesToAssign}).
+ * @param options - What each step writes, the bypasses to assign
+ *   ({@link bypassesToAssign}), and whether the command can mute them itself
+ *   (`--mute-automation`, not asked yet): the sets that would keep quiet what
+ *   fires are then named as what a mute assigns, under its lease.
  */
 export function removalStepsAutomationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { steps: ForgeRemovalSteps; assign?: readonly BypassToAssign[] },
+  options: { steps: ForgeRemovalSteps; assign?: readonly BypassToAssign[]; mayMute?: boolean },
 ): string | undefined {
   const fired = firedOnRemovalStepsOf(automation, options.steps);
   const unread = automationUnreadOf(automation);
@@ -2508,6 +2510,14 @@ export function removalStepsAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  const sets = [...new Set((options.assign ?? []).flatMap((entry) => entry.permissionSet ?? []))];
+  if (options.mayMute === true && sets.length > 0) {
+    parts.push(
+      `With --mute-automation, the removal assigns ${sets.join(', ')} to the user it writes as ` +
+        `for the removal alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
+        'quiet does not fire.',
+    );
+  }
   parts.push(
     `Nothing was written or deleted. Add --accept-automation to remove all the same, or turn ` +
       `that automation off in ${target} first.`,

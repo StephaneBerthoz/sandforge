@@ -46,6 +46,13 @@ interface DangerConfirmBaseProps {
    * above the typed confirmation.
    */
   children?: React.ReactNode;
+  /**
+   * What the confirmation still waits for before it can be armed — a read of
+   * what it lists —, said above its buttons: the confirm button stays
+   * disabled, whatever is typed, while it is given. A removal whose sweep
+   * had not been read yet listed nothing firing, and its typed name sent it.
+   */
+  held?: string;
 }
 
 /** A confirmation armed by typing a word: for what deletes, or writes to production. */
@@ -97,6 +104,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   className,
   variant = 'danger',
   children,
+  held,
 }) => {
   const { t } = useTranslation();
   const [typed, setTyped] = useState('');
@@ -112,7 +120,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
     if (open) setTyped('');
   }
   const asksToType = confirmText !== undefined;
-  const isMatch = !asksToType || typed === confirmText;
+  const isMatch = (!asksToType || typed === confirmText) && held === undefined;
   const inputRef = useRef<HTMLInputElement>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
   const promptId = useId();
@@ -282,6 +290,15 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                           data-testid="danger-input"
                         />
                       </>
+                    )}
+                    {held !== undefined && (
+                      <p
+                        role="status"
+                        className="text-xs text-text-secondary mt-3"
+                        data-testid="danger-held"
+                      >
+                        {held}
+                      </p>
                     )}
                     <div className="flex justify-end gap-2 mt-4">
                       <button

@@ -1812,7 +1812,7 @@ describe('FrozenDatasetHandler', () => {
               options.onProgress?.({ phase: 'insert', progress: 40, message: 'Inserting Account' });
               listed = tracker.getAll().map((op) => ({ ...op }));
               running = registry.getRunning().map((op) => op.operationId);
-              return report();
+              return { ...report(), status: 'completed' };
             },
           );
 
@@ -1831,6 +1831,20 @@ describe('FrozenDatasetHandler', () => {
           // One end, the completion: the verification chained after it posts none.
           expect(posted(deps, 'operation:completed')).toHaveLength(1);
           expect(posted(deps, 'operation:failed')).toEqual([]);
+        });
+
+        it('ends a load the org refused records of as partial, not completed', async () => {
+          // Listed completed, Live Operations drew a green success over a
+          // load whose report said the contact had been refused.
+          wireListed();
+          loaderLoad.mockResolvedValue(report());
+
+          await load();
+
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+          expect(posted(deps, 'operation:completed').at(-1)?.payload).toMatchObject({
+            result: { status: 'completed-with-errors' },
+          });
         });
 
         it('ends a load that failed as failed, and still shows its one error', async () => {

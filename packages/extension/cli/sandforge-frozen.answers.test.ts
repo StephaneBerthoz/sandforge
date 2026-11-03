@@ -712,10 +712,19 @@ describe('sandforge-frozen load --reload, a replace', () => {
 
       expect(writes).toEqual([]);
       expect(process.exitCode).toBe(1);
-      const answer = JSON.parse(printed.join('')) as { refusals: string[]; ended: boolean };
+      const answer = JSON.parse(printed.join('')) as {
+        refusals: string[];
+        ended: boolean;
+        refused?: { code: string; message: string };
+      };
       expect(answer.ended).toBe(true);
       expect(answer.refusals[0]).toContain('ContactCleanup');
       expect(answer.refusals[0]).toContain('--accept-automation');
+      // A pipeline reads the code, as it reads a refused clone's, seed's or sync's.
+      expect(answer.refused).toEqual({
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: answer.refusals[0],
+      });
     });
 
     it('goes past it accepted, and hands the load on', async () => {

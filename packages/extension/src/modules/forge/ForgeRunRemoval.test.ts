@@ -280,6 +280,28 @@ describe('removeRunRecords — an object the user may not delete', () => {
     ]);
   });
 
+  it('calls what goes before its first write once the question is answered, and never once it is answered no', async () => {
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+    const order: string[] = [];
+    const onUndeletable = vi.fn(async () => {
+      order.push('asked');
+      return order.length > 1;
+    });
+    const beforeFirstWrite = vi.fn(async () => {
+      order.push(`before ${org.deletes.length} delete(s)`);
+    });
+
+    await removeRunRecords(org, plan, options({ onUndeletable, beforeFirstWrite }));
+    expect(order).toEqual(['asked']);
+    expect(org.deletes).toEqual([]);
+
+    order.push('again');
+    await removeRunRecords(org, plan, options({ onUndeletable, beforeFirstWrite }));
+    expect(order).toEqual(['asked', 'again', 'asked', 'before 0 delete(s)']);
+    expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
+  });
+
   it('counts a record of it already deleted as gone, and only the ones still in the org as refused', async () => {
     // Every record of the object was counted refused, the one in the recycle
     // bin too: the removal said it had left in the org what was gone.

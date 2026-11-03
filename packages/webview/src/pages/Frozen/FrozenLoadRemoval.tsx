@@ -27,6 +27,7 @@ import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
 import { useRewoundMarks } from '../../hooks/useRewoundMarks';
+import { muteOffered } from '../../utils/muteOffer';
 import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
@@ -101,6 +102,12 @@ interface FrozenRemovalAutomationProps {
   /** Read for a reload's purge, which takes what every load before it left. */
   reload?: boolean;
   mute: { checked: boolean; onChange: (checked: boolean) => void };
+  /**
+   * Told what the read shown covers — the objects it read what fires on —,
+   * `'failed'` once the read failed, which the section says, and undefined
+   * while none answered: what the removal's confirmation waits for.
+   */
+  onRead?: (covered: readonly string[] | 'failed' | undefined) => void;
 }
 
 /**
@@ -121,6 +128,7 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
   sweptObjects,
   reload = false,
   mute,
+  onRead,
 }) => {
   const read = useBridgeMutation<AutomationAnswer>('frozen:remove:automation', {
     responseType: 'frozen:remove:automation:response',
@@ -168,8 +176,24 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
           bypasses: removalStepsBypassesOf(answer.automation, answer.steps),
         }
       : undefined;
-  const offer =
+  const planned =
     shown && answer ? mutePlanOf(answer.automation, removalStepsWrites(answer.steps)) : null;
+  // A reload's box is the one beside Load, whose mute the load plans as it
+  // starts, from its inserts and its purge: offered whatever this read of the
+  // purge finds. Offered nothing while the read was on its way, it unticked
+  // the box beside Load, and the reload ran unmuted.
+  const offer = reload && !muteOffered(planned) ? 'atStart' : planned;
+  // By value: what the read shown covers, told up as it changes. A failed
+  // read is said by the section, and covers nothing.
+  const covered = read.error
+    ? null
+    : shown && answer
+      ? [...(answer.steps.setToDraft ?? []), ...(answer.steps.delete ?? [])].join(',')
+      : undefined;
+  useEffect(() => {
+    onRead?.(covered === null ? 'failed' : covered?.split(','));
+  }, [covered, onRead]);
+  useEffect(() => () => onRead?.(undefined), [onRead]);
   return (
     <RemovalAutomationView
       testId="frozen-removal-automation"
@@ -204,8 +228,11 @@ interface FrozenRemovalSweepProps {
   /** The ticks under the list: what it keeps, taken too. */
   ticks: SweepTicks;
   onTicksChange: (ticks: SweepTicks) => void;
-  /** Told what it read, null until it has: what the confirmation reads the automation of. */
-  onListing: (listing: ForgeSweepListing | null) => void;
+  /**
+   * Told what it read, `'failed'` once its read failed, null until it has:
+   * what the confirmation reads the automation of, and waits for.
+   */
+  onListing: (listing: ForgeSweepListing | 'failed' | null) => void;
 }
 
 /**
@@ -236,9 +263,10 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
     mutate({ targetOrgId: orgId, loadedAt });
   }, [orgId, loadedAt, mutate]);
   const listing = read.data?.loadedAt === loadedAt ? read.data.listing : null;
+  const failed = read.error !== null;
   useEffect(() => {
-    onListing(listing);
-  }, [listing, onListing]);
+    onListing(failed ? 'failed' : listing);
+  }, [listing, failed, onListing]);
   useEffect(() => () => onListing(null), [onListing]);
 
   let body: React.ReactNode;
@@ -355,7 +383,11 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const [includeChanged, setIncludeChanged] = useState(false);
   const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   /** What the sweep's list says, while it is shown: what fires as its records go is read with the load's. */
-  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
+  const [sweepListing, setSweepListing] = useState<ForgeSweepListing | 'failed' | null>(null);
+  /** What the automation section's read covers, or that it failed: see `FrozenRemovalAutomation`. */
+  const [automationRead, setAutomationRead] = useState<readonly string[] | 'failed' | undefined>(
+    undefined,
+  );
   /** The confirmation's box: the removal mutes what it fires, through the target's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
   const removal = useBridgeMutation<RemoveAnswer>('frozen:remove', {
@@ -442,7 +474,26 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   };
 
   /** What the sweep's list says it takes, ticked: what fires as those records go. */
-  const sweptObjects = sweep && sweepListing ? sweepTakenObjects(sweepListing, ticks) : [];
+  const sweptObjects =
+    sweep && sweepListing && sweepListing !== 'failed'
+      ? sweepTakenObjects(sweepListing, ticks)
+      : [];
+  /** Nothing of the load left: the sweep alone is what the confirmation is for. */
+  const sweepAlone = created === 0 && sweep;
+  // A sweep is confirmed once what it takes has been read, and what fires as
+  // it deletes it: before, the section had read the load's objects alone and
+  // could say nothing ran, and the sweep's deletes fired their flows unasked.
+  // A read of what fires that failed is said in the section, as it is of the
+  // load's objects.
+  const sweepHeld = !sweep
+    ? undefined
+    : sweepListing === 'failed'
+      ? t('frozen.removal.heldUnread', { org: org ?? '' })
+      : sweepListing === null ||
+          (automationRead !== 'failed' &&
+            !sweptObjects.every((object) => automationRead?.includes(object)))
+        ? t('frozen.removal.heldReading', { org: org ?? '' })
+        : undefined;
   // When the last removal ended, said with its mark above the action and not
   // in its place: a removal that left records in the org marked the load,
   // and the card offered nothing more while the status still counted them.
@@ -613,16 +664,30 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         open={confirming}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
-        title={t('frozen.removal.removeTitle', { org: org ?? '' })}
-        description={t('frozen.removal.removeDescription', { org: org ?? '' })}
+        // A sweep alone deletes what its list takes, none of the load's
+        // records, which went: said in the removal's words, it named them, and
+        // what an earlier removal "left" over no record.
+        title={
+          sweepAlone
+            ? t('frozen.removal.sweepAloneTitle', { org: org ?? '' })
+            : t('frozen.removal.removeTitle', { org: org ?? '' })
+        }
+        description={
+          sweepAlone
+            ? t('frozen.removal.sweepAloneDescription', { org: org ?? '' })
+            : t('frozen.removal.removeDescription', { org: org ?? '' })
+        }
         confirmText={org ?? ''}
         confirmLabel={removalConfirmLabel(t, records.created, sweep)}
+        {...(sweepHeld !== undefined ? { held: sweepHeld } : {})}
       >
-        <ForgeRunRemovalPlan
-          plan={records.created}
-          linked={records.linked}
-          {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
-        />
+        {!sweepAlone && (
+          <ForgeRunRemovalPlan
+            plan={records.created}
+            linked={records.linked}
+            {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
+          />
+        )}
         {/* A sweep alone fires what goes with what its list takes, and nothing before. */}
         {(created > 0 || sweptObjects.length > 0) && (
           <FrozenRemovalAutomation
@@ -631,6 +696,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             org={org ?? ''}
             sweptObjects={sweptObjects}
             mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+            onRead={setAutomationRead}
           />
         )}
         <label className="flex items-center gap-2 mt-2 cursor-pointer">

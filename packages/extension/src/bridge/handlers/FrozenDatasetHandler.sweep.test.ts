@@ -17,6 +17,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { compositeOver } from '../../test/compositeOver.js';
@@ -816,6 +817,8 @@ describe('a sweep asked with the removal of a Frozen load', () => {
 
     it('ends partial when the org refused what the sweep was to take, the load’s records gone, and no success goes on the page or Live Operations', async () => {
       mockGetConn.mockResolvedValue(refusingTheAsset() as never);
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
 
       await remove({ sweep: true });
 
@@ -828,6 +831,9 @@ describe('a sweep asked with the removal of a Frozen load', () => {
           'operation:completed',
         ).at(-1)?.payload.result.status,
       ).toBe('partial');
+      // Listed completed, Live Operations drew a green success over it.
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+      tracker.dispose();
     });
 
     describe('asked again once the load’s records went', () => {
@@ -1227,6 +1233,56 @@ describe('a sweep asked with the removal of a Frozen load', () => {
         expect(answer()?.status).toBe('cancelled');
         expect(permissions.assignments()).toEqual([]);
         expect(tied.events as string[]).not.toContain('leaseAcquire');
+      });
+
+      describe('of a user who may not delete the work orders', () => {
+        /** What the org was asked by the time the question was put, and the answer to give. */
+        let seenAsked: string[][];
+        let removeTheRest: boolean;
+
+        beforeEach(() => {
+          const { conn } = leased();
+          // The work order's describe, as a profile without Delete on it gives it.
+          mockGetConn.mockResolvedValue({
+            ...conn,
+            describe: async (object: string) => ({
+              ...(await conn.describe(object)),
+              deletable: object !== 'WorkOrder',
+            }),
+          } as never);
+          seenAsked = [];
+          removeTheRest = false;
+          (
+            deps.infraServices as {
+              confirmRemovalLeavingUndeletable?: () => Promise<boolean>;
+            }
+          ).confirmRemovalLeavingUndeletable = vi.fn(async () => {
+            seenAsked.push([...(tied.events as string[])]);
+            return removeTheRest;
+          });
+        });
+
+        it('asks before it assigns anything, and assigns nothing once told to stop', async () => {
+          await remove({ sweep: true, muteAutomation: true });
+
+          expect(seenAsked).toHaveLength(1);
+          expect(seenAsked[0]).not.toContain('leaseAcquire');
+          expect(tied.events as string[]).not.toContain('leaseAcquire');
+          expect(tied.deletes).toEqual([]);
+        });
+
+        it('takes the lease once told to remove the rest, before its first delete', async () => {
+          removeTheRest = true;
+
+          await remove({ sweep: true, muteAutomation: true });
+
+          expect(seenAsked[0]).not.toContain('leaseAcquire');
+          const events = tied.events as string[];
+          expect(events).toContain('leaseAcquire');
+          expect(events.indexOf('leaseAcquire')).toBeLessThan(events.indexOf('write'));
+          expect(tied.ids('WorkOrder')).toEqual([WORK_ORDER]);
+          expect(tied.ids('ServiceAppointment')).toEqual([]);
+        });
       });
 
       it('deletes nothing when the mute is refused, and records the removal as stopped', async () => {
