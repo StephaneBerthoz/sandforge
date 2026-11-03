@@ -592,6 +592,7 @@ describe('SeedOpsHandler — a seed that takes a checkpoint first', () => {
     // Said once, in the page's language, from what the error carries; the
     // lifecycle's message keeps it for Live Operations and the log.
     const [error] = posted('seed:error');
+    expect(error?.payload.code).toBe('MUTE_FAILED');
     expect(error?.payload.checkpoint).toEqual({ state: 'deleted', deleted: 'nothingWritten' });
     expect(String(error?.payload.message)).not.toContain(BEFORE_RUN_DELETED_WORDS);
     expect(String(posted('operation:failed')[0]?.payload.error)).toContain(

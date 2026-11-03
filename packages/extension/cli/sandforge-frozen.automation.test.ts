@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -496,6 +496,50 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     });
     expect(stderr).toContain('mute: assigned Data_Load');
   });
+
+  // The removal runs in this process, as the editor's does: the leases'
+  // folder turned read only once the lease was journaled, the error left it
+  // uncoded, the set assigned to the user and the lease held for its hour.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'refuses with its code and deletes nothing when the journal of its lease cannot be written once the set is assigned, the set taken back',
+    async () => {
+      const leases = join(dir, 'leases');
+      let readOnly = false;
+      permissions = memoryPermissionOrg({
+        userId: USER,
+        organizationId: ORG_ID,
+        sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+        beforeWrite: (write) => {
+          steps.push(write.kind === 'insert' ? 'lease' : 'release');
+          if (write.kind === 'insert' && !readOnly) {
+            chmodSync(leases, 0o500);
+            readOnly = true;
+          }
+        },
+      });
+
+      let exit: number;
+      try {
+        exit = await remove('--sweep', '--mute-automation', '--yes');
+      } finally {
+        if (readOnly) chmodSync(leases, 0o700);
+      }
+
+      expect(exit).toBe(1);
+      expect(steps.filter((step) => step === 'lease' || step === 'release')).toEqual([
+        'lease',
+        'release',
+      ]);
+      expect(permissions.assignments()).toEqual([]);
+      expect(org.deletes).toEqual([]);
+      expect(`${stdout}${stderr}`).toContain('[MUTE_FAILED]');
+      expect(`${stdout}${stderr}`).toContain(
+        'could not be written (EACCES): the user SandForge runs as must read and write that ' +
+          'folder, or SANDFORGE_MUTE_LEASES_DIR name another, the same for every run that mutes ' +
+          'the org. What this run had assigned was taken back: Data_Load.',
+      );
+    },
+  );
 
   it('still asks about what no bypass keeps quiet, and takes no lease for a removal that stops', async () => {
     onCase = true;

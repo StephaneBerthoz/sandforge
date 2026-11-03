@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BaseMessage, ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
@@ -145,11 +145,16 @@ describe('autopilot:execute, the emails of what still runs', () => {
    * limits, its permission sets — each write of an assignment in `calls` —
    * and each read of its deliverability in `calls` too.
    */
-  function target(level: DeliverabilityLevel, remaining = 14_000) {
+  function target(
+    level: DeliverabilityLevel,
+    remaining = 14_000,
+    alsoBeforeWrite: (kind: 'insert' | 'delete') => void = () => undefined,
+  ) {
     const org = memoryPermissionOrg({
       sets: [{ id: SET, name: 'Data_Load' }],
       beforeWrite: (write) => {
         calls.push(`assignment ${write.kind}`);
+        alsoBeforeWrite(write.kind);
       },
     });
     const asked: string[] = [];
@@ -350,6 +355,45 @@ describe('autopilot:execute, the emails of what still runs', () => {
       deliverability: { reading: { unread: 'SandForge runs no Apex in a production org' } },
     });
   });
+
+  // The leases' folder turned read only once the lease was journaled: the
+  // run failed under no code, and the audit kept it a failure.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'refuses the run before its first write, under its code, when the journal of its lease cannot be written once the set is assigned',
+    async () => {
+      let readOnly = false;
+      const { org } = target('all', 14_000, (kind) => {
+        if (kind === 'insert' && !readOnly) {
+          chmodSync(dir, 0o500);
+          readOnly = true;
+        }
+      });
+
+      let executePlan: Awaited<ReturnType<typeof run>>['executePlan'];
+      try {
+        ({ executePlan } = await run(WELCOME, { muteAutomation: true }));
+      } finally {
+        if (readOnly) chmodSync(dir, 0o700);
+      }
+
+      expect(executePlan).not.toHaveBeenCalled();
+      const [error] = posted('autopilot:error');
+      expect(error?.payload).toMatchObject({ code: 'MUTE_FAILED' });
+      expect(String(error?.payload.message)).toContain('could not be written (EACCES)');
+      expect(String(error?.payload.message)).toContain(
+        'What this run had assigned was taken back: Data_Load.',
+      );
+      expect(calls.filter((call) => call.startsWith('assignment'))).toEqual([
+        'assignment insert',
+        'assignment delete',
+      ]);
+      expect(org.assignments()).toEqual([]);
+      expect(runs()[0]).toMatchObject({
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'MUTE_FAILED' }),
+      });
+    },
+  );
 
   it('refuses the run before its first write when the lease read back does not hold what it was to keep quiet', async () => {
     const { org } = target('all');

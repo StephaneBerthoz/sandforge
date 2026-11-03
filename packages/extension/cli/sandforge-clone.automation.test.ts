@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
@@ -1516,6 +1516,43 @@ describe('sandforge-clone target automation', () => {
         refused: { code: 'MUTE_NO_RIGHT' },
       });
     });
+
+    // Run with the leases' folder turned read only once the lease was
+    // journaled, the clone failed uncoded and left the set assigned.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'refuses with its code and writes nothing when the journal of its lease cannot be written once the set is assigned, the set taken back',
+      async () => {
+        const leases = process.env['SANDFORGE_MUTE_LEASES_DIR']!;
+        let readOnly = false;
+        const { target, perms, events } = mutableTarget({
+          beforeWrite: (write) => {
+            events.push(`assignment ${write.kind}`);
+            if (write.kind === 'insert' && !readOnly) {
+              chmodSync(leases, 0o500);
+              readOnly = true;
+            }
+          },
+        });
+        withOrgs(target);
+
+        try {
+          expect(await run(argv('--skip-preflight', '--mute-automation', '--json'))).toBe(1);
+        } finally {
+          if (readOnly) chmodSync(leases, 0o700);
+        }
+
+        expect(events).toEqual(['assignment insert', 'assignment delete']);
+        expect(perms.assignments()).toEqual([]);
+        expect(stderr.trimEnd().split('\n').at(-1)).toMatch(
+          /^refused \(MUTE_FAILED\): The journal of the mute leases in .* could not be written \(EACCES\): .* What this run had assigned was taken back: Data_Load\.$/,
+        );
+        expect(JSON.parse(stdout)).toMatchObject({
+          tool: 'sandforge-clone',
+          dryRun: false,
+          refused: { code: 'MUTE_FAILED' },
+        });
+      },
+    );
 
     it('assigns nothing to a run refused at its write gate: the lease is taken once the gate lets the rows through', async () => {
       const { target, perms, events } = mutableTarget();

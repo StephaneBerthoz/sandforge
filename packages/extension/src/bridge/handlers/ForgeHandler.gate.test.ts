@@ -29,7 +29,7 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
@@ -2371,6 +2371,57 @@ describe('forge:execute, the gate before the first write', () => {
       expect(store.get('forge:history')).toBeUndefined();
       rmSync(dir, { recursive: true, force: true });
     });
+
+    // The journal of the leases written again once the set is assigned, to a
+    // folder turned read only: the run failed uncoded, the set left assigned
+    // to the user, and the lease held for its hour by the editor's process.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'stops at the write gate with its code, the set taken back, when the journal cannot be written once it is assigned',
+      async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+        let readOnly = false;
+        const org = memoryPermissionOrg({
+          sets: [{ id: SET, name: 'Data_Load' }],
+          beforeWrite: (write) => {
+            if (write.kind === 'insert' && !readOnly) {
+              chmodSync(dir, 0o500);
+              readOnly = true;
+            }
+          },
+        });
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1)), {
+          targetAutomation: readerOf(MUTABLE),
+          muteOrg: async () => muteOrgOf(org.connection),
+          muteLeases: { dir, renewEveryMs: 0 },
+        });
+
+        try {
+          await executeMuted();
+        } finally {
+          chmodSync(dir, 0o700);
+        }
+
+        expect(calls).not.toContain('written');
+        expect(org.writes.map((write) => write.kind)).toEqual(['insert', 'delete']);
+        expect(org.assignments()).toEqual([]);
+        const payload = posted('forge:execute:error')[0]?.payload;
+        expect(payload).toMatchObject({ code: 'MUTE_FAILED' });
+        expect(payload?.['message']).toBe(
+          `The journal of the mute leases in ${dir} could not be written (EACCES): the user ` +
+            'SandForge runs as must read and write that folder, or SANDFORGE_MUTE_LEASES_DIR ' +
+            'name another, the same for every run that mutes the org. What this run had ' +
+            'assigned was taken back: Data_Load.',
+        );
+        expect(runs()).toEqual([
+          expect.objectContaining({
+            outcome: 'stopped',
+            objects: [],
+            details: expect.objectContaining({ code: 'MUTE_FAILED' }),
+          }),
+        ]);
+        rmSync(dir, { recursive: true, force: true });
+      },
+    );
 
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
       const { org, done } = muting({ canAssign: false });

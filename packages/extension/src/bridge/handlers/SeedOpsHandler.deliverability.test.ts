@@ -5,7 +5,7 @@
  * answer is the accord; the read's requests counted with the seed's; a lease
  * that does not hold its plan refused before the first record.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -175,11 +175,14 @@ describe('SeedOpsHandler — a seed on the emails of what still runs', () => {
     });
 
   /** A Developer Edition whose permission sets live in memory. */
-  function developerEdition() {
+  function developerEdition(
+    alsoBeforeWrite: (kind: 'insert' | 'delete') => void = () => undefined,
+  ) {
     const org = memoryPermissionOrg({
       sets: [{ id: SET, name: 'Org_Bypass_Set' }],
       beforeWrite: (write) => {
         steps.push(write.kind === 'insert' ? 'assign' : 'unassign');
+        alsoBeforeWrite(write.kind);
       },
     });
     vi.mocked(getJsforceConnection).mockResolvedValue({
@@ -458,6 +461,45 @@ describe('SeedOpsHandler — a seed on the emails of what still runs', () => {
     });
     expect(auditEntry()?.details).not.toHaveProperty('deliverability');
   });
+
+  // The leases' folder turned read only once the lease was journaled: the
+  // seed failed under no code, and the audit kept it a failure.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'refuses before its first record, under its code, a lease whose journal cannot be written once its set is assigned',
+    async () => {
+      let readOnly = false;
+      const org = developerEdition((kind) => {
+        if (kind === 'insert' && !readOnly) {
+          chmodSync(dir, 0o500);
+          readOnly = true;
+        }
+      });
+
+      try {
+        await execute({ muteAutomation: true });
+        await vi.waitFor(() => expect(posted('seed:error')).toHaveLength(1));
+      } finally {
+        if (readOnly) chmodSync(dir, 0o700);
+      }
+
+      expect(posted('seed:error')[0]?.payload).toMatchObject({
+        code: 'MUTE_FAILED',
+        message: expect.stringContaining(
+          'What this run had assigned was taken back: Org_Bypass_Set.',
+        ) as string,
+      });
+      expect(steps).not.toContain('write');
+      expect(steps.filter((step) => step === 'assign' || step === 'unassign')).toEqual([
+        'assign',
+        'unassign',
+      ]);
+      expect(org.assignments()).toEqual([]);
+      expect(auditEntry()).toMatchObject({
+        outcome: 'stopped',
+        details: { code: 'MUTE_FAILED' },
+      });
+    },
+  );
 
   it('counts what the read sent with the seed’s requests, named in the refusal', async () => {
     developerEdition();

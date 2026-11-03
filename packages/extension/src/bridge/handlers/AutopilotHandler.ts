@@ -1300,8 +1300,36 @@ export class AutopilotHandler implements DomainHandler {
       }
 
       // The lease is taken before the first write and given back as the run
-      // ends, written, failed, stopped or thrown alike.
-      const held = mute?.prepared ? await mute.prepared.acquire(msg.id) : undefined;
+      // ends, written, failed, stopped or thrown alike. Refused, what it had
+      // assigned taken back, the run stops under its code, as a mute refused
+      // at its plan does: it ended a failure under none.
+      const held = mute?.prepared
+        ? await mute.prepared.acquire(msg.id).catch((err: unknown) => {
+            if (!isMuteRefusedError(err)) throw err;
+            return err;
+          })
+        : undefined;
+      if (isMuteRefusedError(held)) {
+        if (taken) checkpoint = await this.settleCheckpoint(taken, false);
+        recorded = true;
+        recordWriteRun(this.deps, {
+          action: 'autopilot_execute',
+          module: 'autopilot',
+          operationId: msg.id,
+          orgId: operation.targetOrgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          ...(auditFit ? { fit: auditFit } : {}),
+          code: held.code,
+        });
+        this.liveTracker?.fail(msg.id, held.message);
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, held, {
+          code: held.code,
+          ...(checkpoint ? { extraPayload: { checkpoint } } : {}),
+        });
+        settle(held);
+        return;
+      }
       if (held) mutedAutomation = held.outcome;
       // Read back against its plan: a set it does not hold leaves running a
       // sender of emails no one was asked about, and the run writes nothing.

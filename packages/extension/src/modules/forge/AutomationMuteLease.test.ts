@@ -554,11 +554,13 @@ describe('what a run says of a journal it cannot use', () => {
         .acquire('run-1')
         .catch((err: unknown) => err);
 
+      expect(isMuteRefusedError(error)).toBe(true);
+      expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
       const message = (error as Error).message;
       expect(message).toBe(
         `The journal of the mute leases in ${dir} could not be read (EACCES): the user ` +
           'SandForge runs as must read and write that folder, or SANDFORGE_MUTE_LEASES_DIR ' +
-          'name another, the same for every run that mutes the org.',
+          'name another, the same for every run that mutes the org. Nothing was assigned.',
       );
       expect(message).not.toContain(org.organizationId.slice(0, 15));
       expect(message).not.toContain(org.userId.slice(0, 15));
@@ -566,6 +568,181 @@ describe('what a run says of a journal it cannot use', () => {
     },
   );
 });
+
+/*
+ * The journal is written again as each set is assigned. Run against a
+ * folder that turned read only once the lease was journaled, the error of
+ * that write left the run: no code, the set assigned to the user in the org,
+ * and the lease held for its hour by the process that took it, so that the
+ * next run of that process found the set held and left it assigned as it
+ * ended.
+ */
+describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'a journal that cannot be written once a set is assigned',
+  () => {
+    const UNWRITTEN =
+      `could not be written (EACCES): the user SandForge runs as must read and write that ` +
+      'folder, or SANDFORGE_MUTE_LEASES_DIR name another, the same for every run that mutes the org.';
+
+    /** The folder of the journals, read only from the first assignment on, until `restore`. */
+    function readOnlyOnceAssigning(): {
+      beforeWrite: (write: { kind: string }) => void;
+      restore: () => void;
+      readOnly: () => boolean;
+    } {
+      let state: 'writable' | 'readOnly' | 'restored' = 'writable';
+      return {
+        beforeWrite: (write) => {
+          if (write.kind === 'insert' && state === 'writable') {
+            chmodSync(dir, 0o500);
+            state = 'readOnly';
+          }
+        },
+        restore: () => {
+          if (state === 'readOnly') chmodSync(dir, 0o700);
+          state = 'restored';
+        },
+        readOnly: () => state === 'readOnly',
+      };
+    }
+
+    it('takes back what it assigned and refuses with its code, and its process holds no lease after', async () => {
+      const folder = readOnlyOnceAssigning();
+      const org = orgWith({ beforeWrite: folder.beforeWrite });
+      let error: unknown;
+      try {
+        error = await (
+          await prepared(org, asProcess(100))
+        )
+          .acquire('run-1')
+          .catch((err: unknown) => err);
+      } finally {
+        folder.restore();
+      }
+
+      expect(isMuteRefusedError(error)).toBe(true);
+      expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+      expect((error as Error).message).toBe(
+        `The journal of the mute leases in ${dir} ${UNWRITTEN} What this run had assigned ` +
+          'was taken back: PS_BypassFlow.',
+      );
+      const [insert, del] = org.writes;
+      expect(insert).toEqual({ kind: 'insert', permissionSetId: SET_FLOW, assigneeId: org.userId });
+      expect(del).toMatchObject({ kind: 'delete' });
+      expect(org.writes).toHaveLength(2);
+      expect(org.assignments()).toEqual([]);
+
+      // The next run of the same process: the refused run holds nothing, and
+      // what its journal kept of it goes as this one takes its lease.
+      const next = await (await prepared(org, asProcess(100))).acquire('run-2');
+      expect(next.outcome).toMatchObject({
+        assigned: ['PS_BypassFlow', 'PS_BypassVR'],
+        held: [],
+      });
+      expect(journalOf(org).leases.map((lease) => lease['runId'])).toEqual(['run-2']);
+      await next.release();
+      expect(org.assignments()).toEqual([]);
+      expect(journalOf(org).leases).toEqual([]);
+    });
+
+    it('says what the org would not take back, and why, and the next run takes it back', async () => {
+      const folder = readOnlyOnceAssigning();
+      const refuse: Record<string, string> = {};
+      const org = orgWith({
+        refuseDeleting: refuse,
+        beforeWrite: (write) => {
+          folder.beforeWrite(write);
+          if (write.kind === 'delete' && folder.readOnly()) refuse[write.id] = 'UNABLE_TO_LOCK_ROW';
+        },
+      });
+      let error: unknown;
+      try {
+        error = await (
+          await prepared(org, asProcess(100))
+        )
+          .acquire('run-1')
+          .catch((err: unknown) => err);
+      } finally {
+        folder.restore();
+      }
+
+      expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+      const [stuck] = org.assignments();
+      expect(stuck).toMatchObject({ permissionSetId: SET_FLOW, assigneeId: org.userId });
+      expect((error as Error).message).toBe(
+        `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow (The org refused ` +
+          'the delete: UNABLE_TO_LOCK_ROW) could not be taken back: the next run that mutes ' +
+          'this org once the journal can be written takes it back.',
+      );
+
+      delete refuse[stuck.id];
+      const next = await (await prepared(org, asProcess(100))).acquire('run-2');
+      expect(org.writes.filter((w) => w.kind === 'delete' && w.id === stuck.id)).toHaveLength(2);
+      await next.release();
+      expect(org.assignments()).toEqual([]);
+      expect(journalOf(org).leases).toEqual([]);
+    });
+
+    it('says the journal that could not be written as it takes back a set the org refused', async () => {
+      // The second set refused, the first assigned and journaled: the folder
+      // turns read only as the run takes the first back.
+      let turned = false;
+      const org = orgWith({
+        refuseAssigning: { [SET_VR]: 'FIELD_INTEGRITY_EXCEPTION' },
+        beforeWrite: (write) => {
+          if (write.kind === 'delete' && !turned) {
+            chmodSync(dir, 0o500);
+            turned = true;
+          }
+        },
+      });
+      let error: unknown;
+      try {
+        error = await (
+          await prepared(org, asProcess(100))
+        )
+          .acquire('run-1')
+          .catch((err: unknown) => err);
+      } finally {
+        if (turned) chmodSync(dir, 0o700);
+      }
+
+      expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+      expect((error as Error).message).toBe(
+        'PS_BypassVR could not be assigned to the user the run writes as: The org refused the ' +
+          `assignment: FIELD_INTEGRITY_EXCEPTION. The journal of the mute leases in ${dir} ` +
+          `${UNWRITTEN} What this run had assigned was taken back: PS_BypassFlow.`,
+      );
+      expect(org.assignments()).toEqual([]);
+    });
+
+    it('refuses with its code, nothing assigned, when the folder is read only before the lease is taken', async () => {
+      const org = orgWith();
+      mkdirSync(dir, { recursive: true });
+      chmodSync(dir, 0o500);
+      let error: unknown;
+      try {
+        error = await (
+          await prepared(org, asProcess(100))
+        )
+          .acquire('run-1')
+          .catch((err: unknown) => err);
+      } finally {
+        chmodSync(dir, 0o700);
+      }
+
+      expect(isMuteRefusedError(error)).toBe(true);
+      expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+      expect((error as Error).message).toMatch(
+        new RegExp(
+          `^The journal of the mute leases in ${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ` +
+            'could not be locked \\(EACCES\\): .* Nothing was assigned\\.$',
+        ),
+      );
+      expect(org.writes).toEqual([]);
+    });
+  },
+);
 
 describe('whileMuted', () => {
   it('releases after a write that succeeds, and gives what was muted', async () => {

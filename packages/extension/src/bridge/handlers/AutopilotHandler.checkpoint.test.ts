@@ -474,6 +474,7 @@ describe('autopilot:execute, the checkpoint taken first', () => {
     expect(executePlan).not.toHaveBeenCalled();
     expect(port.settle).toHaveBeenCalledWith(TAKEN, false);
     expect(posted('autopilot:error')[0]?.payload).toMatchObject({
+      code: 'MUTE_FAILED',
       checkpoint: { state: 'deleted', deleted: 'nothingWritten' },
     });
   });

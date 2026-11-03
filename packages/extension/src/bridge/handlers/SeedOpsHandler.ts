@@ -2734,6 +2734,10 @@ export class SeedOpsHandler implements DomainHandler {
         return err.code === RUN_CANCELLED ? undefined : { status: 'failure' };
       }
       this.liveTracker?.fail(operationId, extractErrorMessage(failed));
+      // A lease refused stopped the seed before its first record, what it had
+      // assigned taken back: stopped under its code, as a Forge run's is. It
+      // ended a failure under none.
+      const muteRefused = isMuteRefusedError(err) ? err : undefined;
       // What the run inserted before it threw is not counted here: it is
       // kept, for its removal, with the run's creations.
       recordWriteRun(this.deps, {
@@ -2741,9 +2745,10 @@ export class SeedOpsHandler implements DomainHandler {
         module: 'seed',
         operationId,
         orgId: payload.orgId,
-        outcome: 'failure',
+        outcome: muteRefused ? 'stopped' : 'failure',
         guard: guardDecision,
         source,
+        ...(muteRefused ? { code: muteRefused.code } : {}),
         ...(settled?.state === 'taken' ? { checkpointId: settled.checkpointId } : {}),
         ...(payload.fit ? { fit: payload.fit } : {}),
         ...emailsAuditDetails(payload.emails),
@@ -2754,6 +2759,7 @@ export class SeedOpsHandler implements DomainHandler {
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
       // The page says what became of the checkpoint itself, in its language.
       sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+        ...(muteRefused ? { code: muteRefused.code } : {}),
         retryable: true,
         extraPayload: { ...offlineHint, ...(settled ? { checkpoint: settled } : {}) },
       });

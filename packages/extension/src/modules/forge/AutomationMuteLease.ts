@@ -130,10 +130,12 @@ export function muteOrgOf(conn: Pick<Connection, 'query' | 'identity' | 'sobject
 // ─── Refusals ────────────────────────────────────────────────────────────────
 
 /**
- * Why a run was not muted, and nothing assigned: `MUTE_PRODUCTION`, the
- * target is a production org; `MUTE_NO_RIGHT`, the user the run writes as
- * cannot assign permission sets, or the org would not say; `MUTE_FAILED`, a
- * set could not be found, assigned or read back.
+ * Why a run was not muted, and wrote nothing: `MUTE_PRODUCTION`, the target
+ * is a production org; `MUTE_NO_RIGHT`, the user the run writes as cannot
+ * assign permission sets, or the org would not say — nothing assigned for
+ * either; `MUTE_FAILED`, a set could not be found, assigned, journaled or
+ * read back — what it had assigned taken back, and what the org would not
+ * take back said.
  */
 export type MuteRefusalCode = 'MUTE_PRODUCTION' | 'MUTE_NO_RIGHT' | 'MUTE_FAILED';
 
@@ -144,9 +146,10 @@ export interface MuteRefusal {
 }
 
 /**
- * Raised when a run asked to mute could not be: nothing was assigned, and the
- * run writes nothing — it was asked to run with the target's automation
- * quiet, and would not be.
+ * Raised when a run asked to mute could not be: what it had assigned was
+ * taken back, or its message says what the org kept, and the run writes
+ * nothing — it was asked to run with the target's automation quiet, and
+ * would not be.
  */
 export class MuteRefusedError extends Error {
   constructor(readonly refusal: MuteRefusal) {
@@ -519,6 +522,37 @@ async function releaseLease(
   return released;
 }
 
+/**
+ * What a lease refused as it was taken did with what it had assigned, in
+ * words: taken back, kept for another run that needs it, or left in the org
+ * with the org's reason; nothing when it had assigned nothing.
+ *
+ * @param journaled - Whether the journal kept the release: one that could not
+ *   be written still names the lease as the last write left it, which the next
+ *   run reads once it can write the journal.
+ */
+function takenBackWords(released: Released, journaled: boolean): string {
+  const names = (list: readonly Created[]): string => list.map((c) => c.permissionSet).join(', ');
+  const words: string[] = [];
+  if (released.removed.length > 0) {
+    words.push(`What this run had assigned was taken back: ${names(released.removed)}.`);
+  }
+  if (released.passed.length > 0) {
+    words.push(
+      `${names(released.passed)} stays assigned for another run that mutes this org as the ` +
+        'same user, which takes it back as it ends.',
+    );
+  }
+  if (released.left.length > 0) {
+    words.push(
+      `${released.left.map((l) => `${l.permissionSet} (${l.why})`).join(', ')} could not be ` +
+        `taken back: the next run that mutes this org ${journaled ? '' : 'once the journal can be written '}` +
+        'takes it back.',
+    );
+  }
+  return words.length > 0 ? words.join(' ') : 'Nothing was assigned.';
+}
+
 /** Release every lease of `journal` that no longer holds: past its end, or its process gone. */
 async function releaseStale(
   org: MuteOrg,
@@ -562,8 +596,8 @@ export interface MutePrepared {
   /**
    * Take the lease and assign what the user lacks, before the run's first
    * write. With nothing to mute, a lease that holds nothing. Throws
-   * {@link MuteRefusedError} when a set cannot be assigned, nothing left
-   * assigned.
+   * {@link MuteRefusedError} when a set cannot be assigned or its lease
+   * journaled, what it had assigned taken back.
    */
   acquire(runId: string): Promise<HeldMute>;
 }
@@ -776,7 +810,7 @@ export function planMute(
  * Take a lease for a run and assign the user the sets of `plan` they lack:
  * the lease is journaled first, each assignment as it is made, and every set
  * is read back held before the run writes. What fails takes back what it
- * assigned and refuses, nothing left assigned.
+ * assigned and refuses, saying what the org would not take back.
  */
 export async function acquireMute(
   org: MuteOrg,
@@ -815,6 +849,8 @@ export async function acquireMute(
   const live = (lease: Lease): boolean => isLive(lease, file, self, options.checks);
   const acquiredAt = new Date(now()).toISOString();
   const key = heldKey(file, runId, acquiredAt);
+  /** Whether the lease is journaled, and its sets may be assigned from here on. */
+  let journaled = false;
 
   const taken = await withJournal(file, ids, options, async (journal, save) => {
     await releaseStale(org, journal, live);
@@ -836,11 +872,24 @@ export async function acquireMute(
     // Journaled before any assignment: a process that dies from here on
     // leaves a lease the next run releases.
     await save(journal);
+    journaled = true;
+    /** The journal written, or why it could not be. */
+    const saved = (): Promise<string | undefined> =>
+      save(journal).then(
+        () => undefined,
+        (err: unknown) => extractErrorMessage(err),
+      );
     const undo = async (message: string): Promise<never> => {
-      await releaseLease(org, journal, lease, live);
+      const released = await releaseLease(org, journal, lease, live);
       heldHere.delete(key);
-      await save(journal);
-      return failed(`${message} What this run had assigned was taken back.`);
+      const unsaved = await saved();
+      return failed(
+        [
+          message,
+          ...(unsaved !== undefined && unsaved !== message ? [unsaved] : []),
+          takenBackWords(released, unsaved === undefined),
+        ].join(' '),
+      );
     };
     for (const setId of missing) {
       const answer = await org.createAssignment({ AssigneeId: ids.userId, PermissionSetId: setId });
@@ -851,13 +900,17 @@ export async function acquireMute(
           permissionSetId: setId,
           permissionSet: nameOf.get(setId)!,
         });
-        await save(journal);
+        // A set no journal holds would stay assigned past the run, its lease
+        // held by this process for its hour: taken back now, and refused.
+        const unsaved = await saved();
+        if (unsaved !== undefined) return undo(unsaved);
         continue;
       }
       const error = answer.errors?.[0];
       // Assigned meanwhile by another run: held, and not this lease's to take back.
       if ((error?.statusCode ?? error?.errorCode) === 'DUPLICATE_VALUE') {
-        await save(journal);
+        const unsaved = await saved();
+        if (unsaved !== undefined) return undo(unsaved);
         continue;
       }
       return undo(
@@ -880,6 +933,14 @@ export async function acquireMute(
       assigned: lease.created.map((c) => c.permissionSet),
       held: needs.filter((id) => !created.has(id)).map((id) => nameOf.get(id)!),
     };
+  }).catch((err: unknown) => {
+    // What fails once a set is assigned is taken back and refused above:
+    // what is left came before the lease was journaled — its folder not
+    // made, locked, read or first written —, and the run is refused all the
+    // same, with its code, rather than failing as a run that may have written.
+    heldHere.delete(key);
+    if (isMuteRefusedError(err)) throw err;
+    return failed(`${extractErrorMessage(err)}${journaled ? '' : ' Nothing was assigned.'}`);
   });
 
   const outcome: MutedAutomation = {
