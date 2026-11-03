@@ -43,6 +43,7 @@ import {
   scenarioPackSchema,
   scenarioCompileOptionsSchema,
   agentTestChoiceSchema,
+  TRANSFORM_RULE_BAD_PATTERN,
   unreadablePatternRefusal,
   unreadablePatternRules,
 } from '@sandforge/shared';
@@ -254,14 +255,18 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
    * it). The run reached Salesforce and failed there, or wrote nothing, and
    * the reason never surfaced. Refused here instead, with the two ways out.
    */
-  .refine((object) => object.operation !== 'upsert' || (object.externalIdField ?? 'Id') !== 'Id', {
-    path: ['externalIdField'],
-    error: (issue) =>
-      `An upsert of "${String((issue.input as { objectApiName?: unknown }).objectApiName)}" ` +
-      `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
-      `the source org and the target has never issued it. Name an External ID field both ` +
-      `orgs share, or set the operation to insert. The sync was not started.`,
-  })
+  .refine(
+    (object) =>
+      object.operation !== 'upsert' || (object.externalIdField ?? 'Id').toLowerCase() !== 'id',
+    {
+      path: ['externalIdField'],
+      error: (issue) =>
+        `An upsert of "${String((issue.input as { objectApiName?: unknown }).objectApiName)}" ` +
+        `needs an External ID field: matching on Id cannot work, because the id belongs to ` +
+        `the source org and the target has never issued it. Name an External ID field both ` +
+        `orgs share, or set the operation to insert. The sync was not started.`,
+    },
+  )
   /*
    * A Regex replace rule whose pattern is no regular expression, the object's
    * or a field mapping's. Run, it threw JavaScript's own SyntaxError at the
@@ -275,6 +280,7 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `${unreadablePatternRefusal(unreadable)} The sync was not started.`,
+      params: { unreadablePatterns: unreadable },
     });
   });
 
@@ -2102,6 +2108,18 @@ export function payloadIssues(error: z.ZodError): string {
 }
 
 /**
+ * The rules of a payload refused for their patterns and nothing else, which
+ * the page says in its language from them: the refusal came in English, under
+ * the code of a payload no page should send. Undefined for any other refusal.
+ */
+function unreadablePatternsOf(error: z.ZodError): unknown[] | undefined {
+  const rules = error.issues.map((issue) =>
+    issue.code === 'custom' ? (issue.params?.['unreadablePatterns'] as unknown[]) : undefined,
+  );
+  return rules.every((found) => found !== undefined) ? rules.flat() : undefined;
+}
+
+/**
  * Validate a webview message payload against a zod schema. Returns parsed
  * data on success; on failure, posts a handler error and returns null so
  * the caller can early-return. Defense-in-depth against compromised webview.
@@ -2120,9 +2138,17 @@ export function validatePayload<T>(
   const result = schema.safeParse(msg.payload);
   if (!result.success) {
     const summary = payloadIssues(result.error);
-    sendHandlerError(deps, msg.type, responseType, msg, new Error(`Invalid payload — ${summary}`), {
-      code: 'INVALID_PAYLOAD',
-    });
+    const rules = unreadablePatternsOf(result.error);
+    sendHandlerError(
+      deps,
+      msg.type,
+      responseType,
+      msg,
+      new Error(`Invalid payload — ${summary}`),
+      rules
+        ? { code: TRANSFORM_RULE_BAD_PATTERN, extraPayload: { rules } }
+        : { code: 'INVALID_PAYLOAD' },
+    );
     return null;
   }
   return result.data;

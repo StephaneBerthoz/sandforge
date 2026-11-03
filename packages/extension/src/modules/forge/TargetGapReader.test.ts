@@ -1647,6 +1647,32 @@ describe('gapAnsweredBy', () => {
     );
   });
 
+  it('answers a gap of a package’s record type by a decision kept before its namespace', () => {
+    const packaged = {
+      ...refused,
+      id: forgeGapId('picklist_value_refused', 'Account', 'Rating', 'ns__Retail', 'Hot'),
+      recordType: 'ns__Retail',
+    };
+
+    expect(
+      gapAnsweredBy(packaged, {
+        skippedRows: [
+          {
+            object: 'Account',
+            gapId: forgeGapId('picklist_value_refused', 'Account', 'Rating', 'Retail', 'Hot'),
+          },
+        ],
+      }),
+    ).toBe('these rows held back');
+    expect(
+      gapAnsweredBy(packaged, {
+        picklistValueMappings: [
+          { object: 'Account', field: 'Rating', recordType: 'Retail', from: 'Hot', to: 'Warm' },
+        ],
+      }),
+    ).toBe('written as "Warm"');
+  });
+
   it('answers only with a kind of decision the read offered on the gap', () => {
     // A default given to a field does not answer a value of it the target refuses.
     const byDefault = { defaultValues: [{ object: 'Account', field: 'Rating', value: 'Cold' }] };

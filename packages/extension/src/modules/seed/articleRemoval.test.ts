@@ -128,6 +128,70 @@ describe('the removal of a run that wrote Knowledge articles', () => {
     expect(org.deletes).toEqual([]);
   });
 
+  it('previews an article someone began a draft of as kept, as the removal keeps it, and as deleted once what changed is included', async () => {
+    const org = new MemoryKnowledgeOrg();
+    const { run, versions } = await runOfArticles(org, 2);
+    later(60);
+    org.editOnline(versions[1], { Title: 'SF-T 1, edited' });
+    later(60);
+
+    const kept = await previewSyncRun({ run, org, includeChanged: false });
+    const taken = await previewSyncRun({ run, org, includeChanged: true });
+
+    expect(kept.outcome.preview?.objects).toEqual([
+      expect.objectContaining({
+        planned: 2,
+        toDelete: 1,
+        changedSince: 1,
+        keptChanged: 1,
+        reasons: [OTHER_VERSIONS_KEPT],
+      }),
+    ]);
+    expect(taken.outcome.preview?.objects).toEqual([
+      expect.objectContaining({ planned: 2, toDelete: 2, keptChanged: 0, reasons: [] }),
+    ]);
+    expect(org.deletes).toEqual([]);
+
+    const { result } = await removeSyncRun({
+      run,
+      org,
+      includeChanged: false,
+      store: stateStore(),
+    });
+    expect(result.objects[0]).toMatchObject({ deleted: 1, refused: 1 });
+  });
+
+  it('previews as unread the versions whose articles the org will not let it read, which the removal refuses', async () => {
+    const org = new MemoryKnowledgeOrg();
+    const { run } = await runOfArticles(org, 2);
+    later(60);
+    const read = org.query.bind(org);
+    vi.spyOn(org, 'query').mockImplementation((soql: string) =>
+      /IsLatestVersion = false/.test(soql)
+        ? Promise.reject(new Error('MALFORMED_QUERY: Implementation restriction'))
+        : read(soql),
+    );
+
+    const { outcome } = await previewSyncRun({ run, org, includeChanged: false });
+
+    expect(outcome.preview?.objects).toEqual([
+      expect.objectContaining({
+        planned: 2,
+        toDelete: 0,
+        unread: 2,
+        reasons: ['Its articles could not be read: MALFORMED_QUERY: Implementation restriction'],
+      }),
+    ]);
+
+    const { result } = await removeSyncRun({
+      run,
+      org,
+      includeChanged: false,
+      store: stateStore(),
+    });
+    expect(result.objects[0]).toMatchObject({ deleted: 0, refused: 2 });
+  });
+
   it('deletes an article left a draft just the same', async () => {
     const org = new MemoryKnowledgeOrg();
     const { run } = await runOfArticles(org, 2, { published: false });

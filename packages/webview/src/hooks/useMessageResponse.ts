@@ -4,7 +4,11 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // otherwise have to provide its initialiser.
 import i18n from 'i18next';
 
-import { TRANSFORM_RULE_NO_FIELD, type BaseMessage } from '@sandforge/shared';
+import {
+  TRANSFORM_RULE_BAD_PATTERN,
+  TRANSFORM_RULE_NO_FIELD,
+  type BaseMessage,
+} from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
 import { maskingRefusalWords } from '../utils/maskingRefusal';
@@ -227,6 +231,9 @@ function guardRefusal(
   // A Sync run, simulation or save refused for a transform rule that names
   // no field, each such rule named by the host with its object.
   if (code === TRANSFORM_RULE_NO_FIELD) return transformNoFieldWords(payload.rules);
+  // The same for a Regex replace rule whose pattern is no regular expression.
+  // What is wrong with the pattern stays as JavaScript said it.
+  if (code === TRANSFORM_RULE_BAD_PATTERN) return transformBadPatternWords(payload.rules);
   // A run asked to mute the target's automation that could not be: nothing
   // was assigned and nothing written, and the host said why in English.
   return muteRefusalWords(code, message, (key, options) => i18n.t(key, options));
@@ -254,6 +261,40 @@ function transformNoFieldWords(rules: unknown): string | undefined {
     );
   }
   return i18n.t('common.refusal.transformNoField', {
+    count: named.length,
+    rules: listWords(named, (key) => i18n.t(key)),
+  });
+}
+
+/**
+ * A Sync refusal for Regex replace rules whose pattern is no regular
+ * expression, each named on its object and field with its pattern, or
+ * `undefined` when the host named none. Kept in `common`, as
+ * {@link transformNoFieldWords} is.
+ */
+function transformBadPatternWords(rules: unknown): string | undefined {
+  if (!Array.isArray(rules) || rules.length === 0) return undefined;
+  const named: string[] = [];
+  for (const rule of rules as unknown[]) {
+    if (typeof rule !== 'object' || rule === null) return undefined;
+    const { objectApiName, field, pattern, reason } = rule as Record<string, unknown>;
+    if (
+      typeof objectApiName !== 'string' ||
+      typeof pattern !== 'string' ||
+      typeof reason !== 'string'
+    ) {
+      return undefined;
+    }
+    named.push(
+      i18n.t('common.refusal.transformPatternOn', {
+        rule: i18n.t('common.transformTypes.regex_replace'),
+        object: typeof field === 'string' ? `${objectApiName}.${field}` : objectApiName,
+        pattern,
+        reason,
+      }),
+    );
+  }
+  return i18n.t('common.refusal.transformBadPattern', {
     count: named.length,
     rules: listWords(named, (key) => i18n.t(key)),
   });

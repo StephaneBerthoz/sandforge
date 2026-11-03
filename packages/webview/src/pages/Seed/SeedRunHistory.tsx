@@ -143,6 +143,18 @@ export const SeedRunHistory: React.FC = () => {
                         {t('seed.removal.historyUnfinished')}
                       </span>
                     )}
+                    {run.inFlight && (
+                      <span
+                        className="text-status-warning"
+                        data-testid={`seed-run-history-in-flight-${run.runId}`}
+                      >
+                        {t('seed.removal.historyInFlight', {
+                          count: run.inFlight.rows,
+                          formatted: formatNumber(run.inFlight.rows),
+                          object: run.inFlight.objectApiName,
+                        })}
+                      </span>
+                    )}
                     {/* Still writing in this window: it has no end because it
                         has not ended. Read as stopped, it was offered a
                         removal that deleted accounts while contacts were

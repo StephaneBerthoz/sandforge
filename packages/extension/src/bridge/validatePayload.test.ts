@@ -287,6 +287,16 @@ describe('syncExecutePayloadSchema', () => {
   it('rejects missing config', () => {
     expect(syncExecutePayloadSchema.safeParse({}).success).toBe(false);
   });
+
+  it.each(['Id', 'id', 'ID'])('refuses an upsert on the Id, written %s', (externalIdField) => {
+    const config = validSyncConfig();
+    const [object] = config.objects as Array<Record<string, unknown>>;
+    Object.assign(object, { operation: 'upsert', externalIdField });
+
+    const result = syncExecutePayloadSchema.safeParse({ config });
+
+    expect(result.error?.issues[0]?.message).toContain('needs an External ID field');
+  });
 });
 
 describe('frozenConfigSavePayloadSchema', () => {

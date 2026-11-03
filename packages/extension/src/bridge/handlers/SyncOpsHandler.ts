@@ -2612,8 +2612,8 @@ export class SyncOpsHandler implements DomainHandler {
         log: (message) => this.deps.log(message),
         // Each call as it goes and as it answers, kept by the run's recorder,
         // a Bulk API job with its id once the org opened it: see
-        // `syncWriterCalls`. The object's write still notes what it created
-        // once it returns, which the file reads once.
+        // `syncWriterCalls`. The object's write notes what no call answered
+        // once it returns (`noteUnanswered`).
         ...(creations ? { calls: syncWriterCalls(creations, keeper) } : {}),
       });
 

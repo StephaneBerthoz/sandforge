@@ -165,6 +165,23 @@ const TEXT_FIELD_MAX = 255;
 /** The article versions of Salesforce Knowledge, `Knowledge__kav` and its kind. */
 const ARTICLE_OBJECT = /__kav$/i;
 
+/** The objects of a size of their own, by their name in lower case. */
+const SIZED_OBJECTS: ReadonlyMap<string, string> = new Map(
+  [EMAIL_MESSAGE, ACCOUNT, CONTACT, 'Campaign', 'CampaignMember'].map((name) => [
+    name.toLowerCase(),
+    name,
+  ]),
+);
+
+/**
+ * The name the sizes read `objectApiName` by: a configuration may write it in
+ * any case, an SFDMU query's `from account` keeps its own, and the org reads
+ * it all the same.
+ */
+function sizedName(objectApiName: string): string {
+  return SIZED_OBJECTS.get(objectApiName.toLowerCase()) ?? objectApiName;
+}
+
 /** The bytes the text values of a row take. */
 function textBytes(row: Record<string, unknown>, longerThan = 0): number {
   let bytes = 0;
@@ -183,13 +200,14 @@ function textBytes(row: Record<string, unknown>, longerThan = 0): number {
  * account.
  */
 export function rowStorageBytes(objectApiName: string, row: Record<string, unknown>): number {
-  if (objectApiName === EMAIL_MESSAGE) return textBytes(row);
-  if (objectApiName === ACCOUNT) {
+  const sized = sizedName(objectApiName);
+  if (sized === EMAIL_MESSAGE) return textBytes(row);
+  if (sized === ACCOUNT) {
     return isPersonAccountRow(row) ? PERSON_ACCOUNT_BYTES : RECORD_BYTES;
   }
-  if (objectApiName === CONTACT && isPersonAccountRow(row)) return 0;
-  if (objectApiName === 'Campaign') return CAMPAIGN_BYTES;
-  if (objectApiName === 'CampaignMember') return CAMPAIGN_MEMBER_BYTES;
+  if (sized === CONTACT && isPersonAccountRow(row)) return 0;
+  if (sized === 'Campaign') return CAMPAIGN_BYTES;
+  if (sized === 'CampaignMember') return CAMPAIGN_MEMBER_BYTES;
   // The rich text an article holds is counted as the long values it has: a
   // long text area counted with it says a little too much, never too little.
   if (ARTICLE_OBJECT.test(objectApiName)) return ARTICLE_BYTES + textBytes(row, TEXT_FIELD_MAX);
@@ -239,8 +257,9 @@ export function countedStorageBytes(
 ): number {
   const persons = Math.min(counted.personAccounts ?? 0, counted.rows);
   const others = counted.rows - persons;
-  if (objectApiName === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
-  if (objectApiName === CONTACT) return others * RECORD_BYTES;
+  const sized = sizedName(objectApiName);
+  if (sized === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
+  if (sized === CONTACT) return others * RECORD_BYTES;
   return others * rowStorageBytes(objectApiName, {});
 }
 

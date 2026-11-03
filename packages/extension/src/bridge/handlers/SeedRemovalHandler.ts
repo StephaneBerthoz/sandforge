@@ -264,7 +264,19 @@ export class SeedRemovalHandler implements DomainHandler {
           ? { running: true as const }
           : this.elsewhere(run)
             ? { runningElsewhere: true as const }
-            : { unfinished: true as const }),
+            : {
+                unfinished: true as const,
+                // The call it had under way: a stop with a call in flight
+                // listed two records created when the org held three.
+                ...(run.inFlight
+                  ? {
+                      inFlight: {
+                        objectApiName: run.inFlight.objectApiName,
+                        rows: run.inFlight.rows,
+                      },
+                    }
+                  : {}),
+              }),
       created: createdCount(run),
       // What a rewind's mark on the line tells inside its checkpoint from outside it.
       objects: [

@@ -20,7 +20,12 @@ import type {
   ForgeRecordTypeMapping,
   ForgeSkippedRows,
 } from '@sandforge/shared';
-import { ignoredGapEntry, mergeGaps } from '@sandforge/shared';
+import {
+  ignoredGapEntry,
+  mergeGaps,
+  picklistMappingEntry,
+  skippedRowsEntry,
+} from '@sandforge/shared';
 
 /** A decision on one gap, with what it needs to be written. */
 export type ForgeGapChoice =
@@ -198,16 +203,17 @@ export function decisionOf(config: ForgeConfig | null, gap: ForgeGap): ForgeKept
   const offers = new Set(gap.decisions);
   const object = gap.objectApiName;
   if (offers.has('skip_rows')) {
-    const entry = config.skippedRows?.find((e) => e.object === object && e.gapId === gap.id);
+    const entry = skippedRowsEntry(
+      (config.skippedRows ?? []).filter((e) => e.object === object),
+      gap.id,
+    );
     if (entry) return { kind: 'skipped_rows', entry };
   }
   if (aboutAValue(gap) && (offers.has('map_value') || offers.has('leave_empty'))) {
     const mappings = (config.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === gap.field && m.from === gap.value,
     );
-    const entry =
-      mappings.find((m) => m.recordType === gap.recordType) ??
-      mappings.find((m) => m.recordType === undefined);
+    const entry = picklistMappingEntry(mappings, gap.recordType);
     if (entry && (entry.to === null ? offers.has('leave_empty') : offers.has('map_value'))) {
       return { kind: 'picklist', entry };
     }

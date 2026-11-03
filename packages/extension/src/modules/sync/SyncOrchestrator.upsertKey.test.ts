@@ -192,6 +192,69 @@ describe('the key of an upsert', () => {
     expect(access.objects[0]).toMatchObject({ refused: 0 });
   });
 
+  describe('written in another case than the target names it', () => {
+    const lowerCase = objectConfig({ externalIdField: 'legacy_key__c' });
+
+    /**
+     * Upserts as jsforce sends them: it reads the key from each record by the
+     * name it is given, and refuses a record that does not hold it.
+     */
+    function jsforceUpsert() {
+      const upsert = vi.fn(
+        async (_objectApiName: string, key: string, rows: Array<Record<string, unknown>>) =>
+          rows.map((row, index): OperationOutcome =>
+            row[key]
+              ? { id: `001xx000000000${index}AAA`, success: true, errors: [], created: true }
+              : { success: false, errors: ['External ID is not found in record.'] },
+          ),
+      );
+      return { upsert };
+    }
+
+    it('reads each record by the key it holds in a simulation, none of them refused', async () => {
+      const simulated = await orchestrator(jsforceUpsert(), [ACCOUNT]).simulate(config(lowerCase));
+
+      expect(simulated.objects[0]).toMatchObject({ read: 1, insert: 1, refused: 0 });
+    });
+
+    it('sends the key as the target names it in a run', async () => {
+      const target = jsforceUpsert();
+
+      const result = await orchestrator(target, [ACCOUNT]).execute(config(lowerCase));
+
+      expect(target.upsert.mock.calls[0]?.[1]).toBe('Legacy_Key__c');
+      expect(result.objectResults[0]).toMatchObject({ success: 1, failed: 0 });
+    });
+
+    it('refuses in any case a field the target matches no upsert on, naming it as it was written', async () => {
+      const simulated = await orchestrator(jsforceUpsert(), [ACCOUNT]).simulate(
+        config(objectConfig({ externalIdField: 'name' })),
+      );
+
+      expect(simulated.objects[0]).toMatchObject({ refused: 1 });
+      expect(simulated.objects[0]?.notes.join(' ')).toContain(
+        'The upsert of Account matches on name',
+      );
+    });
+  });
+
+  it.each(['Account', 'account', 'CONTACT'])(
+    'counts the person accounts of an object named %s',
+    async (objectApiName) => {
+      const measure = vi.fn<SyncWriteGate['measure']>(async () => CHECK);
+
+      await orchestrator(targetOrg(), [ACCOUNT], {
+        writeGate: { measure, hold: vi.fn() },
+        countSource: async () => 5,
+        countPersonAccounts: async () => 2,
+      }).simulate(config(objectConfig({ objectApiName, operation: 'insert' })));
+
+      expect(measure.mock.calls[0]?.[0].objects).toEqual([
+        expect.objectContaining({ objectApiName, rows: 5, personAccounts: 2 }),
+      ]);
+    },
+  );
+
   it('takes no key for the Id, as a run sends it', async () => {
     const noKey = objectConfig();
     delete noKey.externalIdField;

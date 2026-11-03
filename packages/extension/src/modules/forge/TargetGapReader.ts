@@ -55,6 +55,8 @@ import type {
 } from '@sandforge/shared';
 import {
   ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
   assignPermsetCommand,
   forgeGapId,
   gapAssignEntry,
@@ -1380,7 +1382,10 @@ export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | 
   const { field, value } = gap;
   if (
     offers.has('skip_rows') &&
-    decisions.skippedRows?.some((entry) => entry.object === object && entry.gapId === gap.id)
+    skippedRowsEntry(
+      (decisions.skippedRows ?? []).filter((entry) => entry.object === object),
+      gap.id,
+    )
   ) {
     return 'these rows held back';
   }
@@ -1393,9 +1398,7 @@ export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | 
     const mappings = (decisions.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === field && m.from === value,
     );
-    const entry =
-      mappings.find((m) => m.recordType === gap.recordType) ??
-      mappings.find((m) => m.recordType === undefined);
+    const entry = picklistMappingEntry(mappings, gap.recordType);
     if (entry?.to === null && offers.has('leave_empty'))
       return 'the field left empty in these rows';
     if (entry && entry.to !== null && offers.has('map_value')) return `written as "${entry.to}"`;

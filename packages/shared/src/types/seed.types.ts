@@ -550,6 +550,12 @@ export interface SeedRunRemovalInfo {
    */
   unfinished?: true;
   /**
+   * Of a run that stopped part way, the call it had under way, which no line
+   * of its file answers: the rows of it the target took are in the org and
+   * not in `created`, until a line of the call says them.
+   */
+  inFlight?: { objectApiName: string; rows: number };
+  /**
    * Set for a run still writing in this window: it has no end yet because it
    * has not ended, not because its window closed. Its removal is refused
    * until it ends, as a Sync run's is.

@@ -2145,7 +2145,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // real run would meet, and a real run past it writes nothing.
   const objectAccess = seedObjectAccess(conn);
   // What it counts: an optional object the org does not take is skipped by the run.
-  const taken = await templateTheOrgTakes(template, objectAccess);
+  let taken = await templateTheOrgTakes(template, objectAccess);
   let storage = await seedStorageGate(
     conn,
     taken,
@@ -2189,9 +2189,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // again: a fit is never a pass, and an org that lost room since
         // refuses the seed again. Caps that fit are counts fitted too.
         template = fittedTemplate(template, fitted.proposal);
+        taken = fittedTemplate(taken, fitted.proposal);
         storage = await seedStorageGate(
           conn,
-          fittedTemplate(taken, fitted.proposal),
+          taken,
           personObjects,
           args.target,
           checkpointPlanned?.estimate,
@@ -2595,8 +2596,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           },
           // What a dry run's gates counted, for whoever sums them across
           // runs: an environment holds several seeds to one day's storage
-          // and requests, which each seed alone fits.
-          ...(args.dryRun ? dryRunGatesJson(template, personObjects, storage) : {}),
+          // and requests, which each seed alone fits. Of what the gates counted:
+          // an optional object the org takes no record of is no storage of it.
+          ...(args.dryRun ? dryRunGatesJson(taken, personObjects, storage) : {}),
           // The fit the run seeded, or, a dry run past the storage or the
           // requests, the counts --fit share would seed: the counts to write
           // in an environment's file, which is never fitted for it.

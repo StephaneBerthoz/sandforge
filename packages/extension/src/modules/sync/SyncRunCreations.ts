@@ -1113,6 +1113,13 @@ export interface SyncCreationRecorder {
    */
   note(objectApiName: string, ids: readonly string[], at?: string): void;
   /**
+   * What the write of `objectApiName` created, told once it returned: written
+   * as {@link note} writes it, but for what its calls' answers wrote
+   * ({@link answered}), which a run that keeps its calls had in its file
+   * twice. Absent from a recorder no call is told to: {@link note} is told.
+   */
+  noteUnanswered?(objectApiName: string, ids: readonly string[]): void;
+  /**
    * A call of `rows` rows of `objectApiName` is about to go: written at once,
    * so a run cut short while it is under way says so (`SyncRunKept.inFlight`).
    * Said again with `call.job` once the org has opened the Bulk API job the
@@ -1316,13 +1323,36 @@ export class SyncRunCreations {
         }
       });
     };
+    /** The ids the calls' answers wrote, until the write they belong to returned. */
+    const answeredIds = new Set<string>();
+    /**
+     * `ids` in lines of what a line holds, past `first` written by the caller:
+     * read back, a longer line is no line. One Bulk API job past it left a run
+     * of its records with nothing in its file, and nothing for its removal.
+     */
+    const inLines = (
+      objectApiName: string,
+      ids: readonly string[],
+      at: string,
+      first = 0,
+    ): void => {
+      for (let from = first; from < ids.length; from += IDS_PER_LINE) {
+        append({ object: objectApiName, created: ids.slice(from, from + IDS_PER_LINE), at });
+      }
+    };
+    const note = (objectApiName: string, ids: readonly string[], at?: string): void => {
+      const valid = ids.filter((id) => idSchema.safeParse(id).success);
+      if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
+      inLines(objectApiName, valid, at ?? new Date().toISOString());
+    };
     return {
       runId: start.runId,
-      note: (objectApiName, ids, at) => {
-        const valid = ids.filter((id) => idSchema.safeParse(id).success);
-        if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
-        append({ object: objectApiName, created: valid, at: at ?? new Date().toISOString() });
-      },
+      note,
+      noteUnanswered: (objectApiName, ids) =>
+        note(
+          objectApiName,
+          ids.filter((id) => !answeredIds.delete(id.slice(0, 15))),
+        ),
       sending: (objectApiName, rows, call) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
         const job = call?.job !== undefined && idSchema.safeParse(call.job).success ? call.job : '';
@@ -1344,12 +1374,16 @@ export class SyncRunCreations {
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         const job = jobOf.get(objectApiName);
         jobOf.delete(objectApiName);
+        for (const id of valid) answeredIds.add(id.slice(0, 15));
+        const at = new Date().toISOString();
+        // A line however few it created: the call is answered once one follows it.
         append({
           object: objectApiName,
-          created: valid,
-          at: new Date().toISOString(),
+          created: valid.slice(0, IDS_PER_LINE),
+          at,
           ...(job !== undefined ? { job } : {}),
         });
+        inLines(objectApiName, valid, at, IDS_PER_LINE);
       },
       writing: (objectApiName, rows) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;

@@ -171,6 +171,38 @@ describe('TransformBuilder', () => {
     expect(onChangeConfig).toHaveBeenCalledWith(1, 'prefix', 'QA-');
   });
 
+  it('says as it is typed that a pattern is no regular expression, with what is wrong with it', () => {
+    renderBuilder({
+      rules: [
+        {
+          type: 'regex_replace',
+          field: 'Name',
+          objectApiName: 'Account',
+          config: { regex: '[a-' },
+        },
+        {
+          type: 'regex_replace',
+          field: 'Description',
+          objectApiName: 'Account',
+          config: { regex: '[a-z]+' },
+        },
+        { type: 'regex_replace', field: 'Phone', objectApiName: 'Account', config: {} },
+      ],
+    });
+
+    const said = screen.getByTestId('transform-0-bad-pattern');
+    expect(said.textContent).toBe(
+      'This pattern is no regular expression (Unterminated character class): correct it, or remove the rule. Run, it would stop the run at this object before any of its records is written.',
+    );
+    const typed = document.getElementById('transform-0-regex');
+    expect(typed?.getAttribute('aria-invalid')).toBe('true');
+    expect(typed?.getAttribute('aria-describedby')).toBe(said.id);
+    // Neither a pattern that reads nor one not typed yet is said.
+    expect(screen.queryByTestId('transform-1-bad-pattern')).toBeNull();
+    expect(screen.queryByTestId('transform-2-bad-pattern')).toBeNull();
+    expect(document.getElementById('transform-1-regex')?.hasAttribute('aria-invalid')).toBe(false);
+  });
+
   it('names its remove button with the rule and the field', () => {
     const { onRemoveRule } = renderBuilder();
 

@@ -35,6 +35,7 @@ vi.mock('./sandforge-clone.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
+  bothRecorders,
   cliAllowsDeletes,
   configurationToldLines,
   main,
@@ -274,6 +275,25 @@ describe('what the command takes back, and from where', () => {
       { objectApiName: 'Contact', ids: [C1] },
     ]);
     expect(kept.lastWrittenAt()).toEqual(expect.any(String));
+  });
+
+  it('keeps what a write created in the summary, which keeps no call, and leaves the file what no call answered', () => {
+    const kept = memoryCreations('run-1');
+    const inFile: string[] = [];
+    const both = bothRecorders(kept, {
+      runId: 'run-1',
+      note: () => {
+        throw new Error('every id would go into the file twice');
+      },
+      noteUnanswered: (_objectApiName, ids) => inFile.push(...ids),
+      flush: async () => undefined,
+    });
+
+    both.answered?.('Account', [A1, A2]);
+    both.noteUnanswered?.('Account', [A1, A2]);
+
+    expect(kept.created()).toEqual([{ objectApiName: 'Account', ids: [A1, A2] }]);
+    expect(inFile).toEqual([A1, A2]);
   });
 
   it('keeps in memory what a delta run deleted as the source had, each record once, dated as a write', () => {

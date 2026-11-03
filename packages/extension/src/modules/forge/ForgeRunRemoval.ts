@@ -37,7 +37,12 @@ import {
 } from '../dataops/RecordRemoval.js';
 import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
-import { withArticleRemoval } from '../seed/articleRemoval.js';
+import {
+  OTHER_VERSIONS_KEPT,
+  isArticleVersionObject,
+  versionsKeptOf,
+  withArticleRemoval,
+} from '../seed/articleRemoval.js';
 import { QUOTE_OBJECT, quoteSyncCopiesOf, type PlatformCopies } from './quoteSyncCopies.js';
 import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
@@ -674,7 +679,11 @@ export interface RemovalPreviewObject {
    * the parent goes too: no read tells either from one that would come back.
    */
   alreadyGone: number;
-  /** In the org and modified since the run ended, by the org's clock, by anyone. */
+  /**
+   * In the org and modified since the run ended, by the org's clock, by
+   * anyone; or an article version whose article holds a version the run did
+   * not write, which deleting the article would take with it.
+   */
   changedSince: number;
   /** Of those, the ones the removal keeps: all of them, unless changed records are included. */
   keptChanged: number;
@@ -1773,6 +1782,35 @@ interface PreviewReading {
  *
  * @returns Undefined when the removal was stopped meanwhile.
  */
+/**
+ * What a removal reads of the articles of `objectApiName`'s versions before it
+ * deletes any: the versions it would keep for their article, or why the org
+ * refused the read, which refuses every one of them in a removal. A preview
+ * that asked nothing of the articles said "6 to delete of 6", and said it
+ * again after the removal had every one refused (`articleRemoval`).
+ */
+async function articlesReadOf(
+  org: RemovalOrg,
+  records: RunRecords,
+  objectApiName: string,
+  missing: ReadonlySet<string>,
+  reading: Pick<PreviewReading, 'changed' | 'includeChanged'>,
+): Promise<{ kept: ReadonlySet<string>; unread?: string }> {
+  const { changed, includeChanged } = reading;
+  const sent: string[] = [];
+  for await (const page of records.pages(objectApiName)) {
+    for (const id of page) {
+      const key = recordKey(id);
+      if (!missing.has(key) && (includeChanged || !changed.has(key))) sent.push(id);
+    }
+  }
+  try {
+    return { kept: await versionsKeptOf(org, objectApiName, sent, { includeChanged }) };
+  } catch (err: unknown) {
+    return { kept: new Set(), unread: extractErrorMessage(err) };
+  }
+}
+
 async function previewOf(
   org: RemovalOrg,
   records: RunRecords,
@@ -1804,6 +1842,10 @@ async function previewOf(
       object.reasons.push(snapshot?.error ?? 'The org gave no reason.');
       continue;
     }
+    const articles =
+      isArticleVersionObject(objectApiName) && !reading.undeletable.has(objectApiName)
+        ? await articlesReadOf(org, records, objectApiName, snapshot.missing, reading)
+        : undefined;
     const changedIds: string[] = [];
     for await (const page of records.pages(objectApiName)) {
       for (const id of page) {
@@ -1813,15 +1855,25 @@ async function previewOf(
           else object.notVisible++;
         } else if (reading.undeletable.has(objectApiName)) {
           object.undeletable++;
+        } else if (articles?.unread !== undefined) {
+          object.unread++;
         } else if (reading.changed.has(key)) {
           object.changedSince++;
           changedIds.push(id);
           if (reading.includeChanged) object.toDelete++;
           else object.keptChanged++;
+        } else if (articles?.kept.has(key)) {
+          object.changedSince++;
+          object.keptChanged++;
         } else {
           object.toDelete++;
         }
       }
+    }
+    if (articles?.unread !== undefined) {
+      object.reasons.push(`Its articles could not be read: ${articles.unread}`);
+    } else if (articles !== undefined && articles.kept.size > 0) {
+      object.reasons.push(OTHER_VERSIONS_KEPT);
     }
     if (object.notVisible > 0) {
       object.reasons.push(notVisibleNoteOf(object.notVisible, snapshot.binError));

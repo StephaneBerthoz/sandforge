@@ -197,6 +197,30 @@ describe('each decision, written and taken back', () => {
     expect(decisionsAnsweringNoGap(kept, [packaged])).toEqual([]);
   });
 
+  it('reads a gap of a package’s record type as decided by what a template kept before its namespace, and Undo takes that out', () => {
+    const packaged: ForgeGap = {
+      ...REFUSED,
+      id: forgeGapId('picklist_value_refused', 'Case', 'Status', 'ns__Support', 'Open'),
+      field: 'Status',
+      value: 'Open',
+      recordType: 'ns__Support',
+      decisions: ['map_value', 'leave_empty', 'skip_rows'],
+    };
+    const before = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Open');
+    const skipped = { ...CONFIG, skippedRows: [{ object: 'Case', gapId: before }] };
+    const mapped = {
+      ...CONFIG,
+      picklistValueMappings: [
+        { object: 'Case', field: 'Status', recordType: 'Support', from: 'Open', to: 'New' },
+      ],
+    };
+
+    expect(choiceOf(decisionOf(skipped, packaged)!)).toEqual({ kind: 'skip_rows' });
+    expect(withoutGapDecision(skipped, packaged)).toEqual(CONFIG);
+    expect(choiceOf(decisionOf(mapped, packaged)!)).toEqual({ kind: 'map_value', to: 'New' });
+    expect(withoutGapDecision(mapped, packaged)).toEqual(CONFIG);
+  });
+
   it('holds back the rows of a value by the gap’s id, and takes that back', () => {
     const config = withGapDecision(CONFIG, REFUSED, { kind: 'skip_rows' });
 

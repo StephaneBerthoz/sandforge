@@ -5,6 +5,7 @@ import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager';
 import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter';
 import {
+  IDS_PER_LINE,
   SCENARIO_COMPANION_SUFFIX,
   SYNC_RUNS_DIR,
   SyncRunCreations,
@@ -139,6 +140,72 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     ]);
     expect(run?.end).toEqual({ at: expect.any(String), status: 'partial', cancelled: true });
     expect(run && createdCount(run)).toBe(4);
+  });
+
+  it('writes what a call answered once, and of what the write created what no call answered', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const [one, two, three] = [1, 2, 3].map((n) => fakeId('001', n));
+
+    recorder.sending?.('Account', 2);
+    recorder.answered?.('Account', [one, two]);
+    recorder.noteUnanswered?.('Account', [one, two.slice(0, 15), three]);
+    await recorder.end({ status: 'success' });
+
+    const created = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => (JSON.parse(line) as { created?: string[] }).created)
+      .filter((ids) => ids !== undefined);
+    expect(created).toEqual([[one, two], [three]]);
+    expect((await store.get('run-1'))?.created).toEqual([
+      { objectApiName: 'Account', ids: [one, two, three] },
+    ]);
+  });
+
+  it('notes every id again when the write dates records it wrote again, as a seed’s second pass does', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const id = fakeId('001', 1);
+
+    recorder.answered?.('Account', [id]);
+    recorder.note('Account', [id]);
+    await recorder.flush();
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+  });
+
+  it('keeps every id of a call past what a line holds, its job answered', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const ids = Array.from({ length: IDS_PER_LINE + 2 }, (_, n) => fakeId('001', n));
+
+    recorder.sending?.('Account', ids.length, { job: JOB });
+    recorder.answered?.('Account', ids);
+    recorder.noteUnanswered?.('Account', ids);
+    await recorder.end({ status: 'success' });
+
+    const run = await store.get('run-1');
+    expect(run?.created).toEqual([{ objectApiName: 'Account', ids }]);
+    expect(run?.jobs ?? []).toEqual([]);
+    // The run's first line, the call's, two of its answer, the end.
+    expect(files.get(path.join(DIR, 'run-1.ndjson'))?.split('\n').filter(Boolean)).toHaveLength(5);
+  });
+
+  it('keeps every id noted past what a line holds', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const ids = Array.from({ length: IDS_PER_LINE + 2 }, (_, n) => fakeId('001', n));
+
+    recorder.note('Account', ids);
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.created).toEqual([{ objectApiName: 'Account', ids }]);
   });
 
   it('keeps no value that is not an id, nor an object name that is not one', async () => {

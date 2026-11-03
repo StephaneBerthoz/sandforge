@@ -544,6 +544,65 @@ describe('useMessageResponse', () => {
       );
     }
 
+    it('names in the interface language a rule whose pattern is no regular expression, its place and its pattern', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr);
+      vi.useRealTimers();
+      await i18n.changeLanguage('fr');
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() =>
+          simulateResponse(
+            'org:error',
+            {
+              message:
+                'Invalid payload — config.objects.0: The rule Regex replace on Account.Name…',
+              code: 'TRANSFORM_RULE_BAD_PATTERN',
+              rules: [
+                {
+                  objectApiName: 'Account',
+                  field: 'Name',
+                  pattern: '[a-',
+                  reason: 'Unterminated character class',
+                },
+              ],
+            },
+            'req-1',
+          ),
+        );
+
+        expect(result.current.errorCode).toBe('TRANSFORM_RULE_BAD_PATTERN');
+        expect(result.current.error).toBe(
+          "La règle Remplacement par regex sur Account.Name, « [a- » (Unterminated character class) a un motif qui n'est pas une expression régulière : ouvrez la configuration et corrigez-le, ou retirez la règle. Exécutée, elle arrêterait la synchronisation à cet objet avant l'écriture de ses enregistrements. Rien n'a été lu ni écrit.",
+        );
+      } finally {
+        vi.useRealTimers();
+        await i18n.changeLanguage('en');
+        vi.useFakeTimers();
+      }
+    });
+
+    it('leaves the host its words when a rule refused for its pattern comes unnamed', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() =>
+        simulateResponse(
+          'org:error',
+          { message: 'The host said why.', code: 'TRANSFORM_RULE_BAD_PATTERN', rules: 'garbled' },
+          'req-1',
+        ),
+      );
+
+      expect(result.current.error).toBe('The host said why.');
+    });
+
     it('names in the interface language the rule that names no field, and its object', async () => {
       i18n.addResourceBundle('fr', 'translation', fr);
       vi.useRealTimers();

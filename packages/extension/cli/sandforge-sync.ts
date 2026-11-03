@@ -1585,6 +1585,12 @@ export function bothRecorders(
       summary.note(objectApiName, ids, at);
       file.note(objectApiName, ids, at);
     },
+    // The summary keeps no call's ids: it is noted what the write created.
+    noteUnanswered: (objectApiName, ids) => {
+      summary.note(objectApiName, ids);
+      if (file.noteUnanswered) file.noteUnanswered(objectApiName, ids);
+      else file.note(objectApiName, ids);
+    },
     sending: (objectApiName, rows, call) => {
       summary.sending?.(objectApiName, rows, call);
       file.sending?.(objectApiName, rows, call);

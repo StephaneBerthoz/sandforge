@@ -40,7 +40,12 @@ import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
 import type { CoreServices } from '../../services.js';
 import type { PauseGate } from './PauseGate.js';
-import { targetAccessOf, type TargetRefusal, type TargetWriteFields } from './targetWriteFields.js';
+import {
+  targetAccessOf,
+  withKeyAsTargetNamesIt,
+  type TargetRefusal,
+  type TargetWriteFields,
+} from './targetWriteFields.js';
 import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 import type { SyncCountedObject, SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
@@ -619,8 +624,12 @@ function earlierUnreadRefusal(unread: string, inserts: readonly SyncObjectConfig
 /** The code a run is refused with when what earlier runs copied cannot be read. */
 export const SYNC_EARLIER_UNREAD = 'SYNC_EARLIER_UNREAD';
 
-/** The objects whose records may be person accounts', which take storage of their own size. */
-const PERSON_ACCOUNT_OBJECTS: ReadonlySet<string> = new Set(['Account', 'Contact']);
+/**
+ * The objects whose records may be person accounts', which take storage of
+ * their own size, in lower case: an SFDMU query's `from account` keeps its
+ * case, and the org reads it as `Account`.
+ */
+const PERSON_ACCOUNT_OBJECTS: ReadonlySet<string> = new Set(['account', 'contact']);
 
 /**
  * What a run's gate is handed: what it writes, and the requests the run
@@ -986,8 +995,9 @@ export class SyncOrchestrator {
       if (!recorder) return;
       const ids = createdIds(objectConfig.operation, outcomes);
       if (ids.length === 0) return;
-      recorder.note(objectConfig.objectApiName, ids);
       const name = objectConfig.objectApiName;
+      if (recorder.noteUnanswered) recorder.noteUnanswered(name, ids);
+      else recorder.note(name, ids);
       createdByObject.set(name, (createdByObject.get(name) ?? 0) + ids.length);
     };
     const noteFile = (objectApiName: 'ContentDocument' | 'Attachment', id: string): void => {
@@ -1812,7 +1822,7 @@ export class SyncOrchestrator {
           gated &&
           rows > 0 &&
           this.deps.countPersonAccounts &&
-          PERSON_ACCOUNT_OBJECTS.has(objectConfig.objectApiName)
+          PERSON_ACCOUNT_OBJECTS.has(objectConfig.objectApiName.toLowerCase())
             ? await this.deps.countPersonAccounts(objectConfig, read)
             : undefined;
         counted.set(objectConfig.objectApiName, {
@@ -1907,8 +1917,13 @@ export class SyncOrchestrator {
       };
     }
     const lookups = new Map<string, WriteLookup[]>();
+    /** The objects as the run writes them, each upsert's key as the target names it. */
+    const written: SyncObjectConfig[] = [];
     for (const objectConfig of objects) {
-      if (objectConfig.operation === 'delete') continue;
+      if (objectConfig.operation === 'delete') {
+        written.push(objectConfig);
+        continue;
+      }
       const access = await targetAccessOf(
         describe,
         objectConfig.objectApiName,
@@ -1916,6 +1931,11 @@ export class SyncOrchestrator {
         objectConfig.externalIdField,
       );
       if ('refused' in access) refused.set(objectConfig.objectApiName, access.refused);
+      written.push(
+        'target' in access && access.target
+          ? withKeyAsTargetNamesIt(objectConfig, access.target)
+          : objectConfig,
+      );
       if ('target' in access && access.target) {
         lookups.set(objectConfig.objectApiName, lookupsOf(objectConfig, access.target));
         if (
@@ -1926,7 +1946,7 @@ export class SyncOrchestrator {
         }
       }
     }
-    return { ...orderSyncObjects(objects, lookups), refused, typed };
+    return { ...orderSyncObjects(written, lookups), refused, typed };
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */

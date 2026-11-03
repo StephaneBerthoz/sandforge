@@ -28,6 +28,7 @@ import {
   confirmationSimulatedOf,
   confirmationStorageOf,
   countedEmailChecksOf,
+  countedStorageBytes,
   countedTargetEmails,
   emailCheckLines,
   emailChecksOf,
@@ -83,6 +84,12 @@ describe('the data storage a row takes, by the sizes Salesforce documents', () =
     expect(rowStorageBytes('Contact', { IsPersonAccount: false })).toBe(2 * KB);
   });
 
+  it('sizes the person accounts a count says of an object named in any case', () => {
+    expect(countedStorageBytes('Account', { rows: 10, personAccounts: 4 })).toBe(28 * KB);
+    expect(countedStorageBytes('account', { rows: 10, personAccounts: 4 })).toBe(28 * KB);
+    expect(countedStorageBytes('CONTACT', { rows: 10, personAccounts: 4 })).toBe(12 * KB);
+  });
+
   it('counts a campaign at 8 KB and a campaign member at 1 KB', () => {
     expect(rowStorageBytes('Campaign', {})).toBe(8 * KB);
     expect(rowStorageBytes('CampaignMember', {})).toBe(1 * KB);
@@ -90,6 +97,11 @@ describe('the data storage a row takes, by the sizes Salesforce documents', () =
 
   it('counts an article at 4 KB and the long text it holds besides', () => {
     expect(rowStorageBytes('Knowledge__kav', { Title: 'Reset a password' })).toBe(4 * KB);
+    // A configuration may name an object in any case, and the org reads it the same.
+    expect(rowStorageBytes('account', { IsPersonAccount: true })).toBe(4 * KB);
+    expect(rowStorageBytes('contact', { IsPersonAccount: true })).toBe(0);
+    expect(rowStorageBytes('campaign', {})).toBe(8 * KB);
+    expect(rowStorageBytes('CAMPAIGNMEMBER', {})).toBe(1 * KB);
     expect(rowStorageBytes('Knowledge__kav', { Title: 'T', Body__c: 'é'.repeat(1_000) })).toBe(
       4 * KB + 2_000,
     );

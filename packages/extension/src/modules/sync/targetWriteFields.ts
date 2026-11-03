@@ -12,7 +12,7 @@ import {
   parseRecordTypeInfos,
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
-import type { SyncOperation, SyncUnwritableReason } from '@sandforge/shared';
+import type { SyncObjectConfig, SyncOperation, SyncUnwritableReason } from '@sandforge/shared';
 import { ACCOUNT, PERSON_CONTACT_FIELD } from '../../core/common/platformRecords.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { FieldInfo } from '../forge/ForgeExecutor.js';
@@ -202,6 +202,23 @@ export function targetRefusalMessage(
         'describe marks idLookup. None of its records were sent.'
       );
   }
+}
+
+/**
+ * `objectConfig` with its upsert's key as the target names it. The org takes a
+ * key in any case, so {@link targetAccessOf} does; but a record holds the field
+ * under the name the org gave it, and what reads the key from the record
+ * reads that one: on `legacy_key__c` a simulation counted every record without
+ * a key, and a run had every one refused, `External ID is not found in record`.
+ */
+export function withKeyAsTargetNamesIt(
+  objectConfig: SyncObjectConfig,
+  target: Pick<TargetWriteFields, 'fields'>,
+): SyncObjectConfig {
+  const key = objectConfig.externalIdField?.trim().toLowerCase();
+  if (objectConfig.operation !== 'upsert' || !key) return objectConfig;
+  const named = target.fields?.find((field) => field.name.toLowerCase() === key)?.name;
+  return named === undefined ? objectConfig : { ...objectConfig, externalIdField: named };
 }
 
 /**

@@ -59,17 +59,57 @@ export function ignoredGapEntry(
 ): string | undefined {
   const entries = new Set(ignored ?? []);
   if (entries.has(id)) return id;
+  const before = idBeforeNamespace(id);
+  return before !== undefined && entries.has(before) ? before : undefined;
+}
+
+/** The id `id` had before its package's record type was named so, or undefined for no such id. */
+function idBeforeNamespace(id: string): string | undefined {
   const parts = forgeGapParts(id);
   const bare = PACKAGED_NAME.exec(parts?.recordType ?? '')?.[1];
   if (parts === null || bare === undefined) return undefined;
-  const before = forgeGapId(
+  return forgeGapId(
     parts.kind as ForgeGapKind,
     parts.objectApiName,
     parts.field,
     bare,
     parts.value,
   );
-  return entries.has(before) ? before : undefined;
+}
+
+/**
+ * The entry of `skipped` that holds back the rows of the gap `id`, or undefined
+ * when none does: by the id, or the one it had before a package's record type
+ * was named with its namespace, as {@link ignoredGapEntry} reads it. The run
+ * holds those rows back (`holdsForRecordType`): Review and the command said
+ * the gap undecided.
+ */
+export function skippedRowsEntry<T extends { gapId: string }>(
+  skipped: readonly T[],
+  id: string,
+): T | undefined {
+  const before = idBeforeNamespace(id);
+  return (
+    skipped.find((entry) => entry.gapId === id) ?? skipped.find((entry) => entry.gapId === before)
+  );
+}
+
+/**
+ * Of the mappings of one value of one field, the one that answers a gap of
+ * `recordType`: for that record type; for it as it was named before its
+ * package's namespace, as the run applies it (`holdsForRecordType`); then for
+ * every record type.
+ */
+export function picklistMappingEntry<T extends { recordType?: string }>(
+  mappings: readonly T[],
+  recordType: string | undefined,
+): T | undefined {
+  const bare = PACKAGED_NAME.exec(recordType ?? '')?.[1];
+  return (
+    mappings.find((mapping) => mapping.recordType === recordType) ??
+    (bare !== undefined ? mappings.find((mapping) => mapping.recordType === bare) : undefined) ??
+    mappings.find((mapping) => mapping.recordType === undefined)
+  );
 }
 
 const SEVERITY_RANK: Readonly<Record<ForgeGapSeverity, number>> = {

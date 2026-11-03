@@ -267,6 +267,8 @@ export {
   forgeGapId,
   forgeGapParts,
   ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
   gapAssignEntry,
   gapAssignments,
   mergeGaps,

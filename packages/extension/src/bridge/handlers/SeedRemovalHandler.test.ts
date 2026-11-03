@@ -286,6 +286,31 @@ describe('SeedRemovalHandler', () => {
       expect(listed.find((run) => run.runId === 'op-1')?.pipeline).toBeUndefined();
     });
 
+    it('lists the call a stopped run had under way until a line answers it, and no call of a run still writing', async () => {
+      const writing = new Set(['op-live']);
+      const live = new SeedRemovalHandler(deps, undefined, (runId) => writing.has(runId));
+      live.setRunCreations(runs);
+      for (const runId of ['op-call', 'op-live']) {
+        const recorder = runs.recorder({ runId, targetOrgId: TARGET });
+        recorder.answered('Contact', [fakeId('003', runId === 'op-call' ? 21 : 22)]);
+        recorder.sending('Contact', 1);
+      }
+      await vi.waitFor(async () => {
+        expect((await runs.get('op-call'))?.inFlight).toBeDefined();
+        expect((await runs.get('op-live'))?.inFlight).toBeDefined();
+      });
+
+      await live.handle(buildMsg('seed:removal:list', {}));
+
+      const [listed] = lists();
+      expect(listed.find((run) => run.runId === 'op-call')).toMatchObject({
+        unfinished: true,
+        created: 1,
+        inFlight: { objectApiName: 'Contact', rows: 1 },
+      });
+      expect(listed.find((run) => run.runId === 'op-live')?.inFlight).toBeUndefined();
+    });
+
     it('lists a run whose window closed under it as unfinished, dated by its last write, and removes what it wrote', async () => {
       const recorder = runs.recorder({
         runId: 'op-cut',

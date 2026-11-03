@@ -264,6 +264,35 @@ describe('SeedRunHistory', () => {
     expect(screen.queryByTestId('seed-run-history-unfinished-op-1')).toBeNull();
   });
 
+  it('says the call a seed had under way when it stopped: what the org took of it is not in its count', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          ...RUNS[0],
+          runId: 'op-cut',
+          unfinished: true,
+          inFlight: { objectApiName: 'Contact', rows: 1 },
+        },
+        {
+          ...RUNS[1],
+          runId: 'op-more',
+          unfinished: true,
+          inFlight: { objectApiName: 'Case', rows: 200 },
+        },
+        { ...RUNS[0], runId: 'op-none', unfinished: true },
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-in-flight-op-cut').textContent).toBe(
+      'It stopped while it was writing 1 Contact record: if the org took it, it is not in this count, and a removal takes it only once the call has answered.',
+    );
+    expect(screen.getByTestId('seed-run-history-in-flight-op-more').textContent).toBe(
+      'It stopped while it was writing 200 Case records: those the org took are not in this count, and a removal takes them only once the call has answered.',
+    );
+    expect(screen.queryByTestId('seed-run-history-in-flight-op-none')).toBeNull();
+  });
+
   it('says a seed still writing in this window is running, offers no removal, and leads to Live Operations', () => {
     useAppStore.setState({ currentRoute: 'seed' });
     render(<SeedRunHistory />);

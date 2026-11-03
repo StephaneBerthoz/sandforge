@@ -309,7 +309,7 @@ describe('a seed fitted from the command line', () => {
         applied: boolean;
         objects: Array<{ objectApiName: string; before: number; after: number }>;
       };
-      storage?: { verdict: string; refusal?: string };
+      storage?: { bytes: number; verdict: string; refusal?: string };
       result: { objectResults: Array<{ objectApiName: string; recordsCreated: number }> };
     };
 
@@ -390,7 +390,8 @@ describe('a seed fitted from the command line', () => {
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
   });
 
-  it('counts no optional object the org does not have: the fit neither cuts for it nor names it', async () => {
+  /** A dry run, `--json`, of 2,000 accounts and 2,000 articles the org has no object for. */
+  async function dryRunWithArticles(...extra: string[]): Promise<void> {
     fakeOrg();
     const dir = mkdtempSync(join(tmpdir(), 'seed-optional-'));
     const object = (objectApiName: string, recordCount: number, optional: boolean) => ({
@@ -432,14 +433,32 @@ describe('a seed fitted from the command line', () => {
         '7',
         '--locale',
         'en_US',
-        '--fit',
-        'share',
+        ...extra,
         '--dry-run',
         '--json',
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  it('says in its summary the storage of what the org takes, as an environment sums it', async () => {
+    await dryRunWithArticles();
+
+    // The 2,000 accounts at 2 KB each, none of the articles the run skips.
+    expect(summary().storage?.bytes).toBe(2_000 * 2 * 1024);
+  });
+
+  it('says in its summary the storage of the counts it fitted, of what the org takes', async () => {
+    await dryRunWithArticles('--fit', 'share');
+
+    const { fit, storage } = summary();
+    expect(fit?.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+    expect(storage?.bytes).toBe((fit?.objects[0]?.after ?? 0) * 2 * 1024);
+  });
+
+  it('counts no optional object the org does not have: the fit neither cuts for it nor names it', async () => {
+    await dryRunWithArticles('--fit', 'share');
 
     const { fit } = summary();
     // Each account and the task its flow creates, in 3.6 MB: no room is left to articles,

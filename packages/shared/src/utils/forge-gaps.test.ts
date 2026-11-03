@@ -7,6 +7,8 @@ import {
   gapAssignEntry,
   gapAssignments,
   mergeGaps,
+  picklistMappingEntry,
+  skippedRowsEntry,
 } from './forge-gaps.js';
 
 const gap = (over: Partial<ForgeGap>): ForgeGap => ({
@@ -80,6 +82,45 @@ describe('ignoredGapEntry', () => {
     expect(ignoredGapEntry([other], id)).toBeUndefined();
     expect(ignoredGapEntry([id], before)).toBeUndefined();
     expect(ignoredGapEntry(undefined, id)).toBeUndefined();
+  });
+});
+
+describe('skippedRowsEntry', () => {
+  const id = forgeGapId('picklist_value_refused', 'Case', 'Status', 'ns__Support', 'Open');
+  const before = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Open');
+  const entry = (gapId: string) => ({ object: 'Case', gapId });
+
+  it('takes the entry of the id, before the one the id had before its namespace', () => {
+    expect(skippedRowsEntry([entry(before), entry(id)], id)).toEqual(entry(id));
+  });
+
+  it('takes the entry a template kept before the namespace', () => {
+    expect(skippedRowsEntry([entry(before)], id)).toEqual(entry(before));
+  });
+
+  it('takes no entry of another value, and none of a packaged type for the org’s own', () => {
+    const other = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Closed');
+    expect(skippedRowsEntry([entry(other)], id)).toBeUndefined();
+    expect(skippedRowsEntry([entry(id)], before)).toBeUndefined();
+  });
+});
+
+describe('picklistMappingEntry', () => {
+  const scoped = (recordType?: string) => ({ ...(recordType ? { recordType } : {}), to: 'x' });
+
+  it('takes the mapping for the record type, then for it before its namespace, then for every one', () => {
+    const named = scoped('ns__Support');
+    const before = scoped('Support');
+    const every = scoped();
+
+    expect(picklistMappingEntry([every, before, named], 'ns__Support')).toBe(named);
+    expect(picklistMappingEntry([every, before], 'ns__Support')).toBe(before);
+    expect(picklistMappingEntry([every], 'ns__Support')).toBe(every);
+  });
+
+  it('takes no mapping of a packaged type for the org’s own, nor of another type', () => {
+    expect(picklistMappingEntry([scoped('ns__Support')], 'Support')).toBeUndefined();
+    expect(picklistMappingEntry([scoped('Claims')], 'ns__Support')).toBeUndefined();
   });
 });
 
