@@ -67,9 +67,10 @@ jobs:
   mutation:
     name: Stryker (${{ matrix.name }})
     runs-on: ubuntu-latest
-    # A full run, cache missed, takes one to four minutes. The limit is there
-    # to stop a hung test runner, not to budget the run.
-    timeout-minutes: 15
+    # A full run, cache missed, takes one to four minutes; the extension's took
+    # past fifteen after the 1.73.0 wave changed most of what it mutates. The
+    # limit is there to stop a hung test runner, not to budget the run.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
