@@ -54,7 +54,7 @@ Two orgs, one holding real records (a UAT or partial-copy sandbox, say) and one 
 2. **Open Forge**: click the flame icon in the sidebar, or run **SandForge: Open Forge** from the Command Palette.
 3. **Paste a root record ID** from the org you copy from into **Record ID or Salesforce URL** (an Account works well), and pick the org you fill as the target.
 4. Tune **Depth**, **Records per object**, and **Anonymize PII** on the same form, then click **Discover Graph**.
-5. Click **Review & Execute** toward the org you fill. IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.
+5. Click **Review & Execute** toward the org you fill. Review says the run in one sentence and what is left to decide, over rows that open in place (Gaps, Plan, Automation and the others), with **Simulate** and **Execute Forge** in a column beside them, under a ribbon that names the org copied from and the org written into. IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.
 
 ![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge.png)
 
