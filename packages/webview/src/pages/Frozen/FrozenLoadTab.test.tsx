@@ -1105,6 +1105,95 @@ describe('FrozenLoadTab', () => {
           expect(shownTicked).toBe(true);
         },
       );
+
+      describe('and as a sweep ticked with it deletes what the automation made for the loads it replaces', () => {
+        /** What the sweep would take for the load replaced: the task a flow opened on its contact. */
+        const LISTED = {
+          loadedAt: LOADED_AT,
+          loads: [
+            {
+              loadedAt: LOADED_AT,
+              listing: {
+                looked: ['Account', 'Task'],
+                found: [
+                  {
+                    objectApiName: 'Task',
+                    count: 1,
+                    names: ['Follow up'],
+                    classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+                  },
+                ],
+                unread: [],
+                handWork: [],
+                untied: { objects: [] },
+              },
+            },
+          ],
+        };
+        const typeTheOrg = () =>
+          fireEvent.change(screen.getByTestId('danger-input'), {
+            target: { value: 'DEV-SANDBOX' },
+          });
+        const loadsSent = () => mutate.mock.calls.filter(([type]) => type === 'frozen:load');
+
+        it('reloads with no sweep unticked: the purge alone, as before', () => {
+          confirmation();
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([['frozen:load', { targetOrgId: 'org-dev', reload: true }]]);
+          expect(mutate.mock.calls.some(([type]) => type === 'frozen:remove:sweep')).toBe(false);
+        });
+
+        it('cannot be confirmed while what the sweep takes is unread', () => {
+          answers['frozen:remove:sweep'] = { loading: true };
+          confirmation();
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+          typeTheOrg();
+
+          expect(mutate).toHaveBeenCalledWith('frozen:remove:sweep', {
+            targetOrgId: 'org-dev',
+            loadedAt: LOADED_AT,
+            reload: true,
+          });
+          expect(screen.getByTestId('frozen-reload-sweep-loading')).toBeTruthy();
+          expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(
+            true,
+          );
+          expect(screen.getByRole('dialog').textContent).toContain(
+            'Waiting for what the sweep takes, and for what DEV-SANDBOX runs as it deletes it',
+          );
+        });
+
+        it('lists it per load, reads what fires on what it takes with the purge, and sends the reload with it', () => {
+          answers['frozen:remove:sweep'] = { data: LISTED };
+          confirmation();
+          answers['frozen:remove:automation'] = {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: AUTOMATION,
+              steps: { setToDraft: [], delete: ['Account', 'Task'] },
+            },
+          };
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+
+          expect(screen.getByTestId('frozen-reload-sweep-load').textContent).toContain(
+            'Task: 1 record',
+          );
+          expect(mutate).toHaveBeenCalledWith('frozen:remove:automation', {
+            targetOrgId: 'org-dev',
+            loadedAt: LOADED_AT,
+            sweptObjects: ['Task'],
+            reload: true,
+          });
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([
+            ['frozen:load', { targetOrgId: 'org-dev', reload: true, sweep: true }],
+          ]);
+        });
+      });
     });
 
     it('loads at once when the plan it reads purges nothing', () => {

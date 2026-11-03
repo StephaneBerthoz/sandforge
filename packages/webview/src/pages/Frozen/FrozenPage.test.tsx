@@ -1130,6 +1130,48 @@ describe('FrozenPage', () => {
     );
   });
 
+  it('says what the sweep asked with a reload took and left, per load it replaced', () => {
+    // Purged alone, the loads replaced left the tasks a flow had opened on
+    // each contact: the report said nothing of them.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-10-16T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: { Contact: 30 }, deactivated: {}, failures: [] },
+        sweeps: [
+          {
+            loadedAt: '2026-10-15T09:00:00.000Z',
+            result: {
+              status: 'refused',
+              refusal: 'Operation blocked by Production Guard: no deletes of tasks here',
+              objects: [],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    const sweeps = screen.getByTestId('frozen-report-sweeps');
+    expect(sweeps.textContent).toContain('Swept for the load of 2026-10-15');
+    expect(sweeps.textContent).toContain('no deletes of tasks here');
+  });
+
   it('names the links the load left unresolved, by object and lookup, with what each cost', () => {
     // Counted nowhere on screen, where the resolved ones were: a load whose
     // only errors were its unresolved links read "Completed with errors" over

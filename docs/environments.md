@@ -1211,7 +1211,9 @@ A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge-fr
 configuration committed beside the file, its dataset named by its path from the root or in a
 { env: NAME } variable, and pinned by its version and its digest — a dataset whose digest is not
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
-the verification it chains; a replace is a reload, refused when it would leave records.
+the verification it chains; a replace is a reload, refused when it would leave records, and
+blocked while the org runs automation as its purge deletes, unless --accept-automation or the
+resource's accept: { automation: true } takes it.
 
 A mask resource masks records the org already holds, a sandbox copied from production, with
 DataOps rules, through sandforge-dataops: a set of the file's masking, or a template that ships.

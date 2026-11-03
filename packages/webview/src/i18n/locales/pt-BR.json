@@ -5199,7 +5199,11 @@
         "description_one": "Esta recarga exclui de {{org}} {{count}} registro que cargas anteriores deste dataset criaram e que esta não reencontra, depois carrega o dataset.",
         "description_other": "Esta recarga exclui de {{org}} {{count}} registros que cargas anteriores deste dataset criaram e que esta não reencontra, depois carrega o dataset.",
         "deactivate_one": "Ela desativa mais {{count}}, de um objeto que a plataforma não exclui.",
-        "deactivate_other": "Ela desativa mais {{count}}, de objetos que a plataforma não exclui."
+        "deactivate_other": "Ela desativa mais {{count}}, de objetos que a plataforma não exclui.",
+        "sweep": "Varrer também: excluir o que os Flows e gatilhos do destino criaram para os carregamentos que esta recarga substitui, e que o expurgo deixa na org",
+        "sweepOf": "Para o carregamento de {{date}}",
+        "heldReading": "Aguardando o que a varredura leva, e o que {{org}} executa quando ela o exclui: a recarga pode ser confirmada depois que ambos forem lidos.",
+        "heldUnread": "Não foi possível ler o que a varredura levaria, nem o que {{org}} executa quando ela o exclui: uma recarga com esta varredura não pode ser confirmada."
       }
     },
     "preview": {
@@ -5293,7 +5297,8 @@
         "leftEmpty": "Vínculos deixados vazios",
         "targetNotLoaded": "O registro para o qual aponta não foi carregado",
         "lostWithTheirRecord": "Perdidos com os registros que os contêm, que a carga não gravou: {{links}}"
-      }
+      },
+      "sweptFor": "Varrido para o carregamento de {{date}}"
     },
     "removal": {
       "title": "Última carga",

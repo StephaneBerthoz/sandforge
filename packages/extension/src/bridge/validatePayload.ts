@@ -1270,6 +1270,10 @@ export const frozenLoadPayloadSchema = z.object({
   muteAutomation: z.boolean().optional(),
   // Take a checkpoint of what the load writes before its first write.
   checkpointFirst: checkpointFirstPayloadSchema.optional(),
+  // With a reload: sweep too, around its purge, what the target's automation
+  // made for each load it replaces, as a removal of that load sweeps it.
+  sweep: z.boolean().optional(),
+  ...sweepClassesShape,
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1288,6 +1292,8 @@ export const frozenRemovePayloadSchema = z.object({
 export const frozenRemoveSweepPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
+  // Listed for a reload's purge: the sweep of each load it replaces.
+  reload: z.boolean().optional(),
 });
 // What the target runs as a load's removal takes it back: the load, named as for its removal.
 export const frozenRemoveAutomationPayloadSchema = z.object({

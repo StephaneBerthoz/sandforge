@@ -10,10 +10,11 @@ import type {
   FrozenLoadProgress,
   FrozenLoadReportInfo,
   FrozenLoadResponse,
+  FrozenReloadSweepListing,
   FrozenVerifyVerdict,
   RunCheckpointInfo,
 } from '@sandforge/shared';
-import { translateError } from '@sandforge/shared';
+import { sweepTakenObjects, translateError } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { Button } from '../../components/ui/Button';
@@ -29,7 +30,13 @@ import { LazyOrgRibbon } from '../../components/ui/lazyOrgRibbon';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
-import { FrozenLoadRemoval, FrozenRemovalAutomation } from './FrozenLoadRemoval';
+import { FrozenLoadRemoval, FrozenReloadSweep, FrozenRemovalAutomation } from './FrozenLoadRemoval';
+import {
+  ForgeRunSweepResult,
+  useRemovalSweep,
+  type RemovalSweepAsked,
+} from '../Forge/ForgeRemovalSweep';
+import { formatStoredDate } from '../../utils/formatters';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
@@ -304,7 +311,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     ...(checkpointFirst ? { checkpointFirst: {} } : {}),
   });
 
-  const handleLoad = (): void => {
+  /** Send the load; `sweepAsked`, the sweep its reload's confirmation ticked. */
+  const handleLoad = (sweepAsked: RemovalSweepAsked['asked'] = {}): void => {
     dismissRefusal();
     clearProgress();
     setLoadReport(null);
@@ -312,7 +320,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     setCheckpointAfterError(undefined);
     previewMutation.reset();
     // Only the load mutes: its preview writes nothing.
-    loadMutation.mutate({ ...loadOptions(), ...(muteAutomation ? { muteAutomation: true } : {}) });
+    loadMutation.mutate({
+      ...loadOptions(),
+      ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...sweepAsked,
+    });
   };
 
   /*
@@ -326,6 +338,43 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const purges = reload && !pilot;
   /** What the reload being confirmed would purge, by its plan; null when none is asked. */
   const [reloadPurge, setReloadPurge] = useState<ReturnType<typeof purgeOf> | null>(null);
+  /**
+   * The confirmation's sweep: what the target's automation made for the loads
+   * the reload replaces, which its purge alone leaves. Never ticked unasked.
+   */
+  const reloadSweep = useRemovalSweep();
+  const { setSweep: setReloadSweep } = reloadSweep;
+  /** What the sweep's lists say, while they are shown: what fires as their records go is read with the purge's. */
+  const [reloadSweepListings, setReloadSweepListings] = useState<
+    readonly FrozenReloadSweepListing[] | 'failed' | null
+  >(null);
+  /** What the automation section's read covers, or that it failed: see `FrozenRemovalAutomation`. */
+  const [reloadAutomationRead, setReloadAutomationRead] = useState<
+    readonly string[] | 'failed' | undefined
+  >(undefined);
+  /** What the sweep's lists say it takes, ticked: what fires as those records go. */
+  const reloadSweptObjects =
+    reloadSweep.sweep && reloadSweepListings && reloadSweepListings !== 'failed'
+      ? [
+          ...new Set(
+            reloadSweepListings.flatMap(({ listing }) =>
+              sweepTakenObjects(listing, reloadSweep.ticks),
+            ),
+          ),
+        ]
+      : [];
+  // Confirmed once what the sweep takes has been read, and what fires as it
+  // deletes it, as a removal's sweep is: before, the section had read the
+  // purge's objects alone, and the sweep's deletes would fire their flows unasked.
+  const reloadSweepHeld = !reloadSweep.sweep
+    ? undefined
+    : reloadSweepListings === 'failed'
+      ? t('frozen.load.reloadConfirm.heldUnread', { org: targetName })
+      : reloadSweepListings === null ||
+          (reloadAutomationRead !== 'failed' &&
+            !reloadSweptObjects.every((object) => reloadAutomationRead?.includes(object)))
+        ? t('frozen.load.reloadConfirm.heldReading', { org: targetName })
+        : undefined;
   /** A reload asked for whose plan the preview is reading. */
   const [reloadAwaitingPlan, setReloadAwaitingPlan] = useState(false);
   /** The plan of a reload into the target as it is asked now, or undefined. */
@@ -341,8 +390,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   /** Ask before a reload that purges anything; load at once one that purges nothing. */
   const confirmOrLoad = (reloadPlan: FrozenLoadPlanInfo): void => {
     const purge = purgeOf(reloadPlan);
-    if (purge.deleted + purge.deactivated > 0) setReloadPurge(purge);
-    else handleLoad();
+    if (purge.deleted + purge.deactivated > 0) {
+      setReloadSweep(false);
+      setReloadPurge(purge);
+    } else handleLoad();
   };
   const handleRun = (): void => {
     if (!purges) {
@@ -753,7 +804,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             onClose={() => setReloadPurge(null)}
             onConfirm={() => {
               setReloadPurge(null);
-              handleLoad();
+              handleLoad(reloadSweep.asked);
             }}
             title={t('frozen.load.reloadConfirm.title', { org: targetName })}
             description={t('frozen.load.reloadConfirm.description', {
@@ -761,6 +812,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               org: targetName,
             })}
             confirmText={targetName}
+            {...(reloadSweepHeld !== undefined ? { held: reloadSweepHeld } : {})}
           >
             {(reloadPurge?.deactivated ?? 0) > 0 && (
               <p
@@ -779,9 +831,32 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 orgId={targetRecords.orgId}
                 loadedAt={targetRecords.loadedAt}
                 org={targetName}
-                sweptObjects={[]}
+                sweptObjects={reloadSweptObjects}
                 reload
                 mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
+                onRead={setReloadAutomationRead}
+              />
+            )}
+            {/* Never ticked unasked: a sweep deletes records no load wrote. */}
+            {reloadPurge !== null && targetRecords !== undefined && (
+              <label className="flex items-center gap-2 mt-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={reloadSweep.sweep}
+                  onChange={(e) => setReloadSweep(e.target.checked)}
+                  data-testid="frozen-reload-sweep-toggle"
+                />
+                {t('frozen.load.reloadConfirm.sweep')}
+              </label>
+            )}
+            {reloadPurge !== null && targetRecords !== undefined && reloadSweep.sweep && (
+              <FrozenReloadSweep
+                orgId={targetRecords.orgId}
+                loadedAt={targetRecords.loadedAt}
+                org={targetName}
+                ticks={reloadSweep.ticks}
+                onTicksChange={reloadSweep.setTicks}
+                onListings={setReloadSweepListings}
               />
             )}
           </DangerConfirm>
@@ -1314,6 +1389,25 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* What the sweep asked with the reload took for each load it
+                  replaced, and what it left, as a removal's result says it. */}
+              {(loadReport.sweeps ?? []).length > 0 && (
+                <div className="flex flex-col gap-2" data-testid="frozen-report-sweeps">
+                  {(loadReport.sweeps ?? []).map((swept) => (
+                    <div key={swept.loadedAt} className="flex flex-col gap-1">
+                      <span className="text-xs font-medium text-text-primary">
+                        {t('frozen.report.sweptFor', {
+                          date:
+                            formatStoredDate(swept.loadedAt, 'yyyy-MM-dd HH:mm') ??
+                            t('common.dateUnknown'),
+                        })}
+                      </span>
+                      <ForgeRunSweepResult result={swept.result} org={targetName} />
+                    </div>
+                  ))}
                 </div>
               )}
 

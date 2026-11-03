@@ -21,6 +21,7 @@ import type { MutedAutomation } from '../utils/automation-mute.js';
 import type {
   ForgeFieldRefusal,
   ForgeRefusedField,
+  ForgeSweepListing,
   ForgeSweepResult,
   ForgeUndoMark,
   ForgeUndoObjectResult,
@@ -617,8 +618,29 @@ export interface FrozenLoadReportInfo {
    * such a record. Absent when none was.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * What the sweep asked with a reload did, per load it replaced, as a
+   * removal of that load would have swept it: what the target's automation
+   * made for the load, taken around the purge. Absent when no sweep was
+   * asked, or the reload purged nothing.
+   */
+  sweeps?: FrozenReloadSweep[];
   mappingPath: string;
   contractPath: string;
+}
+
+/** What the sweep of one load a reload replaced did. */
+export interface FrozenReloadSweep {
+  /** When the load replaced wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+  loadedAt: string;
+  result: ForgeSweepResult;
+}
+
+/** What the sweep of one load a reload replaces would take, read and nothing deleted. */
+export interface FrozenReloadSweepListing {
+  /** When the load replaced wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+  loadedAt: string;
+  listing: ForgeSweepListing;
 }
 
 /**

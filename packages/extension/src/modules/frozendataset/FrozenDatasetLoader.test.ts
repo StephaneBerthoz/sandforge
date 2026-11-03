@@ -2658,6 +2658,108 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     expect(report.purge.deleted).toEqual({ Contact: 1 });
   });
 
+  describe('the sweep its caller hands it around the purge', () => {
+    /** The sweep's two parts, each noting how many writes went before it. */
+    function sweepNoted(calls: DmlCall[]) {
+      const at: { first?: number; after?: number } = {};
+      return {
+        at,
+        first: vi.fn(async () => {
+          at.first = calls.length;
+        }),
+        afterPurge: vi.fn(async () => {
+          at.after = calls.length;
+        }),
+      };
+    }
+
+    it('runs its first part before the purge’s first delete and its last once the purge is through, before the inserts', async () => {
+      // Purged alone, the loads replaced left what the target's automation
+      // made for them: the tasks a flow opened on each contact, one set per load.
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {
+        'Account-000001': '001OLD-ACCOUNT',
+        'Contact-000001': '003OLD-CONTACT',
+      });
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const sweep = sweepNoted(calls);
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+      );
+
+      const ops = calls.map((c) => c.op);
+      // Nothing written before its first part; the purge's deletes, children
+      // first, before its last; the inserts after it.
+      expect(sweep.at.first).toBe(0);
+      expect(ops.slice(0, 2)).toEqual(['delete', 'delete']);
+      expect(calls.slice(0, 2).map((c) => c.objectApiName)).toEqual(['Contact', 'Account']);
+      expect(sweep.at.after).toBe(2);
+      expect(ops.indexOf('insert')).toBe(2);
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs it with nothing of the loads replaced left to purge: what the automation made for them may be', async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {});
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const sweep = sweepNoted(calls);
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, purgeSweep: sweep }),
+      );
+
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs none of it for a pilot, which purges nothing, nor its last part once a cancel stopped the purge', async () => {
+      const dataset = makeAccountContactDataset();
+      const sasDir = makeTmpDir();
+      await seedPreviousMapping(sasDir, {
+        'Account-000001': '001OLD-ACCOUNT',
+        'Contact-000001': '003OLD-CONTACT',
+      });
+      const pilotCalls: DmlCall[] = [];
+      const pilotDeps = makeDeps({
+        dataset,
+        sasDir,
+        writer: makeWriter(pilotCalls),
+        config: { rootObjectApiName: 'Account' },
+      });
+      const pilotSweep = sweepNoted(pilotCalls);
+      await new FrozenDatasetLoader(pilotDeps).load(
+        makeOptions(pilotDeps, dataset, { reload: true, pilot: {}, purgeSweep: pilotSweep }),
+      );
+      expect(pilotSweep.first).not.toHaveBeenCalled();
+      expect(pilotSweep.afterPurge).not.toHaveBeenCalled();
+
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+      const stop = new AbortController();
+      const sweep = {
+        first: vi.fn(async () => {
+          // The cancel comes as the sweep's first part ends.
+          stop.abort();
+        }),
+        afterPurge: vi.fn(async () => undefined),
+      };
+      await expect(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, { reload: true, signal: stop.signal, purgeSweep: sweep }),
+        ),
+      ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+      expect(sweep.first).toHaveBeenCalledTimes(1);
+      expect(sweep.afterPurge).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.op === 'delete')).toEqual([]);
+    });
+  });
+
   it('purges the record the last load created when its key now names another one', async () => {
     // The identity keys find another account under the key: the one the last
     // load created is a leftover, whichever key named it.

@@ -5199,7 +5199,11 @@
         "description_one": "This reload deletes from {{org}} {{count}} record that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
         "description_other": "This reload deletes from {{org}} {{count}} records that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
         "deactivate_one": "It deactivates {{count}} more, of an object the platform does not delete.",
-        "deactivate_other": "It deactivates {{count}} more, of objects the platform does not delete."
+        "deactivate_other": "It deactivates {{count}} more, of objects the platform does not delete.",
+        "sweep": "Sweep too: also delete what the target's flows and triggers created for the loads this reload replaces, which the purge leaves in the org",
+        "sweepOf": "For the load of {{date}}",
+        "heldReading": "Waiting for what the sweep takes, and for what {{org}} runs as it deletes it: the reload can be confirmed once both are read.",
+        "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a reload with this sweep cannot be confirmed."
       }
     },
     "preview": {
@@ -5293,7 +5297,8 @@
         "leftEmpty": "Lookups left empty",
         "targetNotLoaded": "The record it points at was not loaded",
         "lostWithTheirRecord": "Lost with the records holding them, which the load did not write: {{links}}"
-      }
+      },
+      "sweptFor": "Swept for the load of {{date}}"
     },
     "removal": {
       "title": "Last load",

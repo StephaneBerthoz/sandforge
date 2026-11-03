@@ -102,6 +102,19 @@ export interface FrozenLoadOptionsPayload {
    * nothing written. Absent, no checkpoint is taken.
    */
   checkpointFirst?: RunCheckpointRequest;
+  /**
+   * With a reload: sweep too what the target's automation made for each load
+   * it replaces, as a removal of that load sweeps it — read and judged by
+   * Production Guard before the mute's lease, taken in part before the purge
+   * and in part after it, recorded beside the load and said in its report
+   * (`FrozenLoadReportInfo.sweeps`). `sweepLate` and `sweepUntied` take too
+   * what it lists as made late, or tied to nothing of the load. A pilot
+   * purges nothing, and sweeps nothing. The purge alone left, one set per
+   * load replaced, the tasks a flow opens on each contact a load inserts.
+   */
+  sweep?: boolean;
+  sweepLate?: boolean;
+  sweepUntied?: boolean;
 }
 
 /**
@@ -206,6 +219,12 @@ export interface FrozenRemoveSweepRequest extends BaseMessage {
     targetOrgId: string;
     /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
     loadedAt: string;
+    /**
+     * Listed for a reload's purge (`FrozenLoadOptionsPayload.sweep`): the
+     * sweep of each load the reload replaces, answered under `loads`
+     * (`FrozenReloadSweepListing`), whichever of them `loadedAt` names.
+     */
+    reload?: boolean;
   };
 }
 

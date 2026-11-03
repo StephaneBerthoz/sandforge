@@ -5199,7 +5199,11 @@
         "description_one": "Esta recarga borra de {{org}} {{count}} registro que cargas anteriores de este dataset crearon y que esta no vuelve a encontrar, y luego carga el dataset.",
         "description_other": "Esta recarga borra de {{org}} {{count}} registros que cargas anteriores de este dataset crearon y que esta no vuelve a encontrar, y luego carga el dataset.",
         "deactivate_one": "Desactiva {{count}} más, de un objeto que la plataforma no borra.",
-        "deactivate_other": "Desactiva {{count}} más, de objetos que la plataforma no borra."
+        "deactivate_other": "Desactiva {{count}} más, de objetos que la plataforma no borra.",
+        "sweep": "Barrer también: eliminar lo que los Flows y desencadenadores del destino crearon para las cargas que esta recarga reemplaza, y que la purga deja en la org",
+        "sweepOf": "Para la carga del {{date}}",
+        "heldReading": "Esperando lo que toma el barrido, y lo que {{org}} ejecuta cuando lo elimina: la recarga se confirma una vez leídas ambas cosas.",
+        "heldUnread": "No se pudo leer lo que tomaría el barrido, ni lo que {{org}} ejecuta cuando lo elimina: no se puede confirmar una recarga con este barrido."
       }
     },
     "preview": {
@@ -5293,7 +5297,8 @@
         "leftEmpty": "Vínculos que quedan vacíos",
         "targetNotLoaded": "El registro al que apunta no se cargó",
         "lostWithTheirRecord": "Perdidos con los registros que los contienen, que la carga no escribió: {{links}}"
-      }
+      },
+      "sweptFor": "Barrido para la carga del {{date}}"
     },
     "removal": {
       "title": "Última carga",

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -31,6 +31,7 @@ import { makeConn } from './sfSession.js';
 import { typed } from './prompt.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
+import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
 import { tiedTargetOrg, type TiedRow, type TiedTargetOrg } from '../src/test/tiedTargetOrg.js';
@@ -468,6 +469,184 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     });
   });
 
+  describe('load --reload --sweep, which sweeps around its purge what the automation made for the load it replaces', () => {
+    /** The command's load step with `args`: how it ended. */
+    async function reloadStep(...args: string[]): Promise<number> {
+      stdout = '';
+      stderr = '';
+      process.exitCode = undefined;
+      await main([
+        'node',
+        'sandforge-frozen.ts',
+        'load',
+        '--config',
+        configPath,
+        '--target',
+        'TGT',
+        '--reload',
+        ...args,
+      ]);
+      return Number(process.exitCode ?? 0);
+    }
+
+    beforeEach(() => {
+      // The dataset loaded again, and the loader's purge as it runs it: the
+      // sweep's first part, the load before's records, children first, then
+      // its last part, which takes the asset once the case that names it went.
+      mkdirSync(join(dir, 'dataset', 'data'), { recursive: true });
+      writeFileSync(
+        join(dir, 'dataset', 'manifest.json'),
+        JSON.stringify({
+          version: '1.4.0',
+          status: 'frozen',
+          frozenAt: WRITTEN,
+          source: { orgId: fakeId('00D', 2), decisionDate: WRITTEN },
+          saltFingerprint: 'abcdef012345',
+          rulesVersion: '1.0.0',
+          volumetry: { budgetMax: 2500, measured: { Account: 1 }, measuredAt: 'x' },
+          controls: {
+            nonReidentification: { passed: true, checks: [], author: 'qa', checkedAt: 'x' },
+            dryRunLoad: null,
+            author: 'qa',
+            date: 'x',
+          },
+        }),
+      );
+      writeFileSync(
+        join(dir, 'dataset', 'data', 'Account.json'),
+        JSON.stringify({
+          objectApiName: 'Account',
+          records: [{ referenceId: 'Account-1', fields: { Name: 'Account-1' } }],
+        }),
+      );
+      vi.spyOn(FrozenDatasetLoader.prototype, 'gateLoad').mockResolvedValue('allowed');
+      vi.spyOn(FrozenDatasetLoader.prototype, 'load').mockImplementation(async (options) => {
+        await options.purgeSweep?.first();
+        for (const object of ['Case', 'Account']) {
+          const ids = org.ids(object);
+          if (ids.length > 0) await org.conn.sobject(object).destroy(ids);
+        }
+        if (!options.signal?.aborted) await options.purgeSweep?.afterPurge();
+        return {
+          status: 'completed',
+          orgId: ORG_ID,
+          mode: { pilot: false, reload: true },
+          startedAt: WRITTEN_OVER,
+          durationMs: 1,
+          alignment: {
+            objectResults: [],
+            excludedObjects: [],
+            removals: [],
+            adjustments: [],
+            recordTypeIssues: [],
+          },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, sent: [], unresolved: [] },
+          statuses: { restored: 0, refused: [] },
+          purge: { deleted: { Case: 1, Account: 1 }, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: join(dir, 'no-such-contract.json'),
+        } as unknown as Awaited<ReturnType<FrozenDatasetLoader['load']>>;
+      });
+    });
+
+    /** What the command printed under --json. */
+    const answered = () =>
+      JSON.parse(stdout) as {
+        refused?: { code: string; message: string };
+        posted: Array<{
+          type: string;
+          payload: {
+            report?: {
+              sweeps?: Array<{ loadedAt: string; result: { status: string } }>;
+            };
+          };
+        }>;
+      };
+
+    it('names what fires on what its sweep takes, the purge’s own deletes asked first, and writes nothing unaccepted', async () => {
+      expect(await reloadStep('--sweep', '--yes', '--json')).toBe(1);
+
+      // Nothing fires as the account and the case go: the purge goes by;
+      // the asset the sweep would take fires its flow, unaccepted.
+      expect(stderr).toContain(
+        'reload automation: what TGT runs as the reload purges what earlier loads created',
+      );
+      expect(stderr).toContain('Asset: before delete: flow "Asset guard"');
+      expect(answered().refused).toMatchObject({
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          "TGT runs automation on the records this reload's purge deletes: Asset",
+        ),
+      });
+      expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+      expect(org.deletes).toEqual([]);
+      expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('takes the asset once accepted, and says what the sweep left: the org refused it', async () => {
+      await reloadStep('--sweep', '--accept-automation', '--yes', '--json');
+
+      expect(org.ids('Case')).toEqual([]);
+      const report = answered().posted.find((m) => m.type === 'frozen:load:response')?.payload
+        .report;
+      expect(report?.sweeps).toEqual([
+        { loadedAt: WRITTEN_OVER, result: expect.objectContaining({ status: 'failure' }) },
+      ]);
+      expect(org.ids('Asset')).toEqual([ASSET]);
+    });
+
+    it('mutes what fires on what its sweep deletes, and takes it', async () => {
+      await reloadStep('--sweep', '--mute-automation', '--yes', '--json');
+
+      expect(org.ids('Asset')).toEqual([]);
+      const report = answered().posted.find((m) => m.type === 'frozen:load:response')?.payload
+        .report;
+      expect(report?.sweeps?.[0]?.result.status).toBe('success');
+      expect(permissions.assignments()).toEqual([]);
+      expect(steps.indexOf('lease')).toBeLessThan(steps.indexOf('delete Asset'));
+    });
+
+    it('takes nothing of what the automation made without the sweep, as the purge alone did', async () => {
+      await reloadStep('--yes', '--json');
+
+      expect(org.ids('Case')).toEqual([]);
+      expect(org.ids('Asset')).toEqual([ASSET]);
+      expect(
+        answered().posted.find((m) => m.type === 'frozen:load:response')?.payload.report,
+      ).not.toHaveProperty('sweeps');
+    });
+
+    it('lists with --dry-run what its sweep would take, deletes nothing, and says a reload would be refused unaccepted', async () => {
+      vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+        orgId: ORG_ID,
+        mode: { pilot: false, reload: true },
+        plannedAt: WRITTEN_OVER,
+        perObject: [],
+        excludedObjects: [],
+        removals: [],
+        placeholders: [],
+        requiredDefaults: [],
+        recordTypeIssues: 0,
+        personContacts: 0,
+        earlierLoads: 1,
+      } as unknown as Awaited<ReturnType<FrozenDatasetLoader['planLoad']>>);
+
+      expect(await reloadStep('--dry-run', '--sweep')).toBe(1);
+
+      expect(stdout).toContain(`sweep of the load of ${WRITTEN_OVER}:`);
+      expect(stdout).toContain('Asset');
+      expect(stdout).toContain(
+        "a load would be refused: TGT runs automation on the records this reload's purge deletes: Asset",
+      );
+      expect(org.deletes).toEqual([]);
+      expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+    });
+  });
+
   it('refuses a read that failed unaccepted, and goes on accepted', async () => {
     vi.mocked(TargetAutomationReader.prototype.read).mockRejectedValue(new Error('REQUEST_LIMIT'));
 
@@ -677,6 +856,36 @@ describe('the words of what a removal runs into', () => {
     expect(asked.refusal).not.toContain('With --mute-automation');
     expect(noBypass.refusal).toContain('Case audit');
     expect(noBypass.refusal).not.toContain('--mute-automation');
+  });
+
+  it('says a reload’s purge in a reload’s words, where it said a removal and to remove all the same', () => {
+    const fires = removalAutomation(
+      { read: automationOn(['Asset'], false), steps: { setToDraft: [], delete: ['Asset'] } },
+      'TGT',
+      'reload',
+    );
+    const unread = removalAutomation(
+      { read: { unread: 'timed out' }, steps: { delete: ['Asset'] } },
+      'TGT',
+      'reload',
+    );
+
+    expect(fires.lines[0]).toBe(
+      'reload automation: what TGT runs as the reload purges what earlier loads created',
+    );
+    expect(fires.refusal).toBe(
+      `TGT runs automation on the records this reload's purge deletes: Asset: flow "Asset guard" (before delete). ` +
+        'With --mute-automation, the reload assigns Data_Load to the user it writes as for the ' +
+        'reload alone, under a lease, and what it keeps quiet does not fire. Nothing was written ' +
+        'or deleted. Add --accept-automation to reload all the same, or turn that automation off ' +
+        'in TGT first.',
+    );
+    expect(unread.lines).toEqual(['reload automation: what TGT runs could not be read: timed out']);
+    expect(unread.refusal).toContain(
+      "What TGT runs as this reload's purge writes could not be read",
+    );
+    expect(unread.refusal).toContain('Add --accept-automation to reload all the same');
+    expect(`${fires.refusal ?? ''}${unread.refusal ?? ''}`).not.toContain('removal');
   });
 });
 

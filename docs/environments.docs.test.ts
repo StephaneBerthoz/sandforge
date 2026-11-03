@@ -1520,6 +1520,25 @@ describe('the frozen resource and the references between resources, on the page'
     }
   });
 
+  it('says in its help that a frozen replace is blocked by what fires as its purge deletes, as the reload hands it the acceptance', () => {
+    // Positive control: the reload's purge is refused unaccepted, with its
+    // code, and the frozen kind hands the reload the file's acceptance.
+    expect(FROZEN).toContain(
+      "stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };",
+    );
+    expect(FROZEN_KIND).toContain(
+      "...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),",
+    );
+
+    // The help said a replace is refused when it would leave records, and
+    // nothing of the automation that blocked one on a real org.
+    expect(help()).toContain(
+      'a replace is a reload, refused when it would leave records, and\n' +
+        'blocked while the org runs automation as its purge deletes, unless --accept-automation or the\n' +
+        "resource's accept: { automation: true } takes it.",
+    );
+  });
+
   it('says where the ids of a reference are read from, how many, and when they are counted exactly, as the references and the plan do', () => {
     const references = section(DOC, '### References between resources');
     const pins: Array<[string, string, string]> = [

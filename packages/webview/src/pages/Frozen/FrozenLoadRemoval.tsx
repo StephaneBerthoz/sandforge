@@ -7,6 +7,7 @@ import type {
   ForgeTargetAutomation,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
+  FrozenReloadSweepListing,
   FrozenRemovalResult,
 } from '@sandforge/shared';
 import {
@@ -289,6 +290,108 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
     <section
       aria-labelledby={headingId}
       data-testid="frozen-removal-sweep"
+      className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold">
+        {t('frozen.removal.sweepTitle', { org })}
+      </h4>
+      {body}
+    </section>
+  );
+};
+
+/** What `frozen:remove:sweep` answers for a reload: the sweep of each load it replaces. */
+interface ReloadSweepAnswer {
+  loadedAt: string;
+  loads: FrozenReloadSweepListing[];
+}
+
+/** Props for {@link FrozenReloadSweep}. */
+interface FrozenReloadSweepProps {
+  /** The org the loads wrote to, registered. */
+  orgId: string;
+  /** When the last load wrote its last record: the load the card shows. */
+  loadedAt: string;
+  /** The org as the user knows it. */
+  org: string;
+  /** The ticks under the lists, one pair for all: what they keep, taken too. */
+  ticks: SweepTicks;
+  onTicksChange: (ticks: SweepTicks) => void;
+  /**
+   * Told what it read, `'failed'` once its read failed, null until it has:
+   * what the reload's confirmation reads the automation of, and waits for.
+   */
+  onListings: (listings: readonly FrozenReloadSweepListing[] | 'failed' | null) => void;
+}
+
+/**
+ * What a sweep asked with a reload would take, per load the reload replaces,
+ * read as its confirmation's sweep is ticked and listed before the user types
+ * the org's name, as a removal's sweep is: what the target's automation made
+ * for each load, as its user, that its mapping does not hold. The purge took
+ * the loads' records and left that: on a real org, the tasks a flow opens on
+ * each contact went from 30 to 60 to 90 over two reloads. Read only; the
+ * sweep reads again as the reload begins.
+ */
+export const FrozenReloadSweep: React.FC<FrozenReloadSweepProps> = ({
+  orgId,
+  loadedAt,
+  org,
+  ticks,
+  onTicksChange,
+  onListings,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const read = useBridgeMutation<ReloadSweepAnswer>('frozen:remove:sweep', {
+    responseType: 'frozen:remove:sweep:response',
+    errorType: 'frozen:remove:sweep:error',
+    timeoutMs: SWEEP_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  useEffect(() => {
+    mutate({ targetOrgId: orgId, loadedAt, reload: true });
+  }, [orgId, loadedAt, mutate]);
+  const loads = read.data?.loadedAt === loadedAt ? read.data.loads : null;
+  const failed = read.error !== null;
+  useEffect(() => {
+    onListings(failed ? 'failed' : loads);
+  }, [loads, failed, onListings]);
+  useEffect(() => () => onListings(null), [onListings]);
+
+  let body: React.ReactNode;
+  if (read.error) {
+    body = (
+      <p data-testid="frozen-reload-sweep-error" className="text-status-warning">
+        {t('frozen.removal.sweepError', { org, reason: read.error })}
+      </p>
+    );
+  } else if (!loads) {
+    body = (
+      <p data-testid="frozen-reload-sweep-loading" className="text-text-secondary">
+        {t('frozen.removal.sweepLoading', { org })}
+      </p>
+    );
+  } else {
+    body = loads.map((load) => (
+      <div
+        key={load.loadedAt}
+        className="flex flex-col gap-1"
+        data-testid="frozen-reload-sweep-load"
+      >
+        <p className="font-medium">
+          {t('frozen.load.reloadConfirm.sweepOf', {
+            date: formatStoredDate(load.loadedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+          })}
+        </p>
+        <ForgeSweepListingView listing={load.listing} ticks={ticks} onTicksChange={onTicksChange} />
+      </div>
+    ));
+  }
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="frozen-reload-sweep"
       className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
     >
       <h4 id={headingId} className="text-[11px] font-semibold">

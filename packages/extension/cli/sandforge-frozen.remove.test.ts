@@ -259,6 +259,71 @@ describe('the exit code of a step', () => {
     expect(frozenStepExit('load', [load('completed'), verdict('unstable')])).toBe(0);
   });
 
+  it('gives a reload whose sweep did not take all it was to 3, as the removal its sweep belongs to', () => {
+    const reload = (...statuses: string[]) => ({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          sweeps: statuses.map((status, n) => ({
+            loadedAt: `2026-10-0${n + 1}T10:00:00.000Z`,
+            result: { status, objects: [], unread: [], handWork: [] },
+          })),
+        },
+      },
+    });
+    expect(frozenStepExit('load', [reload('success', 'success')])).toBe(0);
+    expect(frozenStepExit('load', [reload('success', 'refused')])).toBe(3);
+    expect(frozenStepExit('load', [reload('partial')])).toBe(3);
+    expect(frozenStepExit('load', [reload('cancelled')])).toBe(3);
+  });
+
+  it('says what the sweep of each load a reload replaced did, after its purge', () => {
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 1,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: { Contact: 30 }, deactivated: {}, failures: [] },
+          sweeps: [
+            {
+              loadedAt: '2026-10-01T10:05:00.000Z',
+              result: {
+                status: 'success',
+                objects: [
+                  {
+                    objectApiName: 'Task',
+                    found: 30,
+                    deleted: 30,
+                    alreadyGone: 0,
+                    keptChanged: 0,
+                    refused: 0,
+                    reasons: [],
+                  },
+                ],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const purge = lines.indexOf('purge of earlier loads: 30 deleted, 0 deactivated, 0 failed');
+    expect(purge).toBeGreaterThanOrEqual(0);
+    expect(lines.slice(purge + 1, purge + 4)).toEqual([
+      'sweep of the load of 2026-10-01T10:05:00.000Z:',
+      'sweep: SUCCESS',
+      '  Task: 30 deleted of 30',
+    ]);
+  });
+
   it('gives a removal that left records of the load 3, as the other removals give it', () => {
     const removal = (status: string) => ({
       type: 'frozen:remove:response',

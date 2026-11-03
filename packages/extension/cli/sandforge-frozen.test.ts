@@ -139,8 +139,39 @@ describe('parseArgs', () => {
     ).toMatchObject({ code: 2, message: expect.stringContaining('give one of them') });
     expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--sweep')).toMatchObject({
       code: 2,
-      message: expect.stringContaining('go with remove'),
+      message: expect.stringContaining('--sweep goes with remove or load --reload'),
     });
+    expect(
+      refuse('load', '--config', 'f.json', '--target', 'TGT', '--reload', '--pilot', '--sweep'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('a pilot purges nothing') });
+    expect(
+      refuse('load', '--config', 'f.json', '--target', 'TGT', '--reload', '--sweep-list'),
+    ).toMatchObject({
+      code: 2,
+      message: expect.stringContaining(
+        'a reload lists what its sweep would take with --dry-run --sweep',
+      ),
+    });
+  });
+
+  it('reads a reload told to sweep what the automation made for the loads it replaces, and what it takes beside', () => {
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--sweep',
+          '--sweep-untied',
+        ),
+      ),
+    ).toMatchObject({ step: 'load', reload: true, sweep: true, sweepUntied: true });
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--reload')),
+    ).toMatchObject({ sweep: false });
   });
 
   it('reads a removal told only to say what it would do, which removes nothing unasked', () => {

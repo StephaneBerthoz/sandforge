@@ -2506,8 +2506,13 @@ export function removalStepsAutomationLines(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
   steps: ForgeRemovalSteps,
+  subject: RemovalStepsSubject = 'removal',
 ): string[] {
-  const lines = [`removal automation: what ${target} runs as the removal takes the run back`];
+  const lines = [
+    subject === 'reload'
+      ? `reload automation: what ${target} runs as the reload purges what earlier loads created`
+      : `removal automation: what ${target} runs as the removal takes the run back`,
+  ];
   for (const entry of firedOnRemovalStepsOf(automation, steps)) {
     lines.push(
       entry.step === 'delete'
@@ -2534,36 +2539,43 @@ export function removalStepsAutomationLines(
  * everything was read.
  *
  * @param options - What each step writes, the bypasses to assign
- *   ({@link bypassesToAssign}), and whether the command can mute them itself
+ *   ({@link bypassesToAssign}), whether the command can mute them itself
  *   (`--mute-automation`, not asked yet): the sets that would keep quiet what
- *   fires are then named as what a mute assigns, under its lease.
+ *   fires are then named as what a mute assigns, under its lease — and what
+ *   writes them: a removal, or the purge a reload runs before it loads.
  */
 export function removalStepsAutomationRefusal(
   automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
   target: string,
-  options: { steps: ForgeRemovalSteps; assign?: readonly BypassToAssign[]; mayMute?: boolean },
+  options: {
+    steps: ForgeRemovalSteps;
+    assign?: readonly BypassToAssign[];
+    mayMute?: boolean;
+    subject?: RemovalStepsSubject;
+  },
 ): string | undefined {
   const fired = firedOnRemovalStepsOf(automation, options.steps);
   const unread = automationUnreadOf(automation);
   if (fired.length === 0 && unread.length === 0) return undefined;
   const of = (step: ForgeRemovalStep): ForgeFiredOnRemovalStep[] =>
     fired.filter((entry) => entry.step === step);
+  const words = REMOVAL_STEPS_SUBJECT_WORDS[options.subject ?? 'removal'];
   const parts: string[] = [];
   if (of('bringBack').length > 0) {
     parts.push(
-      `${target} runs automation as this removal brings back from the recycle bin what the ` +
+      `${target} runs automation as ${words.this} brings back from the recycle bin what the ` +
         `run deleted: ${namedList(of('bringBack'))}.`,
     );
   }
   if (of('giveBack').length > 0) {
     parts.push(
-      `${target} runs automation as this removal gives the records the run wrote over their ` +
+      `${target} runs automation as ${words.this} gives the records the run wrote over their ` +
         `values from before it: ${namedList(of('giveBack'))}.`,
     );
   }
   if (of('setToDraft').length > 0) {
     parts.push(
-      `${target} runs automation as this removal sets activated records back to Draft, the ` +
+      `${target} runs automation as ${words.this} sets activated records back to Draft, the ` +
         `only way the platform deletes them: ${namedList(of('setToDraft'))}.`,
     );
   }
@@ -2572,20 +2584,48 @@ export function removalStepsAutomationRefusal(
       (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
     );
     parts.push(
-      `${target} runs automation on the records this removal deletes: ${named.join('; ')}.`,
+      `${target} runs automation on the records ${words.this} deletes: ${named.join('; ')}.`,
     );
   }
   for (const { part, reason } of unread) {
     parts.push(
       `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
-        `could not be read (${reason}), so what fires as the removal writes is not known.`,
+        `could not be read (${reason}), so what fires as ${words.the} writes is not known.`,
     );
   }
-  parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
-  parts.push(...muteSentences(options.assign ?? [], 'removal', options.mayMute === true));
+  parts.push(...bypassAssistantSentences(options.assign ?? [], target, words.who));
+  parts.push(...muteSentences(options.assign ?? [], words.run, options.mayMute === true));
   parts.push(
-    `Nothing was written or deleted. Add --accept-automation to remove all the same, or turn ` +
-      `that automation off in ${target} first.`,
+    `Nothing was written or deleted. Add --accept-automation to ${words.verb} all the same, or ` +
+      `turn that automation off in ${target} first.`,
   );
   return parts.join(' ');
 }
+
+/**
+ * What writes the steps a refusal names: a removal that takes a run back, or
+ * the purge a reload runs before it loads, which deletes as a removal does.
+ * Said in a removal's words, the refusal of a reload told a pipeline to
+ * "remove all the same" a load it had asked to replace.
+ */
+export type RemovalStepsSubject = 'removal' | 'reload';
+
+/** The words of each {@link RemovalStepsSubject}: what writes, as whom, and what to add. */
+const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
+  Record<RemovalStepsSubject, { this: string; the: string; who: string; run: string; verb: string }>
+> = {
+  removal: {
+    this: 'this removal',
+    the: 'the removal',
+    who: 'the removal',
+    run: 'removal',
+    verb: 'remove',
+  },
+  reload: {
+    this: "this reload's purge",
+    the: "the reload's purge",
+    who: 'the reload',
+    run: 'reload',
+    verb: 'reload',
+  },
+};

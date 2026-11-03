@@ -175,11 +175,19 @@ function freeze(dir: string): void {
 /** One page of a query answer. */
 const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
 
-/** The target: a sandbox that answers what it is, and nothing else. */
+/**
+ * The target: a sandbox that answers what it is, and that its user may assign
+ * permission sets — which a dry run's mute now asks, as the load's does —, and
+ * nothing else.
+ */
 function targetOrg(): void {
   const conn = {
     query: vi.fn(async (soql: string) =>
-      soql.includes('IsSandbox') ? page([{ Id: ORG_ID, IsSandbox: true }]) : page([]),
+      soql.includes('IsSandbox')
+        ? page([{ Id: ORG_ID, IsSandbox: true }])
+        : /\bFROM UserPermissionAccess\b/.test(soql)
+          ? page([{ PermissionsAssignPermissionSets: true, PermissionsManageUsers: false }])
+          : page([]),
     ),
     queryMore: vi.fn(),
     describe: vi.fn(async (object: string) => ({ name: object, fields: [] })),

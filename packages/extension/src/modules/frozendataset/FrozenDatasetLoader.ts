@@ -314,6 +314,18 @@ export interface FrozenLoadOptions {
    * describe read just after an assignment already saying what it opened.
    */
   lease?: { giveBack: () => Promise<unknown> };
+  /**
+   * What goes with a reload's purge beside the records the loads before it
+   * created: the sweep of what the target's automation made for each of
+   * them, as a removal of that load sweeps it, found and judged by its caller
+   * before the load and the lease. `first` runs once the purge is planned,
+   * before its first delete — what the automation hung under a record of
+   * those loads goes before it —, `afterPurge` once its deletes are through,
+   * and not after a cancel or a failure. Purged alone, the loads replaced
+   * left the tasks a flow had opened on each contact they inserted, one set
+   * per load. Ignored for a pilot, which purges nothing.
+   */
+  purgeSweep?: { first: () => Promise<unknown>; afterPurge: () => Promise<unknown> };
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -321,9 +333,12 @@ export interface FrozenLoadOptions {
 /**
  * Options of a preview of a load ({@link FrozenDatasetLoader.planLoad}): a
  * load's, but for what only a write hears — Production Guard's decisions, the
- * cancel and the mute's lease.
+ * cancel, the mute's lease and the sweep around the purge.
  */
-export type FrozenLoadPlanOptions = Omit<FrozenLoadOptions, 'onGuardDecision' | 'signal' | 'lease'>;
+export type FrozenLoadPlanOptions = Omit<
+  FrozenLoadOptions,
+  'onGuardDecision' | 'signal' | 'lease' | 'purgeSweep'
+>;
 
 /** What {@link FrozenDatasetLoader.gateLoad} judges of a load, and whom it tells. */
 export type FrozenLoadGateOptions = Pick<
@@ -2128,6 +2143,14 @@ export class FrozenDatasetLoader {
             keptObjects.map(([objectApiName, count]) => `${objectApiName} (${count})`).join(', ');
         }
         try {
+          // What the target's automation made for the loads replaced goes
+          // around their records, as a removal's sweep goes around a load's:
+          // what hangs under one of them first, what one of them points at
+          // once it is gone. A cancel before it stops the reload there.
+          if (options.purgeSweep) {
+            await checkpoint();
+            await options.purgeSweep.first();
+          }
           await this.purgeResiduals(
             options,
             plan,
@@ -2138,6 +2161,9 @@ export class FrozenDatasetLoader {
             notReached,
             secondTry,
           );
+          if (options.purgeSweep && !options.signal?.aborted) {
+            await options.purgeSweep.afterPurge();
+          }
         } catch (err: unknown) {
           emit(purgeLine(err instanceof FrozenLoadCancelledError ? undefined : { cause: err }));
           throw err;

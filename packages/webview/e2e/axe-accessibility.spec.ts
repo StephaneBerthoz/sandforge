@@ -8114,6 +8114,36 @@ for (const theme of SCANNED_THEMES) {
         .waitFor({ timeout: 10_000 });
 
       expectNoViolations(await checkAccessibility(page));
+
+      // Its sweep ticked: what it would take for each load the reload replaces, listed.
+      await dialog.getByTestId('frozen-reload-sweep-toggle').check();
+      await bridge.waitForMessage('frozen:remove:sweep', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:sweep', 'frozen:remove:sweep:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        reload: true,
+        loads: [
+          {
+            loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+            listing: {
+              looked: ['Contact', 'Task'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 2,
+                  names: ['Follow up'],
+                  classes: { made: 2, madeOver: 0, late: 0, untied: 0 },
+                },
+              ],
+              unread: [],
+              handWork: [],
+              untied: { objects: [] },
+            },
+          },
+        ],
+      });
+      await dialog.getByTestId('frozen-reload-sweep-load').waitFor({ timeout: 10_000 });
+
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Frozen reload refused while records would be left, then the take-back confirmation it opens', async ({

@@ -5199,7 +5199,11 @@
         "description_one": "Dieses Neuladen löscht aus {{org}} {{count}} Datensatz, den frühere Ladevorgänge dieses Datasets erstellt haben und den dieser nicht wiederfindet, und lädt dann das Dataset.",
         "description_other": "Dieses Neuladen löscht aus {{org}} {{count}} Datensätze, die frühere Ladevorgänge dieses Datasets erstellt haben und die dieser nicht wiederfindet, und lädt dann das Dataset.",
         "deactivate_one": "Es deaktiviert {{count}} weiteren Datensatz eines Objekts, das die Plattform nicht löscht.",
-        "deactivate_other": "Es deaktiviert {{count}} weitere Datensätze von Objekten, die die Plattform nicht löscht."
+        "deactivate_other": "Es deaktiviert {{count}} weitere Datensätze von Objekten, die die Plattform nicht löscht.",
+        "sweep": "Auch aufräumen: löschen, was Flows und Trigger des Ziels für die Ladevorgänge erstellt haben, die dieses Neuladen ersetzt, und was die Bereinigung in der Org lässt",
+        "sweepOf": "Für den Ladevorgang vom {{date}}",
+        "heldReading": "Warten darauf, was das Aufräumen nimmt und was {{org}} ausführt, wenn es dies löscht: Das Neuladen lässt sich bestätigen, sobald beides gelesen ist.",
+        "heldUnread": "Was das Aufräumen nehmen würde, konnte nicht gelesen werden, und damit auch nicht, was {{org}} beim Löschen ausführt: Ein Neuladen mit diesem Aufräumen lässt sich nicht bestätigen."
       }
     },
     "preview": {
@@ -5293,7 +5297,8 @@
         "leftEmpty": "Leer gebliebene Verknüpfungen",
         "targetNotLoaded": "Der Datensatz, auf den sie verweist, wurde nicht geladen",
         "lostWithTheirRecord": "Verloren mit den Datensätzen, die sie tragen und die der Ladevorgang nicht geschrieben hat: {{links}}"
-      }
+      },
+      "sweptFor": "Aufgeräumt für den Ladevorgang vom {{date}}"
     },
     "removal": {
       "title": "Letzter Ladevorgang",

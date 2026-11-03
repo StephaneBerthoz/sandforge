@@ -29,6 +29,7 @@ import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasRefe
 import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
+import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
 import { frozenAnswer, main } from './sandforge-frozen.js';
 
 /*
@@ -602,7 +603,7 @@ function targetOrg(contactModified = '2026-10-20T10:02:00.000+0000') {
   };
   vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
   vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
-  return { writes };
+  return { writes, conn };
 }
 
 /** A load into the target that created the account and the contact. */
@@ -720,6 +721,13 @@ describe('sandforge-frozen load --reload, a replace', () => {
       expect(answer.ended).toBe(true);
       expect(answer.refusals[0]).toContain('ContactCleanup');
       expect(answer.refusals[0]).toContain('--accept-automation');
+      // Said of the reload: it said "this removal" and "remove all the same"
+      // of a load asked to replace the one before.
+      expect(answer.refusals[0]).toContain(
+        "TGT runs automation on the records this reload's purge deletes: Contact: Apex trigger ContactCleanup",
+      );
+      expect(answer.refusals[0]).toContain('Add --accept-automation to reload all the same');
+      expect(answer.refusals[0]).not.toContain('removal');
       // A pipeline reads the code, as it reads a refused clone's, seed's or sync's.
       expect(answer.refused).toEqual({
         code: 'AUTOMATION_NOT_ACCEPTED',
@@ -857,5 +865,122 @@ describe('sandforge-frozen load --dry-run --max-total', () => {
 
     expect(process.exitCode ?? 0).toBe(0);
     expect(dryRunAnswer.parse(JSON.parse(printed.join(''))).refusals).toBeUndefined();
+  });
+
+  describe('with --mute-automation, by a user who cannot assign permission sets', () => {
+    /** The objects the permission org answers for: a mute's reads of the permission sets. */
+    const PERMISSION_OBJECTS =
+      /\bFROM\s+(Organization|UserPermissionAccess|PermissionSetAssignment|SetupEntityAccess|ObjectPermissions|CustomPermission|PermissionSet)\b/i;
+
+    /** A flow on the accounts a bypass keeps quiet, which a set of the target holds. */
+    const QUIETED = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Welcome',
+              label: 'Account welcome',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [{ name: 'Load_Data', bypass: true }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Load_Data',
+          permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+        },
+      ],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+
+    /** The target, its permission sets read as the org answers a user without the right. */
+    function withoutTheRight() {
+      const { conn: base } = targetOrg();
+      const permissions = memoryPermissionOrg({
+        userId: '005000000000001AAA',
+        organizationId: ORG_ID,
+        canAssign: false,
+        sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+      });
+      const conn = {
+        ...base,
+        identity: permissions.connection.identity,
+        query: async (soql: string) =>
+          !soql.includes('IsSandbox') && PERMISSION_OBJECTS.test(soql)
+            ? permissions.connection.query(soql)
+            : base.query(soql),
+        sobject: (object: string) =>
+          object === 'PermissionSetAssignment'
+            ? permissions.connection.sobject(object)
+            : base.sobject(object),
+      };
+      vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(QUIETED);
+      return permissions;
+    }
+
+    it('says a load would be refused for it, assigns nothing and plans no mute: exit 1, where it said "mute planned"', async () => {
+      const permissions = withoutTheRight();
+      vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue(PLAN);
+
+      await main(
+        argv(
+          'load',
+          '--config',
+          configPath,
+          '--target',
+          'TGT',
+          '--dry-run',
+          '--mute-automation',
+          '--json',
+        ),
+      );
+
+      expect(process.exitCode).toBe(1);
+      const answer = JSON.parse(printed.join('')) as {
+        refusals?: string[];
+        mutedAutomation?: unknown;
+      };
+      expect(answer.refusals).toEqual([
+        expect.stringContaining('the user the run writes as cannot assign permission sets'),
+      ]);
+      expect(answer).not.toHaveProperty('mutedAutomation');
+      expect(permissions.assignments()).toEqual([]);
+      expect(permissions.writes).toEqual([]);
+    });
+
+    it('is refused so by the load itself, before it writes', async () => {
+      const permissions = withoutTheRight();
+
+      await main(
+        argv(
+          'load',
+          '--config',
+          configPath,
+          '--target',
+          'TGT',
+          '--mute-automation',
+          '--yes',
+          '--json',
+        ),
+      );
+
+      expect(process.exitCode).toBe(1);
+      const answer = JSON.parse(printed.join('')) as {
+        posted: Array<{ type: string; payload: { code?: string } }>;
+      };
+      expect(answer.posted.find((m) => m.type === 'frozen:load:error')?.payload.code).toBe(
+        'MUTE_NO_RIGHT',
+      );
+      expect(permissions.assignments()).toEqual([]);
+    });
   });
 });

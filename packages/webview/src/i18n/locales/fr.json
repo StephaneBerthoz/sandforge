@@ -5199,7 +5199,11 @@
         "description_one": "Ce rechargement supprime de {{org}} {{count}} enregistrement que des chargements antérieurs de ce jeu de données ont créé et que celui-ci ne retrouve pas, puis charge le jeu de données.",
         "description_other": "Ce rechargement supprime de {{org}} {{count}} enregistrements que des chargements antérieurs de ce jeu de données ont créés et que celui-ci ne retrouve pas, puis charge le jeu de données.",
         "deactivate_one": "Il en désactive {{count}} de plus, d'un objet que la plateforme ne supprime pas.",
-        "deactivate_other": "Il en désactive {{count}} de plus, d'objets que la plateforme ne supprime pas."
+        "deactivate_other": "Il en désactive {{count}} de plus, d'objets que la plateforme ne supprime pas.",
+        "sweep": "Balayer aussi : supprimer ce que les Flows et déclencheurs de la cible ont créé pour les chargements que ce rechargement remplace, et que la purge laisse dans l'org",
+        "sweepOf": "Pour le chargement du {{date}}",
+        "heldReading": "En attente de ce que prend le balayage, et de ce que {{org}} exécute quand il le supprime : le rechargement se confirme une fois les deux lus.",
+        "heldUnread": "Ce que prendrait le balayage n'a pas pu être lu, ni ce que {{org}} exécute quand il le supprime : un rechargement avec ce balayage ne peut pas être confirmé."
       }
     },
     "preview": {
@@ -5293,7 +5297,8 @@
         "leftEmpty": "Liens laissés vides",
         "targetNotLoaded": "L'enregistrement qu'il désigne n'a pas été chargé",
         "lostWithTheirRecord": "Perdus avec les enregistrements qui les portent, que le chargement n'a pas écrits : {{links}}"
-      }
+      },
+      "sweptFor": "Balayé pour le chargement du {{date}}"
     },
     "removal": {
       "title": "Dernier chargement",
