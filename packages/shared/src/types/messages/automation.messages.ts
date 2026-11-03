@@ -318,12 +318,12 @@ export type MigrationImportRefusal =
  * `unknownOperation`, `deletesElsewhere`, `mockAllFields`, `duplicate`.
  *
  * An object kept, doing less or more than SFDMU would: `delete`, `updateKey`,
- * `upsertKey`, `unusableKey`, `fieldMappingOff`, `valueRows`, `notMaster`,
- * `limit`, `queryClause`, `queryUnread`, `whereRefused`, `deleteOldData`,
- * `mockFields`, `nameDiffers`, `settings`.
+ * `defaultKey`, `upsertKey`, `unusableKey`, `fieldMappingOff`, `valueRows`,
+ * `notMaster`, `limit`, `queryClause`, `queryUnread`, `whereRefused`,
+ * `deleteOldData`, `mockFields`, `nameDiffers`, `settings`.
  *
- * The file as a whole: `everyField`, `objectSets`, `mappingFileUnread`, and
- * `settings` when it names no object.
+ * The file as a whole: `everyField`, `contactPoints`, `objectSets`,
+ * `mappingFileUnread`, and `settings` when it names no object.
  */
 export type MigrationImportNoteCode =
   | 'excluded'
@@ -335,6 +335,7 @@ export type MigrationImportNoteCode =
   | 'duplicate'
   | 'delete'
   | 'updateKey'
+  | 'defaultKey'
   | 'upsertKey'
   | 'unusableKey'
   | 'fieldMappingOff'
@@ -349,6 +350,7 @@ export type MigrationImportNoteCode =
   | 'nameDiffers'
   | 'settings'
   | 'everyField'
+  | 'contactPoints'
   | 'objectSets'
   | 'mappingFileUnread';
 

@@ -12,6 +12,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import { syncConfigPayloadSchema } from '../validatePayload.js';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
+import { contactPointsOfRun } from '../../modules/sync/syncContactPoints.js';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -405,6 +406,18 @@ describe('MigrationHandler', () => {
         { sourceField: 'ParentId', targetField: 'ParentTestObject__c', type: 'rename' },
         { sourceField: 'ExternalID__c', targetField: 'External_ID__c', type: 'rename' },
       ]);
+    });
+
+    it('saves the emails and phone numbers neutralized, unless the page asked to keep them', async () => {
+      // SFDMU copies them as read; the note says so, and the page's box keeps them.
+      const imported = await importAndSave('simple');
+      await importAndSave('lookups', (config) => ({ ...config, keepContactPoints: true }));
+
+      expect(imported.notes).toContainEqual({ code: 'contactPoints' });
+      const byName = new Map(new SyncConfigStore(store).list().map((saved) => [saved.name, saved]));
+      expect(contactPointsOfRun(byName.get('From simple') ?? {})).toBeDefined();
+      expect(byName.get('From lookups')?.keepContactPoints).toBe(true);
+      expect(contactPointsOfRun(byName.get('From lookups') ?? {})).toBeUndefined();
     });
 
     it('leaves a composite key for the row to name: the save asks for none of Sync’s refusals', async () => {

@@ -215,7 +215,7 @@ describe('docs/modules/sync.md', () => {
       expect(SYNC_HANDLER).toContain(start);
     }
     expect(SYNC_CLI).toContain('const fieldless = fieldlessTransformRules(read.config.objects);');
-    expect(SYNC_PAGE).toContain('disabled={filesNeedSave || transformsNeedField}');
+    expect(SYNC_PAGE).toContain('disabled={filesNeedSave || transformsNeedField || openedUnread}');
     expect(SYNC_PAGE_DATA).toContain(
       'transformRules: transformRulesOf(entry.objectApiName, transforms),',
     );

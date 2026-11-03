@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { syncConfigSchema } from '@sandforge/shared';
+import type { SyncConfig } from '@sandforge/shared';
+import { TransformPipeline } from '../sync/TransformPipeline';
+import { orderSyncObjects } from '../sync/syncWriteOrder';
+import { contactPointsOfRun } from '../sync/syncContactPoints';
 import {
   SfdmuImporter,
   SfdmuRefusal,
@@ -466,24 +470,53 @@ describe('SfdmuImporter', () => {
       expect(config.objects.map((object) => object.objectApiName)).toEqual(['Case']);
     });
 
+    // SFDMU's export.schema.json requires no key of a mapping item, and its
+    // MappingResolver.ts reads one under `if (mapping.targetObject)` and
+    // `if (mapping.sourceField && mapping.targetField)` alone.
     it.each([
       ['half a field pair', { sourceField: 'Name' }],
       ['half a field pair beside a target', { targetObject: 'Account', targetField: 'Name' }],
       ['an entry that names nothing', {}],
       ['an empty target and no field', { targetObject: '' }],
-    ])('still refuses %s, which maps nothing', (_label, entry) => {
-      const result = sfdmuExportSchema.safeParse({
-        objects: [
-          {
-            query: 'SELECT Id FROM Account',
-            operation: 'Insert',
-            objectName: 'Account',
-            fieldMapping: [entry],
-          },
-        ],
-      });
+      ['an empty field pair', { sourceField: '', targetField: '' }],
+    ])('takes %s, and maps nothing by it, as SFDMU does', async (_label, entry) => {
+      const { config, notes } = await new SfdmuImporter(
+        createMockFileReader(
+          JSON.stringify({
+            objects: [
+              {
+                query: 'SELECT Id, Name FROM Account',
+                operation: 'Insert',
+                useFieldMapping: true,
+                fieldMapping: [entry, { sourceField: 'BillingCity', targetField: 'ShippingCity' }],
+              },
+            ],
+          }),
+        ),
+      ).import('/path/to/export.json');
 
-      expect(result.success).toBe(false);
+      expect(config.objects[0].fieldMappings).toEqual([
+        { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+      ]);
+      expect(notes.filter((note) => note.object === 'Account')).toEqual([]);
+    });
+
+    it('counts no entry that maps nothing among the mappings useFieldMapping off ignores', async () => {
+      const { notes } = await new SfdmuImporter(
+        createMockFileReader(
+          JSON.stringify({
+            objects: [
+              {
+                query: 'SELECT Id, Name FROM Account',
+                operation: 'Insert',
+                fieldMapping: [{ sourceField: 'Name' }, { sourceField: 'A', targetField: 'B' }],
+              },
+            ],
+          }),
+        ),
+      ).import('/path/to/export.json');
+
+      expect(notes).toContainEqual({ code: 'fieldMappingOff', object: 'Account', detail: '1' });
     });
   });
 
@@ -754,14 +787,17 @@ describe('SfdmuImporter', () => {
             {
               query: 'SELECT Id FROM Account',
               useFieldMapping: 'yes',
-              fieldMapping: [{ sourceField: 'Name' }],
+              fieldMapping: [{ sourceField: 42, targetField: 'Name' }],
             },
           ],
         }),
       );
 
       expect(refusal.code).toBe('INVALID_EXPORT');
-      expect(refusal.objects).toEqual(['objects[0].useFieldMapping', 'objects[0].fieldMapping[0]']);
+      expect(refusal.objects).toEqual([
+        'objects[0].useFieldMapping',
+        'objects[0].fieldMapping[0].sourceField',
+      ]);
       expect(refusal.message).not.toContain('invalid_type');
       expect(refusal.message).not.toContain('"path"');
     });
@@ -1051,6 +1087,241 @@ describe('SfdmuImporter', () => {
     });
   });
 
+  describe('what a run of the import does, as SFDMU runs the export', () => {
+    /** An export, and the ValueMapping.csv beside it when one is given. */
+    const importing = (script: Record<string, unknown>, valueMapping?: string) =>
+      new SfdmuImporter({
+        readFile: async (path) => {
+          if (path.endsWith('.json')) return JSON.stringify(script);
+          if (valueMapping !== undefined && path.endsWith('ValueMapping.csv')) return valueMapping;
+          throw Object.assign(new Error(`ENOENT: no such file, open '${path}'`), {
+            code: 'ENOENT',
+          });
+        },
+      }).import('/path/to/export.json');
+    const importingObject = (object: Record<string, unknown>, valueMapping?: string) =>
+      importing({ objects: [{ query: 'SELECT Id, Name FROM Account', ...object }] }, valueMapping);
+    const objectNames = (config: SyncConfig): string[] =>
+      config.objects.map((object) => object.objectApiName);
+
+    // SFDMU, MigrationJobTask.ts, resolveMappedValue: `if (typeof mapped ===
+    // 'string' && mapped.length === 0) return { used: false }`, and then
+    // `newValue = rawValue`.
+    it('keeps the value a row of ValueMapping.csv maps to nothing, as SFDMU writes it as read', async () => {
+      const { config, notes } = await importingObject(
+        { operation: 'Upsert', externalId: 'Ext__c', useValuesMapping: true },
+        'ObjectName,FieldName,RawValue,Value\nAccount,Type,Prospect,\nAccount,Rating,Hot,Warm\n',
+      );
+
+      const [account] = config.objects;
+      expect(account.transformRules).toEqual([
+        { type: 'map_value', field: 'Rating', config: { valueMap: { Hot: 'Warm' } } },
+      ]);
+      const written = new TransformPipeline().transformRecord(
+        { Id: '001000000000001AAA', Type: 'Prospect', Rating: 'Hot' },
+        account,
+      );
+      expect(written).toMatchObject({ Type: 'Prospect', Rating: 'Warm' });
+      expect(notes.filter((note) => note.code === 'valueRows')).toEqual([]);
+    });
+
+    // SFDMU, MigrationJobTask.ts, _normalizeMappedValue: `trimmed === 'null' ||
+    // trimmed === 'NULL' || trimmed === 'undefined' || trimmed === '#N/A'`
+    // returns null; _evaluateValueMappingExpression reads eval(...) under
+    // `new RegExp(FIELDS_MAPPING_EVAL_PATTERN, 'i')`.
+    it('applies no row SFDMU reads as an empty field or as code, whatever its case, and names each', async () => {
+      const { config, notes } = await importingObject(
+        { operation: 'Upsert', externalId: 'Ext__c', useValuesMapping: true },
+        [
+          'ObjectName,FieldName,RawValue,Value',
+          'Account,Rating,Cold,null',
+          'Account,Rating,Warm,NULL',
+          'Account,Rating,Lukewarm,undefined',
+          'Account,Rating,Tepid,#N/A',
+          'Account,Rating,Hot,EVAL(1+1)',
+          'Account,Rating,Boiling,Scorching',
+          '',
+        ].join('\n'),
+      );
+
+      const [account] = config.objects;
+      expect(account.transformRules).toEqual([
+        { type: 'map_value', field: 'Rating', config: { valueMap: { Boiling: 'Scorching' } } },
+      ]);
+      const written = new TransformPipeline().transformRecord(
+        { Id: '001000000000001AAA', Rating: 'Cold' },
+        account,
+      );
+      expect(written).toMatchObject({ Rating: 'Cold' });
+      expect(notes).toContainEqual({
+        code: 'valueRows',
+        object: 'Account',
+        detail: 'Rating (Cold), Rating (Warm), Rating (Lukewarm), Rating (Tepid), Rating (Hot)',
+      });
+    });
+
+    // SFDMU, ScriptObject.ts, _initializeFromScript: `this.externalId =
+    // this.externalId || DEFAULT_EXTERNAL_ID_FIELD_NAME`, then, past Insert
+    // and deleteFromSource, `this.externalId = defaultExternalId` from
+    // _getDefaultExternalId: the name field, an auto-number, a unique field.
+    it.each(['Update', 'Upsert'])(
+      'says an %s with no externalId matches on the name field in SFDMU, and Sync does not',
+      async (operation) => {
+        const { config, notes } = await importingObject({ operation });
+
+        expect(config.objects[0].externalIdField).toBeUndefined();
+        expect(notes).toContainEqual({ code: 'defaultKey', object: 'Account' });
+        expect(notes.filter((note) => note.code === 'updateKey')).toEqual([]);
+      },
+    );
+
+    it.each([
+      ['an Update keyed on Id', { operation: 'Update', externalId: 'Id' }],
+      ['an Insert with no key, which SFDMU keys on Id', { operation: 'Insert' }],
+      ['a Delete with no key', { operation: 'Delete' }],
+    ])('says nothing of the key of %s', async (_label, object) => {
+      const { notes } = await importingObject(object);
+
+      expect(notes.filter((note) => note.code === 'defaultKey')).toEqual([]);
+      expect(notes.filter((note) => note.code === 'updateKey')).toEqual([]);
+    });
+
+    // SFDMU, MigrationJob.ts, _createTasks: `this.deleteTasks =
+    // [...deleteChain].reverse()`, and executeAsync runs
+    // _deleteOldRecordsAsync before _updateRecordsAsync. A Delete's query is
+    // forced to Id (_applyDeleteModeSettings), so no lookup orders the chain.
+    it('deletes before it writes, the last delete listed first, as SFDMU does', async () => {
+      const { config } = await importing({
+        objects: [
+          { query: 'SELECT Id, Name FROM Contact', operation: 'Insert' },
+          { query: 'SELECT Id FROM Account', operation: 'Delete' },
+          { query: 'SELECT Id FROM Case', operation: 'Delete' },
+        ],
+      });
+
+      expect(objectNames(config)).toEqual(['Case', 'Account', 'Contact']);
+      expect(config.objects.map((object) => object.insertOrder)).toEqual([1, 2, 3]);
+      const { ordered } = orderSyncObjects(config.objects, new Map());
+      expect(ordered.map((object) => object.objectApiName)).toEqual(['Case', 'Account', 'Contact']);
+    });
+
+    it('deletes in the order of the file under keepObjectOrderWhileExecute, still before it writes', async () => {
+      const { config } = await importing({
+        keepObjectOrderWhileExecute: true,
+        objects: [
+          { query: 'SELECT Id, Name FROM Contact', operation: 'Insert' },
+          { query: 'SELECT Id FROM Account', operation: 'Delete' },
+          { query: 'SELECT Id FROM Case', operation: 'Delete' },
+        ],
+      });
+
+      expect(objectNames(config)).toEqual(['Account', 'Case', 'Contact']);
+    });
+
+    it('orders the deletes of each object set apart, as SFDMU runs each set apart', async () => {
+      const { config } = await importing({
+        objects: [
+          { query: 'SELECT Id FROM Account', operation: 'Delete' },
+          { query: 'SELECT Id FROM Contact', operation: 'Delete' },
+          { query: 'SELECT Id, Name FROM Lead', operation: 'Insert' },
+        ],
+        objectSets: [
+          {
+            objects: [
+              { query: 'SELECT Id, Subject FROM Task', operation: 'Insert' },
+              { query: 'SELECT Id FROM Case', operation: 'Delete' },
+            ],
+          },
+        ],
+      });
+
+      expect(objectNames(config)).toEqual(['Contact', 'Account', 'Lead', 'Case', 'Task']);
+    });
+
+    // SFDMU, ScriptObject.ts: getMappedExternalIdFieldName() returns
+    // _mapQueryFieldNameToTarget(this.externalId, this), and
+    // MigrationJobTask.ts matches the target on it (_getResolvedExternalIdFieldName).
+    it('keys an object on its externalId as a field mapping names it in the target', async () => {
+      const { config, notes } = await importingObject({
+        operation: 'Upsert',
+        externalId: 'ExternalID__c',
+        useFieldMapping: true,
+        fieldMapping: [{ sourceField: 'ExternalID__c', targetField: 'External_ID__c' }],
+      });
+
+      expect(config.objects[0].externalIdField).toBe('External_ID__c');
+      expect(notes.filter((note) => note.object === 'Account')).toEqual([]);
+    });
+
+    it('keys it on its own name with useFieldMapping off, as SFDMU maps nothing then', async () => {
+      const { config } = await importingObject({
+        operation: 'Upsert',
+        externalId: 'ExternalID__c',
+        fieldMapping: [{ sourceField: 'ExternalID__c', targetField: 'External_ID__c' }],
+      });
+
+      expect(config.objects[0].externalIdField).toBe('ExternalID__c');
+    });
+
+    it('names the key a mapping gives an update in the target', async () => {
+      const { notes } = await importingObject({
+        operation: 'Update',
+        externalId: 'Name',
+        useFieldMapping: true,
+        fieldMapping: [{ sourceField: 'Name', targetField: 'Legacy_Name__c' }],
+      });
+
+      expect(notes).toContainEqual({
+        code: 'updateKey',
+        object: 'Account',
+        detail: 'Legacy_Name__c',
+      });
+    });
+
+    // `where` is no key of SFDMU's export.schema.json: SFDMU runs the query.
+    it.each([
+      ['an empty where', ''],
+      ['a where of its own', "Type = 'Other'"],
+    ])('filters on the query’s WHERE over %s, and names the key', async (_label, where) => {
+      const { config, notes } = await importingObject({
+        query: "SELECT Id FROM Account WHERE Type = 'Test'",
+        operation: 'Delete',
+        where,
+      });
+
+      expect(config.objects[0].where).toBe("Type = 'Test'");
+      expect(notes.filter((note) => note.code === 'settings' && note.object === 'Account')).toEqual(
+        where === '' ? [] : [{ code: 'settings', object: 'Account', detail: 'where' }],
+      );
+    });
+
+    // SFDMU writes the values it reads; Sync's run neutralizes emails and
+    // phone numbers unless the configuration sets keepContactPoints.
+    it('says a run neutralizes the emails and phone numbers SFDMU copies as read', async () => {
+      const { config, notes } = await importingObject({ operation: 'Insert' });
+
+      expect(notes).toContainEqual({ code: 'contactPoints' });
+      expect(config.keepContactPoints).toBeUndefined();
+      expect(contactPointsOfRun(config)).toBeDefined();
+    });
+
+    it('says nothing of emails and phone numbers for a file of deletes alone', async () => {
+      const { notes } = await importingObject({ operation: 'Delete' });
+
+      expect(notes.filter((note) => note.code === 'contactPoints')).toEqual([]);
+    });
+
+    it('takes a where for a query that has none, as files written for the import carry', async () => {
+      const { config, notes } = await importingObject({
+        operation: 'Insert',
+        where: "Type = 'Test'",
+      });
+
+      expect(config.objects[0].where).toBe("Type = 'Test'");
+      expect(notes.filter((note) => note.code === 'settings')).toEqual([]);
+    });
+  });
+
   describe('extractDependencies', () => {
     it('should extract parent/child dependencies from relationship fields', () => {
       const exportData = createRealisticSfdmuExport();
@@ -1197,7 +1468,8 @@ describe('SfdmuImporter', () => {
       const result = sfdmuExportSchema.parse(data);
       expect(result.objects[0].excludedFields).toEqual([]);
       expect(result.objects[0].master).toBe(true);
-      expect(result.objects[0].externalId).toBe('Id');
+      // No key is not Id: SFDMU keys such an object on its name field, past an Insert.
+      expect(result.objects[0].externalId).toBeUndefined();
     });
   });
 });

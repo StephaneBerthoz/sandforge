@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import '../../i18n';
 import { useSyncPageData } from './useSyncPageData';
@@ -27,13 +27,16 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   ) => {
     queries.set(requestType, { payload, options });
     return {
-      data: null,
+      data: requestType === 'sync:config:load' ? openedRead.data : null,
       loading: false,
       error: null,
       refetch: vi.fn(),
     };
   },
 }));
+
+/** What `sync:config:load` answers the execute step of a configuration opened here. */
+const openedRead = vi.hoisted(() => ({ data: null as Record<string, unknown> | null }));
 
 /**
  * State of the sync:execute mutation, set by the tests that need a run going.
@@ -1027,6 +1030,43 @@ describe('useSyncPageData', () => {
       execution.loading = false;
       simulation.loading = false;
       simulation.data = null;
+      // Read back as it opens, for the execute step to say what it does.
+      openedRead.data = { config: SAVED };
+    });
+    afterEach(() => {
+      openedRead.data = null;
+    });
+
+    it('reads it back as it opens, and runs nothing before the execute step can say what it does', () => {
+      openedRead.data = null;
+      const { result } = openedFromMigration();
+
+      expect(queries.get('sync:config:load')).toEqual({
+        payload: { id: 'cfg-9' },
+        options: expect.objectContaining({ skip: false }),
+      });
+      expect(result.current.openedConfigEntries).toBeNull();
+      act(() => result.current.handleExecute());
+      expect(readBack.mutate).not.toHaveBeenCalled();
+    });
+
+    it('gives the execute step its objects as saved, with their operations', () => {
+      const { result } = openedFromMigration();
+
+      expect(result.current.openedConfigEntries).toEqual([
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+      ]);
+      // The order its objects go in is read of it, on the execute step.
+      expect(queries.get('sync:write-order')).toEqual({
+        payload: { config: SAVED },
+        options: expect.objectContaining({ skip: false }),
+      });
     });
 
     it('opens on the execute step, between the orgs it runs between, and names it', () => {

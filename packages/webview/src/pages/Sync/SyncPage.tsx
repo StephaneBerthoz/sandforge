@@ -258,6 +258,7 @@ export const SyncPage: React.FC = () => {
   const heldRecordsHintId = React.useId();
   const filesNeedSaveId = React.useId();
   const transformsNeedFieldId = React.useId();
+  const openedUnreadId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -328,6 +329,8 @@ export const SyncPage: React.FC = () => {
     handleRunSavedConfig,
     savedRunLabel,
     openedConfigLabel,
+    openedConfigEntries,
+    openedConfigGone,
     savedRunStarting,
     configSaved,
     savedConfigs,
@@ -349,8 +352,17 @@ export const SyncPage: React.FC = () => {
   const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
   /** What keeps Simulate and Run off, said beside them. */
+  /**
+   * A saved configuration opened here runs once what each of its objects does
+   * is on screen: until it is read back, Simulate and Run wait, and say why.
+   */
+  const openedUnread = openedConfigLabel !== null && openedConfigEntries === null;
   const runHeldBy =
-    [filesNeedSave && filesNeedSaveId, transformsNeedField && transformsNeedFieldId]
+    [
+      filesNeedSave && filesNeedSaveId,
+      transformsNeedField && transformsNeedFieldId,
+      openedUnread && openedUnreadId,
+    ]
       .filter(Boolean)
       .join(' ') || undefined;
 
@@ -1016,6 +1028,33 @@ export const SyncPage: React.FC = () => {
                     })}
                   </p>
                 )}
+                {/* What each object of the configuration opened does, as Review
+                  says it of the wizard's: an imported Delete was one click
+                  from its run, and Review, which said it, out of reach. */}
+                {!busy && openedConfigEntries !== null && (
+                  <SyncReviewObjects
+                    entries={openedConfigEntries}
+                    order={writeOrder}
+                    orderLoading={writeOrderLoading}
+                    orderUnread={writeOrderUnread}
+                    saved
+                    encrypted={writeOrderEncrypted}
+                  />
+                )}
+                {!busy && openedUnread && (
+                  <p
+                    id={openedUnreadId}
+                    className={
+                      openedConfigGone ? 'text-xs text-status-error' : 'text-xs text-text-secondary'
+                    }
+                    role={openedConfigGone ? 'alert' : 'status'}
+                    data-testid="sync-opened-unread"
+                  >
+                    {openedConfigGone
+                      ? t('syncParts.savedConfigs.gone')
+                      : t('syncParts.savedConfigs.reading')}
+                  </p>
+                )}
                 {/* Files are copied by a saved configuration only: the
                   extension refuses a run and a simulation of one that is not
                   saved, so both wait for the save, and say why. The save is
@@ -1112,7 +1151,7 @@ export const SyncPage: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={handleSimulate}
-                        disabled={filesNeedSave || transformsNeedField}
+                        disabled={filesNeedSave || transformsNeedField || openedUnread}
                         aria-describedby={runHeldBy}
                         data-testid="sync-simulate"
                       >
@@ -1122,7 +1161,7 @@ export const SyncPage: React.FC = () => {
                         variant="primary"
                         size="sm"
                         onClick={handleExecute}
-                        disabled={filesNeedSave || transformsNeedField}
+                        disabled={filesNeedSave || transformsNeedField || openedUnread}
                         aria-describedby={runHeldBy}
                         data-testid="sync-run"
                       >

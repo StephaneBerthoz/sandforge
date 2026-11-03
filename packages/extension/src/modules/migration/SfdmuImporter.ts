@@ -33,19 +33,17 @@ import type { FieldMappingRow, ValueMappingRow } from './sfdmuMappingFiles.js';
  * object to another object of the target, and `sourceField` with `targetField`
  * sends a field to another field. SFDMU's documentation writes `targetObject`
  * on an entry of its own, which read here as two missing fields.
+ *
+ * SFDMU's own schema requires none of the three, and its resolver passes over
+ * an entry that names neither a target nor both fields of a pair: such an
+ * entry, refused here, made the whole file "not of the kind SFDMU's format
+ * holds", though SFDMU ran it.
  */
-const sfdmuFieldMappingItemSchema = z
-  .object({
-    targetObject: z.string().optional(),
-    sourceField: z.string().min(1).optional(),
-    targetField: z.string().min(1).optional(),
-  })
-  .refine(
-    ({ targetObject, sourceField, targetField }) =>
-      (sourceField === undefined) === (targetField === undefined) &&
-      (sourceField !== undefined || Boolean(targetObject)),
-    { message: 'A field mapping names a targetObject, or a sourceField with its targetField.' },
-  );
+const sfdmuFieldMappingItemSchema = z.object({
+  targetObject: z.string().optional(),
+  sourceField: z.string().optional(),
+  targetField: z.string().optional(),
+});
 
 /** Schema for a single SFDMU values mapping entry */
 const sfdmuValuesMappingItemSchema = z.object({
@@ -75,7 +73,9 @@ const sfdmuScriptObjectSchema = z.looseObject({
   name: z.string().optional(),
   objectName: z.string().optional(),
   operation: z.string().optional(),
-  externalId: z.string().optional().default('Id'),
+  // No default: an object that names none is keyed by SFDMU on its name field,
+  // not on Id, and the import says so.
+  externalId: z.string().optional(),
   master: z.boolean().optional().default(true),
   excluded: z.boolean().optional(),
   excludedFields: z.array(z.string()).optional().default([]),
@@ -264,6 +264,8 @@ type CarriedOperation = Exclude<SfdmuOperation, 'Readonly' | 'DeleteSource' | 'D
 /** An entry of the export, read: what it selects from, and where the file holds it. */
 type ReadEntry = SfdmuScriptObject & {
   place: string;
+  /** The set SFDMU runs it in: 0 for `objects`, then each of `objectSets` in turn. */
+  set: number;
   object: string;
   read: SfdmuQuery;
   /** Undefined: SFDMU has no operation of that name. */
@@ -309,9 +311,13 @@ function operationOf(entry: SfdmuScriptObject): SfdmuOperation | undefined {
  */
 function readEntries(script: SfdmuExport): ReadEntry[] {
   const placed = [
-    ...script.objects.map((entry, at) => ({ entry, place: `objects[${at}]` })),
+    ...script.objects.map((entry, at) => ({ entry, set: 0, place: `objects[${at}]` })),
     ...(script.objectSets ?? []).flatMap((set, setAt) =>
-      set.objects.map((entry, at) => ({ entry, place: `objectSets[${setAt}].objects[${at}]` })),
+      set.objects.map((entry, at) => ({
+        entry,
+        set: setAt + 1,
+        place: `objectSets[${setAt}].objects[${at}]`,
+      })),
     ),
   ];
   const unnamed = placed
@@ -325,14 +331,33 @@ function readEntries(script: SfdmuExport): ReadEntry[] {
       unnamed,
     );
   }
-  return placed.map(({ entry, place }) => ({
-    ...entry,
-    place,
-    object: objectNameOf(entry) ?? '',
-    read: readSfdmuQuery(entry.query ?? ''),
-    sfdmuOperation: operationOf(entry),
-    settingsLeft: settingsNotRead(entry, OBJECT_KEYS_READ),
-  }));
+  return placed.map(({ entry, set, place }) => {
+    const read = readSfdmuQuery(entry.query ?? '');
+    return {
+      ...entry,
+      place,
+      set,
+      object: objectNameOf(entry) ?? '',
+      read,
+      sfdmuOperation: operationOf(entry),
+      settingsLeft: [
+        ...settingsNotRead(entry, OBJECT_KEYS_READ),
+        ...(whereOf({ ...entry, read }) !== entry.where && isSet(entry.where) ? ['where'] : []),
+      ],
+    };
+  });
+}
+
+/**
+ * The filter of an entry: the WHERE of its query, which SFDMU runs. `where`
+ * is no key of SFDMU's, which ignores it; it counts only for a query that has
+ * no WHERE, as files written for this importer carried it there. Taken over
+ * the query's, an empty one read every record of the object, which a Delete
+ * then removed from the target where they held the ids.
+ */
+function whereOf(entry: Pick<ReadEntry, 'where' | 'read'>): string | undefined {
+  if (entry.read.where !== undefined) return entry.read.where;
+  return entry.where?.trim() ? entry.where : undefined;
 }
 
 /** What SFDMU's `mockFields` calls every field of an object. */
@@ -376,16 +401,23 @@ function whyLeftOut(entry: ReadEntry): Pick<MigrationImportNote, 'code' | 'detai
 }
 
 /**
+ * The values SFDMU writes as an empty field (`_normalizeMappedValue`). A Map
+ * Value rule would write them as text: `null` into a rating SFDMU clears.
+ */
+const SFDMU_NULL_VALUES: ReadonlySet<string> = new Set(['null', 'NULL', 'undefined', '#N/A']);
+
+/**
  * Whether a Map Value rule can apply a row of `ValueMapping.csv`: it maps one
  * exact value to another on a field. SFDMU's `/regex/` and `eval(…)` are code,
- * and its `#N/A` writes null, which the rule would write as those four letters.
+ * an `eval` of any case, as SFDMU reads it, and its null values write an
+ * empty field, which the rule would write as their letters.
  */
 function isExactValueRow(row: { field: string; rawValue: string; value: string }): boolean {
   return (
     validateSoqlIdentifier(row.field) &&
     !/^\/.*\/$/.test(row.rawValue) &&
-    !/^eval[(].*[)]$/.test(row.value) &&
-    row.value !== '#N/A'
+    !/^eval[(].*[)]$/i.test(row.value) &&
+    !SFDMU_NULL_VALUES.has(row.value.trim())
   );
 }
 
@@ -453,13 +485,19 @@ function notesOf(entry: KeptEntry): MigrationImportNote[] {
   const add = (code: MigrationImportNoteCode, detail?: string): void => {
     notes.push({ code, object: entry.object, ...(detail === undefined ? {} : { detail }) });
   };
-  const { read, sfdmuOperation: operation, externalId: key } = entry;
+  const { read, sfdmuOperation: operation } = entry;
+  const asked = targetKeyOf(entry);
+  const key = asked ?? 'Id';
   const deletes = operation === 'Delete' || operation === 'HardDelete';
 
   if (read.object === undefined) add('queryUnread');
   const named = entry.name || entry.objectName;
   if (named && named.toLowerCase() !== entry.object.toLowerCase()) add('nameDiffers', named);
   if (deletes) add('delete', entry.hardDelete ? 'HardDelete' : operation);
+  // SFDMU keys an object that names no key on its name field, past an Insert.
+  if (asked === undefined && (operation === 'Update' || operation === 'Upsert')) {
+    add('defaultKey');
+  }
   if (operation === 'Update' && key !== 'Id') add('updateKey', key);
   if (key !== 'Id' && !validateSoqlIdentifier(key)) add('unusableKey', key);
   else if (operation === 'Upsert' && key !== 'Id' && !key.endsWith('__c')) add('upsertKey', key);
@@ -468,7 +506,7 @@ function notesOf(entry: KeptEntry): MigrationImportNote[] {
   if (entry.master === false) add('notMaster');
   const limit = entry.limit ?? read.limit;
   if (limit !== undefined) add('limit', String(limit));
-  const where = entry.where ?? read.where;
+  const where = whereOf(entry);
   if (where !== undefined && !isSafeSoqlWhere(where)) add('whereRefused');
   const orderBy = entry.orderBy ?? read.orderBy;
   if (orderBy !== undefined && !isSafeSoqlOrderBy(orderBy)) {
@@ -481,11 +519,33 @@ function notesOf(entry: KeptEntry): MigrationImportNote[] {
   return notes;
 }
 
-/** An entry of a `fieldMapping` that names a field, rather than a target object alone. */
+/**
+ * An entry of a `fieldMapping` that names a field, rather than a target object
+ * alone: both fields of the pair, as SFDMU reads one (`mapping.sourceField &&
+ * mapping.targetField`).
+ */
 function namesAField(
   item: SfdmuFieldMappingItem,
 ): item is SfdmuFieldMappingItem & { sourceField: string; targetField: string } {
-  return item.sourceField !== undefined && item.targetField !== undefined;
+  return Boolean(item.sourceField) && Boolean(item.targetField);
+}
+
+/** An entry of a `fieldMapping` that maps anything: a field, or the object to a target. */
+function mapsAnything(item: SfdmuFieldMappingItem): boolean {
+  return namesAField(item) || Boolean(item.targetObject);
+}
+
+/**
+ * The field the target matches an entry on, or `undefined` when the export
+ * names none: its `externalId`, under the name a field mapping gives that
+ * field in the target, as SFDMU matches it (`getMappedExternalIdFieldName`).
+ * Carried under its source name, a key a mapping renames named a field the
+ * mapped record no longer holds, and the run refused the object for it.
+ */
+function targetKeyOf(entry: KeptEntry): string | undefined {
+  const key = entry.externalId;
+  if (key === undefined || key.trim() === '') return undefined;
+  return fieldPairsOf(entry.fieldMapping).find((m) => m.sourceField === key)?.targetField ?? key;
 }
 
 /**
@@ -592,6 +652,9 @@ export class SfdmuImporter {
     if (sets > 1) onTheFile.push({ code: 'objectSets', detail: String(sets) });
     if (kept.some((entry) => mapOperation(entry.sfdmuOperation) !== 'delete')) {
       onTheFile.push({ code: 'everyField' });
+      // SFDMU copies emails and phone numbers as read; a Sync run neutralizes
+      // them unless its configuration keeps them (`contactPointsOfRun`).
+      onTheFile.push({ code: 'contactPoints' });
     }
     const settings = settingsNotRead(script, SCRIPT_KEYS_READ);
     if (settings.length > 0) onTheFile.push({ code: 'settings', detail: settings.join(', ') });
@@ -600,7 +663,11 @@ export class SfdmuImporter {
     const place = (note: MigrationImportNote): number =>
       entries.findIndex((entry) => entry.object === note.object);
     const onObjects = [...notes, ...kept.flatMap(notesOf)].sort((a, b) => place(a) - place(b));
-    return { config: this.convert(kept), notes: [...onTheFile, ...onObjects] };
+    const keepOrder = script.keepObjectOrderWhileExecute === true;
+    return {
+      config: this.convert(inRunOrder(kept, keepOrder)),
+      notes: [...onTheFile, ...onObjects],
+    };
   }
 
   /**
@@ -724,13 +791,12 @@ export class SfdmuImporter {
     const fieldMappings = this.convertFieldMappings(obj.fieldMapping);
     const transformRules = this.convertValuesMapping(obj.valuesMapping, fieldMappings);
     const orderBy = obj.orderBy ?? obj.read.orderBy;
+    const key = targetKeyOf(obj);
 
     return {
       objectApiName: obj.object,
       externalIdField:
-        obj.externalId !== 'Id' && validateSoqlIdentifier(obj.externalId)
-          ? obj.externalId
-          : undefined,
+        key !== undefined && key !== 'Id' && validateSoqlIdentifier(key) ? key : undefined,
       operation: mapOperation(obj.sfdmuOperation),
       query: obj.query,
       fieldMappings,
@@ -739,7 +805,7 @@ export class SfdmuImporter {
       addOnFields: [],
       batchSize: 200,
       orderBy: orderBy !== undefined && isSafeSoqlOrderBy(orderBy) ? orderBy : undefined,
-      where: obj.where ?? obj.read.where,
+      where: whereOf(obj),
       insertOrder: index + 1,
     };
   }
@@ -827,7 +893,11 @@ function withMappings(entry: TakenEntry, files: MappingFiles): KeptEntry {
   const fieldItems = fieldRows.map(({ field, target }) =>
     field === '' ? { targetObject: target } : { sourceField: field, targetField: target },
   );
-  const valueRows = entry.useValuesMapping ? files.valueRows.filter(isItsRow) : [];
+  // A row that maps to nothing SFDMU does not use, and writes the value as
+  // read; a rule of it blanked the field.
+  const valueRows = entry.useValuesMapping
+    ? files.valueRows.filter((row) => isItsRow(row) && row.value.trim() !== '')
+    : [];
   const valueItems = valueRows
     .filter(isExactValueRow)
     .map(({ field, rawValue, value }) => ({ fieldName: field, rawValue, mappedValue: value }));
@@ -837,7 +907,9 @@ function withMappings(entry: TakenEntry, files: MappingFiles): KeptEntry {
   return {
     ...entry,
     fieldMapping: entry.useFieldMapping ? [...fieldItems, ...entry.fieldMapping] : [],
-    fieldMappingsIgnored: entry.useFieldMapping ? 0 : entry.fieldMapping.length,
+    fieldMappingsIgnored: entry.useFieldMapping
+      ? 0
+      : entry.fieldMapping.filter(mapsAnything).length,
     valuesMapping: [...valueItems, ...entry.valuesMapping],
     excludedFields: [...new Set([...entry.excludedFields, ...mockedFields])],
     mockedFields,
@@ -845,6 +917,26 @@ function withMappings(entry: TakenEntry, files: MappingFiles): KeptEntry {
       .filter((row) => !isExactValueRow(row))
       .map((row) => `${row.field} (${row.rawValue})`),
   };
+}
+
+/**
+ * The entries in the order SFDMU runs them, which becomes the configuration's.
+ * SFDMU deletes before it writes, and deletes the last object listed first,
+ * in the file's order only under `keepObjectOrderWhileExecute`; its query
+ * forced to Id, a Delete has no lookup to order it by. Each set runs apart.
+ * Kept in the file's order, an Account listed before its Cases was deleted
+ * first, and every account a case named was refused, the cases deleted next.
+ * Sync orders the objects it writes by their lookups, and leaves its deletes
+ * where the configuration puts them.
+ */
+function inRunOrder(entries: readonly KeptEntry[], keepOrder: boolean): KeptEntry[] {
+  const deletes = (entry: KeptEntry): boolean => mapOperation(entry.sfdmuOperation) === 'delete';
+  const rank = (entry: KeptEntry, at: number): [number, number, number] =>
+    deletes(entry) ? [entry.set, 0, keepOrder ? at : -at] : [entry.set, 1, at];
+  return entries
+    .map((entry, at) => ({ entry, rank: rank(entry, at) }))
+    .sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2])
+    .map(({ entry }) => entry);
 }
 
 /**

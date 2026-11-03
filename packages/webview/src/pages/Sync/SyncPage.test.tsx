@@ -161,6 +161,11 @@ const savedConfigList = vi.hoisted(() => ({
 
 /** What `sync:write-order` answers: the order a run writes the objects in. */
 const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+/** What `sync:config:load` answers the execute step of a configuration opened here. */
+const openedConfigAnswer = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+  asked: [] as unknown[],
+}));
 /** What the page last asked `sync:describe-global` with. */
 const objectsAsked = vi.hoisted(() => ({ value: undefined as unknown }));
 
@@ -200,6 +205,10 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     }
     if (type === 'sync:write-order') {
       return { data: writeOrderAnswer.value, loading: false, error: null, refetch: vi.fn() };
+    }
+    if (type === 'sync:config:load') {
+      if (payload !== undefined) openedConfigAnswer.asked.push(payload);
+      return { data: openedConfigAnswer.value, loading: false, error: null, refetch: vi.fn() };
     }
     if (type === 'sync:config:list') {
       return {
@@ -2266,6 +2275,8 @@ describe('SyncPage Run now on a saved configuration', () => {
   afterEach(() => {
     mockExecuteMutationState = idleExecute;
     savedConfigList.value = [];
+    openedConfigAnswer.value = null;
+    openedConfigAnswer.asked = [];
   });
 
   /** Open the Schedules tab and click Run now on the saved configuration. */
@@ -2328,6 +2339,36 @@ describe('SyncPage Run now on a saved configuration', () => {
     );
   });
 
+  it('opens a configuration that deletes on the execute step rather than run it, and Run there runs it', () => {
+    // Run now sent it to sync:execute at once: its delete fired on a sandbox
+    // or a Developer Edition with no word of what it deleted.
+    const deleting = {
+      ...savedConfig,
+      objects: [{ ...savedConfig.objects[0], operation: 'delete', transformRules: [] }],
+    };
+    const { rerender } = runSaved();
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: deleting } };
+    openedConfigAnswer.value = { config: deleting };
+    rerender(<SyncPage />);
+
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+    expect(openedConfigAnswer.asked).toContainEqual({ id: 'cfg-saved' });
+    expect(screen.getByTestId('sync-saved-run').textContent).toBe(
+      'Saved configuration: Nightly accounts',
+    );
+    expect(screen.getByTestId('sync-review-object-Account').textContent).toBe(
+      "Account — Delete by Id: the target record holding the source record's Id is deleted.",
+    );
+
+    fireEvent.click(screen.getByTestId('sync-run'));
+    expect(mockLoadConfigMutate).toHaveBeenCalledTimes(2);
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: deleting } };
+    rerender(<SyncPage />);
+
+    expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+    expect(mockExecuteMutate).toHaveBeenCalledWith({ config: deleting });
+  });
+
   it('runs nothing, and says so, when the configuration is no longer saved', () => {
     const { rerender } = runSaved();
     mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: null } };
@@ -2350,6 +2391,73 @@ describe('SyncPage Run now on a saved configuration', () => {
         },
       });
       mockSimulateMutationState = { ...mockSimulateMutationState, data: null, loading: false };
+      openedConfigAnswer.value = null;
+      openedConfigAnswer.asked = [];
+    });
+
+    /** The configuration saved, an object of it deleting in the target. */
+    const deleting = {
+      ...savedConfig,
+      objects: [
+        { ...savedConfig.objects[0], transformRules: [] },
+        { ...savedConfig.objects[0], objectApiName: 'Case', operation: 'delete', insertOrder: 1 },
+      ],
+    };
+
+    it('says what each of its objects does above Run, a delete among them, and holds Run until it has', () => {
+      // It said its name alone, and Back to Review put it away: an imported
+      // Delete was one click from its run, never shown.
+      openedConfigAnswer.value = null;
+      const { rerender } = render(<SyncPage />);
+
+      expect(openedConfigAnswer.asked).toContainEqual({ id: 'cfg-saved' });
+      expect(screen.queryByTestId('sync-review-objects')).toBeNull();
+      expect((screen.getByTestId('sync-run') as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId('sync-simulate') as HTMLButtonElement).disabled).toBe(true);
+      const reading = screen.getByTestId('sync-opened-unread');
+      expect(reading.textContent).toBe(
+        'Reading the saved configuration, to say what each of its objects does before it runs…',
+      );
+      expect(screen.getByTestId('sync-run').getAttribute('aria-describedby')).toBe(reading.id);
+      fireEvent.click(screen.getByTestId('sync-run'));
+      expect(mockLoadConfigMutate).not.toHaveBeenCalled();
+
+      openedConfigAnswer.value = { config: deleting };
+      rerender(<SyncPage />);
+
+      const review = screen.getByTestId('sync-review-objects');
+      expect(within(review).getByTestId('sync-review-object-Case').textContent).toBe(
+        "Case — Delete by Id: the target record holding the source record's Id is deleted.",
+      );
+      expect(within(review).getByTestId('sync-review-object-Account').textContent).toBe(
+        'Account — Insert: each record read is created in the target.',
+      );
+      expect(screen.queryByTestId('sync-opened-unread')).toBeNull();
+      const run = screen.getByTestId('sync-run') as HTMLButtonElement;
+      expect(run.disabled).toBe(false);
+      // What it does is said above the button that runs it.
+      expect(review.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      fireEvent.click(run);
+      expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
+    });
+
+    it('takes no answer of another configuration for this one', () => {
+      openedConfigAnswer.value = { config: { ...deleting, id: 'cfg-other' } };
+      render(<SyncPage />);
+
+      expect(screen.queryByTestId('sync-review-objects')).toBeNull();
+      expect((screen.getByTestId('sync-run') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('says the configuration is no longer saved, and offers no Run of it', () => {
+      openedConfigAnswer.value = { config: null };
+      render(<SyncPage />);
+
+      const gone = screen.getByTestId('sync-opened-unread');
+      expect(gone.getAttribute('role')).toBe('alert');
+      expect(gone.textContent).toBe('This configuration is no longer saved: nothing was run.');
+      expect((screen.getByTestId('sync-run') as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('lands on the execute step, the configuration named above its own Simulate and Run', () => {
@@ -2370,6 +2478,7 @@ describe('SyncPage Run now on a saved configuration', () => {
     });
 
     it('simulates it as saved, and names it above what the simulation found', () => {
+      openedConfigAnswer.value = { config: savedConfig };
       const { rerender } = render(<SyncPage />);
 
       fireEvent.click(screen.getByTestId('sync-simulate'));

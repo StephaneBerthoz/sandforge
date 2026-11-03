@@ -83,7 +83,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 ### Object Set Editor
 
 - Add/remove objects to the sync scope
-- An operation per object: insert, update by Id, or upsert on an External ID. Delete is not offered: it deleted in the target the records holding the ids the source read, which between two sandboxes refreshed from one production are the target's own; a delta configuration carries the source's deletions instead. A row that comes with a delete, from a saved configuration or an SFDMU import, still shows it, and Review says what it does
+- An operation per object: insert, update by Id, or upsert on an External ID. Delete is not offered: it deleted in the target the records holding the ids the source read, which between two sandboxes refreshed from one production are the target's own; a delta configuration carries the source's deletions instead. A row that comes with a delete, from a saved configuration or an SFDMU import, still shows it, and Review says what it does. A saved configuration Migration's **Open in Sync** opens on the Execute step says what each of its objects does above **Run the sync**, which waits until it has
 - Configure batch size per object
 - Available objects are loaded from the source org schema, without the objects no copy writes -- the list Forge and Autopilot read: users and their access, metadata, files and the links to them, a record's history, feed or sharing rows, the platform's jobs and logs. A configuration naming one is refused before it runs. A managed package's objects, such as Vlocity's, which Forge's discovery does not walk into, are offered: a sync copies only the objects it is given
 - A per-object WHERE filter may only filter: a clause carrying `LIMIT`, `OFFSET`, `ORDER BY`, `FOR UPDATE`, a subquery, a comment or a semicolon is refused, including one imported from an SFDMU `export.json`
@@ -179,7 +179,9 @@ Before execution, the Review step shows:
   checked as a run from the Sync tab is, Production Guard judges it before
   anything is written, and it runs on the Execute step with the same progress,
   Pause and Cancel, and the same results, saying which saved configuration it
-  is. It needs no simulation first. **Run full next time** makes the next run
+  is. It needs no simulation first. One that deletes is not run at once: it
+  opens on the Execute step, which says what each of its objects does, and
+  **Run the sync** there runs it. **Run full next time** makes the next run
   of a delta configuration read every object whole.
 - The sync history says what started each run: by hand, a re-run from the
   history, a schedule, or a pipeline's Sync step (see

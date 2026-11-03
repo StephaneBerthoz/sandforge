@@ -336,6 +336,7 @@ describe('MigrationPage — what the import did not carry over', () => {
     ['duplicate', 'objectSets[0].objects[0]'],
     ['delete', 'HardDelete'],
     ['updateKey', 'Name'],
+    ['defaultKey', undefined],
     ['upsertKey', 'Name'],
     ['unusableKey', 'Name;Phone'],
     ['fieldMappingOff', '2'],
@@ -350,6 +351,7 @@ describe('MigrationPage — what the import did not carry over', () => {
     ['nameDiffers', 'Lead'],
     ['settings', 'allOrNone'],
     ['everyField', undefined],
+    ['contactPoints', undefined],
     ['objectSets', '2'],
     ['mappingFileUnread', 'FieldMapping.csv'],
   ])('words the note %s, with what it names', (code, detail) => {
@@ -462,6 +464,26 @@ describe('MigrationPage — saving the import and opening it in Sync', () => {
     // Excluded fields, mappings and add-on fields go as the import gave them.
     expect(sent.config.objects).toEqual([account]);
     expect(sent.config.name).toBe('SFDMU Import');
+  });
+
+  it('saves the emails and phone numbers neutralized, as Sync does, unless the box is unticked', () => {
+    // SFDMU copies them as read; Sync's own box is on a step Open in Sync skips.
+    const { rerender } = render(<MigrationPage />);
+    const toggle = screen.getByTestId('migration-contact-points-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.getByLabelText('Neutralize emails and phone numbers (recommended)')).toBe(toggle);
+
+    expect(saveAndRead().config).not.toHaveProperty('keepContactPoints');
+
+    hostSaved(rerender);
+    fireEvent.click(toggle);
+    // Changed since it was saved: Open in Sync would open the neutralized one.
+    expect(screen.queryByTestId('migration-open-in-sync-btn')).toBeNull();
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: 'Nightly accounts as read' },
+    });
+    fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+    expect(saveState.mutate.mock.calls[1][0].config).toMatchObject({ keepContactPoints: true });
   });
 
   it('saves an object with the operation, External ID, batch size and filter edited here', () => {

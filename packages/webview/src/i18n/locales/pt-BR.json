@@ -1819,11 +1819,12 @@
     "totalSkipped": "Total ignorados",
     "savedConfigs": {
       "title": "Configurações salvas",
-      "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação.",
+      "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação. Uma que exclui abre na aba Sync, que diz o que cada um de seus objetos faz: Executar a sincronização a executa lá.",
       "runNow": "Executar agora",
       "runNamed": "Executar {{name}} agora",
       "ofSaved": "Configuração salva: {{name}}",
       "gone": "Esta configuração não está mais salva: nada foi executado.",
+      "reading": "Lendo a configuração salva, para dizer o que cada um de seus objetos faz antes de executá-la…",
       "resetDelta": "Executar completo na próxima vez",
       "resetDeltaNamed": "Executar {{name}} completo na próxima vez",
       "resetDone": "A próxima execução de {{name}} lê tudo."
@@ -1921,12 +1922,13 @@
       "deletesElsewhere": "Deixado de fora: {{detail}} exclui na org de origem ou ao longo de uma hierarquia, e o Sync não faz nenhum dos dois.",
       "mockAllFields": "Deixado de fora: o SFDMU grava valores fictícios em todos os seus campos. O Sync não os tem e copiaria os reais.",
       "duplicate": "Uma entrada posterior deste objeto, {{detail}}, foi deixada de fora: uma configuração do Sync contém um objeto uma única vez. Importe essa entrada sozinha para executá-la.",
-      "delete": "{{detail}} não age da mesma forma aqui. O SFDMU exclui o que sua query seleciona no destino. O Sync exclui, para a lixeira, os registros do destino que têm os ids lidos na origem: leia o que diz Revisar antes de executar.",
+      "delete": "{{detail}} não age da mesma forma aqui. O SFDMU exclui o que sua query seleciona no destino. O Sync exclui, para a lixeira, os registros do destino que têm os ids lidos na origem. Abrir no Sync diz o que cada objeto faz acima de Executar a sincronização: leia antes de executar.",
       "updateKey": "O SFDMU encontra cada registro a atualizar por {{detail}}. O Sync atualiza pelo Id do registro de origem, que outra org não tem: mude a operação para upsert em um External ID.",
+      "defaultKey": "Não informa nenhum externalId: o SFDMU então encontra cada registro pelo campo de nome do objeto, Name na maioria dos objetos, ou então por um campo de numeração automática ou único. O Sync não tem esse padrão: uma atualização vai pelo Id do registro de origem, que outra org não tem, e um upsert precisa de um External ID informado na linha dele.",
       "upsertKey": "O SFDMU corresponde por qualquer campo. O Salesforce só faz upsert em um campo External ID ou Id Lookup: se {{detail}} não for nenhum dos dois, a execução é recusada, então informe um na linha dele.",
       "unusableKey": "Sua chave {{detail}} não é levada: o Sync corresponde por um único campo do objeto, não por uma chave composta nem por um campo de um pai. Um upsert deve informar um na linha dele.",
       "fieldMappingOff": "useFieldMapping está desligado: o SFDMU ignora seus mapeamentos de campos ({{detail}}), e esta importação também.",
-      "valueRows": "Estas linhas de ValueMapping.csv não são aplicadas, pois uma regra de mapeamento de valores associa um valor exato a outro, sem expressão regular, eval ou #N/A: {{detail}}.",
+      "valueRows": "Estas linhas de ValueMapping.csv não são aplicadas, pois uma regra de mapeamento de valores associa um valor exato a outro, sem expressão regular, sem eval e sem valor vazio (#N/A, null, NULL, undefined), que o SFDMU grava como um campo vazio: {{detail}}.",
       "notMaster": "master é false: o SFDMU copia apenas os registros de que os outros objetos precisam. O Sync não tem essa restrição e lê todos os registros que seu filtro seleciona.",
       "limit": "LIMIT {{detail}} não é levado: o Sync lê todos os registros que seu filtro seleciona.",
       "queryClause": "“{{detail}}” na query dele não é levado: o Sync não executa a query.",
@@ -1937,6 +1939,7 @@
       "nameDiffers": "O arquivo o chama de {{detail}}, e a query dele seleciona este objeto: o SFDMU segue a query, e esta importação também.",
       "settings": "Não levado: {{detail}}. O Sync não lê essas configurações da exportação.",
       "everyField": "O Sync copia todos os campos que a org de origem descreve, não apenas os que uma query nomeia. Para deixar um de fora, adicione-o aos excludedFields da exportação.",
+      "contactPoints": "O Sync grava cada endereço de e-mail sob .invalid e cada número de telefone como um fictício, para que o que a automação da org de destino lhes envia não alcance ninguém; o SFDMU os copia como lidos. Para copiá-los como lidos, desmarque Neutralizar e-mails e números de telefone em Executá-la pelo Sync.",
       "objectSets": "Os {{detail}} conjuntos de objetos da exportação são reunidos em uma única configuração do Sync: o SFDMU executa um conjunto depois do outro, e o Sync os grava em uma execução, na ordem que seus lookups decidem.",
       "mappingFileUnread": "{{detail}} não foi lido: ele não tem as colunas que o SFDMU espera, então nenhum de seus mapeamentos foi aplicado."
     },
@@ -1959,7 +1962,9 @@
       "subtitle": "Escolha as orgs de origem e destino — o arquivo importado nomeia as suas, que não existem aqui — e salve-a como configuração do Sync. Abrir no Sync a mostra então na etapa Executar do Sync: Simular a verifica, Executar a sincronização a grava, e os resultados dizem o que ela criou e podem removê-lo.",
       "sourceOrg": "Org de origem",
       "targetOrg": "Org de destino",
-      "orgsRequired": "Escolha duas orgs diferentes para salvar esta importação para o Sync."
+      "orgsRequired": "Escolha duas orgs diferentes para salvar esta importação para o Sync.",
+      "contactPoints": "Neutralizar e-mails e números de telefone (recomendado)",
+      "contactPointsHint": "Marcado, como no Sync, cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que o que a automação da org de destino lhes envia não alcance ninguém. Desmarcado, eles são copiados como a origem os contém, como o SFDMU os copia, e os fluxos do destino podem enviar e-mails e SMS a pessoas reais."
     },
     "edit": {
       "noObjects": "Mantenha pelo menos um objeto: uma execução sem objetos não moveria nada.",

@@ -8,6 +8,7 @@ import { TransformPipeline } from './TransformPipeline.js';
 import { ConflictResolver } from './ConflictResolver.js';
 import { unwritableRefusal, type SyncWriteGate } from './SyncRunGate.js';
 import { simulationKey } from './SyncSimulation.js';
+import { SfdmuImporter } from '../migration/SfdmuImporter.js';
 
 /*
  * An upsert of accounts on Name, run between two scratch orgs: its dry run
@@ -23,6 +24,15 @@ const ACCOUNT_FIELDS = [
   { name: 'Name', createable: true, type: 'string', idLookup: false, externalId: false },
   {
     name: 'Legacy_Key__c',
+    createable: true,
+    type: 'string',
+    idLookup: true,
+    externalId: true,
+  },
+  // The target's name of the key an SFDMU export maps from ExternalID__c,
+  // which this org does not have.
+  {
+    name: 'External_ID__c',
     createable: true,
     type: 'string',
     idLookup: true,
@@ -355,6 +365,43 @@ describe('the key of an upsert', () => {
     }).simulate(config());
 
     expect(simulated.objects[0]).toMatchObject({ refused: 0 });
+  });
+});
+
+describe('the key of an SFDMU import that a field mapping renames', () => {
+  // SFDMU matches the target on getMappedExternalIdFieldName(): the export's
+  // externalId under the name its field mapping gives it there.
+  const script = {
+    objects: [
+      {
+        query: 'SELECT Id, Name, ExternalID__c FROM Account',
+        operation: 'Upsert',
+        externalId: 'ExternalID__c',
+        useFieldMapping: true,
+        fieldMapping: [{ sourceField: 'ExternalID__c', targetField: 'External_ID__c' }],
+      },
+    ],
+  };
+
+  it('upserts on the target field the key is mapped onto, the key read from the source field', async () => {
+    const { config: imported } = await new SfdmuImporter({
+      readFile: async (path) => {
+        if (path.endsWith('.json')) return JSON.stringify(script);
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      },
+    }).import('/path/to/export.json');
+    const target = targetOrg();
+
+    const result = await orchestrator(target, [
+      { Id: '001000000000001AAA', Name: 'Northwind', ExternalID__c: 'n-1' },
+    ]).execute(config(imported.objects[0]));
+
+    expect(result.objectResults[0]).toMatchObject({ success: 1, failed: 0 });
+    expect(target.upsert).toHaveBeenCalledTimes(1);
+    const [objectApiName, key, rows] = target.upsert.mock.calls[0] ?? [];
+    expect([objectApiName, key]).toEqual(['Account', 'External_ID__c']);
+    expect(rows?.[0]).toMatchObject({ External_ID__c: 'n-1' });
+    expect(rows?.[0]).not.toHaveProperty('ExternalID__c');
   });
 });
 

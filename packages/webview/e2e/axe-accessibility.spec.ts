@@ -5742,24 +5742,6 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, saved, '[data-testid="migration-save-sync-saved"]'),
       ).toBeGreaterThan(0);
 
-      // Open in Sync: Sync's execute step, on that configuration, its own
-      // Simulate and Run beside it.
-      await page.getByTestId('migration-open-in-sync-btn').click();
-      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
-      await expect(page.getByTestId('sync-saved-run')).toHaveText(
-        'Saved configuration: Nightly accounts 2',
-      );
-      await expect(page.getByTestId('sync-simulate')).toBeVisible();
-      await expect(page.getByTestId('sync-run')).toBeVisible();
-      const inSync = await checkAccessibility(page);
-      expectNoViolations(inSync);
-      expect(
-        await contrastMeasuredIn(page, inSync, '[data-testid="sync-saved-run"]'),
-      ).toBeGreaterThan(0);
-
-      await page.getByTestId('sync-simulate').click();
-      const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
-      expect(load.payload).toEqual({ id: 'cfg-saved' });
       const savedConfig = {
         id: 'cfg-saved',
         name: 'Nightly accounts 2',
@@ -5774,6 +5756,38 @@ for (const theme of SCANNED_THEMES) {
         createdAt: '2026-10-31T08:00:00.000Z',
         updatedAt: '2026-10-31T08:00:00.000Z',
       };
+
+      // Open in Sync: Sync's execute step, on that configuration, what each
+      // of its objects does said above its own Simulate and Run, which wait
+      // until it is read back.
+      await page.getByTestId('migration-open-in-sync-btn').click();
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-saved-run')).toHaveText(
+        'Saved configuration: Nightly accounts 2',
+      );
+      await expect(page.getByTestId('sync-run')).toBeDisabled();
+      const opened = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+      expect(opened.payload).toEqual({ id: 'cfg-saved' });
+      await answerAll(page, 'sync:config:load', 'sync:config:load:response', {
+        config: savedConfig,
+      });
+      await expect(page.getByTestId('sync-review-objects')).toBeVisible();
+      await expect(page.getByTestId('sync-simulate')).toBeEnabled();
+      await expect(page.getByTestId('sync-run')).toBeEnabled();
+      const inSync = await checkAccessibility(page);
+      expectNoViolations(inSync);
+      expect(
+        await contrastMeasuredIn(page, inSync, '[data-testid="sync-saved-run"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, inSync, '[data-testid="sync-review-objects"]'),
+      ).toBeGreaterThan(0);
+
+      const readBefore = (await bridge.getMessages('sync:config:load')).length;
+      await page.getByTestId('sync-simulate').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('sync:config:load')).length)
+        .toBeGreaterThan(readBefore);
       await answerAll(page, 'sync:config:load', 'sync:config:load:response', {
         config: savedConfig,
       });

@@ -1819,11 +1819,12 @@
     "totalSkipped": "Gesamt übersprungen",
     "savedConfigs": {
       "title": "Gespeicherte Konfigurationen",
-      "hint": "Führen Sie eine jetzt so aus, wie sie gespeichert wurde: Sie wird geprüft wie ein Lauf aus dem Sync-Tab, und Production Guard beurteilt sie, bevor etwas geschrieben wird.",
+      "hint": "Führen Sie eine jetzt so aus, wie sie gespeichert wurde: Sie wird geprüft wie ein Lauf aus dem Sync-Tab, und Production Guard beurteilt sie, bevor etwas geschrieben wird. Eine, die löscht, öffnet sich stattdessen im Sync-Tab, der sagt, was jedes ihrer Objekte tut: Synchronisierung starten führt sie dort aus.",
       "runNow": "Jetzt ausführen",
       "runNamed": "{{name}} jetzt ausführen",
       "ofSaved": "Gespeicherte Konfiguration: {{name}}",
       "gone": "Diese Konfiguration ist nicht mehr gespeichert: Es wurde nichts ausgeführt.",
+      "reading": "Die gespeicherte Konfiguration wird gelesen, um vor dem Lauf zu sagen, was jedes ihrer Objekte tut…",
       "resetDelta": "Nächstes Mal vollständig ausführen",
       "resetDeltaNamed": "{{name}} nächstes Mal vollständig ausführen",
       "resetDone": "Der nächste Lauf von {{name}} liest alles."
@@ -1921,12 +1922,13 @@
       "deletesElsewhere": "Ausgelassen: {{detail}} löscht in der Quell-Org oder entlang einer Hierarchie, und Sync tut beides nicht.",
       "mockAllFields": "Ausgelassen: SFDMU schreibt Fantasiewerte in alle seine Felder. Sync hat keine und würde die echten kopieren.",
       "duplicate": "Ein späterer Eintrag dieses Objekts, {{detail}}, wurde ausgelassen: Eine Sync-Konfiguration enthält ein Objekt nur einmal. Importieren Sie diesen Eintrag einzeln, um ihn auszuführen.",
-      "delete": "{{detail}} wirkt hier anders. SFDMU löscht, was seine Query im Ziel auswählt. Sync löscht in den Papierkorb die Datensätze des Ziels, die die in der Quelle gelesenen IDs tragen: Lesen Sie vor der Ausführung, was Überprüfen dazu sagt.",
+      "delete": "{{detail}} wirkt hier anders. SFDMU löscht, was seine Query im Ziel auswählt. Sync löscht in den Papierkorb die Datensätze des Ziels, die die in der Quelle gelesenen IDs tragen. In Sync öffnen zeigt über Synchronisierung starten, was jedes Objekt tut: Lesen Sie es vor der Ausführung.",
       "updateKey": "SFDMU findet jeden zu aktualisierenden Datensatz über {{detail}}. Sync aktualisiert über die Id des Quelldatensatzes, die eine andere Org nicht hat: Stellen Sie die Operation auf Upsert über eine External ID.",
+      "defaultKey": "Kein externalId angegeben: SFDMU findet dann jeden Datensatz über das Namensfeld des Objekts, bei den meisten Objekten Name, sonst über ein Feld mit automatischer Nummerierung oder ein eindeutiges Feld. Sync hat keinen solchen Standard: Ein Update geht über die Id des Quelldatensatzes, die eine andere Org nicht hat, und ein Upsert braucht eine in seiner Zeile genannte External ID.",
       "upsertKey": "SFDMU gleicht über jedes beliebige Feld ab. Salesforce führt Upserts nur über ein External-ID- oder Id-Lookup-Feld aus: Ist {{detail}} keines von beiden, wird die Ausführung abgelehnt, also benennen Sie eines in seiner Zeile.",
       "unusableKey": "Sein Schlüssel {{detail}} wird nicht übernommen: Sync gleicht über ein einzelnes Feld des Objekts ab, nicht über einen zusammengesetzten Schlüssel oder ein Feld eines übergeordneten Objekts. Ein Upsert muss eines in seiner Zeile benennen.",
       "fieldMappingOff": "useFieldMapping ist aus: SFDMU ignoriert seine Feldzuordnungen ({{detail}}), und dieser Import auch.",
-      "valueRows": "Diese Zeilen von ValueMapping.csv werden nicht angewendet, denn eine Wertezuordnungsregel ordnet einen exakten Wert einem anderen zu, ohne regulären Ausdruck, eval oder #N/A: {{detail}}.",
+      "valueRows": "Diese Zeilen von ValueMapping.csv werden nicht angewendet, denn eine Wertezuordnungsregel ordnet einen exakten Wert einem anderen zu, ohne regulären Ausdruck, ohne eval und ohne leeren Wert (#N/A, null, NULL, undefined), den SFDMU als leeres Feld schreibt: {{detail}}.",
       "notMaster": "master ist false: SFDMU kopiert nur die Datensätze, die die anderen Objekte brauchen. Sync kennt diese Einschränkung nicht und liest jeden Datensatz, den sein Filter auswählt.",
       "limit": "LIMIT {{detail}} wird nicht übernommen: Sync liest jeden Datensatz, den sein Filter auswählt.",
       "queryClause": "„{{detail}}“ in seiner Query wird nicht übernommen: Sync führt die Query nicht aus.",
@@ -1937,6 +1939,7 @@
       "nameDiffers": "Die Datei nennt es {{detail}}, und seine Query wählt dieses Objekt aus: SFDMU folgt der Query, und dieser Import auch.",
       "settings": "Nicht übernommen: {{detail}}. Sync liest diese Einstellungen des Exports nicht.",
       "everyField": "Sync kopiert jedes Feld, das die Quell-Org beschreibt, nicht nur die in einer Query genannten. Um eines auszulassen, fügen Sie es den excludedFields des Exports hinzu.",
+      "contactPoints": "Sync schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht; SFDMU kopiert sie wie gelesen. Um sie wie gelesen zu kopieren, wählen Sie unter Aus Sync ausführen E-Mail-Adressen und Telefonnummern neutralisieren ab.",
       "objectSets": "Die {{detail}} Objektgruppen des Exports werden zu einer Sync-Konfiguration zusammengeführt: SFDMU führt eine Gruppe nach der anderen aus, Sync schreibt sie in einer Ausführung, in der Reihenfolge, die ihre Lookups vorgeben.",
       "mappingFileUnread": "{{detail}} wurde nicht gelesen: Die Datei hat nicht die Spalten, die SFDMU erwartet, daher wurde keine ihrer Zuordnungen angewendet."
     },
@@ -1959,7 +1962,9 @@
       "subtitle": "Wählen Sie Quell- und Ziel-Org — die importierte Datei nennt eigene, die hier nicht existieren — und speichern Sie sie als Sync-Konfiguration. In Sync öffnen zeigt sie dann im Schritt Ausführen von Sync: Simulieren prüft sie, Synchronisierung starten schreibt sie, und die Ergebnisse nennen, was sie angelegt hat, und können es entfernen.",
       "sourceOrg": "Quell-Org",
       "targetOrg": "Ziel-Org",
-      "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import für Sync zu speichern."
+      "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import für Sync zu speichern.",
+      "contactPoints": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
+      "contactPointsHint": "Ausgewählt, wie in Sync, wird jede E-Mail-Adresse unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass das, was die Automatisierung der Ziel-Org an sie sendet, niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, wie SFDMU sie kopiert, und die Flows des Ziels können echten Personen E-Mails und SMS senden."
     },
     "edit": {
       "noObjects": "Behalten Sie mindestens ein Objekt: Ein Lauf ohne Objekt würde nichts übertragen.",

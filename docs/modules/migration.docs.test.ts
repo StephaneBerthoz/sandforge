@@ -50,17 +50,61 @@ describe('docs/modules/migration.md', () => {
     // Positive control: the importer reads both from the query, where a real
     // export holds them.
     expect(SFDMU_IMPORTER).toContain('readSfdmuQuery(entry.query).object');
-    expect(SFDMU_IMPORTER).toContain('where: obj.where ?? obj.read.where,');
+    expect(SFDMU_IMPORTER).toContain('where: whereOf(obj),');
+    expect(SFDMU_IMPORTER).toContain(
+      'if (entry.read.where !== undefined) return entry.read.where;',
+    );
 
     expect(DOC).toContain('Its name comes from the FROM of its `query`, as in SFDMU');
     expect(DOC).toContain("the query's WHERE filter and ORDER BY are carried over");
+    expect(DOC).toContain(
+      'A `where` key, which SFDMU does not read, counts only for a query with no WHERE',
+    );
+  });
+
+  it('says the deletes go first, the last listed first, as SFDMU runs them', () => {
+    // Positive control: the configuration takes the entries in SFDMU's order.
+    expect(SFDMU_IMPORTER).toContain('this.convert(inRunOrder(kept, keepOrder))');
+    expect(SFDMU_IMPORTER).toContain('deletes(entry) ? [entry.set, 0, keepOrder ? at : -at]');
+
+    expect(DOC).toContain('SFDMU deletes before it writes, the last object listed first');
+    expect(DOC).toContain('under `keepObjectOrderWhileExecute`');
+  });
+
+  it('says a delete is shown on the Execute step before its run, and Run now opens it there', () => {
+    const HOOK = source('packages/webview/src/pages/Sync/useSyncPageData.ts');
+    const PAGE = source('packages/webview/src/pages/Sync/SyncPage.tsx');
+    // Positive control: the execute step lists the opened configuration's
+    // objects, holds Run until it has, and Run now opens one that deletes.
+    expect(PAGE).toContain('{!busy && openedConfigEntries !== null && (');
+    expect(PAGE).toContain('disabled={filesNeedSave || transformsNeedField || openedUnread}');
+    expect(HOOK).toContain('if (!asked.simulate && deletes && openedConfig?.id !== asked.id) {');
+
+    expect(DOC).toContain('**Open in Sync** says what each object does above **Run the sync**');
+    expect(DOC).toContain('**Run now** opens such a configuration there rather than run it');
+  });
+
+  it('says a run neutralizes emails and phone numbers, and where the box that keeps them is', () => {
+    const PAGE = source('packages/webview/src/pages/Migration/MigrationPage.tsx');
+    const CONTACT_POINTS = source('packages/extension/src/modules/sync/syncContactPoints.ts');
+    expect(CONTACT_POINTS).toContain(
+      'return config.keepContactPoints === true ? undefined : new ContactPointNeutralizer();',
+    );
+    expect(PAGE).toContain('...(keepContactPoints ? { keepContactPoints: true } : {}),');
+
+    expect(DOC).toContain('Emails and phone numbers, which SFDMU copies as read');
+    expect(DOC).toContain(
+      'Untick **Neutralize emails and phone numbers** under **Run it from Sync**',
+    );
   });
 
   it('says a mapping is read under the flag SFDMU reads it under, the two files with it', () => {
     expect(SFDMU_IMPORTER).toContain(
       'fieldMapping: entry.useFieldMapping ? [...fieldItems, ...entry.fieldMapping] : [],',
     );
-    expect(SFDMU_IMPORTER).toContain('entry.useValuesMapping ? files.valueRows.filter(isItsRow)');
+    expect(SFDMU_IMPORTER).toContain(
+      "? files.valueRows.filter((row) => isItsRow(row) && row.value.trim() !== '')",
+    );
 
     expect(DOC).toContain('With the flag off or absent SFDMU ignores them, and so does the import');
     expect(DOC).toContain('Under `useValuesMapping`, the rows of `ValueMapping.csv`');
@@ -78,6 +122,7 @@ describe('docs/modules/migration.md', () => {
       'duplicate',
       'delete',
       'updateKey',
+      'defaultKey',
       'upsertKey',
       'unusableKey',
       'fieldMappingOff',
@@ -89,6 +134,7 @@ describe('docs/modules/migration.md', () => {
       'deleteOldData',
       'mockFields',
       'settings',
+      'contactPoints',
       'objectSets',
     ]) {
       expect(SFDMU_IMPORTER).toContain(`'${code}'`);
