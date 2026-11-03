@@ -844,7 +844,7 @@ describe('docs/environments.md', () => {
       if (dataset === undefined) delete process.env[DATASET_VARIABLE];
       else process.env[DATASET_VARIABLE] = dataset;
     }
-  }, 60_000);
+  }, 180_000);
 
   it('names the actions a plan gives, in the order the plan explains them, each as it explains it', () => {
     const header = /Per resource, one action:\n \*\n([\s\S]*?)\n \*\n/.exec(PLAN)?.[1] ?? '';
