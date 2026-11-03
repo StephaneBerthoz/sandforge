@@ -913,6 +913,13 @@ async function answerReviewReads(
   opening: number,
 ): Promise<void> {
   await waitForRequests(page, 'forge:gaps:request', opening);
+  // The plan the extension makes of the graph, or the Plan row reads
+  // "Working…" in every shot of the review.
+  await sendExtensionMessage(page, {
+    type: 'forge:plan:response',
+    id: `plan-${opening}`,
+    payload: { plan: REVIEW_PLAN },
+  });
   await respondToAll(page, 'forge:metadata-diff:request', 'forge:metadata-diff:response', {
     diffs: [],
   });
@@ -923,6 +930,23 @@ async function answerReviewReads(
     gaps: MOCK_FORGE_METADATA_GAPS,
   });
 }
+
+/** The plan of the review's graph: 8 records of 4 objects, in two waves. */
+const REVIEW_PLAN = {
+  waves: [
+    { order: 0, objectApiNames: ['Account'], estimatedApiCalls: 1, estimatedDurationSeconds: 0.5 },
+    {
+      order: 1,
+      objectApiNames: ['Contact', 'Opportunity', 'Case'],
+      estimatedApiCalls: 3,
+      estimatedDurationSeconds: 1.5,
+    },
+  ],
+  totalRecords: 8,
+  totalApiCalls: 4,
+  estimatedDurationSeconds: 2,
+  cycleResolutions: [],
+};
 
 /** Have the extension say each object of the graph is done: the results table reads its status. */
 async function finishEveryObject(
