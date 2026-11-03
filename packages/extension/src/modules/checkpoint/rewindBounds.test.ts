@@ -8,6 +8,7 @@ import type {
 } from '@sandforge/shared';
 
 import {
+  REWIND_MUTING_STEP_WORDS,
   REWIND_STEP_WORDS,
   acceptanceRefusal,
   boundsRefusal,
@@ -334,6 +335,26 @@ describe('boundsRefusal — the emails the org delivers', () => {
       undefined,
       REWIND_STEP_WORDS.mutes,
     );
+
+  it('tells a step that already mutes to accept what no bypass keeps quiet, not to turn its mute on', () => {
+    const refusalWith = (words: typeof REWIND_STEP_WORDS) =>
+      acceptanceRefusal(
+        'DEV-SB',
+        {
+          diff: FOUR,
+          automation: SENDING,
+          deliverability: { reading: { level: 'withheld' }, senders: [SENDER] },
+        },
+        { ...accepted, acceptAutomation: false },
+        words.lift,
+        undefined,
+        words.mutes,
+      );
+    const muting = refusalWith(REWIND_MUTING_STEP_WORDS);
+    expect(muting?.message).toContain('turn on acceptAutomation in the step');
+    expect(muting?.message).not.toContain('turn on muteAutomation');
+    expect(refusalWith(REWIND_STEP_WORDS)?.message).toContain('turn on muteAutomation');
+  });
 
   it('refuses an org that delivers them, naming the step’s setting, though its automation was accepted', () => {
     const refusal = of({ level: 'all' });
