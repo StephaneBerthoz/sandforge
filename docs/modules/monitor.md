@@ -57,8 +57,8 @@ A compact panel below the KPIs showing:
 ### Live Operations
 
 When a run that writes to an org is in progress — Seed, Sync, a Forge clone
-or the removal of the records one created, a record clone, a CSV import, a
-Frozen Dataset load, an Autopilot run, a DataOps backup, restore, masking run,
+or the removal of the records one of them created, a record clone, a CSV
+import, a Frozen Dataset load or removal, an Autopilot run, a DataOps backup, restore, masking run,
 cleanup delete or erasure, a pipeline run, a real-time session — a Live
 Operations panel lists it, showing (a Sync simulation and a Forge rehearsal
 are listed too):

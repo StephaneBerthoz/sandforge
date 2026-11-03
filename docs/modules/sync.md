@@ -83,7 +83,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 ### Object Set Editor
 
 - Add/remove objects to the sync scope
-- An operation per object: insert, update by Id, or upsert on an External ID. Delete is not offered: it deleted in the target the records holding the ids the source read, which between two sandboxes refreshed from one production are the target's own; a delta configuration carries the source's deletions instead. A row that comes with a delete, from a saved configuration or an SFDMU import, still shows it, and Review says what it does. A saved configuration Migration's **Open in Sync** opens on the Execute step says what each of its objects does above **Run the sync**, which waits until it has
+- An operation per object: insert, update by Id, or upsert on an External ID. Delete is not offered: it deleted in the target the records holding the ids the source read, which between two sandboxes refreshed from one production are the target's own; a delta configuration carries the source's deletions instead. A row that comes with a delete, from a saved configuration or an SFDMU import, still shows it, and Review says what it does. A saved configuration Migration's **Open in Sync** opens on the Execute step says what each of its objects does above **Simulate** and **Run the sync**, which both wait until it is read
 - Configure batch size per object
 - Available objects are loaded from the source org schema, without the objects no copy writes -- the list Forge and Autopilot read: users and their access, metadata, files and the links to them, a record's history, feed or sharing rows, the platform's jobs and logs. A configuration naming one is refused before it runs. A managed package's objects, such as Vlocity's, which Forge's discovery does not walk into, are offered: a sync copies only the objects it is given
 - A per-object WHERE filter may only filter: a clause carrying `LIMIT`, `OFFSET`, `ORDER BY`, `FOR UPDATE`, a subquery, a comment or a semicolon is refused, including one imported from an SFDMU `export.json`
@@ -374,10 +374,12 @@ Before execution, the Review step shows:
   stays listed there, as does a rule whose formula cannot be read. A rule on the running user's profile or on a
   registration number's format refuses rows a simulation counts as written.
 - It says what a run would meet before its first write, as the run measures
-  it: the order it writes the objects in, the records it writes, counted, those
-  an earlier run copied that it leaves as they are, the data storage they take
-  and the emails the target's automation sends for them against what the
-  target has left, and whether the run writes, asks first or is refused. It
+  it: the order it writes the objects in, the records it would write, counted,
+  with what it would not write of them said right under the count
+  (`writeCheck.notWritten`), those an earlier run copied that it leaves as they
+  are, then the data storage, the API requests and the emails the target's
+  automation sends, measured on what a run counts, against what the target has
+  left, and whether the run writes, asks first or is refused. It
   reads whether the target delivers those emails as a run does, one or two
   requests, and says so; with **Checkpoint first**
   ticked, what the checkpoint would hold and cost, and the refusal a run would
