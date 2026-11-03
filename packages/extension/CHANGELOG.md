@@ -5,6 +5,33 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.0] - 2026-11-04
+
+Forge's Review fits one screen, a Frozen reload takes back what automation made, and every gate counts what a run truly writes.
+
+### Added
+
+- **Frozen Dataset**: a reload can take back what automation made for the loads it replaces, listed and muted as a removal's sweep.
+- **Command line and MCP**: `sandforge-frozen load --reload --sweep`, `--sweep-late`, `--sweep-untied`; `--json` gains `writtenByThePlatform`.
+
+### Changed
+
+- **Autopilot, command line**: a run refused before writing gives a code per reason, the first under `refused`, the rest under `alsoRefused`.
+- **Removals, command line**: a refused `--sweep-untied` now exits 3 and reads `partial` in Frozen, clone, Sync and Seed; leave it off where other runs write.
+- **Frozen Dataset, command line**: `load --reload --sweep` reads `partial` when its sweep left records, and exits 1 writing nothing if its list cannot be read.
+- **Forge, command line**: `writePlan.totalRows` and `--max-total` leave out what the platform writes itself; read `writePlan.leftOut.byThePlatform`.
+
+### Fixed
+
+- **Forge**: Review fits 1280 by 800, Team Selling opportunities keep team and splits, and what the platform writes is not counted.
+- **Mute automation**: Review and rehearsals say a rule the mute lifts is lifted; a lease journal that cannot be written takes its set back.
+- **Sync**: the write gate and its question count what a left-out object holds back and the prices the run writes, as the run does.
+- **Frozen Dataset**: a sweep takes what a replaced load left, ends Partial when it leaves records, and says what it deleted before a stop.
+- **Seed, Autopilot**: a refused `--fit` gives two sizes that differ, and a lease refused at the start reads as a refused mute.
+- **Checkpoint**: files and Documents left out are named among what a checkpoint does not hold, in the reader's language.
+- **Compare, Frozen Dataset**: each org is named once, and one no longer held is said so in words, Run waiting for a new pick.
+- **Help**: Show What's New on a patch release shows its release instead of opening nothing.
+
 ## [1.73.1] - 2026-11-03
 
 Import from Salesforce CLI finds the orgs where the CLI printed its list out of the extension's reach.
