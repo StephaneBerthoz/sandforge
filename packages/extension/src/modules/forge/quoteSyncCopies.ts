@@ -195,6 +195,32 @@ export function quoteSyncCopiesAmong(reading: QuoteSyncReading, run: QuoteSyncRu
 }
 
 /**
+ * The objects outside `objects` the platform's copies of a run's lines can be
+ * on, which its removal takes at their object's turn as it reads them
+ * ({@link quoteSyncCopiesOf}): the quote lines of a run that wrote a quote, an
+ * opportunity and its line items but none of the quote's lines — a clone that
+ * left them out of its plan, or past its depth —, and the line items of one
+ * that wrote the quote's lines but none of the opportunity's. Nothing for a
+ * run that wrote both, or neither, or no quote and opportunity: no copy of it
+ * is ever on an object it did not write.
+ *
+ * Told before anything is read, so that what the target runs as those records
+ * go is read with the rest: the removal of such a clone deleted the copies
+ * without a word of the flow on their object, nothing asked and nothing muted.
+ * A run whose opportunity syncs with no quote of its own has no copy, and its
+ * removal reads that object's automation all the same: it cannot tell which
+ * until it reads the org.
+ */
+export function quoteSyncCopyObjectsOf(objects: Iterable<string>): string[] {
+  const of = new Set(objects);
+  if (!of.has(QUOTE_OBJECT) || !of.has(OPPORTUNITY_OBJECT)) return [];
+  const quoteLines = of.has(QUOTE_LINE_OBJECT);
+  const opportunityLines = of.has(OPPORTUNITY_LINE_OBJECT);
+  if (quoteLines === opportunityLines) return [];
+  return [quoteLines ? OPPORTUNITY_LINE_OBJECT : QUOTE_LINE_OBJECT];
+}
+
+/**
  * The rows of `object` whose `field` names one of `ids`, a list at a time.
  * A read that fills its limit throws: what it left unread could hold a copy
  * as well as a colleague's line.

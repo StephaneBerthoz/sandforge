@@ -26,7 +26,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { loadOrg } from './sfSession.js';
 import { acquireEnvLock } from './env/envLock.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
-import { main, parseArgs, type EnvCliDeps } from './sandforge-env.js';
+import { envStepRunner, main, parseArgs, type EnvCliDeps } from './sandforge-env.js';
 
 /*
  * The command line, on the memory org: each verb run as a terminal or a CI
@@ -390,6 +390,75 @@ describe('plan, apply, plan again, destroy', () => {
     expect(said).toContain('  create   accounts  Account 2 to write');
     expect(said).toContain('  accounts run 1: exit 0, applied  Account 2 created');
     expect(said).toMatch(/apply: success; state serial \d+/);
+  });
+});
+
+describe('destroy --sweep', () => {
+  /** What the target runs as the sweep deletes, as a removal's preview with its sweep says it. */
+  const SWEEP_AUTOMATION =
+    'TGT runs automation on the records this removal deletes: Task: Apex trigger TaskGuard ' +
+    '(before delete). Nothing was deleted. Add --accept-automation to remove all the same.';
+
+  it('previews each run with its sweep, and stops before its first delete on what fires on what the sweep would take', async () => {
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    const previews: string[][] = [];
+    // The seed's preview, asked with the sweep, reads what it would take and
+    // what fires on it: here a trigger on the tasks it would delete.
+    const sweeping: EnvCliDeps['runner'] = async (script, args, signal) => {
+      const ran = await world.runner(
+        script,
+        args.filter((arg) => arg !== '--sweep'),
+        signal,
+      );
+      if (!args.includes('--preview')) return ran;
+      previews.push([...args]);
+      if (!args.includes('--sweep')) return ran;
+      const answer = JSON.parse(ran.stdout) as { refusals: string[] };
+      return {
+        ...ran,
+        stdout: JSON.stringify({ ...answer, refusals: [...answer.refusals, SWEEP_AUTOMATION] }),
+      };
+    };
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--sweep', '--yes', '--json'], {
+      runner: sweeping,
+    });
+
+    expect(destroyed.code).toBe(1);
+    expect(previews).toHaveLength(2);
+    for (const line of previews) expect(line).toContain('--sweep');
+    expect(destroyed.said).toContain('Task: Apex trigger TaskGuard (before delete)');
+    // Nothing taken back: the destroy stopped at its plan, not part way.
+    expect(world.records('Account')).toHaveLength(2);
+    expect(world.records('Contact')).toHaveLength(2);
+  });
+
+  it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
+    // A removal said "(--sweep-untied takes them)", relayed as it was: a
+    // flag this command refuses, exit 2.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    try {
+      const run = envStepRunner({
+        scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts'),
+      });
+      const ran = await run('sandforge-seed', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-env' });
+    } finally {
+      process.execArgv = inherited;
+    }
+  }, 120_000);
+
+  it('keeps what came late and what is tied to nothing: --sweep-late and --sweep-untied are no flags of it', async () => {
+    for (const flag of ['--sweep-late', '--sweep-untied']) {
+      const { code } = await run(['destroy', '--org', 'TGT', '--sweep', flag]);
+
+      expect(code).toBe(2);
+      expect(stderr.join('')).toContain(`"${flag}" is not a flag this command reads`);
+    }
+    expect(loadOrg).not.toHaveBeenCalled();
   });
 });
 

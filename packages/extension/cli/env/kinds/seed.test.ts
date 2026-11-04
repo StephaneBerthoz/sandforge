@@ -224,6 +224,11 @@ describe('a seed resource’s lines', () => {
       preview: true,
     });
     expect(seedRemoveLine({ ...removal, sweep: true })).toContain('--sweep');
+    // A destroy's sweep, to its preview too, which reads what it would take.
+    expect(parseRemoveArgs(seedLine(seedPreviewLine({ ...removal, sweep: true })))).toMatchObject({
+      sweep: true,
+      preview: true,
+    });
   });
 
   it('refuses a value a script would read as a flag', () => {

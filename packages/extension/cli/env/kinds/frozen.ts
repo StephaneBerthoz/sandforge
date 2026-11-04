@@ -58,10 +58,12 @@ import {
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `frozen` resource runs. */
@@ -316,27 +318,31 @@ export function frozenVerifyLine(input: FrozenLine): string[] {
  * accepted.
  */
 export function frozenRemoveLine(
-  input: FrozenLine & { includeChanged?: boolean; sweep?: boolean; acceptAutomation?: boolean },
+  input: FrozenLine & EnvSweepAsk & { includeChanged?: boolean; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
-    ...(input.sweep === true ? ['--sweep'] : []),
+    ...sweepSwitches(input),
     ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--yes',
     '--json',
   ];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
 export function frozenPreviewLine(
-  input: FrozenLine & { includeChanged?: boolean; acceptAutomation?: boolean },
+  input: FrozenLine & EnvSweepAsk & { includeChanged?: boolean; acceptAutomation?: boolean },
 ): string[] {
   return [
     ...frozenSwitches('remove', input),
     ...(input.includeChanged === true ? ['--include-changed'] : []),
     ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--preview',
+    ...sweepSwitches(input),
     '--json',
   ];
 }

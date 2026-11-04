@@ -91,6 +91,24 @@ export function valueOf(flag: string, value: string): string {
   return value;
 }
 
+/**
+ * What a destroy asks of a removal's sweep: `--sweep`, which takes what the
+ * run's user created tied to the run's records. What came late, or is tied
+ * to nothing of the run, a destroy keeps.
+ */
+export interface EnvSweepAsk {
+  sweep?: boolean;
+}
+
+/**
+ * The switch a removal, or the preview of one, is given for its sweep: none
+ * without it. Previewed with it, the removal reads what the sweep would take,
+ * and what fires as its records go.
+ */
+export function sweepSwitches(ask: EnvSweepAsk): string[] {
+  return ask.sweep === true ? ['--sweep'] : [];
+}
+
 // ─── The answers ─────────────────────────────────────────────────────────────
 
 /** A Salesforce id, as every id an answer names is: a run's records, an org, a user. */

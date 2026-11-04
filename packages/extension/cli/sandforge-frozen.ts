@@ -91,6 +91,7 @@ import {
   sweepClassArgsOf,
   sweepLines,
   sweepListingLines,
+  sweepOptionWords,
   targetAutomationReader,
   type SweepClassArgs,
 } from './sandforge-clone.js';
@@ -275,9 +276,11 @@ ${checkpointFirstHelp({
                          answered as the purge's; with --dry-run, it lists what
                          it would take. One refused, or that did not take all it
                          was asked to, exits 3
-  --sweep-late           with --sweep: take too what it lists as made late
+  --sweep-late           with --sweep: take too what it lists as made late; with
+                         --sweep-list, say what it would take
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
-                         the load; refused when another run wrote to the target
+                         the load; with --sweep-list, say what it would take;
+                         refused when another run wrote to the target
                          in the window — a load swept with it is none —, or when
                          that user created records in the window on objects
                          neither the load nor the automation reaches (hand work,
@@ -294,8 +297,9 @@ ${checkpointFirstHelp({
                          --accept-automation included. It deletes nothing, writes
                          nothing to the sas and asks nothing; it exits 0 once it has
                          said it. It cannot know what hangs from the records, which a
-                         removal reads at each object's turn. Not with --sweep or
-                         --sweep-list
+                         removal reads at each object's turn. With --sweep, it lists
+                         what the sweep would take, and reads what fires on it with
+                         the load's own. Not with --sweep-list
   --yes                  do not ask before a load writes or a removal deletes: a
                          removal asks last, once what it deletes and what the
                          target runs as they go are said. Without it, a step
@@ -516,10 +520,12 @@ export function parseArgs(argv: string[]): CliArgs {
     );
     process.exit(2);
   }
-  if (args.includes('--preview') && (args.includes('--sweep') || args.includes('--sweep-list'))) {
+  // With --sweep, a preview reads what the sweep would take, as the removal
+  // reads it before asking, and deletes nothing.
+  if (args.includes('--preview') && args.includes('--sweep-list')) {
     process.stderr.write(
-      '--preview deletes nothing, --sweep deletes and --sweep-list lists what it would: give ' +
-        '--preview without them. Run with --help.\n',
+      '--preview deletes nothing, and --sweep-list lists what a sweep would take: give ' +
+        '--preview without it, or with --sweep. Run with --help.\n',
     );
     process.exit(2);
   }
@@ -1625,10 +1631,10 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           ...others,
         ].flatMap(({ loadedAt, listing }) => [
           `sweep of the load of ${loadedAt}:`,
-          ...sweepListingLines(listing, 'the target org'),
+          ...sweepListingLines(listing, 'the target org', take, true),
         ]);
       }
-      return sweepListingLines(p.listing as ForgeSweepListing, 'the target org');
+      return sweepListingLines(p.listing as ForgeSweepListing, 'the target org', take, true);
     }
     case 'frozen:remove:preview:response':
       return removalPreviewLines(p.preview as FrozenRemovalPreview);
@@ -2244,6 +2250,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   /**
+   * What the sweep asked with a removal would take, listed and said for the
+   * load and each other load it sweeps with it, read only: the objects it
+   * deletes records of, what fires on which a preview reads with the load's
+   * own. Undefined when the list could not be read, which its error says.
+   */
+  async function removalSweepObjects(loadedAt: string): Promise<string[] | undefined> {
+    log(`reading what a sweep of ${args.target} would take…`);
+    const before = posted.length;
+    await send('frozen:remove:sweep', { targetOrgId, loadedAt });
+    const answered = posted.slice(before);
+    if (answered.some((m) => m.type === 'frozen:remove:sweep:error')) return undefined;
+    const listed = answered.filter((m) => m.type === 'frozen:remove:sweep:response').at(-1)
+      ?.payload as
+      { listing?: ForgeSweepListing; otherLoads?: FrozenReloadSweepListing[] } | undefined;
+    const listings = [
+      ...(listed?.listing ? [listed.listing] : []),
+      ...(listed?.otherLoads ?? []).map(({ listing }) => listing),
+    ];
+    return [...new Set(listings.flatMap((listing) => sweepTakenObjects(listing, args)))];
+  }
+
+  /**
    * The step itself: the configuration saved, then the step's own request;
    * `ended` when it stopped short of its request, having said why.
    */
@@ -2530,9 +2558,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...(args.includeChanged ? { includeChanged: true } : {}),
           });
           if (posted.some((m) => m.type === 'frozen:remove:preview:response')) {
+            // With --sweep, what it would take, listed as the removal lists
+            // it, and what fires on it read with the load's own: previewed
+            // without it, an environment's destroy blocked nothing and its
+            // removal then refused the sweep's automation, part way.
+            const sweptObjects = args.sweep ? await removalSweepObjects(records.loadedAt) : [];
+            if (sweptObjects === undefined) break;
             const { planned, refusal } = await automationOfDeletes({
               targetOrgId,
               loadedAt: records.loadedAt,
+              ...(sweptObjects.length > 0 ? { sweptObjects } : {}),
             });
             if (planned) dryRunMute = { mutedAutomation: planned.planned, mutePlan: planned.plan };
             if (refusal !== undefined) {
@@ -2554,7 +2589,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           log(
             `${recordsToTake(records) > 0 ? 'before them, a sweep deletes' : 'a sweep alone deletes'} ` +
               "what the target's automation made for the load, as the load's user, tied to its " +
-              'records — run with --sweep-list to see what',
+              `records — run ${sweepOptionWords('--sweep-list')} to see what`,
           );
         }
         // Asked by the removal once its sweep has read what it takes, before

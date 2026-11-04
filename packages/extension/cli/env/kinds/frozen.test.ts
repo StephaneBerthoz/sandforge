@@ -258,6 +258,12 @@ describe('a frozen resource’s lines', () => {
       acceptAutomation: false,
       yes: true,
     });
+    // A destroy's sweep, to its preview too, which reads what it would take.
+    expect(parsed(frozenPreviewLine({ ...line, sweep: true }))).toMatchObject({
+      step: 'remove',
+      preview: true,
+      sweep: true,
+    });
   });
 
   it('hands a removal and its preview the acceptance of automation it was given, as the script reads it', () => {

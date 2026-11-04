@@ -57,12 +57,23 @@ export function scriptFile(script: RunnableScript): string {
   return join(__dirname, `${script}.ts`);
 }
 
+/**
+ * The variable a script finds set to the command that relays its lines, when
+ * one does: `sandforge-env`, whose reader cannot give that command the
+ * options a script's own advice names (`--sweep-late`, `--sweep-untied`,
+ * `--sweep-list`). Relayed as they were, "(--sweep-untied takes them)" sent
+ * that reader to a flag the destroy refused, exit 2.
+ */
+export const RELAYED_BY_VARIABLE = 'SANDFORGE_RELAYED_BY';
+
 /** How {@link spawnRunner} starts a script; each defaults to the runner's own. */
 export interface SpawnOptions {
   /** The platform it runs on, which says how a script is stopped. */
   platform?: NodeJS.Platform;
   /** The file a script runs from: the script of this folder by that name. */
   scriptPath?: (script: RunnableScript) => string;
+  /** The command whose output relays the script's lines ({@link RELAYED_BY_VARIABLE}). */
+  relayedBy?: string;
 }
 
 /**
@@ -84,12 +95,18 @@ export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
   const scriptPath = options.scriptPath ?? scriptFile;
   return (script, args, signal) =>
     new Promise((resolve, reject) => {
+      // Read as each script starts: what this process sets meanwhile reaches it.
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...(options.relayedBy !== undefined ? { [RELAYED_BY_VARIABLE]: options.relayedBy } : {}),
+        ...(windows ? { [STOP_CHANNEL_VARIABLE]: 'ipc' } : {}),
+      };
       const child = spawn(
         process.execPath,
         [...inheritedRuntimeFlags(), scriptPath(script), ...args],
         {
           stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
-          env: windows ? { ...process.env, [STOP_CHANNEL_VARIABLE]: 'ipc' } : process.env,
+          env,
           detached: !windows,
           windowsHide: true,
         },

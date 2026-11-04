@@ -559,6 +559,14 @@ describe('the lines of a forge resource', () => {
         ...forgePreviewLine({ target: 'TGT', summary, acceptAutomation: true }),
       ]),
     ).toMatchObject({ preview: true, acceptAutomation: true, json: true });
+    // A destroy's sweep, to its preview too, which reads what it would take.
+    expect(
+      parseRemoveArgs([
+        'node',
+        'sandforge-clone.ts',
+        ...forgePreviewLine({ target: 'TGT', summary, sweep: true }),
+      ]),
+    ).toMatchObject({ preview: true, sweep: true, json: true });
     expect(
       parseVerifyArgs([
         'node',

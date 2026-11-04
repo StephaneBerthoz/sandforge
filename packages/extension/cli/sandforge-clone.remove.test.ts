@@ -817,6 +817,47 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 
+    it('says what fires on the quote lines the platform copied from the run’s line items, none of the quote’s lines in its plan, and deletes nothing without --accept-automation', async () => {
+      targetFlows = [
+        {
+          ApiName: 'Quote_Line_Gone',
+          Label: 'Quote line gone',
+          TriggerType: 'RecordBeforeDelete',
+          RecordTriggerType: 'Delete',
+          TriggerObjectOrEvent: { QualifiedApiName: 'QuoteLineItem' },
+          ActiveVersionId: '301000000000009AAA',
+        },
+      ];
+      const deal = [SRC('006', 1), SRC('0Q0', 1), SRC('00k', 1)];
+      const summaryPath = file(
+        runSummary(
+          {},
+          {
+            remapTable: Object.fromEntries(
+              deal.map((id) => [id, TGT(id.slice(0, 3), Number(id.slice(3, 15)))]),
+            ),
+            existingSourceIds: [],
+            updatedSourceIds: [],
+            withTheirRecordSourceIds: [],
+            createdByObject: [
+              { objectApiName: 'Opportunity', sourceIds: [SRC('006', 1)] },
+              { objectApiName: 'Quote', sourceIds: [SRC('0Q0', 1)] },
+              { objectApiName: 'OpportunityLineItem', sourceIds: [SRC('00k', 1)] },
+            ],
+          },
+        ),
+      );
+
+      expect(await run(['--remove', summaryPath, '--target', 'TGT'])).toBe(1);
+
+      expect(printed).toContain('  QuoteLineItem: before delete: flow "Quote line gone"');
+      expect(stderr.join('')).toContain(
+        'TGT runs automation on the records this removal deletes: QuoteLineItem: flow ' +
+          '"Quote line gone" (before delete).',
+      );
+      expect(removeRunRecords).not.toHaveBeenCalled();
+    });
+
     it('removes all the same with --accept-automation, having said what fires', async () => {
       firing();
       const summaryPath = file(runSummary());
@@ -1229,6 +1270,81 @@ describe('sandforge-clone --remove', () => {
       );
       expect(printed).toContain('  Task: 1 — 1 made for the run (Welcome call)');
       expect(printed).toContain('  Asset: 1 — 1 made for the run (Insured risk)');
+      expect(existsSync(removalsPath(path))).toBe(false);
+    });
+
+    it('lists what --sweep-untied would take beside it, which it took for a refused line before, and deletes nothing', async () => {
+      vi.mocked(listSweep).mockResolvedValue({
+        ...LISTING,
+        found: [
+          ...LISTING.found,
+          {
+            objectApiName: 'Event',
+            count: 2,
+            names: ['Follow-up'],
+            classes: { made: 0, madeOver: 0, late: 0, untied: 2 },
+          },
+        ],
+        untied: { objects: [{ objectApiName: 'Event', count: 2 }] },
+      });
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep-list', '--sweep-untied']),
+      ).toBeUndefined();
+
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(sweepParts).not.toHaveBeenCalled();
+      expect(printed).toContain(
+        'it found 4 record(s) and would delete 4 of them, children first; per object, all it found:',
+      );
+      expect(printed).toContain(
+        'with --sweep-untied, it would delete too what is tied to nothing of the run: Event: 2',
+      );
+      expect(printed).not.toContain('(--sweep-untied takes them)');
+    });
+
+    it('previews with --sweep what the sweep would take, and what fires on its objects with the run’s, deleting nothing', async () => {
+      // A Flow on the assets the sweep deletes, which the removal's question
+      // reads: previewed without it, an environment's destroy blocked nothing
+      // and stopped part way.
+      targetFlows = [
+        {
+          ApiName: 'Asset_Gone',
+          Label: 'Asset gone',
+          TriggerType: 'RecordBeforeDelete',
+          RecordTriggerType: 'Delete',
+          TriggerObjectOrEvent: { QualifiedApiName: 'Asset' },
+          ActiveVersionId: '301000000000009AAA',
+        },
+      ];
+      vi.mocked(removeRunRecords).mockResolvedValue({
+        objects: [],
+        cancelled: false,
+        gone: [],
+        stamps: {},
+        left: noneLeft,
+        preview: { objects: [], userNames: {} },
+      });
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--preview', '--sweep', '--json']),
+      ).toBeUndefined();
+
+      const answer = JSON.parse(stdout.join('')) as { refusals: string[] };
+      expect(answer).toMatchObject({
+        action: 'remove-preview',
+        sweepListing: { found: LISTING.found },
+      });
+      expect(answer.refusals).toEqual([
+        expect.stringContaining(
+          'TGT runs automation on the records this removal deletes: Asset: flow "Asset gone" ' +
+            '(before delete).',
+        ),
+      ]);
+      expect(sweepParts).not.toHaveBeenCalled();
+      expect(vi.mocked(removeRunRecords).mock.calls[0]?.[2]).toMatchObject({ previewOnly: true });
       expect(existsSync(removalsPath(path))).toBe(false);
     });
 
@@ -1693,6 +1809,33 @@ describe('sandforge-clone --remove', () => {
         expect(sweepCall().input.ties?.madeEarlier).toEqual([MADE_TASK]);
         // Still kept: a third removal's sweep may find them again.
         expect(removalsOf(path)).toMatchObject({ made: [MADE_TASK] });
+      });
+
+      it('keeps what the sweep found made late beside the summary, and tells the next removal’s sweep, which takes it with --sweep-late', async () => {
+        const LATE_TASK = '00T000000000902AAA';
+        const path = file(runSummary());
+        vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+          ...partsAnswering(SWEPT, LISTING)(sweptOrg, input, options),
+          late: new Set([LATE_TASK]),
+        }));
+        vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
+
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--json']);
+
+        expect(removalsOf(path)).toMatchObject({ late: [LATE_TASK] });
+        expect(removalsOf(path)).not.toHaveProperty('made');
+
+        vi.mocked(sweepParts).mockClear();
+        vi.mocked(sweepParts).mockImplementation(partsAnswering(SWEPT, LISTING));
+        stdout = [];
+
+        expect(
+          await run(['--remove', path, '--target', 'TGT', '--sweep', '--sweep-late', '--json']),
+        ).toBeUndefined();
+
+        expect(sweepCall().input.ties?.lateEarlier).toEqual([LATE_TASK]);
+        expect(sweepCall().options).toMatchObject({ sweepLate: true });
+        expect(removalsOf(path)).toMatchObject({ late: [LATE_TASK] });
       });
 
       it('names, after a removal that left records of the run, what the automation likely made that kept them, and that --sweep takes it', async () => {

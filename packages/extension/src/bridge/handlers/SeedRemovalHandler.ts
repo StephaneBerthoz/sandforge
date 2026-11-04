@@ -49,7 +49,11 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  objectsRemovedOf,
+  removalOrg,
+  setBackToDraftOf,
+} from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -75,7 +79,6 @@ import {
   sweepAuditObjects,
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
-import { madeKept } from '../../modules/forge/sweepTies.js';
 import {
   keptRunsOn,
   keptRunTies,
@@ -83,6 +86,7 @@ import {
   sweepOrgOf,
   sweepRefusalCode,
   withoutPlatformCopies,
+  withSweepFinds,
   type LocalRun,
   type OtherModuleRuns,
   type RemovalSweep,
@@ -719,12 +723,9 @@ export class SeedRemovalHandler implements DomainHandler {
           details: { ...details, runId: run.runId },
         });
       },
-      keepMade: async (made) => {
+      keepMade: async (made, late) => {
         await this.creations
-          ?.updateRemoval(run.runId, (state) => ({
-            ...state,
-            madeEarlier: madeKept(state.madeEarlier, made),
-          }))
+          ?.updateRemoval(run.runId, (state) => withSweepFinds(state, made, late))
           .catch((err: unknown) => {
             this.deps.log(
               `[WARN] seed:remove ${context.operationId}: what the sweep found made for the run ` +
@@ -975,7 +976,7 @@ export class SeedRemovalHandler implements DomainHandler {
       if (asked.muteAutomation === true) {
         const removed = [...new Set(plan.map((object) => object.objectApiName))];
         const steps = removalStepsWithSweep(
-          { setToDraft: setBackToDraftOf(removed), delete: removed },
+          { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
           sweepParts?.takes ?? [],
         );
         const objects = steps.delete ?? [];

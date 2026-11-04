@@ -43,7 +43,12 @@ import {
   versionsKeptOf,
   withArticleRemoval,
 } from '../seed/articleRemoval.js';
-import { QUOTE_OBJECT, quoteSyncCopiesOf, type PlatformCopies } from './quoteSyncCopies.js';
+import {
+  QUOTE_OBJECT,
+  quoteSyncCopiesOf,
+  quoteSyncCopyObjectsOf,
+  type PlatformCopies,
+} from './quoteSyncCopies.js';
 import { MADE_WITHIN_MS, TIE_LEAD_MS } from './sweepTies.js';
 
 /** Reasons kept per object: an org repeats the same few. */
@@ -2097,6 +2102,19 @@ interface Drafted {
   draft: string;
   /** The status it had, and gets back if it stays in the org. */
   status: string;
+}
+
+/**
+ * The objects whose records a removal of a run's `objects` deletes: those,
+ * then the objects outside them the platform's copies of the run's lines are
+ * on, which it takes with the run's own ({@link quoteSyncCopyObjectsOf}). What
+ * the target runs as records go is read on these, the question asked and the
+ * mute planned from it: read on the run's objects alone, a clone without
+ * quote lines in its plan had its removal delete the copies the platform made
+ * of its line items, the flow on quote lines never read.
+ */
+export function objectsRemovedOf(objects: readonly string[]): string[] {
+  return [...new Set([...objects, ...quoteSyncCopyObjectsOf(objects)])];
 }
 
 /**

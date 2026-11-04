@@ -940,6 +940,21 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(answer.refusals[0]).toContain('--accept-automation');
     });
 
+    it('reads with --sweep what fires on what the sweep would take, says the refusal it meets, and deletes nothing', async () => {
+      // Previewed without the sweep, an environment's destroy --sweep blocked
+      // nothing, and the removal then refused the Flow on the asset part way.
+      expect(await remove('--preview', '--sweep', '--json')).toBe(0);
+
+      expect(org.deletes).toEqual([]);
+      expect(org.ids('Asset')).toEqual([ASSET]);
+      expect(stderr).toContain('Asset: flow "Asset guard"');
+      expect(steps.at(-1)).toBe('read Account Asset Case');
+      const answer = JSON.parse(stdout) as { refusals: string[] };
+      expect(answer.refusals).toHaveLength(1);
+      expect(answer.refusals[0]).toContain('Asset: flow "Asset guard"');
+      expect(answer.refusals[0]).toContain('--accept-automation');
+    });
+
     it('refuses nothing accepted', async () => {
       onCase = true;
 

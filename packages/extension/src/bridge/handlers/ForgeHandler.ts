@@ -198,6 +198,7 @@ import {
   NOTHING_REMOVED,
   isRunRecords,
   objectsIn,
+  objectsRemovedOf,
   recordsIn,
   removalOrg,
   removeRunRecords,
@@ -3417,9 +3418,10 @@ export class ForgeHandler implements DomainHandler {
    */
   /**
    * The mute of a removal that asked for one, planned from what the target
-   * runs as it deletes the records of `objects` and sets those past Draft back
-   * to Draft first, and as its sweep deletes those of `swept`, none of which it
-   * sets back: as the removal's question reads it.
+   * runs as it deletes the records of `objects` — the platform's copies of the
+   * run's lines on an object the run never wrote among them — and sets those
+   * past Draft back to Draft first, and as its sweep deletes those of `swept`,
+   * none of which it sets back: as the removal's question reads it.
    */
   private async removalMute(
     targetOrgId: string,
@@ -3430,7 +3432,7 @@ export class ForgeHandler implements DomainHandler {
     const read: ForgeTargetAutomation | { unread: string } = reader
       ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
           .withTimeout('forge:undo-automation', () =>
-            reader.read(targetOrgId, [...new Set([...objects, ...swept])]),
+            reader.read(targetOrgId, [...new Set([...objectsRemovedOf(objects), ...swept])]),
           )
           .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
       : { unread: "no reader of the target org's automation is set up" };
@@ -6199,8 +6201,8 @@ export class ForgeHandler implements DomainHandler {
           ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
       },
-      keepMade: async (made) => {
-        await this.removalPlans?.keepMade(entry.forgeId, made).catch((err: unknown) => {
+      keepMade: async (made, late) => {
+        await this.removalPlans?.keepMade(entry.forgeId, made, late).catch((err: unknown) => {
           logger.warn(`Forge sweep finds not kept: ${extractErrorMessage(err)}`);
         });
       },
@@ -6268,7 +6270,7 @@ export class ForgeHandler implements DomainHandler {
    * runs of this machine that wrote to its target in its window, this
    * module's (`localRunsOn`) and the others', what its mute kept quiet and
    * what still ran, when its first removal began, and what the sweeps of its
-   * earlier removals found made for it.
+   * earlier removals found made for it, and made late.
    */
   private async tiesOf(entry: ForgeExecutionResult): Promise<SweepTies> {
     const written = entry.writtenBetween;
@@ -6279,6 +6281,7 @@ export class ForgeHandler implements DomainHandler {
     const muted = entry.mutedAutomation;
     const began = removalBeganOf(entry.removalSpans);
     const madeEarlier = await this.removalPlans?.madeOf(entry.forgeId).catch(() => []);
+    const lateEarlier = await this.removalPlans?.lateOf(entry.forgeId).catch(() => []);
     return {
       otherRuns: otherRunsInSweep(written, runs),
       ...(muted?.state === 'muted'
@@ -6286,6 +6289,7 @@ export class ForgeHandler implements DomainHandler {
         : {}),
       ...(began ? { removalBegan: began } : {}),
       ...(madeEarlier && madeEarlier.length > 0 ? { madeEarlier } : {}),
+      ...(lateEarlier && lateEarlier.length > 0 ? { lateEarlier } : {}),
     };
   }
 
@@ -7035,8 +7039,10 @@ export class ForgeHandler implements DomainHandler {
     const targetOrgId = entry.targetOrgId;
     try {
       // What a sweep ticked in the confirmation deletes too, and sets nothing
-      // back to Draft: the page names its objects, as the list it shows reads them.
-      const read = [...new Set([...objects, ...(parsed.sweptObjects ?? [])])];
+      // back to Draft: the page names its objects, as the list it shows reads
+      // them. So do the copies the platform made of the run's lines on an
+      // object the run never wrote, which the removal takes with its own.
+      const read = [...new Set([...objectsRemovedOf(objects), ...(parsed.sweptObjects ?? [])])];
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(
         'forge:undo-automation',
         () => reader.read(targetOrgId, read),

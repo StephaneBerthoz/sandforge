@@ -1164,7 +1164,8 @@ destroy:
   --include-changed          take also the records changed since apply, and what was created
                              under them since: on a shared sandbox, a colleague's work
   --sweep                    take also what the org's automation made for each run: what a
-                             removal can tie to the run's records
+                             removal can tie to the run's records; the plan reads what it would
+                             take, and what fires as it goes
   --accept-automation        delete although the org runs automation as records go
   --accept-emails            with --rewind, rewind although the org delivers the emails what still
                              runs sends, or would not say whether it does
@@ -1448,7 +1449,7 @@ Each resource is taken back by its script's own removal, the last applied first,
 
 - **Records changed since the apply**, kept unless `--include-changed`, which takes them, and what was created under them since: on a CI scratch org, what you want; on a shared sandbox, a colleague's work, which the question says.
 - **Records that stay because records of the org depend on them.**
-- **What the org's automation created** as the records went in, unless `--sweep` takes it: what the run's user created tied to the run's records -- under them, pointed at by them, or hanging from those -- within a minute of them. What came later, up to 15 minutes or as the org's Automated Process user, and what the run's user created in the run's window tied to nothing of it, are listed and kept: a destroy takes neither. Each removal tells its sweep the other runs of this machine in its window, as the panel tells its own: the environment's other forge and seed resources, applied one after the other as the same user, are among them, and their records are never swept as the automation's of the one before. A frozen resource's load is not: its removal goes through the panel's own, which tells its sweep the runs it knows.
+- **What the org's automation created** as the records went in, unless `--sweep` takes it: what the run's user created tied to the run's records -- under them, pointed at by them, or hanging from those -- within a minute of them. What came later, up to 15 minutes or as the org's Automated Process user, and what the run's user created in the run's window tied to nothing of it, are listed and kept: a destroy takes neither, and each removal's lines, as the destroy relays them, say so and name the run's own removal as what takes them. With `--sweep`, the destroy's plan previews each removal with its sweep, what it would take and what fires as it goes: a sweep whose automation nothing accepts blocks the destroy before its first delete. Each removal tells its sweep the other runs of this machine in its window, as the panel tells its own: the environment's other forge and seed resources, applied one after the other as the same user, are among them, and their records are never swept as the automation's of the one before. A frozen resource's load is not: its removal goes through the panel's own, which tells its sweep the runs it knows.
 - **What the platform does not take back**: a person's contact apart from its account, a lead converted since, a contract activated since.
 
 A removal refused before it deletes stops the destroy there, before the resources that one depended on: the org runs automation as records go and nothing accepted it, or the user may not delete the records of an object. Their records would be kept for it anyway.

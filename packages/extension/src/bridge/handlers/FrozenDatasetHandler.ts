@@ -50,6 +50,7 @@ import {
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
   NOTHING_REMOVED,
+  objectsRemovedOf,
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
@@ -318,15 +319,19 @@ class RemovalStopped extends Error {
 }
 
 /**
- * What each step of a load's removal writes: what it deletes, what it sets
- * back to Draft first, and what its sweep deletes beside them.
+ * What each step of a load's removal writes: what it deletes — the platform's
+ * copies of the load's lines on an object it never wrote among them —, what it
+ * sets back to Draft first, and what its sweep deletes beside them.
  */
 function removalStepsOfLoad(
   plan: readonly ForgeRunObjectRecords[],
   swept: readonly string[],
 ): ForgeRemovalSteps {
   const removed = [...new Set(plan.map((object) => object.objectApiName))];
-  return removalStepsWithSweep({ setToDraft: setBackToDraftOf(removed), delete: removed }, swept);
+  return removalStepsWithSweep(
+    { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
+    swept,
+  );
 }
 
 /**

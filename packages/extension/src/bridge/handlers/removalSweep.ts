@@ -46,8 +46,8 @@ import {
   type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
 import { quoteSyncCopiesOf } from '../../modules/forge/quoteSyncCopies.js';
-import { LATE_WITHIN_MS, TIE_LEAD_MS } from '../../modules/forge/sweepTies.js';
-import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
+import { LATE_WITHIN_MS, madeKept, TIE_LEAD_MS } from '../../modules/forge/sweepTies.js';
+import type { SyncRunKept, SyncRunRemovalState } from '../../modules/sync/SyncRunCreations.js';
 
 /** A sweep that did not run, whose refusal or failure says why. */
 const SWEEP_NOT_RUN: ForgeSweepResult = {
@@ -405,7 +405,8 @@ export function keptRunsOn(
  * the records of the other runs of this machine that wrote to its target in
  * its window — its module's, `kept`, and the other modules' —, when its first
  * removal began, and what the sweeps of its earlier removals found made for
- * it. What its mute kept quiet and what still ran, its file does not keep.
+ * it, and made late. What its mute kept quiet and what still ran, its file
+ * does not keep.
  */
 export async function keptRunTies(
   run: SyncRunKept,
@@ -416,6 +417,7 @@ export async function keptRunTies(
   const elsewhere = await otherModules(run.targetOrgId, written).catch(() => []);
   const began = removalBeganOf(run.removal?.removalSpans);
   const made = run.removal?.madeEarlier;
+  const late = run.removal?.lateEarlier;
   return {
     otherRuns: otherRunsInSweep(written, [
       ...keptRunsOn(kept, run.targetOrgId, run.runId),
@@ -423,6 +425,28 @@ export async function keptRunTies(
     ]),
     ...(began ? { removalBegan: began } : {}),
     ...(made && made.length > 0 ? { madeEarlier: made } : {}),
+    ...(late && late.length > 0 ? { lateEarlier: late } : {}),
+  };
+}
+
+/**
+ * A Sync or a Seed run's removal state with what its sweep found made for it
+ * and made late kept beside what earlier sweeps found (`SweepTies.madeEarlier`,
+ * `SweepTies.lateEarlier`), as a Frozen load keeps both: what came late and
+ * was left, its tie gone with the run's record, was found in no class by the
+ * next sweep, and `--sweep-late` took nothing of it.
+ */
+export function withSweepFinds(
+  state: SyncRunRemovalState,
+  made: Iterable<string>,
+  late: Iterable<string>,
+): SyncRunRemovalState {
+  const madeEarlier = madeKept(state.madeEarlier, made);
+  const lateEarlier = madeKept(state.lateEarlier, late);
+  return {
+    ...state,
+    ...(madeEarlier.length > 0 ? { madeEarlier } : {}),
+    ...(lateEarlier.length > 0 ? { lateEarlier } : {}),
   };
 }
 

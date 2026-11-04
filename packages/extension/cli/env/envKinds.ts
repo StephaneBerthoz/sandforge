@@ -19,7 +19,12 @@ import type {
   EnvSeedRun,
 } from '@sandforge/shared';
 import type { EnvFileResource } from './envFile.js';
-import type { EnvDryRunCount, EnvFileRefusal, EnvRemovalObject } from './kinds/common.js';
+import type {
+  EnvDryRunCount,
+  EnvFileRefusal,
+  EnvRemovalObject,
+  EnvSweepAsk,
+} from './kinds/common.js';
 import {
   FORGE_DEFAULT_MAX_TOTAL,
   FORGE_SCRIPT,
@@ -546,17 +551,22 @@ export interface EnvRemovalContext {
   acceptAutomation: boolean;
 }
 
-/** The script and line of a removal's preview. */
+/**
+ * The script and line of a removal's preview: with the sweep a destroy asks,
+ * what that sweep would take and what fires on it are read too.
+ */
 export function previewLineOf(
   kind: EnvResourceKind,
-  context: EnvRemovalContext,
+  context: EnvRemovalContext & EnvSweepAsk,
 ): { script: EnvKindScript; args: string[] } {
   const script = scriptOfKind(kind);
+  const sweep = context.sweep === true ? { sweep: true } : {};
   const input = {
     target: context.target,
     summary: context.subject,
     includeChanged: context.includeChanged,
     acceptAutomation: context.acceptAutomation,
+    ...sweep,
   };
   switch (script) {
     case SEED_SCRIPT:
@@ -571,6 +581,7 @@ export function previewLineOf(
           target: context.target,
           includeChanged: context.includeChanged,
           acceptAutomation: context.acceptAutomation,
+          ...sweep,
         }),
       };
     case DATAOPS_SCRIPT:

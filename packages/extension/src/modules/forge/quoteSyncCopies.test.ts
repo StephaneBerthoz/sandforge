@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   quoteSyncCopiesAmong,
   quoteSyncCopiesOf,
+  quoteSyncCopyObjectsOf,
   type QuoteSyncReading,
   type QuoteSyncRun,
 } from './quoteSyncCopies.js';
@@ -316,5 +317,28 @@ describe('quoteSyncCopiesOf', () => {
     const org = new LinesOrg({ ...read, quoteLines: [...read.quoteLines, ...many] });
 
     expect(await quoteSyncCopiesOf(org, runOf(), [QUOTE], RUN_OBJECTS)).toEqual([]);
+  });
+});
+
+describe('quoteSyncCopyObjectsOf', () => {
+  it('names the quote lines for a run that wrote a quote, its opportunity and line items, and none of the quote’s lines', () => {
+    expect(
+      quoteSyncCopyObjectsOf(['Account', 'Opportunity', 'Quote', 'OpportunityLineItem']),
+    ).toEqual(['QuoteLineItem']);
+  });
+
+  it('names the line items for a run that wrote the quote’s lines and none of the opportunity’s', () => {
+    expect(quoteSyncCopyObjectsOf(new Set(['Opportunity', 'Quote', 'QuoteLineItem']))).toEqual([
+      'OpportunityLineItem',
+    ]);
+  });
+
+  it('names nothing for a run whose plan holds both lines, neither, or no quote and opportunity', () => {
+    expect(
+      quoteSyncCopyObjectsOf(['Opportunity', 'Quote', 'OpportunityLineItem', 'QuoteLineItem']),
+    ).toEqual([]);
+    expect(quoteSyncCopyObjectsOf(['Opportunity', 'Quote'])).toEqual([]);
+    expect(quoteSyncCopyObjectsOf(['Opportunity', 'OpportunityLineItem'])).toEqual([]);
+    expect(quoteSyncCopyObjectsOf(['Quote', 'QuoteLineItem'])).toEqual([]);
   });
 });

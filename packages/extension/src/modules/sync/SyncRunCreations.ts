@@ -481,6 +481,11 @@ const removalSchema = z.object({
     .max(MADE_KEPT_PER_OBJECT * MADE_OBJECTS_READ)
     .optional()
     .catch(undefined),
+  lateEarlier: z
+    .array(idSchema)
+    .max(MADE_KEPT_PER_OBJECT * MADE_OBJECTS_READ)
+    .optional()
+    .catch(undefined),
 });
 
 /**
@@ -501,6 +506,7 @@ export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined 
     undeleteLeft,
     undeletedAt,
     madeEarlier,
+    lateEarlier,
   } = parsed.data;
   return {
     ...(undo ? { undo } : {}),
@@ -512,6 +518,7 @@ export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined 
     ...(undeleteLeft ? { undeleteLeft } : {}),
     ...(undeletedAt !== undefined ? { undeletedAt } : {}),
     ...(madeEarlier ? { madeEarlier } : {}),
+    ...(lateEarlier ? { lateEarlier } : {}),
   };
 }
 
@@ -547,6 +554,14 @@ export interface SyncRunRemovalState {
    * told it as the run's record went (`SweepTies.madeEarlier`).
    */
   madeEarlier?: string[];
+  /**
+   * What the sweeps of its removals found made late for the run, by id
+   * (`SweepParts.late`), kept as `madeEarlier` is: late still for the next
+   * sweep, which takes it when asked to take what came late
+   * (`SweepTies.lateEarlier`). Left by a sweep that did not take it, its
+   * tie went with the run's record, and the next sweep found it in no class.
+   */
+  lateEarlier?: string[];
 }
 
 /** The run a file names. */

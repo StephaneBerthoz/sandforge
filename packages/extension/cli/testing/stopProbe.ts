@@ -1,10 +1,12 @@
 /**
  * A script for the tests of how a script of this folder is started and stopped
  * (`scriptRunner.test.ts`), hearing its stop signals as every command
- * of this folder does. `exit` prints its arguments and ends, its stop signals
- * still heard; `wait` says so on stderr and waits until it is stopped, then
- * leaves as a run stopped by that signal leaves.
+ * of this folder does. `exit` prints its arguments, and the command that
+ * relays its lines when one does, and ends, its stop signals still heard;
+ * `wait` says so on stderr and waits until it is stopped, then leaves as a
+ * run stopped by that signal leaves.
  */
+import { RELAYED_BY_VARIABLE } from '../scriptRunner.js';
 import { onStopSignal, stopExitCode } from '../stopSignals.js';
 
 const [mode, ...rest] = process.argv.slice(2);
@@ -12,7 +14,11 @@ const [mode, ...rest] = process.argv.slice(2);
 if (mode === 'exit') {
   onStopSignal(() => undefined);
   process.stdout.write(
-    `${JSON.stringify({ args: rest, ipc: typeof process.send === 'function' })}\n`,
+    `${JSON.stringify({
+      args: rest,
+      ipc: typeof process.send === 'function',
+      relayedBy: process.env[RELAYED_BY_VARIABLE] ?? null,
+    })}\n`,
   );
 } else {
   const waiting = setInterval(() => undefined, 1_000);

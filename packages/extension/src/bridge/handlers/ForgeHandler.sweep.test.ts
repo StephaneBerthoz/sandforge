@@ -701,6 +701,42 @@ describe('a sweep asked with a removal', () => {
     expect(org.ids('Asset')).toEqual([]);
   });
 
+  it('keeps what it found made late and left, and takes it with what came late once the record that told the tie is gone', async () => {
+    // Five minutes after the case: what a scheduled path of its flow makes.
+    const late = org.row('Asset', ASSET);
+    if (late) Object.assign(late, { CreatedDate: at(595), LastModifiedDate: at(595) });
+    // A colleague edits the case after the run: the removal keeps it.
+    const changedCase = org.row('Case', CASE);
+    if (changedCase) {
+      Object.assign(changedCase, { LastModifiedDate: LONG_AFTER, LastModifiedById: COLLEAGUE });
+    }
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+    expect(org.ids('Asset')).toEqual([ASSET]);
+    expect(answer()?.sweep?.left).toEqual(
+      expect.arrayContaining([expect.objectContaining({ class: 'late', option: '--sweep-late' })]),
+    );
+    expect(await plans.lateOf('forge-1')).toEqual([ASSET]);
+
+    // Then the case goes by hand: nothing of the run names the asset now.
+    const caseRow = org.row('Case', CASE);
+    org.rows.set('Case', []);
+    if (caseRow) org.bin.set('Case', [caseRow]);
+    org.deletes.length = 0;
+
+    await handler.handle(buildMsg('forge:undo-sweep:request', { forgeId: 'forge-1' }));
+    expect(listed()?.found.find((found) => found.objectApiName === 'Asset')?.classes).toMatchObject(
+      { late: 1, untied: 0 },
+    );
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+    expect(org.ids('Asset')).toEqual([ASSET]);
+    await handler.handle(
+      buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true, sweepLate: true }),
+    );
+    expect(deleted()).toContain(ASSET);
+    expect(org.ids('Asset')).toEqual([]);
+  });
+
   it('lets Production Guard refuse the sweep’s deletes, and records why', async () => {
     // A run marked removed whose records the org still holds: the sweep runs
     // alone, and finds what the automation made under them.
@@ -974,6 +1010,123 @@ describe('a sweep asked with a removal', () => {
         expect(seenAsked[0]).not.toContain('leaseAcquire');
         expect(steps()).toContain('leaseAcquire');
         expect(steps().indexOf('leaseAcquire')).toBeLessThan(steps().indexOf('write'));
+        expect(permissions.assignments()).toEqual([]);
+      });
+    });
+
+    describe('of what a Flow fires on the quote lines the platform copied, none of the quote’s lines in the run’s plan', () => {
+      const opportunity = id('006', 1);
+      const quote = id('0Q0', 1);
+      const lineItem = id('00k', 1);
+      const copy = id('0QL', 2);
+
+      beforeEach(() => {
+        org.shape('Opportunity', {
+          references: { AccountId: ['Account'], SyncedQuoteId: ['Quote'] },
+          children: [
+            { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+            { childSObject: 'Quote', field: 'OpportunityId', cascadeDelete: true },
+          ],
+        });
+        org.shape('Quote', {
+          references: { OpportunityId: ['Opportunity'] },
+          children: [{ childSObject: 'QuoteLineItem', field: 'QuoteId', cascadeDelete: true }],
+        });
+        org.shape('OpportunityLineItem', { references: { OpportunityId: ['Opportunity'] } });
+        org.shape('QuoteLineItem', {
+          references: { QuoteId: ['Quote'], OpportunityLineItemId: ['OpportunityLineItem'] },
+        });
+        org.add(
+          'Opportunity',
+          rec(opportunity, 'Cloned deal', USER, at(10), {
+            AccountId: ACCOUNT,
+            SyncedQuoteId: quote,
+          }),
+        );
+        org.add('Quote', rec(quote, 'Cloned quote', USER, at(11), { OpportunityId: opportunity }));
+        org.add(
+          'OpportunityLineItem',
+          rec(lineItem, 'Line', USER, at(12), { OpportunityId: opportunity }),
+        );
+        // The platform's copy of the run's line item: the run wrote no quote line.
+        org.add(
+          'QuoteLineItem',
+          rec(copy, 'Copied line', USER, at(12), {
+            QuoteId: quote,
+            OpportunityLineItemId: lineItem,
+          }),
+        );
+        store.set(
+          'forge:history',
+          [
+            runEntry({
+              idRemapTable: {
+                [src('006', 1)]: opportunity,
+                [src('0Q0', 1)]: quote,
+                [src('00k', 1)]: lineItem,
+              },
+              idRemapExisting: [],
+              idRemapCreated: [
+                { objectApiName: 'Opportunity', sourceIds: [src('006', 1)] },
+                { objectApiName: 'Quote', sourceIds: [src('0Q0', 1)] },
+                { objectApiName: 'OpportunityLineItem', sourceIds: [src('00k', 1)] },
+              ],
+            }),
+          ],
+          'forge',
+        );
+        // A Flow on quote lines alone, as the real reader says only what it is asked.
+        reader.read.mockImplementation(
+          async (_org: string, objects: readonly string[]) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('QuoteLineItem')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'QuoteLineItem' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        // The Flow refuses a quote line's delete, unless the user holds the bypass.
+        mockGetConn.mockResolvedValue({
+          ...org.conn,
+          sobject: (object: string) => {
+            const records = org.conn.sobject(object);
+            if (object !== 'QuoteLineItem') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? records.destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'A quote line cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+      });
+
+      it('plans the mute on them with the run’s own, and the lease lets their delete through', async () => {
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', muteAutomation: true }));
+
+        expect(errors()).toEqual([]);
+        expect(answer()?.status).toBe('success');
+        expect(org.ids('QuoteLineItem')).toEqual([]);
+        expect(answer()?.objects.find((o) => o.objectApiName === 'QuoteLineItem')).toMatchObject({
+          deleted: 1,
+          platformCopies: 1,
+        });
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'QuoteLineItem' })],
+        });
         expect(permissions.assignments()).toEqual([]);
       });
     });

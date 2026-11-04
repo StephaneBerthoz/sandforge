@@ -200,6 +200,43 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     ]);
   });
 
+  it('names what fires on the quote lines the platform copied from the line items the run wrote, none of the quote’s lines in its file', async () => {
+    const recorder = creations.recorder({
+      runId: 'run-deal',
+      configId: 'cfg-2',
+      configName: 'Deals',
+      sourceOrgId: 'org-source',
+      targetOrgId: TARGET_ORG,
+      startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+    });
+    recorder.note('Opportunity', [id('006', 1)]);
+    recorder.note('Quote', [id('0Q0', 1)]);
+    recorder.note('OpportunityLineItem', [id('00k', 1)]);
+    await recorder.end({ status: 'success' });
+    const reader = new TargetAutomationReader({
+      query: async () => ({ records: [], requests: 1 }),
+      toolingQuery: async (_orgId, soql) => ({
+        records:
+          soql === TRIGGERS_SOQL
+            ? [triggerRow('QuoteLineItem', 'QuoteLineGuard', ['UsageBeforeDelete'])]
+            : [],
+        requests: 1,
+      }),
+    });
+    handler.setTargetAutomation(reader);
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-deal' }));
+
+    expect(errors()).toEqual([]);
+    const response = answer();
+    expect(response?.steps.delete).toContain('QuoteLineItem');
+    expect(response?.steps.setToDraft).toEqual([]);
+    const fired = firedOnRemovalStepsOf(response!.automation, response!.steps);
+    expect(fired.map((f) => `${f.step} ${f.objectApiName} ${f.name} ${f.when}`)).toEqual([
+      'delete QuoteLineItem QuoteLineGuard before',
+    ]);
+  });
+
   it('reads the objects of every step once, asking for the triggers of an undelete', async () => {
     const read = vi.fn(
       async (

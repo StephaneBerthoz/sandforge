@@ -37,7 +37,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --remove <summary.json | run file | run id> --target TGT [--include-changed]
  *     [--accept-automation] [--store <dir>]
- *     [--sweep [--sweep-late] [--sweep-untied] | --sweep-list] [--json]
+ *     [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -99,12 +99,16 @@ import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
 import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
-import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
+import {
+  objectsRemovedOf,
+  removalOrg,
+  setBackToDraftOf,
+} from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
-import { madeKept } from '../src/modules/forge/sweepTies.js';
+import { withSweepFinds } from '../src/bridge/handlers/removalSweep.js';
 import { keepRunUser } from '../src/modules/sync/runUser.js';
 import {
   earlierRunsOf,
@@ -369,7 +373,7 @@ Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
     --remove <summary.json | run file | run id> --target <alias>
     [--include-changed] [--accept-automation] [--store <dir>]
-    [--sweep [--sweep-late] [--sweep-untied] | --sweep-list] [--json]
+    [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--json]
 
   --remove <file | id>   the summary a run printed with --json, saved to a
                          file; or the run's file, which it names as it
@@ -436,9 +440,11 @@ Remove what a run created:
                          created in the window tied to nothing of the run.
                          Records someone changed since stay, unless
                          --include-changed                  (default: off)
-  --sweep-late           with --sweep, take too what it lists as made late
+  --sweep-late           with --sweep, take too what it lists as made late;
+                         with --sweep-list, say what it would take
   --sweep-untied         with --sweep, take too what it lists as tied to
-                         nothing of the run; refused when another run of this
+                         nothing of the run; with --sweep-list, say what it
+                         would take; refused when another run of this
                          machine wrote to the target in the window, or when
                          that user created records in the window on objects
                          neither the run nor the automation reaches (hand
@@ -3377,6 +3383,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...(subject.muted ? { muted: subject.muted } : {}),
       ...(earlier?.removalSpans ? { removalSpans: earlier.removalSpans } : {}),
       ...(earlier?.madeEarlier ? { made: earlier.madeEarlier } : {}),
+      ...(earlier?.lateEarlier ? { late: earlier.lateEarlier } : {}),
     });
     // From the run's first write to its last, as the panel's sweep looks: an
     // update before its first creation or after its last is the run's too.
@@ -3421,7 +3428,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      for (const line of sweepListingLines(listing, args.target)) say(line);
+      // Read before a sweep, with what --sweep-late and --sweep-untied would take.
+      for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
       say(`\ndone in ${Date.now() - t0}ms`);
     }
     return;
@@ -3539,7 +3547,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       bringBack: names(bringBack),
       giveBack: names(kept.kept),
       setToDraft: setBackToDraftOf(names(plan)),
-      delete: names(plan),
+      delete: objectsRemovedOf(names(plan)),
     },
     parts?.takes ?? [],
   );
@@ -3660,12 +3668,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What the sweep found made for the run, kept whatever the removal ended
     // on: once a record of the run is deleted, the org may clear the lookup
     // that told the tie, and the next sweep would list it as tied to nothing.
-    if (parts && parts.made.size > 0) {
+    // What it found made late, kept the same way, is late still for the next.
+    const made = parts?.made ?? new Set<string>();
+    const late = parts?.late ?? new Set<string>();
+    if (made.size > 0 || late.size > 0) {
       await subject
-        .updateRemoval((earlierState) => ({
-          ...earlierState,
-          madeEarlier: madeKept(earlierState.madeEarlier, parts.made),
-        }))
+        .updateRemoval((earlierState) => withSweepFinds(earlierState, made, late))
         .catch((err: unknown) => {
           process.stderr.write(
             `What the sweep found made for the run could not be kept (${err instanceof Error ? err.message : String(err)}): ` +

@@ -2070,6 +2070,67 @@ describe('forge:undo-automation', () => {
     expect(response?.payload.drafted).toEqual(['Order']);
   });
 
+  it('reads what fires on the quote lines the platform copied from a synced quote’s line items the run wrote, none of the quote’s lines in its plan', async () => {
+    const entry = (store.get<ForgeExecutionResult[]>('forge:history') ?? [])[0];
+    store.set(
+      'forge:history',
+      [
+        {
+          ...entry,
+          idRemapTable: {
+            [src('0Q0', 1)]: id('0Q0', 1),
+            [src('006', 1)]: id('006', 1),
+            [src('00k', 1)]: id('00k', 1),
+          },
+          idRemapCreated: [
+            { objectApiName: 'Opportunity', sourceIds: [src('006', 1)] },
+            { objectApiName: 'Quote', sourceIds: [src('0Q0', 1)] },
+            { objectApiName: 'OpportunityLineItem', sourceIds: [src('00k', 1)] },
+          ],
+        },
+      ],
+      'forge',
+    );
+    const QUOTE_LINE_FLOW = {
+      objectApiName: 'QuoteLineItem',
+      flows: [
+        {
+          apiName: 'Quote_Line_Delete_Note',
+          label: 'Quote line delete note',
+          timing: 'beforeDelete',
+          startsOn: 'delete',
+          condition: 'none',
+          permissions: [],
+        },
+      ],
+      triggers: [],
+    };
+    reader.read.mockImplementationOnce(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: (objects.includes('QuoteLineItem') ? [QUOTE_LINE_FLOW] : []) as never[],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 5,
+    }));
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    const objects = reader.read.mock.calls[0]?.[1];
+    expect([...(objects ?? [])].sort()).toEqual([
+      'Opportunity',
+      'OpportunityLineItem',
+      'Quote',
+      'QuoteLineItem',
+    ]);
+    const [response] = posted<
+      BaseMessage & { payload: { automation: { objects: Array<{ objectApiName: string }> } } }
+    >('forge:undo-automation:response');
+    expect(response?.payload.automation.objects.map((o) => o.objectApiName)).toEqual([
+      'QuoteLineItem',
+    ]);
+  });
+
   it('refuses what is no API name among what a sweep deletes, and reads nothing', async () => {
     await handler.handle(
       buildMsg('forge:undo-automation:request', {

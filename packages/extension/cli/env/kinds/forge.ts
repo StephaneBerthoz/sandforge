@@ -65,10 +65,12 @@ import {
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `forge` resource runs. */
@@ -514,13 +516,16 @@ function forgeRemovalSwitches(input: ForgeRemovalLine): string[] {
 }
 
 /** The line of the removal of a forge resource's run, its outcome alone on stdout. */
-export function forgeRemoveLine(input: ForgeRemovalLine & { sweep?: boolean }): string[] {
-  return [...forgeRemovalSwitches(input), ...(input.sweep === true ? ['--sweep'] : []), '--json'];
+export function forgeRemoveLine(input: ForgeRemovalLine & EnvSweepAsk): string[] {
+  return [...forgeRemovalSwitches(input), ...sweepSwitches(input), '--json'];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
-export function forgePreviewLine(input: ForgeRemovalLine): string[] {
-  return [...forgeRemovalSwitches(input), '--preview', '--json'];
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
+export function forgePreviewLine(input: ForgeRemovalLine & EnvSweepAsk): string[] {
+  return [...forgeRemovalSwitches(input), '--preview', ...sweepSwitches(input), '--json'];
 }
 
 /** The line of the verification of what a forge resource's run created. */

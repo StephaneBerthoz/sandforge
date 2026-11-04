@@ -710,6 +710,35 @@ describe('sandforge-sync --remove with a sweep', () => {
       expect(keptBesideIt()).toEqual([TASK, LATER]);
     });
 
+    it('keeps what it found made late beside the summary apart, and the next sweep is told it', async () => {
+      vi.mocked(sweepParts).mockImplementation((sweptOrg, input, options) => ({
+        ...partsAnswering({ status: 'success', objects: [], unread: [], handWork: [] })(
+          sweptOrg,
+          input,
+          options,
+        ),
+        late: new Set([LATER]),
+      }));
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));
+
+      const kept = JSON.parse(readFileSync(join(dir, 'run.removals.json'), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      expect(kept.lateEarlier).toEqual([LATER]);
+      expect(kept).not.toHaveProperty('madeEarlier');
+
+      stdout = '';
+      finding(TASK);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--sweep-late', '--json'));
+
+      expect(vi.mocked(sweepParts).mock.calls[1][1].ties.lateEarlier).toEqual([LATER]);
+      expect(vi.mocked(sweepParts).mock.calls[1][2]).toMatchObject({ sweepLate: true });
+      expect(keptBesideIt()).toEqual([TASK]);
+    });
+
     it('is told to a listing too', async () => {
       finding(TASK);
       await main(argv('--remove', file, '--target', 'TGT', '--sweep', '--json'));

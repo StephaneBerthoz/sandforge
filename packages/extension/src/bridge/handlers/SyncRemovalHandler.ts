@@ -55,7 +55,11 @@ import { TimeoutError, TimeoutManager } from '../../core/engine/TimeoutManager.j
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  objectsRemovedOf,
+  removalOrg,
+  setBackToDraftOf,
+} from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -98,7 +102,6 @@ import {
   sweepAuditObjects,
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
-import { madeKept } from '../../modules/forge/sweepTies.js';
 import {
   keptRunsOn,
   keptRunTies,
@@ -106,6 +109,7 @@ import {
   sweepOrgOf,
   sweepRefusalCode,
   withoutPlatformCopies,
+  withSweepFinds,
   type LocalRun,
   type OtherModuleRuns,
   type RemovalSweep,
@@ -405,7 +409,8 @@ export class SyncRemovalHandler implements DomainHandler {
    * takes them: what it brings back from the recycle bin, what it gives back
    * of what the backup store keeps, the activated orders it sets back to
    * Draft and what it deletes — files and records alike, every one it
-   * created, `again`.
+   * created, `again`, and the copies the platform made of its lines on an
+   * object it never wrote.
    */
   private removalStepsOf(run: SyncRunKept, again = false): ForgeRemovalSteps {
     const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
@@ -416,7 +421,7 @@ export class SyncRemovalHandler implements DomainHandler {
       bringBack: names(syncUndeletePlan(run)),
       giveBack: names(this.keptBack(syncRestorePlan(run)).kept),
       setToDraft: setBackToDraftOf(deleted),
-      delete: deleted,
+      delete: objectsRemovedOf(deleted),
     };
   }
 
@@ -919,12 +924,9 @@ export class SyncRemovalHandler implements DomainHandler {
           details: { ...details, runId: run.runId },
         });
       },
-      keepMade: async (made) => {
+      keepMade: async (made, late) => {
         await this.creations
-          ?.updateRemoval(run.runId, (state) => ({
-            ...state,
-            madeEarlier: madeKept(state.madeEarlier, made),
-          }))
+          ?.updateRemoval(run.runId, (state) => withSweepFinds(state, made, late))
           .catch((err: unknown) => {
             this.deps.log(
               `[WARN] sync:remove ${context.operationId}: what the sweep found made for the run ` +

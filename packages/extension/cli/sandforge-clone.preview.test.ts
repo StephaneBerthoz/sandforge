@@ -169,7 +169,15 @@ describe('sandforge-clone --remove --preview: the command line', () => {
     expect(loadOrg).not.toHaveBeenCalled();
   });
 
-  it.each(['--sweep', '--sweep-list', '--audit'])(
+  it('reads --sweep with --preview, and what it would take beside it: the preview lists the sweep and reads what fires on it', () => {
+    expect(
+      parseRemoveArgs(
+        argv('--remove', 'run.json', '--target', 'TGT', '--preview', '--sweep', '--sweep-untied'),
+      ),
+    ).toEqual(expect.objectContaining({ preview: true, sweep: true, sweepUntied: true }));
+  });
+
+  it.each(['--sweep-list', '--audit'])(
     'refuses %s with --preview, which writes nothing',
     (flag) => {
       const exit = stubExit();

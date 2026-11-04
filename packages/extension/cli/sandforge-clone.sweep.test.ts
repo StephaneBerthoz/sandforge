@@ -3,13 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import type { ForgeSweepListing, ForgeUndoObjectResult } from '@sandforge/shared';
+import type { ForgeSweepListing, ForgeSweepResult, ForgeUndoObjectResult } from '@sandforge/shared';
 
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 import { compositeOrg } from '../src/test/compositeOrg.js';
 import { parseRemoveArgs as syncRemoveArgs } from './sandforge-sync.js';
 import { parseRemoveArgs as seedRemoveArgs } from './sandforge-seed.js';
 import { parseArgs as frozenArgs } from './sandforge-frozen.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import {
   automationHeldLines,
   clonePreviewLines,
@@ -76,14 +77,51 @@ describe('--sweep-late and --sweep-untied', () => {
     expect(sweepClassArgsOf(['--sweep'])).toEqual({});
   });
 
-  it('are refused without --sweep, a listing included: a CI line that meant to take them would take nothing', () => {
+  it('are refused without --sweep or --sweep-list: a CI line that meant to take them would take nothing', () => {
     expect(sweepClassArgsOf(['--sweep-late'])).toEqual({
-      refusal: '--sweep-late takes more of what --sweep lists: give it with --sweep.',
-    });
-    expect(sweepClassArgsOf(['--sweep-list', '--sweep-late', '--sweep-untied'])).toEqual({
       refusal:
-        '--sweep-late and --sweep-untied take more of what --sweep lists: give them with --sweep.',
+        '--sweep-late takes more of what --sweep lists: give it with --sweep, or with ' +
+        '--sweep-list to see what it would take.',
     });
+    expect(sweepClassArgsOf(['--sweep-late', '--sweep-untied'])).toEqual({
+      refusal:
+        '--sweep-late and --sweep-untied take more of what --sweep lists: give them with ' +
+        '--sweep, or with --sweep-list to see what they would take.',
+    });
+  });
+
+  it('are read beside --sweep-list, whose list then says what each would take', () => {
+    expect(sweepClassArgsOf(['--sweep-list', '--sweep-late', '--sweep-untied'])).toEqual({
+      sweepLate: true,
+      sweepUntied: true,
+    });
+    const remove = ['--remove', 's.json', '--target', 'T', '--sweep-list', '--sweep-untied'];
+    for (const [tool, parse] of [
+      ['sandforge-clone', cloneRemoveArgs],
+      ['sandforge-sync', syncRemoveArgs],
+      ['sandforge-seed', seedRemoveArgs],
+    ] as const) {
+      expect(parsed(() => parse(line(tool, ...remove))).value).toMatchObject({
+        sweepList: true,
+        sweepUntied: true,
+      });
+    }
+    expect(
+      parsed(() =>
+        frozenArgs(
+          line(
+            'sandforge-frozen',
+            'remove',
+            '--config',
+            'c.json',
+            '--target',
+            'T',
+            '--sweep-list',
+            '--sweep-untied',
+          ),
+        ),
+      ).value,
+    ).toMatchObject({ sweepList: true, sweepUntied: true });
   });
 
   it('reach each command line’s removal, and are refused without --sweep, exit 2', () => {
@@ -498,6 +536,63 @@ describe('sweepUnsaid', () => {
   });
 });
 
+describe('what takes what a sweep kept, as a line relayed by sandforge-env says it', () => {
+  const LEFT: ForgeSweepResult = {
+    status: 'success',
+    objects: [],
+    unread: [],
+    handWork: [],
+    left: [
+      { class: 'late', objects: [{ objectApiName: 'Task', count: 2 }], option: '--sweep-late' },
+      {
+        class: 'untied',
+        objects: [{ objectApiName: 'Task', count: 30 }],
+        option: '--sweep-untied',
+      },
+    ],
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('names the option on the script’s own output', () => {
+    vi.stubEnv(RELAYED_BY_VARIABLE, '');
+
+    expect(sweepLines(LEFT)).toContain(
+      '  left, tied to nothing of the run: Task: 30 (--sweep-untied takes them)',
+    );
+    expect(sweepListingLines(TIED, 'TGT').join('\n')).toContain('(--sweep-late takes them)');
+  });
+
+  it('says, relayed, that the relaying command keeps them and that the script’s own removal takes them', () => {
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+
+    const left = sweepLines(LEFT);
+    expect(left).toContain(
+      "  left, made late: Task: 2 (sandforge-env keeps them; this script's own removal with " +
+        '--sweep --sweep-late takes them)',
+    );
+    expect(left).toContain(
+      '  left, tied to nothing of the run: Task: 30 (sandforge-env keeps them; this script' +
+        "'s own removal with --sweep --sweep-untied takes them)",
+    );
+    const listed = sweepListingLines(TIED, 'TGT', {}).join('\n');
+    expect(listed).toContain(
+      "(sandforge-env keeps them; this script's own removal with --sweep --sweep-untied takes them)",
+    );
+    expect(listed).not.toContain('(--sweep-untied takes them)');
+    expect(
+      automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
+        sweep: true,
+      })[0],
+    ).toContain(
+      "this script's own removal with --sweep-list says why; this script's own removal with " +
+        '--sweep --sweep-late takes those it lists as late',
+    );
+  });
+});
+
 describe('sweepListingLines', () => {
   it('counts what it found and what it takes, says each object’s classes, and what it lists and keeps with the flag that takes it', () => {
     const lines = sweepListingLines(TIED, 'TGT');
@@ -525,6 +620,37 @@ describe('sweepListingLines', () => {
       'it found 5 record(s) and would delete 5 of them, children first; per object, all it found:',
     );
     expect(lines.join('\n')).not.toContain('kept, ');
+  });
+
+  it('counts, in a list read before a sweep asked what came late and what is tied to nothing, what each would take', () => {
+    const lines = sweepListingLines(TIED, 'TGT', { sweepLate: true, sweepUntied: true }, true);
+
+    expect(lines).toContain(
+      'it found 5 record(s) and would delete 5 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain('with --sweep-late, it would delete too what was made late: Task: 1');
+    expect(lines).toContain(
+      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 1',
+    );
+    expect(lines.join('\n')).not.toContain('kept, ');
+    expect(lines.at(-1)).toContain('check the names before a --sweep');
+  });
+
+  it('says, in a list read before a sweep asked what is tied to nothing, that it is refused and why', () => {
+    const refusal = 'Another run of this machine wrote to the target in this run’s window.';
+    const lines = sweepListingLines(
+      { ...TIED, untied: { objects: [{ objectApiName: 'Task', count: 1 }], refusal } },
+      'TGT',
+      { sweepUntied: true },
+      true,
+    );
+
+    expect(lines).toContain(
+      'it found 5 record(s) and would delete 3 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      `kept, tied to nothing of the run: Task: 1 — --sweep-untied is refused: ${refusal}`,
+    );
   });
 
   it('has the names checked by whoever reads the list before a sweep, not once the sweep began', () => {

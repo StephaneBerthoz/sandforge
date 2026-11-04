@@ -293,6 +293,27 @@ describe('what the sweeps of a run found made for it', () => {
     expect(await store.madeOf('run-2')).toEqual([]);
   });
 
+  it('keeps what a sweep found made late apart, beside what it found made, and a file written before reads as none late', async () => {
+    const disk = memoryDisk();
+    disk.files.set(
+      path.join(STORAGE, SWEEP_MADE_FILE),
+      JSON.stringify({ version: 1, runs: [{ forgeId: 'run-1', ids: [id('00T', 1)] }] }),
+    );
+    const store = new ForgeRemovalPlanStore(disk.deps);
+    expect(await store.lateOf('run-1')).toEqual([]);
+
+    await store.keepMade('run-1', [], [id('02i', 1)]);
+    await store.keepMade('run-1', [id('00T', 2)], [id('02i', 1).slice(0, 15), id('02i', 2)]);
+
+    expect(await store.madeOf('run-1')).toEqual([id('00T', 1), id('00T', 2)]);
+    expect(await store.lateOf('run-1')).toEqual([id('02i', 1), id('02i', 2)]);
+    expect(await new ForgeRemovalPlanStore(disk.deps).lateOf('run-1')).toEqual([
+      id('02i', 1),
+      id('02i', 2),
+    ]);
+    expect(await store.lateOf('run-2')).toEqual([]);
+  });
+
   it('survives a reload, in a file of its own beside the plans', async () => {
     const disk = memoryDisk();
     await new ForgeRemovalPlanStore(disk.deps).keepMade('run-1', [id('00T', 1)]);

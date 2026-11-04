@@ -894,6 +894,50 @@ describe('a sweep asked with the removal of a Sync run', () => {
       expect(again?.removal?.madeEarlier).toEqual([ASSET]);
     });
 
+    it('keeps what it found made late and left, and takes it with what came late once the record that told the tie is gone', async () => {
+      // Five minutes after the case: what a scheduled path of its flow makes.
+      Object.assign(tied.row('Asset', ASSET) ?? {}, {
+        CreatedDate: after(300),
+        LastModifiedDate: after(300),
+        SystemModstamp: after(300),
+      });
+      // A colleague edits the case after the run: the removal keeps it.
+      Object.assign(tied.row('Case', CASE) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: COLLEAGUE,
+      });
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
+      expect(tied.ids('Asset')).toEqual([ASSET]);
+      expect(answer()?.sweep?.left).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ class: 'late', option: '--sweep-late' }),
+        ]),
+      );
+      const kept = await nodeSyncRunCreations(storage).get('run-cases');
+      expect(kept?.removal?.lateEarlier).toEqual([ASSET]);
+
+      // Then the case goes by hand: nothing of the run names the asset now.
+      const caseRow = tied.row('Case', CASE);
+      tied.rows.set('Case', []);
+      if (caseRow) tied.bin.set('Case', [caseRow]);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-cases' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(
+        response.payload.listing.found.find((found) => found.objectApiName === 'Asset')?.classes,
+      ).toMatchObject({ late: 1, untied: 0 });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(
+        buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepLate: true }),
+      );
+      expect(errors()).toEqual([]);
+      expect(tied.ids('Asset')).toEqual([]);
+    });
+
     it('keeps what is tied to nothing while a run of another module wrote in the window', async () => {
       const told: Array<[string, unknown]> = [];
       const during = Date.parse(WRITTEN_AT) + 30_000;

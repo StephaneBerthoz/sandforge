@@ -181,16 +181,31 @@ describe('parseArgs', () => {
     ).toMatchObject({ step: 'remove', preview: true, json: true });
   });
 
-  it('refuses a preview of another step than remove, pointing a load at its dry run, and a preview with a sweep', () => {
+  it('refuses a preview of another step than remove, pointing a load at its dry run, and a preview with a sweep list', () => {
     expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--preview')).toMatchObject({
       code: 2,
       message: expect.stringContaining('a load says what it would do with --dry-run'),
     });
-    for (const sweep of ['--sweep', '--sweep-list']) {
-      expect(
-        refuse('remove', '--config', 'f.json', '--target', 'TGT', '--preview', sweep),
-      ).toMatchObject({ code: 2, message: expect.stringContaining('--preview deletes nothing') });
-    }
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--preview', '--sweep-list'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('--preview deletes nothing') });
+  });
+
+  it('reads a preview with a sweep, which lists what the sweep would take and reads what fires on it', () => {
+    expect(
+      parseArgs(
+        argv(
+          'remove',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--preview',
+          '--sweep',
+          '--sweep-late',
+        ),
+      ),
+    ).toMatchObject({ step: 'remove', preview: true, sweep: true, sweepLate: true });
   });
 
   it('reads the most records a load may insert, a whole number, with load alone', () => {
@@ -1118,6 +1133,43 @@ describe('messageLines', () => {
       'it found 3 record(s) and would delete 3 of them, children first; per object, all it found:',
     );
     expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
+  });
+
+  it('lists for a removal asked what is tied to nothing what --sweep-untied would take, and names it no more as kept', () => {
+    // Run for real on the trap org, the line refused (exit 2): the list could
+    // not show what a removal with --sweep-untied would take.
+    const lines = messageLines(
+      {
+        type: 'frozen:remove:sweep:response',
+        payload: {
+          loadedAt: '2026-10-16T10:05:00.000Z',
+          listing: {
+            window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
+            looked: ['Contact', 'Task'],
+            found: [
+              {
+                objectApiName: 'Task',
+                count: 30,
+                names: [],
+                classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+              },
+            ],
+            untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+            unread: [],
+            handWork: [],
+          },
+        },
+      },
+      { sweepUntied: true },
+    );
+
+    expect(lines).toContain(
+      'it found 30 record(s) and would delete 30 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+    );
+    expect(lines.join('\n')).not.toContain('(--sweep-untied takes them)');
   });
 
   it('counts with a reload’s dry run what --sweep-untied takes, and names it no more as what would take it', () => {

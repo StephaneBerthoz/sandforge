@@ -25,7 +25,8 @@ export const REMOVAL_PLANS_FILE = 'forge-removal-plans.json';
 
 /**
  * The file, beside the plans, that keeps what the sweeps of each run's
- * removals found made for it (`SweepParts.made`), by run.
+ * removals found made for it (`SweepParts.made`), and made late
+ * (`SweepParts.late`), by run.
  */
 export const SWEEP_MADE_FILE = 'forge-sweep-made.json';
 
@@ -120,8 +121,17 @@ const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown())
 /** The finds of the sweeps of each run, as their file holds them: external input, checked. */
 const madeFileSchema = z.object({
   version: z.literal(1),
-  runs: z.array(z.object({ forgeId: z.string().min(1).max(300), ids: z.array(idSchema) })),
+  runs: z.array(
+    z.object({
+      forgeId: z.string().min(1).max(300),
+      ids: z.array(idSchema),
+      late: z.array(idSchema).optional(),
+    }),
+  ),
 });
+
+/** What the sweeps of one run found, as the file keeps it. */
+type RunFinds = z.infer<typeof madeFileSchema>['runs'][number];
 
 /**
  * The removal plans of past runs, kept in a file of the extension's own
@@ -216,19 +226,44 @@ export class ForgeRemovalPlanStore {
   }
 
   /**
-   * Keep what a sweep of the run's removal found made for it, beside what
-   * earlier sweeps found: read before its first delete, it is the only word
-   * left on a record whose tie the removal cleared. Each object's at most
-   * {@link SWEEP_MADE_PER_OBJECT}, the newest {@link SWEEP_MADE_RUNS_KEPT}
-   * runs' at most.
+   * The records the sweeps of the run's removals found made late for it and
+   * left, by id (`SweepTies.lateEarlier`): `late` still for the next sweep,
+   * which takes them when asked to take what came late, once the record they
+   * were tied to went and the org cleared the lookup that told it. None when
+   * no sweep of the run kept any, or the file is not one.
    */
-  keepMade(forgeId: string, ids: Iterable<string>): Promise<void> {
+  lateOf(forgeId: string): Promise<string[]> {
     return this.enqueue(async () => {
       const runs = await this.readMade();
-      const before = runs.find((run) => run.forgeId === forgeId)?.ids ?? [];
-      const kept = madeKept(before, ids);
-      if (kept.length === before.length) return;
-      const next = [{ forgeId, ids: kept }, ...runs.filter((run) => run.forgeId !== forgeId)].slice(
+      return runs.find((run) => run.forgeId === forgeId)?.late ?? [];
+    });
+  }
+
+  /**
+   * Keep what a sweep of the run's removal found made for it, and made late,
+   * beside what earlier sweeps found: read before its first delete, it is the
+   * only word left on a record whose tie the removal cleared. Each object's
+   * at most {@link SWEEP_MADE_PER_OBJECT}, the newest
+   * {@link SWEEP_MADE_RUNS_KEPT} runs' at most.
+   */
+  keepMade(forgeId: string, ids: Iterable<string>, late: Iterable<string> = []): Promise<void> {
+    return this.enqueue(async () => {
+      const runs = await this.readMade();
+      const before = runs.find((run) => run.forgeId === forgeId);
+      const kept = madeKept(before?.ids, ids);
+      const keptLate = madeKept(before?.late, late);
+      if (
+        kept.length === (before?.ids.length ?? 0) &&
+        keptLate.length === (before?.late?.length ?? 0)
+      ) {
+        return;
+      }
+      const finds: RunFinds = {
+        forgeId,
+        ids: kept,
+        ...(keptLate.length > 0 ? { late: keptLate } : {}),
+      };
+      const next = [finds, ...runs.filter((run) => run.forgeId !== forgeId)].slice(
         0,
         SWEEP_MADE_RUNS_KEPT,
       );
@@ -241,7 +276,7 @@ export class ForgeRemovalPlanStore {
   }
 
   /** The finds the file holds, newest run first; none when there is no file, or it is not one. */
-  private async readMade(): Promise<Array<{ forgeId: string; ids: string[] }>> {
+  private async readMade(): Promise<RunFinds[]> {
     try {
       const raw: unknown = JSON.parse(
         await this.deps.readFile(path.join(this.deps.storagePath, SWEEP_MADE_FILE)),

@@ -51,10 +51,12 @@ import {
   refusalAt,
   removalObjectSchema,
   removalPreviewSchema,
+  sweepSwitches,
   valueOf,
   type EnvDryRunCount,
   type EnvFileRefusal,
   type EnvRunCount,
+  type EnvSweepAsk,
 } from './common.js';
 
 /** The script a `seed` resource runs. */
@@ -512,20 +514,23 @@ function removalSwitches(input: SeedRemovalLine): string[] {
 }
 
 /** The line of the removal of a seed resource's run, its outcome alone on stdout. */
-export function seedRemoveLine(input: SeedRemovalLine & { sweep?: boolean }): string[] {
+export function seedRemoveLine(input: SeedRemovalLine & EnvSweepAsk): string[] {
   return [
     '--remove',
     valueOf('--remove', input.summary),
     '--target',
     valueOf('--target', input.target),
     ...removalSwitches(input),
-    ...(input.sweep === true ? ['--sweep'] : []),
+    ...sweepSwitches(input),
     '--json',
   ];
 }
 
-/** The line of the preview of that removal: what it would do, nothing written. */
-export function seedPreviewLine(input: SeedRemovalLine): string[] {
+/**
+ * The line of the preview of that removal: what it would do, nothing
+ * written; with its sweep, what that would take and what fires on it.
+ */
+export function seedPreviewLine(input: SeedRemovalLine & EnvSweepAsk): string[] {
   return [
     '--remove',
     valueOf('--remove', input.summary),
@@ -533,6 +538,7 @@ export function seedPreviewLine(input: SeedRemovalLine): string[] {
     valueOf('--target', input.target),
     '--preview',
     ...removalSwitches(input),
+    ...sweepSwitches(input),
     '--json',
   ];
 }

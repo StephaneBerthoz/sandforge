@@ -758,6 +758,51 @@ describe('a sweep asked with the removal of a Seed run', () => {
       expect(tied.ids('Task')).toEqual([LOOSE]);
     });
 
+    it('keeps what it found made late and left, and takes it with what came late once the record that told the tie is gone', async () => {
+      // Five minutes after the contact: what a scheduled path of its flow opens.
+      const LATE = '2026-09-20T10:07:00.000+0000';
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, {
+        CreatedDate: LATE,
+        LastModifiedDate: LATE,
+        SystemModstamp: LATE,
+      });
+      // A colleague edits the contact after the seed: the removal keeps it.
+      Object.assign(tied.row('Contact', CONTACT) ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        SystemModstamp: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', sweep: true }));
+      expect(tied.ids('Task')).toContain(FLOW_TASK);
+      expect(answer()?.sweep?.left).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ class: 'late', option: '--sweep-late' }),
+        ]),
+      );
+      const kept = await nodeSeedRunCreations(storage).get('op-seed');
+      expect(kept?.removal?.lateEarlier).toEqual([FLOW_TASK]);
+
+      // Then the contact goes by hand, and the org empties the task's lookup.
+      const contact = tied.row('Contact', CONTACT);
+      tied.rows.set('Contact', []);
+      if (contact) tied.bin.set('Contact', [contact]);
+      Object.assign(tied.row('Task', FLOW_TASK) ?? {}, { WhoId: null });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'seed:remove:sweep:response',
+      );
+      expect(
+        response.payload.listing.found.find((found) => found.objectApiName === 'Task')?.classes,
+      ).toMatchObject({ made: 0, late: 1, untied: 1 });
+
+      await handler.handle(
+        buildMsg('seed:remove', { runId: 'op-seed', sweep: true, sweepLate: true }),
+      );
+      expect(tied.ids('Task')).toEqual([LOOSE]);
+    });
+
     it('keeps what is tied to nothing while a run of another module wrote in the window', async () => {
       const during = Date.parse(FINISHED) - 1_000;
       handler.setOtherModuleRuns(async () => [

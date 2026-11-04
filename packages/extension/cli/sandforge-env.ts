@@ -75,7 +75,7 @@ import {
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
 import { typed } from './prompt.js';
-import { spawnCommand, type CommandRunner } from './scriptRunner.js';
+import { spawnRunner, type CommandRunner, type SpawnOptions } from './scriptRunner.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import {
@@ -259,7 +259,8 @@ destroy:
   --include-changed          take also the records changed since apply, and what was created
                              under them since: on a shared sandbox, a colleague's work
   --sweep                    take also what the org's automation made for each run: what a
-                             removal can tie to the run's records
+                             removal can tie to the run's records; the plan reads what it would
+                             take, and what fires as it goes
   --accept-automation        delete although the org runs automation as records go
   --accept-emails            with --rewind, rewind although the org delivers the emails what still
                              runs sends, or would not say whether it does
@@ -493,6 +494,17 @@ export interface CliArgs {
   /** apply: the plan `plan --out` kept, absolute. */
   plan?: string;
 }
+
+/**
+ * How an environment runs its steps: each script in a process of its own,
+ * told that its lines are relayed by this command, whose reader cannot give
+ * it the options a script's own advice names. Exported so it can be tested.
+ */
+export function envStepRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
+  return spawnRunner({ ...options, relayedBy: 'sandforge-env' });
+}
+
+const ENV_STEP_RUNNER = envStepRunner();
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
 function refuseLine(line: string): never {
@@ -913,7 +925,7 @@ async function prepare(
     state,
     warnings,
     ...(noState !== undefined ? { noState } : {}),
-    runner: deps.runner ?? spawnCommand,
+    runner: deps.runner ?? ENV_STEP_RUNNER,
   };
 }
 
@@ -993,11 +1005,20 @@ async function reachOrg(alias: string): Promise<Reached> {
  * gone and what changed since, and what a removal would be refused for now.
  * A frozen resource's removal takes the next load of its sas whichever run
  * asks: its last run is previewed alone. With `refresh`, a frozen resource
- * applied from the file is verified too, as its script verifies a load.
+ * applied from the file is verified too, as its script verifies a load. With
+ * `sweep`, each preview reads what the sweep a destroy asks would take, and
+ * what fires as its records go: read without it, the plan of a destroy
+ * `--sweep` blocked nothing, and a removal then refused the sweep's automation
+ * part way, the resources before it gone.
  */
 async function previewRuns(
   prepared: Prepared,
-  options: { includeChanged: boolean; acceptAutomation: boolean; refresh: boolean },
+  options: {
+    includeChanged: boolean;
+    acceptAutomation: boolean;
+    refresh: boolean;
+    sweep?: boolean;
+  },
   say: (line: string) => void,
   signal: AbortSignal,
 ): Promise<Record<string, EnvRunPreview[]>> {
@@ -1032,6 +1053,7 @@ async function previewRuns(
         subject,
         includeChanged: options.includeChanged,
         acceptAutomation: accept,
+        ...(options.sweep === true ? { sweep: true } : {}),
       });
       const ran = await prepared.runner(line.script, line.args, signal);
       let preview: EnvRunPreview;
@@ -1901,6 +1923,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
               includeChanged: args.includeChanged,
               acceptAutomation: args.acceptAutomation,
               refresh: false,
+              sweep: args.sweep,
             },
             say,
             signal,
