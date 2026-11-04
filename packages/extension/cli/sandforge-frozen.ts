@@ -346,8 +346,10 @@ ${checkpointFirstHelp({
                          removal's preview would be refused for ("refusals"), with the
                          code of each ("refusalCodes"), as its line names it: a load
                          would be refused (CODE): ..., a removal would be refused
-                         (CODE): ...; and what refused a load before it wrote, its
-                         purge or its checkpoint ("refused": {"code", "message"}), as
+                         (CODE): ...; and what refused a load before it wrote — its
+                         purge, its checkpoint, its emails or its mute — or a removal
+                         before its first delete — what fires as it deletes, its mute
+                         or Production Guard — ("refused": {"code", "message"}), as
                          its line names it: refused (CODE): ...
   --help                 this text
 
@@ -1032,6 +1034,52 @@ const NOTHING_TO_REMOVE_CODES: ReadonlySet<string> = new Set([
 /** The code of a removal the person declined at its question: nothing deleted, and no failure. */
 const REMOVAL_DECLINED = 'REMOVAL_DECLINED';
 
+/** What refuses a mute before anything is assigned, or takes back what it had. */
+const MUTE_REFUSED_CODES = ['MUTE_PRODUCTION', 'MUTE_NO_RIGHT', 'MUTE_FAILED'] as const;
+
+/**
+ * The codes the handler refuses a step with before its first write, by each
+ * step's error: a load for its emails, its mute, what fires as its sweep
+ * deletes or no Production Guard; a removal for what fires as it deletes, its
+ * mute or Production Guard. Any other code of the same error may come after
+ * records were written, or deleted.
+ */
+const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    'frozen:load:error',
+    new Set([
+      'EMAILS_NOT_ACCEPTED',
+      'FROZEN_EMAILS_EXCEEDED',
+      'AUTOMATION_NOT_ACCEPTED',
+      'PRODUCTION_GUARD_MISSING',
+      ...MUTE_REFUSED_CODES,
+    ]),
+  ],
+  [
+    'frozen:remove:error',
+    new Set([
+      'AUTOMATION_NOT_ACCEPTED',
+      'GUARD_BLOCKED',
+      'PRODUCTION_GUARD_MISSING',
+      ...MUTE_REFUSED_CODES,
+    ]),
+  ],
+]);
+
+/**
+ * The refusal a message posts of a load or a removal stopped before its first
+ * write, with its code; undefined for any other message. Said on
+ * `! frozen:load:error: … [FROZEN_EMAILS_EXCEEDED]`, a refused load and a
+ * refused removal ended on no "refused (CODE): …" line, and the removal's
+ * --json had no "refused" for a pipeline to read. Exported so it can be tested.
+ */
+export function refusedFirstOf(message: Posted): RunRefusal | undefined {
+  const code = message.payload?.code;
+  const codes = REFUSED_FIRST_CODES.get(String(message.type ?? ''));
+  if (typeof code !== 'string' || codes?.has(code) !== true) return undefined;
+  return { code, message: String(message.payload?.message ?? '') };
+}
+
 /**
  * Whether a message the handler posts fails the step: an error, but for a
  * removal's refusal that it has nothing to take. Run again after a removal,
@@ -1165,14 +1213,20 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
     const swept = type === 'frozen:load:error' ? ((p.sweeps as FrozenReloadSweep[]) ?? []) : [];
     // What a load refused for its emails was judged on, beside the refusal.
     const emails = type === 'frozen:load:error' ? (p.emails as FrozenLoadEmailsInfo) : undefined;
+    // Refused before its first write, the step ends on the line a refused
+    // clone, seed or sync ends on, what it was judged on said above it.
+    const refused = refusedFirstOf(message);
     return [
-      `! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`,
+      ...(refused
+        ? []
+        : [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`]),
       ...(emails ? loadEmailsLines(emails, 'the target') : []),
       ...(swept.length > 0 ? ['before the load ended, its sweep had already done this:'] : []),
       ...swept.flatMap(({ loadedAt, result }) => [
         `sweep of the load of ${loadedAt}:`,
         ...sweepLines(result),
       ]),
+      ...(refused ? [refusedLine(refused)] : []),
     ];
   }
   switch (type) {
@@ -2173,7 +2227,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     refusals.push(refused);
     log(wouldBeRefusedLine(refused, 'a load'));
   };
-  /** What a removal's preview says it would be refused for, by code: a preview said exits 0. */
+  /**
+   * What a removal's preview says it would be refused for, by code — a
+   * preview said exits 0 —, and what refused a removal before its first delete.
+   */
   const removalRefusals: RunRefusal[] = [];
   /** What refused the step itself before its first write, with its code. */
   let stepRefused: RunRefusal | undefined;
@@ -2642,17 +2699,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...(args.sweep && args.includeChanged ? { includeChanged: true } : {}),
           ...(args.acceptEmails ? { acceptEmails: true } : {}),
         });
-        // Refused for its emails, with its code beside the refusals, as a
-        // seed or a sync refused for them gives it.
-        const emailsRefused = posted
+        // Refused before its first write — for its emails, its mute —, with
+        // its code beside the refusals, as a seed or a sync refused for them
+        // gives it; what its sweep deletes was refused above, by its question.
+        const refusedFirst = posted
           .filter((m) => m.type === 'frozen:load:error')
-          .map((m) => m.payload ?? {})
-          .find((e) => e.code === 'EMAILS_NOT_ACCEPTED' || e.code === 'FROZEN_EMAILS_EXCEEDED');
-        if (emailsRefused) {
-          stepRefused = {
-            code: String(emailsRefused.code),
-            message: String(emailsRefused.message),
-          };
+          .map(refusedFirstOf)
+          .find((refused) => refused !== undefined);
+        if (refusedFirst && !stepRefused) {
+          stepRefused = refusedFirst;
           refusals.push(stepRefused);
         }
         // Kept where every load of this command is, whichever sas: the sweep
@@ -2786,6 +2841,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...removalAsked(args),
         });
         if (declined) return 'ended';
+        // Refused before its first delete, with its code, as a refused
+        // clone, seed or sync removal gives it: --json said it under
+        // `posted` alone.
+        stepRefused = posted
+          .filter((m) => m.type === 'frozen:remove:error')
+          .map(refusedFirstOf)
+          .find((refused) => refused !== undefined);
+        if (stepRefused) removalRefusals.push(stepRefused);
         break;
       }
       case 'status':

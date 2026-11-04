@@ -5343,7 +5343,7 @@
       "classMadeOver_other": "上書きしたレコードに対して作成: {{formatted}} 件",
       "classLate_other": "遅れて作成: {{formatted}} 件 (指定がなければ残します)",
       "classUntied_other": "実行と結び付かない: {{formatted}} 件 (指定がなければ残します)",
-      "classChanged_other": "他の人がその後に変更: {{formatted}} 件 (変更されたものを含めない限り残します)",
+      "classChanged_other": "実行後に変更: {{formatted}} 件 (変更されたものを含めない限り残します)",
       "ownWork": "実行ユーザーとしてご自身が実行のレコードの下に 1 分以内に作成したレコードは、自動化が作成したものとして扱われます。確認する前に名前を確かめてください。",
       "tickLate_other": "遅れて作成された {{formatted}} 件のレコードも削除する ({{objects}}): 実行のレコードに結び付いていますが、1 分以上後に作成されたか、組織の Automated Process ユーザーが作成したものです",
       "tickUntied_other": "実行と結び付かない {{formatted}} 件のレコードも削除する ({{objects}}): 実行ユーザーが実行中に作成しましたが、実行のレコードとのつながりはありません",

@@ -1101,10 +1101,16 @@ function classify(
     const classes: ForgeSweepClasses = { made: 0, madeOver: 0, late: 0, untied: 0 };
     let sameSave = 0;
     let changed = 0;
+    // By class: a list counted a task changed since among what --sweep-untied
+    // would delete, which the sweep then kept.
+    const changedIn: NonNullable<ForgeSweepClasses['changedIn']> = {};
     for (const row of kept) {
       classes[row.class]++;
       if (row.sameSave) sameSave++;
-      if (changedSince(row, window, removalSpans)) changed++;
+      if (changedSince(row, window, removalSpans)) {
+        changed++;
+        changedIn[row.class] = (changedIn[row.class] ?? 0) + 1;
+      }
     }
     listing.found.push({
       objectApiName,
@@ -1117,7 +1123,7 @@ function classify(
       classes: {
         ...classes,
         ...(sameSave > 0 ? { sameSave } : {}),
-        ...(changed > 0 ? { changed } : {}),
+        ...(changed > 0 ? { changed, changedIn } : {}),
       },
     });
     if (classes.untied > 0) untied.push({ objectApiName, count: classes.untied });
@@ -1605,6 +1611,46 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
     return true;
   };
   const deleted = (): number => sweeps.reduce((sum, sweep) => sum + sweep.result.deleted, 0);
+  /**
+   * What it found and kept — made late, tied to nothing — read back once the
+   * run's records are gone: one the org no longer holds — what hangs from
+   * them went along with them — is said so, not left. Run for real on the trap org, a removal said
+   * "left, made late: DuplicateRecordItem: 25" of the duplicate items its
+   * contacts had taken with them. Found by a query, each was seen; a read
+   * that fails, or a stop, leaves them left. Nothing is deleted from it.
+   */
+  const settleLeft = async (): Promise<void> => {
+    const left = base.left ?? [];
+    if (left.length === 0 || !found) return;
+    const rows = found.rows;
+    const staying: ForgeSweepLeftClass[] = [];
+    const goneAlong: NonNullable<ForgeSweepResult['goneAlong']> = [];
+    for (const kept of left) {
+      const stays: ForgeRemovalLeftCount[] = [];
+      const went: ForgeRemovalLeftCount[] = [];
+      for (const count of kept.objects) {
+        const ids = (rows.get(count.objectApiName) ?? [])
+          .filter((row) => row.class === kept.class)
+          .map((row) => row.id);
+        const { gone } = stopped()
+          ? { gone: [] }
+          : await takenAlong(
+              ids,
+              (asked) => readRecordsById(org, count.objectApiName, [], asked),
+              () => true,
+            );
+        const away = Math.min(gone.length, count.count);
+        if (count.count > away) stays.push({ ...count, count: count.count - away });
+        if (away > 0) went.push({ objectApiName: count.objectApiName, count: away });
+      }
+      if (stays.length > 0) staying.push({ ...kept, objects: stays });
+      if (went.length > 0) goneAlong.push({ class: kept.class, objects: went });
+    }
+    if (goneAlong.length === 0) return;
+    const rest = { ...base };
+    delete rest.left;
+    base = { ...rest, ...(staying.length > 0 ? { left: staying } : {}), goneAlong };
+  };
 
   const ask = (): Promise<void> => {
     asking ??= (async () => {
@@ -1776,6 +1822,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
           sweep.result.alreadyGone++;
         }
       }
+      await settleLeft();
       state = 'done';
       return deleted() > before;
     },

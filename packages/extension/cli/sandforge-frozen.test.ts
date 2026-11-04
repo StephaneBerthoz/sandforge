@@ -6,6 +6,7 @@ import {
   FROZEN_PREVIEW_UNREAD,
   messageLines,
   parseArgs,
+  refusedFirstOf,
   removalAsks,
   removalPlanLines,
   removalPreviewLines,
@@ -1270,6 +1271,68 @@ describe('messageLines', () => {
     expect(kept.join('\n')).toContain('Task: 30 (--sweep-untied takes them)');
   });
 
+  it('counts out of a reload’s list what changed since the load, which the reload keeps unless told to include it', () => {
+    // Run for real on the trap org: "would delete 31 of them" above "1 changed
+    // since by someone else" — the load's own user had edited it — and the
+    // reload then said "Task: 29 deleted, 1 kept, changed since the run of 30".
+    const listed = {
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-11-04T09:27:50.691Z',
+        reload: true,
+        loads: [
+          {
+            loadedAt: '2026-11-04T09:27:50.691Z',
+            listing: {
+              window: { from: '2026-11-04T09:27:44Z', to: '2026-11-04T09:28:47Z' },
+              looked: ['Contact', 'Task', 'FeedItem'],
+              found: [
+                {
+                  objectApiName: 'Task',
+                  count: 30,
+                  names: [],
+                  classes: {
+                    made: 0,
+                    madeOver: 0,
+                    late: 0,
+                    untied: 30,
+                    changed: 1,
+                    changedIn: { untied: 1 },
+                  },
+                },
+                {
+                  objectApiName: 'FeedItem',
+                  count: 1,
+                  names: [],
+                  classes: { made: 1, madeOver: 0, late: 0, untied: 0, sameSave: 1 },
+                },
+              ],
+              untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+              late: [],
+              unread: [],
+              handWork: [],
+            },
+          },
+        ],
+      },
+    };
+    const command = (...more: string[]) =>
+      parseArgs(
+        argv('load', '--config', 'frozen.json', '--target', 'TGT', '--reload', '--sweep', ...more),
+      );
+
+    const lines = messageLines(listed, command('--sweep-untied'));
+    expect(lines).toContain(
+      'it found 31 record(s) and would delete 30 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      '  Task: 30 — 30 tied to nothing of the run, 1 of them changed since the run, kept',
+    );
+    expect(messageLines(listed, command('--sweep-untied', '--include-changed'))).toContain(
+      'it found 31 record(s) and would delete 31 of them, children first; per object, all it found:',
+    );
+  });
+
   it('says beside the error of a reload what its sweep had taken before the load ended', () => {
     // Said in the audit trail alone, under a message that nothing was purged.
     const lines = messageLines({
@@ -1310,6 +1373,39 @@ describe('messageLines', () => {
       'sweep of the load of 2026-10-16T10:05:00.000Z:',
     ]);
     expect(lines.join('\n')).toContain('Task: 200 deleted of 230');
+  });
+
+  it('ends a load refused for its emails on the line a refused run ends on, not on its error', () => {
+    const message =
+      "The target's automation would make TGT send about 108 single emails, 15 of 15 left today. Nothing was written.";
+
+    expect(
+      messageLines({
+        type: 'frozen:load:error',
+        payload: { message, code: 'FROZEN_EMAILS_EXCEEDED' },
+      }),
+    ).toEqual([`refused (FROZEN_EMAILS_EXCEEDED): ${message}`]);
+  });
+
+  it('says a removal stopped before its first delete as refused, with its code', () => {
+    const message =
+      'TGT runs automation on the records this removal deletes. Nothing was written or deleted.';
+
+    expect(
+      messageLines({
+        type: 'frozen:remove:error',
+        payload: { message, code: 'AUTOMATION_NOT_ACCEPTED' },
+      }),
+    ).toEqual([`refused (AUTOMATION_NOT_ACCEPTED): ${message}`]);
+  });
+
+  it('says a removal that failed part way as an error, never as refused', () => {
+    expect(
+      messageLines({
+        type: 'frozen:remove:error',
+        payload: { message: 'INVALID_SESSION_ID', code: 'REMOVE_ERROR' },
+      }),
+    ).toEqual(['! frozen:remove:error: INVALID_SESSION_ID [REMOVE_ERROR]']);
   });
 
   it('says a verification that found the load wrote part of the dataset partial', () => {
@@ -1806,5 +1902,51 @@ describe('messageLines', () => {
       'not kept, encrypted and read masked: the user the source is read as lacks View ' +
         'Encrypted Data, and the masks are not copied: Contact.SSN__c',
     );
+  });
+});
+
+describe('refusedFirstOf', () => {
+  const error = (type: string, code: string) => ({
+    type,
+    payload: { message: `${code} words`, code },
+  });
+
+  it('takes the codes the handler refuses a load with before its first write', () => {
+    for (const code of [
+      'EMAILS_NOT_ACCEPTED',
+      'FROZEN_EMAILS_EXCEEDED',
+      'AUTOMATION_NOT_ACCEPTED',
+      'MUTE_NO_RIGHT',
+      'MUTE_PRODUCTION',
+      'MUTE_FAILED',
+    ]) {
+      expect(refusedFirstOf(error('frozen:load:error', code))).toEqual({
+        code,
+        message: `${code} words`,
+      });
+    }
+  });
+
+  it('takes the codes the handler refuses a removal with before its first delete', () => {
+    for (const code of [
+      'AUTOMATION_NOT_ACCEPTED',
+      'GUARD_BLOCKED',
+      'MUTE_NO_RIGHT',
+      'MUTE_FAILED',
+    ]) {
+      expect(refusedFirstOf(error('frozen:remove:error', code))?.code).toBe(code);
+    }
+  });
+
+  it('takes none that may come once records were written or deleted, nor one with nothing to do', () => {
+    // Production Guard refusing a batch once others went is a failure with
+    // records written; a removal that threw part way posts REMOVE_ERROR.
+    expect(refusedFirstOf(error('frozen:load:error', 'GUARD_REFUSED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:load:error', 'LOAD_CANCELLED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'REMOVE_ERROR'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'NO_LOAD'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:error', 'REMOVAL_DECLINED'))).toBeUndefined();
+    expect(refusedFirstOf(error('frozen:remove:preview:error', 'GUARD_BLOCKED'))).toBeUndefined();
+    expect(refusedFirstOf(error('constructor', 'AUTOMATION_NOT_ACCEPTED'))).toBeUndefined();
   });
 });

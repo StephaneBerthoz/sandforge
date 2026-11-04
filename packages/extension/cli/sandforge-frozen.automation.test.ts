@@ -292,13 +292,45 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
 
     expect(stdout).toContain('Asset: flow "Asset guard"');
     expect(stdout).toContain('--accept-automation');
-    expect(stdout).toContain('[AUTOMATION_NOT_ACCEPTED]');
+    // Said on the line a refused clone, seed or sync removal ends on.
+    expect(stdout).toContain(
+      '\nrefused (AUTOMATION_NOT_ACCEPTED): TGT runs automation on the records this removal ' +
+        'deletes: Asset: flow "Asset guard" (before delete).',
+    );
+    expect(stdout).not.toContain('! frozen:remove:error');
     expect(org.deletes).toEqual([]);
     expect(org.ids('Asset')).toEqual([ASSET]);
     expect(org.ids('Case')).toEqual([CASE]);
     // Once, on what both delete: the sweep's own read of what the load's
     // objects fire comes before it, and tells nothing of the asset.
     expect(steps.at(-1)).toBe('read Account Asset Case');
+  });
+
+  it('gives a pipeline the code it was refused with before its first delete, under refused', async () => {
+    // Run for real, the answer held `mapping, posted, step, tool` alone: the
+    // code was in the posted error, which a clone's, a seed's or a sync's
+    // removal refused so gives under `refused`.
+    expect(await remove('--sweep', '--yes', '--json')).toBe(1);
+
+    const answer = JSON.parse(stdout) as {
+      refused?: { code: string; message: string };
+      refusalCodes?: string[];
+    };
+    expect(answer.refused).toEqual({
+      code: 'AUTOMATION_NOT_ACCEPTED',
+      message: expect.stringContaining(
+        'TGT runs automation on the records this removal deletes: Asset: flow "Asset guard"',
+      ),
+    });
+    expect(answer.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    expect(stderr).toContain(`refused (AUTOMATION_NOT_ACCEPTED): ${answer.refused?.message}\n`);
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('gives no refused of a removal that went, the org refusing part of it', async () => {
+    await remove('--sweep', '--accept-automation', '--yes', '--json');
+
+    expect(JSON.parse(stdout)).not.toHaveProperty('refused');
   });
 
   it('names what fires on the load’s own records, with no sweep', async () => {
@@ -539,7 +571,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       ]);
       expect(permissions.assignments()).toEqual([]);
       expect(org.deletes).toEqual([]);
-      expect(`${stdout}${stderr}`).toContain('[MUTE_FAILED]');
+      expect(`${stdout}${stderr}`).toContain('refused (MUTE_FAILED): ');
       expect(`${stdout}${stderr}`).toContain(
         'could not be written (EACCES): the user SandForge runs as must read and write that ' +
           'folder, or SANDFORGE_MUTE_LEASES_DIR name another, the same for every run that mutes ' +
@@ -568,6 +600,38 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     expect(stdout).toContain('sweep: SUCCESS');
     expect(stdout).toContain('removal: SUCCESS');
     expect(stdout).toContain('left, tied to nothing of the run: Task: 1');
+  });
+
+  it('says left only what stays once the load’s records went, not what went along with them', async () => {
+    // Run for real on the trap org: "left, made late: DuplicateRecordItem: 25"
+    // under "removal: SUCCESS", of the duplicate rule's items the org had
+    // deleted with the contacts they were written for.
+    org.shape('Case', {
+      references: { AccountId: ['Account'], AssetId: ['Asset'] },
+      children: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+    });
+    org.shape('DuplicateRecordItem', { references: { RecordId: ['Case'] } });
+    // Written for the case four minutes after it: late, kept without --sweep-late.
+    const item = fakeId('0GL', 1);
+    const late = '2026-10-01T10:04:02.000+0000';
+    org.add('DuplicateRecordItem', {
+      ...rec(item, 'DRI-000001', { RecordId: CASE }),
+      CreatedDate: late,
+      LastModifiedDate: late,
+      SystemModstamp: late,
+    });
+
+    expect(await remove('--sweep-list')).toBe(0);
+    expect(stdout).toContain('DuplicateRecordItem: 1 (--sweep-late takes them)');
+
+    expect(await remove('--sweep', '--mute-automation', '--yes')).toBe(0);
+
+    expect(org.ids('DuplicateRecordItem')).toEqual([]);
+    expect(stdout).toContain('removal: SUCCESS');
+    expect(stdout).not.toContain('left, made late');
+    expect(stdout).toContain(
+      'made late, no longer in the org once the records of the run were gone: DuplicateRecordItem: 1',
+    );
   });
 
   describe('run again once the load’s records went and its sweep did not take all it was to', () => {
@@ -619,7 +683,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(await remove('--sweep', '--yes')).toBe(1);
 
       expect(stdout).toContain('Asset: flow "Asset guard"');
-      expect(stdout).toContain('[AUTOMATION_NOT_ACCEPTED]');
+      expect(stdout).toContain('refused (AUTOMATION_NOT_ACCEPTED): ');
       expect(org.deletes.map((call) => call.object)).not.toContain('Asset');
     });
 
@@ -1146,7 +1210,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(permissions.assignments()).toEqual([]);
 
       expect(await remove('--mute-automation', '--yes')).toBe(1);
-      expect(`${stdout}${stderr}`).toContain('[MUTE_NO_RIGHT]');
+      expect(`${stdout}${stderr}`).toContain('refused (MUTE_NO_RIGHT): ');
       expect(org.deletes).toEqual([]);
     });
 

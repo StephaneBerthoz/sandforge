@@ -756,6 +756,77 @@ describe('sweepListingLines', () => {
     expect(lines).toContain('  FeedItem: 10000 or more (over the bound: none would be deleted)');
   });
 
+  describe('of a list where a record changed since the run', () => {
+    /**
+     * A reload's list on the trap org: thirty follow-up tasks tied to nothing
+     * of the load, one of them edited by the load's own user after it, and a
+     * feed item made for it.
+     */
+    const CHANGED: ForgeSweepListing = {
+      window: TIED.window,
+      looked: ['Contact', 'Task', 'FeedItem'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 30,
+          names: ['Trap follow-up'],
+          classes: {
+            made: 0,
+            madeOver: 0,
+            late: 0,
+            untied: 30,
+            changed: 1,
+            changedIn: { untied: 1 },
+          },
+        },
+        {
+          objectApiName: 'FeedItem',
+          count: 1,
+          names: [],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+      late: [],
+      unread: [],
+      handWork: [],
+    };
+
+    it('counts it out of what it would delete, as the sweep keeps it: it said 31 of 31, and the reload kept one', () => {
+      const lines = sweepListingLines(CHANGED, 'TGT', { sweepUntied: true });
+
+      expect(lines).toContain(
+        'it found 31 record(s) and would delete 30 of them, children first; per object, all it found:',
+      );
+      expect(lines).toContain(
+        '  Task: 30 — 30 tied to nothing of the run, 1 of them changed since the run, kept (Trap follow-up, …)',
+      );
+      expect(lines.join('\n')).not.toContain('someone else');
+    });
+
+    it('counts it among what goes once what changed is included', () => {
+      const lines = sweepListingLines(CHANGED, 'TGT', { sweepUntied: true, includeChanged: true });
+
+      expect(lines).toContain(
+        'it found 31 record(s) and would delete 31 of them, children first; per object, all it found:',
+      );
+      expect(lines).toContain(
+        '  Task: 30 — 30 tied to nothing of the run, 1 of them changed since the run (Trap follow-up, …)',
+      );
+    });
+
+    it('counts it out of what --sweep-untied would delete too, in a list read before a sweep', () => {
+      expect(sweepListingLines(CHANGED, 'TGT', { sweepUntied: true }, true)).toContain(
+        'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 29',
+      );
+      expect(
+        sweepListingLines(CHANGED, 'TGT', { sweepUntied: true, includeChanged: true }, true),
+      ).toContain(
+        'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+      );
+    });
+  });
+
   it('says it deletes none of what it found, of a sweep that keeps it all', () => {
     const lines = sweepListingLines(
       {
@@ -808,6 +879,33 @@ describe('sweepLines', () => {
       'sweep: SUCCESS',
       '  left, made late: Task: 1 (--sweep-late takes them)',
       '  left, tied to nothing of the run: Task: 5, Note: 2 (--sweep-untied takes them)',
+    ]);
+  });
+
+  it('says gone, not left, what was taken along with the records of the run', () => {
+    // Run for real on the trap org: "left, made late: DuplicateRecordItem: 25"
+    // of duplicate items the org had deleted with their contacts.
+    expect(
+      sweepLines({
+        status: 'success',
+        objects: [],
+        unread: [],
+        handWork: [],
+        left: [
+          {
+            class: 'untied',
+            objects: [{ objectApiName: 'Task', count: 2 }],
+            option: '--sweep-untied',
+          },
+        ],
+        goneAlong: [
+          { class: 'late', objects: [{ objectApiName: 'DuplicateRecordItem', count: 25 }] },
+        ],
+      }),
+    ).toEqual([
+      'sweep: SUCCESS',
+      '  left, tied to nothing of the run: Task: 2 (--sweep-untied takes them)',
+      '  made late, no longer in the org once the records of the run were gone: DuplicateRecordItem: 25',
     ]);
   });
 

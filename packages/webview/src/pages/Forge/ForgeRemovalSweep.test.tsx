@@ -276,7 +276,8 @@ describe('ForgeSweepListingView', () => {
         '1 made on a record it wrote over',
         '1 came late, kept unless asked',
         '1 tied to nothing of the run, kept unless asked',
-        '1 changed since by someone else, kept unless you include what changed',
+        // Said of a task the run's own user edited after the run as much as a colleague's.
+        '1 changed since the run, kept unless you include what changed',
       ].join(' · '),
     );
     expect(screen.getByTestId('forge-sweep-classes-Asset').textContent).toBe('1 made for the run');

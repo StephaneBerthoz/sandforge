@@ -4281,8 +4281,13 @@ function countsOfObjects(counts: readonly ForgeRemovalLeftCount[]): string {
   return counts.map((count) => `${count.objectApiName}: ${count.count}`).join(', ');
 }
 
-/** What of one object's records falls in each class of a sweep, in words. */
-function classWords(classes: ForgeSweepClasses): string {
+/**
+ * What of one object's records falls in each class of a sweep, in words.
+ * What changed since the run is said changed since the run: "by someone
+ * else" was said of a task the run's own user had changed.
+ */
+function classWords(classes: ForgeSweepClasses, take: SweepClassArgs): string {
+  const changed = classes.changed ?? 0;
   return [
     classes.made > 0
       ? `${classes.made} made for the run` +
@@ -4291,16 +4296,32 @@ function classWords(classes: ForgeSweepClasses): string {
     classes.madeOver > 0 ? `${classes.madeOver} under records the run wrote over` : '',
     classes.late > 0 ? `${classes.late} late` : '',
     classes.untied > 0 ? `${classes.untied} tied to nothing of the run` : '',
-    (classes.changed ?? 0) > 0 ? `${classes.changed} changed since by someone else` : '',
+    changed > 0
+      ? `${changed} of them changed since the run${take.includeChanged === true ? '' : ', kept'}`
+      : '',
   ]
     .filter(Boolean)
     .join(', ');
 }
 
+/** The classes of a sweep, as `ForgeSweepClasses` counts them. */
+type SweepClassName = keyof NonNullable<ForgeSweepClasses['changedIn']>;
+
+/**
+ * Of one object's records in `name`, those a sweep that takes the class
+ * deletes: all but what changed since the run, unless it includes what
+ * changed, which it keeps.
+ */
+function goingIn(classes: ForgeSweepClasses, name: SweepClassName, take: SweepClassArgs): number {
+  return classes[name] - (take.includeChanged === true ? 0 : (classes.changedIn?.[name] ?? 0));
+}
+
 /**
  * What a sweep takes of what it found, as it is asked: what is made for the
  * run, what came late with `--sweep-late`, what is tied to nothing with
- * `--sweep-untied` unless that is refused.
+ * `--sweep-untied` unless that is refused; of each, what changed since the
+ * run only with `--include-changed`. A reload's list said "would delete 31"
+ * of 31 tasks, and the reload kept the one changed since.
  */
 function takenOf(listing: ForgeSweepListing, take: SweepClassArgs): number {
   const untiedTaken = take.sweepUntied === true && listing.untied?.refusal === undefined;
@@ -4310,12 +4331,31 @@ function takenOf(listing: ForgeSweepListing, take: SweepClassArgs): number {
     if (!classes) return sum;
     return (
       sum +
-      classes.made +
-      classes.madeOver +
-      (take.sweepLate === true ? classes.late : 0) +
-      (untiedTaken ? classes.untied : 0)
+      goingIn(classes, 'made', take) +
+      goingIn(classes, 'madeOver', take) +
+      (take.sweepLate === true ? goingIn(classes, 'late', take) : 0) +
+      (untiedTaken ? goingIn(classes, 'untied', take) : 0)
     );
   }, 0);
+}
+
+/**
+ * Per object, what a class a list read before a sweep is asked to take would
+ * delete: what changed since the run in it stays, unless it is included.
+ */
+function goingOfClass(
+  listing: ForgeSweepListing,
+  name: 'late' | 'untied',
+  counts: readonly ForgeRemovalLeftCount[],
+  take: SweepClassArgs,
+): ForgeRemovalLeftCount[] {
+  return counts.flatMap((count) => {
+    const classes = listing.found.find(
+      (object) => object.objectApiName === count.objectApiName,
+    )?.classes;
+    const going = classes ? Math.min(count.count, goingIn(classes, name, take)) : count.count;
+    return going > 0 ? [{ objectApiName: count.objectApiName, count: going }] : [];
+  });
 }
 
 /**
@@ -4343,9 +4383,10 @@ function sweepClassLines(
         `(${takenByWords('--sweep-late')})`,
     );
   } else if (before && take.sweepLate === true) {
+    const going = goingOfClass(listing, 'late', late, take);
     lines.push(
       `with --sweep-late, it would delete too what was made late: ` +
-        (late.length > 0 ? countsOfObjects(late) : 'none found'),
+        (going.length > 0 ? countsOfObjects(going) : late.length > 0 ? 'none' : 'none found'),
     );
   }
   const untied = listing.untied;
@@ -4361,9 +4402,10 @@ function sweepClassLines(
           `${countsOfObjects(untied.objects)} (${takenByWords('--sweep-untied')})`,
       );
     } else if (before) {
+      const going = goingOfClass(listing, 'untied', untied.objects, take);
       lines.push(
         `with --sweep-untied, it would delete too what is tied to nothing of the run: ` +
-          countsOfObjects(untied.objects),
+          (going.length > 0 ? countsOfObjects(going) : 'none'),
       );
     }
   } else if (before && take.sweepUntied === true) {
@@ -4439,7 +4481,7 @@ export function sweepListingLines(
             (object) =>
               `  ${object.objectApiName}: ${object.count}` +
               (object.overBound ? ' or more (over the bound: none would be deleted)' : '') +
-              (object.classes ? ` — ${classWords(object.classes)}` : '') +
+              (object.classes ? ` — ${classWords(object.classes, take ?? {})}` : '') +
               (object.names.length > 0
                 ? ` (${object.names.join(', ')}${object.count > object.names.length ? ', …' : ''})`
                 : ''),
@@ -4555,6 +4597,12 @@ export function sweepLines(result: ForgeSweepResult): string[] {
       ];
     }),
     ...sweepLeftLines(result.left ?? []),
+    // Kept, then read back gone once the run's records were: never left.
+    ...(result.goneAlong ?? []).map(
+      ({ class: kept, objects }) =>
+        `  ${SWEEP_LEFT_WORDS[kept]}, no longer in the org once the records of the run were ` +
+        `gone: ${countsOfObjects(objects)}`,
+    ),
     ...sweepGapLines(result),
     ...sweepNoteLines(result),
     ...(result.refusal ? [`  ${result.refusal}`] : []),
@@ -4609,6 +4657,11 @@ export interface SweepClassArgs {
   sweepLate?: true;
   /** Take too what it lists as tied to nothing of the run (`--sweep-untied`), unless that is refused. */
   sweepUntied?: true;
+  /**
+   * Take too, of what it takes, what changed since the run
+   * (`--include-changed`): kept otherwise, and counted so by its list.
+   */
+  includeChanged?: boolean;
 }
 
 /**

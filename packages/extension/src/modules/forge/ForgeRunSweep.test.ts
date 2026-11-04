@@ -1548,7 +1548,11 @@ describe('what a sweep takes', () => {
     if (task) Object.assign(task, { LastModifiedDate: LONG_AFTER, LastModifiedById: COLLEAGUE });
 
     const listing = await listSweep(org, tiedInput());
-    expect(listing.found[0]?.classes).toMatchObject({ made: 2, changed: 1 });
+    expect(listing.found[0]?.classes).toMatchObject({
+      made: 2,
+      changed: 1,
+      changedIn: { made: 1 },
+    });
 
     const parts = sweepParts(org, tiedInput(), NO_SPANS);
     await parts.first();
@@ -1556,6 +1560,88 @@ describe('what a sweep takes', () => {
     expect(parts.result().objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
       keptChanged: 1,
     });
+  });
+
+  it('says left only what the org still holds once the run’s records went, the rest gone along with them', async () => {
+    // Run for real on the trap org: "left, made late: DuplicateRecordItem: 25"
+    // once the removal was through, of items the org had deleted with their
+    // contacts.
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+    await parts.first();
+    const lateBefore = parts.result().left?.find((kept) => kept.class === 'late');
+    expect(lateBefore?.objects).toEqual([{ objectApiName: 'Task', count: 2 }]);
+
+    // The removal deletes the case: the org takes along the task its
+    // Automated Process made under it, and keeps the call on the contact.
+    await org.destroy('Case', [CASE]);
+    await parts.afterRemoval();
+
+    const result = parts.result();
+    expect(result.left?.find((kept) => kept.class === 'late')?.objects).toEqual([
+      { objectApiName: 'Task', count: 1 },
+    ]);
+    expect(result.goneAlong).toEqual([
+      { class: 'late', objects: [{ objectApiName: 'Task', count: 1 }] },
+    ]);
+    expect(org.ids('Task')).toContain(id('00T', 4));
+    expect(org.ids('Task')).not.toContain(id('00T', 5));
+    // What is tied to nothing stays, and is said left.
+    expect(result.left?.find((kept) => kept.class === 'untied')).toBeDefined();
+  });
+
+  it('says nothing left of a class whose records all went along, and ends a success it was asked to take', async () => {
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+    await parts.first();
+    // The account goes last, its contact and its case with it, and every
+    // task under them.
+    await org.destroy('Case', [CASE]);
+    await org.destroy('Contact', [CONTACT]);
+    await parts.afterRemoval();
+
+    const result = parts.result();
+    expect(result.left?.map((kept) => kept.class)).not.toContain('late');
+    expect(result.goneAlong).toEqual([
+      { class: 'late', objects: [{ objectApiName: 'Task', count: 2 }] },
+    ]);
+  });
+
+  it('leaves said left what it could not read back', async () => {
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+    await parts.first();
+    await org.destroy('Case', [CASE]);
+    const query = org.query.bind(org);
+    vi.spyOn(org, 'query').mockImplementation(async (soql: string) => {
+      if (/^SELECT Id FROM Task WHERE Id IN /.test(soql)) throw new Error('REQUEST_LIMIT_EXCEEDED');
+      return query(soql);
+    });
+    await parts.afterRemoval();
+
+    const result = parts.result();
+    expect(result.left?.find((kept) => kept.class === 'late')?.objects).toEqual([
+      { objectApiName: 'Task', count: 2 },
+    ]);
+    expect(result.goneAlong).toBeUndefined();
+  });
+
+  it('counts as changed since, by class, a record the run’s own user changed after the run, which the sweep keeps', async () => {
+    // Run for real on the trap org: a follow-up task the run's user edited
+    // after the load was listed among what --sweep-untied deletes, "changed
+    // since by someone else", and the reload kept it.
+    const org = tiedOrg();
+    const task = org.row('Task', id('00T', 3));
+    if (task) Object.assign(task, { LastModifiedDate: LONG_AFTER, LastModifiedById: RUN_USER });
+
+    const listing = await listSweep(org, tiedInput());
+    const classes = listing.found.find((found) => found.objectApiName === 'Task')?.classes;
+    expect(classes?.changed).toBe(1);
+    expect(classes?.changedIn).toEqual({ untied: 1 });
+
+    const parts = sweepParts(org, tiedInput(), { ...NO_SPANS, sweepUntied: true });
+    await parts.first();
+    expect(parts.automationMade.has(id('00T', 3))).toBe(false);
   });
 
   it('reads the ties before its first delete, and keeps for made what an earlier sweep found once a removal cleared the lookup that told it', async () => {
@@ -1592,8 +1678,13 @@ describe('what a sweep takes', () => {
     org.events.push('result');
 
     expect(writePathOrderDefects(org.events)).toEqual([]);
-    // No read once the sweep was asked: what it deletes is what was shown.
-    expect(org.events.lastIndexOf('reads')).toBeLessThan(org.events.indexOf('question'));
+    // No read between the question and its last delete: what it deletes is
+    // what was shown. Once it is through, it reads back what it left, which
+    // deletes nothing.
+    const asked = org.events.indexOf('question');
+    const lastWrite = org.events.lastIndexOf('write');
+    expect(org.events.slice(asked, lastWrite)).not.toContain('reads');
+    expect(org.events.slice(lastWrite).filter((step) => step === 'write')).toHaveLength(1);
     expect(org.events.filter((step) => step === 'question')).toHaveLength(1);
     expect(org.events.filter((step) => step === 'write')).toHaveLength(org.deletes.length);
     // It assigns nothing, takes no checkpoint and holds no lease.

@@ -983,11 +983,91 @@ describe('sandforge-frozen load --dry-run --max-total', () => {
       expect(process.exitCode).toBe(1);
       const answer = JSON.parse(printed.join('')) as {
         posted: Array<{ type: string; payload: { code?: string } }>;
+        refused?: { code: string; message: string };
       };
       expect(answer.posted.find((m) => m.type === 'frozen:load:error')?.payload.code).toBe(
         'MUTE_NO_RIGHT',
       );
+      // Beside the posted error, as a clone refused for its mute gives it.
+      expect(answer.refused?.code).toBe('MUTE_NO_RIGHT');
       expect(permissions.assignments()).toEqual([]);
     });
+  });
+});
+
+describe('sandforge-frozen load, refused for its emails before it writes', () => {
+  /** The trap Developer Edition's contact flow: two single emails a contact, and no bypass. */
+  const EMAILING = {
+    objectsRead: ['Account', 'Contact'],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Contact_Welcome',
+            label: 'Contact welcome',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [],
+            messages: [
+              { kind: 'email', name: 'Send welcome', limit: 'SingleEmail' },
+              { kind: 'email', name: 'Send reminder', limit: 'SingleEmail' },
+            ],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+  } as unknown as ForgeTargetAutomation;
+
+  it('ends on the line a refused run ends on, its code named, and gives the code under refused: exit 1', async () => {
+    const { writes, conn } = targetOrg();
+    // The org as the trap Developer Edition answered the gate's reads: its
+    // limits, one single email left today, and the line of Apex that sends
+    // nothing, which goes through on All email.
+    const answering = {
+      ...conn,
+      request: async ({ url }: { url: string }) => {
+        if (url === '/limits') {
+          return {
+            SingleEmail: { Max: 15, Remaining: 1 },
+            DailyWorkflowEmails: { Max: 8040, Remaining: 8040 },
+          };
+        }
+        if (url.startsWith('/tooling/executeAnonymous')) return { compiled: true, success: true };
+        throw new Error(`not answered: ${url}`);
+      },
+    };
+    vi.mocked(makeConn).mockReturnValue(answering as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(answering as never);
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(EMAILING);
+    const said: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      said.push(String(chunk));
+      return true;
+    }) as never);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+
+    expect(writes).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    const answer = JSON.parse(printed.join('')) as {
+      refused?: { code: string; message: string };
+      refusalCodes?: string[];
+    };
+    expect(answer.refused).toEqual({
+      code: 'FROZEN_EMAILS_EXCEEDED',
+      message: expect.stringContaining('1 of 15 left today'),
+    });
+    expect(answer.refusalCodes).toEqual(['FROZEN_EMAILS_EXCEEDED']);
+    // Run for real, it said "! frozen:load:error: … [FROZEN_EMAILS_EXCEEDED]"
+    // where the help promises "refused (CODE): …", as a load refused for its
+    // purge or its checkpoint says it; what it was judged on stays above it.
+    const lines = said.join('').trimEnd().split('\n');
+    expect(lines.at(-1)).toBe(`refused (FROZEN_EMAILS_EXCEEDED): ${answer.refused?.message}`);
+    expect(lines.at(-2)).toMatch(/^ {2}(emails|deliverability): /);
+    expect(said.join('')).not.toContain('! frozen:load:error');
   });
 });

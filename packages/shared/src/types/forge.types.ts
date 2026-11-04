@@ -855,9 +855,11 @@ export interface ForgeSweepFound {
  * - `untied`: created as the run's user in the run's window, tied to nothing
  *   of the run. Listed and kept, unless `sweepUntied`, refused when another
  *   run of this machine wrote in the window or hand work is seen;
- * - `changed`: of the classes above, those changed since by someone other
- *   than the run or a removal of it, kept unless the removal includes what
- *   changed.
+ * - `changed`: of the classes above, those changed since the run by anything
+ *   but a removal of it — someone else, or the run's own user after the run
+ *   —, kept unless the removal includes what changed; `changedIn`, how many
+ *   of them fall in each class, which a list counts out of what a class it
+ *   takes would delete.
  */
 export interface ForgeSweepClasses {
   made: number;
@@ -866,6 +868,7 @@ export interface ForgeSweepClasses {
   late: number;
   untied: number;
   changed?: number;
+  changedIn?: Partial<Record<'made' | 'madeOver' | 'late' | 'untied', number>>;
 }
 
 /** An object a sweep could not look at, and why, in the org's words or the sweep's. */
@@ -1001,6 +1004,12 @@ export interface ForgeSweepResult {
   handWork: ForgeRemovalLeftCount[];
   /** What it found and left, by class, once it was through its question; absent when nothing was. */
   left?: ForgeSweepLeftClass[];
+  /**
+   * Of what it found and kept, by class, what the org no longer held once the
+   * run's records were gone — taken along with them, for what hangs from
+   * them —: never left, and not in `left`. Absent when none was.
+   */
+  goneAlong?: Array<Pick<ForgeSweepLeftClass, 'class' | 'objects'>>;
 }
 
 /** What a history entry remembers of the sweeps run with its removals. */
