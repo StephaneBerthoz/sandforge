@@ -74,6 +74,7 @@ import {
   type DeliverabilityRead,
   type RunDeliverabilityRead,
 } from '../forge/targetDeliverability.js';
+import { STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { emailsRefusalWords } from '../forge/runEmailsSaid.js';
 import type { RewoundObject } from './rewindEstimate.js';
 import type { RewindPlanObject } from './rewindPlan.js';
@@ -175,12 +176,34 @@ export function draftedByPlan(
 }
 
 /**
+ * Records of an object a rewind makes again as drafts, then gives their
+ * status back, as its preview counts them: each order or contract it makes
+ * again, once — the platform refuses one made past Draft, and an order takes
+ * its products only as a draft. Only those past Draft are updated, and the
+ * preview reads no status from the checkpoint, so the count errs by saying
+ * too much, as {@link draftedByDiff}. What its emails count and what its
+ * steps list read this one number.
+ */
+export function statusBackByDiff(
+  object: Pick<RewindDiffObject, 'objectApiName' | 'toRecreate'>,
+): number {
+  return STATUS_LIFECYCLES[object.objectApiName] !== undefined ? (object.toRecreate ?? 0) : 0;
+}
+
+/** {@link statusBackByDiff} of a pass, as its plan holds it. */
+export function statusBackByPlan(
+  object: Pick<RewindPlanObject, 'objectApiName' | 'recreated'>,
+): number {
+  return STATUS_LIFECYCLES[object.objectApiName] !== undefined ? object.recreated : 0;
+}
+
+/**
  * What a rewind would write, per object and write, as its preview counts it:
  * what it brings back, what it makes again with new Ids, what it gives back —
  * what it brings back among it, the values it had when deleted given back
- * once it is back — and the orders it sets back to Draft, then what it
- * deletes. A carrier is brought back and deleted again: the automation of
- * either write fires on it.
+ * once it is back, the status of what it made again as a draft — and the
+ * orders it sets back to Draft, then what it deletes. A carrier is brought
+ * back and deleted again: the automation of either write fires on it.
  */
 export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -191,7 +214,7 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
         object.toBringBack.deletedWhileTaken +
         (object.toBringBack.carriers ?? 0),
       insert: object.toRecreate ?? 0,
-      update: updatedByDiff(object) + draftedByDiff(object),
+      update: updatedByDiff(object) + statusBackByDiff(object) + draftedByDiff(object),
       delete: deletedByDiff(object),
     }),
   );
@@ -200,8 +223,9 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
 /**
  * What a rewind's first pass writes, per object and write, as its plan holds
  * it: what comes back with a parent and what goes with one counted with what
- * is sent, as the org's automation may fire on them all, and the orders it
- * sets back to Draft among its updates.
+ * is sent, as the org's automation may fire on them all, and the statuses it
+ * gives back to what it made again as drafts and the orders it sets back to
+ * Draft among its updates.
  */
 export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -212,6 +236,7 @@ export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenReco
         object.givenBackFirst +
         object.givenBackAfter +
         object.givenBackNextPass +
+        statusBackByPlan(object) +
         draftedByPlan(object),
       delete: deletedByPlan(object),
     }),

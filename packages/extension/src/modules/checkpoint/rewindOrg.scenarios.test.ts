@@ -13,11 +13,13 @@ import {
   FIELDS,
   PERSON_FLAG,
   PICKED,
+  PREVIEWED,
   PRICE_BOOK_HELD,
   SINCE,
   STAMP_FIELDS,
   T0,
   account,
+  automationOf,
   baseRecords,
   book,
   changedSince,
@@ -30,6 +32,7 @@ import {
   opportunity,
   previewed,
   removeTaken,
+  request,
   resultOf,
   rewound,
   stateOf,
@@ -41,6 +44,8 @@ import {
 } from '../../test/rewindTestOrg.js';
 import { overwriteBackupIdOf } from '../sync/syncOverwrites.js';
 import { rewindDirOf } from './OrgCheckpointStore.js';
+import { previewCheckpoint } from './previewCheckpoint.js';
+import { rewindStepsOf } from './rewindBounds.js';
 import { readRewindJournal, undoPlansOf } from './rewindJournal.js';
 import { NOT_REMADE_WORDS, type RewindDeps } from './rewindOrg.js';
 
@@ -1124,6 +1129,272 @@ describe('a record Salesforce keeps in the recycle bin for good', () => {
     expect(t.org.inBin('Contact').map((row) => row.Id)).toContain(contact(3));
     expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
     expect(liveIds(t.org, 'Opportunity')).toContain(opportunity(1));
+  });
+});
+
+describe('an activated order a rewind makes again or keeps', () => {
+  const ORDER_FIELDS: Record<string, unknown[]> = {
+    ...FIELDS,
+    Order: [
+      ...STAMP_FIELDS,
+      writable('Status'),
+      writable('Description'),
+      writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+    ],
+    OrderItem: [
+      ...STAMP_FIELDS,
+      writable('Quantity', 'double'),
+      writable('OrderId', 'reference', { referenceTo: ['Order'], updateable: false }),
+    ],
+  };
+  const ORDER_CHILDREN = {
+    ...CHILDREN,
+    Order: [{ childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true }],
+  };
+  const order = (n: number): string => id('801', n);
+  const item = (n: number): string => id('802', n);
+
+  /**
+   * An order activated at the checkpoint, with a product: set back to Draft
+   * since, the one way the org deletes it, deleted with its product, then
+   * emptied from the recycle bin.
+   */
+  async function purgedSince(): Promise<Taken> {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+        org.add('Order', {
+          Id: order(1),
+          Status: 'Activated',
+          Description: 'Signed',
+          AccountId: account(1),
+        });
+        org.add('OrderItem', { Id: item(1), Quantity: 2, OrderId: order(1) });
+      },
+      new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+      [...PICKED, 'Order', 'OrderItem'],
+    );
+    clock.now = SINCE;
+    t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+    clock.now = SINCE + 5_000;
+    t.org.trash('Order', order(1), COLLEAGUE);
+    t.org.purge(order(1));
+    return t;
+  }
+
+  it('is made again as a draft, its product under it, then given its status back, as the checkpoint holds it: inserted activated, the org refused it and its product (GC-F2)', async () => {
+    const t = await purgedSince();
+    const diff = await previewed(t);
+    expect(
+      diff.objects
+        .filter(({ objectApiName }) => objectApiName.startsWith('Order'))
+        .map(({ objectApiName, toRecreate }) => [objectApiName, toRecreate]),
+    ).toEqual([
+      ['OrderItem', 1],
+      ['Order', 1],
+    ]);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] },
+      { objectApiName: 'OrderItem', planned: 1, created: 1, refused: 0, reasons: [] },
+    ]);
+    expect(result.status).toBe('success');
+    expect(result.residual).toEqual([]);
+    const [made] = t.org.all('Order');
+    expect(made).toMatchObject({
+      Status: 'Activated',
+      Description: 'Signed',
+      AccountId: account(1),
+    });
+    expect(t.org.all('OrderItem')).toEqual([
+      expect.objectContaining({ Quantity: 2, OrderId: made?.Id }),
+    ]);
+    // Made a draft, its product under it, then its status alone.
+    expect(
+      t.org.creates.map(({ objectApiName, records }) => [
+        objectApiName,
+        records.map((record) => record.Status ?? record.OrderId),
+      ]),
+    ).toEqual([
+      ['Order', ['Draft']],
+      ['OrderItem', [made?.Id]],
+    ]);
+    expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Order')).toEqual([
+      { objectApiName: 'Order', records: [{ Id: made?.Id, Status: 'Activated' }] },
+    ]);
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+  });
+
+  it('asks for and counts what a flow on an order’s update sends as its status is given back, as its preview counts it', async () => {
+    const t = await purgedSince();
+    // A flow that emails an order's owner as it is updated, and no other write.
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    clock.now = PREVIEWED;
+    const preview = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: sending },
+      request(t),
+    );
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+    expect(preview.emails?.find((each) => each.limit === 'SingleEmail')).toMatchObject({
+      emails: 1,
+      objects: [{ objectApiName: 'Order', write: 'update', records: 1, perRecord: 1 }],
+    });
+    expect(rewindStepsOf(preview.diff).giveBack).toEqual(['Order']);
+
+    expect(
+      await rewound(t, preview.diff.previewId, {
+        deps: { readAutomation: sending },
+        request: { acceptRecreate: true },
+      }),
+    ).toMatchObject({
+      rewound: false,
+      refusal: {
+        code: 'AUTOMATION',
+        message: expect.stringContaining('1 flow(s), trigger(s) or rule(s) of Order') as unknown,
+      },
+    });
+    expect(t.org.creates).toEqual([]);
+
+    const result = resultOf(
+      await rewound(t, preview.diff.previewId, {
+        deps: { readAutomation: sending },
+        request: { acceptRecreate: true, acceptAutomation: true },
+      }),
+    );
+    expect(result.status).toBe('success');
+  });
+
+  it('counts no email of an order created since that the rewind keeps, told it may not delete the product made under it outside the checkpoint: its Draft update is not sent', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+      },
+      new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+      [...PICKED, 'Order'],
+    );
+    clock.now = SINCE;
+    t.org.add('Order', {
+      Id: order(2),
+      Status: 'Activated',
+      AccountId: account(1),
+      LastModifiedById: COLLEAGUE,
+    });
+    t.org.add('OrderItem', { Id: item(2), Quantity: 1, OrderId: order(2) });
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    clock.now = PREVIEWED;
+    const previewAsked = async (acceptOutside?: boolean) => {
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, readAutomation: sending },
+        { ...request(t), ...(acceptOutside !== undefined ? { acceptOutside } : {}) },
+      );
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      return outcome;
+    };
+
+    const kept = await previewAsked(false);
+    expect(kept.diff.objects.find(({ objectApiName }) => objectApiName === 'Order')).toMatchObject({
+      toDelete: { createdSince: 1 },
+      outside: [{ objectApiName: 'OrderItem', count: 1, parents: 1 }],
+    });
+    expect(kept.emails).toBeUndefined();
+    // Told it may, it sets the order back to Draft, then deletes it, and the flow sends one.
+    const deleted = await previewAsked(true);
+    expect(deleted.emails?.find((each) => each.limit === 'SingleEmail')).toMatchObject({
+      emails: 1,
+      objects: [{ objectApiName: 'Order', write: 'update', records: 1 }],
+    });
+    // Not told, the page's: every record it would delete is counted, saying too much.
+    expect((await previewAsked()).emails).toEqual(deleted.emails);
+
+    // The rewind not asked keeps the order and writes nothing to it, as its preview counted.
+    const result = resultOf(
+      await rewound(t, kept.diff.previewId, {
+        deps: { readAutomation: sending },
+        request: { acceptAutomation: true },
+      }),
+    );
+    expect(liveIds(t.org, 'Order')).toEqual([order(2)]);
+    expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Order')).toEqual([]);
+    expect(result.residual).toContainEqual(
+      expect.objectContaining({ objectApiName: 'Order', reason: 'kept', count: 1 }),
+    );
+  });
+
+  it('is left a draft, named with the org’s words, when the org refuses its status back: its product made under it all the same', async () => {
+    const t = await purgedSince();
+    const diff = await previewed(t);
+    const update = t.org.update.bind(t.org);
+    t.org.update = async (objectApiName, records) =>
+      objectApiName === 'Order' && records.some((record) => record.Status === 'Activated')
+        ? records.map((record) => ({
+            id: record.Id,
+            success: false,
+            errors: [{ statusCode: 'FAILED_ACTIVATION', message: 'Choose a valid status.' }],
+          }))
+        : update(objectApiName, records);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.recreated).toContainEqual({
+      objectApiName: 'Order',
+      planned: 1,
+      created: 1,
+      refused: 0,
+      reasons: [
+        'Made again as a draft, but its status was refused: FAILED_ACTIVATION: Choose a valid status.',
+      ],
+    });
+    expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Draft' })]);
+    expect(t.org.all('OrderItem')).toHaveLength(1);
+    expect(result.status).not.toBe('success');
   });
 });
 

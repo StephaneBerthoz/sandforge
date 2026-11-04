@@ -125,6 +125,14 @@ export interface CheckpointPreviewRequest extends BaseMessage {
      * what still runs. `automation` stays as read, and nothing is assigned.
      */
     muteAutomation?: boolean;
+    /**
+     * Whether the rewind is to delete the records outside a checkpoint of
+     * picked objects created under records it deletes, as
+     * `checkpoint:rewind`'s `acceptOutside`: said, the emails and the refusal
+     * it would meet are those of what it then writes. Absent, those of every
+     * record it would delete.
+     */
+    acceptOutside?: boolean;
   };
 }
 

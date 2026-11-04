@@ -101,7 +101,7 @@ import {
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
 import {
   acceptanceRefusal as acceptanceOf,
-  boundsRefusal,
+  boundsRefusals,
   previewTotals,
   rewindStepsOf,
   selectionDiff,
@@ -382,9 +382,9 @@ JSON (--json), one value on stdout:
                      numbers, differs and estimate are then the rewind's of those objects,
                      diff the whole diff
   rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] and
-                     wouldBeRefusedCodes: ["CODE"] when a rewind with these flags would be
-                     refused; asked to mute, emails and deliverability are of what still runs,
-                     with mutedAutomation and mutePlan
+                     wouldBeRefusedCodes: ["CODE"], one for each refusal a rewind with these
+                     flags would meet, in order; asked to mute, emails and deliverability are
+                     of what still runs, with mutedAutomation and mutePlan
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
                       reason, count}], carriers?: [{object, count}], undo?: {until, cannot:
@@ -3445,6 +3445,9 @@ async function rewind(
       checkpointId: entry.checkpointId,
       ...(objects ? { objects } : {}),
       ...(args.muteAutomation ? { muteAutomation: true } : {}),
+      // Its emails are those of what this rewind writes: without the flag, it
+      // keeps what the records outside the checkpoint hang from.
+      acceptOutside: args.acceptOutside,
     },
     timeoutMs: PREVIEW_TIMEOUT_MS,
   });
@@ -3473,7 +3476,7 @@ async function rewind(
   // What stands in for reading the preview in a cron job or a CI step: the
   // bounds the flags give, then the acceptances it needs, as a pipeline's
   // Rewind step is held to them.
-  const gate = await boundsRefusal({
+  const gates = await boundsRefusals({
     orgName: args.org,
     preview,
     bounds: {
@@ -3485,6 +3488,7 @@ async function rewind(
     words: COMMAND_LINE_WORDS,
     user: org.username,
   });
+  const [gate] = gates;
   const outsideStays =
     !args.acceptOutside &&
     checkpoint.scope.mode === 'picked' &&
@@ -3496,21 +3500,28 @@ async function rewind(
     );
   }
   if (args.dryRun) {
-    if (gate && !preview.refusal) {
-      say(`  a rewind now would be refused (${gate.code}): ${gate.message}`);
-    }
+    // Every refusal a rewind with these flags meets, the preview's own first,
+    // which its lines say. Said one at a time, a rewind on All email whose
+    // flow sends one was said refused for its automation, and for its emails
+    // only once --accept-automation was given, live.
+    const gated = gates.filter((each) => each.code !== preview.refusal?.code);
+    for (const each of gated)
+      say(`  a rewind now would be refused (${each.code}): ${each.message}`);
     // Said in the summary as in the lines: a script read what a rewind's flags
     // would be refused for from no key, its code from nowhere. Not under
     // `refusal`, the preview's own: `reset` stops on that before its question.
-    const refused = preview.refusal ?? gate;
+    const refused = [...(preview.refusal ? [preview.refusal] : []), ...gated];
     // What a rewind's mute would assign, silence, leave running and lift
     // beside, in the summary as in the lines.
     answerJson({
       ...previewJson(args.org, checkpoint, whole, selection),
       ...(muted ? { mutedAutomation: muted.planned, mutePlan: muted.plan } : {}),
-      // Its code beside it too, under the key every dry run gives it.
-      ...(refused
-        ? { wouldBeRefused: [refusedLine(refused)], wouldBeRefusedCodes: [refused.code] }
+      // Each code beside it too, under the key every dry run gives them.
+      ...(refused.length > 0
+        ? {
+            wouldBeRefused: refused.map((each) => refusedLine(each)),
+            wouldBeRefusedCodes: refused.map((each) => each.code),
+          }
         : {}),
     });
     return;

@@ -58,6 +58,7 @@ import {
   actSendersOf,
   draftedByDiff,
   emailsRefusal,
+  statusBackByDiff,
   updatedByDiff,
 } from './rewindEmails.js';
 import { diffOfPicked } from './rewindPlan.js';
@@ -182,7 +183,8 @@ export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): Rewi
 /**
  * The objects whose records each step of a rewind writes, as its preview
  * counts them: brought back, given back — what comes back from the bin among
- * it, as the rewind's plan lists it — deleted — an order activated since set
+ * it, as the rewind's plan lists it, and the status of what it makes again as
+ * a draft (`statusBackByDiff`) — deleted — an order activated since set
  * back to Draft first, which the platform deletes no other way, by the number
  * its emails count (`draftedByDiff`) — and the records it brings back for a
  * moment, then deletes again.
@@ -209,8 +211,11 @@ export function rewindStepsOf(
       diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
       links?.relink ?? 0,
     ),
+    // What it makes again as a draft is given its status back: an update.
     giveBack: linked(
-      diff.objects.filter((o) => updatedByDiff(o) > 0).map((o) => o.objectApiName),
+      diff.objects
+        .filter((o) => updatedByDiff(o) + statusBackByDiff(o) > 0)
+        .map((o) => o.objectApiName),
       links?.updateLinks ?? 0,
     ),
     setToDraft: diff.objects.filter((o) => draftedByDiff(o) > 0).map((o) => o.objectApiName),
@@ -391,7 +396,27 @@ export function acceptanceRefusal(
   user = 'the user SandForge connects as',
   mutes = false,
 ): CheckpointRefusal | undefined {
-  const { diff, automation, emailsUncounted } = answer;
+  return acceptanceRefusals(orgName, answer, accepted, lift, user, mutes)[0];
+}
+
+/**
+ * Every refusal {@link acceptanceRefusal} would give, one acceptance after
+ * the other, in its order: what a dry run says a rewind with these flags
+ * meets, as every other dry run says each of its refusals. A rewind on All
+ * email whose writes fire a flow that sends one was said refused for its
+ * automation alone, and for its emails only once `--accept-automation` was
+ * given, live.
+ */
+function acceptanceRefusals(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted' | 'deliverability'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+  user = 'the user SandForge connects as',
+  mutes = false,
+): CheckpointRefusal[] {
+  const refusals: CheckpointRefusal[] = [];
+  const { diff, automation } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
     const said = UNDO_CANNOT_WORDS.flatMap(({ reason, words }) => {
       // An entry that names no reason is of the first, as a diff made before
@@ -407,15 +432,15 @@ export function acceptanceRefusal(
           `${words}.`,
       ];
     });
-    return {
+    refusals.push({
       code: 'NO_UNDO',
       message: `${said.join(' ')} Rewind refused; ${lift.acceptNoUndo}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
   const remade = diff.objects.filter((o) => toRecreateOf(o) > 0);
   if (remade.length > 0 && !accepted.acceptRecreate) {
     const records = remade.reduce((total, o) => total + toRecreateOf(o), 0);
-    return {
+    refusals.push({
       code: 'RECREATE',
       message:
         `${count(records)} ${remade.map((o) => o.objectApiName).join(', ')} record(s) deleted ` +
@@ -423,7 +448,7 @@ export function acceptanceRefusal(
         'rewind makes them again from the checkpoint, with new Ids. Anything outside Salesforce ' +
         'that names their old Ids — an integration, a link, a report filter — no longer finds ' +
         `them. Rewind refused; ${lift.acceptRecreate}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
   const unseen = diff.unseen ?? [];
   if (unseen.length > 0 && accepted.acceptUnseen !== true) {
@@ -432,19 +457,34 @@ export function acceptanceRefusal(
         `Deleting ${count(records)} ${objectApiName} record(s) created since also deletes what ` +
         `${user} can't see under them in ${children.join(', ')}: Rewind can't count those.`,
     );
-    return {
+    refusals.push({
       code: 'UNSEEN',
       message: `${said.join(' ')} Rewind refused; ${lift.acceptUnseen}. ${NOTHING_WRITTEN}`,
-    };
+    });
   }
-  if (!automation) return undefined;
-  const emails = (): CheckpointRefusal | undefined =>
-    emailsDeliveredRefusal(orgName, answer, accepted, lift, mutes);
-  if (accepted.acceptAutomation) return emails();
+  if (!automation) return refusals;
+  const refused = automationRefusal(orgName, answer, accepted, lift);
+  const emails = emailsDeliveredRefusal(orgName, answer, accepted, lift, mutes);
+  return [...refusals, ...(refused ? [refused] : []), ...(emails ? [emails] : [])];
+}
+
+/**
+ * The refusal of a rewind of what `answer` previewed for its automation, not
+ * accepted: what its writes fire, or what could not all be read, or what
+ * sends emails the preview could not count.
+ */
+function automationRefusal(
+  orgName: string,
+  answer: Pick<BoundedPreview, 'diff' | 'automation' | 'emailsUncounted'>,
+  accepted: RewindAccepted,
+  lift: BoundWords['lift'],
+): CheckpointRefusal | undefined {
+  const { diff, automation, emailsUncounted } = answer;
+  if (!automation || accepted.acceptAutomation) return undefined;
   const steps = rewindStepsOf(diff);
   const fired = firedOnRemovalStepsOf(automation, steps);
   if (fired.length === 0 && !blindedBy(automation.unread) && emailsUncounted === undefined) {
-    return emails();
+    return undefined;
   }
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
   // A link put back is an insert of a link, no record made again.
@@ -501,9 +541,19 @@ const userKey = (id: string): string => id.slice(0, 15);
  * when it holds to every bound.
  */
 export async function boundsRefusal(check: BoundsCheck): Promise<CheckpointRefusal | undefined> {
+  return (await boundsRefusals(check))[0];
+}
+
+/**
+ * Every refusal {@link boundsRefusal} would give, one bound or acceptance
+ * after the other, in its order: what a dry run of a rewind with these flags
+ * says it meets, each with its code. None when it would write nothing.
+ */
+export async function boundsRefusals(check: BoundsCheck): Promise<CheckpointRefusal[]> {
   const { orgName, preview, bounds, words } = check;
   const { diff } = preview;
-  if (objectsWrittenBy(diff).length === 0) return undefined;
+  if (objectsWrittenBy(diff).length === 0) return [];
+  const refusals: CheckpointRefusal[] = [];
   const totals = previewTotals(diff);
   const records = totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate;
   if (bounds.maxRecords !== undefined && records > bounds.maxRecords) {
@@ -513,33 +563,35 @@ export async function boundsRefusal(check: BoundsCheck): Promise<CheckpointRefus
       `${count(totals.toBringBack)} to bring back`,
       ...(totals.toRecreate > 0 ? [`${count(totals.toRecreate)} to make again`] : []),
     ];
-    return {
+    refusals.push({
       code: 'TOO_MANY_TO_REWIND',
       message:
         `The rewind of ${orgName} would rewind ${count(records)} records (${parts.join(', ')}), ` +
         `past ${words.limit(bounds.maxRecords)}. Rewind refused; ${words.lift.maxRecords}. ` +
         NOTHING_WRITTEN,
-    };
+    });
   }
   if (bounds.refuseWhenActive && diff.activeLastHour.length > 0) {
     const own = new Set((await check.writers()).map(userKey));
     const others = new Set(diff.activeLastHour.map(userKey).filter((user) => !own.has(user)));
     if (others.size > 0) {
       const people = others.size === 1 ? '1 person' : `${count(others.size)} people`;
-      return {
+      refusals.push({
         code: 'PEOPLE_ACTIVE',
         message:
           `${people} other than the user the rewind writes as changed records of the ` +
           `checkpoint's objects in ${orgName} in the hour before the rewind read it: it would ` +
           `take their work back. Rewind refused; ${words.lift.refuseWhenActive}. ` +
           NOTHING_WRITTEN,
-      };
+      });
     }
   }
-  return (
-    acceptanceRefusal(orgName, preview, check.accepted, words.lift, check.user, words.mutes) ??
-    emailsRefusal('rewind', preview.emails ?? [], orgName)
-  );
+  const emails = emailsRefusal('rewind', preview.emails ?? [], orgName);
+  return [
+    ...refusals,
+    ...acceptanceRefusals(orgName, preview, check.accepted, words.lift, check.user, words.mutes),
+    ...(emails ? [emails] : []),
+  ];
 }
 
 // ─── With nobody to ask ──────────────────────────────────────────────────────

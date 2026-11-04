@@ -8,7 +8,8 @@
  * of another object name its record. An update that points a lookup at a
  * record in the recycle bin is refused as the org refused one live, in the
  * words it refuses an update of a record no longer there: `ENTITY_IS_DELETED`,
- * no field named.
+ * no field named. An order inserted past Draft is refused, and so is a product
+ * inserted with no order or under an order past Draft, as the org refused them.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
@@ -26,6 +27,37 @@ import { MEMORY_ORG_USER, MemoryRemovalOrg } from './memoryRemovalOrg.js';
 function entityIsDeleted(): { statusCode: string; message: string; fields: string[] } {
   return { statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [] };
 }
+
+/**
+ * The org's refusal of an order inserted past Draft, live: a rewind made an
+ * activated order again with its status, and was answered so.
+ */
+const ORDER_MADE_ACTIVATED = {
+  statusCode: 'FAILED_ACTIVATION',
+  message:
+    'Choose a valid status and save your changes. For a new or cloned order, choose Draft. ' +
+    "An Activated order's status can't be edited.",
+};
+
+/**
+ * The org's refusal of an order's product inserted without its order, live:
+ * the rewind made the product again once its order was refused.
+ */
+const ORDER_ITEM_WITHOUT_ORDER = {
+  statusCode: 'REQUIRED_FIELD_MISSING',
+  message: 'Required fields are missing: [OrderId]',
+  fields: ['OrderId'],
+};
+
+/**
+ * The org's refusal of a product added to an order past Draft, which takes
+ * its products only as a draft (`STATUS_LIFECYCLES`): in the words the org
+ * refuses a change of an activated order's products with.
+ */
+const ORDER_ITEM_UNDER_ACTIVATED = {
+  statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+  message: 'unable to modify activated order',
+};
 
 /** See the module's comment. */
 export class MemoryRestoreOrg extends MemoryRemovalOrg {
@@ -100,7 +132,8 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
     this.creates.push({ objectApiName, records: records.map((record) => ({ ...record })) });
     const prefix = this.prefixOf(objectApiName);
     return records.map((record) => {
-      const told = this.refuseCreate?.(objectApiName, record);
+      const told =
+        this.refuseCreate?.(objectApiName, record) ?? this.orderRefusal(objectApiName, record);
       if (told) return { success: false, errors: [told] };
       const dangling = Object.entries(record).find(
         ([, value]) => this.namesKnownRecord(value) && !this.isLive(String(value)),
@@ -129,6 +162,31 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
       });
       return { id, success: true, errors: [] };
     });
+  }
+
+  /**
+   * What the org refuses an insert of an order or of its product for, as it
+   * refused them live: an order past Draft — its status's category as the
+   * org's `OrderStatus` rows say it, `Activated` alone past Draft where it
+   * holds none —, a product with no order, and one under an order past Draft.
+   */
+  private orderRefusal(
+    objectApiName: string,
+    record: Readonly<Record<string, unknown>>,
+  ): { statusCode: string; message: string; fields?: string[] } | undefined {
+    const pastDraft = (status: unknown): boolean => {
+      if (typeof status !== 'string' || status === '') return false;
+      const row = this.all('OrderStatus').find((held) => held.ApiName === status);
+      return row ? row.StatusCode !== 'Draft' : status === 'Activated';
+    };
+    if (objectApiName === 'Order') {
+      return pastDraft(record.Status) ? ORDER_MADE_ACTIVATED : undefined;
+    }
+    if (objectApiName !== 'OrderItem') return undefined;
+    const orderId = record.OrderId;
+    if (typeof orderId !== 'string' || orderId === '') return ORDER_ITEM_WITHOUT_ORDER;
+    const order = this.liveRow('Order', orderId);
+    return order && pastDraft(order.Status) ? ORDER_ITEM_UNDER_ACTIVATED : undefined;
   }
 
   /** The key prefix of an object's records, from one it holds or held. */

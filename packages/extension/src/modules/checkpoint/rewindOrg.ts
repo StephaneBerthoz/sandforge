@@ -61,7 +61,10 @@
  *   every read of the checkpoint from then on names them by their new Ids, so
  *   the give-back that follows points every lookup the checkpoint holds that
  *   named one at its new Id. A record the org refuses to make is named, in
- *   its words, and left gone.
+ *   its words, and left gone. An order or a contract past Draft is made at
+ *   the org's Draft status, then given its own once every record of the pass
+ *   is made: the org refuses one made past Draft, and an order takes its
+ *   products only as a draft.
  * - Brought back: a page of 2,000 ids at a time, the undelete's own batches
  *   of 200. Before each batch goes, the children the recycle bin holds of
  *   each of its records, through every relationship its object deletes
@@ -211,6 +214,12 @@ import {
   type SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  STATUS_LIFECYCLES,
+  draftStartOf,
+  statusCategories,
+  type StatusCategories,
+} from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { isMuteRefusedError, type HeldMute, type RunMute } from '../forge/AutomationMuteLease.js';
 import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
@@ -300,6 +309,7 @@ import {
   draftedByPlan,
   emailsRefusal,
   emailsUncountedWords,
+  statusBackByPlan,
   writtenByPlan,
 } from './rewindEmails.js';
 import {
@@ -1530,9 +1540,15 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
     recreate: objects
       .filter((object) => object.recreated > 0)
       .map((object) => object.objectApiName),
+    // What it made again as a draft is given its status back: an update.
     giveBack: objects
       .filter(
-        (object) => object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass > 0,
+        (object) =>
+          object.givenBackFirst +
+            object.givenBackAfter +
+            object.givenBackNextPass +
+            statusBackByPlan(object) >
+          0,
       )
       .map((object) => object.objectApiName),
     // An order activated since is set back to Draft before its delete: the
@@ -1708,6 +1724,8 @@ class Rewind {
   private global: Promise<unknown> | undefined;
   /** Per object of records that came back with a parent, the cascades of their own children. */
   private readonly cascadesOfObject = new Map<string, Promise<Cascade[]>>();
+  /** Per object with a status lifecycle made again, the org's statuses and their categories, read once. */
+  private readonly lifecycles = new Map<string, Promise<StatusCategories | undefined>>();
   /** The objects the org does not query, read once from its global describe. */
   private unqueried: Promise<ReadonlySet<string>> | undefined;
   /** The objects the org answered keep no recycle bin: no `IsDeleted` to read. */
@@ -3031,6 +3049,8 @@ class Rewind {
     const heldKeyOf = (id: string): string => made.originalOf(id.slice(0, 15)) ?? id.slice(0, 15);
     /** Lookups left empty for a record not made yet, by the keys the checkpoint holds both by. */
     const owed: Array<{ objectApiName: string; from: string; field: string; target: string }> = [];
+    /** Records made as drafts, by object: their new Id, and the status the checkpoint holds. */
+    const owedStatus = new Map<string, Array<{ id: string; field: string; status: string }>>();
     for (const { objectApiName, count } of spool.objects) {
       if (tally.cancelled || this.stopped()) {
         tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
@@ -3057,6 +3077,13 @@ class Rewind {
           tally.leftBy('recreate', objectApiName, ids);
         continue;
       }
+      // Past Draft, a record of an object with a status lifecycle is refused
+      // as it is made — an activated order made again was, live: "for a new
+      // or cloned order, choose Draft" — and its products after it, for want
+      // of it. Made at the org's Draft status, as Forge writes one, it gets
+      // the status the checkpoint holds back once the rows under it are made.
+      const status = insert.fields.find((field) => field.toLowerCase() === 'status');
+      const lifecycle = status !== undefined ? await this.lifecycleOf(objectApiName) : undefined;
       for await (const ids of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
         if (tally.cancelled || this.stopped()) {
           tally.recreate({
@@ -3098,9 +3125,19 @@ class Rewind {
           }
           const batch = rows.slice(at, at + RECORDS_PER_CALL);
           const from = batch.map((row) => index.snapshotIdOf(String(row.Id)));
+          /** The status each record made as a draft is owed, by its place in the batch. */
+          const drafts = new Map<number, string>();
           const records = batch.map((row, place) => {
             const written = rowToWriteBack(objectApiName, row, insert.fields);
             delete written.Id;
+            const draft =
+              status !== undefined && lifecycle
+                ? draftStartOf(written[status], lifecycle)
+                : undefined;
+            if (status !== undefined && draft !== undefined) {
+              drafts.set(place, String(written[status]));
+              written[status] = draft;
+            }
             // Named by a record the rewind leaves deleted, which the org refuses: made without it.
             withoutLeft(written, this.leftFields.get(keyOf(from[place])));
             for (const field of insert.lookups) {
@@ -3128,6 +3165,12 @@ class Rewind {
             const answer = answers[place];
             if (answer?.success === true && typeof answer.id === 'string') {
               pairs.push({ objectApiName, from: from[place], to: answer.id });
+              const owes = drafts.get(place);
+              if (status !== undefined && owes !== undefined) {
+                const of = owedStatus.get(objectApiName) ?? [];
+                of.push({ id: answer.id, field: status, status: owes });
+                owedStatus.set(objectApiName, of);
+              }
               return;
             }
             result.refused++;
@@ -3153,6 +3196,60 @@ class Rewind {
       }
     }
     await this.fillOwed(owed, made, madeNow, tally);
+    await this.giveStatusesBack(owedStatus, tally);
+  }
+
+  /**
+   * The org's statuses of an object with a status lifecycle and their
+   * categories, read once a rewind — or nothing, for an object with none, or
+   * when the org will not say which statuses are drafts: its records are then
+   * made as the checkpoint holds them, and the org says what it refuses.
+   */
+  private lifecycleOf(objectApiName: string): Promise<StatusCategories | undefined> {
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    if (lifecycle === undefined) return Promise.resolve(undefined);
+    let read = this.lifecycles.get(objectApiName);
+    if (!read) {
+      read = statusCategories(async (soql) => (await this.org.query(soql)).records, lifecycle);
+      this.lifecycles.set(objectApiName, read);
+    }
+    return read;
+  }
+
+  /**
+   * Give the records made again as drafts the status the checkpoint holds,
+   * once the pass made every record under them, 200 an update: an order takes
+   * its products only as a draft. One the org refuses is said in its object's
+   * result, made again but left a draft.
+   */
+  private async giveStatusesBack(
+    owed: ReadonlyMap<string, ReadonlyArray<{ id: string; field: string; status: string }>>,
+    tally: PassTally,
+  ): Promise<void> {
+    for (const [objectApiName, records] of owed) {
+      for (let at = 0; at < records.length; at += RECORDS_PER_CALL) {
+        if (this.stopped()) return;
+        const batch = records.slice(at, at + RECORDS_PER_CALL);
+        const answers = saveAnswersOf(
+          await this.org.update(
+            objectApiName,
+            batch.map(({ id, field, status }) => ({ Id: id, [field]: status })),
+          ),
+        );
+        const result = tally.recreated.get(objectApiName);
+        batch.forEach(({ id }, place) => {
+          const answer = answers[place];
+          if (answer?.success === true) return;
+          if (result) {
+            addReason(
+              result.reasons,
+              `Made again as a draft, but its status was refused: ${answer?.error ?? 'the org gave no answer for it.'}`,
+            );
+          }
+          tally.leftBy('recreate', objectApiName, [id]);
+        });
+      }
+    }
   }
 
   /**

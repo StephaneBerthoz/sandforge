@@ -318,6 +318,15 @@ describe('rewindPreviewFacts', () => {
     ).toBeUndefined();
   });
 
+  it('lists an order or a contract the rewind makes again as given back too, as the rewind lists it: made a draft, it is given its status back', () => {
+    const remaking = (objectApiName: string) => diffObject(objectApiName, { toRecreate: 1 });
+    const steps = rewindSteps(
+      previewDiff({ objects: [remaking('Order'), remaking('Contract'), remaking('Account')] }),
+    );
+    expect(steps.recreate).toEqual(['Order', 'Contract', 'Account']);
+    expect(steps.giveBack).toEqual(['Order', 'Contract']);
+  });
+
   it('lists what the deletions take along outside the checkpoint, under the object they hang from', () => {
     const diff = previewDiff({
       objects: [

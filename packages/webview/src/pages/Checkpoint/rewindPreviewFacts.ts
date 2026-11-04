@@ -292,12 +292,20 @@ export function unseenChildren(diff: Partial<Pick<RewindDiff, 'unseen'>>): strin
 const SET_TO_DRAFT_OBJECT = 'Order';
 
 /**
+ * The objects whose records a rewind makes again as drafts, then gives their
+ * status back: the platform refuses an order or a contract made past Draft,
+ * and an order takes its products only as a draft.
+ */
+const MADE_AS_DRAFT_OBJECTS: ReadonlySet<string> = new Set(['Order', 'Contract']);
+
+/**
  * The objects each step of a rewind writes, in the order it writes them: it
  * brings back from the recycle bin, makes again what the bin no longer gives
  * back, gives back values, sets the orders it deletes back to Draft, then
  * deletes. What the org runs as it writes is read for these. What comes back
  * from the bin is given back the values it had when deleted once it is back,
- * as the rewind's plan lists it: a flow on an update fires on it. An object whose records come back for a moment, to be
+ * as the rewind's plan lists it: a flow on an update fires on it. So does one
+ * on the status an order or a contract made again as a draft is given back. An object whose records come back for a moment, to be
  * deleted again (`carriersOf`), is brought back and deleted, as the rewind
  * itself lists it: its automation runs on both. A link between a file and a
  * record it removes is a delete of {@link FILE_LINK_OBJECT}, one it puts back
@@ -310,7 +318,11 @@ export function rewindSteps(
   const rows = diff.objects.map((object) => ({
     ...rowOf(object),
     carriers: carriersOf(object),
-    updated: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
+    updated:
+      object.toGiveBack.records +
+      object.toBringBack.inBin +
+      object.toBringBack.withParent +
+      (MADE_AS_DRAFT_OBJECTS.has(object.objectApiName) ? (object.toRecreate ?? 0) : 0),
   }));
   const links = diff.files;
   const linked = (step: string[], writes: number): string[] =>

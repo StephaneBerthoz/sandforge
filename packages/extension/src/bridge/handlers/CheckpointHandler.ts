@@ -2570,6 +2570,7 @@ export class CheckpointHandler implements DomainHandler {
           // on a host that rewinds so; from a fresh read, the panel's.
           ...(this.previewsAnswered !== undefined ? { reusesPreview: true } : {}),
           ...(parsed.muteAutomation === true ? { muteAutomation: true } : {}),
+          ...(parsed.acceptOutside !== undefined ? { acceptOutside: parsed.acceptOutside } : {}),
         },
       );
       if (!outcome.previewed) throw this.refusalOf(outcome.refusal);

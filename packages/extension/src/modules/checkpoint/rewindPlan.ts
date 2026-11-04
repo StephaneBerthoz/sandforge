@@ -1820,7 +1820,8 @@ export interface SelectionPlanInput {
   previewDir: string;
   /** Tr of the preview: when it read the org. */
   readAt: string;
-  objects: ReadonlySet<string>;
+  /** The objects picked; absent, every object, as a rewind of them all plans it. */
+  objects?: ReadonlySet<string>;
   /** As the rewind is asked it: without it, a record whose deletion takes such records along is left. */
   acceptOutside: boolean;
   heldRows?: RewindPlanInput['heldRows'];
@@ -1828,7 +1829,8 @@ export interface SelectionPlanInput {
 }
 
 /**
- * The plan of a rewind limited to `objects`, made on this machine from the
+ * The plan of a rewind limited to `objects` — of every object, none given —,
+ * made on this machine from the
  * preview's folder by the rewind's own plan, the org not read: what the
  * rewind that follows acts on, while the org has not moved since the preview.
  * Undo's limits and new Ids are planned as accepted, and said
@@ -1849,7 +1851,7 @@ export async function planSelection(input: SelectionPlanInput): Promise<RewindSe
       acceptOutside: input.acceptOutside,
       acceptNoUndo: true,
       acceptRecreate: true,
-      objects: input.objects,
+      ...(input.objects ? { objects: input.objects } : {}),
       ...(input.heldRows ? { heldRows: input.heldRows } : {}),
       dir,
       ...(input.signal ? { signal: input.signal } : {}),

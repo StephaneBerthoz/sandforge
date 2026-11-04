@@ -1699,6 +1699,69 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     expect(h.org.all('Case')).toHaveLength(1);
   });
 
+  it('passes on to the preview whether the rewind may delete the records outside a checkpoint of picked objects: an account it keeps for them counts no email', async () => {
+    // The cases go with their account, and the checkpoint holds the accounts alone.
+    const h = harness({
+      org: new HandlerTestOrg(
+        {},
+        { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      ),
+    });
+    // A flow that emails an account's owner as it is deleted.
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_gone',
+                  label: 'Account gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, mode: 'picked', objects: ['Account'] });
+    const checkpointId = (answerOf(h, 'wv-take-1').payload.checkpoint as { checkpointId: string })
+      .checkpointId;
+    clock = T0 + 60_000;
+    h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+    h.org.add('Case', {
+      Id: id('500', 3),
+      Subject: 'Under it',
+      AccountId: id('001', 3),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const emailsOf = async (requestId: string, asked: Record<string, boolean>) => {
+      await h.send(requestId, 'checkpoint:preview', { checkpointId, ...asked });
+      const answer = answerOf(h, requestId);
+      expect(answer.type).toBe('checkpoint:preview:response');
+      return (answer.payload.emails as Array<{ emails: number }> | undefined)?.map(
+        (each) => each.emails,
+      );
+    };
+
+    expect(await emailsOf('wv-preview-1', { acceptOutside: false })).toBeUndefined();
+    expect(await emailsOf('wv-preview-2', { acceptOutside: true })).toEqual([1]);
+    expect(await emailsOf('wv-preview-3', {})).toEqual([1]);
+  });
+
   it('passes on whether a rewind by a user read object by object may delete what takes along records the user is not proven to see: refused without it, writing nothing, rewound with it', async () => {
     // The cases go with their account; the user holds the accounts by Modify
     // All on them, the cases by View All alone.

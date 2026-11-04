@@ -532,9 +532,9 @@ JSON (--json), one value on stdout:
                      numbers, differs and estimate are then the rewind's of those objects,
                      diff the whole diff
   rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] and
-                     wouldBeRefusedCodes: ["CODE"] when a rewind with these flags would be
-                     refused; asked to mute, emails and deliverability are of what still runs,
-                     with mutedAutomation and mutePlan
+                     wouldBeRefusedCodes: ["CODE"], one for each refusal a rewind with these
+                     flags would meet, in order; asked to mute, emails and deliverability are
+                     of what still runs, with mutedAutomation and mutePlan
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
                       reason, count}], carriers?: [{object, count}], undo?: {until, cannot:

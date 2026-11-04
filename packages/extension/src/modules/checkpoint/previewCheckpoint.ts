@@ -52,6 +52,11 @@
  * every object that rewind writes to, as its own plan says
  * (`planSelection`): an object not picked among them for the children of it
  * that come back with a parent it brings back, deleted again.
+ *
+ * A preview told whether the rewind may delete the records outside a
+ * checkpoint of picked objects created under its records (`acceptOutside`)
+ * counts the emails of what that rewind writes as its plan says: not asked,
+ * it keeps the records they hang from, which send nothing.
  */
 
 import {
@@ -173,6 +178,17 @@ export interface PreviewRequest {
    * which the mute is planned from. Nothing is assigned.
    */
   muteAutomation?: boolean;
+  /**
+   * Whether the rewind that follows is asked to delete, with the records of a
+   * checkpoint of picked objects it deletes, the records outside it created
+   * under them (`RewindRequest.acceptOutside`). Said, the emails it counts,
+   * those it could not count, whether the org delivers them and the refusal
+   * it would meet are those of what that rewind writes, as its own plan says:
+   * not asked, it keeps the records they hang from, and sends nothing for
+   * them. Absent, those of every record it would delete, which errs by
+   * saying too much: the page asks before it is told.
+   */
+  acceptOutside?: boolean;
 }
 
 /** How a preview ended, when it was not stopped and did not fail. */
@@ -352,14 +368,23 @@ export async function previewCheckpoint(
   const picked = request.objects !== undefined ? new Set(request.objects) : undefined;
   const selected = diffOfPicked(diff, picked);
   const written = objectsWrittenBy(selected);
+  // Of a rewind of every object not asked to delete the records outside the
+  // checkpoint, what it writes too: it keeps the records they hang from.
+  // Counted on the diff, the emails of an order it kept were said, its Draft
+  // update among them, live.
+  const keepsOutside =
+    picked === undefined &&
+    request.acceptOutside === false &&
+    checkpoint.scope.mode === 'picked' &&
+    diff.objects.some((object) => object.outside.length > 0);
   let plan: RewindSelectionPlan | undefined;
-  if (picked !== undefined) {
+  if (picked !== undefined || keepsOutside) {
     plan = await planSelection({
       checkpoint,
       previewDir: previewDirOf(request.folder, previewId),
       readAt,
-      objects: picked,
-      acceptOutside: false,
+      ...(picked !== undefined ? { objects: picked } : {}),
+      acceptOutside: request.acceptOutside === true,
       heldRows: snapshotRowsOf(checkpoint, request.folder),
       ...(signal ? { signal } : {}),
     });
@@ -381,7 +406,8 @@ export async function previewCheckpoint(
   // them to be accepted, and the rewind reads it again before it writes.
   let deliverability: RunDeliverability | undefined;
   let deliverabilityRequests = 0;
-  const steps = rewindStepsOf(plan ? selectionDiff(diff, plan) : selected);
+  const acted = plan ? selectionDiff(diff, plan) : selected;
+  const steps = rewindStepsOf(acted);
   const muted =
     automation && request.muteAutomation === true
       ? planMute(automation, removalStepsWrites(steps))
@@ -437,7 +463,7 @@ export async function previewCheckpoint(
     ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const records = writtenByDiff(selected.objects);
+  const records = writtenByDiff(acted.objects);
   // What still runs: a rewind that mutes sends nothing of what its bypasses
   // keep quiet, which neither counts against the day's emails nor refuses it.
   const running = muted?.automation ?? automation;
