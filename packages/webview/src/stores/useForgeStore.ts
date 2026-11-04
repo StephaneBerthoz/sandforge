@@ -30,6 +30,8 @@ import {
 } from '../utils/runCheckpoint';
 import type { ForgeGapChoice, ForgeKeptDecision } from '../utils/forgeGapDecisions';
 import {
+  gapsToShow,
+  objectsLeftOut,
   withGapDecision,
   withObjectExcluded,
   withoutGapDecision,
@@ -1455,9 +1457,11 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   decideGap(gap: ForgeGap, choice: ForgeGapChoice | null): void {
     set((state) => {
       if (!state.config) return state;
+      // Among the gaps the tab shows: the decision of one is not another's.
+      const read = gapsToShow(state.gaps, objectsLeftOut(state.config, state.graph));
       const config = choice
-        ? withGapDecision(state.config, gap, choice)
-        : withoutGapDecision(state.config, gap);
+        ? withGapDecision(state.config, gap, choice, read)
+        : withoutGapDecision(state.config, gap, read);
       return { config, graph: graphFollowingExcluded(state.graph, config, gap.objectApiName) };
     });
   },

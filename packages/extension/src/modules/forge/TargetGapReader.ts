@@ -1374,9 +1374,17 @@ const RECORD_TYPE_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
  * record type. Review shows such a gap decided, and leaves it out of the gaps
  * it says will refuse rows; the command said it BLOCKING beside the line that
  * applied the default to every row.
+ *
+ * @param read - The ids of the gaps the same read found, `gap`'s alone when
+ *   not said: an entry kept under the id a package's gap had before its
+ *   namespace answers it only when it can be no other's of them.
  */
-export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | undefined {
-  if (ignoredGapEntry(decisions.ignoredGaps, gap.id) !== undefined) return 'left as it is';
+export function gapAnsweredBy(
+  gap: ForgeGap,
+  decisions: GapDecisions,
+  read: Iterable<string> = [gap.id],
+): string | undefined {
+  if (ignoredGapEntry(decisions.ignoredGaps, gap.id, read) !== undefined) return 'left as it is';
   const object = gap.objectApiName;
   if (decisions.excludedObjects?.includes(object)) return `${object} left out of the run`;
   const offers = new Set(gap.decisions);
@@ -1386,6 +1394,7 @@ export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | 
     skippedRowsEntry(
       (decisions.skippedRows ?? []).filter((entry) => entry.object === object),
       gap.id,
+      read,
     )
   ) {
     return 'these rows held back';
@@ -1438,10 +1447,11 @@ export function gapsWithAnswers(
   read: ForgeTargetGaps,
   decisions: GapDecisions,
 ): Omit<ForgeTargetGaps, 'gaps'> & { gaps: Array<ForgeGap & { answeredBy?: string }> } {
+  const ids = read.gaps.map((gap) => gap.id);
   return {
     ...read,
     gaps: read.gaps.map((gap) => {
-      const answeredBy = gapAnsweredBy(gap, decisions);
+      const answeredBy = gapAnsweredBy(gap, decisions, ids);
       return answeredBy === undefined ? gap : { ...gap, answeredBy };
     }),
   };
@@ -1454,12 +1464,13 @@ export function gapsWithAnswers(
 function gapLine(
   gap: ForgeGap,
   decisions: GapDecisions | undefined,
+  read: readonly string[],
   lifted?: MutedAutomationAlsoLifted,
 ): string {
   if (lifted) {
     return `the mute lifts it (${lifted.permission}, in ${lifted.permissionSet}): ${gapWords(gap, true)}`;
   }
-  const answer = decisions ? gapAnsweredBy(gap, decisions) : undefined;
+  const answer = decisions ? gapAnsweredBy(gap, decisions, read) : undefined;
   return answer === undefined
     ? `${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`
     : `answered by the run's decision: ${answer} — ${gapWords(gap)}`;
@@ -1619,6 +1630,7 @@ export function gapLines(
   } = {},
 ): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
+  const ids = read.gaps.map((gap) => gap.id);
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
   const others = read.gaps.filter((gap) => gap.kind !== 'api_budget');
   const objects = [...new Set(others.map((gap) => gap.objectApiName))].sort((a, b) =>
@@ -1628,7 +1640,7 @@ export function gapLines(
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
       const lifted = gapLiftedBy(gap, options.lifted);
-      lines.push(`    ${gapLine(gap, options.decisions, lifted)}`);
+      lines.push(`    ${gapLine(gap, options.decisions, ids, lifted)}`);
       // The mute assigns the set for the run: no command to show.
       if (!lifted) lines.push(...assignLines(gap, target, options.username));
     }
@@ -1640,7 +1652,7 @@ export function gapLines(
         : '  no validation rule, duplicate rule, field only the target requires or lookup filter',
     );
   }
-  for (const gap of budget) lines.push(`  ${gapLine(gap, options.decisions)}`);
+  for (const gap of budget) lines.push(`  ${gapLine(gap, options.decisions, ids)}`);
   const formulasNotRead = others.filter((gap) => gap.detail?.formula === 'notRead').length;
   if (formulasNotRead > 0) {
     lines.push(

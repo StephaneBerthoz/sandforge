@@ -105,8 +105,9 @@ export class SimulationGaps {
    * marked so in their detail: reported still, never applied.
    */
   list(ignored: ReadonlySet<string>): ForgeGap[] {
+    const read = [...this.gaps.keys()];
     const gaps = [...this.gaps.values()].map((gap) =>
-      ignoredGapEntry(ignored, gap.id) !== undefined
+      ignoredGapEntry(ignored, gap.id, read) !== undefined
         ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } }
         : gap,
     );

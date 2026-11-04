@@ -141,11 +141,23 @@ describe('AutomationMuteBox', () => {
         "Through its own bypass: what it silences, what still runs, and what couldn't be read",
       );
       expect(summary.className).toContain('text-status-warning');
-      // The line describes the box to a screen reader, the rest a disclosure
-      // away as for anyone: Chromium leaves a closed one out of a
+      // The line describes the box to a screen reader, and so does a hidden
+      // copy of what the fold holds: Chromium leaves a closed one out of a
       // description, which forge-review.spec.ts reads from Chromium itself.
-      const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
-      expect(described?.contains(summary)).toBe(true);
+      const [line, fold] = (toggle.getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id));
+      expect(line?.contains(summary)).toBe(true);
+      expect(fold?.hidden).toBe(true);
+      expect(more.contains(fold ?? null)).toBe(false);
+      expect(fold?.textContent).toContain(
+        'Assigns the permission set Bypass_Automation to the user the run writes as in dev-sandbox',
+      );
+      expect(fold?.textContent).toContain('Silenced for the run:');
+      expect(fold?.textContent).toContain('Not every validation rule could be read');
+      // The copy carries none of the test ids of what it copies.
+      expect(fold?.querySelector('[data-testid]')).toBeNull();
+      expect(screen.getAllByTestId('mute-assigns')).toHaveLength(1);
     });
 
     // The trap org's set, assigned for a flow's bypass, also granted the

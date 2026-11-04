@@ -66,6 +66,31 @@ describe('the id of a gap of a package’s record type, before its namespace', (
 
     expect(gaps.list(new Set([before])).map((gap) => gap.detail?.['ignored'])).toEqual([true]);
   });
+
+  it('marks not the package’s gap ignored by the org’s own gap the simulation found too', () => {
+    // The target holds both record types, each closed to the user: the dry
+    // run said the package's ignored, which nobody had decided.
+    const gaps = new SimulationGaps();
+    for (const recordType of ['Support', 'ns__Support']) {
+      gaps.add(recordTypeGapOf('record_type_unavailable', 'Case', recordType, 1, ['Other']));
+    }
+    const own = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'Support');
+
+    expect(
+      gaps.list(new Set([own])).map((gap) => [gap.recordType, gap.detail?.['ignored'] ?? false]),
+    ).toEqual([
+      ['ns__Support', false],
+      ['Support', true],
+    ]);
+  });
+
+  it('marks an unmapped record type of a package ignored by the id it had before its namespace', () => {
+    const gaps = new SimulationGaps();
+    gaps.add(recordTypeGapOf('record_type_unmapped', 'Account', 'ns__Retail', 2, ['Other']));
+    const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
+
+    expect(gaps.list(new Set([old])).map((gap) => gap.detail?.['ignored'])).toEqual([true]);
+  });
 });
 
 describe('SimulationGaps', () => {

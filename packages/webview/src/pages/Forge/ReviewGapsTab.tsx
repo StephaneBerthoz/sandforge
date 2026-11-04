@@ -350,6 +350,8 @@ const AdminChanges: React.FC<{
 /** Props of {@link GapItem}. */
 interface GapItemProps {
   gap: ForgeGap;
+  /** Every gap the tab shows: a decision kept for one of them answers no other. */
+  shown: readonly ForgeGap[];
   config: ForgeConfig | null;
   decide: (gap: ForgeGap, choice: ForgeGapChoice | null) => void;
   /** The target org and the user the run writes as, whom a bypass's command names. */
@@ -370,6 +372,7 @@ interface GapItemProps {
  */
 const GapItem: React.FC<GapItemProps> = ({
   gap,
+  shown,
   config,
   decide,
   target,
@@ -379,7 +382,7 @@ const GapItem: React.FC<GapItemProps> = ({
 }) => {
   const { t } = useTranslation();
   const id = useId();
-  const kept = decisionOf(config, gap);
+  const kept = decisionOf(config, gap, shown);
   const chosen = kept ? choiceOf(kept) : null;
   const offered = offeredDecisions(gap);
   const [defaultValue, setDefaultValue] = useState('');
@@ -838,6 +841,7 @@ export const ReviewGapsTab: React.FC<{
                     <GapItem
                       key={gap.id}
                       gap={gap}
+                      shown={shown}
                       config={config}
                       decide={decide}
                       {...(target ? { target } : {})}

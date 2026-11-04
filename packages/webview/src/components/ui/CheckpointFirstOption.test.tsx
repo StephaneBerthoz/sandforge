@@ -255,6 +255,39 @@ describe('CheckpointFirstOption', () => {
       expect.stringContaining('Never in it: Chatter posts'),
     );
   });
+
+  it('folded, is described by a hidden copy of its fold beside what is in view', () => {
+    // Chromium leaves a closed disclosure out of a description: folded in
+    // Forge's column, the box was described by what it holds alone.
+    render(
+      <CheckpointFirstOption
+        checked={false}
+        onChange={vi.fn()}
+        orgId="org-dev"
+        costSaid="simulation"
+        foldDetails
+        testId="option"
+      />,
+    );
+    const toggle = screen.getByTestId('option-toggle');
+    const [inView, fold] = (toggle.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id));
+    expect(inView?.contains(screen.getByTestId('option-holds'))).toBe(true);
+    const more = screen.getByTestId('option-more');
+    expect(fold?.hidden).toBe(true);
+    expect(more.contains(fold ?? null)).toBe(false);
+    for (const said of [
+      'Never in it: Chatter posts',
+      'unencrypted and readable by you alone',
+      'Simulate says what it would hold and cost',
+      'A checkpoint refused, or that could not be taken, refuses the run',
+    ]) {
+      expect(fold?.textContent, said).toContain(said);
+    }
+    expect(fold?.querySelector('[data-testid]')).toBeNull();
+    expect(screen.getAllByTestId('option-leaves-out')).toHaveLength(1);
+  });
 });
 
 describe('CheckpointFirstEstimate', () => {

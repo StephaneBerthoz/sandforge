@@ -34,18 +34,25 @@ describe('ReviewFilesOption', () => {
     expect(screen.queryByTestId('forge-files-as-is')).toBeNull();
   });
 
-  it('folds what it copies under the box, which describes the box once opened', () => {
+  it('folds what it copies under the box, and describes the box by it from outside the fold', () => {
     // Four lines in the column of the run held Controls under its fold.
+    // Described by the paragraph inside the closed fold, the box was described
+    // by nothing in Chromium, which forge-review.spec.ts reads from Chromium.
     render(<ReviewFilesOption />);
 
     const more = screen.getByTestId('forge-files-more') as HTMLDetailsElement;
     expect(more.tagName).toBe('DETAILS');
     expect(more.open).toBe(false);
     expect(more.querySelector('summary')?.textContent).toBe('Which files it copies');
+    expect(more.querySelector('p')?.textContent).toMatch(
+      /^Salesforce Files, the latest version of each/,
+    );
     const toggle = screen.getByTestId('forge-files-toggle');
     const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
-    expect(more.contains(described)).toBe(true);
-    expect(described?.textContent).toMatch(/^Salesforce Files, the latest version of each/);
+    expect(described).toBe(screen.getByTestId('forge-files-description'));
+    expect(more.contains(described)).toBe(false);
+    expect(described?.hidden).toBe(true);
+    expect(described?.textContent).toBe(more.querySelector('p')?.textContent);
   });
 
   it('asks for the largest file once turned on, ten megabytes to start with', () => {

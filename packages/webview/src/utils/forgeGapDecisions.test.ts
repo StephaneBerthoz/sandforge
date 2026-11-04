@@ -131,66 +131,77 @@ describe('offeredDecisions', () => {
 
 describe('each decision, written and taken back', () => {
   it('maps a refused value for the gap’s record type', () => {
-    const config = withGapDecision(CONFIG, REFUSED, { kind: 'map_value', to: 'General' });
+    const config = withGapDecision(CONFIG, REFUSED, { kind: 'map_value', to: 'General' }, [
+      REFUSED,
+    ]);
 
     expect(config.picklistValueMappings).toEqual([
       { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: 'General' },
     ]);
-    expect(choiceOf(decisionOf(config, REFUSED)!)).toEqual({ kind: 'map_value', to: 'General' });
-    expect(withoutGapDecision(config, REFUSED)).toEqual(CONFIG);
+    expect(choiceOf(decisionOf(config, REFUSED, [REFUSED])!)).toEqual({
+      kind: 'map_value',
+      to: 'General',
+    });
+    expect(withoutGapDecision(config, REFUSED, [REFUSED])).toEqual(CONFIG);
   });
 
   it('leaves a value empty with a mapping to nothing, and a whole field by excluding it', () => {
-    const value = withGapDecision(CONFIG, REFUSED, { kind: 'leave_empty' });
+    const value = withGapDecision(CONFIG, REFUSED, { kind: 'leave_empty' }, [REFUSED]);
     expect(value.picklistValueMappings?.[0].to).toBeNull();
     expect(value.fieldExclusions).toBeUndefined();
 
-    const field = withGapDecision(CONFIG, RULE, { kind: 'leave_empty' });
+    const field = withGapDecision(CONFIG, RULE, { kind: 'leave_empty' }, [RULE]);
     expect(field.fieldExclusions).toEqual({ Contact: ['Phone'] });
     expect(field.picklistValueMappings).toBeUndefined();
-    expect(choiceOf(decisionOf(field, RULE)!)).toEqual({ kind: 'leave_empty' });
-    expect(withoutGapDecision(field, RULE)).toEqual(CONFIG);
+    expect(choiceOf(decisionOf(field, RULE, [RULE])!)).toEqual({ kind: 'leave_empty' });
+    expect(withoutGapDecision(field, RULE, [RULE])).toEqual(CONFIG);
   });
 
   it('gives a required field a default value', () => {
-    const config = withGapDecision(CONFIG, REQUIRED, { kind: 'set_default', value: 'EMEA' });
+    const config = withGapDecision(CONFIG, REQUIRED, { kind: 'set_default', value: 'EMEA' }, [
+      REQUIRED,
+    ]);
 
     expect(config.defaultValues).toEqual([
       { object: 'Account', field: 'Region__c', value: 'EMEA' },
     ]);
-    expect(withoutGapDecision(config, REQUIRED)).toEqual(CONFIG);
+    expect(withoutGapDecision(config, REQUIRED, [REQUIRED])).toEqual(CONFIG);
   });
 
   it('cuts a text to the field', () => {
-    const config = withGapDecision(CONFIG, TOO_LONG, { kind: 'truncate' });
+    const config = withGapDecision(CONFIG, TOO_LONG, { kind: 'truncate' }, [TOO_LONG]);
 
     expect(config.truncateFields).toEqual([{ object: 'Contact', field: 'Description' }]);
-    expect(withoutGapDecision(config, TOO_LONG)).toEqual(CONFIG);
+    expect(withoutGapDecision(config, TOO_LONG, [TOO_LONG])).toEqual(CONFIG);
   });
 
   it('maps a record type to a target one, or to the object’s default', () => {
-    const mapped = withGapDecision(CONFIG, UNMAPPED, { kind: 'map_record_type', to: 'Claim' });
+    const mapped = withGapDecision(CONFIG, UNMAPPED, { kind: 'map_record_type', to: 'Claim' }, [
+      UNMAPPED,
+    ]);
     expect(mapped.recordTypeMappings).toEqual([{ object: 'Case', from: 'Old_RT', to: 'Claim' }]);
 
-    const byDefault = withGapDecision(mapped, UNMAPPED, { kind: 'map_record_type', to: null });
+    const byDefault = withGapDecision(mapped, UNMAPPED, { kind: 'map_record_type', to: null }, [
+      UNMAPPED,
+    ]);
     expect(byDefault.recordTypeMappings).toEqual([{ object: 'Case', from: 'Old_RT', to: null }]);
-    expect(withoutGapDecision(byDefault, UNMAPPED)).toEqual(CONFIG);
+    expect(withoutGapDecision(byDefault, UNMAPPED, [UNMAPPED])).toEqual(CONFIG);
   });
 
   it('leaves the object out, and ignores a gap by its id', () => {
-    const excluded = withGapDecision(CONFIG, REQUIRED, { kind: 'exclude_object' });
+    const excluded = withGapDecision(CONFIG, REQUIRED, { kind: 'exclude_object' }, [REQUIRED]);
     expect(excluded.excludedObjects).toEqual(['Account']);
-    expect(withoutGapDecision(excluded, REQUIRED)).toEqual(CONFIG);
+    expect(withoutGapDecision(excluded, REQUIRED, [REQUIRED])).toEqual(CONFIG);
 
-    const ignored = withGapDecision(CONFIG, RULE, { kind: 'ignore' });
+    const ignored = withGapDecision(CONFIG, RULE, { kind: 'ignore' }, [RULE]);
     expect(ignored.ignoredGaps).toEqual([RULE.id]);
-    expect(withoutGapDecision(ignored, RULE)).toEqual(CONFIG);
+    expect(withoutGapDecision(ignored, RULE, [RULE])).toEqual(CONFIG);
 
     // A template keeps the id a gap of a package's record type had before its
     // namespace: the gap reads answered, and Undo takes that entry out.
     const packaged = { ...RULE, id: 'record_type_unavailable|Case||ns__Support|' };
     const kept = { ...CONFIG, ignoredGaps: ['record_type_unavailable|Case||Support|'] };
-    expect(decisionOf(kept, packaged)).toEqual({
+    expect(decisionOf(kept, packaged, [packaged])).toEqual({
       kind: 'ignored',
       gapId: 'record_type_unavailable|Case||Support|',
     });
@@ -215,28 +226,113 @@ describe('each decision, written and taken back', () => {
       ],
     };
 
-    expect(choiceOf(decisionOf(skipped, packaged)!)).toEqual({ kind: 'skip_rows' });
-    expect(withoutGapDecision(skipped, packaged)).toEqual(CONFIG);
-    expect(choiceOf(decisionOf(mapped, packaged)!)).toEqual({ kind: 'map_value', to: 'New' });
-    expect(withoutGapDecision(mapped, packaged)).toEqual(CONFIG);
+    expect(choiceOf(decisionOf(skipped, packaged, [packaged])!)).toEqual({ kind: 'skip_rows' });
+    expect(withoutGapDecision(skipped, packaged, [packaged])).toEqual(CONFIG);
+    expect(choiceOf(decisionOf(mapped, packaged, [packaged])!)).toEqual({
+      kind: 'map_value',
+      to: 'New',
+    });
+    expect(withoutGapDecision(mapped, packaged, [packaged])).toEqual(CONFIG);
+  });
+
+  describe('a target with the org’s own record type and a package’s of the same DeveloperName', () => {
+    // Each closed to the user the run writes as: two blocking gaps in one read.
+    const closed = (recordType: string): ForgeGap => ({
+      id: forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', recordType),
+      kind: 'record_type_unavailable',
+      severity: 'blocking',
+      source: 'simulation',
+      objectApiName: 'Case',
+      field: 'RecordTypeId',
+      recordType,
+      rows: 2,
+      detail: { mapTo: ['General'] },
+      decisions: ['map_record_type', 'exclude_object', 'ignore'],
+    });
+    const own = closed('Support');
+    const packaged = closed('ns__Support');
+    const read = [own, packaged];
+
+    it('leaves the package’s gap undecided, counted and asked about, when only the org’s own was ignored', () => {
+      const config = withGapDecision(CONFIG, own, { kind: 'ignore' }, read);
+
+      expect(decisionOf(config, own, read)).toEqual({ kind: 'ignored', gapId: own.id });
+      expect(decisionOf(config, packaged, read)).toBeNull();
+      expect(undecidedBlockingGaps({ simulation: read }, config)).toBe(1);
+    });
+
+    it('keeps the org’s own decision when one is taken on the package’s gap, and takes back only the package’s', () => {
+      const ownIgnored = withGapDecision(CONFIG, own, { kind: 'ignore' }, read);
+      const both = withGapDecision(
+        ownIgnored,
+        packaged,
+        { kind: 'map_record_type', to: 'General' },
+        read,
+      );
+
+      expect(both.ignoredGaps).toEqual([own.id]);
+      expect(both.recordTypeMappings).toEqual([
+        { object: 'Case', from: 'ns__Support', to: 'General' },
+      ]);
+      expect(withoutGapDecision(both, packaged, read)).toEqual(ownIgnored);
+      expect(undecidedBlockingGaps({ simulation: read }, both)).toBe(0);
+    });
+
+    it('reads a hold-back of the org’s own rows as answering not the package’s gap of the same value', () => {
+      const value = (recordType: string): ForgeGap => ({
+        ...REFUSED,
+        id: forgeGapId('picklist_value_refused', 'Case', 'Status', recordType, 'Open'),
+        field: 'Status',
+        value: 'Open',
+        recordType,
+        decisions: ['map_value', 'leave_empty', 'skip_rows'],
+      });
+      const values = [value('Support'), value('ns__Support')];
+      const config = withGapDecision(CONFIG, values[0]!, { kind: 'skip_rows' }, values);
+
+      expect(choiceOf(decisionOf(config, values[0]!, values)!)).toEqual({ kind: 'skip_rows' });
+      expect(decisionOf(config, values[1]!, values)).toBeNull();
+    });
+  });
+
+  it('reads an unmapped record type of a package as ignored by the id a template kept before its namespace', () => {
+    const unmapped: ForgeGap = {
+      id: forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'ns__Retail'),
+      kind: 'record_type_unmapped',
+      severity: 'blocking',
+      source: 'simulation',
+      objectApiName: 'Account',
+      field: 'RecordTypeId',
+      value: 'ns__Retail',
+      rows: 1,
+      detail: { mapTo: ['Other'] },
+      decisions: ['map_record_type', 'exclude_object', 'ignore'],
+    };
+    const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
+    const kept = { ...CONFIG, ignoredGaps: [old] };
+
+    expect(decisionOf(kept, unmapped, [unmapped])).toEqual({ kind: 'ignored', gapId: old });
+    expect(undecidedBlockingGaps({ simulation: [unmapped] }, kept)).toBe(0);
+    expect(decisionsAnsweringNoGap(kept, [unmapped])).toEqual([]);
+    expect(withoutGapDecision(kept, unmapped, [unmapped])).toEqual(CONFIG);
   });
 
   it('holds back the rows of a value by the gap’s id, and takes that back', () => {
-    const config = withGapDecision(CONFIG, REFUSED, { kind: 'skip_rows' });
+    const config = withGapDecision(CONFIG, REFUSED, { kind: 'skip_rows' }, [REFUSED]);
 
     expect(config.skippedRows).toEqual([{ object: 'Case', gapId: REFUSED.id }]);
-    expect(choiceOf(decisionOf(config, REFUSED)!)).toEqual({ kind: 'skip_rows' });
+    expect(choiceOf(decisionOf(config, REFUSED, [REFUSED])!)).toEqual({ kind: 'skip_rows' });
     expect(keptDecisions(config)).toEqual([
       { kind: 'skipped_rows', entry: { object: 'Case', gapId: REFUSED.id } },
     ]);
-    expect(withoutGapDecision(config, REFUSED)).toEqual(CONFIG);
+    expect(withoutGapDecision(config, REFUSED, [REFUSED])).toEqual(CONFIG);
     // A gap about no value has no rows its value names.
-    expect(withGapDecision(CONFIG, RULE, { kind: 'skip_rows' })).toBe(CONFIG);
+    expect(withGapDecision(CONFIG, RULE, { kind: 'skip_rows' }, [RULE])).toBe(CONFIG);
   });
 
   it('replaces the decision that answered the gap rather than adding a second', () => {
-    const first = withGapDecision(CONFIG, REFUSED, { kind: 'map_value', to: 'General' });
-    const second = withGapDecision(first, REFUSED, { kind: 'leave_empty' });
+    const first = withGapDecision(CONFIG, REFUSED, { kind: 'map_value', to: 'General' }, [REFUSED]);
+    const second = withGapDecision(first, REFUSED, { kind: 'leave_empty' }, [REFUSED]);
 
     expect(second.picklistValueMappings).toEqual([
       { object: 'Case', field: 'Reason__c', recordType: 'Claim', from: 'Other', to: null },
@@ -244,8 +340,12 @@ describe('each decision, written and taken back', () => {
   });
 
   it('writes nothing a gap cannot carry', () => {
-    expect(withGapDecision(CONFIG, REQUIRED, { kind: 'map_value', to: 'X' })).toBe(CONFIG);
-    expect(withGapDecision(CONFIG, REQUIRED, { kind: 'map_record_type', to: 'X' })).toBe(CONFIG);
+    expect(withGapDecision(CONFIG, REQUIRED, { kind: 'map_value', to: 'X' }, [REQUIRED])).toBe(
+      CONFIG,
+    );
+    expect(
+      withGapDecision(CONFIG, REQUIRED, { kind: 'map_record_type', to: 'X' }, [REQUIRED]),
+    ).toBe(CONFIG);
   });
 });
 
@@ -256,7 +356,10 @@ describe('decisionOf', () => {
       picklistValueMappings: [{ object: 'Case', field: 'Reason__c', from: 'Other', to: 'General' }],
     };
 
-    expect(choiceOf(decisionOf(config, REFUSED)!)).toEqual({ kind: 'map_value', to: 'General' });
+    expect(choiceOf(decisionOf(config, REFUSED, [REFUSED])!)).toEqual({
+      kind: 'map_value',
+      to: 'General',
+    });
   });
 
   it('does not read a default value as answering a gap that offers none', () => {
@@ -265,7 +368,7 @@ describe('decisionOf', () => {
       defaultValues: [{ object: 'Contact', field: 'Phone', value: '0' }],
     };
 
-    expect(decisionOf(config, RULE)).toBeNull();
+    expect(decisionOf(config, RULE, [RULE])).toBeNull();
   });
 });
 
@@ -279,6 +382,7 @@ describe('the decisions that answer no gap', () => {
       },
       REFUSED,
       { kind: 'map_value', to: 'Billing' },
+      [REFUSED],
     );
 
     expect(keptDecisions(config)).toHaveLength(3);
@@ -338,7 +442,7 @@ describe('the gaps shown and the badge', () => {
 
     expect(undecidedBlockingGaps(gaps, CONFIG)).toBe(3);
     expect(undecidedBlockingGaps(gaps, CONFIG, graph)).toBe(2);
-    const decided = withGapDecision(CONFIG, REFUSED, { kind: 'ignore' });
+    const decided = withGapDecision(CONFIG, REFUSED, { kind: 'ignore' }, [REFUSED]);
     expect(undecidedBlockingGaps(gaps, decided, graph)).toBe(1);
     expect(undecidedBlockingGaps(undefined, null)).toBe(0);
   });

@@ -70,19 +70,64 @@ describe('ignoredGapEntry', () => {
   const before = forgeGapId('picklist_value_absent', 'Case', 'Status', 'Support', 'Open');
 
   it('takes the id itself', () => {
-    expect(ignoredGapEntry([id], id)).toBe(id);
+    expect(ignoredGapEntry([id], id, [id])).toBe(id);
   });
 
   it('takes the id a gap of a package’s record type had before its namespace, and says which it found', () => {
-    expect(ignoredGapEntry([before], id)).toBe(before);
-    expect(ignoredGapEntry(new Set([before]), id)).toBe(before);
+    expect(ignoredGapEntry([before], id, [id])).toBe(before);
+    expect(ignoredGapEntry(new Set([before]), id, new Set([id]))).toBe(before);
   });
 
   it('takes no other gap of the record type, and none of an unpackaged one for a packaged one', () => {
     const other = forgeGapId('picklist_value_absent', 'Case', 'Status', 'Support', 'Closed');
-    expect(ignoredGapEntry([other], id)).toBeUndefined();
-    expect(ignoredGapEntry([id], before)).toBeUndefined();
-    expect(ignoredGapEntry(undefined, id)).toBeUndefined();
+    expect(ignoredGapEntry([other], id, [id])).toBeUndefined();
+    expect(ignoredGapEntry([id], before, [before])).toBeUndefined();
+    expect(ignoredGapEntry(undefined, id, [id])).toBeUndefined();
+  });
+
+  it('leaves a package’s gap undecided when the entry is the org’s own gap the same read found', () => {
+    // The target holds the org's own Support and a package's ns__Support,
+    // each closed to the user: ignoring the first wrote its id, which is the
+    // one the second had before its namespace. Read back by it, the packaged
+    // gap said "left as it is", and Execute no longer asked.
+    const own = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'Support');
+    const packaged = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'ns__Support');
+    const read = [own, packaged];
+
+    expect(ignoredGapEntry([own], packaged, read)).toBeUndefined();
+    expect(ignoredGapEntry([own], own, read)).toBe(own);
+    expect(ignoredGapEntry([own], packaged, [packaged])).toBe(own);
+  });
+
+  it('leaves both undecided when two packages’ gaps had the one id the entry is', () => {
+    const one = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'ns1__Support');
+    const two = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'ns2__Support');
+    const old = forgeGapId('record_type_unavailable', 'Case', 'RecordTypeId', 'Support');
+
+    expect(ignoredGapEntry([old], one, [one, two])).toBeUndefined();
+    expect(ignoredGapEntry([old], two, [one, two])).toBeUndefined();
+  });
+
+  it('takes the id an unmapped record type of a package had before its namespace, named in its value', () => {
+    const unmapped = forgeGapId(
+      'record_type_unmapped',
+      'Account',
+      'RecordTypeId',
+      undefined,
+      'ns__Retail',
+    );
+    const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
+
+    expect(ignoredGapEntry([old], unmapped, [unmapped])).toBe(old);
+    // The org's own Retail unmapped in the same read: the entry is its own.
+    expect(ignoredGapEntry([old], unmapped, [old, unmapped])).toBeUndefined();
+  });
+
+  it('reads no namespace in a picklist value', () => {
+    const value = forgeGapId('picklist_value_absent', 'Case', 'Status', undefined, 'ns__Open');
+    const bare = forgeGapId('picklist_value_absent', 'Case', 'Status', undefined, 'Open');
+
+    expect(ignoredGapEntry([bare], value, [value])).toBeUndefined();
   });
 });
 
@@ -92,17 +137,22 @@ describe('skippedRowsEntry', () => {
   const entry = (gapId: string) => ({ object: 'Case', gapId });
 
   it('takes the entry of the id, before the one the id had before its namespace', () => {
-    expect(skippedRowsEntry([entry(before), entry(id)], id)).toEqual(entry(id));
+    expect(skippedRowsEntry([entry(before), entry(id)], id, [id])).toEqual(entry(id));
   });
 
   it('takes the entry a template kept before the namespace', () => {
-    expect(skippedRowsEntry([entry(before)], id)).toEqual(entry(before));
+    expect(skippedRowsEntry([entry(before)], id, [id])).toEqual(entry(before));
   });
 
   it('takes no entry of another value, and none of a packaged type for the org’s own', () => {
     const other = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Closed');
-    expect(skippedRowsEntry([entry(other)], id)).toBeUndefined();
-    expect(skippedRowsEntry([entry(id)], before)).toBeUndefined();
+    expect(skippedRowsEntry([entry(other)], id, [id])).toBeUndefined();
+    expect(skippedRowsEntry([entry(id)], before, [before])).toBeUndefined();
+  });
+
+  it('takes not, for a package’s gap, the entry of the org’s own gap the same read found', () => {
+    expect(skippedRowsEntry([entry(before)], id, [before, id])).toBeUndefined();
+    expect(skippedRowsEntry([entry(before)], before, [before, id])).toEqual(entry(before));
   });
 });
 

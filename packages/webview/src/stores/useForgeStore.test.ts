@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import en from '../i18n/locales/en.json';
 import { runElapsedSeconds, settledPercent, useForgeStore } from './useForgeStore';
+import type { ForgeGap } from '@sandforge/shared';
 import type {
   ForgeConfig,
   ForgeGraph,
@@ -770,6 +771,39 @@ describe('useForgeStore', () => {
 
       getState().decideGap(refused, null);
       expect(getState().config).not.toHaveProperty('picklistValueMappings');
+    });
+
+    it('takes not away the decision of the org’s own record type’s gap when one is taken on a package’s', () => {
+      // The org's own Support and a package's ns__Support, each closed: the
+      // ignore of the first was the id the second had before its namespace,
+      // and deciding the second took it out.
+      const closed = (recordType: string): ForgeGap => ({
+        id: `record_type_unavailable|Case|RecordTypeId|${recordType}|`,
+        kind: 'record_type_unavailable',
+        severity: 'blocking',
+        source: 'simulation',
+        objectApiName: 'Case',
+        field: 'RecordTypeId',
+        recordType,
+        rows: 1,
+        detail: { mapTo: ['General'] },
+        decisions: ['map_record_type', 'exclude_object', 'ignore'],
+      });
+      const own = closed('Support');
+      const packaged = closed('ns__Support');
+      getState().setConfig(createMockConfig());
+      getState().setGaps('simulation', [own, packaged]);
+
+      getState().decideGap(own, { kind: 'ignore' });
+      getState().decideGap(packaged, { kind: 'map_record_type', to: 'General' });
+
+      expect(getState().config?.ignoredGaps).toEqual([own.id]);
+      expect(getState().config?.recordTypeMappings).toEqual([
+        { object: 'Case', from: 'ns__Support', to: 'General' },
+      ]);
+      getState().decideGap(packaged, null);
+      expect(getState().config?.ignoredGaps).toEqual([own.id]);
+      expect(getState().config).not.toHaveProperty('recordTypeMappings');
     });
 
     it('changes the config from Review’s controls and keeps the plan, the diffs and the gaps read', () => {

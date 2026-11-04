@@ -1673,6 +1673,69 @@ describe('gapAnsweredBy', () => {
     ).toBe('written as "Warm"');
   });
 
+  it('answers not a package’s gap by the decision of the org’s own gap the same read found', () => {
+    // The target holds the org's own Retail and a package's ns__Retail: the
+    // entry the user wrote on the first is the id the second had before its
+    // namespace, and answered both.
+    const own = refused;
+    const packaged = {
+      ...refused,
+      id: forgeGapId('picklist_value_refused', 'Account', 'Rating', 'ns__Retail', 'Hot'),
+      recordType: 'ns__Retail',
+    };
+    const read = { gaps: [own, packaged], unread: [], requests: 1 };
+    const decisions = {
+      ignoredGaps: [own.id],
+      skippedRows: [{ object: 'Account', gapId: own.id }],
+    };
+
+    expect(gapAnsweredBy(packaged, decisions, [own.id, packaged.id])).toBeUndefined();
+    expect(gapAnsweredBy(own, decisions, [own.id, packaged.id])).toBe('left as it is');
+    expect(gapsWithAnswers(read, decisions).gaps.map((gap) => gap.answeredBy)).toEqual([
+      'left as it is',
+      undefined,
+    ]);
+    expect(
+      gapAnsweredBy(packaged, { skippedRows: decisions.skippedRows }, [own.id, packaged.id]),
+    ).toBeUndefined();
+  });
+
+  it('answers an unmapped record type of a package by an ignore kept before its namespace', () => {
+    const unmapped = gapOf(
+      'record_type_unmapped',
+      ['map_record_type', 'exclude_object', 'ignore'],
+      {
+        field: 'RecordTypeId',
+        value: 'ns__Retail',
+      },
+    );
+    const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
+
+    expect(gapAnsweredBy(unmapped, { ignoredGaps: [old] }, [unmapped.id])).toBe('left as it is');
+    expect(gapAnsweredBy(unmapped, { ignoredGaps: [old] }, [old, unmapped.id])).toBeUndefined();
+  });
+
+  it('answers not an unmapped record type of a package by a mapping of its bare name', () => {
+    // A simulation applies such a mapping by the source's record types: to
+    // the package's when it alone carries the name, and its gap is not
+    // found; to the org's own when both do, and the package's gap left is
+    // one the mapping does not answer.
+    const unmapped = gapOf(
+      'record_type_unmapped',
+      ['map_record_type', 'exclude_object', 'ignore'],
+      {
+        field: 'RecordTypeId',
+        value: 'ns__Retail',
+      },
+    );
+
+    expect(
+      gapAnsweredBy(unmapped, {
+        recordTypeMappings: [{ object: 'Account', from: 'Retail', to: 'Trade' }],
+      }),
+    ).toBeUndefined();
+  });
+
   it('answers only with a kind of decision the read offered on the gap', () => {
     // A default given to a field does not answer a value of it the target refuses.
     const byDefault = { defaultValues: [{ object: 'Account', field: 'Rating', value: 'Cold' }] };

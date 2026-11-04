@@ -49,50 +49,84 @@ export function forgeGapParts(id: string): ForgeGapParts | null {
 const PACKAGED_NAME = /^[A-Za-z][A-Za-z0-9]*__(.+)$/;
 
 /**
+ * Kinds of gap whose `value` names a source record type, `ns__Retail` for a
+ * package's: the id of one of a package's had its bare name there before.
+ */
+const RECORD_TYPE_VALUE_KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
+  'record_type_unmapped',
+]);
+
+/**
  * The entry of `ignored` that says to leave the gap `id` as it is, or undefined
  * when none does: the id itself, or the one it had before a package's record
  * type was named with its namespace. A template and a saved run keep the old
  * one, `…|Type|…` for `…|ns__Type|…`, and the decision taken was asked again.
+ *
+ * The old one answers only a gap it can be no other gap's of the same read
+ * (`read`, the ids of the gaps it found): on a target with the org's own
+ * Support and a package's ns__Support, ignoring the first wrote the id the
+ * second had before its namespace, and the second, which nobody decided, read
+ * "left as it is" and Execute no longer asked.
  */
 export function ignoredGapEntry(
   ignored: Iterable<string> | undefined,
   id: string,
+  read: Iterable<string>,
 ): string | undefined {
   const entries = new Set(ignored ?? []);
   if (entries.has(id)) return id;
-  const before = idBeforeNamespace(id);
+  const before = oldIdOfTheGap(id, read);
   return before !== undefined && entries.has(before) ? before : undefined;
 }
 
 /** The id `id` had before its package's record type was named so, or undefined for no such id. */
 function idBeforeNamespace(id: string): string | undefined {
   const parts = forgeGapParts(id);
-  const bare = PACKAGED_NAME.exec(parts?.recordType ?? '')?.[1];
-  if (parts === null || bare === undefined) return undefined;
-  return forgeGapId(
-    parts.kind as ForgeGapKind,
-    parts.objectApiName,
-    parts.field,
-    bare,
-    parts.value,
-  );
+  if (parts === null) return undefined;
+  const kind = parts.kind as ForgeGapKind;
+  const bareType = PACKAGED_NAME.exec(parts.recordType ?? '')?.[1];
+  if (bareType !== undefined) {
+    return forgeGapId(kind, parts.objectApiName, parts.field, bareType, parts.value);
+  }
+  const bareValue = RECORD_TYPE_VALUE_KINDS.has(kind)
+    ? PACKAGED_NAME.exec(parts.value ?? '')?.[1]
+    : undefined;
+  if (bareValue === undefined) return undefined;
+  return forgeGapId(kind, parts.objectApiName, parts.field, parts.recordType, bareValue);
+}
+
+/**
+ * The id `id` had before its namespace, when an entry under it can be the
+ * gap's alone among those of the same read: no other gap of `read` is that id,
+ * as the org's own record type's is, nor had it before a namespace of its own,
+ * as another package's of the same DeveloperName did.
+ */
+function oldIdOfTheGap(id: string, read: Iterable<string>): string | undefined {
+  const before = idBeforeNamespace(id);
+  if (before === undefined) return undefined;
+  for (const other of read) {
+    if (other !== id && (other === before || idBeforeNamespace(other) === before)) {
+      return undefined;
+    }
+  }
+  return before;
 }
 
 /**
  * The entry of `skipped` that holds back the rows of the gap `id`, or undefined
  * when none does: by the id, or the one it had before a package's record type
- * was named with its namespace, as {@link ignoredGapEntry} reads it. The run
- * holds those rows back (`holdsForRecordType`): Review and the command said
- * the gap undecided.
+ * was named with its namespace, as {@link ignoredGapEntry} reads it — and
+ * reads not an entry of another gap of the same read (`read`).
  */
 export function skippedRowsEntry<T extends { gapId: string }>(
   skipped: readonly T[],
   id: string,
+  read: Iterable<string>,
 ): T | undefined {
-  const before = idBeforeNamespace(id);
-  return (
-    skipped.find((entry) => entry.gapId === id) ?? skipped.find((entry) => entry.gapId === before)
-  );
+  const exact = skipped.find((entry) => entry.gapId === id);
+  if (exact) return exact;
+  const before = oldIdOfTheGap(id, read);
+  return before === undefined ? undefined : skipped.find((entry) => entry.gapId === before);
 }
 
 /**

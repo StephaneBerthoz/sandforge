@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
@@ -221,6 +222,127 @@ const LIFTED_RULE_GAP = {
   defaultDecision: 'leave_empty',
 };
 
+/**
+ * What the metadata read of the trap org gave a clone of one contact: eleven
+ * gaps, one of them refusing rows — a field only the target requires, which
+ * opens the Gaps row on its default value —, five that may refuse or change
+ * rows, two of them validation rules the set of {@link LIFTING_AUTOMATION}
+ * lifts, and five that refuse nothing. On it, Metadata and Automation went
+ * under the fold of a 1280 by 800 panel.
+ */
+const ELEVEN_GAPS: readonly Record<string, unknown>[] = [
+  {
+    id: 'required_field_missing|Account|Region_Only__c||',
+    kind: 'required_field_missing',
+    severity: 'blocking',
+    source: 'metadata',
+    objectApiName: 'Account',
+    field: 'Region_Only__c',
+    rows: 0,
+    detail: { type: 'string', reason: 'notInSource' },
+    decisions: ['set_default', 'exclude_object'],
+  },
+  {
+    id: 'lookup_filter|Contact|Preferred_Account__c||',
+    kind: 'lookup_filter',
+    severity: 'warning',
+    source: 'metadata',
+    objectApiName: 'Contact',
+    field: 'Preferred_Account__c',
+    rows: 0,
+    detail: { referenceTo: ['Account'], optional: true, filterOptional: false },
+    decisions: ['leave_empty', 'ignore'],
+    defaultDecision: 'leave_empty',
+  },
+  LIFTED_RULE_GAP,
+  {
+    ...LIFTED_RULE_GAP,
+    id: 'validation_rule|Contact|Phone||Phone_Format',
+    field: 'Phone',
+    value: 'Phone_Format',
+    detail: {
+      ...LIFTED_RULE_GAP.detail,
+      rule: 'Phone_Format',
+      message: 'A phone is +1 then ten digits.',
+    },
+  },
+  {
+    id: 'validation_rule|Contact|LeadSource||Lead_Source_Locked',
+    kind: 'validation_rule',
+    severity: 'warning',
+    source: 'metadata',
+    objectApiName: 'Contact',
+    field: 'LeadSource',
+    value: 'Lead_Source_Locked',
+    rows: 0,
+    detail: {
+      rule: 'Lead_Source_Locked',
+      message: 'The lead source cannot change once set.',
+      formula: 'read',
+    },
+    decisions: ['leave_empty', 'ignore'],
+    defaultDecision: 'leave_empty',
+  },
+  {
+    id: 'duplicate_rule|Lead|||Lead_Block',
+    kind: 'duplicate_rule',
+    severity: 'warning',
+    source: 'metadata',
+    objectApiName: 'Lead',
+    rows: 0,
+    detail: { rule: 'Lead Block', developerName: 'Lead_Block', action: 'block' },
+    decisions: ['ignore', 'exclude_object'],
+  },
+  ...['Account', 'Account', 'Contact', 'Lead'].map((object, index) => ({
+    id: `duplicate_rule|${object}|||Alert_${String(index)}`,
+    kind: 'duplicate_rule',
+    severity: 'info',
+    source: 'metadata',
+    objectApiName: object,
+    rows: 0,
+    detail: {
+      rule: `Alert ${String(index)}`,
+      developerName: `Alert_${String(index)}`,
+      action: 'allow',
+      alert: true,
+      report: true,
+    },
+    decisions: ['ignore'],
+    defaultDecision: 'ignore',
+  })),
+  {
+    id: 'api_budget|Contact|||',
+    kind: 'api_budget',
+    severity: 'info',
+    source: 'metadata',
+    objectApiName: 'Contact',
+    rows: 0,
+    detail: {
+      calls: 56,
+      writes: 47,
+      reads: 9,
+      estimate: 'atMost',
+      max: 15000,
+      remaining: 10312,
+    },
+    decisions: ['ignore'],
+  },
+];
+
+/** The languages Review is drawn in besides English. */
+const LANGUAGES = ['fr', 'de', 'es', 'pt-BR', 'ja'] as const;
+type Language = (typeof LANGUAGES)[number];
+
+/**
+ * The bundle the extension answers a language's request with: the very file
+ * the build copies for it.
+ */
+function bundleOf(language: Language): Record<string, unknown> {
+  return JSON.parse(
+    readFileSync(new URL(`../src/i18n/locales/${language}.json`, import.meta.url), 'utf8'),
+  ) as Record<string, unknown>;
+}
+
 /** Answer every pending request of a type: StrictMode can send one twice. */
 async function answerAll(
   page: Page,
@@ -254,18 +376,38 @@ interface ReviewOptions {
   orgs?: readonly unknown[];
   /** The read of the target's automation: a flow a permission set keeps quiet unless given. */
   automation?: Record<string, unknown>;
+  /** The editor's display language, English when not said: the host answers with its bundle. */
+  language?: Language;
 }
 
 /** Open Review of a run, every read answered. */
 async function openReview(page: Page, options: ReviewOptions = {}): Promise<MockBridge> {
-  const { theme = 'Dark 2026', graph = GRAPH, gaps = [], orgs, automation = AUTOMATION } = options;
+  const {
+    theme = 'Dark 2026',
+    graph = GRAPH,
+    gaps = [],
+    orgs,
+    automation = AUTOMATION,
+    language,
+  } = options;
   const bridge = new MockBridge();
   await bridge.setup(page);
   if (theme !== null) await paintHostTheme(page, theme);
-  await page.addInitScript(() => {
-    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'forge';
-  });
+  await page.addInitScript((editorLanguage) => {
+    const panel = window as unknown as Record<string, unknown>;
+    panel.__SANDFORGE_MODULE__ = 'forge';
+    if (editorLanguage) panel.__SANDFORGE_EDITOR_LANGUAGE__ = editorLanguage;
+  }, language ?? '');
   await page.goto('/');
+  if (language) {
+    await bridge.respondToNext(
+      'i18n:locale',
+      'i18n:locale:response',
+      { lng: language, bundle: bundleOf(language) },
+      { timeout: 10_000 },
+    );
+    await expect(page.locator('html')).toHaveAttribute('lang', language);
+  }
   await bridge.seedOrgs(orgs);
   await page.waitForSelector('[data-testid="forge-page"]', { timeout: 10_000 });
   await page.getByTestId('forge-tab-soql').click();
@@ -293,8 +435,19 @@ async function openReview(page: Page, options: ReviewOptions = {}): Promise<Mock
   await answerAll(page, 'forge:gaps:request', 'forge:gaps:response', {
     gaps: { gaps, unread: [], requests: 5 },
   });
-  await expect(page.getByTestId('review-row-metadata-state')).toHaveText('Ready');
-  await expect(page.getByTestId('review-row-automation-state')).toHaveText('To read');
+  if (language) {
+    await expect(page.getByTestId('review-row-metadata-state')).toHaveAttribute(
+      'data-state',
+      'ready',
+    );
+    await expect(page.getByTestId('review-row-automation-state')).toHaveAttribute(
+      'data-state',
+      'toRead',
+    );
+  } else {
+    await expect(page.getByTestId('review-row-metadata-state')).toHaveText('Ready');
+    await expect(page.getByTestId('review-row-automation-state')).toHaveText('To read');
+  }
   return bridge;
 }
 
@@ -335,6 +488,38 @@ async function describedByChromium(page: Page, testId: string): Promise<string> 
   } finally {
     await cdp.detach();
   }
+}
+
+/** What the rule of a 1280 by 800 panel keeps in sight: every row of Review, Controls and Execute. */
+const IN_SIGHT_AT_800 = [
+  'tab-gaps',
+  'tab-plan',
+  'tab-anonymization',
+  'tab-compliance',
+  'tab-metadata',
+  'tab-automation',
+  'tab-controls',
+  'review-row-controls-summary',
+  'execute-button',
+] as const;
+
+/** Those of {@link IN_SIGHT_AT_800} out of sight, none when the rule holds. */
+async function outOfSight(page: Page): Promise<string[]> {
+  const out: string[] = [];
+  for (const testId of IN_SIGHT_AT_800) {
+    if (!(await inSight(page, testId))) out.push(testId);
+  }
+  return out;
+}
+
+/**
+ * The pixels between the foot of the column — Rehearse, Simulate, Execute —
+ * and the Controls row above it: under nothing, Controls lies whole above it.
+ */
+async function roomOverTheFoot(page: Page): Promise<number> {
+  const controls = (await page.getByTestId('review-row-controls').boundingBox())!;
+  const foot = (await page.getByTestId('review-run-foot').boundingBox())!;
+  return Math.floor(foot.y - (controls.y + controls.height));
 }
 
 /** Scroll the panel to `top`, in pixels. */
@@ -465,8 +650,9 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     );
     await expect(page.getByTestId('automation-mute-more')).not.toHaveAttribute('open', '');
     expect(await inSight(page, 'automation-mute-more-summary')).toBe(true);
-    expect(await describedByChromium(page, 'automation-mute-toggle')).toBe(
-      'Also lifts Validation rule: Email_Required and Validation rule: Phone_Format',
+    // The line first, then what the fold holds.
+    expect(await describedByChromium(page, 'automation-mute-toggle')).toMatch(
+      /^Also lifts Validation rule: Email_Required and Validation rule: Phone_Format Assigns the permission set Data_Load/,
     );
     // Said in two lines, as the line it replaces: the column still holds.
     expect(await inSight(page, 'review-row-controls-summary')).toBe(true);
@@ -518,7 +704,60 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
       ]) {
         expect(await inSight(page, testId), `${testId}, ticked: ${String(ticked)}`).toBe(true);
       }
+      expect(await roomOverTheFoot(page), `ticked: ${String(ticked)}`).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  test('keeps Controls whole over the foot however many rules the folded mute names', async ({
+    page,
+  }) => {
+    // Among the boxes, Controls stood one pixel over the foot of the column
+    // with three rules on the line: a word more, or a font a pixel taller,
+    // put it under. The boxes now scroll above it, and eight rules move it not.
+    const eight = {
+      ...LIFTING_AUTOMATION,
+      validationRuleBypasses: Array.from({ length: 8 }, (_, index) => ({
+        objectApiName: 'Contact',
+        name: `Contact_Rule_${String(index + 1)}`,
+        permissions: ['Skip_Rules'],
+      })),
+    };
+    await openReview(page, { gaps: [REFUSING_GAP], automation: eight });
+    await expect(page.getByTestId('automation-mute-more-summary')).toContainText(
+      'Validation rule: Contact_Rule_8',
+    );
+    for (const ticked of [false, true]) {
+      await page.getByTestId('automation-mute-toggle').setChecked(ticked);
+      expect(await outOfSight(page), `ticked: ${String(ticked)}`).toEqual([]);
+      expect(await roomOverTheFoot(page), `ticked: ${String(ticked)}`).toBeGreaterThanOrEqual(0);
+      // Ticked, the box is scrolled into the column's view, and Checkpoint
+      // first, above it, stays.
+      expect(await inSight(page, 'controls-checkpoint-first-toggle')).toBe(true);
+    }
+  });
+
+  test('keeps every row, Controls and Execute in sight on the eleven gaps of the trap org, the mute ticked or not', async ({
+    page,
+  }) => {
+    // On the reads of the trap org the Gaps row opened on the field it
+    // requires, and pushed Metadata and Automation under the fold.
+    await openReview(page, { gaps: ELEVEN_GAPS, automation: LIFTING_AUTOMATION });
+    await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
+    for (const ticked of [false, true]) {
+      await page.getByTestId('automation-mute-toggle').setChecked(ticked);
+      await expect(page.getByTestId('forge-mute-execute-hint')).toHaveCount(ticked ? 1 : 0);
+      expect(await outOfSight(page), `ticked: ${String(ticked)}`).toEqual([]);
+      // The gap to decide, and its decision, first in the row.
+      expect(await inSight(page, 'gap-default-value')).toBe(true);
+      expect(await inSight(page, 'controls-checkpoint-first-toggle')).toBe(true);
+    }
+    // The rest of the row a scroll away inside it, and its end reached so.
+    const list = page.getByTestId('review-gaps-scroll');
+    await list.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    expect(await inSight(page, 'gaps-admin-copy')).toBe(true);
+    expect(await outOfSight(page)).toEqual([]);
   });
 
   test('says on the Gaps row a rule the ticked mute lifts, no row moved, Execute in sight', async ({
@@ -570,7 +809,12 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     );
     await expect(rule.getByTestId('gap-default')).toHaveCount(0);
     await expect(rule.getByTestId('bypass-assistant')).toHaveCount(0);
+    // The Gaps row holds what the window has room for, the rows under it in
+    // sight, and scrolls within: the group opened is a scroll of it away.
+    expect(await layout()).toEqual(before);
+    await rule.getByTestId('gap-lifted').scrollIntoViewIfNeeded();
     expect(await inSight(page, 'gap-lifted')).toBe(true);
+    expect(await outOfSight(page)).toEqual([]);
     // Its line stands where the command stood: the gap takes no more room.
     expect((await rule.boundingBox())!.height).toBeLessThanOrEqual(unticked);
   });
@@ -604,30 +848,60 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     expect(await inSight(page, 'execute-button')).toBe(true);
   });
 
-  test('describes each box of the column by what it shows, its fold read once opened', async ({
+  test('describes each box of the column by what ticking it does, its fold closed or open', async ({
     page,
   }) => {
     // Chromium leaves the inside of a closed disclosure out of a description,
-    // whether the box points at it or at what holds it.
-    await openReview(page, { gaps: [REFUSING_GAP] });
+    // whether the box points at it or at what holds it: folded, the mute was
+    // described by its line alone, Checkpoint first by what it holds, and the
+    // box of the files by nothing.
+    await openReview(page, { gaps: [REFUSING_GAP], automation: LIFTING_AUTOMATION });
     await page.getByTestId('automation-mute').waitFor();
-    const mute = await describedByChromium(page, 'automation-mute-toggle');
-    expect(mute).toBe(
-      "Through its own bypass: what it silences, what still runs, and what couldn't be read",
+    /** What each box is described by, as Chromium says it. */
+    const described = async (): Promise<Record<string, string>> => ({
+      mute: await describedByChromium(page, 'automation-mute-toggle'),
+      checkpoint: await describedByChromium(page, 'controls-checkpoint-first-toggle'),
+      files: await describedByChromium(page, 'forge-files-toggle'),
+    });
+    const closed = await described();
+    expect(closed.mute).toMatch(
+      /^Also lifts Validation rule: Email_Required and Validation rule: Phone_Format/,
     );
-    expect(await describedByChromium(page, 'controls-checkpoint-first-toggle')).toMatch(
-      /^Before its first write, the run takes a checkpoint of .*What it leaves out and what it costs$/,
-    );
-    expect(await describedByChromium(page, 'forge-files-toggle')).toBe('');
-
-    await page.getByTestId('automation-mute-more-summary').click();
-    await page.getByTestId('forge-files-more').locator('summary').click();
-    expect(await describedByChromium(page, 'automation-mute-toggle')).toContain(
+    for (const said of [
       'Assigns the permission set Data_Load to the user the run writes as',
-    );
-    expect(await describedByChromium(page, 'forge-files-toggle')).toMatch(
-      /^Salesforce Files, the latest version of each/,
-    );
+      'Silenced for the run:',
+      'Flow: Contact welcome · bypass Load_Data',
+      'Validation rule: Email_Required · Skip_Rules, in Data_Load',
+      'Nothing is deactivated and no other user is touched.',
+    ]) {
+      expect(closed.mute, said).toContain(said);
+    }
+    expect(closed.checkpoint).toMatch(/^Before its first write, the run takes a checkpoint of /);
+    for (const said of [
+      'Never in it: Chatter posts',
+      'on this machine, unencrypted',
+      'A checkpoint refused, or that could not be taken, refuses the run',
+    ]) {
+      expect(closed.checkpoint, said).toContain(said);
+    }
+    expect(closed.files).toMatch(/^Salesforce Files, the latest version of each/);
+
+    // Opened, each says the same, once.
+    for (const fold of [
+      'automation-mute-more',
+      'controls-checkpoint-first-more',
+      'forge-files-more',
+    ]) {
+      await page.getByTestId(fold).locator('summary').first().click();
+      await expect(page.getByTestId(fold)).toHaveAttribute('open', '');
+    }
+    const open = await described();
+    expect(open.files).toBe(closed.files);
+    expect(open.mute.split('Silenced for the run:')).toHaveLength(2);
+    expect(open.checkpoint.split('Never in it:')).toHaveLength(2);
+    for (const said of ['Assigns the permission set Data_Load', 'Never in it: Chatter posts']) {
+      expect(`${open.mute} ${open.checkpoint}`, said).toContain(said);
+    }
   });
 
   test('names the two orgs over the How to, and the run under it', async ({ page }) => {
@@ -640,6 +914,45 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     expect(howTo!.y + howTo!.height).toBeLessThanOrEqual(sentence!.y);
   });
 });
+
+for (const language of LANGUAGES) {
+  test.describe(`Forge Review on a 1280 by 800 panel, in ${language}`, () => {
+    // The rule was measured in English alone: a longer word wraps a row's
+    // summary, or the folded line of the mute, onto one more line.
+    test.use({ viewport: { width: 1280, height: 800 } });
+
+    test('keeps every row, Controls and Execute in sight, the mute naming three lifts, ticked or not', async ({
+      page,
+    }) => {
+      await openReview(page, {
+        language,
+        gaps: [REFUSING_GAP],
+        automation: THREE_LIFTS_AUTOMATION,
+      });
+      for (const ticked of [false, true]) {
+        await page.getByTestId('automation-mute-toggle').setChecked(ticked);
+        await expect(page.getByTestId('forge-mute-execute-hint')).toHaveCount(ticked ? 1 : 0);
+        expect(await outOfSight(page), `ticked: ${String(ticked)}`).toEqual([]);
+        expect(await inSight(page, 'gap-default-value')).toBe(true);
+        expect(await inSight(page, 'controls-checkpoint-first-toggle')).toBe(true);
+        expect(await roomOverTheFoot(page), `ticked: ${String(ticked)}`).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    test('keeps every row, Controls and Execute in sight on the eleven gaps of the trap org', async ({
+      page,
+    }) => {
+      await openReview(page, { language, gaps: ELEVEN_GAPS, automation: LIFTING_AUTOMATION });
+      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
+      for (const ticked of [false, true]) {
+        await page.getByTestId('automation-mute-toggle').setChecked(ticked);
+        await expect(page.getByTestId('forge-mute-execute-hint')).toHaveCount(ticked ? 1 : 0);
+        expect(await outOfSight(page), `ticked: ${String(ticked)}`).toEqual([]);
+        expect(await inSight(page, 'gap-default-value')).toBe(true);
+      }
+    });
+  });
+}
 
 test.describe('Forge Review on a narrow panel', () => {
   test.use({ viewport: { width: 360, height: 640 } });

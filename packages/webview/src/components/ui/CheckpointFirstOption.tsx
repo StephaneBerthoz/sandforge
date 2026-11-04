@@ -1,4 +1,4 @@
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History } from 'lucide-react';
 import {
@@ -149,9 +149,10 @@ export interface CheckpointFirstOptionProps {
   /**
    * Keep what it holds and its estimate in view, and the rest behind a
    * disclosure: in Forge's column of the run, five paragraphs pushed everything
-   * else out of it. A screen reader hears with the box what is in view, and
-   * opens the rest as anyone does: Chromium describes a box by nothing a
-   * closed disclosure holds.
+   * else out of it. A screen reader hears with the box what is in view and
+   * what the fold holds, from a hidden copy of it: Chromium describes a box by
+   * nothing a closed disclosure holds, and the box was described without what
+   * the checkpoint never holds, where it is kept and what refuses the run.
    */
   foldDetails?: boolean;
   /** Test id of the option; its checkbox takes `-toggle`. */
@@ -187,6 +188,8 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
 }) => {
   const { t } = useTranslation();
   const detailsId = useId();
+  const foldedId = useId();
+  const [open, setOpen] = useState(false);
   const org = useOrgStore((s) => s.orgs.find((candidate) => candidate.id === orgId));
   const offered = org !== undefined && isDevelopmentOrg(org);
   useEffect(() => {
@@ -194,24 +197,23 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
   }, [offered, checked, onChange]);
   if (org === undefined) return null;
   const name = org.alias || org.username;
-  const leavesOut = (
-    <p data-testid={`${testId}-leaves-out`} className="text-text-secondary">
-      {t('runResults.checkpoint.option.leavesOut')}
+  /** One paragraph of the details, with its test id, or without for the copy that describes the box. */
+  const line = (part: string, text: string, ids = true): React.ReactNode => (
+    <p data-testid={ids ? `${testId}-${part}` : undefined} className="text-text-secondary">
+      {text}
     </p>
   );
-  const onMachine = (
-    <p data-testid={`${testId}-on-machine`} className="text-text-secondary">
-      {t('runResults.checkpoint.option.onMachine', { org: name, setting: KEEP_DAYS_SETTING })}
-    </p>
-  );
-  const costSaidLine = (
-    <p data-testid={`${testId}-cost-said`} className="text-text-secondary">
-      {t(COST_SAID_KEYS[costSaid])}
-    </p>
-  );
-  const refused = (
-    <p className="text-text-secondary">{t('runResults.checkpoint.option.refused')}</p>
-  );
+  const leavesOutText = t('runResults.checkpoint.option.leavesOut');
+  const onMachineText = t('runResults.checkpoint.option.onMachine', {
+    org: name,
+    setting: KEEP_DAYS_SETTING,
+  });
+  const costSaidText = t(COST_SAID_KEYS[costSaid]);
+  const leavesOut = line('leaves-out', leavesOutText);
+  const onMachine = line('on-machine', onMachineText);
+  const costSaidLine = line('cost-said', costSaidText);
+  const refusedText = t('runResults.checkpoint.option.refused');
+  const refused = <p className="text-text-secondary">{refusedText}</p>;
   const estimated = estimate ? (
     <CheckpointFirstEstimate
       estimate={estimate.of}
@@ -219,6 +221,8 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
       testId={`${testId}-estimate`}
     />
   ) : null;
+  /** Folded and closed, the box is also described by a hidden copy of what the fold holds. */
+  const describedByFold = foldDetails && offered && !open;
   return (
     <div
       data-testid={testId}
@@ -233,7 +237,7 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
           checked={checked && offered}
           disabled={!offered}
           onChange={(event) => onChange(event.target.checked)}
-          aria-describedby={detailsId}
+          aria-describedby={describedByFold ? `${detailsId} ${foldedId}` : detailsId}
           data-testid={`${testId}-toggle`}
           className="mt-0.5"
         />
@@ -242,6 +246,14 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
           {t('runResults.checkpoint.option.label')}
         </span>
       </label>
+      {describedByFold && (
+        <div id={foldedId} hidden>
+          {line('leaves-out', leavesOutText, false)}
+          {line('on-machine', onMachineText, false)}
+          {estimated ? null : line('cost-said', costSaidText, false)}
+          {line('refused', refusedText, false)}
+        </div>
+      )}
       <div id={detailsId} className="ml-5 flex flex-col gap-1">
         {!offered ? (
           <p data-testid={`${testId}-not-offered`} className="text-text-secondary">
@@ -255,7 +267,10 @@ export const CheckpointFirstOption: React.FC<CheckpointFirstOptionProps> = ({
             {foldDetails ? (
               <>
                 {estimated}
-                <details data-testid={`${testId}-more`}>
+                <details
+                  data-testid={`${testId}-more`}
+                  onToggle={(event) => setOpen(event.currentTarget.open)}
+                >
                   <summary className="cursor-pointer text-text-secondary">
                     {t('runResults.checkpoint.option.more')}
                   </summary>

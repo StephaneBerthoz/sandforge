@@ -1,4 +1,4 @@
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, BellOff } from 'lucide-react';
 import type {
@@ -47,7 +47,8 @@ export interface MuteEntryListProps {
     | undefined;
   /** What could not be read of what the sets lift beside, said under the list. */
   unread?: readonly MuteLiftsUnread[] | undefined;
-  testId: string;
+  /** Test id of the list, its lines taking `-<object>`; none for a copy that describes a box. */
+  testId?: string;
 }
 
 /**
@@ -73,7 +74,7 @@ export const MuteEntryList: React.FC<MuteEntryListProps> = ({
         {entries.map((entry) => (
           <li
             key={`${entry.objectApiName}-${entry.kind}-${entry.name}`}
-            data-testid={`${testId}-${entry.objectApiName}`}
+            data-testid={testId === undefined ? undefined : `${testId}-${entry.objectApiName}`}
           >
             <span className="font-mono">{entry.objectApiName}</span>
             {': '}
@@ -129,7 +130,7 @@ export interface AutomationMuteBoxProps {
    * took fourteen lines at 320 pixels, and Controls went under the fold of the
    * column at 800 pixels high. What its sets lift beside is named on the line,
    * and what could not be read flagged there. A screen reader hears with the
-   * box what the line says, and opens the rest as anyone does: Chromium
+   * box the line and what the fold holds, from a hidden copy of it: Chromium
    * describes a box by nothing a closed disclosure holds.
    */
   foldDetails?: boolean;
@@ -162,6 +163,8 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
 }) => {
   const { t } = useTranslation();
   const detailsId = useId();
+  const foldedId = useId();
+  const [open, setOpen] = useState(false);
   const offered = muteOffered(offer);
   useEffect(() => {
     if (!readOnly && !offered && checked) onChange(false);
@@ -169,36 +172,49 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   if (!offered || offer == null) return null;
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   const sets = offer === 'atStart' ? [] : offer.assign.map((set) => set.permissionSet);
-  const detail = (
-    <>
-      {offer === 'atStart' ? (
-        <p data-testid={`${testId}-at-start`}>{t('automationMute.box.atStart', { org })}</p>
-      ) : (
-        <>
-          <p data-testid={`${testId}-assigns`}>
-            {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
-          </p>
-          <MuteEntryList
-            title={t('automationMute.box.silences')}
-            entries={offer.silenced}
-            testId={`${testId}-silenced`}
-          />
-          <MuteEntryList
-            title={t('automationMute.box.stillRuns')}
-            entries={offer.stillRuns}
-            testId={`${testId}-still-runs`}
-          />
-          <MuteEntryList
-            title={t('automationMute.box.alsoLifts')}
-            entries={offer.alsoLifts}
-            unread={offer.liftsUnread}
-            testId={`${testId}-also-lifts`}
-          />
-        </>
-      )}
-      <p className="text-text-secondary">{t('automationMute.box.never')}</p>
-    </>
-  );
+  /** What the mute does, with the test ids of its parts, or without for the copy that describes the box. */
+  const detailOf = (ids: boolean): React.ReactNode => {
+    const idOf = (part: string): string | undefined => (ids ? `${testId}-${part}` : undefined);
+    return (
+      <>
+        {offer === 'atStart' ? (
+          <p data-testid={idOf('at-start')}>{t('automationMute.box.atStart', { org })}</p>
+        ) : (
+          <>
+            <p data-testid={idOf('assigns')}>
+              {t('automationMute.box.assigns', { count: sets.length, sets: list(sets), org })}
+            </p>
+            <MuteEntryList
+              title={t('automationMute.box.silences')}
+              entries={offer.silenced}
+              testId={idOf('silenced')}
+            />
+            <MuteEntryList
+              title={t('automationMute.box.stillRuns')}
+              entries={offer.stillRuns}
+              testId={idOf('still-runs')}
+            />
+            <MuteEntryList
+              title={t('automationMute.box.alsoLifts')}
+              entries={offer.alsoLifts}
+              unread={offer.liftsUnread}
+              testId={idOf('also-lifts')}
+            />
+          </>
+        )}
+        <p className="text-text-secondary">{t('automationMute.box.never')}</p>
+      </>
+    );
+  };
+  const detail = detailOf(true);
+  /**
+   * Folded, the box is also described by a hidden copy of what the fold
+   * holds: Chromium describes a box by nothing a closed disclosure holds, and
+   * the box was described by its line alone — what it silences, the sets it
+   * assigns and what still runs unsaid until opened. A hidden element a box
+   * names is read whole. Opened, the fold describes it, and the copy goes.
+   */
+  const describedByFold = foldDetails && !open;
   /** Something its sets grant was not read: folded, the line says so. */
   const unreadFolded = offer !== 'atStart' && (offer.liftsUnread?.length ?? 0) > 0;
   /**
@@ -232,7 +248,7 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
           checked={checked}
           disabled={readOnly}
           onChange={(event) => onChange(event.target.checked)}
-          aria-describedby={detailsId}
+          aria-describedby={describedByFold ? `${detailsId} ${foldedId}` : detailsId}
           data-testid={`${testId}-toggle`}
           className="mt-0.5"
         />
@@ -241,9 +257,17 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
           {t(foldDetails ? 'automationMute.box.labelShort' : 'automationMute.box.label')}
         </span>
       </label>
+      {describedByFold && (
+        <div id={foldedId} hidden>
+          {detailOf(false)}
+        </div>
+      )}
       <div id={detailsId} className="ml-5 flex flex-col gap-1">
         {foldDetails ? (
-          <details data-testid={`${testId}-more`}>
+          <details
+            data-testid={`${testId}-more`}
+            onToggle={(event) => setOpen(event.currentTarget.open)}
+          >
             <summary
               data-testid={`${testId}-more-summary`}
               className={cn(

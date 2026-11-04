@@ -33,6 +33,7 @@ import { clonesOneRecord } from './forgeRunConfig';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
 import { ReviewCheckpointFirst, ReviewControlsTab } from './ReviewControlsTab';
+import { useReviewRoom } from './useReviewRoom';
 import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
 import { ReviewRow } from './ReviewRow';
 import {
@@ -72,7 +73,15 @@ type ReviewRowId = 'gaps' | 'plan' | 'anonymization' | 'compliance' | 'metadata'
 const RUN_COLUMN = cn(
   'max-[859px]:contents',
   'min-[860px]:sticky min-[860px]:top-3 min-[860px]:flex min-[860px]:w-[20rem]',
-  'min-[860px]:max-h-[calc(100vh-1.5rem)] min-[860px]:shrink-0 min-[860px]:flex-col',
+  // As tall as the window holds below where it stands (`useReviewRoom`): held
+  // to the window's height less its top, it ran past the window where the page
+  // puts it, by as much as the page holds above it, and Controls went under
+  // the foot.
+  'min-[860px]:max-h-[var(--review-column-room,calc(100vh-1.5rem))]',
+  'min-[860px]:shrink-0 min-[860px]:flex-col',
+  // A box ticked is scrolled into the column's own view, not 224 pixels above
+  // its foot: ticking the mute scrolled Checkpoint first out of the column.
+  'min-[860px]:[&&_*]:scroll-my-2',
 );
 const RUN_FOOT = cn(
   'max-[859px]:contents',
@@ -332,6 +341,18 @@ export const ForgeReview: React.FC = () => {
     askedForDecision.current = asks;
   }, [undecidedBlocking]);
   const [controlsOpen, setControlsOpen] = useState(false);
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const gapsBodyRef = useRef<HTMLDivElement>(null);
+  /**
+   * What the column and the Gaps row may take for every row, Controls and
+   * Execute to stay in sight: the Gaps row is bounded while it is the one row
+   * open, and scrolls within.
+   */
+  const room = useReviewRoom(
+    { review: reviewRef, rows: rowsRef, gaps: gapsBodyRef },
+    openRows.size === 1 && openRows.has('gaps'),
+  );
   /** Where the Compliance tab stands: it tells its row, which says so once it is closed. */
   const [compliance, setCompliance] = useState<ComplianceRowStatus>({ step: 'none' });
   /** Execute asked about them, and is waiting for the answer. */
@@ -448,6 +469,7 @@ export const ForgeReview: React.FC = () => {
 
   return (
     <div
+      ref={reviewRef}
       data-testid="forge-review"
       // What Tab reaches stops short of what sticks at the foot of the panel,
       // which would otherwise cover it: the browser scrolls it just into view.
@@ -489,6 +511,7 @@ export const ForgeReview: React.FC = () => {
         {graph && <ReviewLeftOutCost graph={graph} />}
 
         <div
+          ref={rowsRef}
           data-testid="review-tabs"
           role="group"
           aria-label={t('forgeRun.review.rows')}
@@ -502,8 +525,26 @@ export const ForgeReview: React.FC = () => {
             open={openRows.has('gaps')}
             onToggle={() => toggleRow('gaps')}
           >
-            {/* The gaps first, what the read cost and could not see under them. */}
-            <div className="flex flex-col gap-1">
+            {/* The gaps first, what the read cost and could not see under them.
+                Open alone, the row takes what the window holds once the rows
+                under it are in sight, and scrolls within: on the eleven gaps
+                of the trap org it held Metadata and Automation under the fold
+                of a 1280 by 800 panel. What Tab reaches in it is scrolled into
+                its own view, not 224 pixels above its foot. */}
+            <div
+              ref={gapsBodyRef}
+              data-testid="review-gaps-scroll"
+              style={
+                room.gaps !== undefined
+                  ? ({ '--review-gaps-room': `${String(room.gaps)}px` } as React.CSSProperties)
+                  : undefined
+              }
+              className={cn(
+                'flex flex-col gap-1',
+                'min-[860px]:max-h-[var(--review-gaps-room,none)] min-[860px]:overflow-y-auto',
+                'min-[860px]:-mx-1 min-[860px]:px-1 min-[860px]:[&&_*]:scroll-my-2',
+              )}
+            >
               <ReviewGapsTab
                 onReadAgain={readGapsAgain}
                 readingAgain={gapsRead.pending}
@@ -644,7 +685,16 @@ export const ForgeReview: React.FC = () => {
         aria-label={t('forgeRun.review.runColumn')}
         data-testid="review-run-column"
         className={RUN_COLUMN}
+        style={
+          room.column !== undefined
+            ? ({ '--review-column-room': `${String(room.column)}px` } as React.CSSProperties)
+            : undefined
+        }
       >
+        {/* The boxes scroll within what the column holds above Controls and
+            the foot: among them, Controls went under the foot as soon as
+            their words took a line more, in French, German, Spanish and
+            Portuguese. Opened, Controls scrolls too, sharing the room. */}
         <div
           data-testid="review-run-options"
           className={cn(
@@ -666,24 +716,32 @@ export const ForgeReview: React.FC = () => {
             />
           )}
           <ReviewFilesOption />
-          {/* Closed until asked for: its owners read the target's users as
-              they are drawn, which a run that leaves them alone should not cost. */}
-          <div className="border-b border-subtle">
-            <ReviewRow
-              id="controls"
-              name={t('forgeRun.review.controlsTab')}
-              summary={
-                controlsCount > 0
-                  ? t('forgeRun.review.row.controls.set', { count: controlsCount })
-                  : t('forgeRun.review.row.controls.none')
-              }
-              open={controlsOpen}
-              onToggle={() => setControlsOpen((open) => !open)}
-              compact
-            >
-              <ReviewControlsTab />
-            </ReviewRow>
-          </div>
+        </div>
+        {/* Closed until asked for: its owners read the target's users as
+            they are drawn, which a run that leaves them alone should not cost. */}
+        <div
+          data-testid="review-run-controls"
+          className={cn(
+            'border-b border-subtle max-[859px]:-mt-4 min-[860px]:mt-2',
+            controlsOpen
+              ? 'min-[860px]:min-h-0 min-[860px]:overflow-y-auto min-[860px]:pr-1'
+              : 'shrink-0',
+          )}
+        >
+          <ReviewRow
+            id="controls"
+            name={t('forgeRun.review.controlsTab')}
+            summary={
+              controlsCount > 0
+                ? t('forgeRun.review.row.controls.set', { count: controlsCount })
+                : t('forgeRun.review.row.controls.none')
+            }
+            open={controlsOpen}
+            onToggle={() => setControlsOpen((open) => !open)}
+            compact
+          >
+            <ReviewControlsTab />
+          </ReviewRow>
         </div>
 
         <div data-testid="review-run-foot" className={RUN_FOOT}>
