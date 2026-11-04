@@ -18,9 +18,10 @@
  * and user, the run, its process, when it ends, and the assignments it
  * created — and a lease that ends removes only the assignments it created,
  * and none another live lease of this machine needs: those pass to that
- * lease, which removes them as it ends. A lease past its end, or whose process
- * is gone, holds nothing, and is released by the next run that takes one: a
- * machine that died under a run leaves the assignments to that.
+ * lease, which removes them as it ends. A lease past its end, whose process
+ * is gone, or that never finished assigning its sets, holds nothing, and is
+ * released by the next run that takes one: a machine that died under a run
+ * leaves the assignments to that.
  *
  * The journal of an org's user is one file in `.sandforge/mute-leases` of the
  * home directory, whatever `SANDFORGE_JOURNAL_DIR` says, as the checkpoint
@@ -55,8 +56,18 @@ import {
   typeTarget,
   type TypedTarget,
 } from '../../core/precheck/orgKindLive.js';
-import { linkedLockKind, lockHolderShape, type LockSelf } from '../checkpoint/linkedLock.js';
-import { THIS_HOST, processRunning, type RunWriterChecks } from '../sync/runWriter.js';
+import {
+  linkedLockKind,
+  lockHolderShape,
+  type LockFileHead,
+  type LockSelf,
+} from '../checkpoint/linkedLock.js';
+import {
+  THIS_HOST,
+  WRITER_QUIET_MS,
+  processRunning,
+  type RunWriterChecks,
+} from '../sync/runWriter.js';
 
 // ─── The org ─────────────────────────────────────────────────────────────────
 
@@ -298,15 +309,23 @@ function heldKey(file: string, runId: string, acquiredAt: string): string {
 }
 
 /**
- * Whether a lease holds: before its end, and its process at work. A lease of
- * this process holds while it is listed among those it holds; one of another
- * process of this machine while that process runs and started after the
- * machine did; one of another machine sharing the home folder cannot be
- * asked, and holds until its end.
+ * Whether a lease holds: before its end, its sets all assigned, and its
+ * process at work. A lease of this process holds while it is listed among
+ * those it holds; one of another process of this machine while that process
+ * runs and started after the machine did; one of another machine sharing the
+ * home folder cannot be asked, and holds until its end.
  */
 function isLive(lease: Lease, file: string, self: LockSelf, checks: RunWriterChecks = {}): boolean {
   const now = checks.now?.() ?? Date.now();
   if (!(Date.parse(lease.endsAt) > now)) return false;
+  // A lease is taken under the journal's lock, and the line it leaves once
+  // its sets are assigned names none it is assigning: one that still names
+  // some never finished. Its process died, or its run was refused, wrote
+  // nothing, and could not write the journal as it took back what it had
+  // assigned. Taken for a run under way while its window stayed open, such a
+  // lease kept what a run of another process had assigned: that run, ending,
+  // left its sets assigned for it rather than take them back.
+  if (lease.assigning.length > 0) return false;
   if (lease.host !== self.host) return true;
   if (lease.pid === self.pid && lease.hostStartedAt === self.startedAt) {
     return heldHere.has(heldKey(file, lease.runId, lease.acquiredAt));
@@ -339,21 +358,67 @@ function journalFailed(file: string, done: string, err: unknown): Error {
   );
 }
 
+/** The process that holds a journal's lock, as a refusal names it. */
+interface JournalLockHolder {
+  pid: number;
+  host: string;
+  /** Whether that process is of this machine, where whether it runs can be asked. */
+  here: boolean;
+  /** A day after the lock was taken: past it, the lock holds nothing, whatever its process does. */
+  until: string;
+}
+
+/** The holder of the lock `head` names, as `self` reads it. */
+function journalLockHolderOf(head: LockFileHead, self: LockSelf): JournalLockHolder {
+  const taken = Date.parse(head.acquiredAt);
+  return {
+    pid: head.pid,
+    host: head.host,
+    here: head.host === self.host,
+    until: new Date((Number.isFinite(taken) ? taken : Date.now()) + WRITER_QUIET_MS).toISOString(),
+  };
+}
+
+/*
+ * A run locks the journal for the moment it takes, renews or ends its
+ * lease. A lock its process could not remove — a folder turned read only —
+ * holds as long as that process runs, up to a day: the refusal said "Run
+ * again once that run ends", of a run that had ended, its window open.
+ */
+
+/** How long a lock that stayed held may hold, in words. */
+function lockHoldsWords(holder: JournalLockHolder): string {
+  return (
+    'A run locks it only while it takes, renews or ends a lease of the same org and user, but ' +
+    (holder.here
+      ? 'a lock its process could not remove holds until that process has ended, ' +
+        `${holder.until} at the latest.`
+      : `a lock a process of another machine could not remove holds until ${holder.until}.`)
+  );
+}
+
+/** What a lock held as a lease is taken left undone, and what to do. */
+function heldOffAcquiring(holder: JournalLockHolder): string {
+  return (
+    `nothing was assigned. ${lockHoldsWords(holder)} Run again in a moment, or end process ` +
+    `${holder.pid} and run again should none of its runs be muting this org.`
+  );
+}
+
 /**
  * Change the journal `file` under its lock: read it — none yet is an empty
  * one —, hand it to `change`, and write what it gives back whole.
  *
- * @param heldOff - What a lock another run's process `pid` kept for a minute
- *   left undone, and what to do, as the refusal says it: as a lease is
- *   taken, nothing was assigned and the run is to be run again.
+ * @param heldOff - What a lock another process kept for a minute left
+ *   undone, and what to do, as the refusal says it: as a lease is taken,
+ *   nothing was assigned and the run is to be run again.
  */
 async function withJournal<T>(
   file: string,
   ids: { organizationId: string; userId: string },
   options: MuteLeaseOptions,
   change: (journal: Journal, save: (journal: Journal) => Promise<void>) => Promise<T>,
-  heldOff: (pid: number) => string = (pid) =>
-    `nothing was assigned. Run again once that run ends, or stop process ${pid} should it hang.`,
+  heldOff: (holder: JournalLockHolder) => string = heldOffAcquiring,
 ): Promise<T> {
   const self = options.self ?? THIS_PROCESS;
   const lockOptions = { self, ...(options.checks ? { checks: options.checks } : {}) };
@@ -391,12 +456,12 @@ async function withJournal<T>(
       }
     }
     if (Date.now() > deadline) {
-      const pid = taken.busy.pid;
+      const holder = journalLockHolderOf(taken.busy, self);
       throw new MuteRefusedError({
         code: 'MUTE_FAILED',
         message:
-          `The journal of the mute leases in ${dirname(file)} stayed held by process ${pid} ` +
-          `for a minute, by another run that mutes the same org as the same user: ${heldOff(pid)}`,
+          `The journal of the mute leases in ${dirname(file)} stayed locked for a minute by ` +
+          `process ${holder.pid} on ${holder.host}: ${heldOff(holder)}`,
       });
     }
     await sleep(JOURNAL_RETRY_MS);
@@ -440,16 +505,20 @@ interface Released {
   passed: Created[];
   /** Left in the org: the delete was refused. */
   left: Array<Created & { why: string }>;
+  /** Of `removed`, those found by user and set, not journaled by id: a dead process was assigning them. */
+  found: Created[];
 }
 
 /**
  * Release `lease` in `journal`: each assignment it created another live lease
  * needs passes to that lease; every other is deleted. A set it was assigning
- * when its process died is looked up, and taken as its own when the user
- * holds it and no other lease created it: the run read the user without it
- * before it journaled the set. The lease goes from the journal, unless an
- * assignment could not be deleted: it stays, past its end, for the next run
- * to try again.
+ * when its process died is looked up by user and set, and taken as its own
+ * when the user holds it and no other lease created it: the run read the
+ * user without it before it journaled the set. No field of an assignment read
+ * so far tells the run's from one an admin made that user since, which goes
+ * with it: what is taken so is said (`found`). The lease goes from the
+ * journal, unless an assignment could not be deleted: it stays, past its
+ * end, for the next run to try again.
  */
 async function releaseLease(
   org: MuteOrg,
@@ -459,6 +528,7 @@ async function releaseLease(
 ): Promise<Released> {
   const others = journal.leases.filter((other) => other !== lease && live(other));
   const created = [...lease.created];
+  const foundIds = new Set<string>();
   if (lease.assigning.length > 0) {
     const ownedElsewhere = new Set(
       journal.leases.flatMap((other) => (other === lease ? [] : other.created.map((c) => c.id))),
@@ -482,9 +552,10 @@ async function releaseLease(
         permissionSetId: setId,
         permissionSet: typeof set?.Name === 'string' ? set.Name : setId,
       });
+      foundIds.add(id);
     }
   }
-  const released: Released = { removed: [], passed: [], left: [] };
+  const released: Released = { removed: [], passed: [], left: [], found: [] };
   for (const assignment of created) {
     const taker = others.find((other) => other.needs.includes(assignment.permissionSetId));
     if (taker) {
@@ -496,6 +567,7 @@ async function releaseLease(
     const code = answer.errors?.[0]?.statusCode ?? answer.errors?.[0]?.errorCode;
     if (answer.success || (code !== undefined && GONE.has(code))) {
       released.removed.push(assignment);
+      if (foundIds.has(assignment.id)) released.found.push(assignment);
     } else {
       released.left.push({
         ...assignment,
@@ -522,20 +594,23 @@ async function releaseLease(
   return released;
 }
 
+/** The permission sets of `list`, by name. */
+function setNames(list: readonly Created[]): string[] {
+  return list.map((c) => c.permissionSet);
+}
+
 /**
- * What a lease refused as it was taken did with what it had assigned, in
- * words: taken back, kept for another run that needs it, or left in the org
- * with the org's reason; nothing when it had assigned nothing.
+ * What a release did with what its lease held, in words: taken back, kept
+ * for another run that needs it, or left in the org with the org's reason;
+ * none when it held nothing.
  *
  * @param journaled - Whether the journal kept the release. One that could not
- *   be written still names the lease as the last write left it, alive for
- *   another process while this one runs, and a folder turned read only keeps
- *   the journal's lock too: a run of this process releases it once the
- *   journal can be written, one of another process only once this one ended.
- * @param pid - This process, as the words name it then.
+ *   be written keeps nothing of it: what was to pass to another run's lease
+ *   stays this one's, and what the org kept waits for the lease's release
+ *   ({@link stillNamedWords}).
  */
-function takenBackWords(released: Released, journaled: boolean, pid: number): string {
-  const names = (list: readonly Created[]): string => list.map((c) => c.permissionSet).join(', ');
+function takenBackWords(released: Released, journaled: boolean): string[] {
+  const names = (list: readonly Created[]): string => setNames(list).join(', ');
   const words: string[] = [];
   if (released.removed.length > 0) {
     words.push(`What this run had assigned was taken back: ${names(released.removed)}.`);
@@ -552,32 +627,72 @@ function takenBackWords(released: Released, journaled: boolean, pid: number): st
         `taken back${journaled ? ': the next run that mutes this org takes it back' : ''}.`,
     );
   }
-  // Run from a window, the lease of a refused run stayed alive for a run of
-  // the command line, which left what the org kept where it was: the words
-  // said the next run took it back.
-  if (!journaled && (released.passed.length > 0 || released.left.length > 0)) {
-    words.push(
-      "The journal still names this run's lease: once the journal can be written, the next " +
-        'run that mutes this org from this process releases the lease, and one from another ' +
-        `process only once process ${pid} has ended.`,
-    );
-  }
-  return words.length > 0 ? words.join(' ') : 'Nothing was assigned.';
+  return words;
 }
 
-/** Release every lease of `journal` that no longer holds: past its end, or its process gone. */
+/** What the line of a journal not written holds for the runs of other processes: the sets its lease needs, until its end. */
+interface StillHeld {
+  sets: string[];
+  until: string;
+}
+
+/**
+ * Who releases a lease the journal still names, its write having failed, in
+ * words. A folder turned read only keeps the journal's lock too, which holds
+ * for the runs of other processes while this one runs: a run of this process
+ * releases the lease once the journal can be written, one of another process
+ * at the latest once this one ended. Run from a window, the lease of a
+ * refused run stayed alive for a run of the command line, which left what
+ * the org kept where it was: the words said the next run took it back.
+ *
+ * @param pid - This process, as the words name it.
+ * @param held - What the line still holds for the runs of other processes,
+ *   when it holds: one of a lease whose sets were all assigned, before its
+ *   end ({@link isLive}).
+ */
+function stillNamedWords(pid: number, held?: StillHeld): string {
+  return (
+    "The journal still names this run's lease: once the journal can be written, the next " +
+    'run that mutes this org from this process releases the lease, and one from another ' +
+    `process at the latest once process ${pid} has ended.` +
+    (held
+      ? ` Until ${held.until}, a run of another process that ends leaves what it holds of ` +
+        `${held.sets.join(', ')} assigned for that lease.`
+      : '')
+  );
+}
+
+/**
+ * What a run took back as it took its lease, of a run whose process ended as
+ * it assigned them, after the sets' names: found by user and set, an admin's
+ * assignment of the same set to the same user would have gone with them.
+ */
+function foundWords(names: readonly string[]): string {
+  const it = names.length === 1 ? 'it' : 'them';
+  return (
+    `found assigned to the user the run writes as for a run whose process ended as it ` +
+    `assigned ${it}; found by user and set, not by id: had an admin assigned ${it} to that ` +
+    `user since, theirs went with ${it}`
+  );
+}
+
+/**
+ * Release every lease of `journal` that no longer holds: past its end, its
+ * process gone, or its sets never all assigned.
+ *
+ * @returns What was taken back as found by user and set, not by id.
+ */
 async function releaseStale(
   org: MuteOrg,
   journal: Journal,
   live: (lease: Lease) => boolean,
-): Promise<number> {
-  let count = 0;
+): Promise<Created[]> {
+  const found: Created[] = [];
   for (const lease of [...journal.leases]) {
     if (live(lease)) continue;
-    await releaseLease(org, journal, lease, live);
-    count += 1;
+    found.push(...(await releaseLease(org, journal, lease, live)).found);
   }
-  return count;
+  return found;
 }
 
 // ─── Taking a lease ──────────────────────────────────────────────────────────
@@ -863,9 +978,11 @@ export async function acquireMute(
   const key = heldKey(file, runId, acquiredAt);
   /** Whether the lease is journaled, and its sets may be assigned from here on. */
   let journaled = false;
+  /** The needed sets by name, as what a journal not written still holds says them. */
+  const neededNames = needs.map((id) => nameOf.get(id)!);
 
   const taken = await withJournal(file, ids, options, async (journal, save) => {
-    await releaseStale(org, journal, live);
+    const found = setNames(await releaseStale(org, journal, live));
     const held = await assignmentsOf(org, ids.userId, needs);
     const missing = needs.filter((id) => !held.has(id));
     const lease: Lease = {
@@ -885,10 +1002,15 @@ export async function acquireMute(
     // leaves a lease the next run releases.
     await save(journal);
     journaled = true;
+    /** The sets the journal, as last written, says the lease is assigning. */
+    let savedAssigning = [...lease.assigning];
     /** The journal written, or why it could not be. */
     const saved = (): Promise<string | undefined> =>
       save(journal).then(
-        () => undefined,
+        () => {
+          savedAssigning = [...lease.assigning];
+          return undefined;
+        },
         (err: unknown) => extractErrorMessage(err),
       );
     const undo = async (message: string): Promise<never> => {
@@ -901,11 +1023,26 @@ export async function acquireMute(
       const released = await releaseLease(org, journal, lease, live);
       heldHere.delete(key);
       const unsaved = await saved();
+      // The line left of a lease that was still assigning holds nothing for
+      // anyone ({@link isLive}); one whose sets were all assigned holds them,
+      // for the runs of other processes, until its end.
+      const stillHeld =
+        unsaved !== undefined && savedAssigning.length === 0
+          ? { sets: neededNames, until: lease.endsAt }
+          : undefined;
+      const words = takenBackWords(released, unsaved === undefined);
       return failed(
         [
           message,
           ...(unsaved !== undefined && unsaved !== message ? [unsaved] : []),
-          takenBackWords(released, unsaved === undefined, self.pid),
+          ...(words.length > 0 ? words : ['Nothing was assigned.']),
+          ...(unsaved !== undefined &&
+          (released.passed.length > 0 || released.left.length > 0 || stillHeld)
+            ? [stillNamedWords(self.pid, stillHeld)]
+            : []),
+          ...(found.length > 0
+            ? [`Taking its lease, the run took back ${found.join(', ')}, ${foundWords(found)}.`]
+            : []),
         ].join(' '),
       );
     };
@@ -950,6 +1087,7 @@ export async function acquireMute(
       endsAt: lease.endsAt,
       assigned: lease.created.map((c) => c.permissionSet),
       held: needs.filter((id) => !created.has(id)).map((id) => nameOf.get(id)!),
+      found,
     };
   }).catch((err: unknown) => {
     // What fails once a set is assigned is taken back and refused above:
@@ -966,6 +1104,7 @@ export async function acquireMute(
     assigned: taken.assigned,
     held: taken.held,
     leaseEndsAt: taken.endsAt,
+    ...(taken.found.length > 0 ? { tookBackOfEnded: taken.found } : {}),
   };
   const renewEvery = options.renewEveryMs ?? MUTE_RENEW_EVERY_MS;
   // While the run goes on, its lease's end is pushed back: a run of whole
@@ -978,9 +1117,12 @@ export async function acquireMute(
               (l) => l.runId === runId && l.acquiredAt === acquiredAt,
             );
             if (!lease || !heldHere.has(key)) return;
-            lease.endsAt = new Date(now() + minutes * 60_000).toISOString();
-            outcome.leaseEndsAt = lease.endsAt;
+            const endsAt = new Date(now() + minutes * 60_000).toISOString();
+            lease.endsAt = endsAt;
             await save(journal);
+            // Said once journaled: a renewal the journal did not keep leaves
+            // the lease to end when the last one it kept says.
+            outcome.leaseEndsAt = endsAt;
           }).catch(() => undefined);
         }, renewEvery)
       : undefined;
@@ -992,8 +1134,10 @@ export async function acquireMute(
     release: () => {
       released ??= (async (): Promise<MutedAutomation> => {
         if (renewal) clearInterval(renewal);
+        /** What the release did of the lease in the org, once it ran: the journal may not have kept it. */
+        const ran: { done?: Released } = {};
         try {
-          const done = await withJournal(
+          await withJournal(
             file,
             ids,
             options,
@@ -1002,19 +1146,27 @@ export async function acquireMute(
                 (l) => l.runId === runId && l.acquiredAt === acquiredAt,
               );
               heldHere.delete(key);
-              if (!lease) return undefined;
-              const result = await releaseLease(org, journal, lease, live);
+              if (!lease) return;
+              ran.done = await releaseLease(org, journal, lease, live);
               await save(journal);
-              return result;
             },
-            () => 'nothing was taken back',
+            (holder) =>
+              `nothing was taken back. ${lockHoldsWords(holder)} Should none of its runs be ` +
+              `muting this org, end process ${holder.pid}`,
           );
-          const left = done?.left ?? [];
+          const left = ran.done?.left ?? [];
+          // What was passed on is said apart from what was taken back: the
+          // result said "taken back" of sets left assigned for another run.
           return {
             ...outcome,
             released: left.length === 0,
+            takenBack: setNames(ran.done?.removed ?? []),
+            ...(ran.done && ran.done.passed.length > 0
+              ? { passed: setNames(ran.done.passed) }
+              : {}),
             ...(left.length > 0
               ? {
+                  notTakenBack: setNames(left),
                   reason:
                     `${left.map((l) => `${l.permissionSet} (${l.why})`).join(', ')} could not be ` +
                     `taken back: the lease ends at ${outcome.leaseEndsAt}, and the next run that ` +
@@ -1024,9 +1176,33 @@ export async function acquireMute(
           };
         } catch (err: unknown) {
           heldHere.delete(key);
+          const done = ran.done;
+          if (done !== undefined) {
+            // The release ran in the org, and the journal alone could not be
+            // written: the release said "the assignments could not be taken
+            // back" of sets the org had taken back. What was to pass to
+            // another run's lease stays this one's, as the journal last kept it.
+            const until = outcome.leaseEndsAt;
+            const stillHeld =
+              until !== undefined && Date.parse(until) > now()
+                ? { sets: neededNames, until }
+                : undefined;
+            return {
+              ...outcome,
+              released: false,
+              takenBack: setNames(done.removed),
+              notTakenBack: setNames([...done.passed, ...done.left]),
+              reason: [
+                extractErrorMessage(err),
+                ...takenBackWords({ ...done, removed: [] }, false),
+                stillNamedWords(self.pid, stillHeld),
+              ].join(' '),
+            };
+          }
           return {
             ...outcome,
             released: false,
+            takenBack: [],
             reason:
               `the assignments could not be taken back (${extractErrorMessage(err)}): the lease ` +
               `ends at ${outcome.leaseEndsAt}, and the next run that mutes this org releases it`,
@@ -1145,7 +1321,7 @@ export function mutedOfError(err: unknown): MutedAutomation | undefined {
 /**
  * What a command line says of a run's mute: what is or would be assigned,
  * what that silences, what still runs and why, and, once the run ended,
- * whether the assignments were taken back.
+ * what was taken back, what stays assigned for another run, and what is left.
  */
 export function muteLines(muted: MutedAutomation, target: string): string[] {
   const lines: string[] = [];
@@ -1163,6 +1339,12 @@ export function muteLines(muted: MutedAutomation, target: string): string[] {
         `to the user the run writes as in ${target}, for the run alone`,
     );
   }
+  if (muted.tookBackOfEnded && muted.tookBackOfEnded.length > 0) {
+    lines.push(
+      `  taken back before the run: ${muted.tookBackOfEnded.join(', ')}, ` +
+        foundWords(muted.tookBackOfEnded),
+    );
+  }
   for (const entry of muted.silenced) {
     lines.push(`  silenced: ${mutedEntryWords(entry)} (bypass ${entry.permission})`);
   }
@@ -1174,10 +1356,24 @@ export function muteLines(muted: MutedAutomation, target: string): string[] {
   }
   // A sentence of its own: what of the sets' grants or the rules was not read.
   for (const unread of muted.liftsUnread ?? []) lines.push(`  ${liftsUnreadWords(unread)}`);
-  if (muted.released === true && muted.assigned.length > 0) {
-    lines.push(`  taken back: ${muted.assigned.join(', ')}, as the run ended`);
-  } else if (muted.released === false) {
-    lines.push(`  not taken back: ${muted.reason ?? 'the assignments stay until the lease ends'}`);
+  // A result kept before it said what it took back took back what it assigned, when released.
+  const takenBack = muted.takenBack ?? (muted.released === true ? muted.assigned : []);
+  if (takenBack.length > 0) {
+    lines.push(`  taken back: ${takenBack.join(', ')}, as the run ended`);
+  }
+  if (muted.passed && muted.passed.length > 0) {
+    lines.push(
+      `  stays assigned: ${muted.passed.join(', ')}, for another run that mutes ${target} as ` +
+        `the same user, which takes ${muted.passed.length === 1 ? 'it' : 'them'} back as it ends`,
+    );
+  }
+  if (muted.released === false) {
+    // Nothing of the run's left in the org: what is left is the journal's line of its lease.
+    const leaseOnly = muted.notTakenBack !== undefined && muted.notTakenBack.length === 0;
+    lines.push(
+      `  ${leaseOnly ? 'lease not released' : 'not taken back'}: ` +
+        `${muted.reason ?? 'the assignments stay until the lease ends'}`,
+    );
   }
   return lines;
 }

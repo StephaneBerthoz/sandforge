@@ -19,8 +19,9 @@ export interface MutedAutomationResultProps {
 /**
  * What a run asked to mute the target's automation did of it, in its
  * results: the permission sets it assigned to the user it wrote as, for the
- * run alone, those that user held already, whether they were taken back as
- * it ended — or when the lease that holds what is left ends —, what they
+ * run alone, those that user held already, what was taken back as it ended,
+ * what stays assigned for another run that needs it, and when the lease that
+ * holds what is left ends — or that the journal still names it —, what they
  * silenced and what still ran, and why. A run that found nothing to mute
  * says so, and went as without the option; a simulation says what a real
  * run would assign. Nothing for a run that was not asked to mute.
@@ -55,6 +56,21 @@ export const MutedAutomationResult: React.FC<MutedAutomationResultProps> = ({
     });
   }
   const leaseEnds = formatStoredDate(muted.leaseEndsAt, 'yyyy-MM-dd HH:mm');
+  // What another run kept for this one and this one took back as it ended is
+  // no longer held: the result said "neither assigned nor taken back" of it.
+  const takenBack = muted.takenBack;
+  const heldKept = muted.held.filter((set) => !takenBack?.includes(set));
+  // A result kept before it said what it took back took back what it assigned, when released.
+  const tookBackSaid =
+    takenBack !== undefined
+      ? takenBack.length > 0
+        ? t('automationMute.result.takenBack', { sets: list(takenBack) })
+        : undefined
+      : muted.released === true && muted.assigned.length > 0
+        ? t('automationMute.result.released')
+        : undefined;
+  // Nothing of the run's left in the org: what is left is the journal's line of its lease.
+  const leaseOnly = muted.notTakenBack !== undefined && muted.notTakenBack.length === 0;
   return (
     <section
       aria-labelledby={headingId}
@@ -66,19 +82,36 @@ export const MutedAutomationResult: React.FC<MutedAutomationResultProps> = ({
         {t('automationMute.result.title')}
       </h4>
       <p data-testid={`${testId}-said`}>{said}</p>
-      {muted.state === 'muted' && muted.assigned.length > 0 && muted.held.length > 0 && (
-        <p data-testid={`${testId}-held`}>
-          {t('automationMute.result.held', { sets: list(muted.held) })}
+      {muted.tookBackOfEnded && muted.tookBackOfEnded.length > 0 && (
+        <p data-testid={`${testId}-took-back-of-ended`} className="text-status-warning">
+          {t('automationMute.result.tookBackOfEnded', {
+            count: muted.tookBackOfEnded.length,
+            sets: list(muted.tookBackOfEnded),
+          })}
         </p>
       )}
-      {muted.released === true && muted.assigned.length > 0 && (
-        <p data-testid={`${testId}-released`}>{t('automationMute.result.released')}</p>
+      {muted.state === 'muted' && muted.assigned.length > 0 && heldKept.length > 0 && (
+        <p data-testid={`${testId}-held`}>
+          {t('automationMute.result.held', { sets: list(heldKept) })}
+        </p>
+      )}
+      {tookBackSaid !== undefined && <p data-testid={`${testId}-released`}>{tookBackSaid}</p>}
+      {muted.passed && muted.passed.length > 0 && (
+        <p data-testid={`${testId}-passed`}>
+          {t('automationMute.result.passed', {
+            count: muted.passed.length,
+            sets: list(muted.passed),
+            org,
+          })}
+        </p>
       )}
       {muted.released === false && (
         <p data-testid={`${testId}-not-released`} className="text-status-warning">
-          {leaseEnds !== null
-            ? t('automationMute.result.notReleased', { org, date: leaseEnds })
-            : t('automationMute.result.notReleasedNoDate', { org })}
+          {leaseOnly
+            ? t('automationMute.result.journalUnwritten', { org })
+            : leaseEnds !== null
+              ? t('automationMute.result.notReleased', { org, date: leaseEnds })
+              : t('automationMute.result.notReleasedNoDate', { org })}
         </p>
       )}
       <MuteEntryList
