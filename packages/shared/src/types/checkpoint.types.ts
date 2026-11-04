@@ -216,6 +216,8 @@ export type CheckpointLeftOutCode =
   | 'heldWithFiles'
   /** Users, permissions and the rest of setup, and the org's logs and jobs. */
   | 'setup'
+  /** Records Salesforce alone creates: approvals, Einstein insights, invoices and the like. */
+  | 'platformCreated'
   /** Metadata, which the Tooling API serves: deployed, not kept as data. */
   | 'metadata'
   /** The user may not query, create, edit and delete its records. */

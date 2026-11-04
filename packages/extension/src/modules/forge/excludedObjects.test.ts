@@ -59,6 +59,26 @@ describe('isExcludedFromCopy', () => {
     }
   });
 
+  it('excludes every event store by its name, not only the five once named one by one', () => {
+    // An org's global describe lists nine event stores, none createable,
+    // editable or deletable: a checkpoint of picked objects said the user it
+    // connects as may not write a session hijacking store.
+    for (const name of [
+      'SessionHijackingEventStore',
+      'BulkApiResultEventStore',
+      'FileEventStore',
+      'IdentityProviderEventStore',
+      'PermissionSetEventStore',
+      'sessionhijackingeventstore',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+    // An object of the org's own so named is no store, nor is an event.
+    expect(isNeverCopiedWhenPicked('Event_Store__c')).toBe(false);
+    expect(isNeverCopiedWhenPicked('Event')).toBe(false);
+  });
+
   it('excludes what the platform alone creates and the setup it keeps as records, which no user can be granted Create on', () => {
     // An administrator's describe says none of them createable; a deep clone
     // said a calendar and an entitlement process BLOCKING, and asked the

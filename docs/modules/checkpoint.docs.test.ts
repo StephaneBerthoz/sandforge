@@ -431,6 +431,8 @@ describe('docs/modules/checkpoint.md', () => {
       files: 'the documents of the Documents tab, shared content kept in folders',
       heldWithFiles: "a file's versions and links, listed there as held with their file",
       setup: 'users, permissions and the rest of setup',
+      platformCreated:
+        'the records Salesforce alone creates, such as approvals, Einstein insights, Data.com clean info and invoices',
       metadata: 'metadata, which is deployed rather than kept as data',
       notWritable: 'an object the user may not query, create, edit and delete',
       notDescribed: 'an object the org would not describe',

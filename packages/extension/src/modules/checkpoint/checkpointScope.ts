@@ -5,8 +5,9 @@
  * "Everything people work in" is every object of the org the user may query,
  * create, edit and delete, empty ones included — what is created there later
  * is caught too — less what is no one's data: users, permissions and the rest
- * of setup, which every copy leaves out too, and what the org's own describes
- * say is metadata. Then less what a rewind cannot put back as it was:
+ * of setup, and the records Salesforce alone creates, approvals and invoices
+ * among them, which every copy leaves out too, and what the org's own
+ * describes say is metadata. Then less what a rewind cannot put back as it was:
  *
  * - Chatter posts, comments and their attachments: Salesforce undeletes a
  *   post only with its parent, and a post's history is the audit trail. Their
@@ -145,6 +146,34 @@ const CHATTER_OBJECTS: ReadonlySet<string> = new Set(['feeditem', 'feedcomment',
 const HISTORY_OBJECTS: ReadonlySet<string> = new Set(['casehistory2']);
 
 /**
+ * Records Salesforce alone creates as a feature runs on people's records:
+ * approvals their submissions and work items, Einstein its insights,
+ * Data.com Clean its clean info, matching its information, invoicing its
+ * invoices and credit memos. An administrator's describe says none of them
+ * createable, though some are editable and an approval's submission is
+ * deletable. Every copy leaves them out by name, and a checkpoint said them
+ * setup, as users and permissions are; before, that the user it connects as
+ * may not write them, a permission no user can be granted.
+ */
+const PLATFORM_CREATED_OBJECTS: ReadonlySet<string> = new Set(
+  [
+    'AccountCleanInfo',
+    'ContactCleanInfo',
+    'LeadCleanInfo',
+    'ApprovalSubmission',
+    'ApprovalSubmissionDetail',
+    'ApprovalWorkItem',
+    'AIRecordInsight',
+    'AIInsightValue',
+    'MatchingInformation',
+    'Invoice',
+    'InvoiceLine',
+    'CreditMemo',
+    'CreditMemoLine',
+  ].map((name) => name.toLowerCase()),
+);
+
+/**
  * A file's versions and its links to records: held with the file, never as
  * objects of their own. Salesforce neither deletes nor brings back a version
  * on its own (`deletable` and `undeletable` false), and refuses to read the
@@ -224,10 +253,11 @@ function leftOutReason(
   if (name === ATTACHMENT_OBJECT.toLowerCase())
     return writableData(object) ? undefined : 'notWritable';
   if (isFileBodiedObject(object.name)) return 'files';
+  if (PLATFORM_CREATED_OBJECTS.has(name)) return 'platformCreated';
   // Users and permissions, and the logs and jobs the platform alone writes:
-  // an opportunity's delete logs, the event stores of Threat Detection. No
-  // user creates or deletes those, so none is left out for a permission the
-  // user lacks, as their describes alone would say.
+  // an opportunity's delete logs, every event store. No user creates or
+  // deletes those, so none is left out for a permission the user lacks, as
+  // their describes alone would say.
   if (isNeverCopiedWhenPicked(object.name)) return 'setup';
   if (mode === 'everything' && object.layoutable === false && !WORKED_WITHOUT_LAYOUT.has(name)) {
     return 'setup';

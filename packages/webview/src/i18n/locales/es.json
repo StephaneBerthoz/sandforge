@@ -7339,6 +7339,7 @@
       "files": "Los documentos de la ficha Documentos se dejan fuera: son contenido compartido guardado en carpetas, como la configuración.",
       "heldWithFiles": "Se guarda con su archivo (ContentDocument): Salesforce no elimina ni recupera por sí sola la versión de un archivo, y lee los vínculos de un archivo a través de los registros a los que lo unen.",
       "setup": "Los usuarios, los permisos y la configuración se dejan fuera, al igual que los logs y los jobs propios de la org.",
+      "platformCreated": "Se deja fuera: solo Salesforce crea sus registros, como las aprobaciones, los insights de Einstein, la información de limpieza de Data.com y las facturas, y ningún permiso deja que un usuario cree uno.",
       "metadata": "Se deja fuera: son metadatos, que un punto de control no guarda.",
       "notWritable": "Se deja fuera: el usuario con el que se conecta SandForge no puede crear, editar y eliminar sus registros.",
       "notDescribed": "Se deja fuera: la org no quiso describirlo.",

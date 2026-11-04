@@ -7339,6 +7339,7 @@
       "files": "Documentos da guia Documentos são deixados de fora: são conteúdo compartilhado guardado em pastas, como a configuração.",
       "heldWithFiles": "Guardado com seu arquivo (ContentDocument): o Salesforce não exclui nem recupera sozinho a versão de um arquivo, e lê os vínculos de um arquivo pelos registros a que o ligam.",
       "setup": "Usuários, permissões e configuração são deixados de fora, assim como os logs e os jobs da própria org.",
+      "platformCreated": "Deixado de fora: só o Salesforce cria seus registros, como aprovações, insights do Einstein, informações de limpeza do Data.com e faturas, e nenhuma permissão deixa um usuário criar um.",
       "metadata": "Deixado de fora: são metadados, que um ponto de verificação não guarda.",
       "notWritable": "Deixado de fora: o usuário com que o SandForge se conecta não pode criar, editar e excluir seus registros.",
       "notDescribed": "Deixado de fora: a org não quis descrevê-lo.",

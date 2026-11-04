@@ -171,4 +171,19 @@ describe('leftOutWords', () => {
         "les journaux et les jobs propres à l'org.",
     );
   });
+
+  it('says an invoice or an approval left out as what Salesforce alone creates, which no permission lets a user create, rather than setup', async () => {
+    const invoice = { objectApiName: 'Invoice', code: 'platformCreated' as const, reason: '' };
+
+    expect(leftOutWords(t, invoice)).toBe(
+      'Left out: Salesforce alone creates its records, such as approvals, Einstein insights, ' +
+        'Data.com clean info and invoices, and no permission lets a user create one.',
+    );
+    await i18n.changeLanguage('fr');
+    expect(leftOutWords(t, { ...invoice, objectApiName: 'ApprovalSubmission' })).toBe(
+      'Laissé de côté : seule Salesforce crée ses enregistrements, comme les approbations, les ' +
+        'insights Einstein, les informations de nettoyage Data.com et les factures, et aucune ' +
+        "autorisation ne permet à un utilisateur d'en créer un.",
+    );
+  });
 });

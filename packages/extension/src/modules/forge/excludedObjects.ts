@@ -100,16 +100,10 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   // target org" skipped as a blocking gap, and Apex refuses them too ("DML
   // operation Delete not allowed on OpportunityRelatedDeleteLog"). The
   // CaseHistory2 rows of a deep clone's cases were said blocking the same
-  // way, the target's admin asked to grant Create on them. The event stores
-  // are where Threat Detection keeps what it saw, a feed item's parent among
-  // them.
+  // way, the target's admin asked to grant Create on them. The event stores,
+  // a feed item's parent among them, are left out by their suffix below.
   'OpportunityRelatedDeleteLog',
   'CaseHistory2',
-  'ApiAnomalyEventStore',
-  'CredentialStuffingEventStore',
-  'GuestUserAnomalyEventStore',
-  'LoginAnomalyEventStore',
-  'ReportAnomalyEventStore',
   // What the platform alone creates, or setup it keeps as records: the global
   // describe of a scratch org, read as an administrator holding Modify All
   // Data, says none of them createable. A calendar and an entitlement
@@ -147,7 +141,10 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set(
   EXCLUDED_OBJECT_NAMES.map((name) => name.toLowerCase()),
 );
 
-/** History, feed, sharing and change-event variants of any object, in lower case. */
+/**
+ * History, feed, sharing and change-event variants of any object, and the
+ * event stores, in lower case.
+ */
 const EXCLUDED_SUFFIXES: readonly string[] = [
   'History',
   'Feed',
@@ -155,6 +152,12 @@ const EXCLUDED_SUFFIXES: readonly string[] = [
   'ChangeEvent',
   '__hd',
   '__Tag',
+  // Where Threat Detection and Event Monitoring keep what they saw, which the
+  // platform alone writes: an org's global describe lists nine, none
+  // createable, editable or deletable. Five were named one by one, and a
+  // checkpoint of picked objects said the others, a session hijacking store
+  // among them, left out for a permission the user lacks.
+  'EventStore',
 ].map((suffix) => suffix.toLowerCase());
 
 /**

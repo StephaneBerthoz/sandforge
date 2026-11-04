@@ -7339,6 +7339,7 @@
       "files": "Dokumente der Registerkarte Dokumente werden ausgelassen: Sie sind gemeinsam genutzte Inhalte in Ordnern, wie das Setup.",
       "heldWithFiles": "Mit seiner Datei gehalten (ContentDocument): Salesforce löscht die Version einer Datei nicht allein, stellt sie nicht allein wieder her und liest die Verknüpfungen einer Datei über die Datensätze, an die sie sie binden.",
       "setup": "Benutzer, Berechtigungen und Setup werden ausgelassen, ebenso die eigenen Protokolle und Jobs der Org.",
+      "platformCreated": "Ausgelassen: Nur Salesforce legt seine Datensätze an, etwa Genehmigungen, Einstein-Insights, Data.com-Clean-Informationen und Rechnungen, und keine Berechtigung erlaubt einem Benutzer, einen anzulegen.",
       "metadata": "Ausgelassen: Es sind Metadaten, die ein Prüfpunkt nicht hält.",
       "notWritable": "Ausgelassen: Der Benutzer, als der SandForge sich verbindet, darf seine Datensätze nicht anlegen, bearbeiten und löschen.",
       "notDescribed": "Ausgelassen: Die Org wollte es nicht beschreiben.",

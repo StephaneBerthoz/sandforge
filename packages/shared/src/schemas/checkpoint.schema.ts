@@ -113,6 +113,7 @@ export const checkpointLeftOutCodeSchema = z.enum([
   'files',
   'heldWithFiles',
   'setup',
+  'platformCreated',
   'metadata',
   'notWritable',
   'notDescribed',

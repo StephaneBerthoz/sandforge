@@ -29,6 +29,7 @@ const LEFT_OUT_KEYS: Readonly<Record<CheckpointLeftOutCode, string>> = {
   files: 'checkpointNotes.leftOut.files',
   heldWithFiles: 'checkpointNotes.leftOut.heldWithFiles',
   setup: 'checkpointNotes.leftOut.setup',
+  platformCreated: 'checkpointNotes.leftOut.platformCreated',
   metadata: 'checkpointNotes.leftOut.metadata',
   notWritable: 'checkpointNotes.leftOut.notWritable',
   notDescribed: 'checkpointNotes.leftOut.notDescribed',

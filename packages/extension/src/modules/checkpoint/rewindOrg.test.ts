@@ -61,6 +61,7 @@ import {
   rewindOrgOf,
   type RewindOutcome,
 } from './rewindOrg.js';
+import { undoCheckpoint } from './undoCheckpoint.js';
 import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -998,6 +999,96 @@ describe('rewindOrg: what it refuses before it writes', () => {
       [1, 2, 3].map((n) => ({ Id: order(n), Status: 'Draft' })),
     );
     expect(liveIds(t.org, 'Order')).toEqual([]);
+  });
+
+  it('asks for and counts, as an undo sends back to the bin an order its rewind brought back activated, the one update that sets it back to Draft first: its give-back, before its removal finds it past Draft', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+        org.add('Order', { Id: order(1), Status: 'Activated', Description: 'Signed' });
+      },
+      new RewindTestOrg(),
+      [...PICKED, 'Order'],
+    );
+    // Activated at the checkpoint, set back to Draft since, the one way the
+    // org deletes an order, then deleted: the rewind brings it back and gives
+    // it back its status.
+    clock.now = SINCE;
+    t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+    t.org.trash('Order', order(1), COLLEAGUE);
+    const rewind = resultOf(await rewound(t, (await previewed(t)).previewId));
+    expect(t.org.all('Order').map(({ Id, Status }) => ({ Id, Status }))).toEqual([
+      { Id: order(1), Status: 'Activated' },
+    ]);
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    const undo = async (asked: { acceptAutomation: boolean }) => {
+      const read = await t.store.read(t.checkpoint.checkpointId);
+      if (!read?.checkpoint) throw new Error('the checkpoint is gone');
+      clock.now += 60_000;
+      t.org.ticking = true;
+      try {
+        return await undoCheckpoint(
+          {
+            org: t.org,
+            undelete: (ids) => t.org.undelete(ids),
+            store: t.store,
+            readAutomation: sending,
+          },
+          { ...request(t), checkpoint: read.checkpoint, rewindId: rewind.rewindId, ...asked },
+        );
+      } finally {
+        t.org.ticking = false;
+      }
+    };
+    const updatesBefore = t.org.updates.length;
+
+    // The flow on an order's update fires as the undo gives the order back
+    // its status from before the rewind: asked for, then counted.
+    expect(await undo({ acceptAutomation: false })).toMatchObject({
+      undone: false,
+      refusal: { code: 'AUTOMATION' },
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    expect(await undo({ acceptAutomation: true })).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This undo would make DEV-ED send about 1 single email/,
+        ) as unknown,
+      },
+    });
+    expect(t.org.updates).toHaveLength(updatesBefore);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const outcome = await undo({ acceptAutomation: true });
+    expect(outcome).toMatchObject({ undone: true, result: { status: 'success' } });
+    // One update only: the give-back sets it back to Draft, and the removal
+    // that follows finds no order past Draft to set back again.
+    expect(t.org.updates.slice(updatesBefore).flatMap(({ records }) => records)).toEqual([
+      { Id: order(1), Status: 'Draft' },
+    ]);
+    expect(t.org.inBin('Order').map(({ Id }) => Id)).toEqual([order(1)]);
   });
 
   it('refuses a rewind that would take more requests than the org has left today', async () => {

@@ -7339,6 +7339,7 @@
       "files": "Les documents de l'onglet Documents sont laissés de côté : c'est du contenu partagé rangé dans des dossiers, comme la configuration.",
       "heldWithFiles": "Gardé avec son fichier (ContentDocument) : Salesforce ne supprime ni ne rétablit seule la version d'un fichier, et lit les liens d'un fichier à travers les enregistrements auxquels ils le rattachent.",
       "setup": "Les utilisateurs, les autorisations et la configuration sont laissés de côté, tout comme les journaux et les jobs propres à l'org.",
+      "platformCreated": "Laissé de côté : seule Salesforce crée ses enregistrements, comme les approbations, les insights Einstein, les informations de nettoyage Data.com et les factures, et aucune autorisation ne permet à un utilisateur d'en créer un.",
       "metadata": "Laissé de côté : ce sont des métadonnées, qu'un point de contrôle ne garde pas.",
       "notWritable": "Laissé de côté : l'utilisateur sous lequel SandForge se connecte ne peut pas créer, modifier et supprimer ses enregistrements.",
       "notDescribed": "Laissé de côté : l'org n'a pas voulu le décrire.",
