@@ -589,6 +589,76 @@ describe('sandforge-clone --remove', () => {
     });
   });
 
+  describe('a removal refused before its first delete', () => {
+    it.each([
+      ['a production org', 'PRODUCTION_TARGET', 'TGT is a production org'],
+      [
+        'what fires as it deletes',
+        'AUTOMATION_NOT_ACCEPTED',
+        'TGT runs automation on the records this removal deletes',
+      ],
+      [
+        'objects its user may not delete',
+        'UNDELETABLE_NOT_LEFT',
+        'The user SandForge connects as may not delete the records of Account (1 records) in ' +
+          'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
+          '--leave-undeletable to remove the rest and leave them.',
+      ],
+    ])(
+      'names the code of one refused for %s, on its line, with --json on stdout, and in the audit trail',
+      async (_why, code, words) => {
+        // Refused so, it said a sentence with no code on stderr and left
+        // stdout empty: a CI job could not tell one refusal from another.
+        if (code === 'PRODUCTION_TARGET') organization = { Id: TARGET_ORG, IsSandbox: false };
+        if (code === 'AUTOMATION_NOT_ACCEPTED') {
+          targetTriggers = [
+            {
+              Name: 'AccountCleanup',
+              NamespacePrefix: null,
+              EntityDefinition: { QualifiedApiName: 'Account' },
+              UsageBeforeDelete: true,
+              UsageAfterDelete: false,
+            },
+          ];
+        }
+        // As the removal asks before its first delete, once it has read the records.
+        vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) =>
+          code === 'UNDELETABLE_NOT_LEFT' &&
+          !(await options.onUndeletable?.([{ objectApiName: 'Account', records: 1 }]))
+            ? { ...TOOK_ALL, objects: [], stoppedForUndeletable: true }
+            : TOOK_ALL,
+        );
+        const summaryPath = file(runSummary());
+        const auditPath = join(dir, 'audit.json');
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--json', '--audit', auditPath]),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(`refused (${code}): ${words}`);
+        expect(JSON.parse(stdout.join(''))).toEqual({
+          tool: 'sandforge-clone',
+          action: 'remove',
+          summary: summaryPath,
+          target: 'TGT',
+          refused: { code, message: expect.stringContaining(words) as string },
+          elapsedMs: expect.any(Number) as number,
+        });
+        const kept = JSON.parse(readFileSync(auditPath, 'utf8')) as Record<
+          string,
+          { value: string }
+        >;
+        expect(JSON.parse(kept['audit:trail'].value)).toEqual([
+          expect.objectContaining({
+            action: 'cleanup_delete',
+            outcome: 'stopped',
+            details: { code },
+          }),
+        ]);
+      },
+    );
+  });
+
   describe('the removal', () => {
     it("removes what the run created as the wizard does: from the target, on the run's plan, by the target's dates of the run", async () => {
       expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBeUndefined();

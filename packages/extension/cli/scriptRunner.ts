@@ -144,6 +144,3 @@ export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
       });
     });
 }
-
-/** The runner of the scripts of this folder, on the platform this process runs on. */
-export const spawnCommand: CommandRunner = spawnRunner();

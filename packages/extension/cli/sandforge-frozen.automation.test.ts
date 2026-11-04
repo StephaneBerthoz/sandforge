@@ -1065,9 +1065,15 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
 
       expect(org.deletes).toEqual([]);
       expect(stderr).toContain('Case: after delete: flow "Case audit"');
-      const answer = JSON.parse(stdout) as { refusals: string[] };
+      const answer = JSON.parse(stdout) as { refusals: string[]; refusalCodes?: string[] };
       expect(answer.refusals).toHaveLength(1);
       expect(answer.refusals[0]).toContain('--accept-automation');
+      // Beside the words, the code the removal is refused with, as its line names it.
+      expect(answer.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+      expect(stderr).toContain(
+        'a removal would be refused (AUTOMATION_NOT_ACCEPTED): TGT runs automation on the ' +
+          'records this removal deletes',
+      );
     });
 
     it('reads with --sweep what fires on what the sweep would take, says the refusal it meets, and deletes nothing', async () => {
@@ -1126,10 +1132,16 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
 
       expect(await remove('--preview', '--mute-automation', '--json')).toBe(0);
 
-      const answer = JSON.parse(stdout) as { refusals?: string[]; mutedAutomation?: unknown };
+      const answer = JSON.parse(stdout) as {
+        refusals?: string[];
+        refusalCodes?: string[];
+        mutedAutomation?: unknown;
+      };
       expect(answer.refusals).toEqual([
         expect.stringContaining('the user the run writes as cannot assign permission sets'),
       ]);
+      // The code the removal below is refused with.
+      expect(answer.refusalCodes).toEqual(['MUTE_NO_RIGHT']);
       expect(answer).not.toHaveProperty('mutedAutomation');
       expect(permissions.assignments()).toEqual([]);
 

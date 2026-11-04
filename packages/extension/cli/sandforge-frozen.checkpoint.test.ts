@@ -426,23 +426,41 @@ describe('sandforge-frozen load --checkpoint-first', () => {
 
     expect(events).toEqual(['scope']);
     expect(answer().posted.some((message) => message.type === 'frozen:load:response')).toBe(false);
-    expect(errored.join('')).toContain(
+    // Under the code its dry run names: the sentence alone, with no code on
+    // its line nor in the JSON, a pipeline could not tell why.
+    const refused =
       'The checkpoint before the run was refused: Another run writes to TGT. Fix what refuses ' +
-        'it, or run without --checkpoint-first to write without one. Nothing was written.',
-    );
+      'it, or run without --checkpoint-first to write without one. Nothing was written.';
+    expect(errored.join('')).toContain(`refused (CHECKPOINT_REFUSED): ${refused}`);
+    expect(answer()).toMatchObject({
+      refused: { code: 'CHECKPOINT_REFUSED', message: refused },
+      refusals: [refused],
+      refusalCodes: ['CHECKPOINT_REFUSED'],
+      ended: true,
+    });
     expect(process.exitCode).toBe(1);
   });
 
-  it('sends no load when the take is refused, and exits 1', async () => {
+  it('sends no load when the take is refused, under the code its dry run names, and exits 1', async () => {
     const events: string[] = [];
     checkpointsOf(events, {
       take: async () => ({ taken: false, refusal: { code: 'DISK', message: 'Too little room.' } }),
     });
     loadWrites(events);
 
-    await main(load('--checkpoint-first'));
+    await main(load('--checkpoint-first', '--json'));
 
     expect(events).toEqual(['scope', 'take']);
+    expect(errored.join('')).toContain(
+      'refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused: Too little room.',
+    );
+    expect(answer()).toMatchObject({
+      refused: {
+        code: 'CHECKPOINT_REFUSED',
+        message: expect.stringMatching(/Nothing was written\.$/) as string,
+      },
+      ended: true,
+    });
     expect(process.exitCode).toBe(1);
   });
 

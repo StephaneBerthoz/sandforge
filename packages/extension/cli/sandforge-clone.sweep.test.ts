@@ -591,6 +591,32 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
         '--sweep --sweep-late takes those it lists as late',
     );
   });
+
+  it('names, relayed by a command that runs its removal without a sweep, the sweep this script’s own removal runs', () => {
+    // Relayed by the MCP server's run_remove, which takes no sweep: "--sweep
+    // takes them first" named a flag its reader could not give.
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+
+    const [held] = automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
+      sweep: false,
+    });
+
+    expect(held).toContain(
+      ": this script's own removal with --sweep takes them first (this script's own removal " +
+        'with --sweep-list shows them)',
+    );
+    expect(held).not.toMatch(/: --sweep takes/);
+
+    // An environment's destroy takes --sweep itself: its reader gives it there.
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    expect(
+      automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
+        sweep: false,
+      })[0],
+    ).toContain(
+      ": --sweep takes them first (this script's own removal with --sweep-list shows them)",
+    );
+  });
 });
 
 describe('sweepListingLines', () => {

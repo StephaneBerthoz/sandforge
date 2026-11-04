@@ -20,6 +20,7 @@ import {
   claimStdout,
   exitWords,
   serve,
+  toolRunner,
   type CommandRun,
   type CommandRunner,
   type Script,
@@ -1066,6 +1067,21 @@ describe("sandforge-mcp: a script's answer", () => {
     expect(textOf(result)).toContain('sandforge-checkpoint could not be started: spawn ENOENT');
     await c.close();
   });
+
+  it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
+    // run_remove takes no sweep: relayed as they were, "--sweep takes them
+    // first" and "(--sweep-untied takes them)" named flags of no tool.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    try {
+      const run = toolRunner({ scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts') });
+      const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-mcp' });
+    } finally {
+      process.execArgv = inherited;
+    }
+  }, 120_000);
 });
 
 describe('sandforge-mcp: the environment tools', () => {

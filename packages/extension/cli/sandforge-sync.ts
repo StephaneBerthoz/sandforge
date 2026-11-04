@@ -463,9 +463,13 @@ Remove what a run created:
                          run, leaving those with what they hang from; without
                          it the removal stops before its first delete and
                          names them                             (default: off)
-  --json                 print the removal as JSON; refused for its mute before
-                         its first write, "refused": {"code", "message"},
-                         the code its line names: refused (MUTE_NO_RIGHT): ...
+  --json                 print the removal as JSON; refused before its first
+                         write, "refused": {"code", "message"}, the code its
+                         line names: refused (CODE): ... — a production org
+                         (PRODUCTION_TARGET), what fires as it writes
+                         (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
+                         MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
+                         delete (UNDELETABLE_NOT_LEFT)
 
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
@@ -1246,20 +1250,29 @@ export function simulationLines(
       : []) {
       lines.push(`  ${line}`);
     }
-    // Each with the code a real run is refused with, as its own line names it.
+    // The code a real run is refused with, as its own line names it: the
+    // first its gate refuses it for, an object the target takes none of
+    // before the checkpoint, the storage and the requests. Named after them,
+    // a run of the command said refused for its checkpoint was refused for
+    // the object.
     if (simulation.writeCheck.verdict === 'refused') {
       const check = simulation.writeCheck;
       const [code, why]: [string, string] =
-        checkpointRefused !== undefined
-          ? [CHECKPOINT_REFUSED, checkpointRefused]
-          : check.storage.verdict === 'exceeds'
-            ? ['SYNC_STORAGE_EXCEEDED', 'the records do not fit']
-            : check.apiRequests?.verdict === 'exceeds'
-              ? [API_BUDGET_EXCEEDED, 'it takes more API requests than the target has left today']
-              : [
-                  'SYNC_TARGET_UNWRITABLE',
-                  'the target takes none of the records of an object it writes',
-                ];
+        (check.unwritable ?? []).length > 0
+          ? [
+              'SYNC_TARGET_UNWRITABLE',
+              'the target takes none of the records of an object it writes',
+            ]
+          : checkpointRefused !== undefined
+            ? [CHECKPOINT_REFUSED, checkpointRefused]
+            : check.storage.verdict === 'exceeds'
+              ? ['SYNC_STORAGE_EXCEEDED', 'the records do not fit']
+              : check.apiRequests?.verdict === 'exceeds'
+                ? [API_BUDGET_EXCEEDED, 'it takes more API requests than the target has left today']
+                : [
+                    CHECKPOINT_REFUSED,
+                    check.checkpointUnread ?? 'the checkpoint asked first is refused',
+                  ];
       lines.push(`    a run would be refused before it writes (${code}): ${why}`);
     } else if ((simulation.writeCheck.unwritable ?? []).length > 0) {
       lines.push(
@@ -2291,20 +2304,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
     const unwritable = simulation.writeCheck?.unwritable ?? [];
     // Each with the code a real run is refused with: the words alone, a
-    // pipeline could not tell one refusal from another.
+    // pipeline could not tell one refusal from another. In the order a real
+    // run meets them, its mute then its gate's: the first is the one it is
+    // refused with.
     const wouldBeRefused = [
       muteRefused,
-      checkpointRefused !== undefined
-        ? { code: CHECKPOINT_REFUSED, message: checkpointRefused }
-        : undefined,
-      gateRefused,
-      emailsRefused,
       unwritable.length > 0
         ? {
             code: 'SYNC_TARGET_UNWRITABLE',
             message: unwritableRefusal(unwritable, args.target, simulation.writeCheck?.heldBack),
           }
         : undefined,
+      checkpointRefused !== undefined
+        ? { code: CHECKPOINT_REFUSED, message: checkpointRefused }
+        : undefined,
+      gateRefused,
+      emailsRefused,
     ].filter((reason): reason is RunRefusal => reason !== undefined);
     const elapsed = Date.now() - t0;
     if (args.json) {
@@ -3311,10 +3326,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // A listing deletes nothing; a removal and a sweep delete, and are refused
   // before either reads anything outside a sandbox or a Developer Edition.
   const refusal = args.sweepList ? undefined : removalRefusal(args.target, org);
-  if (refusal) {
-    process.stderr.write(`${refusal}\n`);
-    process.exit(1);
-  }
+  if (refusal) refuseTheRemoval({ code: 'PRODUCTION_TARGET', message: refusal });
   if (
     subject.targetOrgId !== undefined &&
     subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
@@ -3553,12 +3565,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   );
   const written = [...new Set(Object.values(steps).flat())];
   /**
-   * End the removal refused for its mute before its first write, as a refused
-   * run ends: its line names its code, and with --json stdout carries it. It
-   * said a sentence on stderr and left stdout empty.
+   * End the removal refused before its first write, as a refused run ends:
+   * its line names its code, and with --json stdout carries it. Refused for a
+   * production org, what fires as it writes, its mute or objects its user may
+   * not delete, it said a sentence on stderr and left stdout empty.
    */
-  const endRefused = (refused: RunRefusal): never => {
-    releaseStop();
+  function refuseTheRemoval(refused: RunRefusal): never {
     process.stderr.write(`${refusedLine(refused)}\n`);
     if (args.json) {
       process.stdout.write(
@@ -3574,6 +3586,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
     }
     return process.exit(1);
+  }
+  /** {@link refuseTheRemoval}, once Ctrl-C is heard for the removal. */
+  const endRefused = (refused: RunRefusal): never => {
+    releaseStop();
+    return refuseTheRemoval(refused);
   };
   /** The removal's mute, asked with --mute-automation, held while it writes. */
   let removalMute: RunMute | undefined;
@@ -3605,9 +3622,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       mayMute: removalMute === undefined,
     });
     if (automationStop && !args.acceptAutomation) {
-      releaseStop();
-      process.stderr.write(`${automationStop}\n`);
-      process.exit(1);
+      endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
     }
   }
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
@@ -3632,6 +3647,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // Read before the first delete, as Seed's removal reads them: the items
   // that name them go with the records.
   const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
+  /** Why it stopped for objects its user may not delete, once it did. */
+  let undeletableRefused: RunRefusal | undefined;
   try {
     outcome = await removeSyncRun({
       run,
@@ -3639,7 +3656,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       includeChanged: args.includeChanged,
       ...sweepPartsOptions(parts),
       ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
-      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
+        undeletableRefused = refused;
+      }),
       beforeFirstWrite: takeTheLease,
       signal: stop.signal,
       // The configuration's store, told what the removal took: its
@@ -3688,8 +3707,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   if (mutedAutomation) outcome = { ...outcome, result: { ...outcome.result, mutedAutomation } };
   // Stopped before its first delete, for objects the user may not delete:
-  // named above, and nothing was removed.
-  if (outcome.stoppedForUndeletable) process.exit(1);
+  // nothing was removed.
+  if (outcome.stoppedForUndeletable) {
+    if (undeletableRefused) refuseTheRemoval(undeletableRefused);
+    process.exit(1);
+  }
   // Stopped, it makes no call to the org it can do without.
   const emptied = outcome.result.status === 'cancelled' ? {} : await duplicateSets.take();
   for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {

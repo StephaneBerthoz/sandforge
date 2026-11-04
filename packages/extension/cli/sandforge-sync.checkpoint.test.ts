@@ -696,6 +696,57 @@ describe('sandforge-sync --checkpoint-first', () => {
     ]);
   });
 
+  it('gives first with --dry-run what a real run is refused with first: an object the target takes none of, before its checkpoint', async () => {
+    // The contacts go by an upsert on Name, which the target matches none on;
+    // the accounts are written. Listed after the checkpoint, the code a
+    // pipeline read first was not the one the run was refused with.
+    orgs([]);
+    const contacts = [{ Id: '003000000000001AAA', Name: 'One' }];
+    // As the org's describe says it: Contact.Name is no key of an upsert.
+    const contact = {
+      ...DESCRIBED,
+      name: 'Contact',
+      fields: [
+        field('Id', 'id', { createable: false, updateable: false, idLookup: true }),
+        field('Name', 'string', { idLookup: false, externalId: false }),
+      ],
+    };
+    const conns = vi.mocked(makeConn).getMockImplementation();
+    vi.mocked(makeConn).mockImplementation((session) => {
+      const conn = conns?.(session) as unknown as {
+        query: (soql: string) => Promise<{ records: unknown[]; totalSize: number; done: true }>;
+        sobject: (name: string) => Record<string, unknown>;
+        describe: (name: string) => Promise<unknown>;
+      };
+      const query = conn.query.bind(conn);
+      const sobject = conn.sobject.bind(conn);
+      const describe = conn.describe.bind(conn);
+      return {
+        ...conn,
+        query: async (soql: string) =>
+          soql.includes('FROM Contact') && session.alias === 'SRC'
+            ? /COUNT\(\)/.test(soql)
+              ? { records: [], totalSize: contacts.length, done: true }
+              : { records: contacts, totalSize: contacts.length, done: true }
+            : query(soql),
+        sobject: (name: string) =>
+          name === 'Contact' ? { ...sobject(name), describe: async () => contact } : sobject(name),
+        describe: async (name: string) => (name === 'Contact' ? contact : describe(name)),
+      } as unknown as Connection;
+    });
+    const contactsByName = ['--object', 'Contact:Name', '--checkpoint-first'];
+    checkpointsOf([], { scopeFails: 'the store is locked' });
+
+    await exitOf(argv(...contactsByName, '--dry-run', '--json'));
+    const dry = JSON.parse(out.join('')) as { wouldBeRefusedCodes?: string[] };
+    out.length = 0;
+    expect(await exitOf(argv(...contactsByName, '--json'))).toBe(1);
+    const real = JSON.parse(out.join('')) as { refused: { code: string } };
+
+    expect(real.refused.code).toBe('SYNC_TARGET_UNWRITABLE');
+    expect(dry.wouldBeRefusedCodes).toEqual(['SYNC_TARGET_UNWRITABLE', 'CHECKPOINT_REFUSED']);
+  });
+
   it('refuses the run before the take, the lease and any write when its scope is refused, exit 1, in the command’s words', async () => {
     const events: string[] = [];
     orgs(events);

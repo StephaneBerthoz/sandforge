@@ -308,6 +308,7 @@ describe('removalPreviewLines', () => {
         userNames: { '005000000000002AAA': 'A Tester' },
         keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
         refusals: ['Operation blocked by Production Guard: delete is not allowed'],
+        refusalCodes: ['GUARD_BLOCKED'],
       }),
     ).toEqual([
       'preview: what a removal would do; nothing was deleted',
@@ -315,7 +316,8 @@ describe('removalPreviewLines', () => {
       '      last changed by: A Tester 1',
       '  Account: 1 to delete of 1',
       'kept: the platform does not delete them — BusinessHours (1)',
-      'a removal would be refused: Operation blocked by Production Guard: delete is not allowed',
+      'a removal would be refused (GUARD_BLOCKED): Operation blocked by Production Guard: ' +
+        'delete is not allowed',
       FROZEN_PREVIEW_UNREAD,
     ]);
   });

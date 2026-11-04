@@ -46,7 +46,12 @@ import { CHECKPOINT_BEFORE_RUN_KEEP_DAYS, PREBUILT_SEED_TEMPLATES } from '@sandf
 import { refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
-import { spawnCommand, type CommandRun, type CommandRunner as RunnerOf } from './scriptRunner.js';
+import {
+  spawnRunner,
+  type CommandRun,
+  type CommandRunner as RunnerOf,
+  type SpawnOptions,
+} from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
@@ -123,6 +128,19 @@ export type { CommandRun };
  * terminal.
  */
 export type CommandRunner = RunnerOf<Script>;
+
+/**
+ * How the server runs a tool's script: in a process of its own, told that
+ * its lines are relayed by this server, whose reader cannot give the options
+ * a script's own advice names — `run_remove` runs no sweep. Relayed as they
+ * were, "--sweep takes them first" named a flag of no tool. Exported so it
+ * can be tested.
+ */
+export function toolRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
+  return spawnRunner({ ...options, relayedBy: 'sandforge-mcp' });
+}
+
+const TOOL_RUNNER = toolRunner();
 
 /** A call that runs a script, or one this server answers itself. */
 type Run =
@@ -1233,7 +1251,7 @@ export interface Serving {
  * input ends, the calls still running are stopped the same way.
  */
 export function serve(options: ServeOptions): Serving {
-  const runCommand = options.runCommand ?? spawnCommand;
+  const runCommand = options.runCommand ?? TOOL_RUNNER;
   const log = options.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
   /** The revision `initialize` agreed on, for the requests that do not name one. */
   let handshake: string | undefined;

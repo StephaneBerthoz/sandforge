@@ -352,7 +352,7 @@ import {
   wouldBeRefusedLine,
   type RunRefusal,
 } from './runRefused.js';
-import { undeletableAnswer } from './undeletableAnswer.js';
+import { UNDELETABLE_NOT_LEFT, undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import { validationRulesOf } from '../src/modules/forge/rehearsal/rehearsalGaps.js';
 import {
@@ -717,7 +717,8 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          --list-objects, the JSON is the objects of the graph.
                          A run refused before its first write prints
                          "refused": {"code", "message"} instead, the code its
-                         line names: refused (MAX_TOTAL_EXCEEDED): ...
+                         line names: refused (MAX_TOTAL_EXCEEDED): ..., each
+                         other reason under "alsoRefused", on a line of its own.
                          How a run ended is under result.status: success,
                          partial or failure, as its status: line says it.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
@@ -862,7 +863,10 @@ Remove what a run created:
                          object the records it would delete, those gone
                          already, those changed since the run and who changed
                          them, those it could not see, and what a removal run
-                         now would be refused for. It reads the records, as
+                         now would be refused for, each under the code it is
+                         refused with: a removal would be refused (CODE): ...,
+                         with --json the codes under "refusalCodes", in the
+                         order of "refusals". It reads the records, as
                          the removal reads them before its first delete, and
                          writes nothing: not to the org, not beside the
                          summary. With --sweep, it lists what the sweep would
@@ -915,9 +919,13 @@ Remove what a run created:
                          panel, another machine or a CI wrote meanwhile, which
                          a sweep does not see
   --json                 print what became of the records as JSON on stdout,
-                         every other line on stderr; refused for its mute before
-                         its first delete, "refused": {"code", "message"}, the
-                         code its line names: refused (MUTE_NO_RIGHT): ...
+                         every other line on stderr; refused before its first
+                         delete, "refused": {"code", "message"}, the code its
+                         line names: refused (CODE): ... — a production org
+                         (PRODUCTION_TARGET), what fires as it deletes
+                         (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
+                         MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
+                         delete (UNDELETABLE_NOT_LEFT)
   --audit <file>         record the removal, and the sweep, in the audit trail
                          kept in <file>
 
@@ -4228,14 +4236,26 @@ function relayedBy(): string | undefined {
 }
 
 /**
+ * The options of a sweep a command that relays this script's lines takes
+ * itself: `sandforge-env destroy --sweep`. The MCP server's `run_remove`
+ * takes none.
+ */
+const TAKEN_BY_THE_RELAY: ReadonlyMap<string, readonly string[]> = new Map([
+  ['sandforge-env', ['--sweep']],
+]);
+
+/**
  * An option of a sweep, as a line names it to whoever reads it: the option
- * itself on this script's own output; relayed by a command whose line does
- * not take it (`sandforge-env`), this script's own removal given it. Exported
- * so it can be tested.
+ * itself on this script's own output, or relayed by a command that takes it;
+ * relayed by a command whose line does not take it (`sandforge-env`, the MCP
+ * server's `run_remove`), this script's own removal given it. Exported so it
+ * can be tested.
  */
 export function sweepOptionWords(option: string): string {
-  if (relayedBy() === undefined) return option;
-  return `this script's own removal with ${option === '--sweep-list' ? '' : '--sweep '}${option}`;
+  const by = relayedBy();
+  if (by === undefined || TAKEN_BY_THE_RELAY.get(by)?.includes(option) === true) return option;
+  const sweep = option === '--sweep-list' || option === '--sweep' ? '' : '--sweep ';
+  return `this script's own removal with ${sweep}${option}`;
 }
 
 /**
@@ -4479,7 +4499,8 @@ export function automationHeldLines(
       ? `${what}: the sweep left them — ${sweepOptionWords('--sweep-list')} says why; ` +
         `${sweepOptionWords('--sweep-late')} takes those it lists as late, --include-changed ` +
         'those someone changed since'
-      : `${what}: --sweep takes them first (${sweepOptionWords('--sweep-list')} shows them)`,
+      : `${what}: ${sweepOptionWords('--sweep')} takes them first ` +
+        `(${sweepOptionWords('--sweep-list')} shows them)`,
   ];
 }
 
@@ -5209,6 +5230,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let sweepListing: ForgeSweepListing | undefined;
   /** What the removal muted of the target's automation, asked with --mute-automation. */
   let mutedAutomation: MutedAutomation | undefined;
+  /** Why it stopped for objects its user may not delete, once it did. */
+  let undeletableRefused: RunRefusal | undefined;
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -5337,11 +5360,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // A listing deletes nothing; a removal and a sweep delete, and a
   // production org is refused before either reads anything.
   const refusal = args.sweepList ? undefined : productionRefusal(args.target, org, 'remove');
-  if (refusal) {
-    recordRemoval({ outcome: 'stopped', code: 'PRODUCTION_TARGET' });
-    process.stderr.write(`${refusal}\n`);
-    process.exit(1);
-  }
+  if (refusal) endRefused({ code: 'PRODUCTION_TARGET', message: refusal });
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
     process.stderr.write(
       `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its records ` +
@@ -5467,8 +5486,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (plan.length > 0) {
     outcome = await removeThePlan();
     // Stopped before its first delete, for objects the user may not delete:
-    // named above, and nothing was removed.
-    if (outcome.stoppedForUndeletable) process.exit(1);
+    // nothing was removed.
+    if (outcome.stoppedForUndeletable) {
+      if (undeletableRefused) endRefused(undeletableRefused);
+      process.exit(1);
+    }
   } else if (parts) {
     const held = await takeTheLease();
     const releaseStop = onStopSignal(interrupt);
@@ -5527,9 +5549,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
    *   which the removal takes with its own.
    */
   /**
-   * End the removal refused for its mute before its first delete, as a
-   * refused run ends: its line names its code, and with --json stdout carries
-   * it. It said a sentence on stderr and left stdout empty.
+   * End the removal refused before its first delete, as a refused run ends:
+   * its line names its code, and with --json stdout carries it. Refused for a
+   * production org, what fires as it deletes, its mute or objects its user
+   * may not delete, it said a sentence on stderr and left stdout empty.
    */
   function endRefused(refused: RunRefusal): never {
     recordRemoval({ outcome: 'stopped', code: refused.code });
@@ -5584,9 +5607,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       mayMute: removalMute === undefined,
     });
     if (automationStop && !args.acceptAutomation) {
-      recordRemoval({ outcome: 'stopped', code: 'AUTOMATION_NOT_ACCEPTED' });
-      process.stderr.write(`${automationStop}\n`);
-      process.exit(1);
+      endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
     }
   }
 
@@ -5640,7 +5661,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ...sweepPartsOptions(parts),
         ...(runUserId ? { runUserId } : {}),
         includeChanged: args.includeChanged,
-        onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
+        onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
+          undeletableRefused = refused;
+        }),
         beforeFirstWrite: async () => {
           held = await takeTheLease();
         },
@@ -5733,8 +5756,12 @@ export function clonePreviewJson(answer: {
   targetOrgId?: string;
   includeChanged: boolean;
   preview: CloneRemovalPreview;
-  /** What a removal run now would be refused for, each in its own words. */
-  refusals: readonly string[];
+  /**
+   * What a removal run now would be refused for, each in its own words under
+   * `refusals`, and beside them, in their order, the code a removal is
+   * refused with under `refusalCodes`.
+   */
+  refusals: readonly RunRefusal[];
   notes: readonly string[];
   elapsedMs: number;
   /** With `--sweep`, what the sweep would take, as `--sweep-list` lists it. */
@@ -5751,7 +5778,8 @@ export function clonePreviewJson(answer: {
       includeChanged: answer.includeChanged,
       preview: answer.preview,
       ...(answer.sweepListing ? { sweepListing: answer.sweepListing } : {}),
-      refusals: answer.refusals,
+      refusals: answer.refusals.map(({ message }) => message),
+      refusalCodes: answer.refusals.map(({ code }) => code),
       notes: answer.notes,
       elapsedMs: answer.elapsedMs,
     },
@@ -5763,7 +5791,7 @@ export function clonePreviewJson(answer: {
 /** What `--remove --preview` prints without `--json`. Exported so it can be tested. */
 export function clonePreviewLines(
   preview: CloneRemovalPreview,
-  refusals: readonly string[],
+  refusals: readonly RunRefusal[],
   notes: readonly string[],
   includeChanged: boolean,
 ): string[] {
@@ -5790,7 +5818,7 @@ export function clonePreviewLines(
     }
     for (const reason of o.reasons) lines.push(`      ${reason}`);
   }
-  for (const refusal of refusals) lines.push(`a removal would be refused: ${refusal}`);
+  for (const refusal of refusals) lines.push(wouldBeRefusedLine(refusal, 'a removal'));
   return [...lines, ...notes];
 }
 
@@ -5798,15 +5826,15 @@ export function clonePreviewLines(
  * Say what a removal of the run would do, and do nothing (`--preview`): the
  * removal's own reading of the run's records before its first write
  * (`removeRunRecords` with `previewOnly`), what the target runs as they go,
- * and what a removal would be refused for — a production org, another org
- * than the one the run wrote to, that automation without
- * `--accept-automation`, objects the user may not delete without
- * `--leave-undeletable`. Nothing is written: not to the org, not to the run's
- * journal, whose calls under way when the run stopped a removal looks for in
- * the target first, not beside the summary; and nothing is asked. A preview
- * only reads, so a production org is read and the refusal a removal would
- * meet is said; an org that is not the one the run wrote to is refused, exit
- * 1, as the removal refuses it.
+ * and what a removal would be refused for, each under the code the removal
+ * is refused with — a production org, another org than the one the run
+ * wrote to, that automation without `--accept-automation`, objects the user
+ * may not delete without `--leave-undeletable`. Nothing is written: not to
+ * the org, not to the run's journal, whose calls under way when the run
+ * stopped a removal looks for in the target first, not beside the summary;
+ * and nothing is asked. A preview only reads, so a production org is read
+ * and the refusal a removal would meet is said; an org that is not the one
+ * the run wrote to is refused, exit 1, as the removal refuses it.
  *
  * With `--sweep`, what the sweep would take is listed as `--sweep-list` lists
  * it, and what fires as its records go is read with the run's own: previewed
@@ -5823,7 +5851,11 @@ async function previewRemoval(
   const notes: string[] = [];
   /** With --sweep, what the sweep would take, once read. */
   let sweepListing: ForgeSweepListing | undefined;
-  const answer = (preview: CloneRemovalPreview, refusals: readonly string[], orgId?: string) => {
+  const answer = (
+    preview: CloneRemovalPreview,
+    refusals: readonly RunRefusal[],
+    orgId?: string,
+  ) => {
     notes.push(CLONE_PREVIEW_UNREAD);
     if (args.json) {
       process.stdout.write(
@@ -5926,9 +5958,9 @@ async function previewRemoval(
     );
     process.exit(1);
   }
-  const refusals: string[] = [];
+  const refusals: RunRefusal[] = [];
   const production = productionRefusal(args.target, org, 'remove');
-  if (production) refusals.push(production);
+  if (production) refusals.push({ code: 'PRODUCTION_TARGET', message: production });
   summary = await datedFromItsJournal(conn, summary);
   // With --sweep, what it would take, listed as the removal lists it before
   // its first delete; nothing is deleted.
@@ -5963,7 +5995,9 @@ async function previewRemoval(
     assign: bypassesToAssign(automation, removalBypassesOf(automation, drafted)),
     mayMute: !args.muteAutomation,
   });
-  if (automationStop && !args.acceptAutomation) refusals.push(automationStop);
+  if (automationStop && !args.acceptAutomation) {
+    refusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
+  }
   // Nothing of the run left, the sweep goes alone.
   if (plan.length === 0) {
     notes.push('nothing left of the run to remove');
@@ -6009,11 +6043,13 @@ async function previewRemoval(
   const undeletable = outcome.undeletable ?? [];
   if (undeletable.length > 0 && !args.leaveUndeletable) {
     const named = undeletable.map((o) => `${o.objectApiName} (${o.records} records)`).join(', ');
-    refusals.push(
-      `The user SandForge connects as may not delete the records of ${named} in ` +
+    refusals.push({
+      code: UNDELETABLE_NOT_LEFT,
+      message:
+        `The user SandForge connects as may not delete the records of ${named} in ` +
         `${args.target}: a removal stops before its first delete, unless given ` +
         '--leave-undeletable, which removes the rest and leaves those.',
-    );
+    });
   }
   answer(
     {
@@ -7450,6 +7486,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * --json under `checkpoint`.
    */
   let checkpointPlanned: { ask: CommandCheckpointAsk; estimate: RunCheckpointEstimate } | undefined;
+  /**
+   * What refused a real run at its gate beside the first reason, each under
+   * its own code: given under `alsoRefused`, each on its line, as Autopilot
+   * gives them. The first code alone, a CI job told of one was refused again
+   * for the next.
+   */
+  let alsoRefusedAtGate: RunRefusal[] = [];
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
@@ -7557,7 +7600,6 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     ).flatMap(([code, message]): Array<{ code: ForgeRunGateErrorCode; message: string }> =>
       message !== undefined ? [{ code, message }] : [],
     );
-    const reasons = refusals.map(({ message }) => message);
     if (boundary.dryRun) {
       for (const refusal of refusals) say(`  ${wouldBeRefusedLine(refusal)}`);
       dryRunRefusals.push(...refusals);
@@ -7572,7 +7614,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       return;
     }
     if (refusals.length > 0) {
-      throw new ForgeRunGateError(refusals[0].code, `${reasons.join(' ')} Nothing was written.`);
+      const words = (message: string): string => `${message} Nothing was written.`;
+      alsoRefusedAtGate = refusals
+        .slice(1)
+        .map(({ code, message }) => ({ code, message: words(message) }));
+      throw new ForgeRunGateError(refusals[0].code, words(refusals[0].message));
     }
   };
 
@@ -7949,7 +7995,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     await endJournal(cancelled ? 'cancelled' : 'failure', wrote);
     // Refused for its files, it said a sentence with no code and left stdout
     // empty: a CI job could not tell files too big from a crash.
-    if (refusedBefore) endRefused({ code: refusedBefore.code, message: refusedBefore.message });
+    if (refusedBefore) {
+      endRefused(
+        { code: refusedBefore.code, message: refusedBefore.message },
+        gate ? alsoRefusedAtGate : [],
+      );
+    }
     const partial = stoppedPartial;
     if (partial && (interrupted !== undefined || err instanceof ForgeAbortedError)) {
       const document = runDocument(withRecordTypeCalls(partial), new Date(), {

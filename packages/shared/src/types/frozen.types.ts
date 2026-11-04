@@ -1100,6 +1100,11 @@ export interface FrozenRemovalPreview {
   keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
   /** What a removal run now would be refused for, each in its own words. */
   refusals: string[];
+  /**
+   * The code a removal is refused with for each of `refusals`, in their
+   * order: the words alone, a pipeline could not tell one from another.
+   */
+  refusalCodes?: string[];
 }
 
 /** The verdict of the last verification of a load into a target org. */

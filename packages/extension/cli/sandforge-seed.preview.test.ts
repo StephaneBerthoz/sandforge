@@ -248,6 +248,7 @@ describe('sandforge-seed --remove --preview', () => {
         userNames: { [COLLEAGUE]: 'A colleague' },
       },
       refusals: [],
+      refusalCodes: [],
       notes: [PREVIEW_UNREAD],
       elapsedMs: expect.any(Number),
     });
@@ -340,6 +341,7 @@ describe('sandforge-seed --remove --preview', () => {
     expect(exit).not.toHaveBeenCalled();
     const answer = JSON.parse(stdout) as {
       refusals: string[];
+      refusalCodes?: string[];
       preview: SeedRemovalPreview;
     };
     expect(answer.refusals).toEqual([
@@ -349,6 +351,13 @@ describe('sandforge-seed --remove --preview', () => {
         'may not delete the records of Account (2 records) in TGT: a removal stops before its ' +
           'first delete, unless given --leave-undeletable',
       ),
+    ]);
+    // Beside the words, in their order, the code a removal is refused with for
+    // each: the words alone, a pipeline could not tell them apart.
+    expect(answer.refusalCodes).toEqual([
+      'PRODUCTION_TARGET',
+      'AUTOMATION_NOT_ACCEPTED',
+      'UNDELETABLE_NOT_LEFT',
     ]);
     expect(answer.preview.undeletable).toEqual([{ objectApiName: 'Account', records: 2 }]);
     expect(answer.preview.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
@@ -391,7 +400,7 @@ describe('sandforge-seed --remove --preview', () => {
       ),
     );
 
-    expect((JSON.parse(stdout) as { refusals: string[] }).refusals).toEqual([]);
+    expect(JSON.parse(stdout)).toMatchObject({ refusals: [], refusalCodes: [] });
   });
 
   it('counts the records changed since to delete with --include-changed', async () => {
@@ -491,12 +500,19 @@ describe('the lines of a preview', () => {
       userNames: {},
     };
 
-    expect(removalPreviewLines(preview, ['TGT is a production org'], ['a note'], true)).toEqual([
+    expect(
+      removalPreviewLines(
+        preview,
+        [{ code: 'PRODUCTION_TARGET', message: 'TGT is a production org' }],
+        ['a note'],
+        true,
+      ),
+    ).toEqual([
       'preview: what a removal would do; nothing was written',
       '  Contact: 2 to delete, 1 of them changed since the run, 1 not visible of 3',
       `      last changed by: ${COLLEAGUE} 1`,
       '      Not visible: 1 record(s) …',
-      'a removal would be refused: TGT is a production org',
+      'a removal would be refused (PRODUCTION_TARGET): TGT is a production org',
       'a note',
     ]);
   });

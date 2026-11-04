@@ -354,6 +354,40 @@ describe('sandforge-clone --audit', () => {
     ]);
   });
 
+  it('names every reason a clone is refused for at its gate under its own code, the others under alsoRefused', async () => {
+    // Over --max-total and past the data storage the target has left: the
+    // first code alone, a CI job told of one was refused again for the next.
+    const target = fakeOrg(TARGET_ORG);
+    Object.assign(target.conn, {
+      request: async () => ({ DataStorageMB: { Max: 20, Remaining: 0 } }),
+    });
+    withOrgs(target);
+
+    expect(await run(argv('--audit', auditPath, '--max-total', '1', '--json'))).toBe(1);
+
+    expect(orgs.TGT.written).toEqual([]);
+    expect(stderr).toContain('refused (MAX_TOTAL_EXCEEDED): The run would write');
+    expect(stderr).toContain('refused (STORAGE_EXCEEDED): ');
+    const answer = JSON.parse(stdout) as {
+      refused: { code: string; message: string };
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(answer.refused).toEqual({
+      code: 'MAX_TOTAL_EXCEEDED',
+      message: expect.stringMatching(/^The run would write .* Nothing was written\.$/) as string,
+    });
+    expect(answer.refused.message).not.toContain('data storage');
+    expect(answer.alsoRefused).toEqual([
+      {
+        code: 'STORAGE_EXCEEDED',
+        message: expect.stringMatching(/data storage.* Nothing was written\.$/) as string,
+      },
+    ]);
+    expect(entries()).toEqual([
+      expect.objectContaining({ outcome: 'stopped', details: { code: 'MAX_TOTAL_EXCEEDED' } }),
+    ]);
+  });
+
   it('refuses a clone whose files do not fit under its code, says it on stdout, and records it stopped', async () => {
     // A file of 2 KB on the account, and a target with no file storage left.
     const source = fakeOrg(SOURCE_ORG);

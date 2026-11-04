@@ -342,10 +342,13 @@ ${checkpointFirstHelp({
                          "mapping", the file in the sas naming the records the loads
                          into the target created, for load, verify and remove; per
                          object, what the step counted ("objects"); verify's verdict,
-                         and a load's, per object ("verdict"); and what a dry run or a
-                         removal's preview would be refused for ("refusals"), with a
-                         load's dry run the code of each ("refusalCodes"), as its line
-                         names it: a load would be refused (CODE): ...
+                         and a load's, per object ("verdict"); what a dry run or a
+                         removal's preview would be refused for ("refusals"), with the
+                         code of each ("refusalCodes"), as its line names it: a load
+                         would be refused (CODE): ..., a removal would be refused
+                         (CODE): ...; and what refused a load before it wrote, its
+                         purge or its checkpoint ("refused": {"code", "message"}), as
+                         its line names it: refused (CODE): ...
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
@@ -1772,7 +1775,15 @@ export function removalPreviewLines(preview: FrozenRemovalPreview): string[] {
     for (const reason of o.reasons) lines.push(`      ${reason}`);
   }
   lines.push(...keptByThePlatformLine(preview.keptByThePlatform));
-  for (const refusal of preview.refusals) lines.push(`a removal would be refused: ${refusal}`);
+  // Each under the code the removal is refused with, where the handler gave one for each.
+  const codes = preview.refusalCodes;
+  preview.refusals.forEach((message, at) => {
+    lines.push(
+      codes?.length === preview.refusals.length
+        ? wouldBeRefusedLine({ code: codes[at], message }, 'a removal')
+        : `a removal would be refused: ${message}`,
+    );
+  });
   lines.push(FROZEN_PREVIEW_UNREAD);
   return lines;
 }
@@ -1917,6 +1928,8 @@ export async function frozenAnswer(
     : undefined;
   const answer: FrozenAnswer = { tool: 'sandforge-frozen', step, posted };
   const refusals: string[] = [];
+  /** The code of each of `refusals`, while each has one. */
+  const refusalCodes: string[] = [];
   const withDataset = async (dir: string): Promise<void> => {
     const dataset = await datasetOf(dir);
     if (dataset) answer.dataset = dataset;
@@ -2009,15 +2022,21 @@ export async function frozenAnswer(
           unread: o.unread,
         }));
         refusals.push(...preview.refusals);
+        if (preview.refusalCodes?.length === preview.refusals.length) {
+          refusalCodes.push(...preview.refusalCodes);
+        }
       }
       break;
     }
   }
   refusals.push(...(context.refusals ?? []));
+  if (context.refusalCodes?.length === (context.refusals ?? []).length) {
+    refusalCodes.push(...(context.refusalCodes ?? []));
+  }
   if (refusals.length > 0) answer.refusals = refusals;
-  // Given only when each refusal has its code: a preview's own refusals have none.
-  if (refusals.length > 0 && context.refusalCodes?.length === refusals.length) {
-    answer.refusalCodes = [...context.refusalCodes];
+  // Given only when each refusal has its code.
+  if (refusals.length > 0 && refusalCodes.length === refusals.length) {
+    answer.refusalCodes = refusalCodes;
   }
   if (context.mute) Object.assign(answer, context.mute);
   if (context.checkpoint) answer.checkpoint = context.checkpoint;
@@ -2154,8 +2173,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     refusals.push(refused);
     log(wouldBeRefusedLine(refused, 'a load'));
   };
-  /** What a removal's preview says it would be refused for: a preview said exits 0. */
-  const removalRefusals: string[] = [];
+  /** What a removal's preview says it would be refused for, by code: a preview said exits 0. */
+  const removalRefusals: RunRefusal[] = [];
   /** What refused the step itself before its first write, with its code. */
   let stepRefused: RunRefusal | undefined;
   /** What a dry run or a preview asked to mute says a real step's mute would do. */
@@ -2168,14 +2187,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    */
   const emit = async (ended?: true): Promise<void> => {
     if (!args.json) return;
-    const refused = [...refusals.map(({ message }) => message), ...removalRefusals];
+    const refused = [...refusals, ...removalRefusals];
     const answer = await frozenAnswer(args.step, posted, {
       datasetDir,
       sasDir,
       ...(targetOrgId ? { targetOrgId } : {}),
-      ...(refused.length > 0 ? { refusals: refused } : {}),
-      ...(refusals.length > 0 && removalRefusals.length === 0
-        ? { refusalCodes: refusals.map(({ code }) => code) }
+      ...(refused.length > 0
+        ? {
+            refusals: refused.map(({ message }) => message),
+            refusalCodes: refused.map(({ code }) => code),
+          }
         : {}),
       ...(dryRunMute ? { mute: dryRunMute } : {}),
       ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
@@ -2285,6 +2306,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ...(planned ? { planned } : {}),
       ...(refused ? { refusal: refused.message, code: refused.code } : {}),
     };
+  }
+
+  /**
+   * Refuse the load for the checkpoint it takes first, nothing written: its
+   * line names the code, and with --json the answer carries it, as a load
+   * refused for its purge says it. It said "Nothing was written." alone.
+   */
+  function refuseTheLoad(message: string): void {
+    stepRefused = { code: CHECKPOINT_REFUSED, message };
+    refusals.push(stepRefused);
+    log(refusedLine(stepRefused));
+    failed = true;
   }
 
   /** The load into the target a removal would take, as the page reads it; undefined with none. */
@@ -2565,8 +2598,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             for (const line of checkpointEstimateLines(estimate)) log(line);
           }
           if (refused !== undefined || estimate === undefined) {
-            log(`${refused ?? ''} Nothing was written.`.trim());
-            failed = true;
+            // Under the code its dry run names, as a refused purge says its own.
+            refuseTheLoad(`${refused ?? ''} Nothing was written.`.trim());
             return 'ended';
           }
           taking = new AbortController();
@@ -2581,8 +2614,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               stoppedTaking = true;
               return 'ended';
             }
-            log(checkpointStopWords(took.stop));
-            failed = true;
+            refuseTheLoad(checkpointStopWords(took.stop));
             return 'ended';
           }
           taken = took.checkpoint;
@@ -2694,15 +2726,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             // removal then refused the sweep's automation, part way.
             const sweptObjects = args.sweep ? await removalSweepObjects(records.loadedAt) : [];
             if (sweptObjects === undefined) break;
-            const { planned, refusal } = await automationOfDeletes({
+            const { planned, refusal, code } = await automationOfDeletes({
               targetOrgId,
               loadedAt: records.loadedAt,
               ...(sweptObjects.length > 0 ? { sweptObjects } : {}),
             });
             if (planned) dryRunMute = { mutedAutomation: planned.planned, mutePlan: planned.plan };
             if (refusal !== undefined) {
-              removalRefusals.push(refusal);
-              log(`a removal would be refused: ${refusal}`);
+              // Under the code the removal is refused with, as a load's dry run says its own.
+              const refused = { code: code ?? 'AUTOMATION_NOT_ACCEPTED', message: refusal };
+              removalRefusals.push(refused);
+              log(wouldBeRefusedLine(refused, 'a removal'));
             }
           }
           break;

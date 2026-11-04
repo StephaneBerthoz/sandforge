@@ -17,6 +17,7 @@ import {
   writeCheckLines,
 } from './sandforge-sync.js';
 import type { RecordTypeGiven } from '@sandforge/shared';
+import { gateSyncWrite, measureSyncWrite } from '../src/modules/sync/SyncRunGate.js';
 
 describe('what a run prints of an object', () => {
   it('prints the first refusals, and every line on what it held back', () => {
@@ -1063,6 +1064,80 @@ describe('what a run says before its first write', () => {
       '      2 already copied by an earlier run of this configuration, left as they are',
     );
   });
+
+  it.each([
+    ['past the storage', false],
+    ['with its checkpoint refused', true],
+  ])(
+    'names on its verdict line the code the run’s gate refuses it with first: an object the target takes none of, before a run %s',
+    async (_label, checkpointRefused) => {
+      // The line named the checkpoint, or the storage, while the gate refuses
+      // the object the target takes none of first.
+      const measured = await measureSyncWrite(
+        {
+          objects: [{ objectApiName: 'Account', operation: 'insert', rows: 3_000 }],
+          alreadyCopied: 0,
+          unwritable: [
+            { objectApiName: 'Case', operation: 'insert', rows: 120, why: 'notCreateable' },
+          ],
+        },
+        {
+          readStorage: async () => ({ maxMB: 5, remainingMB: 1 }),
+          readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
+          readAutomation: async () => ({
+            objectsRead: ['Account'],
+            objects: [],
+            unread: [],
+            conditionsNotRead: 0,
+            conditionsBound: 25,
+            requests: 0,
+          }),
+          readLimits: async () => ({ SingleEmail: { max: 15, remaining: 15 } }),
+          readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 0 }),
+          emails: { target: 'TRAP', accepted: false },
+          confirmAboveRecords: 2_000,
+          ...(checkpointRefused
+            ? {
+                checkpointFirst: {
+                  scope: async () => {
+                    throw new Error('the store is locked');
+                  },
+                  take: async () => ({ taken: false as const, stopped: true as const }),
+                },
+              }
+            : {}),
+        },
+      );
+      expect(measured.check.verdict).toBe('refused');
+      const gate = await gateSyncWrite(measured, {
+        policy: 'refuse',
+        org: 'TRAP',
+        orgTier: 'development',
+      });
+      expect(gate).toMatchObject({ go: false, code: 'SYNC_TARGET_UNWRITABLE' });
+
+      const lines = simulationLines(
+        {
+          configId: 'cfg-1',
+          operationId: 'sync-simulation-1',
+          direction: 'source_to_target',
+          conflictStrategy: 'source_wins',
+          objects: [],
+          duration: 5,
+          timestamp: '2026-10-21T00:00:00.000Z',
+          writeCheck: measured.check,
+        },
+        'TRAP',
+        false,
+        checkpointRefused ? measured.checkpointFailed : undefined,
+      );
+
+      expect(lines.filter((line) => line.includes('would be refused before it writes'))).toEqual([
+        '    a run would be refused before it writes (SYNC_TARGET_UNWRITABLE): the target takes ' +
+          'none of the records of an object it writes',
+      ]);
+    },
+  );
 });
 
 describe('what a run prints of the record types the target gave', () => {

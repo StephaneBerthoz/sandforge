@@ -4080,9 +4080,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       let preview: Omit<FrozenRemovalPreview, 'refusals'>;
       if (await store.isStale()) {
         // Its records went with the refresh: a removal reads none of them.
-        refusals.push(
-          'The target org was refreshed after the load: the records it created went with the refresh, and a removal removes nothing.',
-        );
+        refusals.push({
+          code: 'TARGET_REFRESHED',
+          message:
+            'The target org was refreshed after the load: the records it created went with the refresh, and a removal removes nothing.',
+        });
         preview = { ...this.unreadPreviewOf(load, parsed.includeChanged === true), planned };
       } else {
         const conn = await getJsforceConnection(
@@ -4094,7 +4096,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:remove:preview:response', {
-          preview: { ...preview, refusals },
+          preview: {
+            ...preview,
+            refusals: refusals.map(({ message }) => message),
+            refusalCodes: refusals.map(({ code }) => code),
+          },
         }),
       );
     } catch (err: unknown) {
@@ -4104,13 +4110,16 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   /**
    * What Production Guard would refuse a removal of `planned` records of the
-   * load for, asked without a confirmation: nothing for a sandbox or a
-   * Developer Edition org, the delete of a production org refused, and
-   * without the guard, everything.
+   * load for, asked without a confirmation, under the code the removal is
+   * refused with: nothing for a sandbox or a Developer Edition org, the
+   * delete of a production org refused, and without the guard, everything.
    */
-  private removalGuardRefusals(orgId: string, planned: number): string[] {
+  private removalGuardRefusals(
+    orgId: string,
+    planned: number,
+  ): Array<{ code: string; message: string }> {
     const productionGuard = this.deps.infraServices?.productionGuard;
-    if (!productionGuard) return [PRODUCTION_GUARD_MISSING.message];
+    if (!productionGuard) return [{ ...PRODUCTION_GUARD_MISSING }];
     const check = productionGuard.check({
       orgId,
       orgTier: this.targetTier(orgId),
@@ -4121,7 +4130,12 @@ export class FrozenDatasetHandler implements DomainHandler {
     });
     return check.allowed
       ? []
-      : [`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`];
+      : [
+          {
+            code: 'GUARD_BLOCKED',
+            message: `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          },
+        ];
   }
 
   /**

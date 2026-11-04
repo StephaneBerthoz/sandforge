@@ -395,6 +395,63 @@ describe('sandforge-seed --remove', () => {
     expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
   });
 
+  it.each([
+    ['a production org', 'PRODUCTION_TARGET', 'TGT is a production org'],
+    [
+      'what fires as it deletes',
+      'AUTOMATION_NOT_ACCEPTED',
+      'TGT runs automation on the records this removal deletes',
+    ],
+    [
+      'objects its user may not delete',
+      'UNDELETABLE_NOT_LEFT',
+      'The user SandForge connects as may not delete the records of Account (2 records) in ' +
+        'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
+        '--leave-undeletable to remove the rest and leave them.',
+    ],
+  ])(
+    'names the code of a removal refused for %s, on its line and with --json on stdout',
+    async (_why, code, words) => {
+      // Refused so, it said a sentence with no code on stderr and left stdout
+      // empty: a CI job could not tell one refusal from another.
+      if (code === 'PRODUCTION_TARGET') edition = 'Enterprise Edition';
+      if (code === 'UNDELETABLE_NOT_LEFT') org.undeletable.add('Account');
+      if (code === 'AUTOMATION_NOT_ACCEPTED') {
+        automationRead.mockResolvedValueOnce({
+          objectsRead: ['Account', 'Contact'],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 3,
+        });
+      }
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--json'))).rejects.toThrow(
+        'exit 1',
+      );
+
+      expect(exit.stderr()).toContain(`refused (${code}): ${words}`);
+      const answer = JSON.parse(stdout) as Record<string, unknown>;
+      expect(answer).toEqual({
+        tool: 'sandforge-seed',
+        action: 'remove',
+        summary: file,
+        target: 'TGT',
+        refused: { code, message: expect.stringContaining(words) as string },
+        elapsedMs: expect.any(Number) as number,
+      });
+      expect(org.deletes).toEqual([]);
+    },
+  );
+
   it('sweeps before the run’s records go, handing the sweep every record the run created to leave alone', async () => {
     const order: string[] = [];
     vi.mocked(sweepParts).mockImplementation(

@@ -250,6 +250,7 @@ describe('frozen:remove:preview', () => {
       includeChanged: false,
       planned: 3,
       refusals: [],
+      refusalCodes: [],
       objects: [
         { objectApiName: 'Contact', planned: 2, toDelete: 2, keptChanged: 0 },
         { objectApiName: 'Account', planned: 1, toDelete: 1, keptChanged: 0 },
@@ -306,6 +307,9 @@ describe('frozen:remove:preview', () => {
     expect(preview()?.refusals).toEqual([
       expect.stringContaining('Operation blocked by Production Guard'),
     ]);
+    // Beside the words, the code the removal is refused with: the words alone,
+    // a pipeline reading the command's preview could not tell them apart.
+    expect(preview()?.refusalCodes).toEqual(['GUARD_BLOCKED']);
     expect(confirm).not.toHaveBeenCalled();
     expect(org.writes).toEqual([]);
   });
