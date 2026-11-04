@@ -718,6 +718,17 @@ export function isOpportunityTeamObject(objectApiName: string): boolean {
 }
 
 /**
+ * What the platform writes a row of `objectApiName` with, in the words the
+ * line of each object says it: an email's task, a person account's contact,
+ * the owner's member and split of an opportunity.
+ */
+export function writtenWithWords(objectApiName: string): string {
+  if (objectApiName === 'Task') return 'their email';
+  if (objectApiName === 'Contact') return 'their person account';
+  return 'their opportunity, for its owner';
+}
+
+/**
  * The order an opportunity's team members and its splits are written in, as
  * an edge between the objects a run writes: the members first.
  *
@@ -756,6 +767,14 @@ export const WRITTEN_BY_THE_PLATFORM: Readonly<Record<string, Readonly<Record<st
   },
   [OPPORTUNITY_SPLIT]: {},
 };
+
+/**
+ * Whether what the platform's own member or split holds of `field` is known
+ * without reading it: a standard field, which it writes as
+ * {@link WRITTEN_BY_THE_PLATFORM} says or leaves empty. A custom field may hold
+ * the default value the target gives it, which only the target's record says.
+ */
+const knownOfThePlatformsRecord = (field: string): boolean => !/__c$/i.test(field);
 
 /**
  * Fields of a team's row a link to the target's record is never said to go
@@ -895,11 +914,19 @@ export interface OpportunityTeamRows {
    * the team of an opportunity the target held has. `owners` is set for those
    * of the target opportunity's owner; `notKept` names the fields of
    * {@link OpportunityTeamOrgs.written} the row gives a value the target's
-   * record does not hold, which keeps its own.
+   * record does not hold, which keeps its own. A simulation, which reads no
+   * record of the target, names in `unread` those it gives a value whose
+   * record it cannot tell: a custom field of the platform's member or split,
+   * which may hold the target's default.
    */
   readonly linked: Map<
     Record<string, unknown>,
-    { readonly id: string; readonly owners: boolean; readonly notKept: readonly string[] }
+    {
+      readonly id: string;
+      readonly owners: boolean;
+      readonly notKept: readonly string[];
+      readonly unread?: readonly string[];
+    }
   >;
   /** The rows not written, each with why. */
   readonly held: Map<Record<string, unknown>, TeamRowNotWritten>;
@@ -1092,16 +1119,18 @@ export async function opportunityTeamOf(
       field !== SPLIT_TYPE_FIELD &&
       !SET_BY_THE_PLATFORM.has(field),
   );
-  /** The fields `row` gives a value the target's record `held` does not hold. */
+  /** Whether `row` gives `field` a value. */
+  const gives = (row: Record<string, unknown>, field: string): boolean => {
+    const value = row[field];
+    return !(value === undefined || value === null || value === '' || value === false);
+  };
+  /** Of `fields`, those `row` gives a value the target's record `held` does not hold. */
   const notKeptBy = (
     row: Record<string, unknown>,
     held: Readonly<Record<string, unknown>>,
+    fields: readonly string[] = compared,
   ): string[] =>
-    compared.filter((field) => {
-      const value = row[field];
-      if (value === undefined || value === null || value === '' || value === false) return false;
-      return String(value) !== String(held[field] ?? '');
-    });
+    fields.filter((field) => gives(row, field) && String(row[field]) !== String(held[field] ?? ''));
   // What the target holds of these opportunities' teams, by opportunity, user and type.
   const held = new Map<string, Record<string, unknown>>();
   const heldKey = (opportunity: string, user: string, type?: string): string =>
@@ -1169,12 +1198,23 @@ export async function opportunityTeamOf(
     const ofTheOwner = targetOwner !== undefined && idKey(targetUser) === idKey(targetOwner);
     if (simulated) {
       // The platform writes the owner's member, and the owner's split of each
-      // type held to 100 %, with the opportunity.
+      // type held to 100 %, with the opportunity. What it writes of a
+      // standard field is known; a custom one may hold the target's default,
+      // which a simulation does not read: said lost, a region the target
+      // defaults to the source's value was one the run then kept.
       if (ofTheOwner && (!split || total)) {
+        const unread = compared.filter(
+          (field) => !knownOfThePlatformsRecord(field) && gives(row, field),
+        );
         team.linked.set(row, {
           id: simulated.idFor(),
           owners: true,
-          notKept: notKeptBy(row, WRITTEN_BY_THE_PLATFORM[objectApiName] ?? {}),
+          notKept: notKeptBy(
+            row,
+            WRITTEN_BY_THE_PLATFORM[objectApiName] ?? {},
+            compared.filter(knownOfThePlatformsRecord),
+          ),
+          ...(unread.length > 0 ? { unread } : {}),
         });
         continue;
       }

@@ -110,6 +110,29 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   'GuestUserAnomalyEventStore',
   'LoginAnomalyEventStore',
   'ReportAnomalyEventStore',
+  // What the platform alone creates, or setup it keeps as records: the global
+  // describe of a scratch org, read as an administrator holding Modify All
+  // Data, says none of them createable. A calendar and an entitlement
+  // process are made in Setup; Data.com Clean writes its clean info, an
+  // approval its submissions and work items, Einstein its insights, and
+  // invoicing its invoices and credit memos. A deep clone reached a
+  // calendar and an entitlement process, and its dry run said each BLOCKING,
+  // the target's admin asked to grant a Create no user can be granted.
+  'Calendar',
+  'SlaProcess',
+  'AccountCleanInfo',
+  'ContactCleanInfo',
+  'LeadCleanInfo',
+  'ApprovalSubmission',
+  'ApprovalSubmissionDetail',
+  'ApprovalWorkItem',
+  'AIRecordInsight',
+  'AIInsightValue',
+  'MatchingInformation',
+  'Invoice',
+  'InvoiceLine',
+  'CreditMemo',
+  'CreditMemoLine',
 ];
 
 /*

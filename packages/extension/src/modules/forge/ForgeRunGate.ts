@@ -69,6 +69,7 @@ import {
   FLAGS_THE_PLATFORM_LEAVES,
   STATUS_LIFECYCLES,
   isPersonAccountRow,
+  writtenWithWords,
 } from '../../core/common/platformRecords.js';
 import type {
   AutomationConfirmation,
@@ -1044,8 +1045,18 @@ export function emailsCountedPerRecord(
 /** The emails a run's inserts make the target send against one daily limit, and what is left of it. */
 export interface EmailCheck {
   limit: ForgeEmailLimit;
-  /** The emails, per object: the records inserted and the emails each sends. */
-  objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
+  /**
+   * The emails, per object: the records inserted and the emails each sends,
+   * and of those records the ones the platform writes itself
+   * (`byThePlatform`), which the run never sends and whose flows run as any.
+   */
+  objects: Array<{
+    objectApiName: string;
+    rows: number;
+    perRecord: number;
+    sentBy: string[];
+    byThePlatform?: number;
+  }>;
   emails: number;
   /**
    * Set on the single emails of an org that counts its email alerts against
@@ -1065,9 +1076,48 @@ export interface EmailCheck {
 }
 
 /**
+ * What a run's emails are counted of: the records it writes, per object, and
+ * the rows the platform writes itself with them (`leftOut.byThePlatform`) —
+ * the owner's member and split of an opportunity, a person account's contact
+ * — which the run never sends and the target inserts all the same.
+ */
+type PlanOfInserts = Pick<WritePlan, 'objects'> & {
+  leftOut?: Pick<WritePlanLeftOut, 'byThePlatform'>;
+};
+
+/**
+ * Per object, the records a plan inserts — those the platform writes with them
+ * among them — and how many of them the platform writes. Left out of the
+ * plan's records, the owner's member of an opportunity sent the emails of its
+ * flows uncounted: the platform's insert starts them as the run's would.
+ */
+function insertedOf(plan: PlanOfInserts): Map<string, { rows: number; byThePlatform: number }> {
+  const inserted = new Map(
+    plan.objects.map((object) => [object.objectApiName, { rows: object.rows, byThePlatform: 0 }]),
+  );
+  for (const { objectApiName, rows } of plan.leftOut?.byThePlatform ?? []) {
+    const entry = inserted.get(objectApiName) ?? { rows: 0, byThePlatform: 0 };
+    inserted.set(objectApiName, {
+      rows: entry.rows + rows,
+      byThePlatform: entry.byThePlatform + rows,
+    });
+  }
+  return inserted;
+}
+
+/** The objects a plan inserts records of, those the platform writes included. */
+function objectsInsertedOf(plan: PlanOfInserts): Set<string> {
+  return new Set(
+    [...insertedOf(plan)].flatMap(([objectApiName, { rows }]) => (rows > 0 ? [objectApiName] : [])),
+  );
+}
+
+/**
  * The emails the rows about to be written make the target send, per daily
  * limit, against what it has left. Only limits the inserts send emails
- * against are checked; none, and there is nothing to read.
+ * against are checked; none, and there is nothing to read. The rows the
+ * platform writes itself with a record the run creates are inserted too, and
+ * counted with them ({@link insertedOf}).
  *
  * Run for real into a Developer Edition, a contact flow's Send Email took
  * the org past its fifteen single emails a day, and thirty contacts were
@@ -1075,14 +1125,17 @@ export interface EmailCheck {
  * neutralized under `.invalid` count all the same.
  */
 export function emailChecksOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
   perInsert: readonly ForgeEmailsPerInsert[],
   limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
 ): EmailCheck[] {
-  const rows = new Map(plan.objects.map((object) => [object.objectApiName, object.rows]));
+  const rows = insertedOf(plan);
   const byLimit = new Map<ForgeEmailLimit, EmailCheck>();
   for (const sending of perInsert) {
-    const inserted = rows.get(sending.objectApiName) ?? 0;
+    const { rows: inserted, byThePlatform } = rows.get(sending.objectApiName) ?? {
+      rows: 0,
+      byThePlatform: 0,
+    };
     if (inserted === 0) continue;
     const check = byLimit.get(sending.limit) ?? {
       limit: sending.limit,
@@ -1095,6 +1148,7 @@ export function emailChecksOf(
       rows: inserted,
       perRecord: sending.perRecord,
       sentBy: sending.sentBy,
+      ...(byThePlatform > 0 ? { byThePlatform } : {}),
     });
     check.emails += inserted * sending.perRecord;
     byLimit.set(sending.limit, check);
@@ -1135,7 +1189,7 @@ function isUnread(limits: object): limits is { unread: string } {
  * at −75 of 15, and the clone took them to −117.
  */
 export function countedEmailChecksOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
   perInsert: readonly ForgeEmailsPerInsert[],
   limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
 ): EmailCheck[] {
@@ -1147,9 +1201,7 @@ export function countedEmailChecksOf(
     limits,
   );
   if (!alertsAsSingle) return checks;
-  const written = new Set(
-    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
-  );
+  const written = objectsInsertedOf(plan);
   const alerting = perInsert.some(
     (sending) => sending.limit === 'DailyWorkflowEmails' && written.has(sending.objectApiName),
   );
@@ -1214,15 +1266,13 @@ export async function countedTargetEmails(input: {
 
 /**
  * The writes whose emails a run counts as it inserts the records of a plan:
- * the insert of each object it holds records of, as `emailsPerInsertOf`
- * counts them.
+ * the insert of each object it holds records of, those the platform writes
+ * with them included, as `emailsPerInsertOf` counts them.
  */
 export function insertsOf(
-  plan: Pick<WritePlan, 'objects'>,
+  plan: PlanOfInserts,
 ): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
-  const inserted = new Set(
-    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
-  );
+  const inserted = objectsInsertedOf(plan);
   return (objectApiName, write) => write === 'insert' && inserted.has(objectApiName);
 }
 
@@ -1416,7 +1466,14 @@ export function emailCheckLines(checks: readonly EmailCheck[], org: string): str
   return checks.map((check) => {
     const words = EMAIL_LIMIT_WORDS[check.limit];
     const per = check.objects
-      .map((o) => `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}`)
+      .map(
+        (o) =>
+          `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}` +
+          (o.byThePlatform
+            ? `; ${o.byThePlatform} ${o.objectApiName} written by the platform with ` +
+              `${writtenWithWords(o.objectApiName)}, whose flows run all the same`
+            : ''),
+      )
       .join('; ');
     const sent =
       `  emails: these records make ${org} send about ${check.emails} ${words} (${per})` +
@@ -2218,17 +2275,6 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
     );
   }
   return lines;
-}
-
-/**
- * What the platform writes a row of `objectApiName` with, in the words the
- * line of each object says it: an email's task, a person account's contact,
- * the owner's member and split of an opportunity.
- */
-export function writtenWithWords(objectApiName: string): string {
-  if (objectApiName === 'Task') return 'their email';
-  if (objectApiName === 'Contact') return 'their person account';
-  return 'their opportunity, for its owner';
 }
 
 /** What each kind of risk says on the command line, after the object. */

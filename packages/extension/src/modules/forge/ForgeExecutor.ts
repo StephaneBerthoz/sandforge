@@ -190,6 +190,7 @@ import {
   statusCategories,
   tasksWrittenWithEmails,
   waitsForItsTask,
+  writtenWithWords,
   type OpportunityTeamRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -816,8 +817,9 @@ export interface ForgeRowsLeftOut {
   heldBack?: number;
   /**
    * Rows the platform writes itself with a record the run creates — the
-   * owner's member and split of an opportunity, a person account's contact,
-   * an email's task — which the write links to and never sends.
+   * owner's member and split of an opportunity, a person account's contact
+   * — which the write links to and never sends. Not an email's task, which
+   * the run sends itself when the email, or its record, is refused.
    */
   byThePlatform?: number;
 }
@@ -1466,6 +1468,13 @@ interface PageCarry {
    */
   teamOwners: number;
   teamOthers: number;
+  /**
+   * Of those rows, how many went without the source's value of each field,
+   * or whose value of it a simulation could not read: summed over the pages,
+   * said once (`teamValuesNote`). Said page by page, the line that ends the
+   * object repeated one note per page.
+   */
+  readonly teamValues: TeamValuesLeft;
   /** Person accounts' contacts never sent, the target holding none of them. */
   personContactsUnlinked: number;
   /** Person accounts' contacts sent on their own, and why. */
@@ -1524,6 +1533,7 @@ function emptyPageCarry(): PageCarry {
     withTheirAccount: 0,
     teamOwners: 0,
     teamOthers: 0,
+    teamValues: { notKept: new Map(), unread: new Map() },
     personContactsUnlinked: 0,
     sentOnTheirOwn: 0,
     onTheirOwnWhy: '',
@@ -1554,6 +1564,16 @@ function settledOfCarry(carry: PageCarry): number {
     carry.teamOwners +
     carry.teamOthers
   );
+}
+
+/**
+ * What the line that ends an object read page by page says of the values its
+ * linked rows went without: the flags of each page's relations, then the
+ * values of its team's rows, summed over the pages.
+ */
+function flagsNotKeptOfCarry(carry: PageCarry): string {
+  const team = teamValuesNote(carry.teamValues);
+  return [...carry.flagsNotKept, ...(team ? [team] : [])].map((note) => `, ${note}`).join('');
 }
 
 /** Count `reasons` into the rows a carry says were held back before the write. */
@@ -2853,6 +2873,46 @@ function teamLinkedNote(owners: number, others: number): string {
       : '') +
     (others > 0 ? `, ${others} on the team of their opportunity in the target already` : '')
   );
+}
+
+/**
+ * Of the rows of an opportunity's team linked to the target's records, per
+ * field in the order first met: how many went without the source's value of
+ * it, the target's record keeping its own (`notKept`), and how many a
+ * simulation could not tell of, which reads no record the platform writes
+ * (`unread`). See `opportunityTeamOf`.
+ */
+interface TeamValuesLeft {
+  readonly notKept: Map<string, number>;
+  readonly unread: Map<string, number>;
+}
+
+/** Add what `from` counts to `into`, field by field. */
+function addTeamValues(into: TeamValuesLeft, from: TeamValuesLeft): void {
+  for (const key of ['notKept', 'unread'] as const) {
+    for (const [field, count] of from[key]) {
+      into[key].set(field, (into[key].get(field) ?? 0) + count);
+    }
+  }
+}
+
+/**
+ * What the line of an object of an opportunity's team says of the values its
+ * linked rows went without, once for the object, a field at a time; empty
+ * when none.
+ */
+function teamValuesNote(values: TeamValuesLeft): string {
+  return [
+    ...[...values.notKept].map(
+      ([field, count]) =>
+        `${count} linked without the source's ${field}: the target's record keeps its own`,
+    ),
+    ...[...values.unread].map(
+      ([field, count]) =>
+        `${count} linked whose ${field} was not read: the platform writes the record with the ` +
+        'opportunity, which a dry run does not write',
+    ),
+  ].join(', ');
 }
 
 /**
@@ -4988,7 +5048,8 @@ export class ForgeExecutor {
     };
     const bound = this.readBound(state, node);
     const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
-    const total = (await count()) ?? node.recordCount;
+    const table = await count();
+    const total = table ?? node.recordCount;
     const read = left === undefined ? total : Math.min(total, left);
     // The cap, not the ceiling, is what stops the read short of the table.
     const cap = capOnEachObject(state.config);
@@ -5016,7 +5077,77 @@ export class ForgeExecutor {
       .catch((): FieldInfo[] => []);
     if (!fields.some((field) => field.name === 'IsPersonAccount')) return answer();
     const persons = await count('IsPersonAccount = true');
-    return answer(persons === undefined ? undefined : Math.min(persons, rows));
+    const ofPersons = persons === undefined ? undefined : Math.min(persons, rows);
+    if (object !== CONTACT || persons === undefined || table === undefined) {
+      return answer(ofPersons);
+    }
+    // The contacts the platform writes with their person accounts, which the
+    // write links to and never sends, as a run read whole leaves them out of
+    // its gate (`withoutWhatThePlatformWrites`): counted, the gate of a table
+    // of person accounts held --max-total to twice what the run wrote. Of a
+    // table the run reads part of, only those it surely reads and writes:
+    // the rows it leaves unread, and those the run it retries wrote, may all
+    // be persons'. Taken as business accounts, persons' contacts go as any.
+    const business = await this.personContactsTakenAsBusinessAtTheGate(state, count);
+    if (business === undefined) return answer(ofPersons);
+    const byThePlatform = Math.max(0, persons - business - (table - read) - writtenBefore);
+    if (byThePlatform === 0) return answer(ofPersons);
+    const others = (ofPersons ?? 0) - byThePlatform;
+    return {
+      read,
+      counted: {
+        rows: rows - byThePlatform,
+        ...(others > 0 ? { personAccounts: others } : {}),
+      },
+      leftOut: { ...leftOut, byThePlatform },
+      ...(capped ? { capped: true as const } : {}),
+    };
+  }
+
+  /**
+   * Of the contacts of person accounts a count says a run read page by page
+   * will write, how many go with an account the target takes as a business
+   * one — and so are sent as any contact is — as `takenAsBusinessAccounts`
+   * tells them of rows: every one, when an account goes in with the type the
+   * target gives and that type is a business account's; those of an account
+   * whose record type is mapped to a business account's type, counted.
+   * Undefined when none of them is surely the platform's, and every one is
+   * counted: the target has no person accounts, may not have any, or takes
+   * every account as a business one; or the count failed.
+   *
+   * @param count - Counts the rows of the contacts' table under the run's
+   *   filter and a condition of its own.
+   */
+  private async personContactsTakenAsBusinessAtTheGate(
+    state: ExecutionState,
+    count: (extra: string) => Promise<number | undefined>,
+  ): Promise<number | undefined> {
+    if ((await this.personAccountsInTarget(state)) !== true) return undefined;
+    const personTypes = await this.personRecordTypesInTarget(state);
+    if (!personTypes) return 0;
+    const { config } = state;
+    const accountFields = await this.deps
+      .describeFields(state.sourceOrgId, ACCOUNT)
+      .catch((): FieldInfo[] => []);
+    const recordTypeWritten =
+      accountFields.some((field) => field.name === 'RecordTypeId' && field.createable) &&
+      !(config.fieldExclusions[ACCOUNT] ?? []).includes('RecordTypeId') &&
+      config.fieldMappings[ACCOUNT]?.['RecordTypeId'] === undefined;
+    if (!recordTypeWritten) {
+      const given = givenRecordTypeId(
+        (await this.objectInfoOf(state.targetOrgId, ACCOUNT))?.recordTypes,
+      );
+      return given !== undefined && !personTypes.has(given.slice(0, 15)) ? undefined : 0;
+    }
+    const toBusiness = (config.recordTypeMappings ?? [])
+      .filter((m) => !personTypes.has(m.targetId.slice(0, 15)))
+      .map((m) => m.sourceId);
+    if (toBusiness.length === 0) return 0;
+    // An id no statement can name leaves every one counted.
+    if (!toBusiness.every((id) => SALESFORCE_ID.test(id))) return undefined;
+    return count(
+      `IsPersonAccount = true AND Account.RecordTypeId IN (${toBusiness.map((id) => `'${id}'`).join(', ')})`,
+    );
   }
 
   /**
@@ -5686,7 +5817,7 @@ export class ForgeExecutor {
       );
       return;
     }
-    const flagsNotKept = carry.flagsNotKept.map((flags) => `, ${flags}`).join('');
+    const flagsNotKept = flagsNotKeptOfCarry(carry);
     onProgress({
       objectName: object,
       status: 'done',
@@ -5732,7 +5863,7 @@ export class ForgeExecutor {
       progress: 100,
       message:
         `${stopped}: ${pagedCounts(state.config, carry, held)}, ${notSent} not sent` +
-        `${ownSentNote(carry.sentOnTheirOwn)}${carry.flagsNotKept.map((flags) => `, ${flags}`).join('')}` +
+        `${ownSentNote(carry.sentOnTheirOwn)}${flagsNotKeptOfCarry(carry)}` +
         `${picklistChangesNote(carry.picklists.list())}` +
         `${currencyReplacementsNote(carry.currencies.list())}` +
         `${lookupsNotCarriedNote(carry.lookupsNotCarried)}` +
@@ -7994,7 +8125,7 @@ export class ForgeExecutor {
         message:
           `[dry-run] ${parent}: ${fresh.length - withTheirAccount} ${more}record(s) would be inserted` +
           (withTheirAccount > 0
-            ? `, ${withTheirAccount} ${more}would be written by the platform with their person account`
+            ? `, ${withTheirAccount} ${more}would be written by the platform with ${writtenWithWords(parent)}`
             : '') +
           `, which the ${neededBy} records cannot be written without: read by id, ` +
           'nothing read under them' +
@@ -8424,7 +8555,7 @@ export class ForgeExecutor {
           message:
             `[dry-run] ${node.objectApiName}: ${inserted} record(s) would be inserted` +
             (withTheirAccount > 0
-              ? `, ${withTheirAccount} would be written by the platform with their person account`
+              ? `, ${withTheirAccount} would be written by the platform with ${writtenWithWords(node.objectApiName)}`
               : '') +
             notesOf(state, node.objectApiName),
         });
@@ -9128,7 +9259,7 @@ export class ForgeExecutor {
    * opportunity owner's split"), and it was in the target before the run no
    * more than the opportunity was: none of the records the target held. The
    * values its row gives the fields the run writes, which the target's record
-   * holds others of, are said (`notKept`), the record keeping its own: the
+   * holds others of, are counted (`values`), the record keeping its own: the
    * row the run read goes through none of what prepares a row to be written,
    * the anonymization among it, so none of it is written over the record.
    *
@@ -9152,10 +9283,11 @@ export class ForgeExecutor {
     held: OpportunityTeamRows['held'];
     linked: number;
     owners: number;
-    notKept: string;
+    values: TeamValuesLeft;
   }> {
+    const values: TeamValuesLeft = { notKept: new Map(), unread: new Map() };
     if (!isOpportunityTeamObject(objectApiName) || rows.length === 0) {
-      return { rows, lookups: new Map(), held: new Map(), linked: 0, owners: 0, notKept: '' };
+      return { rows, lookups: new Map(), held: new Map(), linked: 0, owners: 0, values };
     }
     const { config, remapper, simulated } = state;
     const userField = TEAM_USER_FIELD[objectApiName];
@@ -9206,9 +9338,7 @@ export class ForgeExecutor {
     }
     let owners = 0;
     let withTheirOpportunity = 0;
-    /** How many rows were linked without each field's value, in the order first met. */
-    const notKept = new Map<string, number>();
-    for (const [row, { id, owners: ofTheOwner, notKept: fields }] of team.linked) {
+    for (const [row, { id, owners: ofTheOwner, notKept, unread = [] }] of team.linked) {
       const source = String(row['Id']);
       remapper.addExisting(source, id, objectApiName);
       if (remapper.isCreated(String(row['OpportunityId']))) {
@@ -9216,7 +9346,8 @@ export class ForgeExecutor {
         withTheirOpportunity++;
       }
       if (ofTheOwner) owners++;
-      for (const field of fields) notKept.set(field, (notKept.get(field) ?? 0) + 1);
+      for (const field of notKept) values.notKept.set(field, (values.notKept.get(field) ?? 0) + 1);
+      for (const field of unread) values.unread.set(field, (values.unread.get(field) ?? 0) + 1);
     }
     const linked = team.linked.size;
     if (linked > 0) state.linkedCount += linked;
@@ -9234,12 +9365,7 @@ export class ForgeExecutor {
       held: team.held,
       linked,
       owners,
-      notKept: [...notKept]
-        .map(
-          ([field, count]) =>
-            `${count} linked without the source's ${field}: the target's record keeps its own`,
-        )
-        .join(', '),
+      values,
     };
   }
 
@@ -9740,7 +9866,12 @@ export class ForgeExecutor {
    * takes it as any contact: one without person accounts, or one that takes
    * its account as a business one. Of accounts, none; it notes the contacts of
    * those the target would take as business accounts, which go on their own
-   * (`noteContactsOfBusinessAccounts`).
+   * (`noteContactsOfBusinessAccounts`). Of an opportunity's team, the owner's
+   * member and split of each opportunity the run creates, which the platform
+   * writes with it, as the write stage links them (`teamThePlatformWrites`):
+   * said inserted at the read, the split line read two where the line that
+   * ended the object, and the run, said one. The words of the line are the
+   * object's (`writtenWithWords`).
    *
    * @param createable - The fields of the object the source lets the run write.
    */
@@ -9750,6 +9881,15 @@ export class ForgeExecutor {
     rows: readonly Record<string, unknown>[],
     createable: ReadonlySet<string>,
   ): Promise<number> {
+    if (isOpportunityTeamObject(objectApiName)) {
+      const opportunities = new Set(
+        (state.preread.get('Opportunity')?.records ?? [])
+          .filter((row) => !wasWrittenBefore(state.config, row))
+          .map((row) => String(row['Id'])),
+      );
+      if (rows.length === 0 || opportunities.size === 0) return 0;
+      return (await this.teamThePlatformWrites(state, objectApiName, rows, opportunities)).size;
+    }
     if (objectApiName === ACCOUNT) {
       await this.noteContactsOfBusinessAccounts(state, rows, createable);
       return 0;
@@ -10407,7 +10547,7 @@ export class ForgeExecutor {
           message:
             `[dry-run] ${objectApiName}: ${added - withTheirAccount} more record(s) would be inserted` +
             (withTheirAccount > 0
-              ? `, ${withTheirAccount} more would be written by the platform with their person account`
+              ? `, ${withTheirAccount} more would be written by the platform with ${writtenWithWords(objectApiName)}`
               : '') +
             `, ${note}` +
             failedHeldBack(heldForExclusionsWhy(heldNow.map(([, why]) => why)), true),
@@ -10919,11 +11059,17 @@ export class ForgeExecutor {
    * with a record the run creates, said beside them (`leftOut.byThePlatform`):
    * the owner's member and split of each opportunity, as a simulation links
    * them (`opportunityTeamOf`); the contact of a person account the target
-   * takes as one; the task of an email that does not wait for it. The write
-   * links each to what the platform wrote, and sends none of them. Counted,
-   * the gate of one opportunity's clone said 5 records where the run wrote 3,
-   * and held the run to --max-total and the target's storage for 2 it never
-   * sent, its dry run included.
+   * takes as one. The write links each to what the platform wrote, and sends
+   * none of them: one whose opportunity or account is refused is held back
+   * with it. Counted, the gate of one opportunity's clone said 5 records
+   * where the run wrote 3, and held the run to --max-total and the target's
+   * storage for 2 it never sent, its dry run included.
+   *
+   * The task of an email stays counted, though the platform writes it as it
+   * takes the email: an email refused, or written related to nothing for its
+   * record refused, gets no task of the platform's, and the run sends the
+   * task itself. Left out, the gate held a run to fewer records than it then
+   * wrote.
    */
   private async withoutWhatThePlatformWrites(
     state: ExecutionState,
@@ -10947,25 +11093,6 @@ export class ForgeExecutor {
       rowsOf(CONTACT),
     );
     if (contacts.size > 0) platform.set(CONTACT, contacts);
-    // The platform writes the task of an email related to a record of the
-    // target, one the run writes or holds; an email on a case waits for the
-    // task the run writes itself (`waitsForItsTask`).
-    const written = new Set(objects.flatMap((object) => object.rows.map((row) => row['Id'])));
-    const emailTasks = new Set(
-      rowsOf(EMAIL_MESSAGE).flatMap((email) => {
-        const task = email['ActivityId'];
-        const related = email['RelatedToId'];
-        const inTheTarget =
-          typeof related === 'string' &&
-          related !== '' &&
-          (written.has(related) || state.remapper.get(related) !== undefined);
-        return typeof task === 'string' && task !== '' && inTheTarget && !waitsForItsTask(email)
-          ? [task]
-          : [];
-      }),
-    );
-    const tasks = new Set(rowsOf(TASK).filter((row) => emailTasks.has(String(row['Id']))));
-    if (tasks.size > 0) platform.set(TASK, tasks);
     return objects.map((object) => {
       const itsOwn = platform.get(object.objectApiName);
       if (!itsOwn || itsOwn.size === 0) return object;
@@ -12299,7 +12426,7 @@ export class ForgeExecutor {
       if (page) {
         page.teamOwners += team.owners;
         page.teamOthers += team.linked - team.owners;
-        if (team.notKept) page.flagsNotKept.push(team.notKept);
+        addTeamValues(page.teamValues, team.values);
       }
 
       // A lookup the rows may not leave empty and that can name several
@@ -12943,7 +13070,7 @@ export class ForgeExecutor {
       // the answer that goes with it: the who the event also invites, and
       // how it answered, which the platform's relation leaves out. And a row
       // of a team linked to without a value it gave a field the run writes.
-      const flagsNotKept = [writeResult.flagsNotKept, team.notKept]
+      const flagsNotKept = [writeResult.flagsNotKept, teamValuesNote(team.values)]
         .flatMap((note) => (note ? [`, ${note}`] : []))
         .join('');
       // A row written without the fields the target refused it on: which

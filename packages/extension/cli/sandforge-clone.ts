@@ -267,7 +267,6 @@ import {
   storageRefusal,
   writePlanLines,
   writePlanOf,
-  writtenWithWords,
   forgeWriteBudgetOf,
   readApiBudget,
   takeCheckpointFirst,
@@ -279,6 +278,7 @@ import {
   type DataStorage,
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { writtenWithWords } from '../src/core/common/platformRecords.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
   CHECKPOINT_FIRST_FLAGS,
@@ -3583,6 +3583,36 @@ export function rehearsalLines(
     );
   }
   return lines;
+}
+
+/**
+ * The rehearsal as `--rehearse --json` gives it: each refusal by a validation
+ * rule the run's mute lifts says so, as its line says it (`rehearsalLines`):
+ * the bypass that lifts it under `detail.liftedByPermission`, and the set the
+ * mute assigns that grants it under `detail.liftedByPermissionSet`. The JSON
+ * named the rule and not that the mute lifts it: read alone, the refusal was
+ * of a row the run under the mute writes whole.
+ */
+function rehearsalJson(
+  rehearsal: ForgeRehearsal,
+  lifted: readonly MutedAutomationAlsoLifted[] | undefined,
+): ForgeRehearsal {
+  return {
+    ...rehearsal,
+    gaps: rehearsal.gaps.map((gap) => {
+      const by = gapLiftedBy(gap, lifted);
+      return by
+        ? {
+            ...gap,
+            detail: {
+              ...gap.detail,
+              liftedByPermission: by.permission,
+              liftedByPermissionSet: by.permissionSet,
+            },
+          }
+        : gap;
+    }),
+  };
 }
 
 /** What `--remove` was given. */
@@ -7201,7 +7231,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             record: args.record,
             graph: graphJson(graph, plan),
             targetAutomation,
-            rehearsal,
+            rehearsal: rehearsalJson(rehearsal, liftedByMute),
             elapsedMs,
           },
           null,

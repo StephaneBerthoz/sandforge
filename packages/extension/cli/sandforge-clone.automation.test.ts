@@ -1495,6 +1495,30 @@ describe('sandforge-clone target automation', () => {
           'without; a real run under it writes the row whole',
       );
       expect(printed.join('\n')).not.toContain('a real run writes it again without the field');
+
+      // With --json, the refusal names the rule lifted, as its line says it:
+      // a CI job reading detail.rule alone took the row for one the run loses.
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--rehearse', '--mute-automation', '--json')),
+      ).toBeUndefined();
+      const answered = JSON.parse(stdout) as {
+        rehearsal: { gaps: Array<{ objectApiName: string; detail?: Record<string, unknown> }> };
+      };
+      expect(
+        answered.rehearsal.gaps.map(({ objectApiName, detail }) => [objectApiName, detail]),
+      ).toEqual([
+        [
+          'Contact',
+          expect.objectContaining({
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            rule: 'Email_Required',
+            liftedByPermission: 'Bypass_VR',
+            liftedByPermissionSet: 'Data_Load',
+          }),
+        ],
+      ]);
+      expect(perms.writes).toEqual([]);
     });
 
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {

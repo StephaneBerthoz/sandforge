@@ -7,7 +7,14 @@ import type {
   ForgeProgressEvent,
   ForgeWriteBoundary,
 } from './ForgeExecutor.js';
-import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
+import {
+  countedEmailChecksOf,
+  emailCheckLines,
+  emailsUncountedOf,
+  insertsOf,
+  leftOutLines,
+  writePlanOf,
+} from './ForgeRunGate.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { TeamSellingOrg } from '../../test/teamSellingOrg.js';
@@ -219,11 +226,23 @@ const ROOTED_AT_THE_DEAL = { rootRecordId: DEAL, rootObjectApiName: 'Opportunity
 const TARGET_READS =
   /\bFROM (Opportunity|OpportunityTeamMember|OpportunitySplit|OpportunitySplitType|User)\b/;
 
+/** What else the orgs of {@link orgs} hold. */
+interface OrgsOptions {
+  /** The objects' fields in both orgs; {@link FIELDS} when left out. */
+  fields?: Record<string, FieldInfo[]>;
+  /** The values the target's field defaults give a member it writes. */
+  memberDefaults?: Record<string, string>;
+}
+
 /**
  * The source holding `tables`, and a target with Team Selling and Splits on
  * that holds `users` besides the user the run writes as.
  */
-function orgs(tables: Record<string, FakeRow[]> = sourceRows(), users: string[] = []) {
+function orgs(
+  tables: Record<string, FakeRow[]> = sourceRows(),
+  users: string[] = [],
+  { fields = FIELDS, memberDefaults }: OrgsOptions = {},
+) {
   const target = new TeamSellingOrg({
     runningUser: RUNNING_USER,
     users,
@@ -231,9 +250,10 @@ function orgs(tables: Record<string, FakeRow[]> = sourceRows(), users: string[] 
       { Id: TARGET_REVENUE, DeveloperName: 'Revenue', IsTotalValidated: true },
       { Id: TARGET_OVERLAY, DeveloperName: 'Overlay', IsTotalValidated: false },
     ],
+    ...(memberDefaults ? { memberDefaults } : {}),
   });
   const deps = {
-    describeFields: vi.fn(async (_org: string, object: string) => FIELDS[object] ?? [idField]),
+    describeFields: vi.fn(async (_org: string, object: string) => fields[object] ?? [idField]),
     queryRecords: vi.fn(async (org: string, soql: string) => {
       if (org === 'src') return selectRows(tables, soql);
       return TARGET_READS.test(soql) ? target.query(soql) : [];
@@ -468,6 +488,35 @@ describe('ForgeExecutor, an opportunity with Team Selling and Splits on', () => 
       'Simulated OpportunitySplit: 1 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed',
     );
   });
+
+  it('says on the line of its read what the platform writes with the opportunity, as the line that ends the object says it', async () => {
+    // Played for real: "[dry-run] OpportunitySplit: 2 record(s) would be
+    // inserted" was read, of a dry run whose split line, and the run, said
+    // one inserted and the owner's Revenue split the platform's.
+    // From the deal, and over whole tables, which write each object as they read it.
+    for (const scoped of [true, false]) {
+      const deps = scoped ? orgs().deps : pagedOrgs(sourceRows());
+      const said: ForgeProgressEvent[] = [];
+
+      await new ForgeExecutor(deps).execute(
+        dealGraph(),
+        'src',
+        'tgt',
+        (event) => said.push(event),
+        { ...(scoped ? ROOTED_AT_THE_DEAL : {}), dryRun: true },
+      );
+
+      const messages = said.map((event) => event.message);
+      expect(messages).toContain(
+        '[dry-run] OpportunityTeamMember: 0 record(s) would be inserted, 1 would be written by the ' +
+          'platform with their opportunity, for its owner',
+      );
+      expect(messages).toContain(
+        '[dry-run] OpportunitySplit: 1 record(s) would be inserted, 1 would be written by the ' +
+          'platform with their opportunity, for its owner',
+      );
+    }
+  });
 });
 
 describe('ForgeExecutor, a decision giving a user to a team row whose user the target has no counterpart of', () => {
@@ -700,6 +749,55 @@ describe('ForgeExecutor, the values of a team row linked to the record the platf
         "1 linked without the source's SplitNote: the target's record keeps its own",
     );
   });
+
+  it("says in a dry run that a custom field of the owner's member was not read, where the run finds the target's member holds its value", async () => {
+    // The target gives the member's region a default value, which the
+    // platform's own member of the owner holds: the run links to it and
+    // loses nothing. Compared with what the platform is known to write,
+    // role and access alone, the dry run said the region lost.
+    const fields = {
+      ...FIELDS,
+      OpportunityTeamMember: [...FIELDS['OpportunityTeamMember'], text('Region__c')],
+    };
+    const withARegion = (): Record<string, FakeRow[]> => {
+      const tables = sourceRows();
+      tables['OpportunityTeamMember'][0]['Region__c'] = 'EMEA';
+      return tables;
+    };
+    const ran = orgs(withARegion(), [], { fields, memberDefaults: { Region__c: 'EMEA' } });
+    const ranSaid: ForgeProgressEvent[] = [];
+    await new ForgeExecutor(ran.deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => ranSaid.push(event),
+      ROOTED_AT_THE_DEAL,
+    );
+    const simulated = orgs(withARegion(), [], { fields, memberDefaults: { Region__c: 'EMEA' } });
+    const said: ForgeProgressEvent[] = [];
+
+    await new ForgeExecutor(simulated.deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { ...ROOTED_AT_THE_DEAL, dryRun: true },
+    );
+
+    expect(ran.target.teamOf(copyOf(ran.target))[0]['Region__c']).toBe('EMEA');
+    expect(ranSaid.map((event) => event.message)).toContain(
+      'Completed OpportunityTeamMember: 0 succeeded, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
+    );
+    // The access the platform gives the owner is known, and said lost; the
+    // region the target may default is not, and said unread.
+    expect(said.map((event) => event.message)).toContain(
+      'Simulated OpportunityTeamMember: 0 would be inserted, 1 written by the platform with their opportunity, for its owner, 0 failed, ' +
+        "1 linked without the source's OpportunityAccessLevel: the target's record keeps its own, " +
+        '1 linked whose Region__c was not read: the platform writes the record with the ' +
+        'opportunity, which a dry run does not write',
+    );
+  });
 });
 
 describe('ForgeExecutor, where the records the platform wrote with the run’s opportunity are said', () => {
@@ -748,6 +846,73 @@ describe('ForgeExecutor, where the records the platform wrote with the run’s o
     }
   });
 
+  it('counts the emails the flows of what the platform writes send, which run on those records all the same, and says them', async () => {
+    // The gate left the owner's member out of the records to write, and the
+    // emails it counted followed: a flow sending one per member inserted was
+    // counted for none, where the platform's member starts it.
+    const { deps } = orgs();
+    let shown: ForgeWriteBoundary | undefined;
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      dryRun: true,
+      beforeWrite: async (boundary) => {
+        shown = boundary;
+      },
+    });
+    const plan = writePlanOf(shown?.objects ?? []);
+
+    const checks = countedEmailChecksOf(
+      plan,
+      [
+        {
+          objectApiName: 'OpportunityTeamMember',
+          limit: 'SingleEmail',
+          perRecord: 1,
+          sentBy: ['flow "Welcome to the team"'],
+        },
+      ],
+      { SingleEmail: { max: 5000, remaining: 4990 } },
+    );
+
+    expect(plan.objects.map(({ objectApiName }) => objectApiName)).not.toContain(
+      'OpportunityTeamMember',
+    );
+    expect(checks.map(({ limit, emails }) => ({ limit, emails }))).toEqual([
+      { limit: 'SingleEmail', emails: 1 },
+    ]);
+    expect(emailCheckLines(checks, 'DEV')).toEqual([
+      '  emails: these records make DEV send about 1 single emails (1 per OpportunityTeamMember, ' +
+        'by flow "Welcome to the team"; 1 OpportunityTeamMember written by the platform with ' +
+        'their opportunity, for its owner, whose flows run all the same); it has 4990 of 5000 left today',
+    ]);
+    // A flow of theirs whose definition was not read is said not counted.
+    expect(
+      emailsUncountedOf(
+        {
+          objects: [
+            {
+              objectApiName: 'OpportunityTeamMember',
+              flows: [
+                {
+                  apiName: 'Team_Welcome',
+                  label: 'Team welcome',
+                  timing: 'afterSave',
+                  startsOn: 'create',
+                  condition: 'notRead',
+                  permissions: [],
+                  messages: [],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+        },
+        insertsOf(plan),
+      ),
+    ).toBe('the definition of Team welcome on OpportunityTeamMember');
+  });
+
   it('lists none of them among the records the target held already, in a run or in a dry run', async () => {
     for (const dryRun of [false, true]) {
       const { deps } = orgs();
@@ -771,39 +936,7 @@ describe('ForgeExecutor, where the records the platform wrote with the run’s o
   });
 
   it('says them, in a run of whole tables read page by page, as a run read whole says them', async () => {
-    const tables = sourceRows();
-    const { deps } = orgs(tables);
-    /** A whole table's read, as a run of whole tables asks it, in the order of the ids. */
-    const whole = (soql: string): FakeRow[] | undefined => {
-      const match =
-        /^SELECT .+? FROM (\w+)(?: WHERE Id > '(\w+)')?(?: ORDER BY Id)?(?: LIMIT (\d+))?$/.exec(
-          soql,
-        );
-      if (!match) return undefined;
-      const [, object, after, limit] = match;
-      return [...(tables[object] ?? [])]
-        .sort((a, b) => String(a['Id']).localeCompare(String(b['Id'])))
-        .filter((row) => after === undefined || String(row['Id']) > after)
-        .slice(0, limit === undefined ? undefined : Number(limit));
-    };
-    const read = (soql: string): FakeRow[] => whole(soql) ?? selectRows(tables, soql);
-    const paged = {
-      ...deps,
-      queryRecords: vi.fn(async (org: string, soql: string) =>
-        org === 'src' ? read(soql) : deps.queryRecords(org, soql),
-      ),
-      queryPages: (org: string, soql: string) =>
-        (async function* pages(): AsyncGenerator<FakeRow[]> {
-          if (org !== 'src') return;
-          const rows = read(soql);
-          if (rows.length === 0) yield [];
-          for (let at = 0; at < rows.length; at += 1) yield rows.slice(at, at + 1);
-        })(),
-      countRecords: vi.fn(
-        async (_org: string, soql: string) =>
-          tables[/FROM (\w+)/.exec(soql)?.[1] ?? '']?.length ?? 0,
-      ),
-    } satisfies ForgeExecutorDeps;
+    const paged = pagedOrgs(sourceRows());
     const said: ForgeProgressEvent[] = [];
 
     const summary = await new ForgeExecutor(paged).execute(
@@ -828,7 +961,84 @@ describe('ForgeExecutor, where the records the platform wrote with the run’s o
     expect(summary.existingRecords).toEqual([]);
     expect(finishedRunStatus(summary)).toBe('success');
   });
+
+  it('says once, for the whole table read page by page, how many of its linked rows went without a value', async () => {
+    // Read a page at a time, the line repeated "1 linked without the
+    // source's OpportunityAccessLevel" once per opportunity's page.
+    const tables = sourceRows();
+    tables['Opportunity'].push({
+      Id: '006SRC000000006AAA',
+      Name: 'Deal 06',
+      StageName: 'Prospecting',
+      AccountId: ACCOUNT,
+      OwnerId: SOURCE_OWNER,
+    });
+    tables['OpportunityTeamMember'].push({
+      Id: '00qSRC000000003AAA',
+      OpportunityId: '006SRC000000006AAA',
+      UserId: SOURCE_OWNER,
+      TeamMemberRole: 'Opportunity Owner',
+      OpportunityAccessLevel: 'Edit',
+    });
+    const said: ForgeProgressEvent[] = [];
+
+    for (const dryRun of [false, true]) {
+      said.length = 0;
+      await new ForgeExecutor(pagedOrgs(tables)).execute(
+        dealGraph(),
+        'src',
+        'tgt',
+        (event) => said.push(event),
+        { stream: { pageSize: 1 }, dryRun },
+      );
+
+      expect(said.map((event) => event.message)).toContain(
+        `${dryRun ? 'Simulated' : 'Completed'} OpportunityTeamMember: 0 ${dryRun ? 'would be inserted' : 'succeeded'}, ` +
+          '2 written by the platform with their opportunity, for its owner, 0 failed, ' +
+          "2 linked without the source's OpportunityAccessLevel: the target's record keeps its own",
+      );
+    }
+  });
 });
+
+/**
+ * {@link orgs} holding `tables`, the source read as a run of whole tables
+ * reads it: a table at a time in the order of its ids, a row a page, and
+ * counted.
+ */
+function pagedOrgs(tables: Record<string, FakeRow[]>): ForgeExecutorDeps {
+  const { deps } = orgs(tables);
+  /** A whole table's read, as a run of whole tables asks it, in the order of the ids. */
+  const whole = (soql: string): FakeRow[] | undefined => {
+    const match =
+      /^SELECT .+? FROM (\w+)(?: WHERE Id > '(\w+)')?(?: ORDER BY Id)?(?: LIMIT (\d+))?$/.exec(
+        soql,
+      );
+    if (!match) return undefined;
+    const [, object, after, limit] = match;
+    return [...(tables[object] ?? [])]
+      .sort((a, b) => String(a['Id']).localeCompare(String(b['Id'])))
+      .filter((row) => after === undefined || String(row['Id']) > after)
+      .slice(0, limit === undefined ? undefined : Number(limit));
+  };
+  const read = (soql: string): FakeRow[] => whole(soql) ?? selectRows(tables, soql);
+  return {
+    ...deps,
+    queryRecords: vi.fn(async (org: string, soql: string) =>
+      org === 'src' ? read(soql) : deps.queryRecords(org, soql),
+    ),
+    queryPages: (org: string, soql: string) =>
+      (async function* pages(): AsyncGenerator<FakeRow[]> {
+        if (org !== 'src') return;
+        const rows = read(soql);
+        if (rows.length === 0) yield [];
+        for (let at = 0; at < rows.length; at += 1) yield rows.slice(at, at + 1);
+      })(),
+    countRecords: vi.fn(
+      async (_org: string, soql: string) => tables[/FROM (\w+)/.exec(soql)?.[1] ?? '']?.length ?? 0,
+    ),
+  } satisfies ForgeExecutorDeps;
+}
 
 describe('ForgeExecutor, a rehearsal of an opportunity with Team Selling and Splits on', () => {
   const KEY_PREFIXES: Record<string, string> = {

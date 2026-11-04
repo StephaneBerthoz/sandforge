@@ -55,6 +55,12 @@ export interface TeamSellingOrgOptions {
   /** The org's other active users. */
   readonly users?: readonly string[];
   readonly splitTypes: readonly TeamSellingSplitType[];
+  /**
+   * The values the org's own field defaults give a member it is not sent
+   * them for — the owner's, which it writes itself among them: a custom field
+   * with a default value.
+   */
+  readonly memberDefaults?: Readonly<Record<string, string>>;
 }
 
 const NOT_ON_THE_TEAM =
@@ -163,6 +169,7 @@ export class TeamSellingOrg {
   /** The owner's member, and the owner's split of each type held to 100 %. */
   private writeWithTheOpportunity(opportunityId: string, owner: string): void {
     this.tables['OpportunityTeamMember'].push({
+      ...this.options.memberDefaults,
       Id: this.idFor('OpportunityTeamMember'),
       OpportunityId: opportunityId,
       UserId: owner,
@@ -204,6 +211,7 @@ export class TeamSellingOrg {
     }
     const id = this.idFor('OpportunityTeamMember');
     this.tables['OpportunityTeamMember'].push({
+      ...this.options.memberDefaults,
       Id: id,
       OpportunityId: opportunity,
       UserId: user,

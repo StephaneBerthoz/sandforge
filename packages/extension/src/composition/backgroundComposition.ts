@@ -922,26 +922,21 @@ function writeQuestion(question: WriteConfirmation): string[] {
     );
   }
   // What the platform writes itself with a record the run creates: linked
-  // to, never sent, as the line of each object says once written.
+  // to, never sent, as the line of each object says once written. An
+  // email's task is counted, the run sending it for an email refused.
   for (const { objectApiName, rows } of leftOut?.byThePlatform ?? []) {
     lines.push(
-      objectApiName === 'Task'
+      objectApiName === 'Contact'
         ? vscode.l10n.t(
-            'Not counted: {0}, {1} records written by the platform with their email, which the run links to and does not send.',
+            'Not counted: {0}, {1} records written by the platform with their person account, which the run links to and does not send.',
             objectApiName,
             rows,
           )
-        : objectApiName === 'Contact'
-          ? vscode.l10n.t(
-              'Not counted: {0}, {1} records written by the platform with their person account, which the run links to and does not send.',
-              objectApiName,
-              rows,
-            )
-          : vscode.l10n.t(
-              'Not counted: {0}, {1} records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
-              objectApiName,
-              rows,
-            ),
+        : vscode.l10n.t(
+            'Not counted: {0}, {1} records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
+            objectApiName,
+            rows,
+          ),
     );
   }
   if (question.alreadyCopied !== undefined && question.alreadyCopied > 0) {

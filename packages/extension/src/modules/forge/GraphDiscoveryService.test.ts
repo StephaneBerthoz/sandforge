@@ -1379,6 +1379,62 @@ describe('GraphDiscoveryService', () => {
       expect(graph.edges.some((e) => e.targetObject === 'OpportunityRelatedDeleteLog')).toBe(false);
     });
 
+    it("leaves out of a case's graph the calendars, entitlement processes and approvals no user creates, whatever they hold", async () => {
+      // A deep clone reached a calendar and an entitlement process, both of
+      // them holding rows, and its dry run said each BLOCKING: no user can
+      // be granted Create on them.
+      const lookup = (name: string, target: string) => ({
+        name,
+        type: 'reference',
+        referenceTo: [target],
+        relationshipName: name.replace(/Id$/, ''),
+        isMasterDetail: false,
+      });
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Case'
+          ? {
+              name: 'Case',
+              fields: [
+                {
+                  name: 'Id',
+                  type: 'id',
+                  referenceTo: [],
+                  relationshipName: null,
+                  isMasterDetail: false,
+                },
+                lookup('EntitlementId', 'Entitlement'),
+                lookup('SlaProcessId', 'SlaProcess'),
+                lookup('CalendarId', 'Calendar'),
+              ],
+              childRelationships: [
+                {
+                  childSObject: 'ApprovalSubmission',
+                  field: 'RelatedRecordId',
+                  relationshipName: 'ApprovalSubmissions',
+                  isCascadeDelete: true,
+                },
+                {
+                  childSObject: 'AIRecordInsight',
+                  field: 'TargetId',
+                  relationshipName: 'RecordInsights',
+                  isCascadeDelete: true,
+                },
+              ],
+            }
+          : { name: objectName, fields: [], childRelationships: [] },
+      );
+      vi.mocked(deps.queryCount).mockResolvedValue(3);
+
+      const graph = await service.discover(
+        createConfig({ recordId: '500XXXXXXXXXXXX', depth: 'direct' }),
+      );
+
+      expect(graph.nodes.map((n) => n.objectApiName).sort()).toEqual(['Case', 'Entitlement']);
+      expect(graph.edges.map((e) => [e.sourceObject, e.targetObject])).toEqual([
+        ['Entitlement', 'Case'],
+      ]);
+    });
+
     it('leaves the files of a record and their links out of the graph', async () => {
       // Walked into as records, a file's body was read as its address and an
       // insert would have written that address: a run that copies files does

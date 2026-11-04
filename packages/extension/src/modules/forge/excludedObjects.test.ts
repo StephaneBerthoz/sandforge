@@ -59,6 +59,36 @@ describe('isExcludedFromCopy', () => {
     }
   });
 
+  it('excludes what the platform alone creates and the setup it keeps as records, which no user can be granted Create on', () => {
+    // An administrator's describe says none of them createable; a deep clone
+    // said a calendar and an entitlement process BLOCKING, and asked the
+    // target's admin to grant Create on them.
+    for (const name of [
+      'Calendar',
+      'SlaProcess',
+      'AccountCleanInfo',
+      'ContactCleanInfo',
+      'LeadCleanInfo',
+      'ApprovalSubmission',
+      'ApprovalSubmissionDetail',
+      'ApprovalWorkItem',
+      'AIRecordInsight',
+      'AIInsightValue',
+      'MatchingInformation',
+      'Invoice',
+      'InvoiceLine',
+      'CreditMemo',
+      'CreditMemoLine',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopied(name), name).toBe(true);
+    }
+    // The records they are about stay: an entitlement, a case, an order.
+    for (const name of ['Entitlement', 'Case', 'Order', 'Event']) {
+      expect(isExcludedFromCopy(name), name).toBe(false);
+    }
+  });
+
   it('keeps the data objects a clone is for', () => {
     for (const name of ['Account', 'Contact', 'Case', 'Asset', 'Invoice__c', 'Vlocity__c']) {
       expect(isExcludedFromCopy(name)).toBe(false);
