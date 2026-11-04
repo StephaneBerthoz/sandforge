@@ -94,6 +94,15 @@ describe('useSeedAutomation', () => {
     expect(sentAll('seed:automation')).toHaveLength(1);
   });
 
+  it('says, for a run that publishes its articles, that it does, and nothing of it for another', () => {
+    renderHook(() => useSeedAutomation('org-1', ['Knowledge__kav'], true));
+    renderHook(() => useSeedAutomation('org-2', ['Knowledge__kav']));
+    expect(sentAll('seed:automation').map((m) => m.payload)).toEqual([
+      { orgId: 'org-1', objects: ['Knowledge__kav'], publishes: true },
+      { orgId: 'org-2', objects: ['Knowledge__kav'] },
+    ]);
+  });
+
   it('asks nothing without an org or an object', () => {
     renderHook(() => useSeedAutomation('', ['Contact']));
     renderHook(() => useSeedAutomation('org-1', []));

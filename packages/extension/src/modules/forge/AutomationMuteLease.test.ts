@@ -294,6 +294,34 @@ describe('acquiring a lease', () => {
     expect(journalOf(org).leases).toEqual([]);
   });
 
+  it('takes back only what it created as it refuses: a set an admin assigned the user meanwhile stays', async () => {
+    // The sets not yet tried were looked up by the user and taken back as
+    // the run's own: an admin's assignment made while the lease was being
+    // taken went with them.
+    let admins: string | undefined;
+    const org = orgWith({
+      refuseAssigning: { [SET_FLOW]: 'FIELD_INTEGRITY_EXCEPTION' },
+      beforeWrite: (write) => {
+        if (write.kind === 'insert' && write.permissionSetId === SET_FLOW) {
+          admins = org.assign(SET_VR);
+        }
+      },
+    });
+    const mute = await prepared(org, asProcess(100));
+    const error = await mute.acquire('run-1').catch((err: unknown) => err);
+
+    expect(isMuteRefusedError(error)).toBe(true);
+    expect((error as Error).message).toBe(
+      'PS_BypassFlow could not be assigned to the user the run writes as: The org refused the ' +
+        'assignment: FIELD_INTEGRITY_EXCEPTION. Nothing was assigned.',
+    );
+    expect(org.writes.filter((w) => w.kind === 'delete')).toEqual([]);
+    expect(org.assignments()).toEqual([
+      { id: admins, assigneeId: org.userId, permissionSetId: SET_VR },
+    ]);
+    expect(journalOf(org).leases).toEqual([]);
+  });
+
   it('refuses a set the org does not hold before anything is journaled or assigned', async () => {
     const org = memoryPermissionOrg({ sets: [SETS[0]] });
     const mute = await prepared(org, asProcess(100));
@@ -671,16 +699,109 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       expect(stuck).toMatchObject({ permissionSetId: SET_FLOW, assigneeId: org.userId });
       expect((error as Error).message).toBe(
         `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow (The org refused ` +
-          'the delete: UNABLE_TO_LOCK_ROW) could not be taken back: the next run that mutes ' +
-          'this org once the journal can be written takes it back.',
+          'the delete: UNABLE_TO_LOCK_ROW) could not be taken back. The journal still names ' +
+          "this run's lease: once the journal can be written, the next run that mutes this org " +
+          'from this process releases the lease, and one from another process only once ' +
+          'process 100 has ended.',
       );
 
+      // The next run of the same process.
       delete refuse[stuck.id];
       const next = await (await prepared(org, asProcess(100))).acquire('run-2');
       expect(org.writes.filter((w) => w.kind === 'delete' && w.id === stuck.id)).toHaveLength(2);
       await next.release();
       expect(org.assignments()).toEqual([]);
       expect(journalOf(org).leases).toEqual([]);
+    });
+
+    it('says who releases the lease the journal still names: a run of another process only once this one has ended', async () => {
+      // The run's process goes on, as a window does. The journal, not
+      // written, names its lease alive, and the folder, read only, kept the
+      // journal's lock too: the message said the next run took back what the
+      // org kept, and a run of another process found the journal held, then
+      // the lease alive, and left the set where it was.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.parse('2026-10-30T09:00:00.000Z'));
+      try {
+        const folder = readOnlyOnceAssigning();
+        const refuse: Record<string, string> = {};
+        const org = orgWith({
+          refuseDeleting: refuse,
+          beforeWrite: (write) => {
+            folder.beforeWrite(write);
+            if (write.kind === 'delete' && folder.readOnly()) {
+              refuse[write.id] = 'UNABLE_TO_LOCK_ROW';
+            }
+          },
+        });
+        /** The lease of a run that mutes the one flow its set's bypass keeps quiet. */
+        const oneSet = async (options: MuteLeaseOptions): Promise<MutePrepared> => {
+          const answer = await prepareMute(muteOrgOf(org.connection), liftingTwoRules, options);
+          if ('refused' in answer) throw new Error(`refused: ${answer.refused.message}`);
+          return answer;
+        };
+        let error: unknown;
+        try {
+          error = await (
+            await oneSet(asProcess(100))
+          )
+            .acquire('run-1')
+            .catch((err: unknown) => err);
+        } finally {
+          folder.restore();
+        }
+
+        expect((error as MuteRefusedError).code).toBe('MUTE_FAILED');
+        expect((error as Error).message).toBe(
+          `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow (The org refused ` +
+            'the delete: UNABLE_TO_LOCK_ROW) could not be taken back. The journal still names ' +
+            "this run's lease: once the journal can be written, the next run that mutes this org " +
+            'from this process releases the lease, and one from another process only once ' +
+            'process 100 has ended.',
+        );
+        const [stuck] = org.assignments();
+        delete refuse[stuck.id];
+        const lock = `${muteJournalFileOf(dir, org.organizationId, org.userId)}.lock`;
+        expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: 100 });
+
+        // Process 100 runs on: the lock it could not remove holds the journal,
+        // each look at it a minute and a second later.
+        const waiting = asProcess(200);
+        const held = await (
+          await oneSet({
+            ...waiting,
+            checks: {
+              ...waiting.checks,
+              isAlive: (pid) => {
+                if (pid === 100) vi.setSystemTime(Date.now() + 61_000);
+                return true;
+              },
+            },
+          })
+        )
+          .acquire('run-2')
+          .catch((err: unknown) => err);
+        expect((held as MuteRefusedError).code).toBe('MUTE_FAILED');
+        expect((held as Error).message).toContain('stayed held by process 100 for a minute');
+        expect(org.assignments().map((a) => a.id)).toEqual([stuck.id]);
+
+        // Without the lock, as a folder that takes its removal leaves it: the
+        // lease holds, before its end.
+        rmSync(lock, { force: true });
+        const other = await (await oneSet(asProcess(200))).acquire('run-3');
+        expect(other.outcome).toMatchObject({ assigned: [], held: ['PS_BypassFlow'] });
+        await other.release();
+        expect(org.assignments().map((a) => a.id)).toEqual([stuck.id]);
+
+        // Process 100 ended: a run of another process takes back what the org kept.
+        const later = await (await oneSet(asProcess(200, (pid) => pid !== 100))).acquire('run-4');
+        expect(org.writes.filter((w) => w.kind === 'delete' && w.id === stuck.id)).toHaveLength(2);
+        await later.release();
+        expect(org.assignments()).toEqual([]);
+        expect(journalOf(org).leases).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('says the journal that could not be written as it takes back a set the org refused', async () => {

@@ -732,6 +732,8 @@ export const seedAutomationPayloadSchema = z
   .object({
     orgId: orgIdSchema,
     objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    /** The run publishes its articles once written, a scenario's: its mute is planned for it. */
+    publishes: z.boolean().optional(),
   })
   .strict();
 export const seedDescribeObjectPayloadSchema = z.object({

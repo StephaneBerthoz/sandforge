@@ -8,6 +8,7 @@ import {
   seedEmailGate,
   type SeedAutomationRead,
 } from './seedAutomation.js';
+import { seedWritesOfObjects } from './seedFit.js';
 
 /** A flow of the target that runs after a contact is saved. */
 function contactFlow(overrides: Partial<ForgeTargetFlow>): ForgeTargetFlow {
@@ -339,18 +340,25 @@ describe('readSeedAutomation', () => {
         },
       ],
     });
-    const planOf = async (objectApiName: string) => {
+    const planOf = async (objectApiName: string, publishes?: boolean) => {
       const read = await readSeedAutomation({
         org: 'my-dev-org',
         objects: [objectApiName],
         readAutomation: async () => onUpdateOf(objectApiName),
         readLimits: async () => DE_LIMITS,
+        ...(publishes === undefined
+          ? {}
+          : { writes: seedWritesOfObjects([objectApiName], publishes) }),
       });
       return 'preview' in read ? read.preview.mute : undefined;
     };
 
     expect(await planOf('Contact')).toBeUndefined();
-    expect((await planOf('Knowledge__kav'))?.assign).toHaveLength(1);
+    expect(await planOf('Contact', true)).toBeUndefined();
+    // A template's seed inserts its articles and writes them no more.
+    expect(await planOf('Knowledge__kav')).toBeUndefined();
+    expect(await planOf('Knowledge__kav', false)).toBeUndefined();
+    expect((await planOf('Knowledge__kav', true))?.assign).toHaveLength(1);
   });
 
   it('says what a run’s gate read as it is, reading nothing of its own', async () => {

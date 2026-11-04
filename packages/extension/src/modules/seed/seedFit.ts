@@ -138,14 +138,26 @@ export type SeedWrites = (objectApiName: string, write: ForgeAutomationWrite) =>
  * @param publishes - Whether the run publishes its articles once written (a scenario's).
  */
 export function seedWritesOf(
-  template: Pick<SeedTemplate, 'objects'>,
+  template: { objects: ReadonlyArray<Pick<SeedObjectConfig, 'objectApiName' | 'recordCount'>> },
   publishes = false,
 ): SeedWrites {
-  const written = new Set(
+  return seedWritesOfObjects(
     template.objects.filter((o) => o.recordCount > 0).map((o) => o.objectApiName),
+    publishes,
   );
+}
+
+/**
+ * The writes a seed makes of `written`, the objects it creates records of,
+ * as {@link seedWritesOf} says them: for a read that names the objects
+ * alone, the confirmation's, whose offer to mute is the plan its run makes.
+ *
+ * @param publishes - Whether the run publishes its articles once written (a scenario's).
+ */
+export function seedWritesOfObjects(written: readonly string[], publishes = false): SeedWrites {
+  const names = new Set(written);
   return (objectApiName, write) =>
-    written.has(objectApiName) &&
+    names.has(objectApiName) &&
     (write === 'insert' ||
       (write === 'update' && publishes && objectApiName === ARTICLE_VERSION_OBJECT));
 }

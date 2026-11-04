@@ -69,7 +69,8 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
   const { preparation, phase, result } = scenario;
 
   const objects = preparation?.objects.map((object) => object.objectApiName) ?? [];
-  const automation = useSeedAutomation(phase === 'confirm' ? scenario.orgId : '', objects);
+  // A scenario's run publishes its articles once written: its mute is planned for that too.
+  const automation = useSeedAutomation(phase === 'confirm' ? scenario.orgId : '', objects, true);
   const records = Object.fromEntries(
     (preparation?.objects ?? []).map((object) => [object.objectApiName, object.recordCount]),
   );

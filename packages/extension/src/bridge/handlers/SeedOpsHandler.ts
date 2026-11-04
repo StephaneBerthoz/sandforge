@@ -125,6 +125,8 @@ import {
   seedFitProposalOf,
   seedRoomOf,
   seedWritesOf,
+  seedWritesOfObjects,
+  type SeedWrites,
 } from '../../modules/seed/seedFit.js';
 import {
   API_BUDGET_EXCEEDED,
@@ -698,6 +700,8 @@ export class SeedOpsHandler implements DomainHandler {
    *
    * @param transport - The org's connection, which reads its limits.
    * @param org - The org, as the panel names it.
+   * @param writes - The writes the run makes (`seedWritesOf`): what the mute
+   *   it would hold is planned for, as the run plans its own.
    * @param given - What was read of the org already, or why it could not be:
    *   a run's gate reads it once, before its storage, and a run that mutes
    *   hands what still runs, what its mute keeps quiet held quiet.
@@ -708,6 +712,7 @@ export class SeedOpsHandler implements DomainHandler {
     transport: Parameters<typeof readEmailLimits>[0],
     objects: readonly string[],
     org: string,
+    writes: SeedWrites,
     given?: ForgeTargetAutomation | { unread: string },
     deliverability?: RunDeliverability,
   ): Promise<SeedAutomationRead> {
@@ -715,6 +720,7 @@ export class SeedOpsHandler implements DomainHandler {
     return readSeedAutomation({
       org,
       objects,
+      writes,
       readAutomation: (names) =>
         given === undefined
           ? new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
@@ -787,11 +793,15 @@ export class SeedOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const org = this.deps.orgManager.getOrg(validated.orgId);
+      // The mute it offers is planned for what the run writes: the objects
+      // asked about inserted, and the article versions written again when
+      // the run publishes them, a scenario's.
       const read = await this.readAutomation(
         validated.orgId,
         conn,
         validated.objects,
         org?.alias || org?.username || validated.orgId,
+        seedWritesOfObjects(validated.objects, validated.publishes === true),
       );
       if ('error' in read) throw new Error(read.error);
       const response = buildResponse(this.deps, msg, 'seed:automation:response', {
@@ -1886,6 +1896,7 @@ export class SeedOpsHandler implements DomainHandler {
       conn,
       written.map((o) => o.objectApiName),
       orgName,
+      writes,
       mute?.automation ?? read,
       emailsOfRun.gate.deliverability,
     );

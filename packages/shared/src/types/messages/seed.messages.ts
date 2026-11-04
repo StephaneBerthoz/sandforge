@@ -170,7 +170,16 @@ export interface SeedErrorResponse extends BaseMessage {
  */
 export interface SeedAutomationRequest extends BaseMessage {
   type: 'seed:automation';
-  payload: { orgId: string; objects: string[] };
+  payload: {
+    orgId: string;
+    objects: string[];
+    /**
+     * Whether the run publishes its articles once written, a scenario's:
+     * the mute the confirmation offers is planned for their update too, as
+     * the run plans its own.
+     */
+    publishes?: boolean;
+  };
 }
 
 /** `seed:automation:response`. Extension -> WebView. The org and the objects asked about, and what was read. */

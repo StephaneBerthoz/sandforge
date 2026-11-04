@@ -6,12 +6,19 @@
  * emails it has left today.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BaseMessage, ForgeTargetAutomation, SeedTemplate } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeTargetAutomation,
+  SeedAutomationPreview,
+  SeedTemplate,
+} from '@sandforge/shared';
 import { CRM_STARTER } from '@sandforge/shared';
 
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { planMute } from '../../modules/forge/AutomationMuteLease.js';
+import { seedWritesOf } from '../../modules/seed/seedFit.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/types.js';
@@ -90,6 +97,50 @@ function contactAutomation(objects: readonly string[], held = false): ForgeTarge
           },
         ],
     requests: 6,
+  };
+}
+
+/**
+ * What the org runs on its article versions: a flow on their update alone,
+ * which a set's bypass keeps quiet, and one on their insert that tests none.
+ */
+function articleAutomation(objects: readonly string[]): ForgeTargetAutomation {
+  return {
+    objectsRead: [...objects],
+    objects: [
+      {
+        objectApiName: 'Knowledge__kav',
+        flows: [
+          {
+            apiName: 'Article_Update',
+            label: 'Article Update',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [{ name: 'Skip_Flows', bypass: true, held: false }],
+          },
+          {
+            apiName: 'Article_Insert',
+            label: 'Article Insert',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    bypassGrants: [
+      {
+        permission: 'Skip_Flows',
+        permissionSets: [{ name: 'Skip_Flows_Set', label: 'Skip flows', grants: 1 }],
+      },
+    ],
+    requests: 2,
   };
 }
 
@@ -221,6 +272,33 @@ describe('SeedOpsHandler — the org automation and the emails', () => {
     expect(posted('seed:automation:error')).toEqual([
       expect.objectContaining({ payload: expect.objectContaining({ code: 'INVALID_PAYLOAD' }) }),
     ]);
+  });
+
+  it('offers the mute the run plans: no set for a flow on the update of articles a template’s seed never publishes, the set for one a scenario’s publishes', async () => {
+    // The confirmation offered to assign the set for the update's flow to a
+    // seed that only inserts its articles: the run, planning from what it
+    // writes, assigned nothing.
+    developerEdition();
+    read.mockImplementation(async (_orgId, objects) => articleAutomation(objects));
+    await ask({ orgId: 'org-1', objects: ['Knowledge__kav'] });
+    await ask({ orgId: 'org-1', objects: ['Knowledge__kav'], publishes: true });
+
+    const [template, scenario] = posted('seed:automation:response').map(
+      (m) => m.payload.preview as SeedAutomationPreview,
+    );
+    const articles = { objects: [{ objectApiName: 'Knowledge__kav', recordCount: 6 }] };
+    const read6 = articleAutomation(['Knowledge__kav']);
+    // What a template's run and a scenario's plan of the same read.
+    expect(planMute(read6, seedWritesOf(articles)).plan.assign).toEqual([]);
+    expect(template).not.toHaveProperty('mute');
+    expect(template).not.toHaveProperty('emailsPerRecordMuted');
+    expect(posted('seed:automation:error')).toEqual([]);
+    expect(scenario?.mute).toEqual(planMute(read6, seedWritesOf(articles, true)).plan);
+    expect(scenario?.mute).toMatchObject({
+      assign: [{ permissionSet: 'Skip_Flows_Set' }],
+      silenced: [{ objectApiName: 'Knowledge__kav', name: 'Article Update' }],
+      stillRuns: [{ objectApiName: 'Knowledge__kav', name: 'Article Insert', why: 'noBypass' }],
+    });
   });
 
   it('refuses the CRM starter past the single emails the org has left, before the guard or any write', async () => {

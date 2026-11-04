@@ -38,15 +38,6 @@ import {
   type ForgeAutomationWrite,
 } from '@sandforge/shared';
 
-/**
- * The writes a seed may make of its records, as what it would mute is planned
- * ahead of a run, which does not say whether it publishes: it inserts, and
- * writes again only the article versions a scenario publishes (`seedWritesOf`).
- * A flow that starts on the update of a contact does not run for a seed: it
- * was listed under `still runs`, and could assign a set for nothing.
- */
-const SEED_WRITES = (objectApiName: string, write: ForgeAutomationWrite): boolean =>
-  write === 'insert' || (write === 'update' && objectApiName === ARTICLE_VERSION_OBJECT);
 /** The write a seed makes of every object it names: what a read ahead of it counts the senders of. */
 const SEED_INSERTS = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
   write === 'insert';
@@ -60,7 +51,7 @@ import {
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
 import { runEmailsOf, type DeliverabilityRead } from '../forge/targetDeliverability.js';
-import { ARTICLE_VERSION_OBJECT } from './seedKnowledge.js';
+import { seedWritesOfObjects, type SeedWrites } from './seedFit.js';
 
 /** What `/limits` said of an org's daily email limits, or why it said nothing. */
 export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
@@ -110,12 +101,15 @@ function sortedOnce(names: readonly string[]): string[] {
  *   record sending any.
  * @param deliverability - What may send and whether the org delivers it;
  *   absent when nothing sends, or it was not asked for.
+ * @param writes - The writes the run makes (`seedWritesOf`), which its mute
+ *   is planned for: the inserts of the objects read when not told.
  */
 export function seedAutomationPreview(
   automation: ForgeTargetAutomation,
   org: string,
   limits: EmailLimits,
   deliverability?: RunDeliverability,
+  writes: SeedWrites = SEED_INSERTS,
 ): SeedAutomationPreview {
   const objects = automation.objects.flatMap((object): SeedAutomationObject[] => {
     const entries = entriesOnInsert(object);
@@ -145,9 +139,12 @@ export function seedAutomationPreview(
     return set ? { permission, permissionSet: set.name } : { permission };
   });
   // What a seed asked to mute would assign, silence and lift beside, planned
-  // as its run plans it, and the emails that still go out while it holds:
-  // the panel held Start back counting the senders the mute silences.
-  const mute = mutePlanOf(automation, SEED_WRITES);
+  // for the writes its run makes, and the emails that still go out while it
+  // holds: the panel held Start back counting the senders the mute silences.
+  // Planned for an update of every article version, the confirmation offered
+  // a set for a flow no seed that only inserts its articles fires, which the
+  // run, planning for what it writes, did not assign.
+  const mute = mutePlanOf(automation, writes);
   const muting = mute.assign.length > 0;
   return {
     org,
@@ -191,6 +188,8 @@ export type SeedAutomationRead = { preview: SeedAutomationPreview } | { error: s
  * @param input.readDeliverability - For a read made ahead of a run: reads
  *   whether the org delivers what may send, only when something does. A run
  *   reads it again, an admin can change it at any time.
+ * @param input.writes - The writes the run makes (`seedWritesOf`), which the
+ *   mute it would hold is planned for: the inserts of `objects` when not told.
  */
 export async function readSeedAutomation(input: {
   org: string;
@@ -199,7 +198,9 @@ export async function readSeedAutomation(input: {
   readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
   deliverability?: RunDeliverability;
   readDeliverability?: () => Promise<DeliverabilityRead>;
+  writes?: SeedWrites;
 }): Promise<SeedAutomationRead> {
+  const writes = input.writes ?? seedWritesOfObjects(input.objects);
   let automation: ForgeTargetAutomation;
   try {
     automation = await input.readAutomation(input.objects);
@@ -221,12 +222,12 @@ export async function readSeedAutomation(input: {
         ).gate.deliverability
       : undefined);
   if (emailsPerInsertOf(automation).length === 0) {
-    return { preview: seedAutomationPreview(automation, input.org, {}, deliverability) };
+    return { preview: seedAutomationPreview(automation, input.org, {}, deliverability, writes) };
   }
   const limits: EmailLimits = await input
     .readLimits()
     .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-  return { preview: seedAutomationPreview(automation, input.org, limits, deliverability) };
+  return { preview: seedAutomationPreview(automation, input.org, limits, deliverability, writes) };
 }
 
 /** How each daily limit is said. */

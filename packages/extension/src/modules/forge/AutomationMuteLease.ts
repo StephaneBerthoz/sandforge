@@ -527,11 +527,14 @@ async function releaseLease(
  * words: taken back, kept for another run that needs it, or left in the org
  * with the org's reason; nothing when it had assigned nothing.
  *
- * @param journaled - Whether the journal kept the release: one that could not
- *   be written still names the lease as the last write left it, which the next
- *   run reads once it can write the journal.
+ * @param journaled - Whether the journal kept the release. One that could not
+ *   be written still names the lease as the last write left it, alive for
+ *   another process while this one runs, and a folder turned read only keeps
+ *   the journal's lock too: a run of this process releases it once the
+ *   journal can be written, one of another process only once this one ended.
+ * @param pid - This process, as the words name it then.
  */
-function takenBackWords(released: Released, journaled: boolean): string {
+function takenBackWords(released: Released, journaled: boolean, pid: number): string {
   const names = (list: readonly Created[]): string => list.map((c) => c.permissionSet).join(', ');
   const words: string[] = [];
   if (released.removed.length > 0) {
@@ -540,14 +543,23 @@ function takenBackWords(released: Released, journaled: boolean): string {
   if (released.passed.length > 0) {
     words.push(
       `${names(released.passed)} stays assigned for another run that mutes this org as the ` +
-        'same user, which takes it back as it ends.',
+        `same user${journaled ? ', which takes it back as it ends' : ''}.`,
     );
   }
   if (released.left.length > 0) {
     words.push(
       `${released.left.map((l) => `${l.permissionSet} (${l.why})`).join(', ')} could not be ` +
-        `taken back: the next run that mutes this org ${journaled ? '' : 'once the journal can be written '}` +
-        'takes it back.',
+        `taken back${journaled ? ': the next run that mutes this org takes it back' : ''}.`,
+    );
+  }
+  // Run from a window, the lease of a refused run stayed alive for a run of
+  // the command line, which left what the org kept where it was: the words
+  // said the next run took it back.
+  if (!journaled && (released.passed.length > 0 || released.left.length > 0)) {
+    words.push(
+      "The journal still names this run's lease: once the journal can be written, the next " +
+        'run that mutes this org from this process releases the lease, and one from another ' +
+        `process only once process ${pid} has ended.`,
     );
   }
   return words.length > 0 ? words.join(' ') : 'Nothing was assigned.';
@@ -880,6 +892,12 @@ export async function acquireMute(
         (err: unknown) => extractErrorMessage(err),
       );
     const undo = async (message: string): Promise<never> => {
+      // What this run created it holds by the ids the org answered, every
+      // one in `created`: the sets it had not tried yet are none of its own.
+      // Looked up by the user, as for a process that died mid-assignment,
+      // an admin's assignment of one, made while the lease was being taken,
+      // went as the run's.
+      lease.assigning = [];
       const released = await releaseLease(org, journal, lease, live);
       heldHere.delete(key);
       const unsaved = await saved();
@@ -887,7 +905,7 @@ export async function acquireMute(
         [
           message,
           ...(unsaved !== undefined && unsaved !== message ? [unsaved] : []),
-          takenBackWords(released, unsaved === undefined),
+          takenBackWords(released, unsaved === undefined, self.pid),
         ].join(' '),
       );
     };

@@ -235,7 +235,8 @@ function guardRefusal(
   // What is wrong with the pattern stays as JavaScript said it.
   if (code === TRANSFORM_RULE_BAD_PATTERN) return transformBadPatternWords(payload.rules);
   // A run asked to mute the target's automation that could not be: nothing
-  // was assigned and nothing written, and the host said why in English.
+  // written, what a failure had assigned taken back, and the host said in
+  // English why, and what the org would not take back.
   return muteRefusalWords(code, message, (key, options) => i18n.t(key, options));
 }
 

@@ -248,6 +248,26 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     expect(screen.getByTestId('scenario-knowledge-drafts-left')).toBeTruthy();
   });
 
+  it('asks what the org runs for a run that publishes its articles, the mute it offers planned as the run plans its own', () => {
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+
+    expect(sent('seed:automation').map((m) => m.payload)).toEqual([
+      {
+        orgId: 'org-dev',
+        objects: ['Account', 'Contact', 'Case', 'CaseComment', 'Knowledge__kav'],
+        publishes: true,
+      },
+    ]);
+  });
+
   it('offers both boxes on the confirmation, sends them, and names the checkpoint in the results', () => {
     render(
       <ScenarioFlow

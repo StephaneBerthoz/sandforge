@@ -23,6 +23,7 @@ import {
   seedFitProposalOf,
   seedRoomOf,
   seedWritesOf,
+  seedWritesOfObjects,
 } from './seedFit.js';
 
 const KB = 1024;
@@ -334,6 +335,23 @@ describe('fitSeedTemplate', () => {
       'Account insert',
       'Knowledge__kav update',
     ]);
+  });
+
+  it('writes the objects a read names as the template that holds them writes them', () => {
+    const template = templateOf([object('Account', 10), object('Knowledge__kav', 4, 4)]);
+    const names = ['Account', 'Knowledge__kav'];
+    for (const publishes of [false, true]) {
+      const ofTemplate = seedWritesOf(template, publishes);
+      const ofNames = seedWritesOfObjects(names, publishes);
+      for (const name of [...names, 'Contact']) {
+        for (const write of ['insert', 'update', 'delete', 'undelete'] as const) {
+          expect(ofNames(name, write)).toBe(ofTemplate(name, write));
+        }
+      }
+    }
+    expect(seedWritesOfObjects(names)('Knowledge__kav', 'update')).toBe(false);
+    expect(seedWritesOfObjects(names, true)('Knowledge__kav', 'update')).toBe(true);
+    expect(seedWritesOfObjects(names, true)('Account', 'update')).toBe(false);
   });
 
   it('keeps no room, and says why, when the target’s automation could not be read', () => {
