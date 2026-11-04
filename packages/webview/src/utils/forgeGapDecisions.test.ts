@@ -293,6 +293,42 @@ describe('each decision, written and taken back', () => {
       expect(choiceOf(decisionOf(config, values[0]!, values)!)).toEqual({ kind: 'skip_rows' });
       expect(decisionOf(config, values[1]!, values)).toBeNull();
     });
+
+    it('reads a mapping of the org’s own value as answering not the package’s gap, and keeps it when the package’s is mapped', () => {
+      // The run maps the org's own rows alone: the package's gap read
+      // "written as New" and Execute no longer asked, and mapping it took the
+      // org's own mapping away.
+      const value = (recordType: string): ForgeGap => ({
+        ...REFUSED,
+        id: forgeGapId('picklist_value_refused', 'Case', 'Status', recordType, 'Open'),
+        field: 'Status',
+        value: 'Open',
+        recordType,
+        decisions: ['map_value', 'leave_empty', 'skip_rows'],
+      });
+      const [ownValue, packagedValue] = [value('Support'), value('ns__Support')];
+      const values = [ownValue, packagedValue];
+      const ownMapped = withGapDecision(CONFIG, ownValue, { kind: 'map_value', to: 'New' }, values);
+
+      expect(choiceOf(decisionOf(ownMapped, ownValue, values)!)).toEqual({
+        kind: 'map_value',
+        to: 'New',
+      });
+      expect(decisionOf(ownMapped, packagedValue, values)).toBeNull();
+      expect(undecidedBlockingGaps({ simulation: values }, ownMapped)).toBe(1);
+
+      const both = withGapDecision(
+        ownMapped,
+        packagedValue,
+        { kind: 'map_value', to: 'Closed' },
+        values,
+      );
+      expect(both.picklistValueMappings).toEqual([
+        { object: 'Case', field: 'Status', recordType: 'Support', from: 'Open', to: 'New' },
+        { object: 'Case', field: 'Status', recordType: 'ns__Support', from: 'Open', to: 'Closed' },
+      ]);
+      expect(withoutGapDecision(both, packagedValue, values)).toEqual(ownMapped);
+    });
   });
 
   it('reads an unmapped record type of a package as ignored by the id a template kept before its namespace', () => {

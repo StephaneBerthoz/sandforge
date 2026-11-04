@@ -4642,6 +4642,7 @@
         "duplicate_rule": "Duplicate rule",
         "api_budget": "Daily API request budget",
         "object_not_createable": "Object the user the clone writes as may not create in the target",
+        "object_platform_only": "Object no user can create in the target: the platform writes its records, Execute skips it",
         "rehearsal_refusal": "Refused in the rehearsal",
         "rehearsal_update_refusal": "Update refused in the rehearsal"
       },

@@ -43,6 +43,7 @@ import {
   findRecordTypeByName,
   partsOfRecordTypeName,
   qualifiedRecordTypeName,
+  type RecordTypeNameParts,
 } from '../../../core/metadata/recordTypeNames.js';
 
 /** The decisions of a run's config, as the executor is handed them. */
@@ -150,19 +151,38 @@ export function whySkippedRowsIgnored(entry: ForgeSkippedRows): string | undefin
  * A row's record type is named with its namespace (`ns__Retail`). A decision
  * taken before it was named so a package's record type by its DeveloperName
  * alone (`Retail`), and a bare name holds for a namespaced row of that
- * DeveloperName still — as it did then, when both carried that one name.
+ * DeveloperName still, where it names that one among the target's record
+ * types (`findRecordTypeByName`). Where the org's own Retail is there too, a
+ * bare name is the org's own, as Review reads it: held for both, a decision
+ * taken on the org's own Retail remapped, or held back, the rows of the
+ * package's, which nobody had decided. Where two packages carry it and the
+ * org none, it holds for neither.
+ *
+ * @param targetTypes - The target's record types of the object, by namespace
+ *   and DeveloperName, when the run read them with their namespaces. Unread,
+ *   a bare name holds for a namespaced row of its DeveloperName, as it did
+ *   before namespaces were read.
  */
-function holdsForRecordType(scoped: string | undefined, recordType: string | undefined): boolean {
+function holdsForRecordType(
+  scoped: string | undefined,
+  recordType: string | undefined,
+  targetTypes: readonly RecordTypeNameParts[] | undefined,
+): boolean {
   if (scoped === undefined) return true;
   const row = recordType ?? MASTER_RECORD_TYPE_NAME;
   if (scoped === row) return true;
   const named = partsOfRecordTypeName(scoped);
   const rowParts = partsOfRecordTypeName(row);
-  return (
-    named.namespacePrefix === undefined &&
-    rowParts.namespacePrefix !== undefined &&
-    rowParts.developerName === scoped
-  );
+  if (
+    named.namespacePrefix !== undefined ||
+    rowParts.namespacePrefix === undefined ||
+    rowParts.developerName !== scoped
+  ) {
+    return false;
+  }
+  if (targetTypes === undefined) return true;
+  const found = findRecordTypeByName(scoped, targetTypes, (type) => type);
+  return 'found' in found && found.found.namespacePrefix === rowParts.namespacePrefix;
 }
 
 /** Whether a row leaves a field empty: absent, null, or an empty text. */
@@ -250,6 +270,24 @@ export class RunDecisions {
   }
 
   /**
+   * Whether a decision on rows of `objectApiName` names their record type
+   * without a namespace: the org's own, or a package's as a decision kept
+   * before namespaces named it, which the target's record types tell apart.
+   */
+  namesARecordTypeBare(objectApiName: string): boolean {
+    const scoped = [
+      ...(this.picklists.get(objectApiName) ?? []).map((mapping) => mapping.recordType),
+      ...(this.skipped.get(objectApiName) ?? []).map((skip) => skip.recordType),
+    ];
+    return scoped.some(
+      (name) =>
+        name !== undefined &&
+        name !== MASTER_RECORD_TYPE_NAME &&
+        partsOfRecordTypeName(name).namespacePrefix === undefined,
+    );
+  }
+
+  /**
    * Whether a decision holds back a row of `objectApiName`: it holds the value
    * a skipped gap names in its field — one selection of a multi-select among
    * others too, as a mapping reads it — and goes in with the record type the
@@ -261,15 +299,18 @@ export class RunDecisions {
    *   the field: a gap names it so.
    * @param recordType - The DeveloperName of the target record type the row
    *   goes in with, when the run knows it.
+   * @param targetTypes - The target's record types of the object, when the
+   *   run read them with their namespaces: what a bare name names there.
    */
   holdsBack(
     objectApiName: string,
     valueOf: (field: string) => unknown,
     recordType: string | undefined,
     tally: DecisionTally,
+    targetTypes?: readonly RecordTypeNameParts[],
   ): boolean {
     for (const skip of this.skipped.get(objectApiName) ?? []) {
-      if (!holdsForRecordType(skip.recordType, recordType)) continue;
+      if (!holdsForRecordType(skip.recordType, recordType, targetTypes)) continue;
       const value = valueOf(skip.field);
       if (typeof value !== 'string' || !value.split(';').includes(skip.value)) continue;
       tally.add({
@@ -312,15 +353,17 @@ export class RunDecisions {
    * @param recordType - The DeveloperName of the target record type the row
    *   goes in with, when the run knows it.
    * @param tally - Where each row changed is counted.
+   * @param targetTypes - As for {@link holdsBack}.
    */
   applyToRow(
     objectApiName: string,
     row: Record<string, unknown>,
     recordType: string | undefined,
     tally: DecisionTally,
+    targetTypes?: readonly RecordTypeNameParts[],
   ): void {
     for (const mapping of this.picklists.get(objectApiName) ?? []) {
-      if (!holdsForRecordType(mapping.recordType, recordType)) continue;
+      if (!holdsForRecordType(mapping.recordType, recordType, targetTypes)) continue;
       const value = row[mapping.field];
       if (typeof value !== 'string' || value === '') continue;
       const parts = value.split(';');
@@ -437,10 +480,11 @@ export function recordTypeDecisionMappings(
 
 /**
  * The record type of an object a decision names in one org, or why it names
- * none: `ns__Retail` names package `ns`'s and no other; a bare name, written
- * before record types were named with their namespace, the one record type
- * that carries it — and none when a package's and the org's own both do,
- * since nothing written says which was meant.
+ * none: `ns__Retail` names package `ns`'s and no other; a bare name the one
+ * record type that carries it, a package's as a decision kept before record
+ * types were named with their namespace named it, and the org's own when a
+ * package's carries it too (`findRecordTypeByName`). Two packages' carrying
+ * it, and the org's own none, it names neither, and says which to write.
  */
 function named(
   objectApiName: string,

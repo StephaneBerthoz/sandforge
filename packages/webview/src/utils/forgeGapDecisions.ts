@@ -226,7 +226,7 @@ export function decisionOf(
     const mappings = (config.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === gap.field && m.from === gap.value,
     );
-    const entry = picklistMappingEntry(mappings, gap.recordType);
+    const entry = picklistMappingEntry(mappings, gap, ids);
     if (entry && (entry.to === null ? offers.has('leave_empty') : offers.has('map_value'))) {
       return { kind: 'picklist', entry };
     }

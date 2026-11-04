@@ -32,6 +32,7 @@ const KINDS: ForgeGapKind[] = [
   'duplicate_rule',
   'api_budget',
   'object_not_createable',
+  'object_platform_only',
   'rehearsal_refusal',
 ];
 

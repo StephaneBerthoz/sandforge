@@ -203,8 +203,9 @@ export interface ForgeRecordTypeMapping {
   object: string;
   /**
    * The source record type: `ns__Retail` names package `ns`'s; a bare name,
-   * the one record type of the object that carries it — none, and the
-   * decision is not applied, when a package's and the org's own both do.
+   * the one record type of the object that carries it — the org's own when a
+   * package's carries it too, and none, the decision not applied, when two
+   * packages' do and the org's own does not.
    */
   from: string;
   /** The target record type, named the same way; `null` for the object's default. */
@@ -245,6 +246,12 @@ export type ForgeGapKind =
    * its records there: Execute skips it whole, after the objects before it.
    */
   | 'object_not_createable'
+  /**
+   * The target says no user can ever create the object's records: the
+   * platform writes them itself — a calendar, an entitlement process. Not a
+   * gap any grant closes: Execute skips the object whole, and asks nothing.
+   */
+  | 'object_platform_only'
   | 'rehearsal_refusal'
   /**
    * The platform refused, in a rehearsal, an update the run makes after its

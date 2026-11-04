@@ -4642,6 +4642,7 @@
         "duplicate_rule": "Règle de doublons",
         "api_budget": "Quota quotidien de requêtes API",
         "object_not_createable": "Objet que l'utilisateur avec lequel le clonage écrit ne peut pas créer dans la cible",
+        "object_platform_only": "Objet qu'aucun utilisateur ne peut créer dans la cible : la plateforme écrit ses enregistrements, Exécuter le saute",
         "rehearsal_refusal": "Refusé lors de l'essai à blanc",
         "rehearsal_update_refusal": "Mise à jour refusée lors de l'essai à blanc"
       },

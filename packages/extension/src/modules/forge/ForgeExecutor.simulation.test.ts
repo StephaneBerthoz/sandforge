@@ -916,6 +916,51 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
     expect(sentTypes(sent)).toEqual([TARGET_WHOLESALE, TARGET_WHOLESALE, TARGET_PACKAGED]);
     expect(JSON.stringify(summary.errors)).not.toContain('was not applied');
   });
+
+  it('maps and holds back by a decision taken on the org’s own Retail its rows alone, the package’s going as read', async () => {
+    // The org's own Retail refuses Old, which the package's Retail keeps:
+    // Review offers the gap of the first, under its bare name. A real run
+    // took the decision for the package's rows too, and wrote its order with
+    // New, or held it back, while nobody had decided anything of them.
+    const ownRefusesOld = forgeGapId(
+      'picklist_value_refused',
+      'Order__c',
+      'Status__c',
+      'Retail',
+      'Old',
+    );
+    const decided: Array<NonNullable<ExecuteOptions['decisions']>> = [
+      {
+        ...REGION_GIVEN,
+        picklistValueMappings: [
+          { object: 'Order__c', field: 'Status__c', recordType: 'Retail', from: 'Old', to: 'New' },
+        ],
+      },
+      { ...REGION_GIVEN, skippedRows: [{ object: 'Order__c', gapId: ownRefusesOld }] },
+    ];
+    const statuses: unknown[][] = [];
+    for (const decisions of decided) {
+      const { deps, sent, options } = namespacedOrgs({ packageInTarget: true });
+      await run(deps, { ...options, decisions });
+      statuses.push(
+        sent
+          .filter((s) => s.object === 'Order__c')
+          .map((s) => [s.row['RecordTypeId'], s.row['Status__c']]),
+      );
+    }
+
+    expect(statuses).toEqual([
+      [
+        [TARGET_RETAIL, 'New'],
+        [TARGET_RETAIL, 'Open'],
+        [TARGET_PACKAGED, 'Old'],
+      ],
+      [
+        [TARGET_RETAIL, 'Open'],
+        [TARGET_PACKAGED, 'Old'],
+      ],
+    ]);
+  });
 });
 
 describe('ForgeExecutor, a simulation of the rows the target refuses for a field it requires', () => {

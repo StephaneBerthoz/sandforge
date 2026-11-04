@@ -12,6 +12,7 @@ import type { ForgeBatchStrategy, ResolvedBatchStrategy } from '../ForgeBatchStr
 import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
 import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
+import { flagsNotKeptNote } from '../../../core/common/platformRecords.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { PicklistField } from './RecordTypePicklists.js';
 import type {
@@ -1358,10 +1359,10 @@ describe('BatchWriter — relations the platform creates', () => {
       const { updateRecords, result } = await writeTheWhoInvited(false);
 
       expect(updateRecords).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        linkedExistingCount: 1,
-        flagsNotKept: '1 linked without IsInvitee: the target does not let it be updated',
-      });
+      expect(result.linkedExistingCount).toBe(1);
+      expect(flagsNotKeptNote(result.flagsNotKept)).toBe(
+        '1 linked without IsInvitee: the target does not let it be updated',
+      );
     });
 
     it('sends no update after the run is cancelled while the one giving the flag back is sent', async () => {
@@ -1402,7 +1403,7 @@ describe('BatchWriter — relations the platform creates', () => {
       }).writeNode(input);
 
       expect(updateRecords).toHaveBeenCalledTimes(1);
-      expect(result.flagsNotKept).toBe(
+      expect(flagsNotKeptNote(result.flagsNotKept)).toBe(
         `1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
           `1 linked without Status: the target refused the update, ${TENTATIVE}`,
       );

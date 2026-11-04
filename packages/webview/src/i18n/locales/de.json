@@ -4642,6 +4642,7 @@
         "duplicate_rule": "Duplikatregel",
         "api_budget": "Tägliches API-Anfragekontingent",
         "object_not_createable": "Objekt, das der Benutzer, mit dem der Klon schreibt, im Ziel nicht erstellen darf",
+        "object_platform_only": "Objekt, das im Ziel kein Benutzer erstellen kann: Die Plattform schreibt seine Datensätze, Ausführen überspringt es",
         "rehearsal_refusal": "Im Probelauf abgelehnt",
         "rehearsal_update_refusal": "Im Probelauf abgelehnte Aktualisierung"
       },

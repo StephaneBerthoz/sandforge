@@ -411,6 +411,32 @@ describe('ReviewGapsTab', () => {
       expect(useForgeStore.getState().config?.excludedObjects).toEqual(['Case']);
     });
 
+    it('says an object no user can create the platform’s, asked of nobody before Execute', () => {
+      // A calendar the clone reached was said blocking, the admin asked to
+      // grant a Create no user can be granted.
+      const platform: ForgeGap = {
+        id: forgeGapId('object_platform_only', 'Calendar'),
+        kind: 'object_platform_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Calendar',
+        rows: 0,
+        decisions: ['exclude_object'],
+      };
+      act(() => {
+        useForgeStore.getState().setGaps('metadata', [platform]);
+        useForgeStore.getState().setGaps('simulation', []);
+      });
+      render(<ReviewGapsTab />);
+
+      expect(
+        within(item(platform)).getByText(
+          'Object no user can create in the target: the platform writes its records, Execute skips it',
+        ),
+      ).toBeTruthy();
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(0);
+    });
+
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
       render(<ReviewGapsTab />);
       fireEvent.change(within(item(REFUSED)).getByTestId('gap-map-value'), {

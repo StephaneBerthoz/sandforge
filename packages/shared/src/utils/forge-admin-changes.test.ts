@@ -181,6 +181,8 @@ describe('adminChangesOf', () => {
         gap('unique_value_collision', 'Account', { field: 'Code__c', detail: { colliding: 2 } }),
         gap('api_budget', 'Account', { severity: 'warning' }),
         gap('rehearsal_refusal', 'Case', { value: 'CANNOT_EXECUTE_FLOW_TRIGGER' }),
+        // No grant opens an object the platform alone writes.
+        gap('object_platform_only', 'Calendar', { severity: 'info' }),
         gap('required_field_missing', 'Case', {
           source: 'metadata',
           field: 'Region__c',

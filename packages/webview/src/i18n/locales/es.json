@@ -4642,6 +4642,7 @@
         "duplicate_rule": "Regla de duplicados",
         "api_budget": "Cuota diaria de solicitudes de API",
         "object_not_createable": "Objeto que el usuario con el que escribe la clonación no puede crear en el destino",
+        "object_platform_only": "Objeto que ningún usuario puede crear en el destino: la plataforma escribe sus registros, Ejecutar lo omite",
         "rehearsal_refusal": "Rechazado en el ensayo",
         "rehearsal_update_refusal": "Actualización rechazada en el ensayo"
       },

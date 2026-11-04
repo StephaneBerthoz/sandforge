@@ -4642,6 +4642,7 @@
         "duplicate_rule": "Regra de duplicidade",
         "api_budget": "Cota diária de solicitações de API",
         "object_not_createable": "Objeto que o usuário com que a clonagem grava não pode criar no destino",
+        "object_platform_only": "Objeto que nenhum usuário pode criar no destino: a plataforma grava seus registros, Executar o pula",
         "rehearsal_refusal": "Recusado no ensaio",
         "rehearsal_update_refusal": "Atualização recusada no ensaio"
       },

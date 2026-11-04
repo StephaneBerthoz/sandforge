@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ForgeGap } from '../types/forge.types.js';
+import type { ForgeGap, ForgeGapKind } from '../types/forge.types.js';
 import {
   forgeGapId,
   forgeGapParts,
@@ -158,20 +158,49 @@ describe('skippedRowsEntry', () => {
 
 describe('picklistMappingEntry', () => {
   const scoped = (recordType?: string) => ({ ...(recordType ? { recordType } : {}), to: 'x' });
+  const valueGap = (recordType: string, kind: ForgeGapKind = 'picklist_value_refused') => ({
+    id: forgeGapId(kind, 'Case', 'Origin', recordType, 'Fax'),
+    recordType,
+  });
+  const packaged = valueGap('ns__Support');
 
   it('takes the mapping for the record type, then for it before its namespace, then for every one', () => {
     const named = scoped('ns__Support');
     const before = scoped('Support');
     const every = scoped();
+    const read = [packaged.id];
 
-    expect(picklistMappingEntry([every, before, named], 'ns__Support')).toBe(named);
-    expect(picklistMappingEntry([every, before], 'ns__Support')).toBe(before);
-    expect(picklistMappingEntry([every], 'ns__Support')).toBe(every);
+    expect(picklistMappingEntry([every, before, named], packaged, read)).toBe(named);
+    expect(picklistMappingEntry([every, before], packaged, read)).toBe(before);
+    expect(picklistMappingEntry([every], packaged, read)).toBe(every);
   });
 
   it('takes no mapping of a packaged type for the org’s own, nor of another type', () => {
-    expect(picklistMappingEntry([scoped('ns__Support')], 'Support')).toBeUndefined();
-    expect(picklistMappingEntry([scoped('Claims')], 'ns__Support')).toBeUndefined();
+    const own = valueGap('Support');
+    expect(picklistMappingEntry([scoped('ns__Support')], own, [own.id])).toBeUndefined();
+    expect(picklistMappingEntry([scoped('Claims')], packaged, [packaged.id])).toBeUndefined();
+  });
+
+  it('takes not, for a package’s gap, the mapping of the org’s own whose gap of the value the same read found', () => {
+    const before = scoped('Support');
+    const every = scoped();
+    const own = valueGap('Support');
+
+    expect(picklistMappingEntry([before], packaged, [own.id, packaged.id])).toBeUndefined();
+    expect(picklistMappingEntry([before, every], packaged, [own.id, packaged.id])).toBe(every);
+    expect(picklistMappingEntry([before], own, [own.id, packaged.id])).toBe(before);
+    // Of another kind, the org's own gap of the value is the mapping's still.
+    const ownAbsent = valueGap('Support', 'picklist_value_absent');
+    expect(picklistMappingEntry([before], packaged, [ownAbsent.id, packaged.id])).toBeUndefined();
+    // Nor is the mapping either package's where two carry the name.
+    const other = valueGap('other__Support');
+    expect(picklistMappingEntry([before], packaged, [other.id, packaged.id])).toBeUndefined();
+    // A gap of the package's of another kind, or of another value, leaves it the gap's.
+    const packagedAbsent = valueGap('ns__Support', 'picklist_value_absent');
+    const ownOther = {
+      id: forgeGapId('picklist_value_refused', 'Case', 'Origin', 'Support', 'Web'),
+    };
+    expect(picklistMappingEntry([before], packaged, [packagedAbsent.id, ownOther.id])).toBe(before);
   });
 });
 

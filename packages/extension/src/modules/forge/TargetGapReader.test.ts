@@ -130,6 +130,12 @@ interface FakeOrgs {
   sourceFields?: Record<string, GapField[]>;
   /** The target's objects whose records its user may not create. */
   closedInTarget?: ReadonlySet<string>;
+  /**
+   * Per object, what the target's `EntityDefinition` says of whether any user
+   * can ever create its records (`IsEverCreatable`); an object left out is
+   * not answered for.
+   */
+  everCreatable?: Record<string, unknown>;
   limits?: unknown;
   held?: Array<Record<string, unknown>>;
   /** The custom permissions of the target, as `CustomPermission` lists them. */
@@ -148,7 +154,14 @@ interface FakeOrgs {
   composites?: 'retrieve' | 'query';
   refuse?: Partial<
     Record<
-      'rules' | 'formulas' | 'duplicates' | 'definitions' | 'limits' | 'held' | 'permissionSets',
+      | 'rules'
+      | 'formulas'
+      | 'duplicates'
+      | 'definitions'
+      | 'limits'
+      | 'held'
+      | 'permissionSets'
+      | 'entities',
       Error
     >
   > & { describe?: ReadonlySet<string> };
@@ -204,6 +217,22 @@ function fakeDeps(orgs: FakeOrgs = {}) {
         if (soql.includes(' FROM ValidationRule WHERE Active = true')) {
           if (refuse.rules) throw refuse.rules;
           return page(orgs.rules ?? []);
+        }
+        const entities =
+          /^SELECT QualifiedApiName, IsEverCreatable FROM EntityDefinition WHERE QualifiedApiName IN \((.+)\)$/.exec(
+            soql,
+          );
+        if (entities) {
+          if (refuse.entities) throw refuse.entities;
+          const names = entities[1].split(', ').map((literal) => literal.slice(1, -1));
+          return page(
+            names
+              .filter((name) => orgs.everCreatable !== undefined && name in orgs.everCreatable)
+              .map((name) => ({
+                QualifiedApiName: name,
+                IsEverCreatable: orgs.everCreatable?.[name],
+              })),
+          );
         }
         const id = /WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? '';
         if (refuse.formulas) throw refuse.formulas;
@@ -1016,6 +1045,77 @@ describe('TargetGapReader — an object the target user may not create', () => {
         'skipped, after the objects written before it, unless the object is left out',
     );
   });
+
+  it('says one no user can create the platform’s, not blocking, and keeps blocking one another user could', async () => {
+    // A deep clone reached a calendar and an entitlement process, which the
+    // platform writes alone, and said each BLOCKING: the target's admin was
+    // asked to grant a Create no user can be granted.
+    const read = await readGaps([node('Account'), node('Calendar'), node('Case')], {
+      closedInTarget: new Set(['Calendar', 'Case']),
+      everCreatable: { Calendar: false, Case: true },
+    });
+
+    expect(read.gaps.filter((gap) => gap.objectApiName !== 'Account')).toEqual([
+      {
+        id: forgeGapId('object_not_createable', 'Case'),
+        kind: 'object_not_createable',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'Case',
+        rows: 0,
+        decisions: ['exclude_object'],
+      },
+      {
+        id: forgeGapId('object_platform_only', 'Calendar'),
+        kind: 'object_platform_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Calendar',
+        rows: 0,
+        decisions: ['exclude_object'],
+      },
+    ]);
+    expect(
+      read.asked.filter((asked) => asked.includes(' FROM EntityDefinition ')).map((a) => a.trim()),
+    ).toEqual([
+      `tooling ${TARGET} SELECT QualifiedApiName, IsEverCreatable FROM EntityDefinition ` +
+        "WHERE QualifiedApiName IN ('Calendar', 'Case')",
+    ]);
+    const lines = gapLines(read, 'TGT').join('\n');
+    expect(lines).toContain(
+      'info: no user can create its records in the target, the platform writes them itself: ' +
+        'the run skips every row of it',
+    );
+    expect(lines).not.toMatch(/Calendar\n\s+BLOCKING/);
+  });
+
+  it('keeps blocking an object the user may not create when the target does not say whether anyone can', async () => {
+    const closed = new Set(['Calendar']);
+    const refused = await readGaps([node('Calendar')], {
+      closedInTarget: closed,
+      everCreatable: { Calendar: false },
+      refuse: { entities: new Error('INSUFFICIENT_ACCESS: View Setup') },
+    });
+    const unanswered = await readGaps([node('Calendar')], {
+      closedInTarget: closed,
+      everCreatable: { Calendar: 'false' },
+    });
+
+    for (const read of [refused, unanswered]) {
+      expect(read.gaps.find((gap) => gap.objectApiName === 'Calendar')).toMatchObject({
+        kind: 'object_not_createable',
+        severity: 'blocking',
+      });
+    }
+  });
+
+  it('asks the target nothing of who creates its objects when the user may create every one', async () => {
+    const read = await readGaps([node('Account'), node('Case')], {
+      everCreatable: { Account: true, Case: true },
+    });
+
+    expect(read.asked.some((asked) => asked.includes(' FROM EntityDefinition '))).toBe(false);
+  });
 });
 
 describe('TargetGapReader — fields only the target requires', () => {
@@ -1698,6 +1798,41 @@ describe('gapAnsweredBy', () => {
     expect(
       gapAnsweredBy(packaged, { skippedRows: decisions.skippedRows }, [own.id, packaged.id]),
     ).toBeUndefined();
+  });
+
+  it('answers not a package’s gap by a mapping of the org’s own record type whose gap the same read found', () => {
+    // The run writes the mapping of the org's own Retail to its rows alone;
+    // the command said the package's gap answered, and its rows went as read.
+    const own = refused;
+    const packaged = {
+      ...refused,
+      id: forgeGapId('picklist_value_refused', 'Account', 'Rating', 'ns__Retail', 'Hot'),
+      recordType: 'ns__Retail',
+    };
+    const ownAbsent = gapOf('picklist_value_absent', ['map_value', 'leave_empty'], {
+      field: 'Rating',
+      value: 'Hot',
+      recordType: 'Retail',
+    });
+    const mapped = (recordType?: string) => ({
+      picklistValueMappings: [
+        {
+          object: 'Account',
+          field: 'Rating',
+          ...(recordType ? { recordType } : {}),
+          from: 'Hot',
+          to: 'Warm',
+        },
+      ],
+    });
+
+    expect(gapAnsweredBy(packaged, mapped('Retail'), [own.id, packaged.id])).toBeUndefined();
+    expect(gapAnsweredBy(packaged, mapped('Retail'), [ownAbsent.id, packaged.id])).toBeUndefined();
+    expect(gapAnsweredBy(own, mapped('Retail'), [own.id, packaged.id])).toBe('written as "Warm"');
+    expect(gapAnsweredBy(packaged, mapped(), [own.id, packaged.id])).toBe('written as "Warm"');
+    expect(gapAnsweredBy(packaged, mapped('ns__Retail'), [own.id, packaged.id])).toBe(
+      'written as "Warm"',
+    );
   });
 
   it('answers an unmapped record type of a package by an ignore kept before its namespace', () => {

@@ -4382,6 +4382,7 @@
         "duplicate_rule": "重複ルール",
         "api_budget": "1日の API 要求数の上限",
         "object_not_createable": "クローンで書き込むユーザーがターゲット組織で作成できないオブジェクト",
+        "object_platform_only": "ターゲット組織ではどのユーザーも作成できないオブジェクト: レコードはプラットフォームが書き込み、実行ではスキップされます",
         "rehearsal_refusal": "リハーサルで拒否",
         "rehearsal_update_refusal": "リハーサルで拒否された更新"
       },

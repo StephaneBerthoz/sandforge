@@ -1385,6 +1385,55 @@ export async function giveLinkedRelationsTheirFlags(
   update: RelationUpdate,
   stopped: () => boolean = () => false,
 ): Promise<string | undefined> {
+  return flagsNotKeptNote(
+    await relationsLeftWithoutTheirFlags(objectApiName, linked, updatable, update, stopped),
+  );
+}
+
+/**
+ * How many relations linked in place of a row went without a field, by the
+ * field and why: `IsInvitee: the target does not let it be updated`.
+ */
+export type FlagsNotKept = Map<string, number>;
+
+/**
+ * What an object's line says of {@link FlagsNotKept}, a field at a time, or
+ * nothing when every field went back.
+ */
+export function flagsNotKeptNote(
+  without: ReadonlyMap<string, number> | undefined,
+): string | undefined {
+  if (without === undefined || without.size === 0) return undefined;
+  return [...without].map(([why, count]) => `${count} linked without ${why}`).join(', ');
+}
+
+/**
+ * `more` counted into `into`, for an object written in several writes — a
+ * table read page by page, rounds of one page — whose line says each field
+ * once: said write by write, the line repeated "1 linked without IsInvitee"
+ * once per page.
+ */
+export function withFlagsNotKept(
+  into: FlagsNotKept | undefined,
+  more: ReadonlyMap<string, number>,
+): FlagsNotKept | undefined {
+  if (more.size === 0) return into;
+  const sum = new Map(into ?? []);
+  for (const [why, count] of more) sum.set(why, (sum.get(why) ?? 0) + count);
+  return sum;
+}
+
+/**
+ * {@link giveLinkedRelationsTheirFlags}, with what went without counted
+ * rather than said: what a writer of an object in several writes adds up.
+ */
+export async function relationsLeftWithoutTheirFlags(
+  objectApiName: string,
+  linked: ReadonlyArray<readonly [row: Record<string, unknown>, id: string]>,
+  updatable: (field: string) => boolean,
+  update: RelationUpdate,
+  stopped: () => boolean = () => false,
+): Promise<FlagsNotKept> {
   const flags = FLAGS_THE_PLATFORM_LEAVES[objectApiName] ?? [];
   const fixed = new Set(
     flags
@@ -1485,8 +1534,7 @@ export async function giveLinkedRelationsTheirFlags(
       .map(({ Id, answer }) => ({ Id, [field]: answer[field] }));
     noteRefused(alone, await send(alone));
   }
-  if (without.size === 0) return undefined;
-  return [...without].map(([why, count]) => `${count} linked without ${why}`).join(', ');
+  return without;
 }
 
 /**

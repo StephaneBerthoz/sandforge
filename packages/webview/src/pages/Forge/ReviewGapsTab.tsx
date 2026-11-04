@@ -180,6 +180,7 @@ const KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
   'duplicate_rule',
   'api_budget',
   'object_not_createable',
+  'object_platform_only',
   'rehearsal_refusal',
   'rehearsal_update_refusal',
 ]);

@@ -130,21 +130,54 @@ export function skippedRowsEntry<T extends { gapId: string }>(
 }
 
 /**
- * Of the mappings of one value of one field, the one that answers a gap of
- * `recordType`: for that record type; for it as it was named before its
- * package's namespace, as the run applies it (`holdsForRecordType`); then for
- * every record type.
+ * Of the mappings of one value of one field, the one that answers `gap`, of
+ * that value on one record type: for that record type; for it as it was named
+ * before its package's namespace, when no other gap of the same read (`read`)
+ * is of that value on a record type of that name, as the run applies it
+ * (`holdsForRecordType`); then for every record type.
+ *
+ * On a target with the org's own Support and a package's ns__Support, the
+ * mapping taken on the first answered the second: the run writes it to the
+ * org's own rows alone, and the package's went as read with nobody asked.
  */
 export function picklistMappingEntry<T extends { recordType?: string }>(
   mappings: readonly T[],
-  recordType: string | undefined,
+  gap: { id: string; recordType?: string },
+  read: Iterable<string>,
 ): T | undefined {
-  const bare = PACKAGED_NAME.exec(recordType ?? '')?.[1];
+  const bare = bareRecordTypeOfTheGap(gap.id, read);
   return (
-    mappings.find((mapping) => mapping.recordType === recordType) ??
+    mappings.find((mapping) => mapping.recordType === gap.recordType) ??
     (bare !== undefined ? mappings.find((mapping) => mapping.recordType === bare) : undefined) ??
     mappings.find((mapping) => mapping.recordType === undefined)
   );
+}
+
+/**
+ * The name the package's record type of the gap `id` had before its
+ * namespace, when a mapping of its value under that name can be the gap's
+ * alone: no other gap of `read`, of whatever kind, is of the same value on
+ * the org's own record type of that name, or on another package's.
+ */
+function bareRecordTypeOfTheGap(id: string, read: Iterable<string>): string | undefined {
+  const parts = forgeGapParts(id);
+  const bare = PACKAGED_NAME.exec(parts?.recordType ?? '')?.[1];
+  if (parts === null || bare === undefined) return undefined;
+  for (const other of read) {
+    const theirs = forgeGapParts(other);
+    if (
+      theirs === null ||
+      theirs.recordType === parts.recordType ||
+      theirs.objectApiName !== parts.objectApiName ||
+      theirs.field !== parts.field ||
+      theirs.value !== parts.value
+    ) {
+      continue;
+    }
+    const name = theirs.recordType ?? '';
+    if (name === bare || PACKAGED_NAME.exec(name)?.[1] === bare) return undefined;
+  }
+  return bare;
 }
 
 const SEVERITY_RANK: Readonly<Record<ForgeGapSeverity, number>> = {

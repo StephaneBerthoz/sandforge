@@ -178,6 +178,7 @@ import {
   TEAM_USER_FIELD,
   draftStartOf,
   emailWriteEdges,
+  flagsNotKeptNote,
   isOpportunityTeamObject,
   isPersonAccountRow,
   leftToThePlatformNote as leftOutNote,
@@ -190,7 +191,9 @@ import {
   statusCategories,
   tasksWrittenWithEmails,
   waitsForItsTask,
+  withFlagsNotKept,
   writtenWithWords,
+  type FlagsNotKept,
   type OpportunityTeamRows,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -248,6 +251,7 @@ import type { FieldBounds } from './describeBounds.js';
 import {
   findUnavailableRecordTypes,
   parseRecordTypeCounts,
+  partsOfRecordType,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
@@ -259,6 +263,7 @@ import {
   RECORD_TYPE_NAMES_SOQL,
   parseNamespacedRecordTypes,
   type NamespacedRecordType,
+  type RecordTypeNameParts,
 } from '../../core/metadata/recordTypeNames.js';
 
 /**
@@ -1508,8 +1513,11 @@ interface PageCarry {
    */
   readonly lookupsOutsideTheRun: Map<string, number>;
   writtenWithoutFields?: WrittenWithoutFields;
-  /** The flags of relations linked to that could not be given back. */
-  readonly flagsNotKept: string[];
+  /**
+   * The flags of relations linked to that could not be given back, counted
+   * over the pages: the line that ends the object says each once.
+   */
+  flagsNotKept?: FlagsNotKept;
   /**
    * Of a run that upserts, the external ids its pages may match by, judged on
    * every row the run reads of the object: see `keysOfTheTable`.
@@ -1546,7 +1554,6 @@ function emptyPageCarry(): PageCarry {
     currencies: new CurrencyReplacementTally(),
     lookupsNotCarried: new Map(),
     lookupsOutsideTheRun: new Map(),
-    flagsNotKept: [],
   };
 }
 
@@ -1568,12 +1575,13 @@ function settledOfCarry(carry: PageCarry): number {
 
 /**
  * What the line that ends an object read page by page says of the values its
- * linked rows went without: the flags of each page's relations, then the
- * values of its team's rows, summed over the pages.
+ * linked rows went without: the flags of its relations, then the values of
+ * its team's rows, each summed over the pages.
  */
 function flagsNotKeptOfCarry(carry: PageCarry): string {
-  const team = teamValuesNote(carry.teamValues);
-  return [...carry.flagsNotKept, ...(team ? [team] : [])].map((note) => `, ${note}`).join('');
+  return [flagsNotKeptNote(carry.flagsNotKept), teamValuesNote(carry.teamValues)]
+    .flatMap((note) => (note ? [`, ${note}`] : []))
+    .join('');
 }
 
 /** Count `reasons` into the rows a carry says were held back before the write. */
@@ -3197,6 +3205,19 @@ function targetRecordTypeOf(
   return config.recordTypeMappings?.find((m) => m.sourceId === recordTypeId)?.developerName;
 }
 
+/**
+ * The record types of an object in the target, by namespace and DeveloperName,
+ * once each is named by its `RecordType` row: what a decision's bare name
+ * names there (`RunDecisions.holdsBack`). Nothing when one of them was not
+ * named so — the row read failed — since the org's own and a package's of
+ * one DeveloperName are then told apart by nothing.
+ */
+function targetTypesNamed(target: TargetObjectInfo | null): RecordTypeNameParts[] | undefined {
+  const types = (target?.recordTypes ?? []).filter((type) => !type.master);
+  if (types.some((type) => type.namespacePrefix === undefined)) return undefined;
+  return types.map(partsOfRecordType);
+}
+
 /** The record types of an object in the target the user the run writes as may give a record. */
 function recordTypesToMapTo(target: TargetObjectInfo | null): string[] {
   return (target?.recordTypes ?? [])
@@ -3943,8 +3964,10 @@ export class ForgeExecutor {
    * The target's key prefix and record types of an object, the record types
    * named by their rows wherever a name will be said: in a simulation, whose
    * gaps name them, and for an object one of whose record types the running
-   * user may not use. A real run whose record types are all open sends no
-   * read for it.
+   * user may not use — and wherever a decision names a record type of the
+   * object without a namespace, which the target's names tell the org's own
+   * from a package's (`targetTypesNamed`). A real run whose record types are
+   * all open, and that no such decision is about, sends no read for it.
    */
   private async targetObjectInfoOf(
     state: ExecutionState,
@@ -3953,7 +3976,9 @@ export class ForgeExecutor {
     const info = await this.objectInfoOf(state.targetOrgId, objectApiName);
     if (!info) return info;
     const said =
-      state.gaps !== null || info.recordTypes.some((type) => !type.available && !type.master);
+      state.gaps !== null ||
+      info.recordTypes.some((type) => !type.available && !type.master) ||
+      state.config.decisions.namesARecordTypeBare(objectApiName);
     if (!said) return info;
     return {
       ...info,
@@ -11764,12 +11789,16 @@ export class ForgeExecutor {
    * decisions applied, and said on the node's line before its write. Not a
    * failure: the run was told not to write them. What names one of them goes
    * as what names a row the target refused.
+   *
+   * @param targetTypes - The target's record types of the object, named
+   *   (`targetTypesNamed`).
    */
   private holdBackSkippedRows(
     state: ExecutionState,
     node: ForgeGraphNode,
     rows: Record<string, unknown>[],
     onProgress: (event: ForgeProgressEvent) => void,
+    targetTypes: readonly RecordTypeNameParts[] | undefined,
   ): Record<string, unknown>[] {
     const { config } = state;
     if (!config.decisions.skipsRowsOf(node.objectApiName)) return rows;
@@ -11791,6 +11820,7 @@ export class ForgeExecutor {
         },
         targetRecordTypeOf(config, typeof recordTypeId === 'string' ? recordTypeId : undefined),
         state.decisionsApplied,
+        targetTypes,
       );
     });
     const held = rows.length - kept.length;
@@ -12286,6 +12316,8 @@ export class ForgeExecutor {
 
       // Read from the describe the field sets came from: no second request.
       const targetObject = await this.targetObjectInfoOf(state, node.objectApiName);
+      // What a decision's bare name names among them.
+      const targetTypes = targetTypesNamed(targetObject);
 
       // A record type can be active in the target and still be closed to the
       // user the run writes as. Found out at the insert, every record of it
@@ -12363,7 +12395,7 @@ export class ForgeExecutor {
 
       // The rows the user chose not to write, by a value a gap names: held
       // back before anything is written for them, orphan parents included.
-      toWrite = this.holdBackSkippedRows(state, node, toWrite, onProgress);
+      toWrite = this.holdBackSkippedRows(state, node, toWrite, onProgress, targetTypes);
 
       // A row that hangs from one left to the platform after it was read — a
       // run that reads every object before it writes one — goes with it, and
@@ -12686,6 +12718,7 @@ export class ForgeExecutor {
             row,
             targetRecordTypeOf(config, recordTypeId),
             state.decisionsApplied,
+            targetTypes,
           ),
         ...(currencies || parentCurrencies
           ? { currencyFields: currencyFieldsOf(targetFields ?? []) }
@@ -12965,7 +12998,9 @@ export class ForgeExecutor {
         page.writtenWithoutFields = writeResult.writtenWithoutFields
           ? addWrittenWithoutFields(page.writtenWithoutFields, writeResult.writtenWithoutFields)
           : page.writtenWithoutFields;
-        if (writeResult.flagsNotKept) page.flagsNotKept.push(writeResult.flagsNotKept);
+        if (writeResult.flagsNotKept) {
+          page.flagsNotKept = withFlagsNotKept(page.flagsNotKept, writeResult.flagsNotKept);
+        }
         const notSentOfPage = stoppedBy
           ? handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure)
           : 0;
@@ -13070,7 +13105,7 @@ export class ForgeExecutor {
       // the answer that goes with it: the who the event also invites, and
       // how it answered, which the platform's relation leaves out. And a row
       // of a team linked to without a value it gave a field the run writes.
-      const flagsNotKept = [writeResult.flagsNotKept, teamValuesNote(team.values)]
+      const flagsNotKept = [flagsNotKeptNote(writeResult.flagsNotKept), teamValuesNote(team.values)]
         .flatMap((note) => (note ? [`, ${note}`] : []))
         .join('');
       // A row written without the fields the target refused it on: which

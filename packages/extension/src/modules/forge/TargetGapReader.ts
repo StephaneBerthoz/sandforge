@@ -256,6 +256,20 @@ export function validationRulesSoql(objectApiNames: readonly string[]): string {
 }
 
 /**
+ * Whether any user can ever create the records of the objects named, over the
+ * Tooling API: `IsEverCreatable` is false where the platform writes them
+ * itself and no user can create one, whatever they are granted. A describe's
+ * `createable` speaks for the user who asks alone.
+ */
+export function everCreatableSoql(objectApiNames: readonly string[]): string {
+  const names = objectApiNames.map((name) => `'${name}'`).join(', ');
+  return (
+    'SELECT QualifiedApiName, IsEverCreatable FROM EntityDefinition ' +
+    `WHERE QualifiedApiName IN (${names})`
+  );
+}
+
+/**
  * The fields of an object with their labels, over the Tooling API: the labels
  * a validation rule's `ErrorDisplayField` names its field by, in the org's
  * language. A name a query cannot hold safely asks for none.
@@ -1007,8 +1021,29 @@ export class TargetGapReader {
       );
       requests += sent;
     };
+    /**
+     * The objects of the run the target's user may not create that no user
+     * ever can: the platform writes their records itself. One request, sent
+     * only when the user may not create one. Unanswered, an object stays
+     * blocking: the user may not create it either way, and another one might.
+     */
+    const noUserCreates = new Set<string>();
+    const closed = [...closedInTarget].filter((name) => API_NAME_RE.test(name));
+    const whoCreates = async (): Promise<void> => {
+      try {
+        const answer = await this.deps.toolingQuery(targetOrgId, everCreatableSoql(closed));
+        requests += answer.requests;
+        for (const row of answer.records) {
+          const objectApiName = ofTheRun(text(row.QualifiedApiName));
+          if (objectApiName && row.IsEverCreatable === false) noUserCreates.add(objectApiName);
+        }
+      } catch {
+        requests++;
+      }
+    };
     await inFlight(
       [
+        ...(closed.length > 0 ? [whoCreates] : []),
         ...(toolingQueries ? [formulasInComposites] : []),
         ...(toolingQueries ? [] : reading).map((rule) => async () => {
           try {
@@ -1095,15 +1130,23 @@ export class TargetGapReader {
       ...objects.flatMap((objectApiName) => {
         // An object the target's user may not create: one gap, which holds
         // Execute until the user leaves it out. Nothing said it before the
-        // run, which wrote its parents, then skipped it.
+        // run, which wrote its parents, then skipped it. One no user can
+        // ever create is said so, and holds nothing: no grant would open it.
         if (closedInTarget.has(objectApiName)) {
           return [
-            gapOf({
-              kind: 'object_not_createable',
-              severity: 'blocking',
-              objectApiName,
-              decisions: ['exclude_object'],
-            }),
+            noUserCreates.has(objectApiName)
+              ? gapOf({
+                  kind: 'object_platform_only',
+                  severity: 'info',
+                  objectApiName,
+                  decisions: ['exclude_object'],
+                })
+              : gapOf({
+                  kind: 'object_not_createable',
+                  severity: 'blocking',
+                  objectApiName,
+                  decisions: ['exclude_object'],
+                }),
           ];
         }
         const target = targetFields.get(objectApiName);
@@ -1408,7 +1451,7 @@ export function gapAnsweredBy(
     const mappings = (decisions.picklistValueMappings ?? []).filter(
       (m) => m.object === object && m.field === field && m.from === value,
     );
-    const entry = picklistMappingEntry(mappings, gap.recordType);
+    const entry = picklistMappingEntry(mappings, gap, read);
     if (entry?.to === null && offers.has('leave_empty'))
       return 'the field left empty in these rows';
     if (entry && entry.to !== null && offers.has('map_value')) return `written as "${entry.to}"`;
@@ -1556,6 +1599,11 @@ function gapWords(gap: ForgeGap, lifted = false): string {
       return (
         'the user the run writes as may not create its records in the target: every row is ' +
         'skipped, after the objects written before it, unless the object is left out'
+      );
+    case 'object_platform_only':
+      return (
+        'no user can create its records in the target, the platform writes them itself: ' +
+        'the run skips every row of it'
       );
     case 'api_budget': {
       const calls = `about ${count(detail.calls)} call(s) (${count(detail.writes)} write(s) of 200 rows, ${count(detail.reads)} read(s))`;
