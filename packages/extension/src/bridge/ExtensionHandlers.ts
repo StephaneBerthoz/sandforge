@@ -1119,6 +1119,7 @@ export class ExtensionHandlers {
         'dataops:anonymization-template:delete',
         'dataops:anonymize:coverage',
         'dataops:anonymize:preview',
+        'dataops:automation',
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,

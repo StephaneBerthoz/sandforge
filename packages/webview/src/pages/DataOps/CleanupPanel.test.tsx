@@ -28,6 +28,25 @@ const idle = (): MutationState => ({
  */
 let states: Record<string, MutationState>;
 
+/** What the org runs as the delete goes, as the extension answers a read of it: nothing. */
+const NOTHING_FIRES = {
+  act: 'cleanup',
+  objects: [{ objectApiName: 'Account', records: 2 }],
+  steps: { delete: ['Account'] },
+  automation: {
+    objectsRead: ['Account'],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 1,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { timeoutMs?: number }) => {
     if (type === 'dataops:cleanup:delete') {
@@ -78,6 +97,7 @@ beforeEach(() => {
     'dataops:cleanup:export': idle(),
     plan: idle(),
     remove: idle(),
+    'dataops:automation': { ...idle(), data: NOTHING_FIRES },
   };
 });
 
@@ -142,12 +162,80 @@ describe('CleanupPanel', () => {
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'cleanup',
+      objects: [{ objectApiName: 'Account', records: 2 }],
+    });
+    // Confirmed once what the org runs as the records go was listed.
     expect(states.remove.mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       objectApiName: 'Account',
       recommendation: { kind: 'stale', days: 365 },
       dryRun: false,
+      acceptAutomation: true,
     });
+  });
+
+  it('holds the delete until what the org runs is read, and until the emails it delivers are let through', () => {
+    states['dataops:cleanup:scan'].data = scanned;
+    states['dataops:automation'].data = null;
+    const { rerender } = render(<CleanupPanel orgId="org-1" orgName="dev1" />);
+    fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
+    states.plan.data = {
+      objectApiName: 'Account',
+      dryRun: true,
+      plan: { objectApiName: 'Account', label: 'Account', records: 2 },
+      truncated: false,
+    };
+    fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
+    fireEvent.click(screen.getByTestId('cleanup-delete-btn'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('danger-held').textContent).toContain('Waiting for what dev1 runs');
+
+    // The read lands: a flow before the delete that emails the owner, on an
+    // org that delivers every email.
+    states['dataops:automation'].data = {
+      ...NOTHING_FIRES,
+      automation: {
+        ...NOTHING_FIRES.automation,
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Tell_Owner',
+                label: 'Tell Owner',
+                timing: 'afterSave',
+                startsOn: 'delete',
+                condition: 'read',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Send', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      },
+      deliverability: {
+        reading: { level: 'all' },
+        senders: [{ objectApiName: 'Account', kind: 'flow', name: 'Tell Owner', why: 'email' }],
+      },
+      emailsAsk: true,
+    };
+    rerender(<CleanupPanel orgId="org-1" orgName="dev1" />);
+
+    expect(screen.getByTestId('dataops-automation-cleanup').textContent).toContain('Tell Owner');
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('dataops-automation-cleanup-accept-emails'));
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(states.remove.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptAutomation: true, acceptEmails: true }),
+    );
   });
 
   it('names the lookup a delete reviews by its label, as the scan read it', () => {

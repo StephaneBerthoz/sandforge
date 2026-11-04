@@ -2410,7 +2410,47 @@
       "description": "Überschreibt diese Felder überall, wo ein Datensatz einen Wert hat: {{fields}}.",
       "resumeDescription": "Überschreibt diese Felder in den Datensätzen, die der angehaltene Lauf übrig gelassen hat: {{fields}}."
     },
-    "deleteTemplateConfirm": "Die Vorlage „{{name}}“ löschen? Ihre Regeln verschwinden von diesem Rechner."
+    "deleteTemplateConfirm": "Die Vorlage „{{name}}“ löschen? Ihre Regeln verschwinden von diesem Rechner.",
+    "automation": {
+      "masking": {
+        "title": "Was {{org}} ausführt, wenn diese Datensätze maskiert werden",
+        "intro": "Wenn die Maskierung diese Datensätze überschreibt, führt {{org}} aus:",
+        "none": "Nichts, was {{org}} automatisiert, läuft beim Maskieren dieser Datensätze."
+      },
+      "restore": {
+        "title": "Was {{org}} ausführt, wenn die Werte der Sicherung zurückgeschrieben werden",
+        "intro": "Wenn die Wiederherstellung Datensätze aus dem Papierkorb zurückholt und die Werte der Sicherung darüberschreibt, führt {{org}} aus:",
+        "none": "Nichts, was {{org}} automatisiert, läuft beim Zurückschreiben der Werte der Sicherung."
+      },
+      "cleanup": {
+        "title": "Was {{org}} ausführt, wenn diese Datensätze gelöscht werden",
+        "intro": "Wenn die Bereinigung diese Datensätze löscht, führt {{org}} aus:",
+        "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze."
+      },
+      "loading": "Es wird gelesen, was {{org}} beim Schreiben dieser Datensätze ausführt…",
+      "error": "Was {{org}} beim Schreiben dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}",
+      "why": {
+        "mask": "wenn die Maskierung ihn überschreibt",
+        "restore": "wenn die Wiederherstellung die Werte der Sicherung darüberschreibt",
+        "undelete": "nach dem Wiederherstellen, wenn die Wiederherstellung ihn aus dem Papierkorb zurückholt"
+      },
+      "limit": {
+        "single": "Einzel-E-Mails",
+        "workflow": "Workflow-E-Mails"
+      },
+      "emails_one": "Etwa {{formatted}} seiner {{limit}} geht beim Schreiben dieser Datensätze hinaus, {{remaining}} von {{max}} heute übrig.",
+      "emails_other": "Etwa {{formatted}} seiner {{limit}} gehen beim Schreiben dieser Datensätze hinaus, {{remaining}} von {{max}} heute übrig.",
+      "emailsUnread_one": "Etwa {{formatted}} seiner {{limit}} geht beim Schreiben dieser Datensätze hinaus; was {{org}} heute übrig hat, konnte nicht gelesen werden.",
+      "emailsUnread_other": "Etwa {{formatted}} seiner {{limit}} gehen beim Schreiben dieser Datensätze hinaus; was {{org}} heute übrig hat, konnte nicht gelesen werden.",
+      "acceptEmails": "{{org}} diese E-Mails senden lassen",
+      "refused": "Dies würde abgelehnt: {{reason}}",
+      "held": {
+        "reading": "Es wird gewartet, was {{org}} beim Schreiben dieser Datensätze ausführt.",
+        "failed": "Was {{org}} ausführt, konnte nicht gelesen werden: Lesen Sie es vor dem Bestätigen erneut.",
+        "refused": "So wird es abgelehnt: siehe oben, warum.",
+        "emails": "Aktivieren Sie das Kästchen, damit {{org}} diese E-Mails sendet, oder schalten Sie ab, was sie sendet."
+      }
+    }
   },
   "automation": {
     "title": "Automatisierung",

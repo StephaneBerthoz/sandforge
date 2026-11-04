@@ -275,6 +275,12 @@ export interface EnvMaskRun {
   rules: { name: string; rules: EnvMaskingRule[] };
   object?: string;
   where?: string;
+  /**
+   * Mask although the org runs automation as the records are written over
+   * (`accept.automation`): the script's `--accept-automation`. Absent, a
+   * masking that fires something is refused before it writes.
+   */
+  acceptAutomation?: boolean;
 }
 
 /**

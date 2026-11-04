@@ -494,6 +494,16 @@ function helpFlags(script) {
       flags.add(flag);
     }
   }
+  // So are the DataOps scripts' flags of the org's automation.
+  if (help.includes('${dataOpsAutomationHelp(')) {
+    const lines = /export function dataOpsAutomationHelp[\s\S]*?\n}\n/.exec(
+      read(...CLI_DIR, 'dataOpsAutomationCli.ts'),
+    )?.[0];
+    assert.ok(lines, 'dataOpsAutomationCli.ts has no dataOpsAutomationHelp — re-point this gate');
+    for (const [flag] of lines.matchAll(/(?<=` {2})--[a-z][a-z-]*|(?<=\n {2})--[a-z][a-z-]*/g)) {
+      flags.add(flag);
+    }
+  }
   return flags;
 }
 

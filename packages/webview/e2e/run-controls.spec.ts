@@ -77,6 +77,42 @@ async function answerAll(
   }
 }
 
+/**
+ * What the org runs as a DataOps masking, restore or cleanup writes, as the
+ * extension answers the confirmation's read of it: nothing fires, nothing
+ * sends. The confirmation waits for it.
+ */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
+/** Answer the open confirmation's read of what the org runs, until it no longer waits on it. */
+async function nothingFires(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        await answerAll(page, 'dataops:automation', 'dataops:automation:response', NOTHING_FIRES);
+        return page.getByTestId('danger-held').count();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
+}
+
 /** Boot a module's panel, painted in `theme`, the orgs connected. */
 async function openModule(page: Page, module: string, theme: Theme): Promise<MockBridge> {
   const bridge = new MockBridge();
@@ -259,6 +295,7 @@ for (const theme of THEMES) {
       await page.getByTestId('restore-btn-op-backup-1').click();
       // It asks first, naming the org, and passes axe asking.
       await expect(page.getByTestId('danger-title')).toContainText('DevSandbox');
+      await nothingFires(page);
       await passesAxe(page);
       await page.getByTestId('danger-confirm-btn').click();
 
@@ -277,6 +314,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
 
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       const [run] = await outgoing(page, 'dataops:anonymize');
       expect(run.payload).toMatchObject({ templateId: 'tpl-gdpr', snapshot: true });
@@ -291,6 +329,7 @@ for (const theme of THEMES) {
       await pickTemplate(page);
       await page.getByTestId('apply-btn').click();
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       const [refused] = await outgoing(page, 'dataops:anonymize');
       await sendExtensionMessage(page, {
@@ -307,6 +346,7 @@ for (const theme of THEMES) {
 
       await page.getByTestId('apply-btn').click();
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       await expect.poll(async () => (await outgoing(page, 'dataops:anonymize')).length).toBe(2);
       const ran = (await outgoing(page, 'dataops:anonymize'))[1];
@@ -339,6 +379,7 @@ for (const theme of THEMES) {
       await pickTemplate(page);
       await page.getByTestId('apply-btn').click();
       await page.getByTestId('danger-input').fill('DevSandbox');
+      await nothingFires(page);
       await page.getByTestId('danger-confirm-btn').click();
       const [refused] = await outgoing(page, 'dataops:anonymize');
       await sendExtensionMessage(page, {

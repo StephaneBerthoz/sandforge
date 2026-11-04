@@ -3,6 +3,28 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+/** What the org runs on the objects a test's run writes: nothing, unless the test says. */
+const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[] }));
+
+// What the org runs as a masking or a restore writes its records: nothing,
+// as an org without flows or triggers on them answers, unless a test gives
+// what it runs. The gate reads it before every write.
+vi.mock('../src/modules/forge/TargetAutomationReader.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/modules/forge/TargetAutomationReader.js')>()),
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: orgRuns.objects,
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+}));
+
 // The org is reached through these three, and through nothing else: the
 // session the sf CLI hands over, the query the extension types an org with,
 // and the connection the handler opens.
@@ -259,6 +281,7 @@ describe('sandforge-dataops', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    orgRuns.objects = [];
     stdout = '';
     stderr = '';
     store = mkdtempSync(join(tmpdir(), 'sandforge-dataops-test-'));
@@ -1279,6 +1302,110 @@ describe('sandforge-dataops', () => {
       expect(code).toBe(1);
       expect(stderr).toContain('has no rule for Case');
       expect(update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('what the org runs as it writes', () => {
+    /** A flow of Contact after the save, on update: what a masking and a restore fire. */
+    const notifyOwner = {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Notify_Owner',
+          label: 'Notify Owner',
+          timing: 'afterSave',
+          startsOn: 'update',
+          condition: 'read',
+          permissions: [],
+        },
+      ],
+      triggers: [],
+    };
+    const masking = [
+      'anonymize',
+      '--org',
+      'ORG',
+      '--object',
+      'Contact',
+      '--template',
+      'tpl-gdpr-standard',
+    ];
+
+    it('says in a dry run what fires as a run updates the records, and that a real run would be refused for it: exit 1, nothing written', async () => {
+      orgIs('Developer Edition');
+      orgRuns.objects = [notifyOwner];
+      const { update } = orgOf(contactsOf(3, 3));
+
+      const code = await run(...masking, '--dry-run');
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(stdout).toContain(
+        'masking automation: what ORG runs as the masking writes over the records',
+      );
+      expect(stdout).toContain('  Contact: as it is masked, after save: flow "Notify Owner"');
+      expect(stdout).toContain(
+        '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): ORG runs automation as this ' +
+          'masking writes over its records',
+      );
+    });
+
+    it('refuses a run without --accept-automation before it asks or writes, and masks with it', async () => {
+      orgIs('Developer Edition');
+      orgRuns.objects = [notifyOwner];
+      const rows = contactsOf(3, 3);
+      const { update } = orgOf(rows);
+
+      const refused = await run(...masking, '--yes');
+
+      expect(refused).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(stderr).toContain(
+        'Nothing was written. Add --accept-automation to mask all the same, or turn that ' +
+          'automation off in ORG first.',
+      );
+
+      stdout = '';
+      process.exitCode = undefined;
+      const accepted = await run(...masking, '--yes', '--accept-automation');
+
+      expect(accepted).toBeUndefined();
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(stdout).toContain('Anonymization completed: 3 records processed.');
+    });
+
+    it('refuses a --restore whose update flow fires as it puts the values back, without --accept-automation', async () => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(2, 2);
+      const { upsert } = orgOf(rows);
+      await run(...masking, '--yes');
+      const snapshotId = /snapshot (\S+): 2 record\(s\)/.exec(stdout)?.[1];
+      expect(snapshotId).toBeDefined();
+      orgRuns.objects = [notifyOwner];
+      process.exitCode = undefined;
+      stdout = '';
+
+      const refused = await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes');
+
+      expect(refused).toBe(1);
+      expect(upsert).not.toHaveBeenCalled();
+      expect(stdout).toContain(
+        "restore automation: what ORG runs as the restore puts the backup's values back",
+      );
+      expect(stderr).toContain('Add --accept-automation to restore all the same');
+
+      process.exitCode = undefined;
+      const accepted = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotId!,
+        '--yes',
+        '--accept-automation',
+      );
+      expect(accepted).toBeUndefined();
+      expect(upsert).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -87,10 +87,16 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'list',
   ]),
   dataops: page(() => import('./pages/DataOps/DataOpsPage'), 'DataOpsPage', [
+    // What the org runs as a masking, a restore or a cleanup writes, listed
+    // by the confirmation as Forge's removal lists it, with the mute's box.
+    'automationMute',
     'dataops',
     'emptyState',
     'errors',
     'howTo',
+    'orgAutomation',
+    'runRemoval',
+    'runResults',
   ]),
   automation: page(() => import('./pages/Automation/AutomationPage'), 'AutomationPage', [
     'ai',

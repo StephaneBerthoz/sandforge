@@ -497,12 +497,13 @@ async function forgetMask(
 /**
  * The scripts that read the target's automation before they write, and are
  * refused for the emails what still runs sends where it delivers them
- * (`EMAILS_NOT_ACCEPTED`): a seed and a clone. A frozen load and a masking
- * read none, and ask nothing of them.
+ * (`EMAILS_NOT_ACCEPTED`): a seed, a clone and a masking. A frozen load reads
+ * none, and asks nothing of them.
  */
 const SCRIPTS_THAT_ASK_FOR_THE_EMAILS: ReadonlySet<string> = new Set([
   'sandforge-seed',
   'sandforge-clone',
+  'sandforge-dataops',
 ]);
 
 /**
@@ -944,13 +945,18 @@ async function runMaskStep(
     where.env,
     maskStoreOf(resource.name),
   );
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile: '',
-    store,
-  });
+  // With the accord of the environment's own line: a masking is refused for
+  // the emails what the org runs sends as the records are written over.
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      store,
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   const answer = answerOf(readMaskRun, ran.stdout, deps.say);
   const masking = answer !== undefined ? maskRunCount(answer) : undefined;

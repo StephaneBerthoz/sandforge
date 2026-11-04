@@ -1129,7 +1129,11 @@ function dataopsAnonymize() {
     const before = read('dataops-before');
     const was = fieldsChecksum(before, DATAOPS_FIELDS);
     const store = join(work, 'dataops-store');
-    const base = ['anonymize', '--org', SOURCE, '--store', store, '--json'];
+    // What the source runs as its contacts are written over is accepted: the
+    // step proves the masking and its restore, not the source's automation,
+    // which the masking now names and refuses without it. Its emails are not:
+    // a source that would send them stops the step.
+    const base = ['anonymize', '--org', SOURCE, '--store', store, '--json', '--accept-automation'];
     const scope = [
       '--object',
       'Contact',
@@ -1198,6 +1202,7 @@ function dataopsAnonymize() {
       store,
       '--yes',
       '--json',
+      '--accept-automation',
     ]);
     const restoreDoc = jsonOf(restore.stdout);
     const restored = postedOf(restoreDoc, 'dataops:rollback:response')?.payload;

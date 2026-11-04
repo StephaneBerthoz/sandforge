@@ -1,5 +1,5 @@
 import type { CleanupRecommendation, RemovalPlanObject } from '@sandforge/shared';
-import { CLEANUP_ACTION_LIMIT } from '@sandforge/shared';
+import { CLEANUP_ACTION_LIMIT, guardTierOf } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
@@ -23,6 +23,18 @@ import {
   readRecordsById,
   workedObjects,
 } from '../../modules/dataops/RecordRemoval.js';
+import {
+  dataOpsAutomationOrgOf,
+  dataOpsStop,
+  holdDataOpsMute,
+  readDataOpsAct,
+} from '../../modules/dataops/dataOpsAutomation.js';
+import { muteLines, type MuteLeaseOptions } from '../../modules/forge/AutomationMuteLease.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+
+/** How long the read of what the org runs may take before a delete: Seed's and Forge's bound. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Message types handled by DataOpsCleanupHandler. */
 const CLEANUP_TYPES = new Set([
@@ -71,6 +83,44 @@ export class DataOpsCleanupHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Reads what the org runs as a cleanup deletes its records: a reader of
+   * the handler's own over its connections, as Forge reads it, loaded on its
+   * first read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Where and how a delete that mutes keeps its lease, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /** Another reader of what the org runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** Where and how a delete that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   private async session(orgId: string, context: string): Promise<OrgSession> {
@@ -234,6 +284,56 @@ export class DataOpsCleanupHandler implements DomainHandler {
       if (ids.length === 0) {
         throw new Error(`No ${object.label} record is left to delete for this recommendation.`);
       }
+      // What the org runs as the records go — a flow before a delete, a
+      // trigger after it, the emails they send — read before the guard is
+      // asked and before anything is deleted, and refused unless the page's
+      // question answered it: a cleanup fired them with no question asked.
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+      const reader = this.targetAutomation;
+      const gated = await readDataOpsAct({
+        act: 'cleanup',
+        target,
+        objects: [{ objectApiName: object.name, records: ids.length }],
+        org: dataOpsAutomationOrgOf(
+          conn,
+          (names) =>
+            new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('dataops automation', () =>
+              reader.read(orgId, names),
+            ),
+          guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
+        ),
+        accord: parsed,
+        mayMute: true,
+        muteLeases: this.muteLeases,
+      });
+      const refused = dataOpsStop(gated.answer);
+      if (refused) {
+        sendHandlerError(
+          this.deps,
+          'dataops:cleanup:delete',
+          'dataops:error',
+          msg,
+          new Error(refused.message),
+          { code: refused.code },
+        );
+        return;
+      }
+      // The mute's lease, held from before the guard's question to the end
+      // of the delete, given back however it ends.
+      const holding = await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true);
+      if ('refused' in holding) {
+        sendHandlerError(
+          this.deps,
+          'dataops:cleanup:delete',
+          'dataops:error',
+          msg,
+          new Error(holding.refused.message),
+          { code: holding.refused.code },
+        );
+        return;
+      }
+      const held = holding.held;
       const plan: RemovalPlanObject = {
         objectApiName: object.name,
         label: object.label,
@@ -256,7 +356,11 @@ export class DataOpsCleanupHandler implements DomainHandler {
           },
         },
         this.liveTracker,
-      );
+      ).finally(async () => {
+        if (!held) return;
+        const released = await held.release();
+        for (const line of muteLines(released, target)) this.deps.log(`[INFO] ${line}`);
+      });
       if (!result.ran) {
         sendHandlerError(
           this.deps,
@@ -285,6 +389,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
         plan,
         truncated: resolved.truncated,
         outcome: result.outcome,
+        ...(held ? { mutedAutomation: held.outcome } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(

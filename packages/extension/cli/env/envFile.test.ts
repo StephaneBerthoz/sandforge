@@ -1001,16 +1001,17 @@ describe('a mask resource in the file', () => {
     ]);
   });
 
-  it('warns of a masking set no mask resource names, and of an acceptance a masking does not take', () => {
+  it('warns of a masking set no mask resource names, and hands a masking the acceptance of its automation', () => {
     const document = withMask({ accept: { automation: true } });
     (document['masking'] as Record<string, unknown>)['unused'] = {
       rules: [{ fieldPattern: 'Lead.Email', ruleType: 'hash' }],
     };
 
-    expect(checked(document).warnings.map(refusalLine)).toEqual([
+    const read = checked(document);
+    expect(read.warnings.map(refusalLine)).toEqual([
       'masking.unused: no mask resource names this rule set: nothing masks with it',
-      'resources.customers.accept.automation: a DataOps masking takes no acceptance of automation: what the org runs as the records are written over, it runs unasked',
     ]);
+    expect(read.runs['customers']).toMatchObject({ kind: 'mask', acceptAutomation: true });
   });
 
   it('lists what it masks, for validate: its object, or every one its rules name', () => {

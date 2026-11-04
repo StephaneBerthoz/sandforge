@@ -28,6 +28,25 @@ import {
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
+// What the org runs as a masking or a restore writes its records: nothing,
+// as an org without flows or triggers on them answers. The gate reads it
+// before every write; a test of what it refuses gives a reader of its own.
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
+
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));

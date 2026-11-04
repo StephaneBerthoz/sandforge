@@ -514,7 +514,7 @@ describe('how a step ends, and what the apply then does', () => {
     expect(world.records('Asset')).toEqual([]);
   });
 
-  it('hands the line’s --accept-emails to the runs of a seed and a clone, and to no other script', async () => {
+  it('hands the line’s --accept-emails to the runs of a seed, a clone and a masking, and to no other script', async () => {
     const resolved = resolvedOf();
     const { plan, dryRuns, state } = await planned(resolved);
     const lines: string[][] = [];
@@ -546,9 +546,12 @@ describe('how a step ends, and what the apply then does', () => {
       '--accept-emails',
     ]);
     expect(withEmailsAccepted({ script: 'sandforge-seed', args: [] }, false).args).toEqual([]);
-    for (const script of ['sandforge-frozen', 'sandforge-dataops']) {
-      expect(withEmailsAccepted({ script, args: ['--json'] }, true).args).toEqual(['--json']);
-    }
+    expect(
+      withEmailsAccepted({ script: 'sandforge-dataops', args: ['--json'] }, true).args,
+    ).toEqual(['--json', '--accept-emails']);
+    expect(withEmailsAccepted({ script: 'sandforge-frozen', args: ['--json'] }, true).args).toEqual(
+      ['--json'],
+    );
   });
 
   it('carries a seed’s refusal its answer gives into the step, in its words: parents deleted between its dry run and its run', async () => {

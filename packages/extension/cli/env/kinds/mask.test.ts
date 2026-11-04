@@ -242,6 +242,27 @@ describe('what the script answers', () => {
     );
   });
 
+  it('counts the emails the org sends as the records are written over, and refuses what a real run would be refused for', () => {
+    const answer = dryAnswer({});
+    answer.posted.push({
+      type: 'dataops:automation:response',
+      payload: {
+        emails: [{ limit: 'SingleEmail', emails: 2, objects: [], verdict: 'fits' }],
+        refusals: [
+          {
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            message: 'TGT runs automation as this masking writes over its records.',
+          },
+        ],
+      },
+    });
+
+    expect(maskDryRunCount(answer)).toMatchObject({
+      emails: [{ limit: 'SingleEmail', emails: 2 }],
+      refusal: 'TGT runs automation as this masking writes over its records.',
+    });
+  });
+
   it('refuses nothing for an object with no record whose rules mask no field shown, as its run refuses nothing', () => {
     // Read from its empty list of fields, the plan blocked the resource, and
     // the apply with it, for a run that would have gone.

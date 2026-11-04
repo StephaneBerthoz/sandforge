@@ -474,6 +474,43 @@ How it counts, and where it stops:
   others are still scanned; a check the org refuses on one object shows what
   the org said, next to the checks that ran
 
+### What the org runs as DataOps writes
+
+A masking updates every record of its objects, a restore brings back from the
+recycle bin what was deleted since the backup and writes the backup's values
+over the rest, and a cleanup deletes: each fires what the org runs on that
+write, its record-triggered flows, Apex triggers, Process Builder processes and
+workflow rules, emails among them. Before its first write, each reads it, as
+Forge, Sync, Seed and Frozen Dataset do:
+
+- **What fires**, object by object and write by write: on update for a masking
+  and a restore, after undelete for what a restore brings back, before and
+  after delete for a cleanup, and what could not be read
+- **The emails**, counted against what the org has left today of its single
+  and workflow emails: past them, the write is refused (`EMAILS_EXCEEDED`),
+  whatever is accepted
+- **Whether the org delivers them**, read with one line of anonymous Apex that
+  sends nothing, only when something that still runs may send one, never in a
+  production org: see [Will a run make the target send emails?](../faq.md#will-a-run-make-the-target-send-emails)
+
+In the panel, Apply's and Resume's confirmation, Restore's question and the
+Cleanup delete's confirmation list it before the org's name is typed, and wait
+for it; the box **Mute the target's automation for this run** sits under it
+when the org's own bypass silences something of it, and on an org that
+delivers the emails, a box lets them go, which the confirmation itself never
+stands for. On the command line, `sandforge-dataops anonymize`, its
+`--restore`, `sandforge-backup --restore` and `sandforge-cleanup` say it
+before they ask or write, and write nothing without `--accept-automation` when
+something fires or could not be read (`AUTOMATION_NOT_ACCEPTED`), nor without
+`--accept-emails` when the org delivers what still runs sends
+(`EMAILS_NOT_ACCEPTED`); `--mute-automation` keeps quiet what the org's own
+bypasses keep quiet, under a lease, as every other module's runs do (see
+[Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run)).
+A dry run says all of it, and what a real run would be refused for, exit `1`.
+With `--json`, the masking's and the restore's answer carry it as
+`dataops:automation:response`, the cleanup's under `automation`. A pipeline's
+Anonymize step reads none of it.
+
 ## Tips
 
 - Leave **Keep the values first, so Restore can put them back** ticked in Apply's

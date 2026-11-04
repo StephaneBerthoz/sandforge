@@ -13,7 +13,11 @@
  *        SELECT Id FROM Object
  *        WHERE CreatedDate >= <since> AND CreatedById = <user>
  *      with an optional LIMIT cap.
- *   3. Bulk-delete the matched IDs via `conn.sobject(...).destroy(ids)`.
+ *   3. Read what the target runs as those records go — its flows, Apex
+ *      triggers, processes and workflow rules on delete —, the emails that
+ *      sends and whether it delivers them, as every other module's command
+ *      line reads it, and refuse unless it was accepted.
+ *   4. Bulk-delete the matched IDs via `conn.sobject(...).destroy(ids)`.
  *
  * Runs from a checkout of the repository, at its root, after `pnpm install`
  * and `pnpm build:shared`.
@@ -34,6 +38,25 @@ import { refuseProductionTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { endWith } from './exitCodes.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import type { DataOpsAutomationAnswer, DataOpsWriteAccord } from '@sandforge/shared';
+import {
+  accordOf,
+  dataOpsAutomationHelp,
+  DATAOPS_AUTOMATION_SWITCHES,
+  wouldBeRefusedLines,
+} from './dataOpsAutomationCli.js';
+import { refusedLine, wouldBeRefusedJson } from './runRefused.js';
+import {
+  dataOpsAutomationOrgOf,
+  holdDataOpsMute,
+  readDataOpsAct,
+} from '../src/modules/dataops/dataOpsAutomation.js';
+import { muteLines, type HeldMute } from '../src/modules/forge/AutomationMuteLease.js';
+import {
+  TargetAutomationReader,
+  targetAutomationQueries,
+} from '../src/modules/forge/TargetAutomationReader.js';
+import { isProductionTarget, typeTarget } from '../src/core/precheck/orgKindLive.js';
 
 /** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
 const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
@@ -75,6 +98,8 @@ interface CliArgs {
   dryRun: boolean;
   /** Print what became of each object as JSON on stdout, every other line on stderr. */
   json: boolean;
+  /** What the line accepts of what the target runs as it deletes, and the mute it asks for. */
+  accord: DataOpsWriteAccord;
 }
 
 const HELP = `sandforge-cleanup — Bulk delete records you created on a sandbox in the
@@ -99,20 +124,31 @@ Options:
   --objects <a,b,c>     Comma-separated object API names. Defaults to a
                         whitelist of common Forge targets.
   --max <n>             Max records to delete per object (default: 200).
-  --dry-run             Print counts, don't delete.
-  --json                print per object the records found, deleted and
+  --dry-run             Print counts and what the target runs as they would
+                        go, don't delete.
+${dataOpsAutomationHelp('deleted', '--dry-run')}  --json                print per object the records found, deleted and
                         refused as JSON on stdout, every other line on stderr
   -h, --help            Show this help.
 
+Before it deletes, the cleanup says what the target runs as the records go:
+its record-triggered flows, Apex triggers, processes and workflow rules on
+delete, before and after, the emails that sends against what the target has
+left today, and whether it delivers them (with --json, under automation).
+
 Exit codes: 0 every record found was deleted (or counted, with --dry-run);
-1 the cleanup could not start, the target is a production org, or an object
-could not be read or deleted (one the target does not have is passed over);
-2 a bad command line; 3 the target refused to delete some of the records found.
+1 the cleanup could not start, the target is a production org, an object
+could not be read or deleted (one the target does not have is passed over),
+or the cleanup was refused for what the target runs as it deletes, without
+--accept-automation (AUTOMATION_NOT_ACCEPTED), emails it delivers, without
+--accept-emails (EMAILS_NOT_ACCEPTED), more emails than it has left today
+(EMAILS_EXCEEDED), or a mute refused — a --dry-run that saw a real run would be
+refused among them; 2 a bad command line; 3 the target refused to delete some
+of the records found.
 `;
 
 /** What the line reads. */
 const FLAGS: CommandFlags = {
-  switches: ['--dry-run', '--json'],
+  switches: ['--dry-run', '--json', ...DATAOPS_AUTOMATION_SWITCHES],
   values: ['--target', '--since', '--objects', '--max'],
 };
 
@@ -191,6 +227,7 @@ function parseArgs(argv: string[]): CliArgs {
     max,
     dryRun: has('--dry-run'),
     json: has('--json'),
+    accord: accordOf(args),
   };
 }
 
@@ -306,14 +343,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const conn = makeConn(org);
   // Refused on a production org, or one that will not say what it is, before
   // a record is read: the cleanup deleted on whatever org --target named. No
-  // flag lifts it. A dry run only counts.
-  if (!args.dryRun) {
-    await refuseProductionTarget(conn, args.target, {
-      tool: 'sandforge-cleanup',
-      action: 'delete',
-      readOnly: '--dry-run',
-    });
-  }
+  // flag lifts it. A dry run only counts, and runs no Apex in a production
+  // org, or in one that will not say what it is.
+  const production = args.dryRun
+    ? await typeTarget(conn).then(isProductionTarget, () => true)
+    : !(await refuseProductionTarget(conn, args.target, {
+        tool: 'sandforge-cleanup',
+        action: 'delete',
+        readOnly: '--dry-run',
+      }));
   // sf CLI doesn't surface User.Id directly — query it via SOQL using the
   // authenticated username.
   const userQuery = await conn.query<{ Id: string }>(
@@ -331,6 +369,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   say(`user: ${org.username} (${userId})\n`);
 
   const objects: CleanupObject[] = [];
+  /** The records each object holds that the cleanup deletes, in the order it deletes them. */
+  const found = new Map<string, string[]>();
   for (const objectName of args.objects) {
     const outcome: CleanupObject = { objectApiName: objectName, found: 0, deleted: 0, failed: 0 };
     objects.push(outcome);
@@ -346,25 +386,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
       const ids = records.map((r) => r.Id);
       outcome.found = ids.length;
-      if (ids.length === 0) {
-        say(`  ${objectName.padEnd(40)} 0`);
-        continue;
-      }
-      if (args.dryRun) {
-        say(`  ${objectName.padEnd(40)} ${ids.length}  [dry-run]`);
-        continue;
-      }
-      // 200 to a request: jsforce sends every id in one unless it may split
-      // them, and Salesforce refuses a delete of more than 200 records.
-      const delResult = await conn.sobject(objectName).destroy(ids, { allowRecursive: true });
-      const arr = (Array.isArray(delResult) ? delResult : [delResult]) as DeleteAnswer[];
-      outcome.deleted = arr.filter((r) => r.success).length;
-      outcome.failed = arr.length - outcome.deleted;
-      const reasons = reasonsOf(arr);
-      if (reasons.length > 0) outcome.reasons = reasons;
-      const failTag = outcome.failed > 0 ? `  \x1b[31m(${outcome.failed} failed)\x1b[0m` : '';
-      say(`  ${objectName.padEnd(40)} ${ids.length}  deleted ${outcome.deleted}${failTag}`);
-      for (const reason of reasons) say(`      ${reason.slice(0, 200)}`);
+      // A record found is said once: by the dry run here, by its delete below.
+      if (ids.length === 0) say(`  ${objectName.padEnd(40)} 0`);
+      else if (args.dryRun) say(`  ${objectName.padEnd(40)} ${ids.length}  [dry-run]`);
+      if (ids.length > 0) found.set(objectName, ids);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Object missing on this sandbox — passed over.
@@ -373,14 +398,93 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         say(`  ${objectName.padEnd(40)} -  (object not present on target)`);
         continue;
       }
-      // Any other error leaves the object's records where they were, and the
-      // run did not do what it was asked: it printed a red line and exited 0.
       outcome.error = msg;
       say(`  ${objectName.padEnd(40)} ERROR: ${msg.slice(0, 200)}`);
     }
   }
 
-  const found = objects.reduce((sum, o) => sum + o.found, 0);
+  // What the target runs as the records go, before the first delete: its
+  // flows before and after a delete, its triggers, the emails they send and
+  // whether it delivers them. A cleanup deleted with no question asked,
+  // where every other module's command line refuses without its acceptance.
+  const reader = new TargetAutomationReader(targetAutomationQueries(async () => conn));
+  const read = await readDataOpsAct({
+    act: 'cleanup',
+    target: args.target,
+    objects: [...found].map(([objectApiName, ids]) => ({ objectApiName, records: ids.length })),
+    org: dataOpsAutomationOrgOf(conn, (names) => reader.read(args.target, names), production),
+    accord: args.accord,
+    mayMute: true,
+  });
+  /** What the summary carries of it. */
+  const automation: DataOpsAutomationAnswer = read.answer;
+  say('');
+  for (const line of automation.lines) say(line);
+  let held: HeldMute | undefined;
+  if (args.dryRun) {
+    for (const line of wouldBeRefusedLines(automation)) say(line);
+    if (automation.refusals.length > 0) process.exitCode = FAILED_EXIT;
+  } else if (automation.refusals.length > 0) {
+    for (const refusal of automation.refusals) process.stderr.write(`${refusedLine(refusal)}\n`);
+    found.clear();
+    process.exitCode = FAILED_EXIT;
+  } else {
+    const holding = await holdDataOpsMute(
+      read,
+      `sandforge-cleanup-${Date.now()}`,
+      args.accord.acceptEmails === true,
+    );
+    if ('refused' in holding) {
+      process.stderr.write(`${refusedLine(holding.refused)}\n`);
+      found.clear();
+      process.exitCode = FAILED_EXIT;
+    } else {
+      held = holding.held;
+    }
+  }
+
+  try {
+    for (const outcome of objects) {
+      const objectName = outcome.objectApiName;
+      const ids = found.get(objectName);
+      if (args.dryRun || !ids) continue;
+      try {
+        await deleteObject(objectName, ids, outcome);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Any other error leaves the object's records where they were, and the
+        // run did not do what it was asked: it printed a red line and exited 0.
+        outcome.error = msg;
+        say(`  ${objectName.padEnd(40)} ERROR: ${msg.slice(0, 200)}`);
+      }
+    }
+  } finally {
+    if (held) {
+      const released = await held.release();
+      for (const line of muteLines(released, args.target)) say(`  ${line}`);
+    }
+  }
+
+  /** Delete one object's records, and say what became of them. */
+  async function deleteObject(
+    objectName: string,
+    ids: string[],
+    outcome: CleanupObject,
+  ): Promise<void> {
+    // 200 to a request: jsforce sends every id in one unless it may split
+    // them, and Salesforce refuses a delete of more than 200 records.
+    const delResult = await conn.sobject(objectName).destroy(ids, { allowRecursive: true });
+    const arr = (Array.isArray(delResult) ? delResult : [delResult]) as DeleteAnswer[];
+    outcome.deleted = arr.filter((r) => r.success).length;
+    outcome.failed = arr.length - outcome.deleted;
+    const reasons = reasonsOf(arr);
+    if (reasons.length > 0) outcome.reasons = reasons;
+    const failTag = outcome.failed > 0 ? `  \x1b[31m(${outcome.failed} failed)\x1b[0m` : '';
+    say(`  ${objectName.padEnd(40)} ${ids.length}  deleted ${outcome.deleted}${failTag}`);
+    for (const reason of reasons) say(`      ${reason.slice(0, 200)}`);
+  }
+
+  const foundTotal = objects.reduce((sum, o) => sum + o.found, 0);
   const deleted = objects.reduce((sum, o) => sum + o.deleted, 0);
   const failed = objects.reduce((sum, o) => sum + o.failed, 0);
   const elapsedMs = Date.now() - t0;
@@ -395,7 +499,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           condition: `CreatedDate >= ${args.sinceSoql}`,
           dryRun: args.dryRun,
           objects,
-          found,
+          automation,
+          // What a real run would be refused for, by code, as every dry run says it.
+          ...(args.dryRun ? wouldBeRefusedJson(automation.refusals) : {}),
+          ...(!args.dryRun && automation.refusals[0] ? { refused: automation.refusals[0] } : {}),
+          found: foundTotal,
           deleted,
           failed,
           elapsedMs,
@@ -407,7 +515,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   console.log(
-    `\n${args.dryRun ? 'would delete' : 'deleted'} ${args.dryRun ? found : deleted} record(s)` +
+    `\n${args.dryRun ? 'would delete' : 'deleted'} ${args.dryRun ? foundTotal : deleted} record(s)` +
       `${failed > 0 ? `, ${failed} refused` : ''} in ${elapsedMs}ms`,
   );
 }

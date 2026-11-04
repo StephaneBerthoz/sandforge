@@ -11,7 +11,10 @@ import type {
   BackupExportObject,
   BackupObjectHeld,
   BackupSummary,
+  DataOpsAct,
   DataOpsAnonymizationRule,
+  DataOpsAutomationObject,
+  DataOpsWriteAccord,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
 import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
@@ -69,6 +72,7 @@ import {
   dataOpsBackupDeletePayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  dataOpsAutomationPayloadSchema,
   dataOpsAnonymizeCoveragePayloadSchema,
   dataOpsAnonymizePreviewPayloadSchema,
   dataOpsQualityScanPayloadSchema,
@@ -137,6 +141,20 @@ import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
+import {
+  dataOpsAutomationOrgOf,
+  dataOpsStop,
+  holdDataOpsMute,
+  readDataOpsAct,
+  type DataOpsActRead,
+} from '../../modules/dataops/dataOpsAutomation.js';
+import {
+  muteLines,
+  type HeldMute,
+  type MuteLeaseOptions,
+} from '../../modules/forge/AutomationMuteLease.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import {
   PIPELINE_MASKING_REFUSAL,
   pipelineMaskingAsked,
@@ -221,8 +239,12 @@ const DATAOPS_TYPES = new Set([
   'dataops:anonymization-template:delete',
   'dataops:anonymize:coverage',
   'dataops:anonymize:preview',
+  'dataops:automation',
   'precheck:pii-scan',
 ]);
+
+/** How long the read of what the org runs may take before an act: Seed's and Forge's bound. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** How many rejected rows are echoed back: an org repeats a handful of reasons. */
 const DML_ERROR_SAMPLE_LIMIT = 10;
@@ -749,6 +771,13 @@ interface MaskingReplies {
   ended(result: MaskingResult): void;
   /** The pipeline a pipeline's run is a step of, which Live Operations names. */
   pipeline?: { name: string };
+  /**
+   * What the page's or the command line's run carries of its question: the
+   * run reads what the org runs as it updates the records it counted, and is
+   * refused on what it was not accepted for. A pipeline's step carries none,
+   * and reads none of it.
+   */
+  accord?: DataOpsWriteAccord;
 }
 
 /**
@@ -1323,6 +1352,121 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
+   * Reads what the org runs as a masking or a restore writes its records: a
+   * reader of the handler's own over its connections, as Forge reads it,
+   * loaded on its first read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Where and how a write that mutes keeps its lease, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /** Another reader of what the org runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** Where and how a write that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /** The org as the user knows it: its alias, else its id. */
+  private orgNameOf(orgId: string): string {
+    return this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+  }
+
+  /**
+   * What the org runs as a masking or a restore writes the records it
+   * counted, its emails and the mute asked for, read again before the first
+   * write — the page's read may be minutes old — and what refuses the write:
+   * see `readDataOpsAct`. Read only: the mute is planned, nothing assigned.
+   */
+  private readAct(
+    conn: Connection,
+    orgId: string,
+    act: DataOpsAct,
+    objects: readonly DataOpsAutomationObject[],
+    accord: DataOpsWriteAccord,
+  ): Promise<DataOpsActRead> {
+    const reader = this.targetAutomation;
+    return readDataOpsAct({
+      act,
+      target: this.orgNameOf(orgId),
+      objects,
+      org: dataOpsAutomationOrgOf(
+        conn,
+        (names) =>
+          new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('dataops automation', () =>
+            reader.read(orgId, names),
+          ),
+        guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
+      ),
+      accord,
+      mayMute: true,
+      muteLeases: this.muteLeases,
+    });
+  }
+
+  /** Give a write's lease back once it ended, and say what it took back. */
+  private async releaseMute(held: HeldMute | undefined, orgId: string): Promise<void> {
+    if (!held) return;
+    const released = await held.release();
+    for (const line of muteLines(released, this.orgNameOf(orgId))) {
+      this.deps.log(`[INFO] ${line}`);
+    }
+  }
+
+  /**
+   * Answer `dataops:automation`: what the org runs as a masking, a restore or
+   * a cleanup would write the records of these objects — what fires, its
+   * emails against what the org has left today, whether the org delivers
+   * them, what a mute asked for would assign —, and why the act would be
+   * refused as asked. The page lists it before the act's question, and the
+   * command line before it writes and in its dry run. Read only.
+   */
+  private async handleAutomation(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(dataOpsAutomationPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const read = await this.readAct(conn, parsed.orgId, parsed.act, parsed.objects, parsed);
+      const response = buildResponse(this.deps, msg, 'dataops:automation:response', {
+        ...read.answer,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(
+        `[TX] ${response.type} id=${response.id} refusals=${read.answer.refusals.length}`,
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:automation', 'dataops:error', msg, err);
+    }
+  }
+
+  /**
    * Told of each backup the retention removes, as it removes it: the
    * command lines say every one on stderr, a Sync run's named, where the
    * extension's log alone said it.
@@ -1441,6 +1585,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'dataops:anonymize:preview':
         await this.handleAnonymizePreview(msg);
+        return true;
+      case 'dataops:automation':
+        await this.handleAutomation(msg);
         return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
@@ -2882,6 +3029,8 @@ export class DataOpsHandler implements DomainHandler {
     let settleRestore: (error?: unknown) => void = () => {};
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
+    /** The lease of the mute it was asked for, held from its first write to its end. */
+    let held: HeldMute | undefined;
 
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
@@ -3011,6 +3160,35 @@ export class DataOpsHandler implements DomainHandler {
         return;
       }
 
+      /** Refuse the restore before its first write, under its code, and record it so. */
+      const refuseBeforeWrite = (code: string, message: string, written: WriteRun): void => {
+        recordWriteRun(this.deps, { ...written, outcome: 'stopped', source: undefined, code });
+        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message), {
+          code,
+        });
+        sendOperationFailed(this.deps, rollbackOpId, message, false, {
+          context: failure,
+          authored: true,
+        });
+      };
+      // What the org runs as the restore brings records back from the recycle
+      // bin and writes the backup's values over them, before the guard is
+      // asked and before anything is written: a restore fired the org's update
+      // flows on every record it put back, unasked. The page's and the command
+      // line's question answer it; the backup's counts are what it may write.
+      const gated = await this.readAct(
+        conn,
+        payload.orgId,
+        'restore',
+        backupMeta.objects.map((o) => ({ objectApiName: o.objectApiName, records: o.recordCount })),
+        payload,
+      );
+      const gateRefused = dataOpsStop(gated.answer);
+      if (gateRefused) {
+        refuseBeforeWrite(gateRefused.code, gateRefused.message, run);
+        return;
+      }
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -3089,6 +3267,15 @@ export class DataOpsHandler implements DomainHandler {
           }
         }
       }
+
+      // The mute's lease, once the guard let the restore go: held from its
+      // first write to its end, given back however it ends.
+      const holding = await holdDataOpsMute(gated, rollbackOpId, payload.acceptEmails === true);
+      if ('refused' in holding) {
+        refuseBeforeWrite(holding.refused.code, holding.refused.message, run);
+        return;
+      }
+      held = holding.held;
 
       sendOperationStarted(
         this.deps,
@@ -3442,6 +3629,7 @@ export class DataOpsHandler implements DomainHandler {
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
         ...(cancelled ? { cancelled: true } : {}),
+        ...(held ? { mutedAutomation: held.outcome } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
@@ -3467,6 +3655,7 @@ export class DataOpsHandler implements DomainHandler {
       });
       live?.fail(extractErrorMessage(err));
     } finally {
+      await this.releaseMute(held, payload.orgId);
       this.activeOrgOperations.delete(lockKey);
       settleRestore();
       // A restore that stopped at an object it may not write, or threw, after
@@ -3743,7 +3932,14 @@ export class DataOpsHandler implements DomainHandler {
     // The id of the request, as a backup and a restore run under theirs: the
     // page's Stop names the run by it. A fresh id per run left the page, and
     // its Stop, nothing to name it with.
-    await this.mask(parsed, msg.id, this.pageMaskingReplies(msg));
+    await this.mask(parsed, msg.id, {
+      ...this.pageMaskingReplies(msg),
+      accord: {
+        acceptAutomation: parsed.acceptAutomation === true,
+        acceptEmails: parsed.acceptEmails === true,
+        muteAutomation: parsed.muteAutomation === true,
+      },
+    });
   }
 
   /** Where a masking run of the DataOps page answers: the channels the page listens on. */
@@ -3856,6 +4052,8 @@ export class DataOpsHandler implements DomainHandler {
     let runError: unknown;
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
+    /** The lease of the mute it was asked for, held from before its snapshot to its end. */
+    let held: HeldMute | undefined;
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4181,6 +4379,34 @@ export class DataOpsHandler implements DomainHandler {
         return;
       }
 
+      /** Refuse the run before its first write, under its code, and record it so. */
+      const refuseBeforeWrite = (code: string, message: string): void => {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined, code });
+        replies.refused(new Error(message), { code });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+        });
+      };
+      // What the org runs as the run updates the records it counted, before
+      // the guard is asked and before anything is written: a masking of every
+      // contact ran the org's update flows, emails among them, unasked.
+      let gated: DataOpsActRead | undefined;
+      if (replies.accord) {
+        gated = await this.readAct(
+          conn,
+          payload.orgId,
+          'masking',
+          tallies.map((t) => ({ objectApiName: t.objectApiName, records: t.total })),
+          replies.accord,
+        );
+        const refused = dataOpsStop(gated.answer);
+        if (refused) {
+          refuseBeforeWrite(refused.code, refused.message);
+          return;
+        }
+      }
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -4223,6 +4449,18 @@ export class DataOpsHandler implements DomainHandler {
         stoppedBeforeStart();
         return;
       }
+      // The mute's lease, once the guard let the run go: held from before
+      // its snapshot to its end, given back however it ends.
+      const holding = await holdDataOpsMute(
+        gated,
+        operationId,
+        replies.accord?.acceptEmails === true,
+      );
+      if ('refused' in holding) {
+        refuseBeforeWrite(holding.refused.code, holding.refused.message);
+        return;
+      }
+      held = holding.held;
       counted = true;
 
       // The org's tier sets how many rows a page reads: 2,000 on a sandbox, 500
@@ -4668,6 +4906,7 @@ export class DataOpsHandler implements DomainHandler {
         ...(cancelled ? { cancelled: true } : {}),
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(held ? { mutedAutomation: held.outcome } : {}),
       });
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
@@ -4675,6 +4914,7 @@ export class DataOpsHandler implements DomainHandler {
       // cancelled. Dual channel, single display (see handleBackup).
       failRun(err, true);
     } finally {
+      await this.releaseMute(held, payload.orgId);
       // A run that threw after it started: recorded with what it masked — partial once it wrote a row,
       // failed otherwise — and, per object, the rows it never reached.
       if (unrecorded) {

@@ -262,6 +262,8 @@ import type {
   PIIScanResponse,
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
+  DataOpsAutomationRequest,
+  DataOpsAutomationResponse,
   DataOpsQualityScanRequest,
   DataOpsBackupResponse,
   DataOpsRollbackResponse,
@@ -717,6 +719,7 @@ export type WebViewToExtensionMessage =
   | PIIScanRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
+  | DataOpsAutomationRequest
   | DataOpsQualityScanRequest
   | DataOpsPiiInventoryRequest
   | DataOpsSubjectSearchRequest
@@ -1005,6 +1008,7 @@ export type ExtensionToWebViewMessage =
   | DataOpsCleanupScanResponse
   | DataOpsCleanupExportResponse
   | DataOpsCleanupDeleteResponse
+  | DataOpsAutomationResponse
   | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult

@@ -893,6 +893,16 @@ export const dataOpsBackupDeletePayloadSchema = z.object({
   orgId: orgIdSchema,
   operationIds: z.array(z.string().min(1).max(200)).min(1).max(1000).optional(),
 });
+/**
+ * What a DataOps write carries of the question put before it: the automation
+ * that fires accepted, the emails the org delivers accepted, the mute asked
+ * for. Absent, none of them: the write is refused on what it would fire.
+ */
+const dataOpsWriteAccordShape = {
+  acceptAutomation: z.boolean().optional(),
+  acceptEmails: z.boolean().optional(),
+  muteAutomation: z.boolean().optional(),
+};
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,
@@ -900,6 +910,19 @@ export const dataOpsRollbackPayloadSchema = z.object({
   rewriteAll: z.boolean().optional(),
   /** Of a Sync run's backup, restore the records changed or deleted since the run too. */
   includeChanged: z.boolean().optional(),
+  ...dataOpsWriteAccordShape,
+});
+/**
+ * What the org runs as a DataOps act writes the records of these objects:
+ * the act, and each object with the records it writes. Read only.
+ */
+export const dataOpsAutomationPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  act: z.enum(['masking', 'restore', 'cleanup']),
+  objects: z
+    .array(z.object({ objectApiName: sfApiNameSchema, records: z.number().int().min(0) }))
+    .max(MAX_OBJECTS_PER_REQUEST),
+  ...dataOpsWriteAccordShape,
 });
 /**
  * The objects and the filter of a masking run, as its preview and its
@@ -928,6 +951,7 @@ export const dataOpsAnonymizePayloadSchema = z
     // The checkpoint a resume names: matched against the one kept, never read as anything else.
     resumeFrom: opaqueIdSchema.optional(),
     snapshot: z.boolean().optional(),
+    ...dataOpsWriteAccordShape,
   })
   .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT)
   // A resume carries on over rows the run it resumes already masked: a
@@ -1086,6 +1110,7 @@ export const dataOpsCleanupExportPayloadSchema = z.object({
 /** `dataops:cleanup:delete`: the same, and whether to delete or only say what would go. */
 export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSchema.extend({
   dryRun: z.boolean(),
+  ...dataOpsWriteAccordShape,
 });
 
 // ── monitor:* payload schemas ─────────────────────────────────────────────

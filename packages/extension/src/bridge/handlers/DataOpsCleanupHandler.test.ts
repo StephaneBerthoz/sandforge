@@ -12,6 +12,25 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
+// What the org runs as a cleanup deletes its records: nothing,
+// as an org without flows or triggers on them answers. The gate reads it
+// before every write; a test of what it refuses gives a reader of its own.
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
+
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
@@ -192,6 +211,54 @@ describe('DataOpsCleanupHandler', () => {
       guard: 'allowed',
       objects: [{ objectApiName: 'Account', deleted: 2 }],
     });
+  });
+
+  it('refuses a delete whose flow runs before it, deleting nothing, until the page’s question accepted it', async () => {
+    const read = vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Guard_Delete',
+              label: 'Guard Delete',
+              timing: 'beforeSave' as const,
+              startsOn: 'delete' as const,
+              condition: 'read' as const,
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    }));
+    handler.setTargetAutomation({ read });
+
+    await handler.handle(deleteStale(false));
+
+    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
+    expect(org.destroy).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'runs automation as this cleanup deletes its records: Account: flow "Guard Delete" ' +
+            '(before delete)',
+        ),
+      },
+    });
+
+    await handler.handle({
+      ...deleteStale(false),
+      payload: { ...deleteStale(false).payload, acceptAutomation: true },
+    } as never);
+    expect(org.destroy).toHaveBeenCalledWith(stale);
   });
 
   it('deletes nothing on production', async () => {

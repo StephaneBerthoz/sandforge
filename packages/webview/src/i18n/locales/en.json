@@ -2410,7 +2410,47 @@
       "description": "Overwrites these fields wherever a record holds a value: {{fields}}.",
       "resumeDescription": "Overwrites these fields in the records the stopped run left: {{fields}}."
     },
-    "deleteTemplateConfirm": "Delete the template “{{name}}”? Its rules are gone from this machine."
+    "deleteTemplateConfirm": "Delete the template “{{name}}”? Its rules are gone from this machine.",
+    "automation": {
+      "masking": {
+        "title": "What {{org}} runs as these records are masked",
+        "intro": "As the masking writes over these records, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as these records are masked."
+      },
+      "restore": {
+        "title": "What {{org}} runs as the backup's values go back",
+        "intro": "As the restore brings records back from the recycle bin and writes the backup's values over them, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as the backup's values go back."
+      },
+      "cleanup": {
+        "title": "What {{org}} runs as these records are deleted",
+        "intro": "As the cleanup deletes these records, {{org}} runs:",
+        "none": "Nothing {{org}} automates runs as these records are deleted."
+      },
+      "loading": "Reading what {{org}} runs as these records are written…",
+      "error": "What {{org}} runs as these records are written could not be read: {{reason}}",
+      "why": {
+        "mask": "as the masking writes over it",
+        "restore": "as the restore writes the backup's values over it",
+        "undelete": "after undelete, as the restore brings it back from the recycle bin"
+      },
+      "limit": {
+        "single": "single emails",
+        "workflow": "workflow emails"
+      },
+      "emails_one": "About {{formatted}} of its {{limit}} go out as these records are written, {{remaining}} of {{max}} left today.",
+      "emails_other": "About {{formatted}} of its {{limit}} go out as these records are written, {{remaining}} of {{max}} left today.",
+      "emailsUnread_one": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
+      "emailsUnread_other": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
+      "acceptEmails": "Let {{org}} send these emails",
+      "refused": "This would be refused: {{reason}}",
+      "held": {
+        "reading": "Waiting for what {{org}} runs as these records are written.",
+        "failed": "What {{org}} runs could not be read: read it again before you confirm.",
+        "refused": "This is refused as it stands: see why above.",
+        "emails": "Tick the box to let {{org}} send these emails, or turn off what sends them."
+      }
+    }
   },
   "automation": {
     "title": "Automation",

@@ -71,6 +71,47 @@ async function respondToAll(
 }
 
 /**
+ * What the org runs as a DataOps masking, restore or cleanup writes, as the
+ * extension answers the confirmation's read of it: nothing fires, nothing
+ * sends. The confirmation waits for it.
+ */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
+/** Answer the open confirmation's read of what the org runs, until it no longer waits on it. */
+async function nothingFires(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        await respondToAll(
+          page,
+          'dataops:automation',
+          'dataops:automation:response',
+          NOTHING_FIRES,
+        );
+        return page.getByTestId('danger-held').count();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
+}
+
+/**
  * Backups as `backup:list:result` carries them.
  *
  * `BackupSummary` (dataops.messages.ts:28) keys on `operationId` and
@@ -245,10 +286,25 @@ test.describe('DataOps — with a connected org', () => {
     expect(await outgoing(page, 'dataops:rollback')).toHaveLength(0);
 
     await page.getByTestId('restore-btn-op-backup-1').click();
+    // It reads what the org runs as the values go back, and waits for it.
+    const [read] = await outgoing(page, 'dataops:automation');
+    expect(read.payload).toEqual({
+      orgId: 'org-src-1',
+      act: 'restore',
+      objects: [
+        { objectApiName: 'Account', records: 500 },
+        { objectApiName: 'Contact', records: 1000 },
+      ],
+    });
+    await nothingFires(page);
     await page.getByRole('button', { name: 'Restore into DevSandbox' }).click();
     await expect.poll(async () => (await outgoing(page, 'dataops:rollback')).length).toBe(1);
     const [rollback] = await outgoing(page, 'dataops:rollback');
-    expect(rollback.payload).toEqual({ orgId: 'org-src-1', operationId: 'op-backup-1' });
+    expect(rollback.payload).toEqual({
+      orgId: 'org-src-1',
+      operationId: 'op-backup-1',
+      acceptAutomation: true,
+    });
   });
 
   test('the Restore tab of an org with no backup opens the Backup tab, which offers a checkpoint', async ({
@@ -893,10 +949,12 @@ test.describe('DataOps — Cleanup', () => {
 
     await page.getByTestId('cleanup-delete-btn').click();
     await page.getByTestId('danger-input').fill('DevSandbox');
+    await nothingFires(page);
     await page.getByTestId('danger-confirm-btn').click();
     await expect.poll(async () => (await outgoing(page, 'dataops:cleanup:delete')).length).toBe(2);
     const [, remove] = await outgoing(page, 'dataops:cleanup:delete');
     expect((remove.payload as Record<string, unknown>).dryRun).toBe(false);
+    expect((remove.payload as Record<string, unknown>).acceptAutomation).toBe(true);
     await respondToLast(page, 'dataops:cleanup:delete', 'dataops:cleanup:delete:response', {
       objectApiName: 'Account',
       dryRun: false,

@@ -55,9 +55,22 @@ import { isSafeSoqlWhere, SOQL_WHERE_RULE } from '../src/core/common/soqlValidat
 import { personAccountRules } from '../src/modules/dataops/personAccountMasking.js';
 import { ACCOUNT } from '../src/core/common/platformRecords.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
-import type { AnonymizationTemplateRule } from '@sandforge/shared';
+import type {
+  AnonymizationTemplateRule,
+  DataOpsAct,
+  DataOpsAutomationAnswer,
+  DataOpsAutomationObject,
+  DataOpsWriteAccord,
+} from '@sandforge/shared';
 import { orgTypeOf } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
+import {
+  accordOf,
+  dataOpsAutomationHelp,
+  DATAOPS_AUTOMATION_SWITCHES,
+  wouldBeRefusedLines,
+} from './dataOpsAutomationCli.js';
+import { refusedLine } from './runRefused.js';
 
 const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
 
@@ -66,6 +79,7 @@ Usage:
     --org <alias> [--object <ApiName>] (--template <id> | --rules <file>) [options]
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
     --org <alias> --restore <snapshot> [--rewrite-all] [--include-changed] [--store <dir>] [--yes]
+  Either takes [--accept-automation] [--accept-emails] [--mute-automation].
 
 Required:
   anonymize              the command
@@ -112,7 +126,7 @@ Options:
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
                          more writes nothing  (default: 50000; 100 to 1000000)
-  --yes                  do not ask before writing. Without it, a command with no
+${dataOpsAutomationHelp('written over', '--dry-run')}  --yes                  do not ask before writing. Without it, a command with no
                          terminal to answer the question — a CI step — stops
                          there, exit 2, and writes nothing
   --json                 emit what the panel would receive, every other line on
@@ -123,6 +137,13 @@ A run takes a snapshot of the records it masks, their masked fields as they are,
 before its first write, and writes nothing unless the snapshot holds every one of
 them. A production org is refused.
 
+Before it writes, a run and a --restore say what the org runs as the records are
+written over — its record-triggered flows, Apex triggers, processes and workflow
+rules on update, and on undelete for what a restore brings back from the recycle
+bin —, the emails that sends against what the org has left today, and whether
+the org delivers them; a dry run says it too, and what a real run would be
+refused for (with --json, the dataops:automation:response it carries).
+
 Ctrl-C stops a run as the panel's Cancel does: before its next page, what it
 masked recorded in the audit trail of the store, and --resume masks only what it
 left. It stops a --restore before its next batch, what it put back recorded the
@@ -131,8 +152,11 @@ process at once. A SIGTERM — a CI job cancelled or timed out — or a SIGHUP
 stops it the same way.
 
 Exit codes: 0 the run masked every record it counted, or the restore put back
-every value; 1 it could not start, was refused or failed, or a --dry-run saw
-that a run would be refused; 2 a bad command line,
+every value; 1 it could not start, was refused or failed — what the org runs as
+it writes, without --accept-automation (AUTOMATION_NOT_ACCEPTED), emails it
+delivers, without --accept-emails (EMAILS_NOT_ACCEPTED), more emails than it
+has left today (EMAILS_EXCEEDED), or a mute refused among the reasons —, or a
+--dry-run saw that a run would be refused; 2 a bad command line,
 or a question with no terminal to answer it (give --yes); 3 the run left
 records unmasked, their personal data still in the org (--resume masks what
 it left), or the restore left values as they are (rows the org refused, a
@@ -170,6 +194,8 @@ interface CliArgs {
   maxRecords?: number;
   yes: boolean;
   json: boolean;
+  /** What the line accepts of what the org runs as it writes, and the mute it asks for. */
+  accord: DataOpsWriteAccord;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -181,7 +207,15 @@ const ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
 /** What the line reads after its command. */
 const FLAGS: CommandFlags = {
   words: 1,
-  switches: ['--dry-run', '--resume', '--rewrite-all', '--include-changed', '--yes', '--json'],
+  switches: [
+    '--dry-run',
+    '--resume',
+    '--rewrite-all',
+    '--include-changed',
+    '--yes',
+    '--json',
+    ...DATAOPS_AUTOMATION_SWITCHES,
+  ],
   values: [
     '--org',
     '--object',
@@ -280,6 +314,7 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(maxRecords !== undefined ? { maxRecords: Number(maxRecords) } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
+    accord: accordOf(args),
   };
 
   if (restoreId !== undefined) {
@@ -758,6 +793,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const restoreLine = (snapshotId: string): string =>
     `pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org ${args.org} ` +
     `--restore ${snapshotId} --store ${args.storeDir}`;
+  /**
+   * What the org runs as the act writes the records of `objects`, read before
+   * the question, said line by line, with the refusals a run would stop on.
+   */
+  const automationOf = async (
+    act: DataOpsAct,
+    objects: readonly DataOpsAutomationObject[],
+  ): Promise<DataOpsAutomationAnswer | undefined> => {
+    const answer = await send('dataops:automation', {
+      orgId: args.org,
+      act,
+      objects,
+      ...args.accord,
+    });
+    if (failed(answer)) {
+      fail(reason(answer));
+      return undefined;
+    }
+    const read = answer.payload as unknown as DataOpsAutomationAnswer;
+    for (const line of read.lines) log(line);
+    return read;
+  };
   const emit = (command: Mode): void => {
     if (args.json) {
       process.stdout.write(
@@ -781,6 +838,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return;
     }
     const objects = (meta.objects ?? []).map((o) => o.objectApiName).join(', ');
+    // What the org runs as the restore brings records back from the recycle
+    // bin and writes the snapshot's values over them, before it asks: a
+    // restore fired the org's update flows on every record, unasked.
+    const restoreAutomation = await automationOf(
+      'restore',
+      (meta.objects ?? []).map((o) => ({
+        objectApiName: o.objectApiName,
+        records: (o as { recordCount?: number }).recordCount ?? 0,
+      })),
+    );
+    if (!restoreAutomation) {
+      emit('restore');
+      return;
+    }
+    if (restoreAutomation.refusals.length > 0) {
+      emit('restore');
+      for (const refusal of restoreAutomation.refusals) fail(refusedLine(refusal));
+      return;
+    }
     if (
       !args.yes &&
       !(await confirm(
@@ -816,6 +892,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         operationId: restoreId,
         ...(args.rewriteAll ? { rewriteAll: true } : {}),
         ...(args.includeChanged ? { includeChanged: true } : {}),
+        ...args.accord,
       });
     } finally {
       releaseStop();
@@ -903,18 +980,30 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const counted =
     (coverage.payload?.objects as Array<{ objectApiName: string; count: number | null }>) ?? [];
   const toMask = counted.reduce((sum, o) => sum + (o.count ?? 0), 0);
+  /** The records of each object a run would mask, as the read of what the org runs takes them. */
+  const masked = counted.map((o) => ({ objectApiName: o.objectApiName, records: o.count ?? 0 }));
 
   if (args.mode === 'dry-run') {
     const preview = await send('dataops:anonymize:preview', scope);
-    emit('dry-run');
     if (failed(preview)) {
+      emit('dry-run');
       fail(reason(preview));
       return;
     }
     for (const line of dryRunLines(template, coverage.payload ?? {}, preview.payload ?? {})) {
       log(line);
     }
-    if (runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {})) {
+    // What the org runs as a run would update them, its emails and the mute
+    // asked for, and what a real run would be refused for: a dry run said
+    // nothing of it, and the run then fired the org's update flows unasked.
+    const automation = await automationOf('masking', masked);
+    emit('dry-run');
+    if (!automation) return;
+    for (const line of wouldBeRefusedLines(automation)) log(line);
+    if (
+      automation.refusals.length > 0 ||
+      runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {})
+    ) {
       process.exitCode = FAILED_EXIT;
     }
     return;
@@ -948,14 +1037,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     emit('run');
     return;
   }
+  // What the org runs as the run updates them, said before the question, and
+  // refused before it unless accepted: nothing is asked, nothing written.
+  const automation = await automationOf('masking', masked);
+  if (!automation) {
+    emit(args.mode);
+    return;
+  }
+  if (automation.refusals.length > 0) {
+    emit(args.mode);
+    for (const refusal of automation.refusals) fail(refusedLine(refusal));
+    return;
+  }
   if (!args.yes) {
     /** What the run masks, in words: the object, or the objects the coverage counted. */
-    const masked = object ?? counted.map((o) => o.objectApiName).join(', ');
+    const maskedWords = object ?? counted.map((o) => o.objectApiName).join(', ');
     const question =
       args.mode === 'resume'
-        ? `Resume the masking of ${masked} in ${args.org} that stopped on ${checkpoint!.savedAt}? ` +
+        ? `Resume the masking of ${maskedWords} in ${args.org} that stopped on ${checkpoint!.savedAt}? ` +
           'What it left is written over; the snapshot the first run took holds their values.'
-        : `Mask ${toMask} record(s) of ${masked} in ${args.org} with ${template.name}? ` +
+        : `Mask ${toMask} record(s) of ${maskedWords} in ${args.org} with ${template.name}? ` +
           'A snapshot of their values is taken first.';
     if (!(await confirm(question))) {
       log('Nothing written.');
@@ -984,6 +1085,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     answer = await send('dataops:anonymize', {
       ...scope,
       ...(args.mode === 'resume' ? { resumeFrom: checkpoint!.id } : { snapshot: true }),
+      ...args.accord,
     });
   } finally {
     releaseStop();

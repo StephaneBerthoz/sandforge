@@ -206,6 +206,9 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
 - The DataOps masking runs on three contacts the canary creates in the source, tagged in
   `Department`, which the GDPR template leaves alone: their masked fields read back changed, then,
   once the snapshot is restored, with the checksum they had before. They are deleted at the end.
+  The masking, its dry run and the restore are given `--accept-automation`: what the source runs
+  as the contacts are written over is named, and accepted; emails it would deliver are not, and
+  stop the step.
 - `canary-clone-config.json` gives the clone the decisions the target needs (a value for
   `Trap_Target_Only__c`, the picklist values it refuses). `canary-baseline.json` holds the counts
   of the last accepted run; a run that counts otherwise fails, and `--update-baseline` records a

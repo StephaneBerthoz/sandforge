@@ -2410,7 +2410,47 @@
       "description": "Sobrescribe estos campos en cada registro que tenga un valor: {{fields}}.",
       "resumeDescription": "Sobrescribe estos campos en los registros que dejó la ejecución detenida: {{fields}}."
     },
-    "deleteTemplateConfirm": "¿Eliminar la plantilla «{{name}}»? Sus reglas desaparecen de este equipo."
+    "deleteTemplateConfirm": "¿Eliminar la plantilla «{{name}}»? Sus reglas desaparecen de este equipo.",
+    "automation": {
+      "masking": {
+        "title": "Lo que {{org}} ejecuta cuando se enmascaran estos registros",
+        "intro": "Cuando el enmascaramiento sobrescribe estos registros, {{org}} ejecuta:",
+        "none": "Nada de lo que {{org}} automatiza se ejecuta cuando se enmascaran estos registros."
+      },
+      "restore": {
+        "title": "Lo que {{org}} ejecuta cuando vuelven los valores del respaldo",
+        "intro": "Cuando la restauración recupera registros de la papelera y escribe encima los valores del respaldo, {{org}} ejecuta:",
+        "none": "Nada de lo que {{org}} automatiza se ejecuta cuando vuelven los valores del respaldo."
+      },
+      "cleanup": {
+        "title": "Lo que {{org}} ejecuta cuando se eliminan estos registros",
+        "intro": "Cuando la limpieza elimina estos registros, {{org}} ejecuta:",
+        "none": "Nada de lo que {{org}} automatiza se ejecuta cuando se eliminan estos registros."
+      },
+      "loading": "Leyendo lo que {{org}} ejecuta cuando se escriben estos registros…",
+      "error": "No se pudo leer lo que {{org}} ejecuta cuando se escriben estos registros: {{reason}}",
+      "why": {
+        "mask": "cuando el enmascaramiento lo sobrescribe",
+        "restore": "cuando la restauración escribe encima los valores del respaldo",
+        "undelete": "tras recuperarlo, cuando la restauración lo saca de la papelera"
+      },
+      "limit": {
+        "single": "correos individuales",
+        "workflow": "correos de flujo de trabajo"
+      },
+      "emails_one": "Sale aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros, quedan {{remaining}} de {{max}} hoy.",
+      "emails_other": "Salen aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros, quedan {{remaining}} de {{max}} hoy.",
+      "emailsUnread_one": "Sale aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros; no se pudo leer lo que le queda hoy a {{org}}.",
+      "emailsUnread_other": "Salen aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros; no se pudo leer lo que le queda hoy a {{org}}.",
+      "acceptEmails": "Dejar que {{org}} envíe estos correos",
+      "refused": "Se rechazaría: {{reason}}",
+      "held": {
+        "reading": "Esperando lo que {{org}} ejecuta cuando se escriben estos registros.",
+        "failed": "No se pudo leer lo que {{org}} ejecuta: vuelva a leerlo antes de confirmar.",
+        "refused": "Tal como está, se rechaza: vea el motivo arriba.",
+        "emails": "Marque la casilla para que {{org}} envíe estos correos, o desactive lo que los envía."
+      }
+    }
   },
   "automation": {
     "title": "Automatización",

@@ -2410,7 +2410,47 @@
       "description": "Remplace ces champs partout où un enregistrement a une valeur : {{fields}}.",
       "resumeDescription": "Remplace ces champs dans les enregistrements que l'exécution arrêtée a laissés : {{fields}}."
     },
-    "deleteTemplateConfirm": "Supprimer le modèle « {{name}} » ? Ses règles disparaissent de cette machine."
+    "deleteTemplateConfirm": "Supprimer le modèle « {{name}} » ? Ses règles disparaissent de cette machine.",
+    "automation": {
+      "masking": {
+        "title": "Ce que {{org}} exécute quand ces enregistrements sont masqués",
+        "intro": "Quand le masquage écrit par-dessus ces enregistrements, {{org}} exécute :",
+        "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont masqués."
+      },
+      "restore": {
+        "title": "Ce que {{org}} exécute quand les valeurs de la sauvegarde reviennent",
+        "intro": "Quand la restauration ramène des enregistrements de la corbeille et y réécrit les valeurs de la sauvegarde, {{org}} exécute :",
+        "none": "Rien de ce que {{org}} automatise ne s'exécute quand les valeurs de la sauvegarde reviennent."
+      },
+      "cleanup": {
+        "title": "Ce que {{org}} exécute quand ces enregistrements sont supprimés",
+        "intro": "Quand le nettoyage supprime ces enregistrements, {{org}} exécute :",
+        "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés."
+      },
+      "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont écrits…",
+      "error": "Ce que {{org}} exécute quand ces enregistrements sont écrits n'a pas pu être lu : {{reason}}",
+      "why": {
+        "mask": "quand le masquage écrit par-dessus",
+        "restore": "quand la restauration y réécrit les valeurs de la sauvegarde",
+        "undelete": "après restauration de la corbeille, quand la restauration le ramène"
+      },
+      "limit": {
+        "single": "e-mails individuels",
+        "workflow": "e-mails de workflow"
+      },
+      "emails_one": "Environ {{formatted}} de ses {{limit}} part quand ces enregistrements sont écrits, {{remaining}} sur {{max}} restants aujourd'hui.",
+      "emails_other": "Environ {{formatted}} de ses {{limit}} partent quand ces enregistrements sont écrits, {{remaining}} sur {{max}} restants aujourd'hui.",
+      "emailsUnread_one": "Environ {{formatted}} de ses {{limit}} part quand ces enregistrements sont écrits ; ce qu'il reste à {{org}} aujourd'hui n'a pas pu être lu.",
+      "emailsUnread_other": "Environ {{formatted}} de ses {{limit}} partent quand ces enregistrements sont écrits ; ce qu'il reste à {{org}} aujourd'hui n'a pas pu être lu.",
+      "acceptEmails": "Laisser {{org}} envoyer ces e-mails",
+      "refused": "Ce serait refusé : {{reason}}",
+      "held": {
+        "reading": "En attente de ce que {{org}} exécute quand ces enregistrements sont écrits.",
+        "failed": "Ce que {{org}} exécute n'a pas pu être lu : relisez-le avant de confirmer.",
+        "refused": "Refusé en l’état : voir pourquoi ci-dessus.",
+        "emails": "Cochez la case pour laisser {{org}} envoyer ces e-mails, ou désactivez ce qui les envoie."
+      }
+    }
   },
   "automation": {
     "title": "Automatisation",

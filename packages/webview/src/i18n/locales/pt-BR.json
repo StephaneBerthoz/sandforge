@@ -2410,7 +2410,47 @@
       "description": "Sobrescreve estes campos em todo registro que tenha um valor: {{fields}}.",
       "resumeDescription": "Sobrescreve estes campos nos registros que a execução interrompida deixou: {{fields}}."
     },
-    "deleteTemplateConfirm": "Excluir o modelo “{{name}}”? As regras dele somem desta máquina."
+    "deleteTemplateConfirm": "Excluir o modelo “{{name}}”? As regras dele somem desta máquina.",
+    "automation": {
+      "masking": {
+        "title": "O que {{org}} executa quando estes registros são mascarados",
+        "intro": "Quando o mascaramento sobrescreve estes registros, {{org}} executa:",
+        "none": "Nada do que {{org}} automatiza é executado quando estes registros são mascarados."
+      },
+      "restore": {
+        "title": "O que {{org}} executa quando os valores do backup voltam",
+        "intro": "Quando a restauração traz registros de volta da lixeira e grava sobre eles os valores do backup, {{org}} executa:",
+        "none": "Nada do que {{org}} automatiza é executado quando os valores do backup voltam."
+      },
+      "cleanup": {
+        "title": "O que {{org}} executa quando estes registros são excluídos",
+        "intro": "Quando a limpeza exclui estes registros, {{org}} executa:",
+        "none": "Nada do que {{org}} automatiza é executado quando estes registros são excluídos."
+      },
+      "loading": "Lendo o que {{org}} executa quando estes registros são gravados…",
+      "error": "Não foi possível ler o que {{org}} executa quando estes registros são gravados: {{reason}}",
+      "why": {
+        "mask": "quando o mascaramento o sobrescreve",
+        "restore": "quando a restauração grava sobre ele os valores do backup",
+        "undelete": "após a recuperação, quando a restauração o traz de volta da lixeira"
+      },
+      "limit": {
+        "single": "e-mails individuais",
+        "workflow": "e-mails de fluxo de trabalho"
+      },
+      "emails_one": "Cerca de {{formatted}} dos seus {{limit}} sai quando estes registros são gravados, restam {{remaining}} de {{max}} hoje.",
+      "emails_other": "Cerca de {{formatted}} dos seus {{limit}} saem quando estes registros são gravados, restam {{remaining}} de {{max}} hoje.",
+      "emailsUnread_one": "Cerca de {{formatted}} dos seus {{limit}} sai quando estes registros são gravados; não foi possível ler o que resta hoje a {{org}}.",
+      "emailsUnread_other": "Cerca de {{formatted}} dos seus {{limit}} saem quando estes registros são gravados; não foi possível ler o que resta hoje a {{org}}.",
+      "acceptEmails": "Deixar {{org}} enviar estes e-mails",
+      "refused": "Isto seria recusado: {{reason}}",
+      "held": {
+        "reading": "Aguardando o que {{org}} executa quando estes registros são gravados.",
+        "failed": "Não foi possível ler o que {{org}} executa: leia de novo antes de confirmar.",
+        "refused": "Do jeito que está, é recusado: veja o motivo acima.",
+        "emails": "Marque a caixa para deixar {{org}} enviar estes e-mails, ou desative o que os envia."
+      }
+    }
   },
   "automation": {
     "title": "Automação",

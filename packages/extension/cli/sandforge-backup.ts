@@ -36,7 +36,14 @@ import {
   settingsOf,
 } from './backupStore.js';
 import { join } from 'node:path';
+import type { DataOpsAutomationAnswer, DataOpsWriteAccord } from '@sandforge/shared';
 import { orgTypeOf } from '@sandforge/shared';
+import {
+  accordOf,
+  dataOpsAutomationHelp,
+  DATAOPS_AUTOMATION_SWITCHES,
+} from './dataOpsAutomationCli.js';
+import { refusedLine } from './runRefused.js';
 import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
@@ -82,7 +89,7 @@ Options:
                          included
   --include-changed      with --restore of the snapshot a Sync run kept: put
                          back the records changed or deleted since the run too
-  --max-age-days <n>     the retention, as sandforge.backup.maxAgeDays sets it:
+${dataOpsAutomationHelp('written back')}  --max-age-days <n>     the retention, as sandforge.backup.maxAgeDays sets it:
                          snapshots taken more than <n> days ago are removed as
                          the command starts, each named on stderr — the one a
                          Sync run kept of what it wrote over too, which removing
@@ -105,12 +112,21 @@ read against the run's file in SANDFORGE_JOURNAL_DIR — are left as they are
 and counted, as removing the run with sandforge-sync leaves them unless it
 is told to include them; --include-changed includes them here.
 
+Before it asks or writes, a restore says what the org runs as the records are
+brought back from the recycle bin and written back — its record-triggered
+flows, Apex triggers, processes and workflow rules on update and undelete —,
+the emails that sends against what the org has left today, and whether the
+org delivers them.
+
 A snapshot says its id, which --restore takes, and what it holds short of the
 org: an object stopped at --max-records, or never reached.
 
 Exit codes: 0 the run finished: the snapshot holds every record of its objects,
 or the restore put back every value; 1 it could not start, or the snapshot or
-the restore failed or was refused; 2 a bad command line, or a question with no
+the restore failed or was refused — what the org runs as it writes, without
+--accept-automation (AUTOMATION_NOT_ACCEPTED), emails it delivers, without
+--accept-emails (EMAILS_NOT_ACCEPTED), more emails than it has left today
+(EMAILS_EXCEEDED), or a mute refused among the reasons; 2 a bad command line, or a question with no
 terminal to answer it (give --yes); 3 the snapshot holds part of an object's
 records, or the restore left values as they are (rows the org refused, a
 snapshot that holds part of the records, or records of a Sync run's snapshot
@@ -138,6 +154,8 @@ interface CommonArgs {
   maxAgeDays?: number;
   yes: boolean;
   json: boolean;
+  /** What a restore accepts of what the org runs as it writes, and the mute it asks for. */
+  accord: DataOpsWriteAccord;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -145,7 +163,14 @@ const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** What the line reads. */
 const FLAGS: CommandFlags = {
-  switches: ['--list', '--rewrite-all', '--include-changed', '--yes', '--json'],
+  switches: [
+    '--list',
+    '--rewrite-all',
+    '--include-changed',
+    '--yes',
+    '--json',
+    ...DATAOPS_AUTOMATION_SWITCHES,
+  ],
   values: ['--org', '--object', '--restore', '--store', '--max-records', '--max-age-days'],
 };
 
@@ -212,6 +237,14 @@ export function parseArgs(argv: string[]): CliArgs {
     process.exit(2);
   }
   const maxAgeDays = maxAgeDaysOf(get('--max-age-days'));
+  const accord = accordOf(args);
+  const given = DATAOPS_AUTOMATION_SWITCHES.filter((flag) => args.includes(flag));
+  if (given.length > 0 && restoreId === undefined) {
+    process.stderr.write(
+      `${given.join(', ')} go${given.length === 1 ? 'es' : ''} with --restore.\n`,
+    );
+    process.exit(2);
+  }
 
   const common: CommonArgs = {
     objects,
@@ -223,6 +256,7 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(maxAgeDays !== undefined ? { maxAgeDays } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
+    accord,
   };
   // Only a listing gets here without an org.
   if (!org) return { ...common, list: true };
@@ -347,11 +381,53 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // when the run last wrote, and leaves what changed since as it is.
   handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
 
+  /** The answer the handler posted for a request, by its id. */
+  const answerTo = (id: string): Record<string, unknown> | undefined =>
+    posted.find((message) => message.correlationId === id);
+
   if (args.restoreId) {
-    const meta = configStore.get(`backup:${args.restoreId}`);
+    const meta = configStore.get<{
+      objects?: Array<{ objectApiName: string; recordCount?: number }>;
+    }>(`backup:${args.restoreId}`);
     if (!meta) {
       process.stderr.write(`No snapshot "${args.restoreId}" in ${args.storeDir}.\n`);
       process.exit(1);
+    }
+    // What the org runs as the restore brings records back from the recycle
+    // bin and writes the snapshot's values over them, said before the
+    // question, and refused before it unless accepted: a restore fired the
+    // org's update flows on every record it put back, unasked.
+    const readId = `cli-restore-automation-${Date.now()}`;
+    await handler.handle({
+      id: readId,
+      type: 'dataops:automation',
+      payload: {
+        orgId: args.org,
+        act: 'restore',
+        objects: (meta.objects ?? []).map((o) => ({
+          objectApiName: o.objectApiName,
+          records: o.recordCount ?? 0,
+        })),
+        ...args.accord,
+      },
+    } as never);
+    const read = answerTo(readId);
+    if (read?.type !== 'dataops:automation:response') {
+      process.exitCode = 1;
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+      }
+      return;
+    }
+    const automation = read.payload as DataOpsAutomationAnswer;
+    for (const line of automation.lines) log(line);
+    if (automation.refusals.length > 0) {
+      for (const refusal of automation.refusals) process.stderr.write(`${refusedLine(refusal)}\n`);
+      process.exitCode = 1;
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+      }
+      return;
     }
     if (!args.yes) {
       const ok = await confirm(
@@ -375,6 +451,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         operationId: args.restoreId,
         ...(args.rewriteAll ? { rewriteAll: true } : {}),
         ...(args.includeChanged ? { includeChanged: true } : {}),
+        ...args.accord,
       },
     } as never);
     // What the restore wrote, refused and found unchanged, as the panel hears it.

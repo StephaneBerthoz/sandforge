@@ -1576,7 +1576,16 @@ describe('ExtensionHandlers', () => {
       expect(configStore.get(backupKey)).toBeDefined();
       expect(configStore.get(`${backupKey}:Account`)).toBeDefined();
 
-      broker['dispatch'](msg('dataops:rollback', { orgId: 'org1', operationId: 'op-123' }));
+      // As the page's question sends it, once it listed what the org runs as
+      // the values go back: what fires, and its emails, accepted.
+      broker['dispatch'](
+        msg('dataops:rollback', {
+          orgId: 'org1',
+          operationId: 'op-123',
+          acceptAutomation: true,
+          acceptEmails: true,
+        }),
+      );
 
       // The handler is async and dispatched fire-and-forget — we need to flush microtasks
       await new Promise((resolve) => setTimeout(resolve, 50));

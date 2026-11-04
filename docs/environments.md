@@ -377,7 +377,7 @@ A mask resource masks records the org already holds -- a sandbox copied from pro
 
 - **Its rules are DataOps rules.** `rules` names a set of the file's `masking`, each rule as the DataOps panel saves a template's and held to that save, or a template that ships, as `{ template: tpl-gdpr-standard }`. The script masks one object a run: a resource names its `object` and the records its `where` selects, or no object, and every object its rules mask, Account's person accounts among them where the org has them. A rule set with no rule for its object is refused before any org is reached, exit `2`: a run would mask nothing there.
 - **The snapshot comes first.** Each run takes a snapshot of the records it masks, their masked fields as they are, before its first write, and writes nothing unless the snapshot holds every one of them. The snapshot is kept on this machine in the resource's own store, `dataops/<resource>/` beside the state, and the state keeps its id.
-- **Planned by its own dry run.** The plan dry-runs the masking (`anonymize --dry-run`) and says, per object, the records it would mask. A field the rules name that the org does not show the user blocks the resource, in the script's own words, and so does one the user may read and not edit, and an object the org would not count or read: a run is refused for it, and masks nothing. An object with no record holds nothing to mask, and blocks nothing.
+- **Planned by its own dry run.** The plan dry-runs the masking (`anonymize --dry-run`) and says, per object, the records it would mask. A field the rules name that the org does not show the user blocks the resource, in the script's own words, and so does one the user may read and not edit, and an object the org would not count or read: a run is refused for it, and masks nothing. An object with no record holds nothing to mask, and blocks nothing. The dry run reads too what the org runs as the records are written over: something that fires blocks the resource unless `accept: { automation: true }` on it, handed to the script as `--accept-automation`; emails the org delivers block it unless the line gives `--accept-emails`; and the emails it counts join the day's email gate with the other resources'.
 - **Kept, drifted, replaced.** Applied with the same rules, it is kept while its condition selects as many records as it masked; once it selects others -- records copied in since, which hold their own values --, it is drifted, and `--replace` or `--replace-drifted` masks them all again. Changed rules replace it, and a replace masks again what its condition selects, the records it masked before a second time, taking nothing back first: the values they held before any masking stay only in the first run's snapshot.
 - **Never unmasked.** `destroy`, and an apply of a file it left, delete its store, its snapshots with it -- the only copy of the values it wrote over -- and leave its records masked. Putting values back is your own act, before the destroy: `sandforge-dataops anonymize --restore <snapshot>`, with the store the plan names. A file with a mask resource takes no `checkpoint.before`, exit `2`: that checkpoint would hold the values in clear, and `destroy --rewind` would write them back; for the same reason, `destroy --rewind` is refused while the state names a mask resource.
 - **Masking what a seed wrote.** A masking writes over the records it masks: those a seed or a forge resource of the same file wrote read as changed since, drifted, and their destroy keeps them unless `--include-changed`.
@@ -395,7 +395,6 @@ state: none on this machine
 totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
-warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 an apply now would be refused: This machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice. On a sandbox that lives on, apply asks --accept-no-state to go ahead: restore the journal directory of the apply before it, or give the flag. Nothing was written.
 ```
 
@@ -415,7 +414,6 @@ totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
 warning: this machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 customers: run 1 (create)
 
   customers masking 1: exit 0, applied  Contact 3 masked
@@ -467,7 +465,6 @@ state: kept on this machine, serial 2
 totals: 0 to create, 1 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
-warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 customers: run 2 (replace)
 
   customers masking 2: exit 0, applied  Contact 4 masked

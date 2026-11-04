@@ -1537,7 +1537,8 @@ export function deliverabilityPartOf(
 }
 
 /** The run a deliverability refusal names, as the command lines name it. */
-export type DeliverabilityRun = 'clone' | 'sync' | 'seed' | 'autopilot' | 'rewind' | 'undo';
+export type DeliverabilityRun =
+  'clone' | 'sync' | 'seed' | 'autopilot' | 'rewind' | 'undo' | 'masking' | 'restore' | 'cleanup';
 
 /** How a refusal names each run, and what `--accept-emails` lets it do. */
 const DELIVERABILITY_RUN_WORDS: Readonly<
@@ -1549,6 +1550,9 @@ const DELIVERABILITY_RUN_WORDS: Readonly<
   autopilot: { run: 'this Autopilot run', allTheSame: 'to run it all the same' },
   rewind: { run: 'this rewind', allTheSame: 'to rewind all the same' },
   undo: { run: 'this undo', allTheSame: 'to undo all the same' },
+  masking: { run: 'this masking', allTheSame: 'to mask all the same' },
+  restore: { run: 'this restore', allTheSame: 'to restore all the same' },
+  cleanup: { run: 'this cleanup', allTheSame: 'to delete all the same' },
 };
 
 /** How a sender of emails is named, by its kind. */

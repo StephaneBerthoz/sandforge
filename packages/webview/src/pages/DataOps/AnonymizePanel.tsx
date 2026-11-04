@@ -20,6 +20,7 @@ import { AnonymizationTemplateEditor, ruleTypeLabel } from './AnonymizationTempl
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { RunStopControl } from './RunStopControl';
 import { DeleteQuestion } from './DeleteQuestion';
+import { DataOpsAutomation, NO_ACCORD, type DataOpsAutomationAccord } from './DataOpsAutomation';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
@@ -29,6 +30,12 @@ export interface AnonymizePanelProps {
    * with one.
    */
   orgName?: string;
+  /**
+   * The org a run masks, by its id in the registry: its confirmation reads
+   * what the org runs as the records are written over, and waits for it.
+   * Without it, no such read, and the run carries no acceptance of what fires.
+   */
+  orgId?: string;
   /** The templates the host lists: those that ship, then those the user saved. */
   templates?: ListedAnonymizationTemplate[];
   selectedTemplateId?: string;
@@ -45,12 +52,15 @@ export interface AnonymizePanelProps {
    * Masks every row of the template's objects; `snapshot` takes, before the
    * first write, a backup of the fields it masks, which Restore puts back.
    */
-  onApply?: (templateId: string, options: { snapshot: boolean }) => void;
+  onApply?: (
+    templateId: string,
+    options: { snapshot: boolean; accord?: DataOpsAutomationAccord },
+  ) => void;
   /**
    * Resumes the run of the template that stopped short, the checkpoint the
    * coverage answer names: only what that run left is masked.
    */
-  onResume?: (templateId: string, resumeFrom: string) => void;
+  onResume?: (templateId: string, resumeFrom: string, accord?: DataOpsAutomationAccord) => void;
   isApplying?: boolean;
   /**
    * Reads the first rows of each object the template masks and masks them as
@@ -328,6 +338,7 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
 /** Panel for anonymizing sensitive data. */
 export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   orgName,
+  orgId,
   templates = [],
   selectedTemplateId,
   onSelectTemplate,
@@ -358,6 +369,10 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
    */
   const [keepValues, setKeepValues] = useState(true);
   const keepHintId = useId();
+  /** What the confirmation's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the confirmation waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   // Held by id: a delete asked about one template is not a delete of the next one picked.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -606,13 +621,28 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           {orgName && (
             <DangerConfirm
               open={confirming !== null}
-              onClose={() => setConfirming(null)}
+              onClose={() => {
+                setConfirming(null);
+                setAccord(NO_ACCORD);
+              }}
               onConfirm={() => {
                 const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
+                // Confirmed once what the org runs was listed above: what
+                // fires is accepted, the emails as their box says.
+                const given = orgId ? accord : undefined;
                 setConfirming(null);
-                if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
-                else onApply?.(selectedTemplate.id, { snapshot: keepValues });
+                setAccord(NO_ACCORD);
+                if (resumeFrom !== undefined) {
+                  if (given) onResume?.(selectedTemplate.id, resumeFrom, given);
+                  else onResume?.(selectedTemplate.id, resumeFrom);
+                } else {
+                  onApply?.(selectedTemplate.id, {
+                    snapshot: keepValues,
+                    ...(given ? { accord: given } : {}),
+                  });
+                }
               }}
+              {...(orgId && automationHeld !== undefined ? { held: automationHeld } : {})}
               // It was titled Apply over "Anonymize sensitive data", naming
               // neither the org nor the template, and asked to type the word
               // Anonymize — 匿名化 in Japanese, typed only through an input
@@ -663,6 +693,20 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 where the user confirms it. The host decides: a preview can
                 be out of date once the user has given the access it asks for. */}
               {refusal && <ApplyRefusedFor gaps={refusal} testId="confirm-fields-not-found" />}
+              {orgId && confirming !== null && (
+                <DataOpsAutomation
+                  orgId={orgId}
+                  org={orgName}
+                  act="masking"
+                  objects={(selectedCoverage?.objects ?? []).map((o) => ({
+                    objectApiName: o.objectApiName,
+                    records: o.count ?? 0,
+                  }))}
+                  accord={accord}
+                  onAccordChange={setAccord}
+                  onHeld={setAutomationHeld}
+                />
+              )}
               {/* What a restore cannot bring back, unless the run keeps the
                 values first: then it writes nothing unless it keeps them all. */}
               {lost.length > 0 && !(confirming === 'apply' && keepValues) && (

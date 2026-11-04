@@ -3,6 +3,28 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+
+/** What the target runs on the objects a test's cleanup deletes: nothing, unless the test says. */
+const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[] }));
+
+// What the target runs as a cleanup deletes its records: nothing, as an org
+// without flows or triggers on them answers, unless a test gives what it
+// runs. The cleanup reads it before its first delete.
+vi.mock('../src/modules/forge/TargetAutomationReader.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/modules/forge/TargetAutomationReader.js')>()),
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: orgRuns.objects,
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      });
+    }
+  },
+}));
 // The session stays the real one unless a test gives the org it runs against.
 vi.mock('./sfSession.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sfSession.js')>();
@@ -304,6 +326,51 @@ describe('sandforge-cleanup', () => {
       expect(await run(argv('--objects', 'Asset,Case'))).toBeUndefined();
       expect(process.exitCode).toBe(1);
       process.exitCode = undefined;
+    });
+
+    describe('what the target runs as the records go', () => {
+      /** An Apex trigger of Case that runs before and after its delete. */
+      const caseTrigger = {
+        objectApiName: 'Case',
+        flows: [],
+        triggers: [{ name: 'CaseTrigger', events: ['beforeDelete', 'afterDelete'] }],
+      };
+
+      afterEach(() => {
+        orgRuns.objects = [];
+      });
+
+      it('names the trigger a delete fires, and deletes nothing without --accept-automation: exit 1', async () => {
+        orgRuns.objects = [caseTrigger];
+        const { destroyed } = org({ IsSandbox: true });
+
+        await run(argv('--objects', 'Case'));
+
+        expect(process.exitCode).toBe(1);
+        process.exitCode = undefined;
+        expect(destroyed).not.toHaveBeenCalled();
+        expect(printed).toContain('  Case: before and after delete: Apex trigger CaseTrigger');
+        expect(stderr).toContain(
+          'TGT runs automation as this cleanup deletes its records: Case: Apex trigger ' +
+            'CaseTrigger (before and after delete).',
+        );
+        expect(stderr).toContain('Nothing was deleted. Add --accept-automation to delete');
+      });
+
+      it('deletes with --accept-automation, and a dry run says a real run would be refused: exit 1', async () => {
+        orgRuns.objects = [caseTrigger];
+        const { destroyed } = org({ IsSandbox: true });
+
+        await run(argv('--objects', 'Case', '--dry-run'));
+        expect(process.exitCode).toBe(1);
+        process.exitCode = undefined;
+        expect(destroyed).not.toHaveBeenCalled();
+        expect(printed.some((line) => line.includes('a real run would be refused'))).toBe(true);
+
+        await run(argv('--objects', 'Case', '--accept-automation'));
+        expect(process.exitCode).toBeUndefined();
+        expect(destroyed).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('exits 3 when the target refused some deletes, and says per object what it found, deleted and refused with --json', async () => {

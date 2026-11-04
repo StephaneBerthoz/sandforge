@@ -1132,6 +1132,42 @@ const FORGE_COMPLIANCE_REPORT = {
 };
 
 /**
+ * What the org runs as a DataOps masking, restore or cleanup writes, as the
+ * extension answers the confirmation's read of it: nothing fires, nothing
+ * sends. The confirmation waits for it.
+ */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [],
+  steps: {},
+  automation: {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
+/** Answer the open confirmation's read of what the org runs, until it no longer waits on it. */
+async function nothingFires(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        await answerAll(page, 'dataops:automation', 'dataops:automation:response', NOTHING_FIRES);
+        return page.getByTestId('danger-held').count();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
+}
+
+/**
  * A pipeline an older release saved with a webhook trigger, which the panel no
  * longer adds and which starts nothing.
  */
@@ -11623,6 +11659,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('restore-confirm-objects')).toContainText(
         'Contact: 700 records',
       );
+      await nothingFires(page);
       await expectReadable(page, theme);
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
@@ -12023,6 +12060,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByRole('dialog')).toContainText(
         'those changed or deleted since the run are left as they are',
       );
+      await nothingFires(page);
       await expectReadable(page, theme);
       await page.getByTestId('danger-confirm-btn').click();
       const restore = await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });

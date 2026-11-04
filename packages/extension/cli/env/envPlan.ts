@@ -960,10 +960,6 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
   const loads = actions
     .filter((action) => action.kind === 'frozen' && RUNS.has(action.action))
     .map((action) => action.resource);
-  // Nor does a masking's: an update of every contact can send as many.
-  const masks = actions
-    .filter((action) => action.kind === 'mask' && RUNS.has(action.action))
-    .map((action) => action.resource);
   const warnings = [
     ...(input.warnings ?? []),
     ...checkpointWarningsOf(file, input.state),
@@ -972,13 +968,6 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           `the emails the org sends as the records of ${loads.join(', ')} are loaded are not ` +
             'counted: a Frozen load’s dry run does not count them, and the day’s email gate holds ' +
             'without them',
-        ]
-      : []),
-    ...(masks.length > 0
-      ? [
-          `the emails the org sends as the records of ${masks.join(', ')} are masked ` +
-            'are not counted: a masking’s dry run does not count them, and the day’s email gate ' +
-            'holds without them',
         ]
       : []),
   ];
