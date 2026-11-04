@@ -293,7 +293,15 @@ const ANONYMIZE_STEP_MAX_WHERE_LENGTH = 2000;
  *   beside every object of a template would hold all of them to fields one of
  *   them has. An empty one filters nothing;
  * - what `where` may say — a filter and nothing past it — is the extension's
- *   SOQL rule to check, which the DataOps request applies.
+ *   SOQL rule to check, which the DataOps request applies;
+ * - what the org runs as the masking writes over its records is read before
+ *   the first write, as for a masking of the DataOps page, and each
+ *   acceptance is false unless the configuration says yes to it, as a Rewind
+ *   step's: the masking is refused, nothing written, where what fires was not
+ *   accepted (`acceptAutomation`), or where the org delivers the emails it
+ *   sends (`acceptEmails`, which the automation's never stands for);
+ *   `muteAutomation` mutes what the org's own bypass keeps quiet, for the
+ *   masking alone.
  */
 export const pipelineAnonymizeStepConfigSchema = z
   .object({
@@ -301,6 +309,9 @@ export const pipelineAnonymizeStepConfigSchema = z
     templateId: stepTemplateIdSchema,
     object: stepObjectNameSchema.optional(),
     where: z.string().max(ANONYMIZE_STEP_MAX_WHERE_LENGTH).optional(),
+    acceptAutomation: z.boolean().default(false),
+    acceptEmails: z.boolean().default(false),
+    muteAutomation: z.boolean().default(false),
   })
   .refine(
     (config) =>

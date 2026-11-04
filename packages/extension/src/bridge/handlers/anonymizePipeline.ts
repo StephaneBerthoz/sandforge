@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 
-import type { DataOpsAnonymizeResponse, GuardTier } from '@sandforge/shared';
+import type { DataOpsAnonymizeResponse, DataOpsWriteAccord, GuardTier } from '@sandforge/shared';
 import { pipelineWriteVerdict } from '@sandforge/shared';
 
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
@@ -24,7 +24,11 @@ import { dataOpsAnonymizePayloadSchema } from '../validatePayload.js';
  *   page's run ends partial on such a field after it wrote the others, a
  *   pipeline's is refused before it writes;
  * - a snapshot of what the run writes over is always taken, whole, before the
- *   first value is masked.
+ *   first value is masked;
+ * - what the org runs as the run writes over the records is read, as for the
+ *   page's run, and the run is refused for what fires, the emails the org
+ *   delivers or a mute that cannot be, unless the step's own settings accept
+ *   it (`acceptAutomation`, `acceptEmails`, `muteAutomation`).
  */
 
 /** A masking run as it is asked for, before anything is read of its org: what a run of the page is read as. */
@@ -42,6 +46,11 @@ export interface PipelineMaskingRequest {
   where?: string;
   /** The retries the step is given: none, or the step is refused. */
   retries?: number;
+  /**
+   * What the step's settings accept of what the org runs as it masks, as a
+   * Rewind step's do: each absent is no. An Approval stands for none of it.
+   */
+  accord?: DataOpsWriteAccord;
   /** The pipeline the step is a step of, which Live Operations names. */
   pipeline: { name: string };
   /**

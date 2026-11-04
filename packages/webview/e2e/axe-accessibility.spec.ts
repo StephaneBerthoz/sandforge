@@ -5479,6 +5479,11 @@ for (const theme of SCANNED_THEMES) {
           .some((node) => node.html.includes('config-masking-note')),
         'axe did not measure the masking note',
       ).toBe(true);
+      // What the step accepts of the org's automation, opened and one ticked.
+      await page.getByTestId('masking-acceptances').locator('summary').click();
+      await page.getByTestId('config-acceptAutomation').check();
+      await expect(page.getByTestId('masking-acceptances-count')).toHaveText('1 ticked');
+      expectNoViolations(await checkAccessibility(page));
 
       await steps.nth(2).click();
       await page.getByTestId('config-orgId').selectOption(DEV_SANDBOX.id);
@@ -14267,6 +14272,8 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('dsr-erase-btn').click();
       await page.getByTestId('danger-input').fill(DEV_SANDBOX.alias);
+      // The confirmation waits for what the org runs as the records are written over.
+      await nothingFires(page);
       const reviews = (await bridge.getMessages('dataops:dsr:erase')).length;
       await page.getByTestId('danger-confirm-btn').click();
       await expect

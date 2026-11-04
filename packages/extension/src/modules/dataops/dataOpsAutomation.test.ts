@@ -6,6 +6,7 @@ import {
   EMAILS_EXCEEDED,
   dataOpsAutomationLines,
   dataOpsAutomationRefusal,
+  dataOpsSaid,
   dataOpsStepsOf,
   dataOpsStop,
   dataOpsWrittenOf,
@@ -352,5 +353,64 @@ describe('readDataOpsAct', () => {
     expect(read.answer.refusals[0]?.code).toBe('MUTE_PRODUCTION');
     expect(read.mute).toBeUndefined();
     expect(created).not.toHaveBeenCalled();
+  });
+});
+
+describe('whose words a refusal is said in', () => {
+  const contacts = [{ objectApiName: 'Contact', records: 40 }];
+  const sending = {
+    ...automationOf({
+      Contact: { flows: [flow('Notify Owner', 'update', { emails: 1, bypass: 'Skip_Flows' })] },
+    }),
+    bypassGrants: [
+      {
+        permission: 'Skip_Flows',
+        permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+      },
+    ],
+  };
+
+  it("names a pipeline step's settings where the command line names its flags, every refusal of it", async () => {
+    const read = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: orgOf(sending),
+      accord: {},
+      mayMute: true,
+      voice: 'step',
+    });
+    const said = read.answer.refusals.map((r) => r.message).join(' ');
+    expect(read.answer.refusals.map((r) => r.code)).toEqual([
+      AUTOMATION_NOT_ACCEPTED,
+      'EMAILS_NOT_ACCEPTED',
+    ]);
+    expect(said).toContain('Turn on acceptAutomation in the step to mask all the same');
+    expect(said).toContain('Turn on acceptEmails in the step to mask all the same');
+    expect(said).toContain('With muteAutomation in the step, the masking assigns Flow_Bypass');
+    expect(said).toContain('muteAutomation in the step keeps quiet flow "Notify Owner" on Contact');
+    expect(said).not.toMatch(/--[a-z]/);
+  });
+
+  it('calls an erasure an erasure, whether it writes over records as a masking or deletes them as a cleanup', () => {
+    expect(
+      dataOpsSaid(
+        'This cleanup would make TGT send about 3 single emails. Add --accept-emails to delete ' +
+          'all the same. With --mute-automation, the cleanup assigns Skip_Flows.',
+        'erasure',
+      ),
+    ).toBe(
+      'This erasure would make TGT send about 3 single emails. Add --accept-emails to erase ' +
+        'all the same. With --mute-automation, the erasure assigns Skip_Flows.',
+    );
+    expect(
+      dataOpsSaid('TGT runs automation as this masking writes over its records.', 'erasure'),
+    ).toBe('TGT runs automation as this erasure writes over its records.');
+  });
+
+  it("leaves the command line's own words as they are", () => {
+    const words = 'Nothing was written. Add --accept-automation to mask all the same.';
+    expect(dataOpsSaid(words)).toBe(words);
+    expect(dataOpsSaid(words, 'flags')).toBe(words);
   });
 });

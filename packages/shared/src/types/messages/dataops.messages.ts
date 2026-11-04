@@ -419,6 +419,8 @@ export interface DataOpsAutomationRequest extends BaseMessage {
     orgId: string;
     act: DataOpsAct;
     objects: DataOpsAutomationObject[];
+    /** A subject erasure's, which writes as a masking or a cleanup and is named so. */
+    erasure?: boolean;
   } & DataOpsWriteAccord;
 }
 
@@ -698,8 +700,9 @@ export interface DataOpsSubjectExportResponse extends BaseMessage {
 
 /**
  * Erase records a request found: overwrite their personal data with the
- * DataOps anonymizer, or delete them — both through Production Guard. A dry
- * run answers what it would do and writes nothing.
+ * DataOps anonymizer, or delete them — both through Production Guard, once
+ * what the org runs as they are written was read and accepted, as for a
+ * masking or a cleanup. A dry run answers what it would do and writes nothing.
  */
 export interface DataOpsSubjectEraseRequest extends BaseMessage {
   type: 'dataops:dsr:erase';
@@ -710,7 +713,7 @@ export interface DataOpsSubjectEraseRequest extends BaseMessage {
     /** The records to erase, each one the request found. */
     records: Array<{ objectApiName: string; ids: string[] }>;
     dryRun: boolean;
-  };
+  } & DataOpsWriteAccord;
 }
 
 /** Result of `dataops:dsr:erase`: the plan of a dry run, or what the run did. */
@@ -723,7 +726,7 @@ export interface DataOpsSubjectEraseResponse extends BaseMessage {
     plan: RemovalPlanObject[];
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
-    /** What the delete's mute assigned, kept quiet and left running, when it was asked to mute. */
+    /** What the erasure's mute assigned, kept quiet and left running, when it was asked to mute. */
     mutedAutomation?: MutedAutomation;
   };
 }
@@ -803,6 +806,8 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
     truncated: boolean;
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
+    /** What the delete's mute assigned, kept quiet and left running, when it was asked to mute. */
+    mutedAutomation?: MutedAutomation;
   };
 }
 

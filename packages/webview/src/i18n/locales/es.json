@@ -2427,6 +2427,10 @@
         "intro": "Cuando la limpieza elimina estos registros, {{org}} ejecuta:",
         "none": "Nada de lo que {{org}} automatiza se ejecuta cuando se eliminan estos registros."
       },
+      "erasure": {
+        "maskIntro": "Cuando el borrado sobrescribe estos registros, {{org}} ejecuta:",
+        "deleteIntro": "Cuando el borrado elimina estos registros, {{org}} ejecuta:"
+      },
       "loading": "Leyendo lo que {{org}} ejecuta cuando se escriben estos registros…",
       "error": "No se pudo leer lo que {{org}} ejecuta cuando se escriben estos registros: {{reason}}",
       "why": {
@@ -2763,6 +2767,11 @@
       "acceptOutside": "Permitir eliminaciones que se extienden a registros secundarios de objetos fuera del punto de control",
       "acceptUnseen": "Permitir eliminaciones que se extienden a registros que el usuario conectado quizá no vea (sin View All Data ni Modify All Data)",
       "acceptEmails": "Ejecutar aunque la org entregue los correos que envían sus flujos, procesos o reglas de flujo de trabajo cuando escribe (Todos los emails), o no diga si los entrega"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Silenciar las automatizaciones de la org en este enmascaramiento, mediante su propio bypass: lo que ningún bypass silencia se ejecuta igualmente",
+      "acceptAutomation": "Enmascarar aunque se activen triggers, flujos o reglas de flujo de trabajo en los registros que sobrescribe",
+      "acceptEmails": "Enmascarar aunque la org entregue los correos que envían sus flujos, procesos o reglas de flujo de trabajo cuando enmascara (Todos los emails), o no diga si los entrega"
     },
     "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» en cada ejecución, incluidas las programadas, como máximo {{max}} registros, revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces.",
     "rewindSaveFirst": "Guarde el pipeline y luego confirme este retroceso.",

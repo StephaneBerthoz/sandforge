@@ -2427,6 +2427,10 @@
         "intro": "Wenn die Bereinigung diese Datensätze löscht, führt {{org}} aus:",
         "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze."
       },
+      "erasure": {
+        "maskIntro": "Wenn die Löschung diese Datensätze überschreibt, führt {{org}} aus:",
+        "deleteIntro": "Wenn die Löschung diese Datensätze löscht, führt {{org}} aus:"
+      },
       "loading": "Es wird gelesen, was {{org}} beim Schreiben dieser Datensätze ausführt…",
       "error": "Was {{org}} beim Schreiben dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}",
       "why": {
@@ -2763,6 +2767,11 @@
       "acceptOutside": "Löschungen erlauben, die untergeordnete Datensätze von Objekten außerhalb des Prüfpunkts mitlöschen",
       "acceptUnseen": "Löschungen erlauben, die Datensätze mitlöschen, deren Sichtbarkeit für den Benutzer nicht nachgewiesen ist (ohne „Alle Daten anzeigen“ und „Alle Daten ändern“)",
       "acceptEmails": "Ausführen, auch wenn die Org die E-Mails zustellt, die ihre Flows, Prozesse oder Workflow-Regeln beim Schreiben senden (Alle E-Mails), oder nicht sagt, ob sie sie zustellt"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Automatisierungen der Org für diese Maskierung stummschalten – über ihren eigenen Bypass: Was kein Bypass stummschaltet, läuft trotzdem",
+      "acceptAutomation": "Maskieren, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es überschreibt",
+      "acceptEmails": "Maskieren, auch wenn die Org die E-Mails zustellt, die ihre Flows, Prozesse oder Workflow-Regeln beim Maskieren senden (Alle E-Mails), oder nicht sagt, ob sie sie zustellt"
     },
     "rewindConfirmedOn": "Bestätigt am {{date}}: Dieser Schritt setzt {{org}} bei jeder Ausführung, geplante eingeschlossen, auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht jede seither von irgendjemandem vorgenommene Änderung rückgängig oder löscht sie.",
     "rewindSaveFirst": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen.",

@@ -154,6 +154,49 @@ const ACT_WORDS: Readonly<
   },
 };
 
+/**
+ * Whose words an act's refusals are said in: the page's and the command
+ * line's (`flags`), which name `--accept-automation` and its siblings; a
+ * pipeline's Anonymize step (`step`), which nobody gives a flag to, and
+ * which names its settings; a subject erasure (`erasure`), which writes over
+ * or deletes as a masking or a cleanup does and is called by its own name.
+ */
+export type DataOpsVoice = 'flags' | 'step' | 'erasure';
+
+/** The setting of a pipeline's step each flag stands for. */
+const STEP_SETTINGS: Readonly<Record<string, string>> = {
+  'accept-automation': 'acceptAutomation',
+  'accept-emails': 'acceptEmails',
+  'mute-automation': 'muteAutomation',
+};
+
+/**
+ * A refusal in the voice of what asked for the act. The refusals of what
+ * fires, of the emails and of a mute are worded once, for the command line,
+ * here and in Forge's gate: a pipeline's step turns a setting on where the
+ * command line adds a flag, and an erasure was told what "this cleanup"
+ * would fire, an act it never asked for.
+ */
+export function dataOpsSaid(message: string, voice: DataOpsVoice = 'flags'): string {
+  if (voice === 'step') {
+    return message
+      .replace(
+        /--(accept-automation|accept-emails|mute-automation)\b/g,
+        (_, flag: string) => `${STEP_SETTINGS[flag] ?? flag} in the step`,
+      )
+      .replace(
+        /\bAdd (acceptAutomation|acceptEmails|muteAutomation) in the step\b/g,
+        'Turn on $1 in the step',
+      );
+  }
+  if (voice === 'erasure') {
+    return message
+      .replace(/\b(this|the|This|The) (masking|cleanup)\b/g, '$1 erasure')
+      .replace(/\bto (mask|delete) all the same\b/g, 'to erase all the same');
+  }
+  return message;
+}
+
 /** When what fires on an update runs. */
 const SAVE_WHEN: Readonly<Record<ForgeFiredOnRemovalStep['when'], string>> = {
   before: 'before save',
@@ -416,11 +459,13 @@ export function dataOpsAutomationOrgOf(
  * that does not mute holds nothing.
  *
  * @param accepted - Whether its emails were accepted (`--accept-emails`, the page's box).
+ * @param voice - Whose words its refusal is said in (`dataOpsSaid`).
  */
 export async function holdDataOpsMute(
   read: Pick<DataOpsActRead, 'mute' | 'emails'> | undefined,
   runId: string,
   accepted: boolean,
+  voice?: DataOpsVoice,
 ): Promise<{ held?: HeldMute } | { refused: DataOpsAutomationRefusal }> {
   const prepared = read?.mute?.prepared;
   if (!read || !prepared) return {};
@@ -429,12 +474,12 @@ export async function holdDataOpsMute(
     held = await prepared.acquire(runId);
   } catch (err: unknown) {
     if (!isMuteRefusedError(err)) throw err;
-    return { refused: { code: err.code, message: err.message } };
+    return { refused: { code: err.code, message: dataOpsSaid(err.message, voice) } };
   }
   const relit = read.emails.afterLease(held.outcome, accepted);
   if (relit) {
     await held.release();
-    return { refused: { code: relit.code, message: relit.message } };
+    return { refused: { code: relit.code, message: dataOpsSaid(relit.message, voice) } };
   }
   return { held };
 }
@@ -454,6 +499,8 @@ export interface DataOpsActInput {
   muteLeases?: MuteLeaseOptions;
   /** The org by its alias and the user the act writes as: the command a bypass's sentence gives. */
   assignTo?: { alias: string; username: string };
+  /** Whose words its refusals are said in (`dataOpsSaid`): the command line's when not said. */
+  voice?: DataOpsVoice;
 }
 
 /** What an act's read came to: what is said and refused, the mute planned, and the emails' gate. */
@@ -578,7 +625,10 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
     ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
     ...(runEmails.gate.deliverability ? { deliverability: runEmails.gate.deliverability } : {}),
     emailsAsk: runEmails.gate.verdict === 'asks',
-    refusals,
+    refusals: refusals.map((refusal) => ({
+      ...refusal,
+      message: dataOpsSaid(refusal.message, input.voice),
+    })),
     ...(mute ? { mutedAutomation: mute.muted } : {}),
     ...(mute?.plan ? { mutePlan: mute.plan } : {}),
   };

@@ -365,8 +365,11 @@ number, or several, and **Search**. It looks in the objects the inventory read:
     opportunities). Records stay in the recycle bin until it is emptied
 - Both start with a review that writes nothing: the fields each object would
   have overwritten and how, or how many related records the org would delete
-  along with them. Then a confirmation armed by typing the org's name, then
-  **Production Guard**:
+  along with them. Then a confirmation armed by typing the org's name, which
+  lists what the org runs as the records are written over or deleted, as a
+  masking's or a cleanup's does (see
+  [What the org runs as DataOps writes](#what-the-org-runs-as-dataops-writes)),
+  then **Production Guard**:
   refused on production for a delete, a confirmation where the org's tier
   asks for one. An erasure is listed in Live Operations while it writes,
   where Cancel stops it before its next call to the org: what it did by then
@@ -493,9 +496,9 @@ Forge, Sync, Seed and Frozen Dataset do:
   sends nothing, only when something that still runs may send one, never in a
   production org: see [Will a run make the target send emails?](../faq.md#will-a-run-make-the-target-send-emails)
 
-In the panel, Apply's and Resume's confirmation, Restore's question and the
-Cleanup delete's confirmation list it before the org's name is typed, and wait
-for it; the box **Mute the target's automation for this run** sits under it
+In the panel, Apply's and Resume's confirmation, Restore's question, the
+Cleanup delete's confirmation and a subject request's Erase confirmation list
+it before the org's name is typed, and wait for it; the box **Mute the target's automation for this run** sits under it
 when the org's own bypass silences something of it, and on an org that
 delivers the emails, a box lets them go, which the confirmation itself never
 stands for. On the command line, `sandforge-dataops anonymize`, its
@@ -509,7 +512,11 @@ bypasses keep quiet, under a lease, as every other module's runs do (see
 A dry run says all of it, and what a real run would be refused for, exit `1`.
 With `--json`, the masking's and the restore's answer carry it as
 `dataops:automation:response`, the cleanup's under `automation`. A pipeline's
-Anonymize step reads none of it.
+Anonymize step reads it before its first write too, and is refused the same
+way, nothing masked, unless the step's own settings accept it:
+`acceptAutomation`, `acceptEmails` and `muteAutomation`, each off by default,
+as a Rewind step's; an Approval step stands for none of them (see
+[Automation](automation.md)).
 
 ## Tips
 

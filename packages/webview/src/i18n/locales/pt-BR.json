@@ -2427,6 +2427,10 @@
         "intro": "Quando a limpeza exclui estes registros, {{org}} executa:",
         "none": "Nada do que {{org}} automatiza é executado quando estes registros são excluídos."
       },
+      "erasure": {
+        "maskIntro": "Quando o apagamento sobrescreve estes registros, {{org}} executa:",
+        "deleteIntro": "Quando o apagamento exclui estes registros, {{org}} executa:"
+      },
       "loading": "Lendo o que {{org}} executa quando estes registros são gravados…",
       "error": "Não foi possível ler o que {{org}} executa quando estes registros são gravados: {{reason}}",
       "why": {
@@ -2763,6 +2767,11 @@
       "acceptOutside": "Permitir exclusões que se estendem a registros filhos de objetos fora do ponto de verificação",
       "acceptUnseen": "Permitir exclusões que se estendem a registros que o usuário conectado talvez não veja (sem View All Data nem Modify All Data)",
       "acceptEmails": "Executar mesmo que a org entregue os e-mails que seus fluxos, processos ou regras de fluxo de trabalho enviam quando ele grava (Todos os emails), ou não diga se os entrega"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Silenciar as automações da org neste mascaramento, pelo próprio bypass dela: o que nenhum bypass silencia é executado mesmo assim",
+      "acceptAutomation": "Mascarar mesmo que triggers, fluxos ou regras de fluxo de trabalho disparem nos registros que ele sobrescreve",
+      "acceptEmails": "Mascarar mesmo que a org entregue os e-mails que seus fluxos, processos ou regras de fluxo de trabalho enviam quando ele mascara (Todos os emails), ou não diga se os entrega"
     },
     "rewindConfirmedOn": "Confirmado em {{date}}: esta etapa retrocede {{org}} para “{{name}}” a cada execução, incluindo as agendadas, no máximo {{max}} registros, revertendo ou excluindo toda alteração feita por qualquer pessoa desde então.",
     "rewindSaveFirst": "Salve o pipeline e depois confirme este retrocesso.",

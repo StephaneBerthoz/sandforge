@@ -2427,6 +2427,10 @@
         "intro": "Quand le nettoyage supprime ces enregistrements, {{org}} exécute :",
         "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés."
       },
+      "erasure": {
+        "maskIntro": "Quand l'effacement écrit par-dessus ces enregistrements, {{org}} exécute :",
+        "deleteIntro": "Quand l'effacement supprime ces enregistrements, {{org}} exécute :"
+      },
       "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont écrits…",
       "error": "Ce que {{org}} exécute quand ces enregistrements sont écrits n'a pas pu être lu : {{reason}}",
       "why": {
@@ -2763,6 +2767,11 @@
       "acceptOutside": "Autoriser des suppressions qui s'étendent aux enregistrements enfants d'objets hors du point de contrôle",
       "acceptUnseen": "Autoriser des suppressions qui s'étendent à des enregistrements que l'utilisateur connecté ne voit peut-être pas (sans View All Data ni Modify All Data)",
       "acceptEmails": "Lancer même si l'org délivre les e-mails que ses Flows, processus ou règles de workflow envoient quand il écrit (Tous les e-mails), ou ne dit pas s'ils partent"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Rendre muettes les automatisations de l'org pour ce masquage, par son propre contournement : ce qu'aucun contournement ne fait taire s'exécute quand même",
+      "acceptAutomation": "Masquer même si des triggers, des Flows ou des règles de workflow se déclenchent sur les enregistrements qu'il écrase",
+      "acceptEmails": "Masquer même si l'org délivre les e-mails que ses Flows, processus ou règles de workflow envoient quand il masque (Tous les e-mails), ou ne dit pas s'ils partent"
     },
     "rewindConfirmedOn": "Confirmé le {{date}} : cette étape fait revenir {{org}} à « {{name}} » à chaque exécution, planifiées comprises, au plus {{max}} enregistrements, en annulant ou supprimant toute modification faite depuis, par qui que ce soit.",
     "rewindSaveFirst": "Enregistrez le pipeline, puis confirmez ce retour arrière.",

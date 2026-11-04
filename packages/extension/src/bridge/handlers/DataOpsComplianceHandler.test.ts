@@ -17,6 +17,46 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
+// What the org runs as an erasure writes over or deletes the records it
+// found: nothing, as an org without flows or triggers on them answers,
+// unless a test says what fires. The erasure reads it before its first write.
+const automation = vi.hoisted(() => ({
+  fires: undefined as
+    | undefined
+    | { label: string; startsOn: 'update' | 'delete'; timing: 'beforeSave' | 'afterSave' },
+}));
+vi.mock('../../modules/forge/TargetAutomationReader.js', () => ({
+  TargetAutomationReader: class {
+    read(_orgId: string, objects: readonly string[]) {
+      const fires = automation.fires;
+      return Promise.resolve({
+        objectsRead: [...objects],
+        objects: fires
+          ? objects.map((objectApiName) => ({
+              objectApiName,
+              flows: [
+                {
+                  apiName: fires.label.replaceAll(' ', '_'),
+                  label: fires.label,
+                  timing: fires.timing,
+                  startsOn: fires.startsOn,
+                  condition: 'read',
+                  permissions: [],
+                },
+              ],
+              triggers: [],
+            }))
+          : [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: fires ? 1 : 0,
+      });
+    }
+  },
+  targetAutomationQueries: () => ({}),
+}));
+
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
@@ -130,6 +170,7 @@ describe('DataOpsComplianceHandler', () => {
   let org: ReturnType<typeof janeOrg>;
 
   beforeEach(() => {
+    automation.fires = undefined;
     vi.mocked(getJsforceConnection).mockReset();
     org = janeOrg();
     vi.mocked(getJsforceConnection).mockResolvedValue(org.conn as never);
@@ -412,6 +453,86 @@ describe('DataOpsComplianceHandler', () => {
       kind: 'erased',
       outcome: 'stopped',
     });
+  });
+
+  it('overwrites nothing an update flow fires on, and logs the request as stopped, until the confirmation accepts it', async () => {
+    automation.fires = { label: 'Notify Owner', startsOn: 'update', timing: 'afterSave' };
+    const { requestId } = await searchJane();
+    const erase = (accord: Record<string, unknown>) =>
+      handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'anonymize',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          ...accord,
+        }),
+      );
+
+    await erase({});
+
+    expect(org.update).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'dev runs automation as this erasure writes over its records: Contact: flow ' +
+            '"Notify Owner" (as it is masked, after save)',
+        ),
+      },
+    });
+    expect(new AuditTrailStore(deps.configStore).list().entries[0]).toMatchObject({
+      action: 'subject_erase',
+      outcome: 'stopped',
+      details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
+    });
+    expect(new SubjectRequestLogView(deps).list()[0].events[1]).toMatchObject({
+      kind: 'erased',
+      mode: 'anonymize',
+      outcome: 'stopped',
+    });
+
+    await erase({ acceptAutomation: true });
+    expect(org.update).toHaveBeenCalled();
+    expect(answer<{ outcome: unknown }>('dataops:dsr:erase:response').outcome).toMatchObject({
+      status: 'success',
+      done: 1,
+    });
+  });
+
+  it('deletes nothing a flow runs before, until the confirmation accepts it', async () => {
+    automation.fires = { label: 'Guard Delete', startsOn: 'delete', timing: 'beforeSave' };
+    const { requestId } = await searchJane();
+    const erase = (accord: Record<string, unknown>) =>
+      handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'delete',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          ...accord,
+        }),
+      );
+
+    await erase({});
+
+    expect(org.destroy).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining(
+          'dev runs automation as this erasure deletes its records: Contact: flow ' +
+            '"Guard Delete" (before delete)',
+        ),
+      },
+    });
+
+    await erase({ acceptAutomation: true });
+    expect(org.destroy).toHaveBeenCalled();
   });
 
   it('lists the log, the newest request first', async () => {

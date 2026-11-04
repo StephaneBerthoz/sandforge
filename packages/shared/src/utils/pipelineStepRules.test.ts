@@ -302,6 +302,19 @@ describe('pipelineAnonymizeStepConfigSchema', () => {
     ).toMatch(/^where/);
     expect(refusalOf(pipelineAnonymizeStepConfigSchema, { orgId: 'org-1' })).toMatch(/^templateId/);
   });
+
+  it('accepts nothing of what the org runs unless the step says yes to it', () => {
+    expect(pipelineAnonymizeStepConfigSchema.parse(masking)).toMatchObject({
+      acceptAutomation: false,
+      acceptEmails: false,
+      muteAutomation: false,
+    });
+    for (const said of ['acceptAutomation', 'acceptEmails', 'muteAutomation']) {
+      expect(refusalOf(pipelineAnonymizeStepConfigSchema, { ...masking, [said]: 'yes' })).toMatch(
+        new RegExp(`^${said}`),
+      );
+    }
+  });
 });
 
 describe('rewindGrantDigest', () => {

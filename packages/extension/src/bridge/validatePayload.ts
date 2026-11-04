@@ -914,7 +914,9 @@ export const dataOpsRollbackPayloadSchema = z.object({
 });
 /**
  * What the org runs as a DataOps act writes the records of these objects:
- * the act, and each object with the records it writes. Read only.
+ * the act, and each object with the records it writes. Read only. A subject
+ * erasure writes over its records as a masking does, or deletes them as a
+ * cleanup does, and is named so (`erasure`).
  */
 export const dataOpsAutomationPayloadSchema = z.object({
   orgId: orgIdSchema,
@@ -922,6 +924,7 @@ export const dataOpsAutomationPayloadSchema = z.object({
   objects: z
     .array(z.object({ objectApiName: sfApiNameSchema, records: z.number().int().min(0) }))
     .max(MAX_OBJECTS_PER_REQUEST),
+  erasure: z.boolean().optional(),
   ...dataOpsWriteAccordShape,
 });
 /**
@@ -1088,6 +1091,7 @@ export const dataOpsSubjectErasePayloadSchema = dataOpsSubjectRequestPayloadSche
       { message: 'Each object may be named once per request' },
     ),
   dryRun: z.boolean(),
+  ...dataOpsWriteAccordShape,
 });
 
 /** A cleanup recommendation, as the page names one. */

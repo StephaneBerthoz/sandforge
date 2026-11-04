@@ -24,6 +24,12 @@ import { Input } from '../../components/ui/Input';
 import { formatNumber } from '../../utils/formatters';
 import { RemovalOutcomeView, RemovalPlanView, plannedRecords } from './RemovalPlanView';
 import { BackupsBeforeErasure } from './BackupsBeforeErasure';
+import {
+  accordPayloadOf,
+  DataOpsAutomation,
+  NO_ACCORD,
+  type DataOpsAutomationAccord,
+} from './DataOpsAutomation';
 
 /**
  * How long an export or an erasure may wait on the host: the Save dialog and
@@ -134,6 +140,10 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<SubjectEraseMode>('anonymize');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** What the confirmation's read of the org's automation lets through and mutes. */
+  const [accord, setAccord] = useState<DataOpsAutomationAccord>(NO_ACCORD);
+  /** Why the confirmation waits on that read, if it does. */
+  const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
 
   const result = search.data;
   const found = useMemo(() => result?.objects ?? [], [result]);
@@ -208,6 +218,16 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   );
   const plan = review.data?.dryRun ? review.data.plan : null;
   const toErase = plan ? plannedRecords(plan) : 0;
+  /** The records the erasure writes over or deletes, per object: what the org's automation is read on. */
+  const written = useMemo(
+    () =>
+      (plan ?? []).flatMap((object) =>
+        object.refused || object.records === 0
+          ? []
+          : [{ objectApiName: object.objectApiName, records: object.records }],
+      ),
+    [plan],
+  );
 
   const toggle = (key: string): void => {
     setSelection((current) => {
@@ -233,8 +253,19 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
 
   const confirmErase = (): void => {
     setConfirmOpen(false);
+    const given = accord;
+    setAccord(NO_ACCORD);
     if (!result || targets.length === 0) return;
-    erase.mutate({ orgId, requestId: result.requestId, mode, records: targets, dryRun: false });
+    // Confirmed once what the org runs as the records are written was
+    // listed: what fires is accepted, the emails as their box says.
+    erase.mutate({
+      orgId,
+      requestId: result.requestId,
+      mode,
+      records: targets,
+      dryRun: false,
+      ...accordPayloadOf(given),
+    });
     review.reset();
   };
 
@@ -474,7 +505,10 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
 
           <DangerConfirm
             open={confirmOpen}
-            onClose={() => setConfirmOpen(false)}
+            onClose={() => {
+              setConfirmOpen(false);
+              setAccord(NO_ACCORD);
+            }}
             onConfirm={confirmErase}
             title={t('dataops.dsr.confirmTitle', { count: toErase, formatted: number(toErase) })}
             description={t(
@@ -483,7 +517,23 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
             // The org's name, as Rewind and Deploy ask: the word erase was
             // 消去 in Japanese, typed only through an input method.
             confirmText={orgName}
-          />
+            {...(automationHeld !== undefined ? { held: automationHeld } : {})}
+          >
+            {/* What the org runs as the person's records are written over or
+                deleted: an erasure fired its flows on them unasked. */}
+            {confirmOpen && written.length > 0 && (
+              <DataOpsAutomation
+                orgId={orgId}
+                org={orgName}
+                act={mode === 'delete' ? 'cleanup' : 'masking'}
+                objects={written}
+                erasure
+                accord={accord}
+                onAccordChange={setAccord}
+                onHeld={setAutomationHeld}
+              />
+            )}
+          </DangerConfirm>
         </div>
       )}
     </section>

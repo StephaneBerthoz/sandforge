@@ -5,11 +5,21 @@ import type {
   SubjectIdentifiers,
   SubjectSearchResult,
 } from '@sandforge/shared';
-import { SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
+import { guardTierOf, SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import {
+  dataOpsAutomationOrgOf,
+  dataOpsStop,
+  holdDataOpsMute,
+  readDataOpsAct,
+} from '../../modules/dataops/dataOpsAutomation.js';
+import { recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { muteLines, type MuteLeaseOptions } from '../../modules/forge/AutomationMuteLease.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -31,6 +41,9 @@ import { orgSession, readRecordsById } from '../../modules/dataops/RecordRemoval
 import { prepareErasure, runErasure } from '../../modules/dataops/SubjectErasure.js';
 import { SubjectRequestLog } from '../../modules/dataops/SubjectRequestLog.js';
 import { searchSubject } from '../../modules/dataops/SubjectSearch.js';
+
+/** How long the read of what the org runs may take before an erasure: Seed's and Forge's bound. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** Message types handled by DataOpsComplianceHandler. */
 const COMPLIANCE_TYPES = new Set([
@@ -111,6 +124,44 @@ export class DataOpsComplianceHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Reads what the org runs as an erasure writes over or deletes the records
+   * it found: a reader of the handler's own over its connections, as Forge
+   * reads it, loaded on its first read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
+  /** Where and how an erasure that mutes keeps its lease, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /** Another reader of what the org runs than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** Where and how an erasure that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   /**
@@ -347,8 +398,9 @@ export class DataOpsComplianceHandler implements DomainHandler {
 
   /**
    * Answer `dataops:dsr:erase`: plan the erasure, and — unless it is a dry run
-   * — carry it out through Production Guard, recording it in the audit trail
-   * and in the request's log entry.
+   * — read what the org runs as it writes, refused on what the page's
+   * question did not accept, then carry it out through Production Guard,
+   * recording it in the audit trail and in the request's log entry.
    */
   private async handleErase(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
@@ -398,6 +450,69 @@ export class DataOpsComplianceHandler implements DomainHandler {
         );
       }
 
+      // What the org runs as the person's records are written over — as a
+      // masking writes — or deleted — as a cleanup deletes —, the emails it
+      // sends, and the mute asked for, read before the guard is asked and
+      // before anything is written, and refused unless the page's question
+      // answered it: an erasure fired the org's flows on them unasked.
+      const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const reader = this.targetAutomation;
+      const gated = await readDataOpsAct({
+        act: mode === 'delete' ? 'cleanup' : 'masking',
+        target,
+        objects: acting.map((p) => ({ objectApiName: p.objectApiName, records: p.records })),
+        org: dataOpsAutomationOrgOf(
+          conn,
+          (names) =>
+            new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('dataops automation', () =>
+              reader.read(orgId, names),
+            ),
+          guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
+        ),
+        accord: parsed,
+        mayMute: true,
+        muteLeases: this.muteLeases,
+        voice: 'erasure',
+      });
+      // The mute's lease, held from before the guard's question to the end of
+      // the erasure, given back however it ends.
+      const stop = dataOpsStop(gated.answer);
+      const holding = stop
+        ? { refused: stop }
+        : await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true, 'erasure');
+      if ('refused' in holding) {
+        // Recorded as every erasure that stops is, in the audit trail and the
+        // request's log: nothing was written, and the code says why.
+        const operationId = crypto.randomUUID();
+        recordWriteRun(this.deps, {
+          action: 'subject_erase',
+          module: 'dataops',
+          operationId,
+          orgId,
+          outcome: 'stopped',
+          code: holding.refused.code,
+        });
+        this.requestLog.record(requestId, orgId, {
+          kind: 'erased',
+          at: new Date().toISOString(),
+          mode,
+          outcome: 'stopped',
+          operationId,
+          objects: [],
+        });
+        sendHandlerError(
+          this.deps,
+          'dataops:dsr:erase',
+          'dataops:error',
+          msg,
+          new Error(holding.refused.message),
+          { code: holding.refused.code },
+        );
+        return;
+      }
+      const leased = holding.held;
+
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const result = await runGuardedRemoval(
         this.deps,
@@ -412,7 +527,11 @@ export class DataOpsComplianceHandler implements DomainHandler {
           run: (onObject, signal) => runErasure(session, engine, prepared, onObject, signal),
         },
         this.liveTracker,
-      );
+      ).finally(async () => {
+        if (!leased) return;
+        const released = await leased.release();
+        for (const line of muteLines(released, target)) this.deps.log(`[INFO] ${line}`);
+      });
 
       const at = new Date().toISOString();
       if (!result.ran) {
@@ -461,6 +580,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
         dryRun,
         plan,
         outcome: result.outcome,
+        ...(leased ? { mutedAutomation: leased.outcome } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(

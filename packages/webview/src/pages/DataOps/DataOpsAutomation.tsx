@@ -77,6 +77,16 @@ const WORDS: Readonly<Record<DataOpsAct, RemovalAutomationWords>> = {
   },
 };
 
+/**
+ * How a subject erasure's section says what it does: it writes over the
+ * person's records as a masking does, or deletes them as a cleanup does,
+ * and was told "As the cleanup deletes these records", an act nobody asked for.
+ */
+const ERASURE_INTRO: Readonly<Partial<Record<DataOpsAct, string>>> = {
+  masking: 'dataops.automation.erasure.maskIntro',
+  cleanup: 'dataops.automation.erasure.deleteIntro',
+};
+
 /** How each daily email limit is named. */
 const LIMIT_KEYS: Readonly<Record<CheckpointEmails['limit'], string>> = {
   SingleEmail: 'dataops.automation.limit.single',
@@ -97,6 +107,8 @@ export interface DataOpsAutomationProps {
   act: DataOpsAct;
   /** The records of each object the act writes. */
   objects: readonly DataOpsAutomationObject[];
+  /** A subject erasure's, which writes as a masking or a cleanup: its words name the erasure. */
+  erasure?: boolean;
   accord: DataOpsAutomationAccord;
   onAccordChange: (accord: DataOpsAutomationAccord) => void;
   /**
@@ -124,6 +136,7 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
   org,
   act,
   objects,
+  erasure = false,
   accord,
   onAccordChange,
   onHeld,
@@ -145,9 +158,10 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
         orgId,
         act,
         objects: JSON.parse(counted) as DataOpsAutomationObject[],
+        ...(erasure ? { erasure: true } : {}),
         ...(muting ? { muteAutomation: true } : {}),
       }),
-    [orgId, act, counted, muting, mutate],
+    [orgId, act, counted, erasure, muting, mutate],
   );
   useEffect(() => {
     readAgain();
@@ -208,6 +222,7 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
   }, [held, onHeld]);
   useEffect(() => () => onHeld(undefined), [onHeld]);
 
+  const erasureIntro = erasure ? ERASURE_INTRO[act] : undefined;
   const setMute = useCallback(
     (checked: boolean) => onAccordChange({ ...accord, muteAutomation: checked }),
     [accord, onAccordChange],
@@ -218,7 +233,7 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
       testId={`dataops-automation-${act}`}
       org={org}
       targetOrgId={orgId}
-      words={WORDS[act]}
+      words={erasureIntro ? { ...WORDS[act], intro: erasureIntro } : WORDS[act]}
       shown={shown}
       error={error}
       reading={read.loading}

@@ -476,10 +476,23 @@ const REWIND_ACCEPTANCES = [
   'acceptUnseen',
 ] as const;
 
+/**
+ * The acceptances an Anonymize step gives, each off unless the step says
+ * yes, as a Rewind step's: what the org runs as the masking writes over its
+ * records, read before it as on the DataOps page, the emails that sends, and
+ * the mute. A masking of a nightly refresh fired every update flow of the
+ * objects it masked, unasked.
+ */
+const MASKING_ACCEPTANCES = ['muteAutomation', 'acceptAutomation', 'acceptEmails'] as const;
+
 /** Props of {@link RewindAcceptances}. */
 interface RewindAcceptancesProps {
   config: Record<string, unknown>;
   onConfig: (key: string, value: unknown) => void;
+  /** The acceptances, and the group of `automation` their labels are in: a Rewind step's unless said. */
+  keys?: readonly string[];
+  labels?: 'rewindAccept' | 'maskingAccept';
+  testId?: string;
 }
 
 /**
@@ -490,10 +503,16 @@ interface RewindAcceptancesProps {
  * Ids, records the recycle bin no longer gives back"): they say now what the
  * Checkpoints page's preview says of the same boxes.
  */
-const RewindAcceptances: React.FC<RewindAcceptancesProps> = ({ config, onConfig }) => {
+const RewindAcceptances: React.FC<RewindAcceptancesProps> = ({
+  config,
+  onConfig,
+  keys = REWIND_ACCEPTANCES,
+  labels = 'rewindAccept',
+  testId = 'rewind-acceptances',
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
-  const accepted = REWIND_ACCEPTANCES.filter((key) => config[key] === true).length;
+  const accepted = keys.filter((key) => config[key] === true).length;
   // Opened by the reader after the first drawing: a box unticked inside it
   // does not fold it away under the pointer.
   const [open, setOpen] = useState(accepted > 0);
@@ -501,7 +520,7 @@ const RewindAcceptances: React.FC<RewindAcceptancesProps> = ({ config, onConfig 
     <details
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
-      data-testid="rewind-acceptances"
+      data-testid={testId}
     >
       <summary
         id={headingId}
@@ -509,16 +528,16 @@ const RewindAcceptances: React.FC<RewindAcceptancesProps> = ({ config, onConfig 
       >
         {t('automation.rewindAcceptHeading')}
         {accepted > 0 && (
-          <Badge variant="warning" className="ml-1.5" data-testid="rewind-acceptances-count">
+          <Badge variant="warning" className="ml-1.5" data-testid={`${testId}-count`}>
             {t('automation.rewindAcceptCount', { count: accepted })}
           </Badge>
         )}
       </summary>
       <div role="group" aria-labelledby={headingId} className="mt-2 flex flex-col gap-2">
-        {REWIND_ACCEPTANCES.map((key) => (
+        {keys.map((key) => (
           <CheckField
             key={key}
-            label={t(`automation.rewindAccept.${key}`)}
+            label={t(`automation.${labels}.${key}`)}
             testId={`config-${key}`}
             checked={config[key] === true}
             onChange={(checked) => onConfig(key, checked)}
@@ -540,7 +559,8 @@ interface AnonymizeFieldsProps {
 /**
  * An Anonymize step's fields: the masking template, then one of the objects
  * its rules name — every one of them when none is chosen — and, with an
- * object, a SOQL condition its rows are held to, as on the DataOps page.
+ * object, a SOQL condition its rows are held to, as on the DataOps page; then
+ * what it accepts of what the org runs as it masks, each off by default.
  */
 const AnonymizeFields: React.FC<AnonymizeFieldsProps> = ({
   stepId,
@@ -598,6 +618,14 @@ const AnonymizeFields: React.FC<AnonymizeFieldsProps> = ({
         </label>
       )}
       <Note testId="config-masking-note">{t('automation.maskingStepNote')}</Note>
+      <RewindAcceptances
+        key={stepId}
+        config={config}
+        onConfig={onConfig}
+        keys={MASKING_ACCEPTANCES}
+        labels="maskingAccept"
+        testId="masking-acceptances"
+      />
     </>
   );
 };

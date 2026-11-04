@@ -41,6 +41,25 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** What the org runs as the erasure writes over the records, as the extension answers a read of it: nothing. */
+const NOTHING_FIRES = {
+  act: 'masking',
+  objects: [{ objectApiName: 'Contact', records: 2 }],
+  steps: { giveBack: ['Contact'] },
+  automation: {
+    objectsRead: ['Contact'],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 1,
+  },
+  lines: [],
+  emails: [],
+  emailsAsk: false,
+  refusals: [],
+};
+
 /** What `backup:list` answers for the org, once the erasure asks. */
 let backupsListed: { backups: Array<{ operationId: string }> } | null = null;
 
@@ -82,6 +101,7 @@ beforeEach(() => {
     review: idle(),
     erase: idle(),
     'backup:delete': idle(),
+    'dataops:automation': { ...idle(), data: NOTHING_FIRES },
   };
   backupsListed = null;
 });
@@ -232,13 +252,88 @@ describe('SubjectRequestSection', () => {
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'masking',
+      objects: [{ objectApiName: 'Contact', records: 2 }],
+      erasure: true,
+    });
+    // Confirmed once what the org runs as the records are written was listed.
     expect(states.erase.mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       requestId: REQUEST,
       mode: 'anonymize',
       records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA', '003000000000002AAA'] }],
       dryRun: false,
+      acceptAutomation: true,
     });
+  });
+
+  it('holds a delete until what the org runs as the records go is read, and names it the erasure', () => {
+    states['dataops:dsr:search'].data = found;
+    states.review.data = {
+      requestId: REQUEST,
+      mode: 'delete',
+      dryRun: true,
+      plan: [{ objectApiName: 'Contact', label: 'Contact', records: 2 }],
+    };
+    states['dataops:automation'].data = null;
+    const { rerender } = section();
+    fireEvent.click(screen.getByTestId('dsr-mode-delete'));
+    fireEvent.click(screen.getByTestId('dsr-erase-btn'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'cleanup',
+      objects: [{ objectApiName: 'Contact', records: 2 }],
+      erasure: true,
+    });
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('danger-held').textContent).toContain('Waiting for what dev1 runs');
+
+    // The read lands: a flow before the delete.
+    states['dataops:automation'].data = {
+      ...NOTHING_FIRES,
+      act: 'cleanup',
+      steps: { delete: ['Contact'] },
+      automation: {
+        ...NOTHING_FIRES.automation,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave',
+                startsOn: 'delete',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      },
+    };
+    rerender(
+      <SubjectRequestSection
+        orgId="org-1"
+        orgName="dev1"
+        objects={['Contact']}
+        onLogged={vi.fn()}
+      />,
+    );
+
+    const listed = screen.getByTestId('dataops-automation-cleanup').textContent ?? '';
+    expect(listed).toContain('As the erasure deletes these records, dev1 runs:');
+    expect(listed).toContain('Guard Delete');
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(states.erase.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'delete', dryRun: false, acceptAutomation: true }),
+    );
   });
 
   describe('the confirmation of an erasure', () => {

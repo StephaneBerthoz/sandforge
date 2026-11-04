@@ -87,9 +87,10 @@ import {
  * - Seed and Anonymize never write to a production org, whatever an Approval
  *   step answered, and write to a sandbox marked Staging only behind an
  *   approved one (`pipelineWriteVerdict`); every question their page would
- *   put is answered by that Approval, and refused without it. Neither is ever
- *   tried again: a second try writes a second set of records, or masks again
- *   what the first masked;
+ *   put is answered by that Approval, and refused without it, but for what
+ *   the org runs as Anonymize masks, which its own settings accept, as a
+ *   Rewind step's do. Neither is ever tried again: a second try writes a
+ *   second set of records, or masks again what the first masked;
  * - Rewind runs only once a person has confirmed it, by typing the org's
  *   alias below its preview, for its configuration as saved; the
  *   confirmation is this machine's (`RewindGrants`), and the step's bounds
@@ -1175,8 +1176,25 @@ function checkAnonymize(runners: PipelineStepRunners): StepCheck {
       (id) => templates.some((template) => template.id === id),
     );
     if ('refusal' in chosen) return `${who}: ${chosen.refusal.message}`;
+    // Its acceptances, read as the run reads them: one that is no yes or no
+    // would fail the step once the pipeline had started.
+    const parsed = pipelineAnonymizeStepConfigSchema.safeParse({
+      orgId,
+      templateId,
+      ...acceptancesOf(config),
+    });
+    if (!parsed.success) return `${who} does not read (${firstIssue(parsed.error)}).`;
     return writeVerdictProblem(runners, who, orgId, 'masks', context);
   };
+}
+
+/** What an Anonymize step's configuration says of each acceptance, those it does not name left out. */
+function acceptancesOf(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(
+    (['acceptAutomation', 'acceptEmails', 'muteAutomation'] as const).flatMap((key) =>
+      config[key] === undefined ? [] : [[key, config[key]]],
+    ),
+  );
 }
 
 function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
@@ -1188,13 +1206,22 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
     }
     const object = text(step.config['object']);
     const where = text(step.config['where']);
-    const { orgId, templateId } = pipelineAnonymizeStepConfigSchema.parse({
-      orgId: step.config['orgId'],
-      templateId: text(step.config['templateId']),
-      ...(object !== undefined ? { object } : {}),
-      ...(where !== undefined ? { where } : {}),
-    });
+    const { orgId, templateId, acceptAutomation, acceptEmails, muteAutomation } =
+      pipelineAnonymizeStepConfigSchema.parse({
+        orgId: step.config['orgId'],
+        templateId: text(step.config['templateId']),
+        ...(object !== undefined ? { object } : {}),
+        ...(where !== undefined ? { where } : {}),
+        ...acceptancesOf(step.config),
+      });
     const org = runners.orgName(orgId) ?? orgId;
+    // What its mute assigned, silenced and left running, and whether it was taken back.
+    const mutedWords = (muted: MutedAutomation | undefined): string =>
+      muted
+        ? ` ${muteLines(muted, org)
+            .map((line) => line.trim())
+            .join('; ')}.`
+        : '';
     let outcome: PipelineMaskingOutcome;
     try {
       outcome = await runners.anonymize(
@@ -1204,6 +1231,9 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
           ...(object !== undefined ? { object } : {}),
           ...(where !== undefined ? { where } : {}),
           ...(step.retries !== undefined ? { retries: step.retries } : {}),
+          // Each off unless the step says yes: the masking is refused, nothing
+          // written, on what fires that they do not accept.
+          accord: { acceptAutomation, acceptEmails, muteAutomation },
           pipeline: { name: pipelineNameOf(context) },
           answer: givenAnswer(context),
         },
@@ -1213,15 +1243,23 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       const code = refusalCode(err);
       if (code === undefined) throw err;
       const snapshot = (err as { snapshot?: { operationId?: unknown } }).snapshot;
+      const muted = mutedOfError(err);
       return failed(
         step,
         startTime,
-        { orgId, templateId, code, ...(snapshot !== undefined ? { snapshot } : {}) },
+        {
+          orgId,
+          templateId,
+          code,
+          ...(snapshot !== undefined ? { snapshot } : {}),
+          ...(muted ? { mutedAutomation: muted } : {}),
+        },
         `${who}: ${(err as Error).message}` +
           (typeof snapshot?.operationId === 'string'
             ? ` The snapshot ${snapshot.operationId} it took keeps the values it wrote over, in ` +
               'clear, until it is deleted on the DataOps page.'
-            : ''),
+            : '') +
+          mutedWords(muted),
       );
     }
     const { result } = outcome;
@@ -1241,11 +1279,14 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       recordsNotMasked: result.recordsNotMasked,
       objects: result.objects,
       ...(result.snapshot ? { snapshot: result.snapshot } : {}),
+      ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
+    const mutedSaid = mutedWords(result.mutedAutomation);
     if (result.cancelled) {
       throw new StepCancelledError(
         `${who} was cancelled: it masked ${counted(result.recordsProcessed, 'record')} in ${org} ` +
-          `before the stop, and ${result.recordsNotMasked} still hold their values; ${kept}.`,
+          `before the stop, and ${result.recordsNotMasked} still hold their values; ${kept}.` +
+          mutedSaid,
       );
     }
     // Rows the org refused, or left unreached, still hold what the template
@@ -1259,7 +1300,7 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
         step,
         startTime,
         output,
-        `${who} masked ${org} and did not complete: ${unmasked}; ${kept}.`,
+        `${who} masked ${org} and did not complete: ${unmasked}; ${kept}.${mutedSaid}`,
       );
     }
     const scope =
@@ -1272,7 +1313,7 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       step,
       startTime,
       output,
-      `Masked ${counted(result.recordsProcessed, 'record')} in ${org}, ${scope}; ${kept}.`,
+      `Masked ${counted(result.recordsProcessed, 'record')} in ${org}, ${scope}; ${kept}.${mutedSaid}`,
     );
   };
 }

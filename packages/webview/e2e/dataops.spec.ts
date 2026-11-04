@@ -801,10 +801,23 @@ test.describe('DataOps — Compliance', () => {
       { timeout: 10_000 },
     );
 
-    // Nothing goes out until the confirmation is typed.
+    // Nothing goes out until the confirmation is typed, and what the org
+    // runs as the person's records are written over was read and listed.
     await page.getByTestId('dsr-erase-btn').click();
     await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
     await page.getByTestId('danger-input').fill('DevSandbox');
+    await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+    await expect
+      .poll(async () => (await outgoing(page, 'dataops:automation')).length)
+      .toBeGreaterThan(0);
+    const read = (await outgoing(page, 'dataops:automation')).at(-1);
+    expect(read?.payload).toEqual({
+      orgId: 'org-src-1',
+      act: 'masking',
+      objects: [{ objectApiName: 'Contact', records: 1 }],
+      erasure: true,
+    });
+    await nothingFires(page);
     await page.getByTestId('danger-confirm-btn').click();
     await expect.poll(async () => (await outgoing(page, 'dataops:dsr:erase')).length).toBe(2);
     const [, erase] = await outgoing(page, 'dataops:dsr:erase');
@@ -814,6 +827,7 @@ test.describe('DataOps — Compliance', () => {
       mode: 'anonymize',
       records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
       dryRun: false,
+      acceptAutomation: true,
     });
     // Counted before the answer: the log was asked for on mount and after the
     // search, and an answer sent before the request it waits for is lost.

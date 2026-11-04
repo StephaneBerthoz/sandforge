@@ -2427,6 +2427,10 @@
         "intro": "As the cleanup deletes these records, {{org}} runs:",
         "none": "Nothing {{org}} automates runs as these records are deleted."
       },
+      "erasure": {
+        "maskIntro": "As the erasure writes over these records, {{org}} runs:",
+        "deleteIntro": "As the erasure deletes these records, {{org}} runs:"
+      },
       "loading": "Reading what {{org}} runs as these records are written…",
       "error": "What {{org}} runs as these records are written could not be read: {{reason}}",
       "why": {
@@ -2763,6 +2767,11 @@
       "acceptOutside": "Allow deletions that cascade to child records of objects outside the checkpoint",
       "acceptUnseen": "Allow deletions that cascade to records the connected user may not see (no View All Data or Modify All Data)",
       "acceptEmails": "Run even if the org delivers the emails its flows, processes or workflow rules send as it writes (All email), or would not say whether it does"
+    },
+    "maskingAccept": {
+      "muteAutomation": "Mute the org's automation for this masking, through its own bypass: what no bypass keeps quiet still runs",
+      "acceptAutomation": "Mask even if triggers, flows or workflow rules fire on the records it writes over",
+      "acceptEmails": "Mask even if the org delivers the emails its flows, processes or workflow rules send as it masks (All email), or would not say whether it does"
     },
     "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",

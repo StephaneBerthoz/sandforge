@@ -16,6 +16,7 @@ import type {
   DataOpsAutomationObject,
   DataOpsWriteAccord,
   ListedAnonymizationTemplate,
+  MutedAutomation,
 } from '@sandforge/shared';
 import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
 import type {
@@ -147,6 +148,7 @@ import {
   holdDataOpsMute,
   readDataOpsAct,
   type DataOpsActRead,
+  type DataOpsVoice,
 } from '../../modules/dataops/dataOpsAutomation.js';
 import {
   muteLines,
@@ -772,12 +774,17 @@ interface MaskingReplies {
   /** The pipeline a pipeline's run is a step of, which Live Operations names. */
   pipeline?: { name: string };
   /**
-   * What the page's or the command line's run carries of its question: the
-   * run reads what the org runs as it updates the records it counted, and is
-   * refused on what it was not accepted for. A pipeline's step carries none,
-   * and reads none of it.
+   * What the run carries of its question — the page's confirmation, the
+   * command line's flags, a pipeline step's settings: the run reads what the
+   * org runs as it updates the records it counted, and is refused on what it
+   * was not accepted for. A pipeline's step read none of it, and masked over
+   * the org's update flows, their emails among them, with nobody asked.
    */
-  accord?: DataOpsWriteAccord;
+  accord: DataOpsWriteAccord;
+  /** Whose words its refusals are said in: a pipeline's step names its settings. */
+  voice?: DataOpsVoice;
+  /** Told what its mute assigned and took back, once it gave its lease back. */
+  muted?: (outcome: MutedAutomation) => void;
 }
 
 /**
@@ -1406,6 +1413,7 @@ export class DataOpsHandler implements DomainHandler {
     act: DataOpsAct,
     objects: readonly DataOpsAutomationObject[],
     accord: DataOpsWriteAccord,
+    voice?: DataOpsVoice,
   ): Promise<DataOpsActRead> {
     const reader = this.targetAutomation;
     return readDataOpsAct({
@@ -1423,16 +1431,21 @@ export class DataOpsHandler implements DomainHandler {
       accord,
       mayMute: true,
       muteLeases: this.muteLeases,
+      ...(voice ? { voice } : {}),
     });
   }
 
-  /** Give a write's lease back once it ended, and say what it took back. */
-  private async releaseMute(held: HeldMute | undefined, orgId: string): Promise<void> {
-    if (!held) return;
+  /** Give a write's lease back once it ended, say what it took back, and answer it. */
+  private async releaseMute(
+    held: HeldMute | undefined,
+    orgId: string,
+  ): Promise<MutedAutomation | undefined> {
+    if (!held) return undefined;
     const released = await held.release();
     for (const line of muteLines(released, this.orgNameOf(orgId))) {
       this.deps.log(`[INFO] ${line}`);
     }
+    return released;
   }
 
   /**
@@ -1453,7 +1466,15 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const read = await this.readAct(conn, parsed.orgId, parsed.act, parsed.objects, parsed);
+      // A subject erasure's question names the erasure, not the act it writes as.
+      const read = await this.readAct(
+        conn,
+        parsed.orgId,
+        parsed.act,
+        parsed.objects,
+        parsed,
+        parsed.erasure === true ? 'erasure' : undefined,
+      );
       const response = buildResponse(this.deps, msg, 'dataops:automation:response', {
         ...read.answer,
       });
@@ -3842,13 +3863,15 @@ export class DataOpsHandler implements DomainHandler {
    * object, or a template neither shipped nor saved (`pipelineMaskingAsked`).
    * Once its objects are counted, and before Production Guard is asked, it
    * is refused for a field its template names that the org does not show,
-   * and for rules that mask nothing there (`maskingNotCovered`). Production
-   * Guard's question is answered by the request's answer (`withGivenAnswer`),
-   * and no modal opens: a masking run puts no other question. A snapshot of
-   * what it writes over is always taken, whole, before its first write, or
-   * nothing is masked.
+   * and for rules that mask nothing there (`maskingNotCovered`); then for
+   * what the org runs as it writes, its emails and a mute that cannot be,
+   * as the page's run is (`readDataOpsAct`), on the step's own acceptances,
+   * which no Approval stands for. Production Guard's question is answered by
+   * the request's answer (`withGivenAnswer`), and no modal opens. A snapshot
+   * of what it writes over is always taken, whole, before its first write,
+   * or nothing is masked.
    *
-   * @param request - The org, the template, its scope, the pipeline and the Approval's answer.
+   * @param request - The org, the template, its scope, its acceptances, the pipeline and the Approval's answer.
    * @param signal - The step's: aborted, the run stops as the page's Stop
    *   stops it, at the next batch.
    * @returns How the run ended: its result, whole, a cancelled one and one
@@ -3885,9 +3908,18 @@ export class DataOpsHandler implements DomainHandler {
     const operationId = crypto.randomUUID();
     let refusal: MaskingStop | undefined;
     let ended: MaskingResult | undefined;
+    let muted: MutedAutomation | undefined;
     const replies: MaskingReplies = {
       origin: 'pipeline:execute',
       pipeline: request.pipeline,
+      // The step's settings, each off unless it says yes, as a Rewind
+      // step's: what fires as the masking writes is read, and refused on
+      // what they did not accept, in the words of the step's settings.
+      accord: request.accord ?? {},
+      voice: 'step',
+      muted: (outcome) => {
+        muted = outcome;
+      },
       refused: (err, options) => {
         refusal ??= { err, ...options };
         this.deps.log(
@@ -3906,6 +3938,7 @@ export class DataOpsHandler implements DomainHandler {
     // Set by the replies as the run went: read through their declared type,
     // which the closures' assignments do not narrow.
     const stopped = refusal as MaskingStop | undefined;
+    const mutedAutomation = muted as MutedAutomation | undefined;
     if (stopped) {
       const message = extractErrorMessage(stopped.err);
       const said = stopped.err as { code?: unknown } | undefined;
@@ -3914,6 +3947,7 @@ export class DataOpsHandler implements DomainHandler {
       const details = {
         ...(code !== undefined ? { code } : {}),
         ...(snapshot !== undefined ? { snapshot } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
       };
       if (code === ABORTED_BEFORE_START) {
         throw Object.assign(new StepCancelledError(message), details);
@@ -3922,7 +3956,9 @@ export class DataOpsHandler implements DomainHandler {
     }
     const result = ended as MaskingResult | undefined;
     if (result === undefined) throw new Error('The masking run ended without a result.');
-    return { operationId, result };
+    // What its mute took back is known once the lease was given back, after
+    // the result: said with it, as a rewind's step says it.
+    return { operationId, result: mutedAutomation ? { ...result, mutedAutomation } : result };
   }
 
   private async handleAnonymize(msg: InboundRequest): Promise<void> {
@@ -3943,7 +3979,7 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /** Where a masking run of the DataOps page answers: the channels the page listens on. */
-  private pageMaskingReplies(msg: InboundRequest): MaskingReplies {
+  private pageMaskingReplies(msg: InboundRequest): Omit<MaskingReplies, 'accord'> {
     return {
       origin: msg.type,
       refused: (err, options) =>
@@ -4390,21 +4426,20 @@ export class DataOpsHandler implements DomainHandler {
       };
       // What the org runs as the run updates the records it counted, before
       // the guard is asked and before anything is written: a masking of every
-      // contact ran the org's update flows, emails among them, unasked.
-      let gated: DataOpsActRead | undefined;
-      if (replies.accord) {
-        gated = await this.readAct(
-          conn,
-          payload.orgId,
-          'masking',
-          tallies.map((t) => ({ objectApiName: t.objectApiName, records: t.total })),
-          replies.accord,
-        );
-        const refused = dataOpsStop(gated.answer);
-        if (refused) {
-          refuseBeforeWrite(refused.code, refused.message);
-          return;
-        }
+      // contact ran the org's update flows, emails among them, unasked; a
+      // pipeline's, which nobody watches, did so on every refresh.
+      const gated = await this.readAct(
+        conn,
+        payload.orgId,
+        'masking',
+        tallies.map((t) => ({ objectApiName: t.objectApiName, records: t.total })),
+        replies.accord,
+        replies.voice,
+      );
+      const gateRefused = dataOpsStop(gated.answer);
+      if (gateRefused) {
+        refuseBeforeWrite(gateRefused.code, gateRefused.message);
+        return;
       }
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
@@ -4454,7 +4489,8 @@ export class DataOpsHandler implements DomainHandler {
       const holding = await holdDataOpsMute(
         gated,
         operationId,
-        replies.accord?.acceptEmails === true,
+        replies.accord.acceptEmails === true,
+        replies.voice,
       );
       if ('refused' in holding) {
         refuseBeforeWrite(holding.refused.code, holding.refused.message);
@@ -4914,7 +4950,8 @@ export class DataOpsHandler implements DomainHandler {
       // cancelled. Dual channel, single display (see handleBackup).
       failRun(err, true);
     } finally {
-      await this.releaseMute(held, payload.orgId);
+      const released = await this.releaseMute(held, payload.orgId);
+      if (released) replies.muted?.(released);
       // A run that threw after it started: recorded with what it masked — partial once it wrote a row,
       // failed otherwise — and, per object, the rows it never reached.
       if (unrecorded) {

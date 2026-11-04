@@ -339,4 +339,76 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
     ]);
     expect(update).not.toHaveBeenCalled();
   });
+
+  describe("a pipeline's Anonymize step, which nobody watches", () => {
+    const step = {
+      orgId: 'org-1',
+      templateId: 'tpl-gdpr-standard',
+      object: 'Contact',
+      pipeline: { name: 'Nightly refresh' },
+      answer: { approved: false },
+    };
+
+    it('masks nothing an update flow fires on, saying the setting that lets it, until the step accepts it', async () => {
+      const rows = contactsOf(3);
+      const { update } = orgOf(rows);
+
+      const refused = await handler.anonymizeForPipeline(step).then(
+        () => undefined,
+        (err: unknown) => err as Error & { code?: string },
+      );
+
+      expect(read).toHaveBeenCalledWith('org-1', ['Contact']);
+      expect(refused?.code).toBe('AUTOMATION_NOT_ACCEPTED');
+      expect(refused?.message).toContain(
+        'ORG runs automation as this masking writes over its records: Contact: flow "Notify Owner"',
+      );
+      // A step has settings, not flags: what lifts it is said as the step sets it.
+      expect(refused?.message).toContain(
+        'Turn on acceptAutomation in the step to mask all the same',
+      );
+      expect(refused?.message).not.toMatch(/--[a-z]/);
+      expect(update).not.toHaveBeenCalled();
+      expect(rows[0]?.FirstName).toBe('First1');
+      expect(new AuditTrailStore(store).list().entries[0]).toMatchObject({
+        action: 'anonymize_execute',
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
+      });
+
+      const masked = await handler.anonymizeForPipeline({
+        ...step,
+        accord: { acceptAutomation: true },
+      });
+      expect(masked.result).toMatchObject({ status: 'success', recordsProcessed: 3 });
+      expect(update).toHaveBeenCalled();
+    });
+
+    it('masks nothing whose emails an org on All email delivers until the step accepts them too, whatever an Approval answered', async () => {
+      read.mockResolvedValue(runs([onUpdate('Notify Owner', 1)]));
+      const { update } = orgOf(contactsOf(3));
+
+      const refused = await handler
+        .anonymizeForPipeline({
+          ...step,
+          answer: { approved: true },
+          accord: { acceptAutomation: true },
+        })
+        .then(
+          () => undefined,
+          (err: unknown) => err as Error & { code?: string },
+        );
+
+      expect(refused?.code).toBe('EMAILS_NOT_ACCEPTED');
+      expect(refused?.message).toContain('Turn on acceptEmails in the step to mask all the same');
+      expect(refused?.message).not.toMatch(/--[a-z]/);
+      expect(update).not.toHaveBeenCalled();
+
+      await handler.anonymizeForPipeline({
+        ...step,
+        accord: { acceptAutomation: true, acceptEmails: true },
+      });
+      expect(update).toHaveBeenCalled();
+    });
+  });
 });

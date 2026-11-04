@@ -427,6 +427,86 @@ describe('the Anonymize step', () => {
     expect(result.status).toBe('failed');
     expect(result.output).toMatchObject({ code: 'MASKING_FIELDS_UNSEEN' });
   });
+
+  it('masks with nothing accepted unless its configuration says yes to each, as a Rewind step does', async () => {
+    const flows = runners();
+    const executor = executorWith(flows);
+
+    await executor.execute(step('anonymize', MASK), context());
+    await executor.execute(
+      step('anonymize', { ...MASK, acceptAutomation: true, muteAutomation: true }),
+      context(),
+    );
+
+    const asked = vi.mocked(flows.anonymize!).mock.calls.map(([request]) => request.accord);
+    expect(asked).toEqual([
+      { acceptAutomation: false, acceptEmails: false, muteAutomation: false },
+      { acceptAutomation: true, acceptEmails: false, muteAutomation: true },
+    ]);
+  });
+
+  it('is refused before the run for an acceptance that is not a yes or a no', () => {
+    const target = step('anonymize', { ...MASK, acceptAutomation: 'yes' });
+    expect(executorWith(runners()).check(target, placed(target))).toContain(
+      'acceptAutomation: Invalid input',
+    );
+  });
+
+  it('fails, nothing masked, when what fires is not accepted, with the code and the setting that lets it', async () => {
+    const anonymize = vi.fn(async () => {
+      throw Object.assign(
+        new Error(
+          'dev runs automation as this masking writes over its records: Contact: flow "Notify" ' +
+            '(as it is masked, after save). Nothing was written. Turn on acceptAutomation in the ' +
+            'step to mask all the same, or turn that automation off in dev first.',
+        ),
+        { code: 'AUTOMATION_NOT_ACCEPTED' },
+      );
+    });
+    const result = await executorWith(runners({ anonymize })).execute(
+      step('anonymize', MASK),
+      context(),
+    );
+    expect(result.status).toBe('failed');
+    expect(result.output).toMatchObject({ code: 'AUTOMATION_NOT_ACCEPTED' });
+    expect(result.error).toContain('Turn on acceptAutomation in the step to mask all the same');
+  });
+
+  it('says what its mute assigned and that it was taken back', async () => {
+    const mutedAutomation = {
+      state: 'muted' as const,
+      assigned: ['Skip_Contact_Set'],
+      held: [],
+      permissions: ['Skip_Contact'],
+      silenced: [
+        {
+          objectApiName: 'Contact',
+          kind: 'flow' as const,
+          name: 'Notify',
+          permission: 'Skip_Contact',
+        },
+      ],
+      stillRan: [],
+      released: true,
+    };
+    const anonymize = vi.fn(async () => ({
+      operationId: 'op-mask',
+      result: maskingResult({ mutedAutomation }),
+    }));
+
+    const result = await executorWith(runners({ anonymize })).execute(
+      step('anonymize', { ...MASK, muteAutomation: true }),
+      context(),
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toMatchObject({ mutedAutomation: { released: true } });
+    expect(result.summary).toContain(
+      'mute: assigned Skip_Contact_Set to the user the run writes as in dev, for the run alone; ' +
+        'silenced: Contact: flow "Notify" (bypass Skip_Contact); taken back: Skip_Contact_Set, ' +
+        'as the run ended.',
+    );
+  });
 });
 
 describe('the Checkpoint step', () => {
