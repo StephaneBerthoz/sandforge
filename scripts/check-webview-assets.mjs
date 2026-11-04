@@ -256,10 +256,12 @@ export function panelShellNamespaces(source) {
  * whole namespaces of English for a few words. 900 kB is what every page
  * reached once those came on demand, Sync the heaviest at 882 kB. Raised to
  * 950 kB in 1.73.0, when Frozen's removal came to read and mute the target's
- * automation (909 kB): what grows the budget is what a page draws on its first
- * screen, never a library it does not.
+ * automation (909 kB), and to 1 MB in 1.74.0, when DataOps came to read the
+ * org's automation as it masks, restores and cleans up (951 kB): what grows
+ * the budget is what a page draws on its first screen, never a library it
+ * does not.
  */
-export const PAGE_FIRST_PAINT_BUDGET = 950_000;
+export const PAGE_FIRST_PAINT_BUDGET = 1_000_000;
 
 /**
  * The pages that check something against a schema before they paint, and
