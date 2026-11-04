@@ -783,6 +783,37 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says each lookup that holds back rows of an object, with its rows', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      module: 'sync',
+      objects: [],
+      total: 0,
+      aboveRecords: undefined,
+      unwritable: [
+        { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+        { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+      ],
+      heldBack: [
+        {
+          objectApiName: 'PricebookEntry',
+          rows: 13,
+          parent: 'Pricebook2',
+          field: 'Pricebook2Id',
+          parents: [
+            { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+            { parent: 'Product2', field: 'Product2Id', rows: 9 },
+          ],
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.filter((line) => line.startsWith('Held back:'))).toEqual([
+      'Held back: PricebookEntry, 4 records: their Pricebook2Id names Pricebook2 records left out, so none of them is written and each counts as failed.',
+      'Held back: PricebookEntry, 9 records: their Product2Id names Product2 records left out, so none of them is written and each counts as failed.',
+    ]);
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({

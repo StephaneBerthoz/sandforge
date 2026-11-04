@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readSfdmuQuery } from './sfdmuQuery';
+import { readSfdmuQuery, selectedFieldsOf } from './sfdmuQuery';
 
 describe('readSfdmuQuery', () => {
   describe('the object', () => {
@@ -112,5 +112,59 @@ describe('readSfdmuQuery', () => {
     ])('keeps %s as written, to be named', (_label, query, clause) => {
       expect(readSfdmuQuery(query).otherClauses).toEqual([clause]);
     });
+  });
+});
+
+describe('selectedFieldsOf', () => {
+  it.each([
+    ['a list', 'SELECT Id, Name, Industry FROM Account', ['Id', 'Name', 'Industry']],
+    [
+      'no Id',
+      'SELECT FirstName, LastName, AccountId FROM Contact',
+      ['FirstName', 'LastName', 'AccountId'],
+    ],
+    ['lower case and line breaks', 'select id,\n  name\nfrom account', ['id', 'name']],
+    ['a field twice, in two cases', 'SELECT Name, NAME, Phone FROM Account', ['Name', 'Phone']],
+    ['the object’s alias', 'SELECT a.Name, a.Phone FROM Account a', ['Name', 'Phone']],
+    ['the alias after AS', 'SELECT a.Name FROM Account AS a WHERE a.Name != null', ['Name']],
+    ['a field through toLabel', 'SELECT Name, toLabel(Rating) FROM Account', ['Name', 'Rating']],
+    [
+      'a field through convertCurrency',
+      'SELECT convertCurrency(Amount) FROM Opportunity',
+      ['Amount'],
+    ],
+    [
+      'a subquery, left out',
+      'SELECT Name, (SELECT Id, Email FROM Contacts) FROM Account',
+      ['Name'],
+    ],
+    ['a parent’s field, left out', 'SELECT Name, Owner.Name FROM Account', ['Name']],
+    [
+      'a literal with a comma',
+      "SELECT Name, Phone FROM Account WHERE Name = 'a, b'",
+      ['Name', 'Phone'],
+    ],
+  ])('names the fields of %s', (_label, query, fields) => {
+    expect(selectedFieldsOf(query)).toEqual({ list: fields });
+  });
+
+  it.each([
+    ['Id alone', 'SELECT Id FROM Account', 'Id'],
+    ['id alone, in lower case', 'select id from Account', 'id'],
+    ['SFDMU’s all', 'SELECT all FROM Account', 'all'],
+    ['all beside fields', 'SELECT Id, Name, ALL FROM Account', 'ALL'],
+    ['custom_true', 'SELECT Id, Name, custom_true FROM Account', 'custom_true'],
+    ['lookup_false', 'SELECT Name, lookup_false FROM Account', 'lookup_false'],
+    ['a type keyword', 'SELECT Id, type_string FROM Account', 'type_string'],
+    ['FIELDS(ALL)', 'SELECT FIELDS(ALL) FROM Account', 'FIELDS(ALL)'],
+    [
+      'FIELDS(CUSTOM) beside a field',
+      'SELECT Name, FIELDS( CUSTOM ) FROM Account',
+      'FIELDS( CUSTOM )',
+    ],
+    ['a parent’s field alone', 'SELECT Owner.Name FROM Account', 'Owner.Name'],
+    ['no FROM', 'SELECT Id, Name', 'SELECT Id, Name'],
+  ])('names no list for %s, and says what it selects', (_label, query, named) => {
+    expect(selectedFieldsOf(query)).toEqual({ every: named });
   });
 });

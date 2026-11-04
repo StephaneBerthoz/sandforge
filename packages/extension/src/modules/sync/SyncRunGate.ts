@@ -402,12 +402,15 @@ export async function measureSyncWrite(
     rows,
     why,
   }));
-  const heldBack = (counted.heldBack ?? []).map(({ objectApiName, rows, parent, field }) => ({
-    objectApiName,
-    rows,
-    parent,
-    field,
-  }));
+  const heldBack = (counted.heldBack ?? []).map(
+    ({ objectApiName, rows, parent, field, parents }) => ({
+      objectApiName,
+      rows,
+      parent,
+      field,
+      ...(parents !== undefined ? { parents: parents.map((one) => ({ ...one })) } : {}),
+    }),
+  );
   // Emails the target would not say it has room for are asked about, as
   // storage it would not say is, and so is an automation that could not be
   // read, whose emails were not counted at all: the page said both and the
@@ -717,6 +720,7 @@ export function unwritableRefusal(
     rows: number;
     parent: string;
     field: string;
+    parents?: ReadonlyArray<{ parent: string; field: string; rows: number }>;
   }> = [],
 ): string {
   const named = unwritable
@@ -738,12 +742,16 @@ export function unwritableRefusal(
   const key = `match ${mixed ? `${namesOf(keyed)} ` : ''}on an External ID field of ${org}`;
   const way = mixed ? `${access}, or ${key}` : keyed.length > 0 ? `or ${key}` : `or ${access}`;
   const leftOut = new Set(unwritable.map(({ objectApiName }) => objectApiName));
+  const whose = ({ parent, field }: { parent: string; field: string }): string =>
+    `whose ${field} names ${/^[aeiou]/i.test(parent) ? 'an' : 'a'} ${parent} record ` +
+    (leftOut.has(parent) ? 'left out' : 'held back');
+  // Each object and lookup with its rows: named by the first alone, the
+  // refusal said 13 prices held back by Pricebook2Id where 9 were by Product2Id.
   const held = heldBack
-    .map(
-      ({ objectApiName, rows, parent, field }) =>
-        `${rows} ${objectApiName} record${rows === 1 ? '' : 's'}, whose ${field} names ` +
-        `${/^[aeiou]/i.test(parent) ? 'an' : 'a'} ${parent} record ` +
-        (leftOut.has(parent) ? 'left out' : 'held back'),
+    .flatMap(({ objectApiName, rows, parent, field, parents }) =>
+      (parents ?? [{ parent, field, rows }]).map(
+        (one) => `${one.rows} ${objectApiName} record${one.rows === 1 ? '' : 's'}, ${whose(one)}`,
+      ),
     )
     .join('; ');
   return (

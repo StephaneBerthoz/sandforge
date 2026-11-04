@@ -34,6 +34,23 @@ export interface SyncHeldBackObject {
   /** The object of the records the first such lookup names, and that lookup. */
   parent: string;
   field: string;
+  /**
+   * Each object and lookup that holds rows back, with how many, in the order
+   * first met: `rows` in all. A row is counted under the first of its
+   * lookups, in the order the target's describe lists them, that names such
+   * a record; a price left out for one held back is counted under that
+   * one's. Named by its first
+   * row alone, 13 prices were said held back by `Pricebook2Id` where the dry
+   * run held 9 back by `Product2Id` and 4 by `Pricebook2Id`.
+   */
+  parents?: SyncHeldBackParent[];
+}
+
+/** One object and lookup holding back rows of an object, and how many. */
+export interface SyncHeldBackParent {
+  parent: string;
+  field: string;
+  rows: number;
 }
 
 /** A Salesforce id, as a lookup holds one. */
@@ -202,15 +219,21 @@ export async function heldBackOf(input: HeldBackInput): Promise<Map<string, Sync
         : undefined;
     const prices = settlesCurrencies(currencies);
     if (carried.length === 0 && !books && !prices) continue;
-    let rows = 0;
-    let first: { parent: string; field: string } | undefined;
+    /** Each object and lookup holding rows back, by `parent|field`. */
+    const holders = new Map<string, SyncHeldBackParent>();
+    const count = (why: { parent: string; field: string }): void => {
+      const at = `${why.parent}|${why.field}`;
+      const known = holders.get(at);
+      if (known) known.rows++;
+      else holders.set(at, { ...why, rows: 1 });
+    };
     const copied = input.copied?.get(name);
     const records = (await readOf(objectConfig)).filter((record) => {
       const id = record['Id'];
       return !(copied && typeof id === 'string' && copied.has(id.slice(0, 15)));
     });
-    /** The rows held back, by source id. */
-    const heldIds = new Set<string>();
+    /** The rows held back, by source id, with what held each. */
+    const heldIds = new Map<string, { parent: string; field: string }>();
     for (const record of carried.length > 0 ? records : []) {
       const id = record['Id'];
       const at = carried.find(({ source }) => {
@@ -222,10 +245,12 @@ export async function heldBackOf(input: HeldBackInput): Promise<Map<string, Sync
         );
       });
       if (!at) continue;
-      rows++;
-      const parent = links.refusedObjectOf(record[at.source] as string) ?? '';
-      first ??= { parent, field: at.field };
-      if (typeof id === 'string' && id !== '') heldIds.add(id);
+      const why = {
+        parent: links.refusedObjectOf(record[at.source] as string) ?? '',
+        field: at.field,
+      };
+      count(why);
+      if (typeof id === 'string' && id !== '') heldIds.set(id, why);
       // A row held back is refused too, for the objects after it.
       if (creates(objectConfig.operation) && typeof id === 'string' && id !== '') {
         links.noteRefused(id, name);
@@ -251,15 +276,30 @@ export async function heldBackOf(input: HeldBackInput): Promise<Map<string, Sync
       let standingIn = 0;
       for (const [left, stand] of settled.standsFor) {
         if (heldIds.has(left)) continue;
+        // Held back with the price it is left out for, as the run holds it
+        // (`linkWhatStoodIn`), when the run holds that one back, whatever
+        // lookup holds it: counted under that one's, and refused with it.
+        const withIt = links.refusedObjectOf(stand) !== undefined ? heldIds.get(stand) : undefined;
+        if (withIt) {
+          count(withIt);
+          heldIds.set(left, withIt);
+          links.noteRefused(left, name);
+          continue;
+        }
         standingIn++;
-        // Refused with the price it is left out for, as the run refuses it
-        // (`linkWhatStoodIn`), when the run holds that one back.
-        if (links.refusedObjectOf(stand) !== undefined) links.noteRefused(left, name);
       }
       noteMatchedRows(name, standingIn);
     }
-    if (rows > 0 && first) {
-      held.set(name, { objectApiName: name, rows, ...first });
+    const heldBy = [...holders.values()];
+    const rows = heldBy.reduce((sum, holder) => sum + holder.rows, 0);
+    if (rows > 0) {
+      held.set(name, {
+        objectApiName: name,
+        rows,
+        parent: heldBy[0].parent,
+        field: heldBy[0].field,
+        parents: heldBy,
+      });
       if (creates(objectConfig.operation)) refusing.add(nameKey(name));
     }
   }

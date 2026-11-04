@@ -194,20 +194,33 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   })}
                 </p>
               ))}
-              {(check.heldBack ?? []).map(({ objectApiName, rows, parent, field }) => {
+              {(check.heldBack ?? []).map(({ objectApiName, rows, parent, field, parents }) => {
                 // Held back for a record of an object left out, or for a row
                 // held back in turn: counted among the records to write, they
-                // said a run would write what it would write none of.
-                const words = { object: objectApiName, count: rows, parent, field };
+                // said a run would write what it would write none of. Each
+                // object and lookup with its own rows: named by the first
+                // alone, 13 prices were said held back by Pricebook2Id where
+                // 9 were by Product2Id.
+                const said = (parents ?? [{ parent, field, rows }]).map((one) => {
+                  const words = {
+                    object: objectApiName,
+                    count: one.rows,
+                    parent: one.parent,
+                    field: one.field,
+                  };
+                  return (check.unwritable ?? []).some(
+                    (object) => object.objectApiName === one.parent,
+                  )
+                    ? t('sync.writeCheck.heldBack.leftOut', words)
+                    : t('sync.writeCheck.heldBack.heldBack', words);
+                });
                 return (
                   <p
                     key={`held-${objectApiName}`}
                     className="text-status-warning"
                     data-testid={`sync-write-check-held-back-${objectApiName}`}
                   >
-                    {(check.unwritable ?? []).some((object) => object.objectApiName === parent)
-                      ? t('sync.writeCheck.heldBack.leftOut', words)
-                      : t('sync.writeCheck.heldBack.heldBack', words)}
+                    {said.join(' ')}
                   </p>
                 );
               })}

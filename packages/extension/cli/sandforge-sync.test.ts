@@ -913,6 +913,43 @@ describe('what a run says before its first write', () => {
     ]);
   });
 
+  it('names each lookup that holds back rows of an object, with its rows', () => {
+    // Named by its first row alone, a dry run said 13 prices held back by
+    // Pricebook2Id where its simulation held 9 back by Product2Id.
+    const lines = writeCheckLines(
+      {
+        objects: [],
+        total: 0,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0 },
+        emails: [],
+        verdict: 'refused',
+        unwritable: [
+          { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+          { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+        ],
+        heldBack: [
+          {
+            objectApiName: 'PricebookEntry',
+            rows: 13,
+            parent: 'Pricebook2',
+            field: 'Pricebook2Id',
+            parents: [
+              { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+              { parent: 'Product2', field: 'Product2Id', rows: 9 },
+            ],
+          },
+        ],
+      },
+      'TGT',
+    );
+
+    expect(lines.at(-1)).toBe(
+      '  PricebookEntry: 13 record(s) held back, not written — 4 whose Pricebook2Id names ' +
+        'Pricebook2 records left out; 9 whose Product2Id names Product2 records left out',
+    );
+  });
+
   it('lists the records per object, those left as an earlier run copied them, the storage and the emails', () => {
     expect(
       writeCheckLines(

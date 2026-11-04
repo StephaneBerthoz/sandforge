@@ -155,7 +155,7 @@ function importNoteMessage(
     case 'settings':
       return t('migration.notes.settings', { detail });
     case 'everyField':
-      return t('migration.notes.everyField');
+      return t('migration.notes.everyField', { detail });
     case 'contactPoints':
       return t('migration.notes.contactPoints');
     case 'objectSets':

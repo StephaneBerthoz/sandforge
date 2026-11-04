@@ -146,15 +146,31 @@ describe('docs/modules/migration.md', () => {
     expect(DOC).toContain('A key the import does not know never fails it');
   });
 
-  it('says the fields read are the describe’s, not the export query’s field list', () => {
-    // Positive control: the read names its fields from the source's describe.
+  it('says the fields written are those the query’s SELECT names, every field read all the same', () => {
+    const TARGET_WRITE_FIELDS = source('packages/extension/src/modules/sync/targetWriteFields.ts');
+    const SYNC_ORCHESTRATOR = source('packages/extension/src/modules/sync/SyncOrchestrator.ts');
+    // Positive control: the read names its fields from the source's describe,
+    // the importer keeps the query, and the run leaves out what it does not
+    // select, its key and a mapping's source field kept.
     expect(SYNC_HANDLER).toContain(
       'const described = (await conn.describe(safeObj)).fields.map((field) => field.name);',
     );
     expect(SFDMU_IMPORTER).toContain('query: obj.query,');
+    expect(TARGET_WRITE_FIELDS).toContain(
+      'const leftOut = [...target.creatable].filter((field) => !kept.has(field.toLowerCase()));',
+    );
+    expect(TARGET_WRITE_FIELDS).toContain("objectConfig.externalIdField ?? '',");
+    expect(SYNC_ORCHESTRATOR).toContain(
+      'withFieldsOfItsQuery(withKeyAsTargetNamesIt(objectConfig, access.target), access.target)',
+    );
 
     expect(DOC).toContain(
-      "Sync reads every field the source org's describe lists, not the field list of the export's `query`",
+      "Sync writes the fields the query's SELECT names, as SFDMU does, with the External ID an upsert matches on",
     );
+    expect(DOC).toContain("though Sync still reads every field the source org's describe lists");
+    expect(DOC).toContain(
+      'names no list Sync follows: the object writes every field the target lets the run write, and the page says so of it',
+    );
+    expect(DOC).not.toContain("not the field list of the export's `query`");
   });
 });

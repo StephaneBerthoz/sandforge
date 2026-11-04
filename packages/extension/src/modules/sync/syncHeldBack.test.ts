@@ -98,7 +98,13 @@ describe('heldBackOf', () => {
     });
 
     expect([...held.values()]).toEqual([
-      { objectApiName: 'Contact', rows: 2, parent: 'Account', field: 'AccountId' },
+      {
+        objectApiName: 'Contact',
+        rows: 2,
+        parent: 'Account',
+        field: 'AccountId',
+        parents: [{ parent: 'Account', field: 'AccountId', rows: 2 }],
+      },
     ]);
   });
 
@@ -193,7 +199,13 @@ describe('heldBackOf', () => {
       });
 
       expect([...held.values()]).toEqual([
-        { objectApiName: 'PricebookEntry', rows: 1, parent: 'Pricebook2', field: 'Pricebook2Id' },
+        {
+          objectApiName: 'PricebookEntry',
+          rows: 1,
+          parent: 'Pricebook2',
+          field: 'Pricebook2Id',
+          parents: [{ parent: 'Pricebook2', field: 'Pricebook2Id', rows: 1 }],
+        },
       ]);
     });
 

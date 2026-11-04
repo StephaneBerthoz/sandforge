@@ -224,6 +224,56 @@ describe('SyncOrchestrator — what a field mapping makes a run send', () => {
     expect(target.held()).toEqual(target.sent);
   });
 
+  it("writes the fields an SFDMU export's query selects, and no other field the target takes", async () => {
+    // Sync never runs the query and read every field the source describes:
+    // an export of an account's name and industry wrote its cities, its
+    // headcount, its phone and its description too, over the target's own.
+    const reader = {
+      readFile: async () =>
+        JSON.stringify({
+          objects: [{ query: 'SELECT Id, Name, Industry FROM Account', operation: 'Insert' }],
+        }),
+    };
+    const { config: imported } = await new SfdmuImporter(reader).import('export.json');
+    const config = throughTheBridge({
+      ...imported,
+      sourceOrgId: 'src-org',
+      targetOrgId: 'tgt-org',
+      keepContactPoints: true,
+    });
+    const target = new MemoryTarget();
+
+    const simulated = await orchestrator(target).simulate(config);
+    const result = await orchestrator(target).execute(config);
+
+    expect(result.objectResults[0]).toMatchObject({ success: 2, failed: 0 });
+    expect(target.sent).toEqual([
+      { Name: 'acme', Industry: 'Technology' },
+      { Name: 'globex', Industry: null },
+    ]);
+    expect(simulated.objects[0]).toMatchObject({ read: 2, insert: 2, refused: 0 });
+  });
+
+  it('writes every field the target takes of an SFDMU export whose query selects the Id alone', async () => {
+    const reader = {
+      readFile: async () =>
+        JSON.stringify({ objects: [{ query: 'SELECT Id FROM Account', operation: 'Insert' }] }),
+    };
+    const { config: imported } = await new SfdmuImporter(reader).import('export.json');
+    const target = new MemoryTarget();
+
+    await orchestrator(target).execute(
+      throughTheBridge({
+        ...imported,
+        sourceOrgId: 'src-org',
+        targetOrgId: 'tgt-org',
+        keepContactPoints: true,
+      }),
+    );
+
+    expect(target.sent[0]).toEqual(writableWithout(SOURCE[0]));
+  });
+
   it('reads what the query of a real export filters: its WHERE reaches the read', async () => {
     // Sync never runs an export's query, and its filter was read from a `where`
     // key SFDMU does not have: the run read every account of the org.

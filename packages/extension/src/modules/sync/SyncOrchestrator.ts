@@ -43,6 +43,7 @@ import type { CoreServices } from '../../services.js';
 import type { PauseGate } from './PauseGate.js';
 import {
   targetAccessOf,
+  withFieldsOfItsQuery,
   withKeyAsTargetNamesIt,
   type TargetRefusal,
   type TargetWriteFields,
@@ -78,6 +79,8 @@ import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvail
 import type { ForgeWriteGateAnswer } from '../forge/ForgeExecutor.js';
 import {
   namesAPricebook,
+  pricesHeldWithTheirs,
+  pricesHeldWithTheirsNote,
   settleSyncPrices,
   STANDARD_PRICEBOOK_MATCHED_NOTE,
   withPricesSettled,
@@ -393,7 +396,26 @@ interface RunContext {
    * simulation keeps none: it creates nothing.
    */
   createdWithoutRecordType?: Map<string, CreatedWithoutRecordType>;
+  /**
+   * What the gate read of each object it read (`heldBackOfRun`), kept for
+   * the object's own read: see {@link GateReads}. Absent on a delta
+   * configuration, whose run reads every object again.
+   */
+  gateReads?: GateReads;
 }
+
+/**
+ * The records the gate read of each object, by API name, which the object's
+ * own read takes instead of reading them again: once, then dropped. On a
+ * catalog of 20 000 prices in two currencies, the gate read the price books
+ * and every price, with every field, and the run then read them again.
+ *
+ * Kept on a full configuration alone. A delta run reads the source's clock
+ * before it reads an object, and records it as the object's watermark: a
+ * record the source changed between the gate's read and that clock would be
+ * written as the gate read it, and never read again.
+ */
+type GateReads = Map<string, Record<string, unknown>[]>;
 
 /** An active validation rule of the target as the simulation reads it. */
 type ReadRule = SyncValidationRule & { onChangeOnly?: true };
@@ -767,19 +789,46 @@ function noteSourcesRefused(
  * to nothing, a price whose stand was held back was neither, and a line naming
  * it went with the source's id of it, which the target refused, where the
  * gate had counted it held back; the dry run counted it written.
+ *
+ * @returns The prices refused with the one they are left out for: held back
+ *   with it, which the object's result counts (`pricesHeldWithTheirs`).
  */
 function linkWhatStoodIn(
   links: SyncRunLinks,
   objectConfig: SyncObjectConfig,
   standsFor: ReadonlyMap<string, string>,
-): void {
+): string[] {
+  const heldWith: string[] = [];
   for (const [left, stand] of standsFor) {
     const copy = links.targetOf(stand);
     if (copy !== undefined) links.noteMatched(left, copy);
     else if (createsRecords(objectConfig.operation) && links.refusedObjectOf(stand) !== undefined) {
       links.noteRefused(left, objectConfig.objectApiName);
+      heldWith.push(left);
     }
   }
+  return heldWith;
+}
+
+/**
+ * An object's result with the prices its write never sent for the one they
+ * stand for, which it did not write either (`linkWhatStoodIn`): counted
+ * failed, said apart from its refusals, and no longer said replaced.
+ */
+function withPricesHeldWithTheirs(
+  result: SyncObjectResult,
+  settled: Pick<SettledSyncRows, 'prices' | 'standardMatched' | 'leftIn'>,
+  heldWith: readonly string[],
+): SyncObjectResult {
+  const prices = pricesHeldWithTheirs(settled, heldWith);
+  const said = withPricesSettled(result, { ...settled, prices });
+  if (heldWith.length === 0) return said;
+  return {
+    ...said,
+    processed: said.processed + heldWith.length,
+    failed: said.failed + heldWith.length,
+    errors: [...said.errors, pricesHeldWithTheirsNote(result.objectApiName, heldWith.length)],
+  };
 }
 
 /**
@@ -956,6 +1005,8 @@ export class SyncOrchestrator {
     // settled by the currencies the run writes them in.
     const standardPricebooks = this.standardPricebooksOnce();
     const currencies = this.currenciesOnce();
+    // What the gate reads of an object, which the run then takes: see `GateReads`.
+    const gateReads: GateReads | undefined = deltaLoad === undefined ? new Map() : undefined;
     if (this.deps.writeGate && 'counted' in counts) {
       // What the objects left out would hold back, counted apart from what
       // the run writes: read as the run reads it, and a read that fails stops
@@ -972,6 +1023,7 @@ export class SyncOrchestrator {
           copied,
           standardPricebooks,
           currencies,
+          gateReads,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1343,7 +1395,14 @@ export class SyncOrchestrator {
             config,
             objectConfig,
             deltaLoad,
-            { links, recordTypes, currencies, currencyChangesById, standardPricebooks },
+            {
+              links,
+              recordTypes,
+              currencies,
+              currencyChangesById,
+              standardPricebooks,
+              ...(gateReads ? { gateReads } : {}),
+            },
             copied.get(objectConfig.objectApiName),
           );
         } catch (err: unknown) {
@@ -1394,6 +1453,7 @@ export class SyncOrchestrator {
             later,
             ...(recordTypesUnderTheLease ? { recordTypesUnderTheLease } : {}),
             createdWithoutRecordType,
+            ...(gateReads ? { gateReads } : {}),
           },
           plan ? read : undefined,
           written,
@@ -2072,13 +2132,15 @@ export class SyncOrchestrator {
         objectConfig.externalIdField,
       );
       if ('refused' in access) refused.set(objectConfig.objectApiName, access.refused);
-      written.push(
+      // The fields an SFDMU import's query selects alone, when it names them:
+      // see `withFieldsOfItsQuery`. Its lookups are those it carries then.
+      const asWritten =
         'target' in access && access.target
-          ? withKeyAsTargetNamesIt(objectConfig, access.target)
-          : objectConfig,
-      );
+          ? withFieldsOfItsQuery(withKeyAsTargetNamesIt(objectConfig, access.target), access.target)
+          : objectConfig;
+      written.push(asWritten);
       if ('target' in access && access.target) {
-        lookups.set(objectConfig.objectApiName, lookupsOf(objectConfig, access.target));
+        lookups.set(objectConfig.objectApiName, lookupsOf(asWritten, access.target));
         if (
           createsRecords(objectConfig.operation) &&
           (access.target.recordTypes ?? []).some((type) => !type.master)
@@ -2103,6 +2165,8 @@ export class SyncOrchestrator {
    * @param standardPricebooks - Both orgs' standard price books, the read the
    *   run itself goes on with.
    * @param currencies - Both orgs' currencies, the read the run goes on with.
+   * @param gateReads - Receives what it read of each object, for the object's
+   *   own read to take ({@link GateReads}).
    */
   private async heldBackOfRun(
     config: SyncConfig,
@@ -2114,6 +2178,7 @@ export class SyncOrchestrator {
     copied: AlreadyCopied,
     standardPricebooks: () => Promise<StandardPricebooks | undefined>,
     currencies: () => Promise<RunCurrencies | undefined>,
+    gateReads?: GateReads,
   ): Promise<CountedApart> {
     const matched = new Map<string, number>();
     const priced = ordered.some(
@@ -2134,11 +2199,14 @@ export class SyncOrchestrator {
       matched,
       read: async (objectConfig) => {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
-        return plan?.read === 'delta'
-          ? this.deps.querySource(config.sourceOrgId, objectConfig, {
-              changedSince: changedSinceLiteral(plan.since),
-            })
-          : this.deps.querySource(config.sourceOrgId, objectConfig);
+        if (plan?.read === 'delta') {
+          return this.deps.querySource(config.sourceOrgId, objectConfig, {
+            changedSince: changedSinceLiteral(plan.since),
+          });
+        }
+        const records = await this.deps.querySource(config.sourceOrgId, objectConfig);
+        gateReads?.set(objectConfig.objectApiName, records);
+        return records;
       },
     });
     return { heldBack, matched };
@@ -2237,6 +2305,8 @@ export class SyncOrchestrator {
     const gate = this.deps.writeGate;
     const standardPricebooks = this.standardPricebooksOnce();
     const currencies = this.currenciesOnce();
+    // What the gate reads of an object, which the simulation then takes, as the run does.
+    const gateReads: GateReads | undefined = deltaLoad === undefined ? new Map() : undefined;
     const counts = gate ? await this.countRun(config, ordered, deltaLoad, true) : undefined;
     if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
     if (gate && counts && 'counted' in counts) {
@@ -2254,6 +2324,7 @@ export class SyncOrchestrator {
           copied,
           standardPricebooks,
           currencies,
+          gateReads,
         );
         writeCheck = await gate.measure(
           countedWriteOf(
@@ -2277,6 +2348,7 @@ export class SyncOrchestrator {
       currencyChangesById: new Map<string, CurrencyChange>(),
       standardPricebooks,
       later: laterInCycles(writeOrder),
+      ...(gateReads ? { gateReads } : {}),
     };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -2400,6 +2472,7 @@ export class SyncOrchestrator {
       leftOut,
       plan ? read : undefined,
       copied,
+      run.gateReads,
     );
     // The price books and prices as the run writes them: see `pricesSettled`.
     const settled =
@@ -2411,7 +2484,9 @@ export class SyncOrchestrator {
     // before it were written.
     if (refusal && prepared.records.length > 0) {
       noteSourcesRefused(run.links, objectConfig, prepared.sources);
-      if (settled) linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
+      // The prices left out for one of them are refused with it, as the run
+      // counts them among the records it leaves out.
+      const heldWith = settled ? linkWhatStoodIn(run.links, objectConfig, settled.standsFor) : [];
       return withEncryptedLeftOut<SyncObjectSimulation>(
         {
           objectApiName: objectConfig.objectApiName,
@@ -2422,7 +2497,7 @@ export class SyncOrchestrator {
           delete: 0,
           skipped: prepared.alreadyCopied,
           ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
-          refused: prepared.records.length,
+          refused: prepared.records.length + heldWith.length,
           conflicts: 0,
           conflictFields: [],
           notes: [refusal.message],
@@ -2547,6 +2622,8 @@ export class SyncOrchestrator {
       const id = prepared.sources[at]?.['Id'];
       return typeof id === 'string' && id !== '' ? id : undefined;
     };
+    /** The prices left out for one the write would not take, held back with it. */
+    let heldWith: string[] = [];
     if (objectConfig.operation !== 'delete') {
       for (const { index } of rows.held) {
         const id = idOf(index);
@@ -2563,7 +2640,7 @@ export class SyncOrchestrator {
         }
       });
       // And a price left out for one of them follows it, as in the run.
-      if (settled) linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
+      if (settled) heldWith = linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
     }
 
     // Of the records it would create, those it sends without a record type,
@@ -2585,13 +2662,18 @@ export class SyncOrchestrator {
       ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
       ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
       ...(recordTypeGiven ? { recordTypeGiven } : {}),
-      refused: outcome.refused + rows.held.length + refusedAt.size,
+      refused: outcome.refused + rows.held.length + refusedAt.size + heldWith.length,
       notes: [
         ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
         // Said as the command line says them: the simulation's notes are text.
-        ...describeSettledPrices(settled?.prices ?? []).map((sentence) => `${sentence}.`),
+        ...describeSettledPrices(settled ? pricesHeldWithTheirs(settled, heldWith) : []).map(
+          (sentence) => `${sentence}.`,
+        ),
         ...outcome.notes,
         ...rows.notes,
+        ...(heldWith.length > 0
+          ? [pricesHeldWithTheirsNote(objectConfig.objectApiName, heldWith.length)]
+          : []),
         // Said as the command line says them: the simulation's notes are text.
         ...rows.currencies.map((entry) => `${describeCurrencyReplaced(entry)}.`),
         ...checked.notes,
@@ -2653,6 +2735,7 @@ export class SyncOrchestrator {
       new RowsLeftToThePlatform(),
       plan ? read : undefined,
       copied,
+      run.gateReads,
     );
     if (asRead.records.length === 0) return;
     const settled = await this.pricesSettled(objectConfig, asRead, run);
@@ -2692,7 +2775,7 @@ export class SyncOrchestrator {
     copied?: ReadonlySet<string>,
     onLookupsToSet?: (pending: PendingLookup[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const prepared = await this.prepare(config, objectConfig, leftOut, read, copied);
+    const prepared = await this.prepare(config, objectConfig, leftOut, read, copied, run.gateReads);
     const asCopied = (result: SyncObjectResult): SyncObjectResult =>
       withEncryptedLeftOut(withAlreadyCopied(result, prepared.alreadyCopied), prepared);
     if (prepared.records.length === 0) {
@@ -2711,7 +2794,8 @@ export class SyncOrchestrator {
     };
     // A price left out for the source's own in the currency written is linked
     // to that one's copy once the write has made it, or refused with it.
-    const linkStandIns = (): void => linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
+    const linkStandIns = (): string[] =>
+      linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
 
     // Reading a large object takes a while: a pause or a cancel that came
     // meanwhile is honoured before its first record is written.
@@ -2754,11 +2838,11 @@ export class SyncOrchestrator {
         );
         if (read && lookupsUnset !== undefined) read.lookupsUnset = lookupsUnset;
         note(outcomes);
-        linkStandIns();
+        const heldWith = linkStandIns();
         if (lookupsToSet) onLookupsToSet?.(lookupsToSet);
         return asCopied(
           withRowsLeftOut(
-            withPricesSettled(
+            withPricesHeldWithTheirs(
               withCurrencies(
                 buildObjectResult(
                   objectConfig.objectApiName,
@@ -2771,6 +2855,7 @@ export class SyncOrchestrator {
                 currencies,
               ),
               settled,
+              heldWith,
             ),
             leftOut,
           ),
@@ -2785,8 +2870,8 @@ export class SyncOrchestrator {
       records,
       writeRun,
     );
-    linkStandIns();
-    return asCopied(withRowsLeftOut(withPricesSettled(synced, settled), leftOut));
+    const heldWith = linkStandIns();
+    return asCopied(withRowsLeftOut(withPricesHeldWithTheirs(synced, settled, heldWith), leftOut));
   }
 
   /**
@@ -2803,6 +2888,8 @@ export class SyncOrchestrator {
    *   orgs hold, whenever either changed it.
    * @param copied - The source records an earlier run copied, which an insert
    *   leaves as they are, by the first fifteen characters of their id.
+   * @param gateReads - What the gate read of the objects, which the read of
+   *   this one takes rather than reading it again ({@link GateReads}).
    */
   private async prepare(
     config: SyncConfig,
@@ -2810,7 +2897,11 @@ export class SyncOrchestrator {
     leftOut: RowsLeftToThePlatform,
     asked?: ObjectRead,
     copied?: ReadonlySet<string>,
+    gateReads?: GateReads,
   ): Promise<PreparedObject> {
+    // What the gate read of the object, taken once: see `GateReads`.
+    const atTheGate = asked ? undefined : gateReads?.get(objectConfig.objectApiName);
+    if (atTheGate) gateReads?.delete(objectConfig.objectApiName);
     const read = asked
       ? await this.deps.querySource(config.sourceOrgId, objectConfig, {
           changedSince: asked.changedSince,
@@ -2818,7 +2909,7 @@ export class SyncOrchestrator {
             asked.cut = true;
           },
         })
-      : await this.deps.querySource(config.sourceOrgId, objectConfig);
+      : (atTheGate ?? (await this.deps.querySource(config.sourceOrgId, objectConfig)));
     if (asked) asked.rows = read.length;
     const matchField = objectConfig.externalIdField ?? 'Id';
 

@@ -306,19 +306,23 @@ describe('MigrationPage — what the import did not carry over', () => {
 
   it('says each thing above the save, by object, a note on the whole file naming none', () => {
     imported([
-      { code: 'everyField' },
+      { code: 'contactPoints' },
       { code: 'settings', detail: 'allOrNone, bulkApiVersion' },
       { code: 'excluded', object: 'Attachment' },
       { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
+      { code: 'everyField', object: 'Account', detail: 'all' },
       { code: 'limit', object: 'Contact', detail: '10' },
     ]);
 
     const items = within(screen.getByTestId('migration-notes')).getAllByRole('listitem');
     expect(items.map((item) => item.textContent)).toEqual([
-      expect.stringContaining('every field'),
+      expect.stringMatching(/^Sync writes every email address/),
       expect.stringContaining('allOrNone, bulkApiVersion'),
       expect.stringMatching(/^Attachment:.*excluded/),
       expect.stringMatching(/^Account:.*Name, Phone/),
+      'Account: Its query selects all, not a list of fields Sync can follow, so Sync copies ' +
+        "every field the source org describes. To leave one out, add it to the export's " +
+        'excludedFields.',
       expect.stringMatching(/^Contact:.*LIMIT 10/),
     ]);
     const notes = screen.getByTestId('migration-notes');
@@ -350,7 +354,7 @@ describe('MigrationPage — what the import did not carry over', () => {
     ['mockFields', 'Name'],
     ['nameDiffers', 'Lead'],
     ['settings', 'allOrNone'],
-    ['everyField', undefined],
+    ['everyField', 'FIELDS(ALL)'],
     ['contactPoints', undefined],
     ['objectSets', '2'],
     ['mappingFileUnread', 'FieldMapping.csv'],

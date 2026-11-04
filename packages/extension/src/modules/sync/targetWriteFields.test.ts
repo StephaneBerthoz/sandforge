@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { targetAccessOf, targetWriteFieldsOf } from './targetWriteFields.js';
+import { targetAccessOf, targetWriteFieldsOf, withFieldsOfItsQuery } from './targetWriteFields.js';
+import type { SyncObjectConfig } from '@sandforge/shared';
 
 describe('targetWriteFieldsOf', () => {
   it('reads the writable fields, the lookups among them and the record types from one describe', () => {
@@ -209,5 +210,63 @@ describe('targetAccessOf', () => {
         notAsked: true,
       },
     );
+  });
+});
+
+describe('withFieldsOfItsQuery', () => {
+  const target = targetWriteFieldsOf({
+    fields: ['Name', 'Phone', 'Industry', 'Ext__c', 'BillingCity', 'ShippingCity', 'OwnerId'].map(
+      (name) => ({ name, createable: true, type: 'string' }),
+    ),
+  });
+  const account = (operation: SyncObjectConfig['operation'], query?: string): SyncObjectConfig => ({
+    objectApiName: 'Account',
+    operation,
+    ...(query !== undefined ? { query } : {}),
+    fieldMappings: [],
+    transformRules: [],
+    excludedFields: ['Phone'],
+    addOnFields: [],
+    batchSize: 200,
+    insertOrder: 0,
+  });
+
+  it('leaves out every field the target takes that the query does not select', () => {
+    const written = withFieldsOfItsQuery(account('insert', 'SELECT Id, Name FROM Account'), target);
+
+    expect(written.excludedFields).toEqual([
+      'Phone',
+      'Industry',
+      'Ext__c',
+      'BillingCity',
+      'ShippingCity',
+      'OwnerId',
+    ]);
+  });
+
+  it('keeps the field an upsert matches on, and the source field of a mapping', () => {
+    const written = withFieldsOfItsQuery(
+      {
+        ...account('upsert', 'SELECT Name FROM Account'),
+        externalIdField: 'Ext__c',
+        fieldMappings: [
+          { sourceField: 'BillingCity', targetField: 'ShippingCity', type: 'rename' },
+          { sourceField: 'Retail', targetField: 'Industry', type: 'constant' },
+        ],
+      },
+      target,
+    );
+
+    expect(written.excludedFields).toEqual(['Phone', 'Industry', 'ShippingCity', 'OwnerId']);
+  });
+
+  it.each([
+    ['no query', account('insert')],
+    ['a query of Id alone', account('insert', 'SELECT Id FROM Account')],
+    ['a query of SFDMU’s all', account('upsert', 'SELECT all FROM Account')],
+    ['a keyword', account('update', 'SELECT Name, custom_true FROM Account')],
+    ['a delete', account('delete', 'SELECT Id, Name FROM Account')],
+  ])('changes nothing of an object with %s', (_label, objectConfig) => {
+    expect(withFieldsOfItsQuery(objectConfig, target)).toBe(objectConfig);
   });
 });

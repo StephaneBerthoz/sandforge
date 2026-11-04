@@ -108,6 +108,7 @@ import { runEmailsDetailsOf, type RunEmailsSaid } from '../../modules/forge/runE
 import { BulkDataWriter, syncWriterCalls } from '../../modules/sync/BulkDataWriter.js';
 import {
   targetWriteFieldsOf,
+  withFieldsOfItsQuery,
   type TargetWriteFields,
 } from '../../modules/sync/targetWriteFields.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -1183,7 +1184,12 @@ export class SyncOpsHandler implements DomainHandler {
       // own name (`mapFields`): those are compared by name, as they all were
       // when the object had no mapping. Compared as mapped pairs alone, the
       // fields an object with one rename sent as read went unjudged.
-      const notAsRead = notSentAsRead(object.fieldMappings, object.excludedFields);
+      // An SFDMU import's query that names its fields writes those alone
+      // (`withFieldsOfItsQuery`), and only they are judged.
+      const written = withFieldsOfItsQuery(object, {
+        creatable: new Set(targetFields.map((f) => f.apiName)),
+      });
+      const notAsRead = notSentAsRead(written.fieldMappings, written.excludedFields);
       const pairs: Array<Record<string, string>> = [
         Object.fromEntries(
           sourceFields

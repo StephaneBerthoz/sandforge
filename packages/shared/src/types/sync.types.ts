@@ -941,8 +941,17 @@ export interface SyncWriteCheck {
   heldBack?: Array<{
     objectApiName: ApiName;
     rows: number;
+    /** The object and the lookup that hold back the first of them. */
     parent: ApiName;
     field: ApiName;
+    /**
+     * Each object and lookup that holds rows back, with how many, in the
+     * order first met: `rows` in all. A price left out for one held back is
+     * counted under that one's. `parent` alone said 13 prices held back by
+     * `Pricebook2Id` where the dry run held 9 back by `Product2Id`. Absent
+     * from a check made before it was counted.
+     */
+    parents?: Array<{ parent: ApiName; field: ApiName; rows: number }>;
   }>;
   /**
    * The API requests the run takes of the target, roughly, against the daily

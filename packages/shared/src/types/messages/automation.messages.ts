@@ -320,10 +320,12 @@ export type MigrationImportRefusal =
  * An object kept, doing less or more than SFDMU would: `delete`, `updateKey`,
  * `defaultKey`, `upsertKey`, `unusableKey`, `fieldMappingOff`, `valueRows`,
  * `notMaster`, `limit`, `queryClause`, `queryUnread`, `whereRefused`,
- * `deleteOldData`, `mockFields`, `nameDiffers`, `settings`.
+ * `deleteOldData`, `mockFields`, `nameDiffers`, `settings`, and `everyField`,
+ * whose query's SELECT names no list of fields: its detail is what it names
+ * instead, `Id`, `all`, `FIELDS(ALL)` or another of SFDMU's keywords.
  *
- * The file as a whole: `everyField`, `contactPoints`, `objectSets`,
- * `mappingFileUnread`, and `settings` when it names no object.
+ * The file as a whole: `contactPoints`, `objectSets`, `mappingFileUnread`,
+ * and `settings` when it names no object.
  */
 export type MigrationImportNoteCode =
   | 'excluded'

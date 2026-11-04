@@ -893,7 +893,13 @@ function writeQuestion(question: WriteConfirmation): string[] {
   // question named the account it left out and not the contacts under it,
   // which the result then counted failed.
   const leftOutObjects = new Set((question.unwritable ?? []).map((o) => o.objectApiName));
-  for (const { objectApiName, rows, parent, field } of question.heldBack ?? []) {
+  // One line per object and lookup, with its rows: named by the first alone,
+  // 13 prices were said held back by Pricebook2Id where 9 were by Product2Id.
+  const heldBy = (question.heldBack ?? []).flatMap(
+    ({ objectApiName, rows, parent, field, parents }) =>
+      (parents ?? [{ parent, field, rows }]).map((one) => ({ objectApiName, ...one })),
+  );
+  for (const { objectApiName, rows, parent, field } of heldBy) {
     lines.push(
       leftOutObjects.has(parent)
         ? vscode.l10n.t(

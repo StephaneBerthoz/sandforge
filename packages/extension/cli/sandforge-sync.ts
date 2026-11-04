@@ -1147,11 +1147,17 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
     );
   }
   const leftOut = new Set((check.unwritable ?? []).map(({ objectApiName }) => objectApiName));
+  const named = ({ parent, field }: { parent: string; field: string }): string =>
+    `${field} names ${parent} records ${leftOut.has(parent) ? 'left out' : 'held back'}`;
   for (const object of check.heldBack ?? []) {
+    // Each object and lookup with its rows: named by the first alone, 13
+    // prices were said held back by Pricebook2Id where 9 were by Product2Id.
+    const parents = object.parents ?? [object];
     lines.push(
-      `  ${object.objectApiName}: ${object.rows} record(s) held back, not written — their ` +
-        `${object.field} names ${object.parent} records ` +
-        (leftOut.has(object.parent) ? 'left out' : 'held back'),
+      `  ${object.objectApiName}: ${object.rows} record(s) held back, not written — ` +
+        (parents.length === 1
+          ? `their ${named(parents[0])}`
+          : parents.map((one) => `${one.rows} whose ${named(one)}`).join('; ')),
     );
   }
   if (check.aboveRecords !== undefined) {

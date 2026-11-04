@@ -5623,7 +5623,7 @@ for (const theme of SCANNED_THEMES) {
         success: true,
         config: imported,
         notes: [
-          { code: 'everyField' },
+          { code: 'everyField', object: 'Contact', detail: 'Id' },
           { code: 'mockFields', object: 'Account', detail: 'Name, Phone' },
           { code: 'notMaster', object: 'Contact' },
         ],

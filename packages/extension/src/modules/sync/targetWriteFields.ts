@@ -17,6 +17,8 @@ import { ACCOUNT, PERSON_CONTACT_FIELD } from '../../core/common/platformRecords
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { FieldInfo } from '../forge/ForgeExecutor.js';
 import { isNotFound } from '../forge/ForgeMetadataDiff.js';
+import { selectedFieldsOf } from '../migration/sfdmuQuery.js';
+import { MOVES_ITS_SOURCE } from './FieldMapping.js';
 
 /** What the target's describe of an object says a write may send. */
 export interface TargetWriteFields {
@@ -219,6 +221,48 @@ export function withKeyAsTargetNamesIt(
   if (objectConfig.operation !== 'upsert' || !key) return objectConfig;
   const named = target.fields?.find((field) => field.name.toLowerCase() === key)?.name;
   return named === undefined ? objectConfig : { ...objectConfig, externalIdField: named };
+}
+
+/**
+ * `objectConfig` writing the fields the SELECT of its `query` names alone,
+ * as SFDMU writes them, when the query names a list of them
+ * (`selectedFieldsOf`): every other field the target lets the run write is
+ * left out, as `excludedFields` leaves one out, so the write, its order and
+ * a delta run's scope all read it so. Kept beside them: the field an upsert
+ * matches on, without which it matches nothing, and the source field of
+ * each mapping that reads one.
+ *
+ * Only an SFDMU import gives an object a query, and Sync never runs it: it
+ * reads every field the source's describe lists. An export naming four
+ * fields of an account had its upsert write every field the target took,
+ * over the target's own values of those the export never named. A query of
+ * `Id` alone, `all`, `FIELDS(...)` or another of SFDMU's keywords names no
+ * list, and the object writes every field, as the import says.
+ *
+ * @param target - What the target's describe says the run may write.
+ */
+export function withFieldsOfItsQuery(
+  objectConfig: SyncObjectConfig,
+  target: Pick<TargetWriteFields, 'creatable'>,
+): SyncObjectConfig {
+  if (objectConfig.operation === 'delete' || objectConfig.query === undefined) return objectConfig;
+  const selected = selectedFieldsOf(objectConfig.query);
+  if (!('list' in selected)) return objectConfig;
+  const kept = new Set(
+    [
+      ...selected.list,
+      objectConfig.externalIdField ?? '',
+      ...objectConfig.fieldMappings
+        .filter((mapping) => MOVES_ITS_SOURCE.has(mapping.type))
+        .map((mapping) => mapping.sourceField),
+    ].map((field) => field.toLowerCase()),
+  );
+  const leftOut = [...target.creatable].filter((field) => !kept.has(field.toLowerCase()));
+  if (leftOut.length === 0) return objectConfig;
+  return {
+    ...objectConfig,
+    excludedFields: [...new Set([...(objectConfig.excludedFields ?? []), ...leftOut])],
+  };
 }
 
 /**

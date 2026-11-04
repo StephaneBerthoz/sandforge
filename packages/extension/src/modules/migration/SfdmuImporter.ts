@@ -15,7 +15,7 @@ import {
   isSafeSoqlWhere,
   validateSoqlIdentifier,
 } from '../../core/common/soqlValidator.js';
-import { readSfdmuQuery } from './sfdmuQuery.js';
+import { readSfdmuQuery, selectedFieldsOf } from './sfdmuQuery.js';
 import type { SfdmuQuery } from './sfdmuQuery.js';
 import {
   FIELD_MAPPING_FILE,
@@ -491,6 +491,12 @@ function notesOf(entry: KeptEntry): MigrationImportNote[] {
   const deletes = operation === 'Delete' || operation === 'HardDelete';
 
   if (read.object === undefined) add('queryUnread');
+  // Sync writes the fields a SELECT names, as SFDMU does, when it names a
+  // list of them (`withFieldsOfItsQuery`); else every field the source
+  // describes. Said of the whole file, the note told an export naming its
+  // fields that every field went.
+  const selected = deletes ? undefined : selectedFieldsOf(entry.query ?? '');
+  if (selected && 'every' in selected) add('everyField', selected.every);
   const named = entry.name || entry.objectName;
   if (named && named.toLowerCase() !== entry.object.toLowerCase()) add('nameDiffers', named);
   if (deletes) add('delete', entry.hardDelete ? 'HardDelete' : operation);
@@ -651,7 +657,6 @@ export class SfdmuImporter {
     const sets = (script.objects.length > 0 ? 1 : 0) + (script.objectSets?.length ?? 0);
     if (sets > 1) onTheFile.push({ code: 'objectSets', detail: String(sets) });
     if (kept.some((entry) => mapOperation(entry.sfdmuOperation) !== 'delete')) {
-      onTheFile.push({ code: 'everyField' });
       // SFDMU copies emails and phone numbers as read; a Sync run neutralizes
       // them unless its configuration keeps them (`contactPointsOfRun`).
       onTheFile.push({ code: 'contactPoints' });

@@ -549,7 +549,8 @@ describe('SfdmuImporter', () => {
       // The slave object is read whole by Sync: said, not lost.
       expect(notesOn(notes, 'Contact')).toEqual([['upsertKey', 'LastName'], ['notMaster']]);
       expect(notesOn(notes, 'Account')).toEqual([['upsertKey', 'Name']]);
-      expect(notes[0]).toEqual({ code: 'everyField' });
+      // Each query names its fields, which are what Sync writes, as SFDMU does.
+      expect(notes.filter((note) => note.code === 'everyField')).toEqual([]);
     });
 
     it.each(['simple', 'lookups', 'mock-fields', 'field-mapping-csv', 'values-mapping'])(
@@ -1014,6 +1015,30 @@ describe('SfdmuImporter', () => {
       const { notes } = await importingObject({ operation: 'Upsert', externalId: 'Ext__c' });
 
       expect(notes.filter((note) => note.object === 'Account')).toEqual([]);
+    });
+
+    it('says of each object whose query names no list of fields that every field goes, and of no other', async () => {
+      // Said of the whole file, the note told an export naming its fields
+      // that Sync copied every field, which it now writes alone.
+      const { notes } = await importing({
+        objects: [
+          {
+            query: 'SELECT Id, Name, Phone FROM Account',
+            operation: 'Upsert',
+            externalId: 'Ext__c',
+          },
+          { query: 'SELECT Id FROM Contact', operation: 'Insert' },
+          { query: 'SELECT all FROM Case', operation: 'Insert' },
+          { query: 'SELECT Id, Subject, custom_true FROM Task', operation: 'Insert' },
+          { query: 'SELECT Id FROM Lead', operation: 'Delete' },
+        ],
+      });
+
+      expect(notes.filter((note) => note.code === 'everyField')).toEqual([
+        { code: 'everyField', object: 'Contact', detail: 'Id' },
+        { code: 'everyField', object: 'Case', detail: 'all' },
+        { code: 'everyField', object: 'Task', detail: 'custom_true' },
+      ]);
     });
 
     it('says a file of deletes alone copies no field', async () => {

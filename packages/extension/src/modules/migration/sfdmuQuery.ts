@@ -94,6 +94,99 @@ function asSyncClause(clause: string, alias: string | undefined): string {
 }
 
 /**
+ * The alias the object of the FROM at `words[from]` is given, if any, and
+ * where the statement goes on after them: `FROM Account a WHERE`.
+ */
+function aliasAfter(words: readonly Word[], from: number): { alias?: string; at: number } {
+  const at = from + 2;
+  if (!words[at] || startsClause(words, at)) return { at };
+  const named = words[at].text.toLowerCase() === 'as' ? at + 1 : at;
+  return words[named] && API_NAME.test(words[named].text)
+    ? { alias: words[named].text, at: named + 1 }
+    : { at };
+}
+
+/**
+ * What the SELECT of a query names, as a Sync run writes it: a list of the
+ * object's fields, or, when it names none Sync can follow, what it names
+ * instead, as written.
+ */
+export type SelectedFields = { list: string[] } | { every: string };
+
+/**
+ * SFDMU's multiselect keywords, which it replaces with the fields of the
+ * source's describe that match them, whatever their case.
+ */
+const SFDMU_KEYWORD =
+  /^(?:all|(?:readonly|custom|standard|createable|updateable|lookup)_(?:true|false)|type_[a-z]\w*)$/i;
+
+/** A field the SELECT names through a function that keeps it the field: `toLabel(Status)`. */
+const WRAPPED_FIELD = /^(?:tolabel|convertcurrency|format)\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)$/i;
+
+/** The items of a SELECT, split on its commas outside parentheses and literals. */
+function selectItems(list: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i];
+    if (ch === "'") {
+      i++;
+      while (i < list.length && list[i] !== "'") i += list[i] === '\\' ? 2 : 1;
+    } else if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (ch === ',' && depth === 0) {
+      items.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  items.push(list.slice(start));
+  return items.map((item) => item.replace(/\s+/g, ' ').trim()).filter((item) => item !== '');
+}
+
+/**
+ * The fields an SFDMU query's SELECT names, which are what SFDMU writes: the
+ * object's own, each once, a field through `toLabel`, `convertCurrency` or
+ * `FORMAT` counting as that field. A subquery and a parent's field
+ * (`Account.Name`) are none of the object's, and SFDMU reads neither.
+ *
+ * A SELECT of `Id` alone, of `FIELDS(...)`, or that holds one of SFDMU's
+ * multiselect keywords (`all`, `custom_true`, `lookup_false`, `type_string`,
+ * …), names no list Sync follows: SFDMU picks those fields from the source's
+ * describe, and Sync writes every field the describe lists. So does a query
+ * whose SELECT cannot be read.
+ *
+ * @param query - The SOQL of an export's object, whatever its layout or case.
+ */
+export function selectedFieldsOf(query: string): SelectedFields {
+  const words = outerWords(query);
+  const select = words.findIndex((word) => word.text.toLowerCase() === 'select');
+  const from = words.findIndex((word, at) => at > select && word.text.toLowerCase() === 'from');
+  if (select < 0 || from < 0) return { every: query.replace(/\s+/g, ' ').trim().slice(0, 80) };
+  const list = query.slice(words[select].end, words[from].start);
+  // `a.Name` of `FROM Account a` is the account's Name.
+  const { alias } = aliasAfter(words, from);
+  const unaliased = (item: string): string =>
+    alias && item.toLowerCase().startsWith(`${alias.toLowerCase()}.`)
+      ? item.slice(alias.length + 1)
+      : item;
+  const fields: string[] = [];
+  for (const item of selectItems(list).map(unaliased)) {
+    if (/^fields\s*\(/i.test(item) || SFDMU_KEYWORD.test(item)) return { every: item };
+    const name = WRAPPED_FIELD.exec(item)?.[1] ?? (API_NAME.test(item) ? item : undefined);
+    if (name && !fields.some((field) => field.toLowerCase() === name.toLowerCase())) {
+      fields.push(name);
+    }
+  }
+  if (fields.every((field) => field.toLowerCase() === 'id')) {
+    return { every: fields[0] ?? list.replace(/\s+/g, ' ').trim() };
+  }
+  return { list: fields };
+}
+
+/**
  * Read an SFDMU query.
  *
  * @param query - The SOQL of an export's object, whatever its layout or case.
@@ -106,15 +199,7 @@ export function readSfdmuQuery(query: string): SfdmuQuery {
   const object = words[from + 1];
   if (from < 0 || !object || !API_NAME.test(object.text)) return { otherClauses: [] };
 
-  let at = from + 2;
-  let alias: string | undefined;
-  if (words[at] && !startsClause(words, at)) {
-    const named = words[at].text.toLowerCase() === 'as' ? at + 1 : at;
-    if (words[named] && API_NAME.test(words[named].text)) {
-      alias = words[named].text;
-      at = named + 1;
-    }
-  }
+  const { alias, at } = aliasAfter(words, from);
 
   const clauseStarts: number[] = [];
   for (let w = at; w < words.length; w++) {

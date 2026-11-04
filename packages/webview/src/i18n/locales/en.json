@@ -1956,7 +1956,7 @@
       "mockFields": "SFDMU writes fake values into {{detail}}. Sync has none: these fields are left out of the write rather than copied with their real values. A required one fails the record; take it out of mockFields to copy it.",
       "nameDiffers": "The file names it {{detail}}, and its query selects this object: SFDMU goes by the query, and so did this import.",
       "settings": "Not carried: {{detail}}. Sync does not read these settings of the export.",
-      "everyField": "Sync copies every field the source org describes, not only those a query names. To leave one out, add it to the export's excludedFields.",
+      "everyField": "Its query selects {{detail}}, not a list of fields Sync can follow, so Sync copies every field the source org describes. To leave one out, add it to the export's excludedFields.",
       "contactPoints": "Sync writes every email address under .invalid and every phone number as a fictional one, so what the target org's automation sends to them reaches no one; SFDMU copies them as read. To copy them as read, untick Neutralize emails and phone numbers under Run it from Sync.",
       "objectSets": "The export's {{detail}} object sets are merged into one Sync configuration: SFDMU runs one set after the other, and Sync writes them in one run, in the order their lookups decide.",
       "mappingFileUnread": "{{detail}} was not read: it does not have the columns SFDMU expects, so none of its mappings was applied."

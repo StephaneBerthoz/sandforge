@@ -509,7 +509,15 @@ describe('SyncOrchestrator — before the first write', () => {
           key: 'Name',
         },
       ],
-      heldBack: [{ objectApiName: 'Contact', rows: 2, parent: 'Account', field: 'AccountId' }],
+      heldBack: [
+        {
+          objectApiName: 'Contact',
+          rows: 2,
+          parent: 'Account',
+          field: 'AccountId',
+          parents: [{ parent: 'Account', field: 'AccountId', rows: 2 }],
+        },
+      ],
     };
     expect(ran.held).toEqual([counted]);
     expect(simulated.measured).toEqual([counted]);
@@ -559,8 +567,20 @@ describe('SyncOrchestrator — before the first write', () => {
       { objectApiName: 'Case', operation: 'insert', rows: 1 },
     ]);
     expect(ran.held[0]?.heldBack).toEqual([
-      { objectApiName: 'Contact', rows: 2, parent: 'Account', field: 'AccountId' },
-      { objectApiName: 'Case', rows: 1, parent: 'Contact', field: 'ContactId' },
+      {
+        objectApiName: 'Contact',
+        rows: 2,
+        parent: 'Account',
+        field: 'AccountId',
+        parents: [{ parent: 'Account', field: 'AccountId', rows: 2 }],
+      },
+      {
+        objectApiName: 'Case',
+        rows: 1,
+        parent: 'Contact',
+        field: 'ContactId',
+        parents: [{ parent: 'Contact', field: 'ContactId', rows: 1 }],
+      },
     ]);
   });
 

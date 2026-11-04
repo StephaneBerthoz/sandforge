@@ -310,7 +310,14 @@ export interface WriteConfirmation {
    * naming a record of `parent` left out, or held back in turn. Confirmed,
    * none of them is written, and each counts as failed. Absent when none.
    */
-  heldBack?: Array<{ objectApiName: string; rows: number; parent: string; field: string }>;
+  heldBack?: Array<{
+    objectApiName: string;
+    rows: number;
+    parent: string;
+    field: string;
+    /** Each object and lookup that holds rows back, with how many: `rows` in all. */
+    parents?: Array<{ parent: string; field: string; rows: number }>;
+  }>;
   /**
    * The API requests the run takes, when it would leave the org under a
    * tenth of its daily requests, every part together, and the parts beside

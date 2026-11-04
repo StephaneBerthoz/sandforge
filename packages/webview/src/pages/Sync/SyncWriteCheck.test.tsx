@@ -210,6 +210,47 @@ describe('SyncWriteCheckCard', () => {
     }
   });
 
+  it('says each lookup that holds back rows of an object, with its rows', () => {
+    // Named by their first row alone, 13 prices were said held back by
+    // Pricebook2Id where the dry run held 9 back by Product2Id.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          objects: [],
+          total: 0,
+          alreadyCopied: 0,
+          emails: [],
+          verdict: 'refused',
+          unwritable: [
+            { objectApiName: 'Product2', rows: 3, why: 'notAKey', key: 'Description' },
+            { objectApiName: 'Pricebook2', rows: 1, why: 'notAKey', key: 'Description' },
+          ],
+          heldBack: [
+            {
+              objectApiName: 'PricebookEntry',
+              rows: 13,
+              parent: 'Pricebook2',
+              field: 'Pricebook2Id',
+              parents: [
+                { parent: 'Pricebook2', field: 'Pricebook2Id', rows: 4 },
+                { parent: 'Product2', field: 'Product2Id', rows: 9 },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-held-back-PricebookEntry').textContent).toBe(
+      'PricebookEntry (4 records): held back, not written — their Pricebook2Id names ' +
+        'Pricebook2 records left out, and written without them, they would stand without ' +
+        'their Pricebook2. PricebookEntry (9 records): held back, not written — their ' +
+        'Product2Id names Product2 records left out, and written without them, they would ' +
+        'stand without their Product2.',
+    );
+  });
+
   it('says the API requests the run takes against what the target has left today', () => {
     // Only Forge's Review compared them.
     render(

@@ -1956,7 +1956,7 @@
       "mockFields": "O SFDMU grava valores fictícios em {{detail}}. O Sync não os tem: esses campos ficam fora da gravação em vez de serem copiados com seus valores reais. Um campo obrigatório faz o registro falhar; tire-o de mockFields para copiá-lo.",
       "nameDiffers": "O arquivo o chama de {{detail}}, e a query dele seleciona este objeto: o SFDMU segue a query, e esta importação também.",
       "settings": "Não levado: {{detail}}. O Sync não lê essas configurações da exportação.",
-      "everyField": "O Sync copia todos os campos que a org de origem descreve, não apenas os que uma query nomeia. Para deixar um de fora, adicione-o aos excludedFields da exportação.",
+      "everyField": "A query seleciona {{detail}}, e não uma lista de campos que o Sync possa seguir: o Sync copia, portanto, todos os campos que a org de origem descreve. Para deixar um de fora, adicione-o aos excludedFields da exportação.",
       "contactPoints": "O Sync grava cada endereço de e-mail sob .invalid e cada número de telefone como um fictício, para que o que a automação da org de destino lhes envia não alcance ninguém; o SFDMU os copia como lidos. Para copiá-los como lidos, desmarque Neutralizar e-mails e números de telefone em Executá-la pelo Sync.",
       "objectSets": "Os {{detail}} conjuntos de objetos da exportação são reunidos em uma única configuração do Sync: o SFDMU executa um conjunto depois do outro, e o Sync os grava em uma execução, na ordem que seus lookups decidem.",
       "mappingFileUnread": "{{detail}} não foi lido: ele não tem as colunas que o SFDMU espera, então nenhum de seus mapeamentos foi aplicado."
