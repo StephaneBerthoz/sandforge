@@ -39,6 +39,11 @@ import {
   waitsForItsTask,
   withTheRelationItIs,
   writtenByThePlatform,
+  writtenWithWords,
+  contactRolesOf,
+  contactRolesSoql,
+  platformRolesOf,
+  rolesThePlatformWrites,
   type RelationUpdate,
   type SoqlQuery,
 } from './platformRecords.js';
@@ -1670,5 +1675,91 @@ describe('the reads of an opportunity team that a rehearsal answers', () => {
     expect(
       opportunityTeamOfSoql("SELECT Id FROM OpportunitySplit WHERE OpportunityId IN ('006A')"),
     ).toBeUndefined();
+  });
+});
+
+describe('the contact role the platform writes with an opportunity', () => {
+  const DEAL = '006SRC000000001AAA';
+  const OTHER_DEAL = '006SRC000000002AAA';
+  const BUYER = '003SRC000000001AAA';
+  const ADVISER = '003SRC000000002AAA';
+  const role = (
+    id: string,
+    opportunity: string,
+    contact: string,
+    primary: boolean,
+  ): Record<string, unknown> => ({
+    Id: id,
+    OpportunityId: opportunity,
+    ContactId: contact,
+    IsPrimary: primary,
+  });
+
+  it('is the role of the contact the opportunity goes in with, its primary one first, one an opportunity', () => {
+    // An opportunity inserted with its ContactId got a role of that contact,
+    // primary, with no role, from the platform: the source's primary role of
+    // the contact is the one it stands for.
+    const rows = [
+      role('00K000000000001AAA', DEAL, BUYER, false),
+      role('00K000000000002AAA', DEAL, ADVISER, false),
+      role('00K000000000003AAA', DEAL, BUYER, true),
+      role('00K000000000004AAA', OTHER_DEAL, BUYER, true),
+    ];
+    const sentWith = (opportunity: string): string | undefined =>
+      opportunity === DEAL ? BUYER.slice(0, 15) : undefined;
+
+    expect(rolesThePlatformWrites(rows, sentWith)).toEqual([2]);
+    // A role of no primary contact is still the one of the contact sent.
+    expect(rolesThePlatformWrites(rows.slice(0, 2), sentWith)).toEqual([0]);
+    expect(rolesThePlatformWrites(rows, () => undefined)).toEqual([]);
+  });
+
+  it('pairs each role with the record the target holds under its opportunity, of its contact, once', () => {
+    const held = [
+      {
+        Id: '00KTGT000000001AAA',
+        OpportunityId: '006TGT000000001AAA',
+        ContactId: '003TGT000000001AAA',
+      },
+      {
+        Id: '00KTGT000000002AAA',
+        OpportunityId: '006TGT000000001AAA',
+        ContactId: '003TGT000000002AAA',
+      },
+    ];
+    const paired = new Map([
+      [0, { opportunity: '006TGT000000001', contact: '003TGT000000001' }],
+      [1, { opportunity: '006TGT000000001AAA', contact: '003TGT000000001AAA' }],
+      [2, { opportunity: '006TGT000000001AAA', contact: '003TGT000000003AAA' }],
+    ]);
+
+    expect([...platformRolesOf(paired, held)]).toEqual([[0, held[0]]]);
+    expect([...platformRolesOf(new Map([...paired].slice(2)), held)]).toEqual([]);
+  });
+
+  it('reads the roles of the opportunities two hundred a statement, with the fields asked besides', async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => `006TGT${String(i).padStart(9, '0')}AAA`);
+    const asked: string[] = [];
+    const query: SoqlQuery = async (soql) => {
+      asked.push(soql);
+      return [];
+    };
+
+    await contactRolesOf(query, ids, ['Role', 'ContactId']);
+
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toBe(
+      'SELECT Id, OpportunityId, ContactId, Role FROM OpportunityContactRole ' +
+        "WHERE OpportunityId IN ('006TGT000000200AAA')",
+    );
+    expect(contactRolesSoql(['006A'])).toBe(
+      "SELECT Id, OpportunityId, ContactId FROM OpportunityContactRole WHERE OpportunityId IN ('006A')",
+    );
+    expect(() => contactRolesSoql(['006A'], ['Role; DELETE'])).toThrow();
+  });
+
+  it('is said written by the platform with its opportunity, for its contact', () => {
+    expect(writtenWithWords('OpportunityContactRole')).toBe('their opportunity, for its contact');
+    expect(writtenWithWords('OpportunityTeamMember')).toBe('their opportunity, for its owner');
   });
 });

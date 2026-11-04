@@ -1435,6 +1435,80 @@ describe('GraphDiscoveryService', () => {
       ]);
     });
 
+    it("leaves out of a graph the reports, dashboards, apps, tabs, delete events and content setup a feed item's parent may name, whatever they hold", async () => {
+      // The clone of an opportunity reached its feed item, and through the
+      // item's parent the source's six reports; a deep clone of an account
+      // reached apps, tabs, delete events and content spaces the same way.
+      // The target's administrator may create none of them, the dry run said
+      // each BLOCKING, and asked to tick Create on a report.
+      const setup = [
+        'AppDefinition',
+        'BackgroundOperation',
+        'ContentTaxonomyTermRelationshipType',
+        'Dashboard',
+        'DeleteEvent',
+        'ManagedContentChannel',
+        'ManagedContentSpace',
+        'ManagedContentVariant',
+        'Report',
+        'ServiceSetupProvisioning',
+        'TabDefinition',
+      ];
+      const idField = {
+        name: 'Id',
+        type: 'id',
+        referenceTo: [],
+        relationshipName: null,
+        isMasterDetail: false,
+      };
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Opportunity') {
+          return {
+            name: 'Opportunity',
+            fields: [idField],
+            childRelationships: [
+              {
+                childSObject: 'FeedItem',
+                field: 'ParentId',
+                relationshipName: 'Feeds',
+                isCascadeDelete: true,
+              },
+            ],
+          };
+        }
+        if (objectName === 'FeedItem') {
+          return {
+            name: 'FeedItem',
+            fields: [
+              idField,
+              {
+                name: 'ParentId',
+                type: 'reference',
+                referenceTo: ['Opportunity', ...setup],
+                relationshipName: 'Parent',
+                isMasterDetail: false,
+              },
+            ],
+            childRelationships: [],
+          };
+        }
+        return { name: objectName, fields: [idField], childRelationships: [] };
+      });
+      vi.mocked(deps.queryCount).mockResolvedValue(6);
+
+      const graph = await service.discover(
+        createConfig({ recordId: '006XXXXXXXXXXXX', depth: 'custom', customDepth: 2 }),
+      );
+
+      expect(graph.nodes.map((n) => n.objectApiName).sort()).toEqual(['FeedItem', 'Opportunity']);
+      for (const name of setup) {
+        expect(
+          graph.edges.some((e) => e.sourceObject === name || e.targetObject === name),
+          name,
+        ).toBe(false);
+      }
+    });
+
     it('leaves the files of a record and their links out of the graph', async () => {
       // Walked into as records, a file's body was read as its address and an
       // insert would have written that address: a run that copies files does

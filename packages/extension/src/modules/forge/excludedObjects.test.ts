@@ -109,6 +109,33 @@ describe('isExcludedFromCopy', () => {
     }
   });
 
+  it('excludes the reports, dashboards, apps, tabs, delete events and content setup an org keeps as records', () => {
+    // An administrator holding Modify All Data reads none of them createable,
+    // and the org's EntityDefinition still answers IsEverCreatable true for
+    // each: a dry run said them BLOCKING and asked to tick Create on a report.
+    for (const name of [
+      'AppDefinition',
+      'BackgroundOperation',
+      'ContentTaxonomyTermRelationshipType',
+      'Dashboard',
+      'DeleteEvent',
+      'ManagedContentChannel',
+      'ManagedContentSpace',
+      'ManagedContentVariant',
+      'Report',
+      'ServiceSetupProvisioning',
+      'TabDefinition',
+    ]) {
+      expect(isExcludedFromCopy(name), name).toBe(true);
+      expect(isNeverCopiedWhenPicked(name), name).toBe(true);
+    }
+    // An org's own objects so named are data, and so is the content a
+    // person posts on a record.
+    for (const name of ['Report__c', 'Dashboard_Snapshot__c', 'FeedItem', 'ManagedContent__c']) {
+      expect(isExcludedFromCopy(name), name).toBe(false);
+    }
+  });
+
   it('keeps the data objects a clone is for', () => {
     for (const name of ['Account', 'Contact', 'Case', 'Asset', 'Invoice__c', 'Vlocity__c']) {
       expect(isExcludedFromCopy(name)).toBe(false);

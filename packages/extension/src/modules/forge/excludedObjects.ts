@@ -127,6 +127,27 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   'InvoiceLine',
   'CreditMemo',
   'CreditMemoLine',
+  // Setup an org keeps as records, which a feed item's parent and other
+  // polymorphic lookups name: reports and dashboards, apps and tabs, the
+  // recycle bin's delete events, content workspaces, channels and variants,
+  // and the platform's own jobs and provisioning. The administrator's global
+  // describe, Modify All Data held, says none of them createable, editable or
+  // deletable, yet the org's EntityDefinition answers IsEverCreatable true for
+  // each — as it does for a calendar or an entitlement process — so no gap
+  // reader can tell them from data the user lacks Create on. The clone of an
+  // opportunity reached its six reports through its feed item, and its dry run
+  // said Report BLOCKING, asking the target's admin to tick Create on it.
+  'AppDefinition',
+  'BackgroundOperation',
+  'ContentTaxonomyTermRelationshipType',
+  'Dashboard',
+  'DeleteEvent',
+  'ManagedContentChannel',
+  'ManagedContentSpace',
+  'ManagedContentVariant',
+  'Report',
+  'ServiceSetupProvisioning',
+  'TabDefinition',
 ];
 
 /*

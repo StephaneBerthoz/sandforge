@@ -1047,12 +1047,12 @@ describe('TargetGapReader — an object the target user may not create', () => {
   });
 
   it('says one no user can create the platform’s, not blocking, and keeps blocking one another user could', async () => {
-    // A deep clone reached a calendar and an entitlement process, which the
-    // platform writes alone, and said each BLOCKING: the target's admin was
-    // asked to grant a Create no user can be granted.
-    const read = await readGaps([node('Account'), node('Calendar'), node('Case')], {
-      closedInTarget: new Set(['Calendar', 'Case']),
-      everCreatable: { Calendar: false, Case: true },
+    // A deep clone of an account reached the records its flows keep, which
+    // the platform writes alone: the target's EntityDefinition answers
+    // IsEverCreatable false for FlowRecord, and true for a case.
+    const read = await readGaps([node('Account'), node('FlowRecord'), node('Case')], {
+      closedInTarget: new Set(['FlowRecord', 'Case']),
+      everCreatable: { FlowRecord: false, Case: true },
     });
 
     expect(read.gaps.filter((gap) => gap.objectApiName !== 'Account')).toEqual([
@@ -1066,11 +1066,11 @@ describe('TargetGapReader — an object the target user may not create', () => {
         decisions: ['exclude_object'],
       },
       {
-        id: forgeGapId('object_platform_only', 'Calendar'),
+        id: forgeGapId('object_platform_only', 'FlowRecord'),
         kind: 'object_platform_only',
         severity: 'info',
         source: 'metadata',
-        objectApiName: 'Calendar',
+        objectApiName: 'FlowRecord',
         rows: 0,
         decisions: ['exclude_object'],
       },
@@ -1079,30 +1079,30 @@ describe('TargetGapReader — an object the target user may not create', () => {
       read.asked.filter((asked) => asked.includes(' FROM EntityDefinition ')).map((a) => a.trim()),
     ).toEqual([
       `tooling ${TARGET} SELECT QualifiedApiName, IsEverCreatable FROM EntityDefinition ` +
-        "WHERE QualifiedApiName IN ('Calendar', 'Case')",
+        "WHERE QualifiedApiName IN ('FlowRecord', 'Case')",
     ]);
     const lines = gapLines(read, 'TGT').join('\n');
     expect(lines).toContain(
       'info: no user can create its records in the target, the platform writes them itself: ' +
         'the run skips every row of it',
     );
-    expect(lines).not.toMatch(/Calendar\n\s+BLOCKING/);
+    expect(lines).not.toMatch(/FlowRecord\n\s+BLOCKING/);
   });
 
   it('keeps blocking an object the user may not create when the target does not say whether anyone can', async () => {
-    const closed = new Set(['Calendar']);
-    const refused = await readGaps([node('Calendar')], {
+    const closed = new Set(['FlowRecord']);
+    const refused = await readGaps([node('FlowRecord')], {
       closedInTarget: closed,
-      everCreatable: { Calendar: false },
+      everCreatable: { FlowRecord: false },
       refuse: { entities: new Error('INSUFFICIENT_ACCESS: View Setup') },
     });
-    const unanswered = await readGaps([node('Calendar')], {
+    const unanswered = await readGaps([node('FlowRecord')], {
       closedInTarget: closed,
-      everCreatable: { Calendar: 'false' },
+      everCreatable: { FlowRecord: 'false' },
     });
 
     for (const read of [refused, unanswered]) {
-      expect(read.gaps.find((gap) => gap.objectApiName === 'Calendar')).toMatchObject({
+      expect(read.gaps.find((gap) => gap.objectApiName === 'FlowRecord')).toMatchObject({
         kind: 'object_not_createable',
         severity: 'blocking',
       });

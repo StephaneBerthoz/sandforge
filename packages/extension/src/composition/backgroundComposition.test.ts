@@ -845,6 +845,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
         byThePlatform: [
           { objectApiName: 'OpportunityTeamMember', rows: 1 },
           { objectApiName: 'Contact', rows: 2 },
+          { objectApiName: 'OpportunityContactRole', rows: 3 },
         ],
       },
     }).split('\n');
@@ -853,6 +854,7 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       expect.arrayContaining([
         'Not counted: OpportunityTeamMember, 1 records written by the platform with their opportunity, for its owner, which the run links to and does not send.',
         'Not counted: Contact, 2 records written by the platform with their person account, which the run links to and does not send.',
+        'Not counted: OpportunityContactRole, 3 records written by the platform with their opportunity, for its contact, which the run links to and does not send.',
       ]),
     );
   });

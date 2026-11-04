@@ -720,12 +720,125 @@ export function isOpportunityTeamObject(objectApiName: string): boolean {
 /**
  * What the platform writes a row of `objectApiName` with, in the words the
  * line of each object says it: an email's task, a person account's contact,
- * the owner's member and split of an opportunity.
+ * the owner's member and split of an opportunity, the role of the contact an
+ * opportunity goes in with.
  */
 export function writtenWithWords(objectApiName: string): string {
   if (objectApiName === 'Task') return 'their email';
   if (objectApiName === 'Contact') return 'their person account';
+  if (objectApiName === OPPORTUNITY_CONTACT_ROLE) return 'their opportunity, for its contact';
   return 'their opportunity, for its owner';
+}
+
+/** A contact's role on an opportunity. */
+export const OPPORTUNITY_CONTACT_ROLE = 'OpportunityContactRole';
+
+/**
+ * An opportunity's lookup at its primary contact, and a contact role's at its
+ * contact: on the opportunity, the contact of its primary contact role, which
+ * an insert sets and no update does (createable, not updateable, in a real
+ * org's describe).
+ */
+export const CONTACT_FIELD = 'ContactId';
+
+/** Whether a role row is its opportunity's primary one: `IsPrimary`, as the API answers it. */
+const isPrimaryRole = (row: Record<string, unknown>): boolean =>
+  row['IsPrimary'] === true || row['IsPrimary'] === 'true';
+
+/**
+ * Of the contact roles `rows` a copy read, the one the platform writes itself
+ * with each opportunity the copy sends with a contact, by its index in
+ * `rows`: of that opportunity and that contact, the primary one first, one an
+ * opportunity at most.
+ *
+ * Learnt in a real org. An opportunity inserted with its `ContactId` is given
+ * by the platform, as it is taken, a contact role of that contact, primary,
+ * with no role. The clone of an opportunity with its contact and its one
+ * contact role — primary, Decision Maker — left the target two: the
+ * platform's, written the second the opportunity went in by the user the run
+ * writes as, and the run's two seconds later. The source's `ContactId` is the
+ * contact of its primary role, so that role is the one the platform's stands
+ * for; a role of another contact is no copy of it, and goes in as read.
+ *
+ * @param rows - The contact roles, as the copy will send them or as read.
+ * @param sentWith - The contact an opportunity, named as the rows name it,
+ *   goes in with, in the ids the rows give their contacts; nothing for one
+ *   sent without one, or that is not the copy's to send.
+ */
+export function rolesThePlatformWrites(
+  rows: readonly Record<string, unknown>[],
+  sentWith: (opportunity: string) => string | undefined,
+): number[] {
+  /** Per opportunity, the index of the row of its contact, the primary one first. */
+  const chosen = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const opportunity = textOf(row, 'OpportunityId');
+    const contact = textOf(row, CONTACT_FIELD);
+    if (opportunity === undefined || contact === undefined) return;
+    const sent = sentWith(opportunity);
+    if (sent === undefined || idKey(sent) !== idKey(contact)) return;
+    const key = idKey(opportunity);
+    const before = chosen.get(key);
+    if (before === undefined || (!isPrimaryRole(rows[before]) && isPrimaryRole(row))) {
+      chosen.set(key, index);
+    }
+  });
+  return [...chosen.values()].sort((a, b) => a - b);
+}
+
+/**
+ * The query that reads the contact roles the target holds of the opportunities
+ * `ids`, with `fields` besides the ones that pair them with a row.
+ */
+export function contactRolesSoql(ids: readonly string[], fields: readonly string[] = []): string {
+  const pairing = ['Id', 'OpportunityId', CONTACT_FIELD];
+  const columns = [...pairing, ...fields.filter((field) => !pairing.includes(field))]
+    .map(assertSoqlIdentifier)
+    .join(', ');
+  return `SELECT ${columns} FROM ${OPPORTUNITY_CONTACT_ROLE} WHERE OpportunityId IN ${inListOf(ids)}`;
+}
+
+/**
+ * The contact roles the target holds of the opportunities `ids`, read with
+ * `fields` besides: a statement per two hundred opportunities.
+ */
+export async function contactRolesOf(
+  query: SoqlQuery,
+  ids: readonly string[],
+  fields: readonly string[] = [],
+): Promise<Array<Record<string, unknown>>> {
+  const read: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += WRITTEN_CHUNK) {
+    read.push(...(await query(contactRolesSoql(ids.slice(i, i + WRITTEN_CHUNK), fields))));
+  }
+  return read;
+}
+
+/**
+ * Of the contact roles `held` the target holds, the one the platform wrote
+ * for each row of `paired` — under its opportunity, of its contact, both in
+ * the target's ids — by the row's index. A record is one row's only. A row
+ * no record is found for is not listed: it goes in as written.
+ */
+export function platformRolesOf(
+  paired: ReadonlyMap<number, { readonly opportunity: string; readonly contact: string }>,
+  held: ReadonlyArray<Readonly<Record<string, unknown>>>,
+): Map<number, Readonly<Record<string, unknown>>> {
+  const free = new Map<string, Array<Readonly<Record<string, unknown>>>>();
+  for (const record of held) {
+    const id = textOf(record, 'Id');
+    const opportunity = textOf(record, 'OpportunityId');
+    const contact = textOf(record, CONTACT_FIELD);
+    if (!id || !opportunity || !contact) continue;
+    const key = `${idKey(opportunity)}:${idKey(contact)}`;
+    free.set(key, [...(free.get(key) ?? []), record]);
+  }
+  const found = new Map<number, Readonly<Record<string, unknown>>>();
+  for (const [index, { opportunity, contact }] of paired) {
+    const record = free.get(`${idKey(opportunity)}:${idKey(contact)}`)?.shift();
+    if (record) found.set(index, record);
+  }
+  return found;
 }
 
 /**

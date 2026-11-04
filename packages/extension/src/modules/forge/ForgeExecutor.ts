@@ -169,7 +169,9 @@ import {
 import {
   ACCOUNT,
   CONTACT,
+  CONTACT_FIELD,
   EMAIL_MESSAGE,
+  OPPORTUNITY_CONTACT_ROLE,
   PERSON_CONTACT_FIELD,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
@@ -184,10 +186,13 @@ import {
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
+  contactRolesOf,
   opportunityTeamOf,
   opportunityTeamWriteEdges,
   personAccountWriteEdges,
   personContactsOfAccounts,
+  platformRolesOf,
+  rolesThePlatformWrites,
   statusCategories,
   tasksWrittenWithEmails,
   waitsForItsTask,
@@ -1480,6 +1485,13 @@ interface PageCarry {
    * object repeated one note per page.
    */
   readonly teamValues: TeamValuesLeft;
+  /**
+   * Contact roles linked to the one the platform wrote with their
+   * opportunity, for the contact it went in with, and how many of them an
+   * update gave the source's fields: see `linkTheRolesThePlatformWrote`.
+   */
+  rolesOfTheirOpportunity: number;
+  rolesGiven: number;
   /** Person accounts' contacts never sent, the target holding none of them. */
   personContactsUnlinked: number;
   /** Person accounts' contacts sent on their own, and why. */
@@ -1542,6 +1554,8 @@ function emptyPageCarry(): PageCarry {
     teamOwners: 0,
     teamOthers: 0,
     teamValues: { notKept: new Map(), unread: new Map() },
+    rolesOfTheirOpportunity: 0,
+    rolesGiven: 0,
     personContactsUnlinked: 0,
     sentOnTheirOwn: 0,
     onTheirOwnWhy: '',
@@ -1569,7 +1583,8 @@ function settledOfCarry(carry: PageCarry): number {
     carry.writtenBefore +
     carry.withTheirAccount +
     carry.teamOwners +
-    carry.teamOthers
+    carry.teamOthers +
+    carry.rolesOfTheirOpportunity
   );
 }
 
@@ -2001,6 +2016,12 @@ interface ExecutionState {
   readonly withTheirRecord: Set<string>;
   /** See `ExecutionSummary.writtenByThePlatform`: per object, the rows. */
   readonly writtenByThePlatform: Map<string, number>;
+  /**
+   * The contact each opportunity this run wrote, or would, was sent with, in
+   * the target's ids, by the opportunity's source id: the platform writes a
+   * contact role of it with the opportunity. See `linkTheRolesThePlatformWrote`.
+   */
+  readonly contactSentWith: Map<string, string>;
   /**
    * The rows read and left out because the platform writes them itself, or
    * they cannot go in without one it does, by source id.
@@ -2853,7 +2874,9 @@ function pagedCounts(
     carry.withTheirAccount > 0
       ? `, ${carry.withTheirAccount} written by the platform with their person account`
       : '';
-  const withTheirOpportunity = teamLinkedNote(carry.teamOwners, carry.teamOthers);
+  const withTheirOpportunity =
+    teamLinkedNote(carry.teamOwners, carry.teamOthers) +
+    rolesWithTheirOpportunityNote(carry.rolesOfTheirOpportunity, carry.rolesGiven);
   const already =
     carry.writtenBefore > 0 ? `, ${writtenBeforeNote(config, carry.writtenBefore)}` : '';
   const unidentified =
@@ -2881,6 +2904,40 @@ function teamLinkedNote(owners: number, others: number): string {
       : '') +
     (others > 0 ? `, ${others} on the team of their opportunity in the target already` : '')
   );
+}
+
+/**
+ * What the line of the contact roles says of those linked to the one the
+ * platform wrote with their opportunity, for the contact it went in with:
+ * how many, and how many of them an update gave the source's fields the
+ * platform's record lacked. See `linkTheRolesThePlatformWrote`.
+ */
+function rolesWithTheirOpportunityNote(linked: number, given: number): string {
+  if (linked === 0) return '';
+  const fields =
+    given > 0 ? `, ${given} given the source's fields ${given === 1 ? 'it' : 'they'} lacked` : '';
+  return `, ${linked} written by the platform with their opportunity, for its contact${fields}`;
+}
+
+/**
+ * Note, of the opportunities about to be written, the contact each goes in
+ * with, as sent, by the opportunity's source id: the platform writes a role
+ * of that contact as it takes the opportunity (`rolesThePlatformWrites`). One
+ * sent without it — the field left out, its contact not in the target, or a
+ * row the target took it from — gets none.
+ */
+function noteContactsSentWith(
+  state: Pick<ExecutionState, 'contactSentWith'>,
+  cleaned: readonly CleanedRecord[],
+  payloads: readonly Record<string, unknown>[],
+): void {
+  cleaned.forEach(({ source }, index) => {
+    const id = source['Id'];
+    const contact = payloads[index]?.[CONTACT_FIELD];
+    if (typeof id !== 'string') return;
+    if (typeof contact === 'string' && contact !== '') state.contactSentWith.set(id, contact);
+    else state.contactSentWith.delete(id);
+  });
 }
 
 /**
@@ -3828,6 +3885,7 @@ export class ForgeExecutor {
       contactsOnTheirOwn: new Set<string>(),
       withTheirRecord: new Set<string>(),
       writtenByThePlatform: new Map<string, number>(),
+      contactSentWith: new Map<string, string>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
       taskTurnOver: false,
@@ -9601,6 +9659,10 @@ export class ForgeExecutor {
    * target refused: a copy it refused stays as the platform wrote it. One
    * the run sends no update to, or that a cancel kept the update from,
    * stays so too. Returns how many copies were given their fields.
+   *
+   * @param copied - The object of the copies and the words of a refusal:
+   *   quote lines by default; the contact roles the platform writes with an
+   *   opportunity (`linkTheRolesThePlatformWrote`).
    */
   private async giveTheCopiesTheirFields(
     state: ExecutionState,
@@ -9608,6 +9670,12 @@ export class ForgeExecutor {
     payloads: readonly Record<string, unknown>[],
     copies: ReadonlyMap<number, Readonly<Record<string, unknown>>>,
     updatable: (field: string) => boolean,
+    copied: { objectApiName: string; recordSummary: string; leftAs: string } = {
+      objectApiName: QUOTE_LINE_OBJECT,
+      recordSummary: '(quote lines the platform copied from their opportunity products)',
+      leftAs:
+        "Taken, and left as the platform copied them, without the fields of the source's lines",
+    },
   ): Promise<number> {
     const updates: Record<string, unknown>[] = [];
     for (const [index, copy] of copies) {
@@ -9628,7 +9696,7 @@ export class ForgeExecutor {
         continue;
       }
       try {
-        const answers = await update(state.targetOrgId, QUOTE_LINE_OBJECT, call);
+        const answers = await update(state.targetOrgId, copied.objectApiName, call);
         call.forEach((row, i) => {
           const answer = answers[i];
           if (answer?.success) given++;
@@ -9640,22 +9708,166 @@ export class ForgeExecutor {
     }
     if (refused.length > 0) {
       state.errors.push({
-        objectApiName: QUOTE_LINE_OBJECT,
+        objectApiName: copied.objectApiName,
         stage: 'insert',
         failedCount: 0,
         attemptedCount: updates.length,
         samples: [
           {
-            recordSummary: '(quote lines the platform copied from their opportunity products)',
-            messages: [
-              `Taken, and left as the platform copied them, without the fields of the ` +
-                `source's lines: ${refused.slice(0, 3).join(' | ')}`,
-            ],
+            recordSummary: copied.recordSummary,
+            messages: [`${copied.leftAs}: ${refused.slice(0, 3).join(' | ')}`],
           },
         ],
       });
     }
     return given;
+  }
+
+  /**
+   * Link, of the contact roles about to be written, each the platform wrote
+   * itself as it took the run's opportunity, for the contact the opportunity
+   * went in with (`rolesThePlatformWrites`): mapped to that record, which the
+   * platform deletes with the opportunity, given by an update the source's
+   * fields it lacks — its role, which the platform leaves empty — and out of
+   * the rows the write sends. Sent, the source's role stood beside the
+   * platform's: two primary roles of one contact where the source held one.
+   *
+   * Asked of the roles whose opportunity this run created with a contact
+   * (`contactSentWith`). A simulation, which wrote no opportunity, links those
+   * a real run finds, and reads nothing. Not looked up, the roles go in as
+   * read, and the report says why an opportunity may then hold a contact's
+   * role twice. An update the target refuses leaves the platform's record as
+   * it wrote it, linked all the same: it is the role, short of the fields the
+   * report names.
+   *
+   * @param cleaned - The node's rows as cleaned; those linked are removed.
+   * @param payloads - Their payloads, index-aligned; those linked are removed.
+   * @returns How many roles were linked, and how many of them an update gave fields.
+   */
+  private async linkTheRolesThePlatformWrote(
+    state: ExecutionState,
+    cleaned: CleanedRecord[],
+    payloads: Record<string, unknown>[],
+    target: {
+      fields?: readonly FieldInfo[];
+      updatable?: ReadonlySet<string>;
+      keyPrefix?: string | null;
+    },
+  ): Promise<{ linked: number; given: number }> {
+    const none = { linked: 0, given: 0 };
+    if (state.contactSentWith.size === 0 || cleaned.length === 0) return none;
+    const { remapper, simulated } = state;
+    // Compared as sent: the role's contact and the opportunity's, both in the
+    // target's ids, of an opportunity this run created.
+    const chosen = rolesThePlatformWrites(
+      cleaned.map(({ source }, index) => ({
+        OpportunityId: source['OpportunityId'],
+        [CONTACT_FIELD]: payloads[index]?.[CONTACT_FIELD],
+        IsPrimary: source['IsPrimary'],
+      })),
+      (opportunity) =>
+        remapper.isCreated(opportunity) ? state.contactSentWith.get(opportunity) : undefined,
+    );
+    if (chosen.length === 0) return none;
+
+    const updatable = (field: string): boolean =>
+      target.updatable
+        ? target.updatable.has(field)
+        : target.fields?.find((f) => f.name === field)?.updateable !== false;
+    let records: Map<number, Readonly<Record<string, unknown>>>;
+    if (simulated) {
+      records = new Map(chosen.map((index) => [index, { Id: simulated.idFor(target.keyPrefix) }]));
+    } else {
+      const queryable = (field: string): boolean =>
+        target.fields === undefined ||
+        target.fields.some((f) => f.name === field && f.queryable !== false);
+      const fields = [
+        ...new Set(chosen.flatMap((index) => Object.keys(payloads[index] ?? {}))),
+      ].filter((field) => updatable(field) && queryable(field));
+      const paired = new Map(
+        chosen.map((index) => [
+          index,
+          {
+            opportunity: String(remapper.get(String(cleaned[index].source['OpportunityId']))),
+            contact: String(payloads[index]?.[CONTACT_FIELD]),
+          },
+        ]),
+      );
+      let held: Array<Record<string, unknown>>;
+      try {
+        held = await contactRolesOf(
+          (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+          [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
+          fields,
+        );
+      } catch (err) {
+        state.errors.push({
+          objectApiName: OPPORTUNITY_CONTACT_ROLE,
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: '(contact roles the platform wrote with their opportunities)',
+              messages: [
+                'Not looked up, so written as read: an opportunity may hold the role of its ' +
+                  `contact twice. ${extractErrorMessage(err)}`,
+              ],
+            },
+          ],
+        });
+        return none;
+      }
+      records = platformRolesOf(paired, held);
+    }
+    if (records.size === 0) return none;
+
+    // Given their fields before they are linked: a run stopped in between
+    // finds them again when it is taken up, and gives what is left.
+    const given = simulated
+      ? 0
+      : await this.giveTheCopiesTheirFields(state, cleaned, payloads, records, updatable, {
+          objectApiName: OPPORTUNITY_CONTACT_ROLE,
+          recordSummary: '(contact roles the platform wrote with their opportunities)',
+          leftAs:
+            "Linked, and left as the platform wrote them, without the fields of the source's roles",
+        });
+    for (const [index, record] of records) {
+      const built = cleaned[index];
+      const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+      const recordId = String(record['Id']);
+      if (sourceId === undefined) continue;
+      // One role an opportunity: a page read after this one links none to it.
+      state.contactSentWith.delete(String(built.source['OpportunityId']));
+      remapper.addExisting(sourceId, recordId, OPPORTUNITY_CONTACT_ROLE);
+      // Written by the platform with an opportunity this run created, it goes
+      // when that opportunity goes: no removal deletes it on its own.
+      state.withTheirRecord.add(sourceId);
+      // The lookups it went without are owed on the record, as on a role inserted.
+      if (built.nullifiedFks.length > 0) {
+        this.oweToTheSecondPass(
+          state,
+          built.nullifiedFks.map((nf): PendingFkUpdate => ({
+            objectApiName: OPPORTUNITY_CONTACT_ROLE,
+            newId: recordId,
+            sourceId,
+            fieldName: nf.field,
+            sourceRefId: nf.sourceRefId,
+            ...(nf.insertOnly ? { insertOnly: true as const } : {}),
+          })),
+        );
+      }
+    }
+    remapper.persist();
+    for (const index of [...records.keys()].sort((a, b) => b - a)) {
+      cleaned.splice(index, 1);
+      payloads.splice(index, 1);
+    }
+    // Linked, and none of them among the records the target held: each came
+    // with an opportunity the run created.
+    state.linkedCount += records.size;
+    countWrittenByThePlatform(state, OPPORTUNITY_CONTACT_ROLE, records.size);
+    return { linked: records.size, given };
   }
 
   /**
@@ -9914,6 +10126,16 @@ export class ForgeExecutor {
       );
       if (rows.length === 0 || opportunities.size === 0) return 0;
       return (await this.teamThePlatformWrites(state, objectApiName, rows, opportunities)).size;
+    }
+    if (objectApiName === OPPORTUNITY_CONTACT_ROLE) {
+      return (
+        await this.rolesThePlatformWritesOfTheRead(
+          state,
+          state.preread.get(OPPORTUNITY_OBJECT)?.records ?? [],
+          state.preread.get(CONTACT)?.records ?? [],
+          rows,
+        )
+      ).size;
     }
     if (objectApiName === ACCOUNT) {
       await this.noteContactsOfBusinessAccounts(state, rows, createable);
@@ -11118,6 +11340,13 @@ export class ForgeExecutor {
       rowsOf(CONTACT),
     );
     if (contacts.size > 0) platform.set(CONTACT, contacts);
+    const roles = await this.rolesThePlatformWritesOfTheRead(
+      state,
+      rowsOf(OPPORTUNITY_OBJECT),
+      rowsOf(CONTACT),
+      rowsOf(OPPORTUNITY_CONTACT_ROLE),
+    );
+    if (roles.size > 0) platform.set(OPPORTUNITY_CONTACT_ROLE, roles);
     return objects.map((object) => {
       const itsOwn = platform.get(object.objectApiName);
       if (!itsOwn || itsOwn.size === 0) return object;
@@ -11127,6 +11356,60 @@ export class ForgeExecutor {
         leftOut: { ...object.leftOut, byThePlatform: itsOwn.size },
       };
     });
+  }
+
+  /**
+   * Of the contact roles read, those the platform writes itself as it takes
+   * an opportunity the run creates, for the contact the opportunity goes in
+   * with (`rolesThePlatformWrites`), told before anything is written: of an
+   * opportunity among `opportunities` the run it retries did not write, whose
+   * `ContactId` names a contact among `contacts` or one the run has in the
+   * target already, where the run writes that field — the target lets its
+   * user create it, and the user's choices leave it in. The write links each
+   * to the platform's (`linkTheRolesThePlatformWrote`). Not told — the
+   * target's fields unread, or a contact the run may yet match in the target —
+   * a role is counted, as the write may send it.
+   */
+  private async rolesThePlatformWritesOfTheRead(
+    state: ExecutionState,
+    opportunities: readonly Record<string, unknown>[],
+    contacts: readonly Record<string, unknown>[],
+    roles: readonly Record<string, unknown>[],
+  ): Promise<ReadonlySet<Record<string, unknown>>> {
+    if (roles.length === 0 || opportunities.length === 0) return new Set();
+    const { config, remapper } = state;
+    if (
+      (config.fieldExclusions[OPPORTUNITY_OBJECT] ?? []).includes(CONTACT_FIELD) ||
+      config.fieldMappings[OPPORTUNITY_OBJECT]?.[CONTACT_FIELD] !== undefined
+    ) {
+      return new Set();
+    }
+    const read = state.preread.get(OPPORTUNITY_OBJECT);
+    if (!read?.createableSet.has(CONTACT_FIELD)) return new Set();
+    const sets = await (read.targetSetsPending ??
+      describeTargetFieldSets(this.deps.describeFields, state.targetOrgId, OPPORTUNITY_OBJECT).then(
+        (described) => ({ ok: true as const, sets: described }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ));
+    if (!sets.ok || !sets.sets.creatable.has(CONTACT_FIELD)) return new Set();
+    const key = (id: string): string => id.slice(0, 15);
+    const written = new Set(contacts.map((row) => key(String(row['Id']))));
+    /** The contact each opportunity goes in with, by the opportunity's source id. */
+    const contactOf = new Map<string, string>();
+    for (const row of opportunities) {
+      const id = row['Id'];
+      const contact = row[CONTACT_FIELD];
+      if (typeof id !== 'string' || typeof contact !== 'string' || contact === '') continue;
+      if (wasWrittenBefore(config, row)) continue;
+      if (!written.has(key(contact)) && remapper.get(contact) === undefined) continue;
+      contactOf.set(key(id), contact);
+    }
+    if (contactOf.size === 0) return new Set();
+    return new Set(
+      rolesThePlatformWrites(roles, (opportunity) => contactOf.get(key(opportunity))).map(
+        (index) => roles[index],
+      ),
+    );
   }
 
   /**
@@ -12827,6 +13110,21 @@ export class ForgeExecutor {
               keyPrefix: targetObject?.keyPrefix,
             })
           : { taken: 0, given: 0 };
+      // The contact an opportunity goes in with gets a role of the platform's
+      // as the opportunity is taken: noted for the roles' turn, where the
+      // source's role of that contact is linked to it rather than written a
+      // second time. See `linkTheRolesThePlatformWrote`.
+      if (node.objectApiName === OPPORTUNITY_OBJECT) {
+        noteContactsSentWith(state, cleanedRecords, recordsToInsert);
+      }
+      const rolesOfTheirOpportunity =
+        node.objectApiName === OPPORTUNITY_CONTACT_ROLE
+          ? await this.linkTheRolesThePlatformWrote(state, cleanedRecords, recordsToInsert, {
+              fields: targetFields,
+              updatable: targetUpdatableSet,
+              keyPrefix: targetObject?.keyPrefix,
+            })
+          : { linked: 0, given: 0 };
 
       // An order past Draft goes in as a draft, and gets its status back once
       // every node is written: see `restoreStatuses`.
@@ -12873,8 +13171,13 @@ export class ForgeExecutor {
           });
         }
       }
-      // Every row taken from the copies, there is nothing left to send.
-      if (rounds.length === 0 && (recordsToInsert.length > 0 || fromTheSync.taken === 0)) {
+      // Every row taken from the copies, or linked to the platform's roles,
+      // there is nothing left to send.
+      if (
+        rounds.length === 0 &&
+        (recordsToInsert.length > 0 ||
+          (fromTheSync.taken === 0 && rolesOfTheirOpportunity.linked === 0))
+      ) {
         rounds.push({ records: recordsToInsert, cleaned: cleanedRecords });
       }
 
@@ -12995,6 +13298,8 @@ export class ForgeExecutor {
         page.failed += nodeFailure;
         page.alreadyExists += writeResult.alreadyExistsCount;
         page.unidentified += nodeUnidentified;
+        page.rolesOfTheirOpportunity += rolesOfTheirOpportunity.linked;
+        page.rolesGiven += rolesOfTheirOpportunity.given;
         page.writtenWithoutFields = writeResult.writtenWithoutFields
           ? addWrittenWithoutFields(page.writtenWithoutFields, writeResult.writtenWithoutFields)
           : page.writtenWithoutFields;
@@ -13031,14 +13336,16 @@ export class ForgeExecutor {
       // and reported rather than written as if its rows were there.
       // A row linked to the record the target already held is not a failure:
       // its children have a parent to point at. Nor is one the run retried
-      // wrote, nor a person account's contact linked to the platform's.
+      // wrote, nor a person account's contact linked to the platform's, nor
+      // a contact role linked to the one the platform wrote.
       const settled =
         nodeSuccess +
         nodeUpdated +
         nodeLinked +
         writtenBefore.length +
         withTheirAccount.linked +
-        team.linked;
+        team.linked +
+        rolesOfTheirOpportunity.linked;
       const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
@@ -13084,7 +13391,12 @@ export class ForgeExecutor {
         withTheirAccount.linked > 0
           ? `, ${withTheirAccount.linked} written by the platform with their person account`
           : '';
-      const writtenWithTheirOpportunity = teamLinkedNote(team.owners, team.linked - team.owners);
+      const writtenWithTheirOpportunity =
+        teamLinkedNote(team.owners, team.linked - team.owners) +
+        rolesWithTheirOpportunityNote(
+          rolesOfTheirOpportunity.linked,
+          rolesOfTheirOpportunity.given,
+        );
       // Counted with the rows written or refused, as any contact is: which of
       // them were person accounts' contacts the target wrote none for. Only
       // those the write sent — the first rows it handed over, where a cancel

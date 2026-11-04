@@ -258,8 +258,12 @@ export function validationRulesSoql(objectApiNames: readonly string[]): string {
 /**
  * Whether any user can ever create the records of the objects named, over the
  * Tooling API: `IsEverCreatable` is false where the platform writes them
- * itself and no user can create one, whatever they are granted. A describe's
- * `createable` speaks for the user who asks alone.
+ * itself and no user can create one, whatever they are granted — a flow's
+ * records, a case's milestones. A describe's `createable` speaks for the user
+ * who asks alone. True says nothing either way: a scratch org answers it for
+ * calendars, entitlement processes, approvals' work items and reports, which
+ * no user creates as data, and every copy leaves those out by name
+ * (`excludedObjects.ts`).
  */
 export function everCreatableSoql(objectApiNames: readonly string[]): string {
   const names = objectApiNames.map((name) => `'${name}'`).join(', ');
