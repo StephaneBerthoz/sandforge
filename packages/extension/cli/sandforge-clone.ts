@@ -246,6 +246,7 @@ import {
 import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
+  type ForgeRunGateErrorCode,
   automationRefusal,
   deliverabilityPartOf,
   EMAILS_NOT_ACCEPTED,
@@ -341,8 +342,11 @@ import type {
 import {
   refusalOfSummary,
   refusedLine,
+  refusedRemovalSummary,
   refusedSummary,
   refusedSummaryWords,
+  wouldBeRefusedJson,
+  wouldBeRefusedLine,
   type RunRefusal,
 } from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
@@ -628,7 +632,10 @@ Options:
                          they may reach the real people the records name.
   --dry-run              skip writes, surface scoped queries    (default: off)
                          It reads the automation and counts the records as a
-                         real run does, and says what would stop that run.
+                         real run does, and says what would stop that run,
+                         each under the code that run is refused with: a real
+                         run would be refused (CODE): ... With --json, under
+                         wouldBeRefused, and the codes under wouldBeRefusedCodes.
   --rehearse             have the target judge the rows, keep none (default: off)
                          Reads and prepares every row as a real run would,
                          then creates a sample of them in the target — every
@@ -901,7 +908,9 @@ Remove what a run created:
                          panel, another machine or a CI wrote meanwhile, which
                          a sweep does not see
   --json                 print what became of the records as JSON on stdout,
-                         every other line on stderr
+                         every other line on stderr; refused for its mute before
+                         its first delete, "refused": {"code", "message"}, the
+                         code its line names: refused (MUTE_NO_RIGHT): ...
   --audit <file>         record the removal, and the sweep, in the audit trail
                          kept in <file>
 
@@ -5384,6 +5393,30 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
    * @param swept - The objects the sweep deletes records of, read with the
    *   run's own; it sets none of them back to Draft.
    */
+  /**
+   * End the removal refused for its mute before its first delete, as a
+   * refused run ends: its line names its code, and with --json stdout carries
+   * it. It said a sentence on stderr and left stdout empty.
+   */
+  function endRefused(refused: RunRefusal): never {
+    recordRemoval({ outcome: 'stopped', code: refused.code });
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-clone',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
+    return process.exit(1);
+  }
+
   async function checkTheAutomation(swept: readonly string[]): Promise<void> {
     const ofTheRun = plan.map((object) => object.objectApiName);
     const removed = [...new Set([...ofTheRun, ...swept])];
@@ -5406,9 +5439,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
-        recordRemoval({ outcome: 'stopped', code: err.code });
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        endRefused(err.refusal);
       }
     }
     const automation = removalMute?.automation ?? read;
@@ -5438,9 +5469,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             .acquire(`sandforge-clone --remove ${operationId}`)
             .catch((err: unknown) => {
               if (!isMuteRefusedError(err)) throw err;
-              recordRemoval({ outcome: 'stopped', code: err.code });
-              process.stderr.write(`${err.message}\n`);
-              process.exit(1);
+              return endRefused(err.refusal);
             })
         : undefined;
     if (held) mutedAutomation = held.outcome;
@@ -6755,7 +6784,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // assign, a real run writes nothing; a dry run says so, and assigns nothing.
   let mute: RunMute | undefined;
   /** Why a dry run's mute would be refused, said with the rest of its refusals. */
-  let muteRefused: string | undefined;
+  let muteRefused: RunRefusal | undefined;
   /**
    * End a run refused before its first write as Sync ends one: each refusal's
    * line names its code, and with --json the summary on stdout carries them,
@@ -6795,8 +6824,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
         endRefused(err.refusal);
       }
-      muteRefused = err.message;
-      say(`  a real run would be refused: ${err.message}`);
+      muteRefused = err.refusal;
+      say(`  ${wouldBeRefusedLine(err.refusal)}`);
     }
   }
   /** What the run's gate reads: what the mute keeps quiet held quiet. */
@@ -6848,10 +6877,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const emailsStop = emails?.gate.stop;
   /**
    * What a dry run says a real run would be refused for, each in its own
-   * words: given with --json under `wouldBeRefused`, where a pipeline reads
-   * it, as the lines say it on stderr.
+   * words and with the code a real run is refused with: given with --json
+   * under `wouldBeRefused` and `wouldBeRefusedCodes`, where a pipeline reads
+   * them, as the lines say them on stderr.
    */
-  const dryRunRefusals: string[] = muteRefused !== undefined ? [muteRefused] : [];
+  const dryRunRefusals: RunRefusal[] = muteRefused !== undefined ? [muteRefused] : [];
   const notAccepted = automationStop !== undefined && !args.acceptAutomation;
   if ((notAccepted || emailsStop) && !args.dryRun) {
     recordClone({
@@ -6869,15 +6899,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (emailsStop) endRefused(emailsStop);
   }
   if (notAccepted) {
-    dryRunRefusals.push(automationStop);
+    dryRunRefusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
     say(
-      '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
-        'and updates, or could not be read, above',
+      '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): it writes nothing without ' +
+        '--accept-automation: see what fires as it inserts and updates, or could not be read, ' +
+        'above',
     );
   }
   if (emailsStop) {
-    dryRunRefusals.push(emailsStop.message);
-    say(`  a real run would be refused: ${emailsStop.message}`);
+    dryRunRefusals.push(emailsStop);
+    say(`  ${wouldBeRefusedLine(emailsStop)}`);
   }
   await stopIfInterrupted();
 
@@ -7343,12 +7374,22 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       / Nothing was written\.$/,
       '',
     );
-    const reasons = [checkpointRefused, overTotal, overStorage, overEmails, overBudget].filter(
-      (reason): reason is string => reason !== undefined,
+    // Each under the code a real run refused for it alone is refused with.
+    const refusals = (
+      [
+        [CHECKPOINT_REFUSED, checkpointRefused],
+        ['MAX_TOTAL_EXCEEDED', overTotal],
+        ['STORAGE_EXCEEDED', overStorage],
+        ['EMAILS_EXCEEDED', overEmails],
+        [API_BUDGET_EXCEEDED, overBudget],
+      ] as const
+    ).flatMap(([code, message]): Array<{ code: ForgeRunGateErrorCode; message: string }> =>
+      message !== undefined ? [{ code, message }] : [],
     );
+    const reasons = refusals.map(({ message }) => message);
     if (boundary.dryRun) {
-      for (const reason of reasons) say(`  a real run would be refused: ${reason}`);
-      dryRunRefusals.push(...reasons);
+      for (const refusal of refusals) say(`  ${wouldBeRefusedLine(refusal)}`);
+      dryRunRefusals.push(...refusals);
       dryRunWritePlan = {
         totalRows: plan.totalRows,
         storageBytes: plan.storageBytes,
@@ -7359,19 +7400,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       };
       return;
     }
-    if (reasons.length > 0) {
-      throw new ForgeRunGateError(
-        checkpointRefused
-          ? CHECKPOINT_REFUSED
-          : overTotal
-            ? 'MAX_TOTAL_EXCEEDED'
-            : overStorage
-              ? 'STORAGE_EXCEEDED'
-              : overEmails
-                ? 'EMAILS_EXCEEDED'
-                : API_BUDGET_EXCEEDED,
-        `${reasons.join(' ')} Nothing was written.`,
-      );
+    if (refusals.length > 0) {
+      throw new ForgeRunGateError(refusals[0].code, `${reasons.join(' ')} Nothing was written.`);
     }
   };
 
@@ -7467,7 +7497,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // (--checkpoint-first): kept, or deleted once it wrote nothing; of a dry
     // run, what a real run's would hold and cost.
     ...checkpointDocument(),
-    ...(args.dryRun && dryRunRefusals.length > 0 ? { wouldBeRefused: dryRunRefusals } : {}),
+    ...(args.dryRun ? wouldBeRefusedJson(dryRunRefusals) : {}),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
     // The journal the run wrote as it went, and its part: where the ids are

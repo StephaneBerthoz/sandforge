@@ -126,6 +126,7 @@ const dryRunAnswer = z
       )
       .min(1),
     refusals: z.array(name).optional(),
+    refusalCodes: z.array(name).optional(),
   })
   .strict();
 const verifyAnswer = z
@@ -843,6 +844,9 @@ describe('sandforge-frozen load --dry-run --max-total', () => {
     expect(read.refusals).toEqual([
       expect.stringContaining('This load would insert 3 record(s), more than the 2 it may'),
     ]);
+    // Beside it, the code the load itself is refused with: the words alone, a
+    // pipeline could not tell one refusal from another.
+    expect(read.refusalCodes).toEqual(['MAX_RECORDS']);
   });
 
   it('ends as done when the load fits the count it is held to', async () => {
@@ -947,11 +951,14 @@ describe('sandforge-frozen load --dry-run --max-total', () => {
       expect(process.exitCode).toBe(1);
       const answer = JSON.parse(printed.join('')) as {
         refusals?: string[];
+        refusalCodes?: string[];
         mutedAutomation?: unknown;
       };
       expect(answer.refusals).toEqual([
         expect.stringContaining('the user the run writes as cannot assign permission sets'),
       ]);
+      // The code the load itself is refused with, below.
+      expect(answer.refusalCodes).toEqual(['MUTE_NO_RIGHT']);
       expect(answer).not.toHaveProperty('mutedAutomation');
       expect(permissions.assignments()).toEqual([]);
       expect(permissions.writes).toEqual([]);

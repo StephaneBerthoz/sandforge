@@ -853,7 +853,8 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(stdout).toContain(`sweep of the load of ${WRITTEN_OVER}:`);
       expect(stdout).toContain('Asset');
       expect(stdout).toContain(
-        "a load would be refused: TGT runs automation on the records this reload's sweep deletes: Asset",
+        'a load would be refused (AUTOMATION_NOT_ACCEPTED): TGT runs automation on the records ' +
+          "this reload's sweep deletes: Asset",
       );
       expect(org.deletes).toEqual([]);
       expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();

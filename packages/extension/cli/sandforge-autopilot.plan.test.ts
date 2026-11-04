@@ -240,7 +240,20 @@ describe('sandforge-autopilot — what a plan copies', () => {
 
     out.length = 0;
     await main(argv('--object', 'Lead', '--max-total', '5', '--plan-only'));
-    expect(out.join('')).toContain('a real run would be refused: The run would write 30 records');
+    expect(out.join('')).toContain(
+      'a real run would be refused (MAX_TOTAL_EXCEEDED): The run would write 30 records',
+    );
+
+    // With --json, beside its words, the code the real run above was refused with.
+    out.length = 0;
+    await main(argv('--object', 'Lead', '--max-total', '5', '--plan-only', '--json'));
+    const planned = JSON.parse(out.join('')) as {
+      writeGate: { refusals: string[]; refusalCodes: string[] };
+    };
+    expect(planned.writeGate.refusals).toEqual([
+      expect.stringMatching(/^The run would write 30 records, more than --max-total 5/),
+    ]);
+    expect(planned.writeGate.refusalCodes).toEqual(['MAX_TOTAL_EXCEEDED']);
   });
 
   it('names every reason a run is refused for under its own code, the others under alsoRefused', async () => {
@@ -303,7 +316,8 @@ describe('sandforge-autopilot — what a plan copies', () => {
         'welcome), more than the 15 of 15 it has left today',
     );
     expect(printed).toContain(
-      "a real run would be refused: The target's automation would make TGT send about 30 single emails",
+      "a real run would be refused (AUTOPILOT_EMAILS_EXCEEDED): The target's automation would " +
+        'make TGT send about 30 single emails',
     );
   });
 

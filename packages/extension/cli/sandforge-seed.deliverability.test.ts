@@ -353,14 +353,20 @@ describe('sandforge-seed --accept-emails', () => {
     });
     expect(writes()).toEqual([]);
 
-    // A dry run says it under wouldBeRefused, with every refusal of the gate.
+    // A dry run says it under wouldBeRefused, with every refusal of the gate,
+    // and its code beside it and on its line.
     stdout.length = 0;
+    stderr.length = 0;
     await main(argv('--accept-emails', '--dry-run', '--json'));
     expect(JSON.parse(stdout.join('')).wouldBeRefused).toEqual([
       expect.stringMatching(
         /^The seed was refused before it wrote anything: its records would make TGT send about 2 single emails/,
       ),
     ]);
+    expect(JSON.parse(stdout.join('')).wouldBeRefusedCodes).toEqual(['SEED_EMAILS_EXCEEDED']);
+    expect(stderr.join('')).toContain(
+      '  a real run would be refused (SEED_EMAILS_EXCEEDED): The seed was refused before it wrote',
+    );
   });
 
   it('prints a summary --remove reads as a run that wrote nothing', async () => {
@@ -418,11 +424,14 @@ describe('sandforge-seed --accept-emails', () => {
 
     const summary = JSON.parse(stdout.join('')) as {
       wouldBeRefused: string[];
+      wouldBeRefusedCodes: string[];
       emails: { refusal?: string; deliverability?: unknown };
     };
     expect(summary.wouldBeRefused).toEqual([
       expect.stringContaining('Add --accept-emails to seed all the same'),
     ]);
+    // The code a real run is refused with: EMAILS_NOT_ACCEPTED, above.
+    expect(summary.wouldBeRefusedCodes).toEqual(['EMAILS_NOT_ACCEPTED']);
     expect(summary.emails.refusal).toContain('Add --accept-emails to seed all the same');
     expect(writes()).toEqual([]);
   });

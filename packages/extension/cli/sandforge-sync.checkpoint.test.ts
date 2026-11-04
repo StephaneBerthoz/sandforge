@@ -574,8 +574,8 @@ describe('sandforge-sync --checkpoint-first', () => {
     await exitOf(argv('--checkpoint-first', '--dry-run'));
 
     expect(out.join('')).toContain(
-      'a run would be refused before it writes: it takes more API requests than the target has ' +
-        'left today',
+      'a run would be refused before it writes (API_BUDGET_EXCEEDED): it takes more API ' +
+        'requests than the target has left today',
     );
 
     // Without it, the run's own requests fit.
@@ -609,7 +609,10 @@ describe('sandforge-sync --checkpoint-first', () => {
       orgs([], limits);
       checkpointsOf([]);
       await exitOf(argv('--checkpoint-first', '--dry-run', '--json'));
-      const dry = JSON.parse(out.join('')) as { wouldBeRefused?: string[] };
+      const dry = JSON.parse(out.join('')) as {
+        wouldBeRefused?: string[];
+        wouldBeRefusedCodes?: string[];
+      };
 
       out.length = 0;
       orgs([], limits);
@@ -619,6 +622,8 @@ describe('sandforge-sync --checkpoint-first', () => {
 
       expect(real.refused.code).toBe(code);
       expect(dry.wouldBeRefused).toEqual([real.refused.message]);
+      // Its code beside it: the words alone, a pipeline could not tell them apart.
+      expect(dry.wouldBeRefusedCodes).toEqual([real.refused.code]);
     },
   );
 
@@ -645,9 +650,9 @@ describe('sandforge-sync --checkpoint-first', () => {
     await exitOf(argv('--checkpoint-first', '--dry-run'));
 
     expect(out.join('')).toContain(
-      'a run would be refused before it writes: The checkpoint before the run was refused: A ' +
-        'SandForge run is writing to TGT. Fix what refuses it, or run without --checkpoint-first ' +
-        'to write without one.',
+      'a run would be refused before it writes (CHECKPOINT_REFUSED): The checkpoint before the ' +
+        'run was refused: A SandForge run is writing to TGT. Fix what refuses it, or run without ' +
+        '--checkpoint-first to write without one.',
     );
 
     out.length = 0;
@@ -656,6 +661,28 @@ describe('sandforge-sync --checkpoint-first', () => {
       'The checkpoint before the run was refused: A SandForge run is writing to TGT. Fix what ' +
         'refuses it, or run without --checkpoint-first to write without one.',
     ]);
+    expect(JSON.parse(out.join('')).wouldBeRefusedCodes).toEqual(['CHECKPOINT_REFUSED']);
+  });
+
+  it('names with --dry-run the code of a mute a real run would be refused, on its line and beside its words', async () => {
+    orgs([]);
+    vi.mocked(muteForRun).mockRejectedValue(
+      new MuteRefusedError({ code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' }),
+    );
+
+    await exitOf(argv('--mute-automation', '--dry-run'));
+    expect(out.join('')).toContain(
+      'a real run would be refused (MUTE_NO_RIGHT): The user cannot assign.\n',
+    );
+
+    out.length = 0;
+    await exitOf(argv('--mute-automation', '--dry-run', '--json'));
+    const dry = JSON.parse(out.join('')) as {
+      wouldBeRefused?: string[];
+      wouldBeRefusedCodes?: string[];
+    };
+    expect(dry.wouldBeRefused).toEqual(['The user cannot assign.']);
+    expect(dry.wouldBeRefusedCodes).toEqual(['MUTE_NO_RIGHT']);
   });
 
   it('says with --dry-run that a scope it could not read would refuse a real run', async () => {

@@ -335,6 +335,7 @@ describe('sandforge-autopilot --accept-emails', () => {
       writeGate: {
         deliverability?: unknown;
         refusals: string[];
+        refusalCodes: string[];
         apiRequests: { parts?: Record<string, number> };
       };
     };
@@ -345,6 +346,7 @@ describe('sandforge-autopilot --accept-emails', () => {
     expect(printed.writeGate.refusals).toEqual([
       expect.stringContaining('Add --accept-emails to run it all the same'),
     ]);
+    expect(printed.writeGate.refusalCodes).toEqual(['EMAILS_NOT_ACCEPTED']);
     // A read back of the leads' record types, and the read of the deliverability.
     expect(printed.writeGate.apiRequests.parts).toMatchObject({ readBack: 1, deliverability: 1 });
   });

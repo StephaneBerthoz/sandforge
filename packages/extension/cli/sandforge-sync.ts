@@ -149,7 +149,15 @@ import {
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
-import { refusalOfSummary, refusedLine, refusedSummaryWords } from './runRefused.js';
+import {
+  refusalOfSummary,
+  refusedLine,
+  refusedRemovalSummary,
+  refusedSummaryWords,
+  wouldBeRefusedJson,
+  wouldBeRefusedLine,
+  type RunRefusal,
+} from './runRefused.js';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -187,6 +195,7 @@ import {
 } from '../src/modules/forge/TargetGapReader.js';
 import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
 import {
+  API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   EMAILS_NOT_ACCEPTED,
@@ -300,7 +309,10 @@ Options:
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
                          The run's file does too, whatever becomes of the
-                         run (see SANDFORGE_JOURNAL_DIR).
+                         run (see SANDFORGE_JOURNAL_DIR). A dry run's names
+                         under wouldBeRefused what a real run would be
+                         refused for, the code of each under
+                         wouldBeRefusedCodes, as its line names it.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the target refused others        (default: off)
   --mute-automation      mute the target's automation for the run through
@@ -445,7 +457,9 @@ Remove what a run created:
                          run, leaving those with what they hang from; without
                          it the removal stops before its first delete and
                          names them                             (default: off)
-  --json                 print the removal as JSON
+  --json                 print the removal as JSON; refused for its mute before
+                         its first write, "refused": {"code", "message"},
+                         the code its line names: refused (MUTE_NO_RIGHT): ...
 
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
@@ -1188,7 +1202,8 @@ export function recordTypeGivenOfObjectsLines(
  * @param muteAssigns - Whether a real run's mute would assign permission sets
  *   (`recordTypeGivenOfObjectsLines`).
  * @param checkpointRefused - Why a real run's checkpoint would be refused, in the command's words.
- * @param emailsRefused - Why a real run would be refused for the emails it makes the target send.
+ * @param emailsRefused - Why a real run would be refused for the emails it makes the target send:
+ *   the emails the target delivers, which no other flag than --accept-emails lifts.
  */
 export function simulationLines(
   simulation: SyncSimulationResult,
@@ -1219,31 +1234,39 @@ export function simulationLines(
       : []) {
       lines.push(`  ${line}`);
     }
+    // Each with the code a real run is refused with, as its own line names it.
     if (simulation.writeCheck.verdict === 'refused') {
       const check = simulation.writeCheck;
-      lines.push(
-        `    a run would be refused before it writes: ${
-          checkpointRefused ??
-          (check.storage.verdict === 'exceeds'
-            ? 'the records do not fit'
+      const [code, why]: [string, string] =
+        checkpointRefused !== undefined
+          ? [CHECKPOINT_REFUSED, checkpointRefused]
+          : check.storage.verdict === 'exceeds'
+            ? ['SYNC_STORAGE_EXCEEDED', 'the records do not fit']
             : check.apiRequests?.verdict === 'exceeds'
-              ? 'it takes more API requests than the target has left today'
-              : 'the target takes none of the records of an object it writes')
-        }`,
-      );
+              ? [API_BUDGET_EXCEEDED, 'it takes more API requests than the target has left today']
+              : [
+                  'SYNC_TARGET_UNWRITABLE',
+                  'the target takes none of the records of an object it writes',
+                ];
+      lines.push(`    a run would be refused before it writes (${code}): ${why}`);
     } else if ((simulation.writeCheck.unwritable ?? []).length > 0) {
       lines.push(
-        '    a run of the command would be refused before it writes: the target takes none of ' +
-          'the records of an object it writes; leave it out of the configuration',
+        '    a run of the command would be refused before it writes (SYNC_TARGET_UNWRITABLE): ' +
+          'the target takes none of the records of an object it writes; leave it out of the ' +
+          'configuration',
       );
     }
     const over = simulation.writeCheck.emails.some((email) => email.verdict === 'exceeds');
     if (simulation.writeCheck.verdict !== 'refused' && over) {
       lines.push(
-        '    a run of the command would be refused before it writes: past a daily email limit',
+        '    a run of the command would be refused before it writes (SYNC_EMAILS_EXCEEDED): past ' +
+          'a daily email limit',
       );
     } else if (simulation.writeCheck.verdict !== 'refused' && emailsRefused !== undefined) {
-      lines.push(`    a run of the command would be refused before it writes: ${emailsRefused}`);
+      lines.push(
+        `    a run of the command would be refused before it writes (${EMAILS_NOT_ACCEPTED}): ` +
+          emailsRefused,
+      );
     }
   }
   if (simulation.writeCheckUnread !== undefined) {
@@ -1981,22 +2004,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** Why a simulation's gate could not read what a real run's checkpoint would hold. */
   let checkpointFailed: string | undefined;
   /** Why a real run would be refused for its emails, as a simulation's gate found it. */
-  let emailsRefused: string | undefined;
+  let emailsRefused: RunRefusal | undefined;
   /**
    * Why a real run's gate would refuse it, in that gate's words, for what
    * nothing else a dry run says names — past the target's data storage, its
    * API requests or emails left today: the lines said it, `wouldBeRefused`
    * did not, and a pipeline that read it went on to a run refused.
    */
-  let gateRefused: string | undefined;
+  let gateRefused: RunRefusal | undefined;
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
     measure: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       checkpointFailed = measured.checkpointFailed;
-      emailsRefused = measured.runEmails?.gate.stop?.message;
+      emailsRefused = measured.runEmails?.gate.stop;
       // Asked as a real run's hold asks it.
       const answer = await gateSyncWrite(measured, { policy: 'refuse', org: args.target, orgTier });
-      gateRefused = !answer.go && !SAID_APART.has(answer.code) ? answer.message : undefined;
+      gateRefused =
+        !answer.go && !SAID_APART.has(answer.code)
+          ? { code: answer.code, message: answer.message }
+          : undefined;
       return measured.check;
     },
     hold: async (counted) => {
@@ -2050,8 +2076,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // a dry run measures what still runs, as a real run's gate does, so that
   // the checkpoint it says holds what a real run's would, and what the mute
   // keeps quiet creates nothing there.
-  let dryRunMute: Promise<{ planned?: RunMute; refused?: string }> | undefined;
-  const planDryRunMute = (): Promise<{ planned?: RunMute; refused?: string }> =>
+  let dryRunMute: Promise<{ planned?: RunMute; refused?: RunRefusal }> | undefined;
+  const planDryRunMute = (): Promise<{ planned?: RunMute; refused?: RunRefusal }> =>
     (dryRunMute ??= (async () => {
       const objects = config.objects.map((object) => object.objectApiName);
       const read = await measures
@@ -2065,8 +2091,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         return { planned };
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
-        log(`a real run would be refused: ${err.message}`);
-        return { refused: err.message };
+        log(wouldBeRefusedLine(err.refusal));
+        return { refused: err.refusal };
       }
     })());
   const readingTheDryRunMute: SyncWriteMeasures['readAutomation'] = async (objects) => {
@@ -2252,19 +2278,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       checkpointFailed ??
       (checkpointPlanned?.refusal ? checkpointRefusedWords(checkpointPlanned.refusal) : undefined);
     const unwritable = simulation.writeCheck?.unwritable ?? [];
+    // Each with the code a real run is refused with: the words alone, a
+    // pipeline could not tell one refusal from another.
     const wouldBeRefused = [
       muteRefused,
-      checkpointRefused,
+      checkpointRefused !== undefined
+        ? { code: CHECKPOINT_REFUSED, message: checkpointRefused }
+        : undefined,
       gateRefused,
       emailsRefused,
       unwritable.length > 0
-        ? unwritableRefusal(unwritable, args.target, simulation.writeCheck?.heldBack)
+        ? {
+            code: 'SYNC_TARGET_UNWRITABLE',
+            message: unwritableRefusal(unwritable, args.target, simulation.writeCheck?.heldBack),
+          }
         : undefined,
-    ].filter((reason): reason is string => reason !== undefined);
+    ].filter((reason): reason is RunRefusal => reason !== undefined);
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), ...(wouldBeRefused.length > 0 ? { wouldBeRefused } : {}), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }
@@ -2274,7 +2307,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       args.target,
       muteAssigns,
       checkpointRefused,
-      emailsRefused,
+      emailsRefused?.message,
     )) {
       log(line);
     }
@@ -3505,6 +3538,29 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     parts?.takes ?? [],
   );
   const written = [...new Set(Object.values(steps).flat())];
+  /**
+   * End the removal refused for its mute before its first write, as a refused
+   * run ends: its line names its code, and with --json stdout carries it. It
+   * said a sentence on stderr and left stdout empty.
+   */
+  const endRefused = (refused: RunRefusal): never => {
+    releaseStop();
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-sync',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
+    return process.exit(1);
+  };
   /** The removal's mute, asked with --mute-automation, held while it writes. */
   let removalMute: RunMute | undefined;
   if (written.length > 0 && !stop.signal.aborted) {
@@ -3523,9 +3579,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
-        releaseStop();
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        endRefused(err.refusal);
       }
     }
     const automation = removalMute?.automation ?? read;
@@ -3556,9 +3610,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       .acquire(`sandforge-sync --remove ${run.runId}`)
       .catch((err: unknown) => {
         if (!isMuteRefusedError(err)) throw err;
-        releaseStop();
-        process.stderr.write(`${err.message}\n`);
-        process.exit(1);
+        return endRefused(err.refusal);
       });
     mutedAutomation = held.outcome;
   };

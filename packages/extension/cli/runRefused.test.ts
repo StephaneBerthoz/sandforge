@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   refusalOfSummary,
   refusedLine,
+  refusedRemovalSummary,
   refusedSummary,
   refusedSummaryWords,
+  wouldBeRefusedJson,
+  wouldBeRefusedLine,
 } from './runRefused.js';
 
 const EMAILS = { code: 'EMAILS_NOT_ACCEPTED', message: 'TGT delivers every email.' };
@@ -12,6 +15,58 @@ const EMAILS = { code: 'EMAILS_NOT_ACCEPTED', message: 'TGT delivers every email
 describe('refusedLine', () => {
   it('names the code a CI job reads before the sentence', () => {
     expect(refusedLine(EMAILS)).toBe('refused (EMAILS_NOT_ACCEPTED): TGT delivers every email.');
+  });
+});
+
+describe('wouldBeRefusedLine', () => {
+  it('names the code a real run is refused with, as a rewind’s dry run names its own', () => {
+    expect(wouldBeRefusedLine(EMAILS)).toBe(
+      'a real run would be refused (EMAILS_NOT_ACCEPTED): TGT delivers every email.',
+    );
+    expect(wouldBeRefusedLine(EMAILS, 'a load')).toBe(
+      'a load would be refused (EMAILS_NOT_ACCEPTED): TGT delivers every email.',
+    );
+  });
+});
+
+describe('wouldBeRefusedJson', () => {
+  it('keeps the words where scripts read them, and gives each code beside, in their order', () => {
+    const storage = { code: 'SEED_STORAGE_EXCEEDED', message: 'The records do not fit.' };
+
+    expect(wouldBeRefusedJson([storage, EMAILS])).toEqual({
+      wouldBeRefused: ['The records do not fit.', 'TGT delivers every email.'],
+      wouldBeRefusedCodes: ['SEED_STORAGE_EXCEEDED', 'EMAILS_NOT_ACCEPTED'],
+    });
+  });
+
+  it('gives nothing when a real run would go', () => {
+    expect(wouldBeRefusedJson([])).toEqual({});
+  });
+});
+
+describe('refusedRemovalSummary', () => {
+  it('names the removal and its code, and reads as no run’s summary given back to --remove', () => {
+    const mute = {
+      code: 'MUTE_NO_RIGHT',
+      message: 'The user cannot assign. Nothing was assigned.',
+    };
+
+    const answer = JSON.parse(
+      refusedRemovalSummary(
+        { tool: 'sandforge-seed', summary: 'seed.json', target: 'TGT', elapsedMs: 5 },
+        mute,
+      ),
+    ) as Record<string, unknown>;
+
+    expect(answer).toEqual({
+      tool: 'sandforge-seed',
+      action: 'remove',
+      summary: 'seed.json',
+      target: 'TGT',
+      refused: mute,
+      elapsedMs: 5,
+    });
+    expect(refusalOfSummary(answer, 'sandforge-seed')).toBeUndefined();
   });
 });
 

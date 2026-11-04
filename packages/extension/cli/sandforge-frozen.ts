@@ -137,7 +137,7 @@ import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperat
 import { commandLineGuard } from './commandLineGuard.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { confirm, typed } from './prompt.js';
-import { refusedLine, type RunRefusal } from './runRefused.js';
+import { refusedLine, wouldBeRefusedLine, type RunRefusal } from './runRefused.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import {
   DONE_EXIT,
@@ -311,7 +311,9 @@ ${checkpointFirstHelp({
                          into the target created, for load, verify and remove; per
                          object, what the step counted ("objects"); verify's verdict,
                          and a load's, per object ("verdict"); and what a dry run or a
-                         removal's preview would be refused for ("refusals")
+                         removal's preview would be refused for ("refusals"), with a
+                         load's dry run the code of each ("refusalCodes"), as its line
+                         names it: a load would be refused (CODE): ...
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
@@ -1725,6 +1727,12 @@ export interface FrozenAnswer {
   /** What a dry run or a removal's preview says a real run would be refused for. */
   refusals?: string[];
   /**
+   * Of a load's dry run, the code a real load is refused with for each of
+   * `refusals`, in their order: the words alone, a pipeline could not tell
+   * them apart.
+   */
+  refusalCodes?: string[];
+  /**
    * Of a dry run or a preview asked to mute: what a real load or removal would
    * assign, silence, leave running and lift beside; of a removal that muted,
    * what it did.
@@ -1755,6 +1763,8 @@ export interface FrozenAnswerContext {
   targetOrgId?: string;
   /** What the step itself says a real run would be refused for. */
   refusals?: readonly string[];
+  /** The code of each of `refusals`, in their order, where the step knows them all. */
+  refusalCodes?: readonly string[];
   /** Of a dry run or a preview asked to mute, what a real step's mute would do. */
   mute?: { mutedAutomation: MutedAutomation; mutePlan: MutePlan };
   /** The checkpoint the load took first, or of a dry run, the one a real load would take. */
@@ -1913,6 +1923,10 @@ export async function frozenAnswer(
   }
   refusals.push(...(context.refusals ?? []));
   if (refusals.length > 0) answer.refusals = refusals;
+  // Given only when each refusal has its code: a preview's own refusals have none.
+  if (refusals.length > 0 && context.refusalCodes?.length === refusals.length) {
+    answer.refusalCodes = [...context.refusalCodes];
+  }
   if (context.mute) Object.assign(answer, context.mute);
   if (context.checkpoint) answer.checkpoint = context.checkpoint;
   return answer;
@@ -2038,8 +2052,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** The dataset the configuration points a load at. */
   const datasetDir =
     typeof config.datasetDir === 'string' ? config.datasetDir : join(sasDir, 'dataset');
-  /** What a dry run says the load would be refused for, beside its plan. */
-  const refusals: string[] = [];
+  /** What a dry run says the load would be refused for, beside its plan, each with its code. */
+  const refusals: RunRefusal[] = [];
+  /** Say what a load's dry run would be refused for, under the code a real load is refused with. */
+  const wouldRefuse = (refused: RunRefusal): void => {
+    refusals.push(refused);
+    log(wouldBeRefusedLine(refused, 'a load'));
+  };
   /** What a removal's preview says it would be refused for: a preview said exits 0. */
   const removalRefusals: string[] = [];
   /** What refused the step itself before its first write, with its code. */
@@ -2054,12 +2073,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    */
   const emit = async (ended?: true): Promise<void> => {
     if (!args.json) return;
-    const refused = [...refusals, ...removalRefusals];
+    const refused = [...refusals.map(({ message }) => message), ...removalRefusals];
     const answer = await frozenAnswer(args.step, posted, {
       datasetDir,
       sasDir,
       ...(targetOrgId ? { targetOrgId } : {}),
       ...(refused.length > 0 ? { refusals: refused } : {}),
+      ...(refusals.length > 0 && removalRefusals.length === 0
+        ? { refusalCodes: refusals.map(({ code }) => code) }
+        : {}),
       ...(dryRunMute ? { mute: dryRunMute } : {}),
       ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
@@ -2260,10 +2282,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           const tooMany = plan
             ? loadRecordsRefusal(loadPlanRecords(plan), args.maxTotal)
             : undefined;
-          if (tooMany) {
-            refusals.push(tooMany);
-            log(`a load would be refused: ${tooMany}`);
-          }
+          // MAX_RECORDS, as the load refuses it.
+          if (tooMany) wouldRefuse({ code: 'MAX_RECORDS', message: tooMany });
           // What a reload's purge would fire, read and judged as the reload
           // reads it before it writes: a dry run that let by what its run then
           // refused would have a plan apply what it cannot. Asked with a
@@ -2273,8 +2293,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           const sweptObjects = (plan && args.sweep ? await reloadSweepObjects() : []) ?? [];
           const purge = plan ? await purgeAutomation(sweptObjects) : undefined;
           if (purge?.refusal !== undefined) {
-            refusals.push(purge.refusal);
-            log(`a load would be refused: ${purge.refusal}`);
+            wouldRefuse({ code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal });
           }
           // What a load with --mute-automation would assign, silence, leave
           // running and lift beside, read from the target as the load would
@@ -2296,9 +2315,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             });
             if ('refused' in prepared) {
               // The purge's own read was refused the same, and said it already.
-              if (!refusals.includes(prepared.refused.message)) {
-                refusals.push(prepared.refused.message);
-                log(`a load would be refused: ${prepared.refused.message}`);
+              if (!refusals.some(({ message }) => message === prepared.refused.message)) {
+                wouldRefuse(prepared.refused);
               }
             } else {
               for (const line of muteLines(prepared.planned, args.target ?? 'the target')) {
@@ -2336,10 +2354,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               checkpointAnswer = estimate;
               for (const line of checkpointEstimateLines(estimate)) log(line);
             }
-            if (refused !== undefined) {
-              refusals.push(refused);
-              log(`a load would be refused: ${refused}`);
-            }
+            if (refused !== undefined) wouldRefuse({ code: CHECKPOINT_REFUSED, message: refused });
           }
           break;
         }
@@ -2362,7 +2377,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // With its code, as a refused clone, seed or sync gives it: the
           // sentence alone, a pipeline could not tell why.
           stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };
-          refusals.push(purge.refusal);
+          refusals.push(stepRefused);
           log(refusedLine(stepRefused));
           failed = true;
           return 'ended';
@@ -2387,7 +2402,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             for (const line of lines) log(line);
             if (refusal === undefined || args.acceptAutomation) return undefined;
             stepRefused = { code: 'AUTOMATION_NOT_ACCEPTED', message: refusal };
-            refusals.push(refusal);
+            refusals.push(stepRefused);
             return stepRefused;
           });
         }

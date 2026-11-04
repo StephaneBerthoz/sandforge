@@ -54,7 +54,7 @@ import {
   type SweepParts,
 } from '../src/modules/forge/ForgeRunSweep.js';
 import type { ForgeSweepResult, MutedAutomation } from '@sandforge/shared';
-import { muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
+import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import {
   writePathOrderDefects,
   type WritePathStep,
@@ -763,6 +763,72 @@ describe('sandforge-seed --remove', () => {
     expect(acquire).not.toHaveBeenCalled();
     expect(org.deletes).toEqual([]);
   });
+
+  it.each([
+    [
+      'as it plans the mute',
+      'plan',
+      {
+        code: 'MUTE_NO_RIGHT' as const,
+        message: 'The user cannot assign permission sets in TGT. Nothing was assigned.',
+      },
+    ],
+    [
+      'as it takes the lease',
+      'lease',
+      {
+        code: 'MUTE_FAILED' as const,
+        message: 'The lease could not be kept. Nothing was assigned.',
+      },
+    ],
+  ])(
+    'ends a removal whose mute is refused %s under its code, on stderr and with --json on stdout, nothing deleted',
+    async (_when, when, refusal) => {
+      // A sentence on stderr and an empty stdout: a CI job could not tell why.
+      if (when === 'plan') {
+        vi.mocked(muteForRun).mockRejectedValue(new MuteRefusedError(refusal));
+      } else {
+        const automation = { objectsRead: [], objects: [], unread: [] } as never;
+        const muted: MutedAutomation = {
+          state: 'muted',
+          assigned: ['PS_Bypass'],
+          held: [],
+          permissions: ['Bypass'],
+          silenced: [],
+          stillRan: [],
+        };
+        vi.mocked(muteForRun).mockResolvedValue({
+          automation,
+          muted,
+          prepared: {
+            plan: { assign: [], silenced: [], stillRuns: [] },
+            automation,
+            planned: muted,
+            acquire: async () => {
+              throw new MuteRefusedError(refusal);
+            },
+          },
+        });
+      }
+      const exit = stubExit();
+
+      await expect(
+        main(argv('--remove', file, '--target', 'TGT', '--mute-automation', '--json')),
+      ).rejects.toThrow('exit 1');
+
+      expect(exit.code()).toBe(1);
+      expect(exit.stderr()).toContain(`refused (${refusal.code}): ${refusal.message}\n`);
+      expect(JSON.parse(stdout)).toEqual({
+        tool: 'sandforge-seed',
+        action: 'remove',
+        summary: file,
+        target: 'TGT',
+        refused: refusal,
+        elapsedMs: expect.any(Number),
+      });
+      expect(org.deletes).toEqual([]);
+    },
+  );
 
   describe('what the sweep found made for the run', () => {
     const TASK = fakeId('00T', 1);

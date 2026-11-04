@@ -55,7 +55,7 @@ import {
 } from '../src/modules/forge/ForgeRunSweep.js';
 import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
 import { refusedSummary } from './runRefused.js';
-import { muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
+import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 import {
   writePathOrderDefects,
@@ -837,6 +837,78 @@ describe('sandforge-clone --remove', () => {
       expect(printed).toContain('  nothing fires on the 2 object(s) it deletes records of');
       expect(removeRunRecords).toHaveBeenCalledTimes(1);
     });
+
+    it.each([
+      [
+        'as it plans the mute',
+        'plan',
+        {
+          code: 'MUTE_NO_RIGHT' as const,
+          message: 'The user cannot assign permission sets in TGT. Nothing was assigned.',
+        },
+      ],
+      [
+        'as it takes the lease',
+        'lease',
+        {
+          code: 'MUTE_FAILED' as const,
+          message: 'The lease could not be kept. Nothing was assigned.',
+        },
+      ],
+    ])(
+      'ends a removal whose mute is refused %s under its code, on stderr and with --json on stdout, nothing deleted',
+      async (_when, when, refusal) => {
+        // A sentence on stderr and an empty stdout: a CI job could not tell why.
+        if (when === 'plan') {
+          vi.mocked(muteForRun).mockRejectedValueOnce(new MuteRefusedError(refusal));
+        } else {
+          const automation = { objectsRead: [], objects: [], unread: [] } as never;
+          const muted: MutedAutomation = {
+            state: 'muted',
+            assigned: ['PS_Bypass'],
+            held: [],
+            permissions: ['Bypass'],
+            silenced: [],
+            stillRan: [],
+          };
+          vi.mocked(muteForRun).mockResolvedValueOnce({
+            automation,
+            muted,
+            prepared: {
+              plan: { assign: [], silenced: [], stillRuns: [] },
+              automation,
+              planned: muted,
+              acquire: async () => {
+                throw new MuteRefusedError(refusal);
+              },
+            },
+          });
+        }
+        // As the removal goes: the lease before its first delete.
+        const deleted: string[] = [];
+        vi.mocked(removeRunRecords).mockImplementation(async (_org, _plan, options) => {
+          await options.beforeFirstWrite?.();
+          deleted.push('the run’s records');
+          return TOOK_ALL;
+        });
+        const summaryPath = file(runSummary());
+
+        expect(
+          await run(['--remove', summaryPath, '--target', 'TGT', '--mute-automation', '--json']),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(`refused (${refusal.code}): ${refusal.message}\n`);
+        expect(JSON.parse(stdout.join(''))).toEqual({
+          tool: 'sandforge-clone',
+          action: 'remove',
+          summary: summaryPath,
+          target: 'TGT',
+          refused: refusal,
+          elapsedMs: expect.any(Number),
+        });
+        expect(deleted).toEqual([]);
+      },
+    );
 
     it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
       vi.mocked(targetConn.tooling.query).mockRejectedValueOnce(

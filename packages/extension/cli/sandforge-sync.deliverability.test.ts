@@ -369,6 +369,7 @@ describe('sandforge-sync --accept-emails', () => {
     const printed = JSON.parse(out.join('')) as {
       simulation: SyncSimulationResult;
       wouldBeRefused?: string[];
+      wouldBeRefusedCodes?: string[];
     };
     expect(printed.simulation.writeCheck?.deliverability).toEqual({
       reading: { level: 'all' },
@@ -379,6 +380,8 @@ describe('sandforge-sync --accept-emails', () => {
     expect(printed.wouldBeRefused).toEqual([
       expect.stringContaining('Add --accept-emails to sync all the same'),
     ]);
+    // The code a real run is refused with, beside it.
+    expect(printed.wouldBeRefusedCodes).toEqual(['EMAILS_NOT_ACCEPTED']);
     expect(events).toEqual(['deliverability read']);
 
     // Given the flag, a dry run says no refusal of it.
@@ -392,7 +395,10 @@ describe('sandforge-sync --accept-emails', () => {
     const events: string[] = [];
     orgs(events, 'all', false, DESCRIBED, 1);
     expect(await exitOf(argv('--dry-run', '--json', '--accept-emails'))).toBe(0);
-    const dry = JSON.parse(out.join('')) as { wouldBeRefused?: string[] };
+    const dry = JSON.parse(out.join('')) as {
+      wouldBeRefused?: string[];
+      wouldBeRefusedCodes?: string[];
+    };
 
     out.length = 0;
     orgs(events, 'all', false, DESCRIBED, 1);
@@ -401,6 +407,7 @@ describe('sandforge-sync --accept-emails', () => {
 
     expect(real.refused.code).toBe('SYNC_EMAILS_EXCEEDED');
     expect(dry.wouldBeRefused).toEqual([real.refused.message]);
+    expect(dry.wouldBeRefusedCodes).toEqual([real.refused.code]);
     expect(events).not.toContain('write');
   });
 
@@ -430,6 +437,7 @@ describe('sandforge-sync --accept-emails', () => {
     const printed = JSON.parse(out.join('')) as {
       simulation: SyncSimulationResult;
       wouldBeRefused?: string[];
+      wouldBeRefusedCodes?: string[];
     };
     expect(printed.simulation.objects[0]).toMatchObject({ insert: 0, refused: ACCOUNTS.length });
     expect(printed.simulation.writeCheck?.unwritable).toEqual([
@@ -438,6 +446,7 @@ describe('sandforge-sync --accept-emails', () => {
     expect(printed.wouldBeRefused).toEqual([
       expect.stringContaining('its upsert matches on Name, neither an External ID nor an idLookup'),
     ]);
+    expect(printed.wouldBeRefusedCodes).toEqual(['SYNC_TARGET_UNWRITABLE']);
 
     expect(await exitOf(onName)).toBe(1);
     expect(events).toEqual([]);

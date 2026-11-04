@@ -1086,10 +1086,16 @@ describe('sandforge-checkpoint rewind', () => {
         'a rewind now would be refused (EMAILS_DELIVERED): DEV-SB delivers every email',
       );
       // A script reads the code and the reason, as a dry run of Sync or a clone gives them.
-      const answer = JSON.parse(stdout) as { refusal?: unknown; wouldBeRefused: string[] };
+      const answer = JSON.parse(stdout) as {
+        refusal?: unknown;
+        wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
+      };
       expect(answer.wouldBeRefused).toEqual([
         expect.stringMatching(/^refused \(EMAILS_DELIVERED\): DEV-SB delivers every email/),
       ]);
+      // Under the key every other dry run gives its codes in.
+      expect(answer.wouldBeRefusedCodes).toEqual(['EMAILS_DELIVERED']);
       // Not the preview's own refusal, which `reset` stops on before its question.
       expect(answer).not.toHaveProperty('refusal');
     });

@@ -667,8 +667,9 @@ describe('sandforge-clone target automation', () => {
     expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
 
     expect(printed).toContain(
-      '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
-        'and updates, or could not be read, above',
+      '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): it writes nothing without ' +
+        '--accept-automation: see what fires as it inserts and updates, or could not be read, ' +
+        'above',
     );
     expect(stderr).toBe('');
     expect(orgs.TGT.written).toEqual([]);
@@ -962,8 +963,9 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--dry-run', '--max-total', '1'))).toBe(undefined);
 
       expect(printed).toContain(
-        '  a real run would be refused: The run would write 2 records, more than --max-total 1: ' +
-          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total.',
+        '  a real run would be refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, ' +
+          'more than --max-total 1: narrow the clone (--max, --exclude-object, --filter), or ' +
+          'raise --max-total.',
       );
       expect(orgs.TGT.written).toEqual([]);
     });
@@ -996,7 +998,8 @@ describe('sandforge-clone target automation', () => {
           'avoids it',
       );
       expect(printed).toContain(
-        "  a real run would be refused: The target's automation would make TGT send about 1 " +
+        '  a real run would be refused (EMAILS_EXCEEDED): ' +
+          "The target's automation would make TGT send about 1 " +
           'single emails (its email alerts among them, as a Developer Edition counts them), 0 ' +
           'of 15 left today: past them, each record whose flow fails in the save is refused ' +
           "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the " +
@@ -1008,6 +1011,8 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
 
       expect(stderr).toContain("The target's automation would make TGT send about 1 single emails");
+      // Under the code its dry run named.
+      expect(stderr).toContain('refused (EMAILS_EXCEEDED): ');
       expect(stderr).toContain('Nothing was written.');
       expect(orgs.TGT.written).toEqual([]);
     });
@@ -1309,8 +1314,9 @@ describe('sandforge-clone target automation', () => {
       expect(perms.writes).toEqual([]);
       // The flow it would mute is asked about no more.
       expect(printed).not.toContain(
-        '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
-          'and updates, or could not be read, above',
+        '  a real run would be refused (AUTOMATION_NOT_ACCEPTED): it writes nothing without ' +
+          '--accept-automation: see what fires as it inserts and updates, or could not be read, ' +
+          'above',
       );
     });
 
@@ -1515,6 +1521,21 @@ describe('sandforge-clone target automation', () => {
         dryRun: false,
         refused: { code: 'MUTE_NO_RIGHT' },
       });
+
+      // A dry run names that code on its line and beside its words.
+      withOrgs(mutableTarget({ canAssign: false }).target);
+      stdout = '';
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--dry-run', '--json')),
+      ).toBeUndefined();
+      expect(errored).toContainEqual(
+        expect.stringMatching(
+          /^ {2}a real run would be refused \(MUTE_NO_RIGHT\): .*cannot assign permission sets/,
+        ),
+      );
+      const dry = JSON.parse(stdout) as { wouldBeRefused: string[]; wouldBeRefusedCodes: string[] };
+      expect(dry.wouldBeRefusedCodes[0]).toBe('MUTE_NO_RIGHT');
+      expect(dry.wouldBeRefused[0]).toMatch(/cannot assign permission sets/);
     });
 
     // Run with the leases' folder turned read only once the lease was
@@ -1762,6 +1783,8 @@ describe('sandforge-clone target automation', () => {
           'this run once it has ended. Fix what refuses it, or run without --checkpoint-first to ' +
           'write without one.',
       );
+      // Under the code the real run above was refused with.
+      expect(JSON.parse(stdout).wouldBeRefusedCodes).toContain('CHECKPOINT_REFUSED');
     });
 
     it('writes nothing and assigns nothing when the take is refused', async () => {
@@ -2086,14 +2109,24 @@ describe('sandforge-clone target automation', () => {
 
       const summary = JSON.parse(stdout) as {
         wouldBeRefused: string[];
+        wouldBeRefusedCodes: string[];
         targetAutomation: { deliverability?: unknown };
       };
       expect(summary.wouldBeRefused).toContainEqual(
         expect.stringContaining('Add --accept-emails to clone all the same'),
       );
+      // Each beside the code a real run is refused with, in the same order.
+      expect(
+        summary.wouldBeRefusedCodes[
+          summary.wouldBeRefused.findIndex((words) => words.includes('Add --accept-emails'))
+        ],
+      ).toBe('EMAILS_NOT_ACCEPTED');
+      expect(summary.wouldBeRefusedCodes).toHaveLength(summary.wouldBeRefused.length);
       expect(summary.targetAutomation.deliverability).toEqual({ level: 'all' });
       expect(errored).toContainEqual(
-        expect.stringContaining('  a real run would be refused: TGT delivers every email'),
+        expect.stringContaining(
+          '  a real run would be refused (EMAILS_NOT_ACCEPTED): TGT delivers every email',
+        ),
       );
     });
 

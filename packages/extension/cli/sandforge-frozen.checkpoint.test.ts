@@ -544,6 +544,10 @@ describe('sandforge-frozen load --checkpoint-first', () => {
         'object out of it (--checkpoint-exclude-object <ApiName>), or run without ' +
         '--checkpoint-first to write without one.',
     ]);
+    expect(answer().refusalCodes).toEqual(['CHECKPOINT_REFUSED']);
+    expect(errored.join('')).toContain(
+      'a load would be refused (CHECKPOINT_REFUSED): The checkpoint before the run was refused',
+    );
     expect(process.exitCode).toBe(1);
   });
 

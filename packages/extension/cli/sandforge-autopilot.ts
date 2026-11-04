@@ -43,7 +43,7 @@ import { isProductionTarget, refuseProductionTarget, typeTarget } from './target
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
-import { refusedLine, refusedSummary, type RunRefusal } from './runRefused.js';
+import { refusedLine, refusedSummary, wouldBeRefusedLine, type RunRefusal } from './runRefused.js';
 import {
   AutopilotOrchestrator,
   type AutopilotPlanFit,
@@ -177,6 +177,10 @@ Options:
                          whatever the framework                   (default: off)
   --batch-size <n>       records per write call                   (default: 200)
   --plan-only            scan, graph and plan, then stop          (default: off)
+                         Says what a real run would be refused for, each under
+                         its code: a real run would be refused (CODE): ...;
+                         with --json, under writeGate.refusals, the codes
+                         under writeGate.refusalCodes
   --mute-automation      mute the target's automation for the run through
                          its own bypass: assign the user the run writes as,
                          for the run alone, the permission sets holding the
@@ -1010,7 +1014,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
     for (const line of recordTypeGivenOfObjectsLines(graph.nodes, true, muteAssigns)) log(line);
-    for (const reason of refusals) log(`  a real run would be refused: ${reason}`);
+    for (const refused of refusedFor) log(`  ${wouldBeRefusedLine(refused)}`);
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -1029,6 +1033,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               // Whether the target delivers them: absent when nothing sends.
               ...(emailsGate?.deliverability ? { deliverability: emailsGate.deliverability } : {}),
               refusals,
+              // The code a real run is refused with for each, in their order:
+              // the words alone, a pipeline could not tell them apart.
+              refusalCodes: refusedFor.map(({ code }) => code),
             },
             // What a real run's mute would assign, silence, leave running
             // and lift beside, as the lines say it.

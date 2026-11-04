@@ -1019,7 +1019,9 @@ describe('what a run says before its first write', () => {
     expect(lines).toContain('  write order: Account, Contact');
     expect(lines).toContain('    Contact after Account: its AccountId names one');
     expect(lines).toContain('    data storage of TRAP: 4 MB left of 5 MB: the records do not fit');
-    expect(lines).toContain('    a run would be refused before it writes: the records do not fit');
+    expect(lines).toContain(
+      '    a run would be refused before it writes (SYNC_STORAGE_EXCEEDED): the records do not fit',
+    );
     expect(lines).toContain(
       '      2 already copied by an earlier run of this configuration, left as they are',
     );

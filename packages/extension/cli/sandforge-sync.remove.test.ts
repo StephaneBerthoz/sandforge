@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import type { ForgeTargetAutomation } from '@sandforge/shared';
+import type { ForgeTargetAutomation, MutedAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
 
@@ -31,8 +31,14 @@ vi.mock('./sandforge-clone.js', async (original) => ({
   ...(await original<typeof import('./sandforge-clone.js')>()),
   targetAutomationReader: vi.fn(() => ({ read: automationRead })),
 }));
+// The mute as it is, unless a test says how the org refuses it.
+vi.mock('../src/modules/forge/AutomationMuteLease.js', async (original) => {
+  const actual = await original<typeof import('../src/modules/forge/AutomationMuteLease.js')>();
+  return { ...actual, muteForRun: vi.fn(actual.muteForRun) };
+});
 
 import { makeConn } from './sfSession.js';
+import { MuteRefusedError, muteForRun } from '../src/modules/forge/AutomationMuteLease.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
   bothRecorders,
@@ -578,6 +584,73 @@ describe('sandforge-sync --remove', () => {
       expect(stdout).toContain('  nothing fires on the 2 object(s) it writes records of');
       expect(org.all('Account')).toEqual([]);
     });
+
+    it.each([
+      [
+        'as it plans the mute',
+        'plan',
+        {
+          code: 'MUTE_PRODUCTION' as const,
+          message:
+            'TGT is a production org: its automation is never muted there. Nothing was assigned.',
+        },
+      ],
+      [
+        'as it takes the lease',
+        'lease',
+        {
+          code: 'MUTE_FAILED' as const,
+          message: 'The lease could not be kept. Nothing was assigned.',
+        },
+      ],
+    ])(
+      'ends a removal whose mute is refused %s under its code, on stderr and with --json on stdout, nothing written',
+      async (_when, when, refusal) => {
+        // A sentence on stderr and an empty stdout: a CI job could not tell why.
+        if (when === 'plan') {
+          vi.mocked(muteForRun).mockRejectedValueOnce(new MuteRefusedError(refusal));
+        } else {
+          const automation = { objectsRead: [], objects: [], unread: [] } as never;
+          const muted: MutedAutomation = {
+            state: 'muted',
+            assigned: ['PS_Bypass'],
+            held: [],
+            permissions: ['Bypass'],
+            silenced: [],
+            stillRan: [],
+          };
+          vi.mocked(muteForRun).mockResolvedValueOnce({
+            automation,
+            muted,
+            prepared: {
+              plan: { assign: [], silenced: [], stillRuns: [] },
+              automation,
+              planned: muted,
+              acquire: async () => {
+                throw new MuteRefusedError(refusal);
+              },
+            },
+          });
+        }
+        const exit = stubExit();
+
+        await expect(
+          main(argv('--remove', file, '--target', 'TGT', '--mute-automation', '--json')),
+        ).rejects.toThrow('exit 1');
+
+        expect(exit.code()).toBe(1);
+        expect(exit.stderr()).toContain(`refused (${refusal.code}): ${refusal.message}\n`);
+        expect(JSON.parse(stdout)).toEqual({
+          tool: 'sandforge-sync',
+          action: 'remove',
+          summary: file,
+          target: 'TGT',
+          refused: refusal,
+          elapsedMs: expect.any(Number),
+        });
+        expect(org.deletes).toEqual([]);
+      },
+    );
 
     it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
       automationRead.mockResolvedValueOnce({

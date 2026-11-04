@@ -714,10 +714,21 @@ describe('sandforge-clone of whole tables', () => {
 
       expect(await run(argv('--dry-run', '--json', '--max-total', '4'))).toBeUndefined();
 
-      const summary = JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] };
+      const summary = JSON.parse(stdout.join('')) as {
+        wouldBeRefused?: string[];
+        wouldBeRefusedCodes?: string[];
+      };
       expect(summary.wouldBeRefused).toEqual([
         expect.stringContaining('The run would write 5 records, more than --max-total 4'),
       ]);
+      // The code a real run is refused with, beside it: the words alone, a
+      // pipeline could not tell them apart.
+      expect(summary.wouldBeRefusedCodes).toEqual(['MAX_TOTAL_EXCEEDED']);
+
+      stdout = [];
+      withFakeOrgs();
+      expect(await run(argv('--json', '--max-total', '4'))).toBe(1);
+      expect(JSON.parse(stdout.join('')).refused.code).toBe(summary.wouldBeRefusedCodes?.[0]);
     });
 
     it('holds a real run to --max-total, writing nothing past it, and gives no write plan of its own', async () => {

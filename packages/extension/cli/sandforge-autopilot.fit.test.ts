@@ -364,7 +364,9 @@ describe('sandforge-autopilot --fit', () => {
       await main(argv('--plan-only', '--fit-cap', '4', '--fit-within', '0.001'));
 
       expect(said()).toContain('fit: the plan cannot be fitted: with these caps the plan takes');
-      expect(said()).toContain('a real run would be refused: The plan cannot be fitted to TGT');
+      expect(said()).toContain(
+        'a real run would be refused (AUTOPILOT_CANNOT_FIT): The plan cannot be fitted to TGT',
+      );
     });
   });
 

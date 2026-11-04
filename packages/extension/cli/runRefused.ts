@@ -19,6 +19,35 @@ export function refusedLine({ code, message }: RunRefusal): string {
   return `refused (${code}): ${message}`;
 }
 
+/**
+ * The line a dry run says a refusal a real run would meet on, its code named
+ * as the real run's line names it, as a rewind's dry run says its own: the
+ * sentence alone, a pipeline could not tell one refusal from another.
+ *
+ * @param run - What would be refused, as the command says it: `a real run`, `a load`.
+ */
+export function wouldBeRefusedLine({ code, message }: RunRefusal, run = 'a real run'): string {
+  return `${run} would be refused (${code}): ${message}`;
+}
+
+/**
+ * What a dry run's `--json` gives of the refusals a real run would meet: their
+ * words under `wouldBeRefused`, the shape scripts read, and beside them, in
+ * the same order, the code a real run is refused with for each. Nothing when
+ * a real run would go.
+ */
+export function wouldBeRefusedJson(refusals: readonly RunRefusal[]): {
+  wouldBeRefused?: string[];
+  wouldBeRefusedCodes?: string[];
+} {
+  return refusals.length > 0
+    ? {
+        wouldBeRefused: refusals.map(({ message }) => message),
+        wouldBeRefusedCodes: refusals.map(({ code }) => code),
+      }
+    : {};
+}
+
 /** What the summary of a refused run names. */
 export interface RefusedRun {
   tool: string;
@@ -49,6 +78,30 @@ export function refusedSummary(
       ...(also.length > 0 ? { alsoRefused: also } : {}),
       elapsedMs,
     },
+    null,
+    2,
+  )}\n`;
+}
+
+/** What the answer of a removal refused before its first delete names. */
+export interface RefusedRemoval {
+  tool: string;
+  /** What the removal was asked to take back: the summary, or the run's file. */
+  summary: string;
+  target: string;
+  elapsedMs: number;
+}
+
+/**
+ * The `--json` answer of a removal refused before its first delete, as stdout
+ * carries it: the removal's, with its code, as a refused run's. Refused for
+ * its mute, a removal said a sentence on stderr and left stdout empty. It
+ * says no `dryRun`: saved and given to `--remove`, it reads as no run's summary.
+ */
+export function refusedRemovalSummary(removal: RefusedRemoval, refused: RunRefusal): string {
+  const { tool, summary, target, elapsedMs } = removal;
+  return `${JSON.stringify(
+    { tool, action: 'remove', summary, target, refused, elapsedMs },
     null,
     2,
   )}\n`;

@@ -522,7 +522,9 @@ describe('sandforge-seed --checkpoint-first', () => {
     expect(JSON.parse(stdout.join('')).wouldBeRefused).toEqual([
       expect.stringContaining('the store is locked'),
     ]);
-    expect(stderr.join('')).toMatch(/a real run would be refused: .*the store is locked/);
+    expect(stderr.join('')).toMatch(
+      /a real run would be refused \(CHECKPOINT_REFUSED\): .*the store is locked/,
+    );
   });
 
   it('says with --dry-run the refusal a real run would meet, and neither fits nor proposes a fit: no smaller seed answers it', async () => {
@@ -534,7 +536,9 @@ describe('sandforge-seed --checkpoint-first', () => {
     const printed = JSON.parse(stdout.join('')) as { fit?: unknown; wouldBeRefused: string[] };
     expect(printed.fit).toBeUndefined();
     expect(printed.wouldBeRefused).toEqual([REFUSED_WORDS]);
-    expect(stderr.join('')).toContain(`  a real run would be refused: ${REFUSED_WORDS}\n`);
+    expect(stderr.join('')).toContain(
+      `  a real run would be refused (CHECKPOINT_REFUSED): ${REFUSED_WORDS}\n`,
+    );
     expect(stderr.join('')).not.toContain('fit:');
     // The gate is not met again: nothing was fitted.
     expect(steps.filter((step) => step === 'limits read')).toHaveLength(1);
@@ -637,6 +641,42 @@ describe('sandforge-seed --checkpoint-first', () => {
     };
     expect(printed.apiRequests.refusal).toMatch(/^The run takes about \d+ API requests/);
     expect(printed.wouldBeRefused).toEqual([printed.apiRequests.refusal]);
+  });
+
+  it('gives each refusal of a dry run the code a real run is refused with, on its line and beside its words', async () => {
+    // The sentences alone: a pipeline could not tell a mute it may drop from
+    // requests it must wait a day for.
+    fakeOrg(200, 40);
+    checkpointsOf();
+    vi.mocked(muteForRun).mockRejectedValue(
+      new MuteRefusedError({ code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' }),
+    );
+
+    await main(argv(2, '--checkpoint-first', '--dry-run', '--json', '--mute-automation'));
+
+    const printed = JSON.parse(stdout.join('')) as {
+      apiRequests: { refusal: string };
+      wouldBeRefused: string[];
+      wouldBeRefusedCodes: string[];
+    };
+    expect(printed.wouldBeRefused).toEqual([
+      'The user cannot assign.',
+      printed.apiRequests.refusal,
+    ]);
+    expect(printed.wouldBeRefusedCodes).toEqual(['MUTE_NO_RIGHT', 'API_BUDGET_EXCEEDED']);
+    expect(stderr.join('')).toContain(
+      '  a real run would be refused (MUTE_NO_RIGHT): The user cannot assign.\n',
+    );
+    expect(stderr.join('')).toContain(
+      `  a real run would be refused (API_BUDGET_EXCEEDED): ${printed.apiRequests.refusal}\n`,
+    );
+
+    // Without the mute, the real run is refused for its requests, under that code.
+    stdout.length = 0;
+    await expect(main(argv(2, '--checkpoint-first', '--json'))).rejects.toThrow(
+      /^refused \(API_BUDGET_EXCEEDED\)/,
+    );
+    expect(JSON.parse(stdout.join('')).refused.code).toBe(printed.wouldBeRefusedCodes[1]);
   });
 
   it('gives a mute refused under wouldBeRefused of a dry run, as the real run is refused for it', async () => {
