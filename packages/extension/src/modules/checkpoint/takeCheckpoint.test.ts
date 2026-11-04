@@ -995,7 +995,8 @@ describe('takeCheckpoint — the scope', () => {
       {
         objectApiName: 'User',
         code: 'setup',
-        reason: 'Users, permissions and setup are left out.',
+        reason:
+          "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
       },
     ]);
   });

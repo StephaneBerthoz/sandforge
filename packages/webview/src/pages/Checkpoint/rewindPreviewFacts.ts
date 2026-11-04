@@ -286,12 +286,18 @@ export function unseenChildren(diff: Partial<Pick<RewindDiff, 'unseen'>>): strin
 }
 
 /**
+ * The object whose records a rewind sets back to Draft before it deletes
+ * them: an order activated since, which the platform deletes no other way.
+ */
+const SET_TO_DRAFT_OBJECT = 'Order';
+
+/**
  * The objects each step of a rewind writes, in the order it writes them: it
  * brings back from the recycle bin, makes again what the bin no longer gives
- * back, gives back values, then deletes. What the org runs as it writes is
- * read for these. What comes back from the bin is given back the values it
- * had when deleted once it is back, as the rewind's plan lists it: a flow on
- * an update fires on it. An object whose records come back for a moment, to be
+ * back, gives back values, sets the orders it deletes back to Draft, then
+ * deletes. What the org runs as it writes is read for these. What comes back
+ * from the bin is given back the values it had when deleted once it is back,
+ * as the rewind's plan lists it: a flow on an update fires on it. An object whose records come back for a moment, to be
  * deleted again (`carriersOf`), is brought back and deleted, as the rewind
  * itself lists it: its automation runs on both. A link between a file and a
  * record it removes is a delete of {@link FILE_LINK_OBJECT}, one it puts back
@@ -309,6 +315,10 @@ export function rewindSteps(
   const links = diff.files;
   const linked = (step: string[], writes: number): string[] =>
     writes > 0 ? [...step, FILE_LINK_OBJECT] : step;
+  const deleted = rows
+    .filter((row) => row.toDelete + row.carriers > 0)
+    .map((row) => row.objectApiName);
+  const drafted = deleted.filter((name) => name === SET_TO_DRAFT_OBJECT);
   return {
     bringBack: rows
       .filter((row) => row.toBringBack + row.carriers > 0)
@@ -321,10 +331,10 @@ export function rewindSteps(
       rows.filter((row) => row.updated > 0).map((row) => row.objectApiName),
       links?.updateLinks ?? 0,
     ),
-    delete: linked(
-      rows.filter((row) => row.toDelete + row.carriers > 0).map((row) => row.objectApiName),
-      links?.unlink ?? 0,
-    ),
+    // An order it deletes is set back to Draft first, as the rewind lists it
+    // and counts its emails: a flow on its update fires then.
+    ...(drafted.length > 0 ? { setToDraft: drafted } : {}),
+    delete: linked(deleted, links?.unlink ?? 0),
   };
 }
 

@@ -297,6 +297,7 @@ import {
   afterLeaseEmailsRefusal,
   checkpointEmails,
   checkpointEmailsUncounted,
+  draftedByPlan,
   emailsRefusal,
   emailsUncountedWords,
   writtenByPlan,
@@ -1535,8 +1536,10 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
       )
       .map((object) => object.objectApiName),
     // An order activated since is set back to Draft before its delete: the
-    // platform deletes one no other way.
-    setToDraft: deleted.filter((name) => name === 'Order'),
+    // platform deletes one no other way. Its emails count the same records.
+    setToDraft: objects
+      .filter((object) => draftedByPlan(object) > 0)
+      .map((object) => object.objectApiName),
     delete: deleted,
   };
 }

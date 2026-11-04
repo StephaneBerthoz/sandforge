@@ -6910,6 +6910,7 @@
         "error": "Não foi possível ler o que {{org}} executa quando o retrocesso grava: {{reason}}",
         "broughtBack": "depois da restauração, quando o retrocesso o recupera da lixeira",
         "givenBack": "quando o retrocesso lhe devolve seus valores do ponto de verificação",
+        "drafted": "quando o retrocesso o volta para Rascunho para excluí-lo",
         "accept": "Executar mesmo que triggers, fluxos ou regras de fluxo de trabalho disparem nos registros que ele grava"
       },
       "emails": {
@@ -7236,7 +7237,7 @@
       "notCustomSetting": "Escolhido como configuração personalizada: a org não tem nenhuma configuração personalizada com este nome.",
       "files": "Documentos da guia Documentos são deixados de fora: são conteúdo compartilhado guardado em pastas, como a configuração.",
       "heldWithFiles": "Guardado com seu arquivo (ContentDocument): o Salesforce não exclui nem recupera sozinho a versão de um arquivo, e lê os vínculos de um arquivo pelos registros a que o ligam.",
-      "setup": "Usuários, permissões e configuração são deixados de fora.",
+      "setup": "Usuários, permissões e configuração são deixados de fora, assim como os logs e os jobs da própria org.",
       "metadata": "Deixado de fora: são metadados, que um ponto de verificação não guarda.",
       "notWritable": "Deixado de fora: o usuário com que o SandForge se conecta não pode criar, editar e excluir seus registros.",
       "notDescribed": "Deixado de fora: a org não quis descrevê-lo.",

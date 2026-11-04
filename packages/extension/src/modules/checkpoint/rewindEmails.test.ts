@@ -138,6 +138,71 @@ describe('what a rewind and an undo write, per object and write', () => {
     ).toEqual([{ step: 'giveBack', name: 'Touch' }]);
   });
 
+  it('counts each order a rewind deletes as updated too, as it sets one activated since back to Draft first: the steps, the emails and what was not counted read the same', () => {
+    const objects = [diffObject('Order', { createdSince: 3 })];
+    const steps = rewindStepsOf({ objects });
+    expect(steps.setToDraft).toEqual(['Order']);
+    expect(steps.delete).toEqual(['Order']);
+
+    const written = writtenByDiff(objects);
+    expect(written).toEqual([
+      { objectApiName: 'Order', write: 'update', records: 3 },
+      { objectApiName: 'Order', write: 'delete', records: 3 },
+    ]);
+    // The flow its step lists as fired sends one email an order, counted
+    // against the day's single emails.
+    const touch = automationOf({ Order: [flow('Order Touch', 'update', ['SingleEmail'])] });
+    expect(firedOnRemovalStepsOf(touch, steps).map((each) => [each.step, each.name])).toEqual([
+      ['setToDraft', 'Order Touch'],
+    ]);
+    expect(
+      checkpointEmails(written, touch, DEVELOPER_EDITION).map(({ limit, emails, verdict }) => [
+        limit,
+        emails,
+        verdict,
+      ]),
+    ).toEqual([
+      ['SingleEmail', 3, 'fits'],
+      ['DailyWorkflowEmails', 3, 'fits'],
+    ]);
+    // Its definition unread, what it sends is said not counted.
+    const unread = automationOf({
+      Order: [{ ...flow('Order Touch', 'update', []), condition: 'notRead' }],
+    });
+    expect(checkpointEmailsUncounted(written, unread)).toBe(
+      'the definition of Order Touch on Order',
+    );
+    // Of a plan, the orders it deletes, those going with a parent among them.
+    expect(
+      writtenByPlan([
+        {
+          objectApiName: 'Order',
+          deleted: 2,
+          withParentDeleted: 1,
+          undoCannot: 0,
+          nextPassDeleted: 0,
+          broughtBack: 0,
+          backWithParent: 0,
+          recreated: 0,
+          givenBackFirst: 0,
+          givenBackAfter: 0,
+          givenBackNextPass: 0,
+          skipped: 0,
+        },
+      ]),
+    ).toEqual([
+      { objectApiName: 'Order', write: 'update', records: 3 },
+      { objectApiName: 'Order', write: 'delete', records: 3 },
+    ]);
+    // No other object is set back to Draft: a contract past Draft the org deletes as it stands.
+    expect(writtenByDiff([diffObject('Contract', { createdSince: 2 })])).toEqual([
+      { objectApiName: 'Contract', write: 'delete', records: 2 },
+    ]);
+    expect(
+      rewindStepsOf({ objects: [diffObject('Contract', { createdSince: 2 })] }).setToDraft,
+    ).toEqual([]);
+  });
+
   it('counts what a rewind makes again with new Ids as inserted, after what it brings back, and the emails that sends', () => {
     const written = writtenByDiff([diffObject('Contact', { inBin: 1, toRecreate: 3 })]);
     expect(written).toEqual([

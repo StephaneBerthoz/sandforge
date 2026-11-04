@@ -6910,6 +6910,7 @@
         "error": "Was {{org}} ausführt, wenn das Zurücksetzen schreibt, konnte nicht gelesen werden: {{reason}}",
         "broughtBack": "nach dem Wiederherstellen, wenn das Zurücksetzen ihn aus dem Papierkorb zurückholt",
         "givenBack": "wenn das Zurücksetzen ihm seine Werte des Prüfpunkts zurückgibt",
+        "drafted": "wenn das Zurücksetzen ihn zum Löschen wieder auf Entwurf setzt",
         "accept": "Ausführen, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es schreibt"
       },
       "emails": {
@@ -7236,7 +7237,7 @@
       "notCustomSetting": "Als benutzerdefinierte Einstellung ausgewählt: Die Org hat keine benutzerdefinierte Einstellung dieses Namens.",
       "files": "Dokumente der Registerkarte Dokumente werden ausgelassen: Sie sind gemeinsam genutzte Inhalte in Ordnern, wie das Setup.",
       "heldWithFiles": "Mit seiner Datei gehalten (ContentDocument): Salesforce löscht die Version einer Datei nicht allein, stellt sie nicht allein wieder her und liest die Verknüpfungen einer Datei über die Datensätze, an die sie sie binden.",
-      "setup": "Benutzer, Berechtigungen und Setup werden ausgelassen.",
+      "setup": "Benutzer, Berechtigungen und Setup werden ausgelassen, ebenso die eigenen Protokolle und Jobs der Org.",
       "metadata": "Ausgelassen: Es sind Metadaten, die ein Prüfpunkt nicht hält.",
       "notWritable": "Ausgelassen: Der Benutzer, als der SandForge sich verbindet, darf seine Datensätze nicht anlegen, bearbeiten und löschen.",
       "notDescribed": "Ausgelassen: Die Org wollte es nicht beschreiben.",

@@ -116,11 +116,71 @@ export function updatedByDiff(
 }
 
 /**
+ * The object whose records a rewind sets back to Draft before it deletes
+ * them, as a removal does: an order activated since, which the platform
+ * deletes no other way. A contract past Draft it deletes as it stands.
+ */
+const SET_TO_DRAFT_OBJECT = 'Order';
+
+/**
+ * Records of an object a rewind deletes, as its preview counts them: created
+ * since, brought back from the bin since, back with a parent and gone again,
+ * and the carriers it brings back for a moment.
+ */
+function deletedByDiff(object: Pick<RewindDiffObject, 'toDelete' | 'toBringBack'>): number {
+  return (
+    object.toDelete.createdSince +
+    object.toDelete.broughtBackSince +
+    object.toDelete.comesBackWithParent +
+    (object.toBringBack.carriers ?? 0)
+  );
+}
+
+/**
+ * Records of an object a rewind may set back to Draft before it deletes
+ * them, as its preview counts them: each order it deletes, once. Only those
+ * past Draft are updated, and the preview reads no order's status, so the
+ * count errs by saying too much, as every count of emails here does. Counted
+ * as nothing, a flow on an order's update was listed as fired on that step
+ * while its emails were held to no daily limit, nor said uncounted. What its
+ * emails count and what its steps list read this one number.
+ */
+export function draftedByDiff(
+  object: Pick<RewindDiffObject, 'objectApiName' | 'toDelete' | 'toBringBack'>,
+): number {
+  return object.objectApiName === SET_TO_DRAFT_OBJECT ? deletedByDiff(object) : 0;
+}
+
+/**
+ * Records of an object a rewind's pass deletes, as its plan holds them: sent,
+ * gone with a parent, and left to the next pass.
+ */
+function deletedByPlan(
+  object: Pick<RewindPlanObject, 'deleted' | 'withParentDeleted' | 'nextPassDeleted'>,
+): number {
+  return object.deleted + object.withParentDeleted + object.nextPassDeleted;
+}
+
+/**
+ * {@link draftedByDiff} of a pass, as its plan holds it: an order going with
+ * a parent is set back to Draft too, as one past Draft would keep that parent.
+ */
+export function draftedByPlan(
+  object: Pick<
+    RewindPlanObject,
+    'objectApiName' | 'deleted' | 'withParentDeleted' | 'nextPassDeleted'
+  >,
+): number {
+  return object.objectApiName === SET_TO_DRAFT_OBJECT ? deletedByPlan(object) : 0;
+}
+
+/**
  * What a rewind would write, per object and write, as its preview counts it:
  * what it brings back, what it makes again with new Ids, what it gives back —
  * what it brings back among it, the values it had when deleted given back
- * once it is back — and what it deletes. A carrier is brought back and
- * deleted again: the automation of either write fires on it.
+ * once it is back — and the orders it sets back to Draft, then what it
+ * deletes. A carrier is brought back and deleted again: the automation of
+ * either write fires on it.
  */
 export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -131,12 +191,8 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
         object.toBringBack.deletedWhileTaken +
         (object.toBringBack.carriers ?? 0),
       insert: object.toRecreate ?? 0,
-      update: updatedByDiff(object),
-      delete:
-        object.toDelete.createdSince +
-        object.toDelete.broughtBackSince +
-        object.toDelete.comesBackWithParent +
-        (object.toBringBack.carriers ?? 0),
+      update: updatedByDiff(object) + draftedByDiff(object),
+      delete: deletedByDiff(object),
     }),
   );
 }
@@ -144,15 +200,20 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
 /**
  * What a rewind's first pass writes, per object and write, as its plan holds
  * it: what comes back with a parent and what goes with one counted with what
- * is sent, as the org's automation may fire on them all.
+ * is sent, as the org's automation may fire on them all, and the orders it
+ * sets back to Draft among its updates.
  */
 export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
     written(object.objectApiName, {
       undelete: object.broughtBack + object.backWithParent + (object.carriers ?? 0),
       insert: object.recreated,
-      update: object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass,
-      delete: object.deleted + object.withParentDeleted + object.nextPassDeleted,
+      update:
+        object.givenBackFirst +
+        object.givenBackAfter +
+        object.givenBackNextPass +
+        draftedByPlan(object),
+      delete: deletedByPlan(object),
     }),
   );
 }

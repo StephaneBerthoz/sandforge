@@ -305,6 +305,19 @@ describe('rewindPreviewFacts', () => {
     });
   });
 
+  it('lists an order the rewind deletes as set back to Draft first, as the rewind lists it, and no other object', () => {
+    const deleting = (objectApiName: string) =>
+      diffObject(objectApiName, {
+        toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+      });
+    const steps = rewindSteps(previewDiff({ objects: [deleting('Order'), deleting('Contract')] }));
+    expect(steps.setToDraft).toEqual(['Order']);
+    expect(steps.delete).toEqual(['Order', 'Contract']);
+    expect(
+      rewindSteps(previewDiff({ objects: [deleting('Contract')] })).setToDraft,
+    ).toBeUndefined();
+  });
+
   it('lists what the deletions take along outside the checkpoint, under the object they hang from', () => {
     const diff = previewDiff({
       objects: [

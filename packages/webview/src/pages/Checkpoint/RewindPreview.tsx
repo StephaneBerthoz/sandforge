@@ -159,13 +159,13 @@ const AUTOMATION_WORDS: RemovalAutomationWords = {
 /**
  * Why a step of a rewind other than its delete writes the record it fires on.
  * A rewind's delete sets an activated order created since back to Draft
- * first, as a removal does, and says so in the removal's words.
+ * first, as a removal does, and says it of the rewind.
  */
 const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
   bringBack: 'checkpoint.preview.automation.broughtBack',
   recreate: 'runRemoval.automation.recreated',
   giveBack: 'checkpoint.preview.automation.givenBack',
-  setToDraft: 'runRemoval.automation.drafted',
+  setToDraft: 'checkpoint.preview.automation.drafted',
 };
 
 /** What each class of an object's diff says beside the table, in the order the rewind acts. */

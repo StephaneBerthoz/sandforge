@@ -149,6 +149,45 @@ describe('scopeCandidates', () => {
     );
   });
 
+  it('says a case’s CaseHistory2 left out as history, and the delete logs and Threat Detection event stores only the platform writes as the org’s own logs, picked or not', () => {
+    // As a global describe read as the org's administrator lists them:
+    // nothing of them createable, editable or deletable, the event stores
+    // alone with a page layout.
+    const platform = (name: string, layoutable: boolean): GlobalObject => ({
+      name,
+      queryable: true,
+      createable: false,
+      updateable: false,
+      deletable: false,
+      layoutable,
+    });
+    const logs = [
+      platform('OpportunityRelatedDeleteLog', false),
+      platform('ApiAnomalyEventStore', true),
+      platform('CredentialStuffingEventStore', true),
+      platform('GuestUserAnomalyEventStore', true),
+      platform('LoginAnomalyEventStore', true),
+      platform('ReportAnomalyEventStore', true),
+    ];
+    const globalObjects = [data('Case'), platform('CaseHistory2', false), ...logs];
+    const expected = {
+      CaseHistory2: 'history',
+      ...Object.fromEntries(logs.map(({ name }) => [name, 'setup'])),
+    };
+
+    expect(reasons(scopeCandidates(globalObjects, { mode: 'everything' }).leftOut)).toEqual(
+      expected,
+    );
+    expect(
+      reasons(
+        scopeCandidates(globalObjects, {
+          mode: 'picked',
+          objects: globalObjects.map(({ name }) => name),
+        }).leftOut,
+      ),
+    ).toEqual(expected);
+  });
+
   it('leaves out as setup the objects the org gives no page layout, permissions among them, but keeps the related-list objects people work in, and holds one picked by name', () => {
     const globalObjects = [
       data('Account', { layoutable: true }),

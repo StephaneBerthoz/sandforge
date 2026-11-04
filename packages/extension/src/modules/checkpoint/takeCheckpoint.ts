@@ -435,7 +435,7 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
   heldWithFiles:
     "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's " +
     'version on its own, and reads the links of a file through the records they tie it to.',
-  setup: 'Users, permissions and setup are left out.',
+  setup: "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
   metadata: "Left out: it is metadata, which a checkpoint doesn't hold.",
   notWritable:
     'Left out: the user SandForge connects as may not create, edit and delete its records.',

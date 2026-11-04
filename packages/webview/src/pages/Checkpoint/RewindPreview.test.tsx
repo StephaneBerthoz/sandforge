@@ -920,6 +920,55 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('lists a flow on an order’s update as the rewind sets an order activated since back to Draft to delete it, and holds Rewind until it is accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Order', {
+            toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
+          }),
+        ],
+      }),
+      automation: {
+        ...AUTOMATION,
+        objectsRead: ['Order'],
+        objects: [
+          {
+            objectApiName: 'Order',
+            flows: [
+              {
+                apiName: 'Order_Touch',
+                label: 'Order Touch',
+                timing: 'afterSave',
+                startsOn: 'update',
+                condition: 'read',
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+      },
+    });
+    expect(screen.getByTestId('checkpoint-preview-automation-setToDraft-Order').textContent).toBe(
+      'Order: Flow: Order Touch · as the rewind sets it back to Draft to delete it',
+    );
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Run even if triggers, flows or workflow rules fire on the records it writes',
+      }),
+    );
+    fireEvent.click(rewind);
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptAutomation: true }),
+      expect.anything(),
+    );
+  });
+
   it('lists a trigger on the links between files and records as a link the rewind removes fires it, and holds Rewind until it is accepted', () => {
     renderPreview();
     answerPreview({

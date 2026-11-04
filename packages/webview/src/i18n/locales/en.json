@@ -6910,6 +6910,7 @@
         "error": "What {{org}} runs as the rewind writes could not be read: {{reason}}",
         "broughtBack": "after undelete, as the rewind brings it back from the recycle bin",
         "givenBack": "as the rewind gives it back its checkpoint values",
+        "drafted": "as the rewind sets it back to Draft to delete it",
         "accept": "Run even if triggers, flows or workflow rules fire on the records it writes"
       },
       "emails": {
@@ -7236,7 +7237,7 @@
       "notCustomSetting": "Picked as a custom setting: the org has no custom setting of this name.",
       "files": "Documents of the Documents tab are left out: they are shared content kept in folders, as setup is.",
       "heldWithFiles": "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's version on its own, and reads the links of a file through the records they tie it to.",
-      "setup": "Users, permissions and setup are left out.",
+      "setup": "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
       "metadata": "Left out: it is metadata, which a checkpoint doesn't hold.",
       "notWritable": "Left out: the user SandForge connects as may not create, edit and delete its records.",
       "notDescribed": "Left out: the org would not describe it.",

@@ -145,9 +145,30 @@ describe('runNoteWords', () => {
 });
 
 describe('leftOutWords', () => {
+  beforeAll(() => {
+    i18n.addResourceBundle('fr', 'translation', fr);
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
   it('says a reason with no code in the words it came in', () => {
     expect(leftOutWords(t, { objectApiName: 'Asset', reason: 'Left out, as read.' })).toBe(
       'Left out, as read.',
+    );
+  });
+
+  it('says an event store left out as setup is, among the org’s own logs and jobs, which no user writes', async () => {
+    const store = { objectApiName: 'ApiAnomalyEventStore', code: 'setup' as const, reason: '' };
+
+    expect(leftOutWords(t, store)).toBe(
+      "Users, permissions and setup are left out, and so are the org's own logs and jobs.",
+    );
+    await i18n.changeLanguage('fr');
+    expect(leftOutWords(t, store)).toBe(
+      'Les utilisateurs, les autorisations et la configuration sont laissés de côté, tout comme ' +
+        "les journaux et les jobs propres à l'org.",
     );
   });
 });

@@ -137,6 +137,14 @@ export const HELD_WHEN_PICKED: readonly string[] = [FILE_OBJECT, ATTACHMENT_OBJE
 const CHATTER_OBJECTS: ReadonlySet<string> = new Set(['feeditem', 'feedcomment', 'feedattachment']);
 
 /**
+ * Histories whose names end in no suffix the copy's rule reads: a case's,
+ * which an org's describe labels "Case History", none of its records
+ * createable, editable or deletable. Every copy leaves it out by name, and a
+ * checkpoint said it was setup.
+ */
+const HISTORY_OBJECTS: ReadonlySet<string> = new Set(['casehistory2']);
+
+/**
  * A file's versions and its links to records: held with the file, never as
  * objects of their own. Salesforce neither deletes nor brings back a version
  * on its own (`deletable` and `undeletable` false), and refuses to read the
@@ -198,7 +206,9 @@ function leftOutReason(
 ): ScopeLeftOutReason | undefined {
   const name = object.name.toLowerCase();
   if (CHATTER_OBJECTS.has(name) || name.endsWith('feed')) return 'chatter';
-  if (name.endsWith('history') || name.endsWith('__hd')) return 'history';
+  if (name.endsWith('history') || name.endsWith('__hd') || HISTORY_OBJECTS.has(name)) {
+    return 'history';
+  }
   if (name.endsWith('share')) return 'sharing';
   if (name.endsWith('changeevent')) return 'changeEvent';
   if (UNSUPPORTED_SUFFIXES.some((suffix) => name.endsWith(suffix))) return 'unsupportedKind';
@@ -214,6 +224,10 @@ function leftOutReason(
   if (name === ATTACHMENT_OBJECT.toLowerCase())
     return writableData(object) ? undefined : 'notWritable';
   if (isFileBodiedObject(object.name)) return 'files';
+  // Users and permissions, and the logs and jobs the platform alone writes:
+  // an opportunity's delete logs, the event stores of Threat Detection. No
+  // user creates or deletes those, so none is left out for a permission the
+  // user lacks, as their describes alone would say.
   if (isNeverCopiedWhenPicked(object.name)) return 'setup';
   if (mode === 'everything' && object.layoutable === false && !WORKED_WITHOUT_LAYOUT.has(name)) {
     return 'setup';

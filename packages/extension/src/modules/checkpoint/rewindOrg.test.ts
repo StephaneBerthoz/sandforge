@@ -920,6 +920,86 @@ describe('rewindOrg: what it refuses before it writes', () => {
     expect(resultOf(fits).status).toBe('success');
   });
 
+  it('counts against the day’s emails what a flow on an order’s update sends as the rewind sets the orders activated since back to Draft before deleting them, as its preview counts them', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+        org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+      },
+      new RewindTestOrg(),
+      [...PICKED, 'Order'],
+    );
+    clock.now = SINCE;
+    for (const n of [1, 2, 3]) {
+      t.org.add('Order', { Id: order(n), Status: 'Activated', LastModifiedById: COLLEAGUE });
+    }
+    const before = stateOf(t.org);
+    // A flow that emails an order's owner as it is updated: setting each
+    // order back to Draft, the one way the org deletes it, sends one.
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_touched',
+              label: 'Order touched',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 2 } };
+    clock.now = PREVIEWED;
+    const preview = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: sending },
+      request(t),
+    );
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+    expect(preview.emails?.find((each) => each.limit === 'SingleEmail')).toMatchObject({
+      emails: 3,
+      objects: [{ objectApiName: 'Order', write: 'update', records: 3, perRecord: 1 }],
+      verdict: 'exceeds',
+    });
+    expect(preview.refusal?.code).toBe('EMAILS');
+
+    const outcome = await rewound(t, preview.diff.previewId, {
+      deps: { readAutomation: sending },
+      request: { acceptAutomation: true },
+    });
+
+    expect(outcome).toMatchObject({
+      rewound: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This rewind would make DEV-ED send about 3 single emails, 2 of 15 left today: /,
+        ) as unknown,
+      },
+    });
+    untouched(t, before);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const fits = resultOf(
+      await rewound(t, preview.diff.previewId, {
+        deps: { readAutomation: sending },
+        request: { acceptAutomation: true },
+      }),
+    );
+    expect(fits.status).toBe('success');
+    expect(t.org.updates.flatMap(({ records }) => records)).toEqual(
+      [1, 2, 3].map((n) => ({ Id: order(n), Status: 'Draft' })),
+    );
+    expect(liveIds(t.org, 'Order')).toEqual([]);
+  });
+
   it('refuses a rewind that would take more requests than the org has left today', async () => {
     const t = await taken();
     changedSince(t.org);

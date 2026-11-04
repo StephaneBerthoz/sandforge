@@ -53,7 +53,13 @@ import {
 } from '@sandforge/shared';
 
 import { FILE_LINK_OBJECT } from './checkpointScope.js';
-import { actEmailsGate, actSendersOf, emailsRefusal, updatedByDiff } from './rewindEmails.js';
+import {
+  actEmailsGate,
+  actSendersOf,
+  draftedByDiff,
+  emailsRefusal,
+  updatedByDiff,
+} from './rewindEmails.js';
 import { diffOfPicked } from './rewindPlan.js';
 
 /** What a refusal before any write ends with. */
@@ -177,8 +183,9 @@ export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): Rewi
  * The objects whose records each step of a rewind writes, as its preview
  * counts them: brought back, given back — what comes back from the bin among
  * it, as the rewind's plan lists it — deleted — an order activated since set
- * back to Draft first, which the platform deletes no other way — and the
- * records it brings back for a moment, then deletes again.
+ * back to Draft first, which the platform deletes no other way, by the number
+ * its emails count (`draftedByDiff`) — and the records it brings back for a
+ * moment, then deletes again.
  */
 export function rewindStepsOf(
   diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
@@ -206,7 +213,7 @@ export function rewindStepsOf(
       diff.objects.filter((o) => updatedByDiff(o) > 0).map((o) => o.objectApiName),
       links?.updateLinks ?? 0,
     ),
-    setToDraft: deleted.filter((name) => name === 'Order'),
+    setToDraft: diff.objects.filter((o) => draftedByDiff(o) > 0).map((o) => o.objectApiName),
     delete: linked(deleted, links?.unlink ?? 0),
   };
 }
