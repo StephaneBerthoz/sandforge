@@ -5261,8 +5261,10 @@
         "sweep": "Sweep too: also delete what the target's flows and triggers created for the loads this reload replaces, which the purge leaves in the org",
         "sweepOf": "For the load of {{date}}",
         "heldReading": "Waiting for what the sweep takes, and for what {{org}} runs as it deletes it: the reload can be confirmed once both are read.",
-        "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a reload with this sweep cannot be confirmed."
-      }
+        "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a reload with this sweep cannot be confirmed.",
+        "includeChanged": "Also take what the sweep finds changed since the load it sweeps, and what was added to it since"
+      },
+      "acceptEmails": "Load even though {{org}} delivers the emails its automation sends as the load writes, or would not say whether it does"
     },
     "preview": {
       "title": "What a load into {{org}} would do",
@@ -5292,7 +5294,18 @@
       "validationRulesOnChange_one": "{{object}}: {{count}} rule left out — its formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} rules left out — their formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
       "placeholderValidationRules_one": "Placeholder of {{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.",
-      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load."
+      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load.",
+      "emails": {
+        "refused": "{{org}} delivers every email what still runs sends as the load writes, or would not say whether it does: the load would be refused, nothing written, unless you tick “Load even though {{org}} delivers the emails”.",
+        "accepted": "{{org}} delivers the emails what still runs sends as the load writes, or would not say whether it does: with the box ticked, the load sends them.",
+        "withheld": "{{org}} delivers none of the emails its automation sends (System email only or No access): nothing is asked of them, and the org still counts them against its daily limits.",
+        "senders": "What sends them: {{senders}}.",
+        "count": "{{limit}}: about {{emails}}, with {{remaining}} of {{max}} left today.",
+        "countExceeds": "{{limit}}: about {{emails}}, more than the {{remaining}} of {{max}} left today.",
+        "countUnread": "{{limit}}: about {{emails}}; what the org has left today could not be read.",
+        "exceeded": "Past what {{org}} has left today, each record whose flow fails in the save is refused: the load would be refused, nothing written, whatever the box says. Mute what sends them, or load into an org with more emails left today.",
+        "uncounted": "Not all of them were counted: {{why}} could not be read."
+      }
     },
     "verify": {
       "run": "Re-verify",
@@ -5357,7 +5370,8 @@
         "targetNotLoaded": "The record it points at was not loaded",
         "lostWithTheirRecord": "Lost with the records holding them, which the load did not write: {{links}}"
       },
-      "sweptFor": "Swept for the load of {{date}}"
+      "sweptFor": "Swept for the load of {{date}}",
+      "sweptChangedKept": "Records kept, changed since that load: {{records}}. A reload with “Also take what the sweep finds changed since” ticked takes them, and so does a removal with its sweep and the records changed since ticked."
     },
     "removal": {
       "title": "Last load",
@@ -5534,6 +5548,44 @@
       "checkpointRefused": {
         "explanation": "The load was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written.",
         "action": "Untick Checkpoint first to load without it, or fix what refuses it."
+      },
+      "loadCancelled": {
+        "explanation": "You stopped the load before it wrote anything, and nothing was written.",
+        "action": "Run the load again when you are ready.",
+        "wroteExplanation": "You stopped the load part way. Records it had written by then, created or purged: {{records}}.",
+        "wroteAction": "What it created is kept in the sas mapping: a removal takes it back, and a reload purges it or finds it again."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "The sas changed since the last load: {{sas}} no longer holds the counting contract the load wrote there.",
+        "emptiedAction": "Load the dataset again, then verify.",
+        "otherExplanation": "The sas folder changed since the last load: its counting contract is in {{loadSas}}, and the mapping read is the one in {{sas}}.",
+        "otherAction": "Set the sas folder back to the one the load wrote to in the configuration, or load the dataset again; then verify.",
+        "movedExplanation": "The sas folder changed since the last load: the load wrote to {{loadSas}}, which no longer holds its counting contract, and the mapping read is the one in {{sas}}.",
+        "movedAction": "Move the sas back to {{loadSas}} and set the sas folder to it in the configuration, or load the dataset again; then verify."
+      },
+      "alreadyRemoved": {
+        "explanation": "The records this load created were removed already, and nothing was deleted.",
+        "action": "The card now shows the load as the sas holds it."
+      },
+      "nothingToRemove": {
+        "explanation": "This load created no record a removal takes, and nothing was deleted.",
+        "action": "The card now shows the load as the sas holds it."
+      },
+      "recordTypeLabel": {
+        "explanation": "The dataset's {{object}} records name their record type “{{name}}” by its label, which {{recordTypes}} share in the source org: which one each record had cannot be told, and nothing was written.",
+        "action": "Give one of them another label in the source org, then click Run extraction again."
+      },
+      "recordTypeNamespace": {
+        "explanation": "The dataset names the {{object}} record type {{name}} without its namespace (it was extracted before SandForge read namespaces), and {{recordTypes}} carry that name in the target org: which one is meant cannot be told, and nothing was written.",
+        "action": "Click Run extraction again: a dataset extracted now names each record type with its namespace."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} delivers every email what still runs sends as the load writes, or would not say whether it does, and nothing was written.",
+        "action": "Tick “Load even though {{org}} delivers the emails” to load all the same, tick Mute automation to keep quiet what tests the org's bypass, or set the org's deliverability to System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "The load would make {{org}} send more emails than it has left today ({{limit}}: about {{emails}}, {{remaining}} of {{max}} left), and nothing was written.",
+        "action": "Tick Mute automation to keep quiet what sends them, or load into an org with more emails left today."
       }
     }
   },

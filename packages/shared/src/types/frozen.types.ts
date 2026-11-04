@@ -19,6 +19,7 @@
 
 import type { MutedAutomation } from '../utils/automation-mute.js';
 import type {
+  ForgeEmailLimit,
   ForgeFieldRefusal,
   ForgeRefusedField,
   ForgeSweepListing,
@@ -26,10 +27,55 @@ import type {
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RunDeliverability,
 } from './forge.types.js';
 import type { SyncValidationRule } from './sync.types.js';
 import type { RecordTypeGiven } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
+
+/**
+ * The emails a load makes its target send against one daily limit, counted
+ * on the records of the dataset — at most, as Production Guard counts a
+ * load —, and what the target has left of it today.
+ */
+export interface FrozenLoadEmailCount {
+  limit: ForgeEmailLimit;
+  /** Per object: the records, the emails each sends, and what sends them. */
+  objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
+  emails: number;
+  /** Set where the target counts its email alerts against its single emails too. */
+  alertsCounted?: true;
+  /** `exceeds` past what the target has left today; `unread` when it did not say. */
+  verdict: 'fits' | 'exceeds' | 'unread';
+  remaining?: number;
+  max?: number;
+  unread?: string;
+}
+
+/**
+ * The emails of what still runs as a load writes, as its gate judged them
+ * before the first write: counted against the target's daily limits, and
+ * whether the target delivers them. Said by a preview, a dry run, the
+ * report, and a load refused for them.
+ */
+export interface FrozenLoadEmailsInfo {
+  /** One per daily limit what still runs sends against as the records go in. */
+  counted: FrozenLoadEmailCount[];
+  /** Why the emails of the target's automation could not all be counted; absent when they were. */
+  uncounted?: string;
+  /**
+   * `nothingSends`: nothing that still runs sends one; `withheld`: the target
+   * delivers none (System email only, No access); `asks`: it delivers them,
+   * or would not say, and the load goes on only with the accord.
+   */
+  verdict: 'nothingSends' | 'withheld' | 'asks';
+  /** What still runs that sends, and what was read of the target; absent when nothing sends. */
+  deliverability?: RunDeliverability;
+  /** Whether the load came with the accord (`acceptEmails`, `--accept-emails`). */
+  accepted: boolean;
+  /** Why a load would be refused for them, nothing written; absent when it would not be. */
+  refused?: { code: string; message: string };
+}
 
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
@@ -631,6 +677,8 @@ export interface FrozenLoadReportInfo {
    * asked, or the reload purged nothing.
    */
   sweeps?: FrozenReloadSweep[];
+  /** The emails of what still ran as it wrote, as its gate judged them; absent when nothing sent one. */
+  emails?: FrozenLoadEmailsInfo;
   mappingPath: string;
   contractPath: string;
 }
@@ -787,6 +835,14 @@ export interface FrozenLoadPlanInfo {
    * and the refusal it would meet. Absent when not asked.
    */
   checkpoint?: RunCheckpointEstimate;
+  /**
+   * The emails of what still runs as the load would write, as its gate
+   * judges them, nothing assigned: counted against the target's daily
+   * limits, whether it delivers them, and the refusal a load would meet.
+   * Absent when nothing that still runs sends one, or when they could not
+   * be judged, which the log says.
+   */
+  emails?: FrozenLoadEmailsInfo;
   /**
    * Per object, the records the load would create without a record type, and
    * the type the describe of the user it writes as says the target gives

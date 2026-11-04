@@ -362,12 +362,29 @@ export type FrozenLoadGateOptions = Pick<
   | 'onGuardDecision'
 >;
 
+/**
+ * Two record types of an object the dataset cannot tell apart: one label the
+ * source gave two of them (`label`), or a name a dataset extracted without
+ * namespaces gives two of the target's (`namespace`), each named as the
+ * refusal names it. What the panel words the refusal from.
+ */
+export interface RecordTypesUntold {
+  reason: 'label' | 'namespace';
+  objectApiName: string;
+  /** The label, or the name, the records give their record type. */
+  name: string;
+  /** The record types that carry it. */
+  recordTypes: string[];
+}
+
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
   constructor(
     message: string,
     /** What the configuration has to declare, each as the message lists it, when it lists any. */
     readonly gaps?: readonly string[],
+    /** The record types the dataset cannot tell apart, when that is what refused the load. */
+    readonly recordTypesUntold?: RecordTypesUntold,
   ) {
     super(message);
     this.name = 'LoadConfigError';
@@ -3172,9 +3189,17 @@ export class FrozenDatasetLoader {
     const { check, decision } = await consultProductionGuard(this.deps.guard, request);
     options.onGuardDecision?.(decision);
     if (decision === 'refused' || decision === 'declined') {
+      // What the panel words it from: declined at its question, or refused
+      // for the guard's reason, which the guard gives in the user's words.
       throw new LoadGuardError(
         'guard-refused',
         `Production guard refused ${request.operation} on ${request.objectName}: ${check.blockedReason ?? 'confirmation declined'}`,
+        {
+          decision,
+          ...(decision === 'refused' && check.blockedReason !== undefined
+            ? { reason: check.blockedReason }
+            : {}),
+        },
       );
     }
     return decision;
@@ -4304,11 +4329,16 @@ export class FrozenDatasetLoader {
     // A record carries its record type's label: two of the object under one
     // label — a package's and the org's own — leave nothing to tell which.
     if (refs.length > 1) {
+      const sharing = refs.map((rt) =>
+        qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName),
+      );
       throw new LoadConfigError(
         `The dataset's ${objectApiName} records name record type "${rtName}" by its label, ` +
-          `which ${refs.map((rt) => qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName)).join(' and ')} ` +
+          `which ${sharing.join(' and ')} ` +
           `share in the source: which one each record had cannot be told. Give one of them ` +
           `another label in the source org and extract the dataset again.`,
+        undefined,
+        { reason: 'label', objectApiName, name: rtName, recordTypes: sharing },
       );
     }
     // `ns__Retail` for a package's record type, by its namespace when the
@@ -4328,6 +4358,15 @@ export class FrozenDatasetLoader {
           `${ambiguousRecordTypeReason(objectApiName, ref.developerName, 'the target org', targetId.carriers)}. ` +
           `Extract the dataset again: a dataset extracted now names each record type with ` +
           `its namespace. Nothing was written.`,
+        undefined,
+        {
+          reason: 'namespace',
+          objectApiName,
+          name: ref.developerName,
+          recordTypes: targetId.carriers.map((parts) =>
+            qualifiedRecordTypeName(parts.namespacePrefix, parts.developerName),
+          ),
+        },
       );
     }
     if (targetId !== null && typeof targetId === 'object') {

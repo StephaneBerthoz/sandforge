@@ -329,6 +329,35 @@ describe('what sandforge-frozen answers, read', () => {
     });
   });
 
+  it('reads the emails a dry run’s gate counted, for the day’s gate to add', async () => {
+    // Counted nowhere, a load of 73 contacts into a Developer Edition of 15
+    // single emails a day passed the day's gate.
+    const ran = await frozen(['load', '--dry-run']);
+    const answer = readFrozenDryRun(ran.stdout);
+    const preview = answer.posted.find((m) => m.type === 'frozen:load:preview:response');
+    const plan = (preview?.payload as { plan: Record<string, unknown> }).plan;
+    plan['emails'] = {
+      counted: [
+        {
+          limit: 'SingleEmail',
+          emails: 146,
+          verdict: 'exceeds',
+          remaining: 15,
+          max: 15,
+          objects: [],
+        },
+        { limit: 'DailyWorkflowEmails', emails: 73, verdict: 'fits', objects: [] },
+      ],
+      verdict: 'withheld',
+      accepted: false,
+    };
+
+    expect(frozenDryRunCount(answer).emails).toEqual([
+      { limit: 'SingleEmail', emails: 146 },
+      { limit: 'DailyWorkflowEmails', emails: 73 },
+    ]);
+  });
+
   it('reads a load, the verification it chains, its verification, its preview and its removal', async () => {
     const loaded = await frozen(['load', '--yes']);
     const run = readFrozenRun(loaded.stdout);

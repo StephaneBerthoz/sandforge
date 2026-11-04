@@ -33,6 +33,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import type {
   BaseMessage,
+  ForgeTargetAutomation,
   FrozenLoadReportInfo,
   FrozenProjectConfig,
   FrozenStatusInfo,
@@ -44,6 +45,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 vi.mock('../../logger.js', () => ({
@@ -325,11 +327,23 @@ describe('FrozenDatasetHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    // Unless a case scripts it, the target runs nothing as a load writes:
+    // what the cases test is not the gate on its emails, which reads it.
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockImplementation(
+      async (_orgId, objects) =>
+        ({
+          objectsRead: [...objects],
+          objects: [],
+          bypassGrants: [],
+          unread: [],
+        }) as unknown as ForgeTargetAutomation,
+    );
     deps = createMockDeps();
     handler = new FrozenDatasetHandler(deps);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     for (const dir of tmpDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -1537,12 +1551,14 @@ describe('FrozenDatasetHandler', () => {
         // The page's request is settled, with a code it shows as it is, and
         // words the panel and the command line both print: what the load
         // left, and that a removal takes it back without loading again.
+        // With the records it wrote, which the panel says in its own words.
         expect(posted(deps, 'frozen:load:error')[0].payload).toMatchObject({
           code: 'LOAD_CANCELLED',
           message:
             'The load was cancelled after it had created 2 record(s) (Account: 2). What it ' +
             'created is kept in the mapping: a removal takes it back, and a reload purges it or ' +
             'finds it again.',
+          written: 2,
         });
         expect(posted(deps, 'frozen:load:response')).toEqual([]);
         expect(new AuditTrailStore(store).list().entries).toEqual([
@@ -1760,7 +1776,8 @@ describe('FrozenDatasetHandler', () => {
             expect.objectContaining({
               outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 0, failed: 1 })],
-              details: {},
+              // No code of a stop: the mark of its sas alone, a run of the window.
+              details: { sas: expect.stringMatching(/^sha256:/), startedAt: expect.any(String) },
             }),
           ]);
         });
@@ -1776,7 +1793,7 @@ describe('FrozenDatasetHandler', () => {
             expect.objectContaining({
               outcome: 'cancelled',
               objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 2 })],
-              details: {},
+              details: { sas: expect.stringMatching(/^sha256:/), startedAt: expect.any(String) },
             }),
           ]);
         });
@@ -2310,6 +2327,13 @@ describe('FrozenDatasetHandler', () => {
           `The sas directory changed since the last load: its counting contract is in ${sasDir}, ` +
             `and the mapping read is the one in ${other}`,
         );
+        // The folders, for the panel to say the same in its words.
+        expect(errors[0].payload).toMatchObject({
+          sasDir: other,
+          loadSas: sasDir,
+          sasMoved: true,
+          contractThere: true,
+        });
         expect(posted(deps, 'frozen:verify:result')).toEqual([]);
       });
 

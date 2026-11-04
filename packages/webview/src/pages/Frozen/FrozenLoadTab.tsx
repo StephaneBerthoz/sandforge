@@ -45,6 +45,7 @@ import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { FrozenLoadEmails } from './FrozenLoadEmails';
 import {
   CheckpointFirstEstimate,
   CheckpointFirstOption,
@@ -218,6 +219,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const [reload, setReload] = useState(false);
   /** The box beside Load: the load mutes the target's automation, through its own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
+  /**
+   * The box under it: the load writes although the target delivers the
+   * emails what still runs sends, or would not say. Never ticked unasked:
+   * unticked, such a load is refused before it writes, as a seed is.
+   */
+  const [acceptEmails, setAcceptEmails] = useState(false);
   /** The option beside it: the load takes a checkpoint of what it writes first. */
   const [checkpointFirst, setCheckpointFirst] = useState(false);
   /** What became of the checkpoint of a load its error ended, as the error says. */
@@ -341,10 +348,16 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     ...(encryptedUnchecked && writeEncrypted ? { writeEncrypted: true } : {}),
     // Asked of the preview too, which says what it would hold and cost.
     ...(checkpointFirst ? { checkpointFirst: {} } : {}),
+    // And what the emails come to: the preview plans the mute, assigning
+    // nothing, and says whether a load would be refused for them.
+    ...(muteAutomation ? { muteAutomation: true } : {}),
+    ...(acceptEmails ? { acceptEmails: true } : {}),
   });
 
   /** Send the load; `sweepAsked`, the sweep its reload's confirmation ticked. */
-  const handleLoad = (sweepAsked: RemovalSweepAsked['asked'] = {}): void => {
+  const handleLoad = (
+    sweepAsked: RemovalSweepAsked['asked'] & { includeChanged?: true } = {},
+  ): void => {
     dismissRefusal();
     clearProgress();
     setLoadReport(null);
@@ -352,12 +365,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     setCheckpointAfterError(undefined);
     setSweepsAfterError([]);
     previewMutation.reset();
-    // Only the load mutes: its preview writes nothing.
-    loadMutation.mutate({
-      ...loadOptions(),
-      ...(muteAutomation ? { muteAutomation: true } : {}),
-      ...sweepAsked,
-    });
+    loadMutation.mutate({ ...loadOptions(), ...sweepAsked });
   };
 
   /*
@@ -377,6 +385,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
    */
   const reloadSweep = useRemovalSweep();
   const { setSweep: setReloadSweep } = reloadSweep;
+  /**
+   * With the sweep: take too what it finds changed since the load it sweeps,
+   * as a removal's box takes the records changed since. Kept otherwise, said
+   * kept, and the reload is not partial for it. Never ticked unasked.
+   */
+  const [reloadIncludeChanged, setReloadIncludeChanged] = useState(false);
   /** What the sweep's lists say, while they are shown: what fires as their records go is read with the purge's. */
   const [reloadSweepListings, setReloadSweepListings] = useState<
     readonly FrozenReloadSweepListing[] | 'failed' | null
@@ -425,6 +439,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     const purge = purgeOf(reloadPlan);
     if (purge.deleted + purge.deactivated > 0) {
       setReloadSweep(false);
+      setReloadIncludeChanged(false);
       setReloadPurge(purge);
     } else handleLoad();
   };
@@ -757,6 +772,21 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               testId="frozen-load-mute"
             />
           )}
+          {/* Its own box: an org on All email, or one that would not say,
+              sends what fires as the load writes, and the mute's box never
+              lets it. Unticked, the load reads the org as it starts and is
+              refused where it would, nothing written; Preview says which. */}
+          {effectiveTarget !== '' && (
+            <label className="flex items-start gap-2 text-[11px] text-text-primary">
+              <input
+                type="checkbox"
+                checked={acceptEmails}
+                onChange={(event) => setAcceptEmails(event.target.checked)}
+                data-testid="frozen-load-accept-emails"
+              />
+              <span>{t('frozen.load.acceptEmails', { org: targetName })}</span>
+            </label>
+          )}
           {/* A load asks nothing of its own: the preview says the cost. */}
           <CheckpointFirstOption
             checked={checkpointFirst}
@@ -834,7 +864,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             onClose={() => setReloadPurge(null)}
             onConfirm={() => {
               setReloadPurge(null);
-              handleLoad(reloadSweep.asked);
+              handleLoad({
+                ...reloadSweep.asked,
+                ...(reloadSweep.sweep && reloadIncludeChanged ? { includeChanged: true } : {}),
+              });
             }}
             title={t('frozen.load.reloadConfirm.title', { org: targetName })}
             description={t('frozen.load.reloadConfirm.description', {
@@ -877,6 +910,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   data-testid="frozen-reload-sweep-toggle"
                 />
                 {t('frozen.load.reloadConfirm.sweep')}
+              </label>
+            )}
+            {/* The removal's box, for what the sweep finds changed since the
+                load it sweeps: unticked, that is kept, and said. */}
+            {reloadPurge !== null && targetRecords !== undefined && reloadSweep.sweep && (
+              <label className="flex items-center gap-2 mt-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={reloadIncludeChanged}
+                  onChange={(e) => setReloadIncludeChanged(e.target.checked)}
+                  data-testid="frozen-reload-include-changed"
+                />
+                {t('frozen.load.reloadConfirm.includeChanged')}
               </label>
             )}
             {reloadPurge !== null && targetRecords !== undefined && reloadSweep.sweep && (
@@ -955,6 +1001,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   lead={t('runResults.checkpoint.estimate.preview')}
                   testId="frozen-preview-checkpoint"
                   className="text-[11px] text-text-primary"
+                />
+              )}
+              {plan.emails && (
+                <FrozenLoadEmails
+                  emails={plan.emails}
+                  org={planOrg}
+                  testId="frozen-preview-emails"
                 />
               )}
               {plan.mode.reload && !plan.mode.pilot && (

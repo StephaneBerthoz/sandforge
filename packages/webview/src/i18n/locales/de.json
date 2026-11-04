@@ -5261,8 +5261,10 @@
         "sweep": "Auch aufräumen: löschen, was Flows und Trigger des Ziels für die Ladevorgänge erstellt haben, die dieses Neuladen ersetzt, und was die Bereinigung in der Org lässt",
         "sweepOf": "Für den Ladevorgang vom {{date}}",
         "heldReading": "Warten darauf, was das Aufräumen nimmt und was {{org}} ausführt, wenn es dies löscht: Das Neuladen lässt sich bestätigen, sobald beides gelesen ist.",
-        "heldUnread": "Was das Aufräumen nehmen würde, konnte nicht gelesen werden, und damit auch nicht, was {{org}} beim Löschen ausführt: Ein Neuladen mit diesem Aufräumen lässt sich nicht bestätigen."
-      }
+        "heldUnread": "Was das Aufräumen nehmen würde, konnte nicht gelesen werden, und damit auch nicht, was {{org}} beim Löschen ausführt: Ein Neuladen mit diesem Aufräumen lässt sich nicht bestätigen.",
+        "includeChanged": "Auch mitnehmen, was das Aufräumen seit dem aufgeräumten Ladevorgang geändert findet, samt dem, was seitdem hinzugefügt wurde"
+      },
+      "acceptEmails": "Laden, auch wenn {{org}} die E-Mails zustellt, die ihre Automatisierungen beim Schreiben des Ladevorgangs senden, oder nicht sagt, ob sie sie zustellt"
     },
     "preview": {
       "title": "Was ein Ladevorgang in {{org}} tun würde",
@@ -5292,7 +5294,18 @@
       "validationRulesOnChange_one": "{{object}}: {{count}} Regel ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} Regeln ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
       "placeholderValidationRules_one": "Platzhalter von {{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den sie ablehnt, hält das Laden an.",
-      "placeholderValidationRules_other": "Platzhalter von {{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den eine von ihnen ablehnt, hält das Laden an."
+      "placeholderValidationRules_other": "Platzhalter von {{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den eine von ihnen ablehnt, hält das Laden an.",
+      "emails": {
+        "refused": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben des Ladevorgangs sendet, oder sagt nicht, ob sie sie zustellt: Der Ladevorgang würde abgelehnt, nichts geschrieben, außer Sie haken „Laden, auch wenn {{org}} die E-Mails zustellt“ an.",
+        "accepted": "{{org}} stellt die E-Mails zu, die das noch Laufende beim Schreiben des Ladevorgangs sendet, oder sagt nicht, ob sie sie zustellt: Mit angehaktem Kästchen sendet der Ladevorgang sie.",
+        "withheld": "{{org}} stellt keine der E-Mails zu, die ihre Automatisierungen senden (System email only oder No access): Nichts wird dazu gefragt, und die Org zählt sie dennoch gegen ihre Tageslimits.",
+        "senders": "Was sie sendet: {{senders}}.",
+        "count": "{{limit}}: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden.",
+        "countExceeds": "{{limit}}: etwa {{emails}}, mehr als die {{remaining}} von {{max}} heute verbleibenden.",
+        "countUnread": "{{limit}}: etwa {{emails}}; was der Org heute bleibt, ließ sich nicht lesen.",
+        "exceeded": "Über das hinaus, was {{org}} heute bleibt, wird jeder Datensatz abgelehnt, dessen Flow beim Speichern scheitert: Der Ladevorgang würde abgelehnt, nichts geschrieben, was auch immer das Kästchen sagt. Schalten Sie stumm, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails.",
+        "uncounted": "Nicht alle wurden gezählt: {{why}} ließ sich nicht lesen."
+      }
     },
     "verify": {
       "run": "Erneut prüfen",
@@ -5357,7 +5370,8 @@
         "targetNotLoaded": "Der Datensatz, auf den sie verweist, wurde nicht geladen",
         "lostWithTheirRecord": "Verloren mit den Datensätzen, die sie tragen und die der Ladevorgang nicht geschrieben hat: {{links}}"
       },
-      "sweptFor": "Aufgeräumt für den Ladevorgang vom {{date}}"
+      "sweptFor": "Aufgeräumt für den Ladevorgang vom {{date}}",
+      "sweptChangedKept": "Behaltene Datensätze, seit diesem Ladevorgang geändert: {{records}}. Ein Neuladen mit angehaktem „Auch mitnehmen, was das Aufräumen seitdem geändert findet“ nimmt sie, ebenso eine Entfernung mit angehaktem Aufräumen und angehakten seitdem geänderten Datensätzen."
     },
     "removal": {
       "title": "Letzter Ladevorgang",
@@ -5534,6 +5548,44 @@
       "checkpointRefused": {
         "explanation": "Der Ladevorgang wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt oder konnte nicht erstellt werden, wie die SandForge-Ausgabe sagt. Es wurde nichts geschrieben.",
         "action": "Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ohne ihn zu laden, oder beheben Sie, was ihn ablehnt."
+      },
+      "loadCancelled": {
+        "explanation": "Sie haben den Ladevorgang angehalten, bevor er etwas schrieb, und nichts wurde geschrieben.",
+        "action": "Starten Sie den Ladevorgang erneut, wenn Sie bereit sind.",
+        "wroteExplanation": "Sie haben den Ladevorgang mittendrin angehalten. Bis dahin geschriebene Datensätze, erstellt oder bereinigt: {{records}}.",
+        "wroteAction": "Was er erstellt hat, bleibt im Mapping des sas: Eine Entfernung nimmt es zurück, und ein Neuladen bereinigt es oder findet es wieder."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "Der sas hat sich seit dem letzten Ladevorgang geändert: {{sas}} enthält den Zählvertrag nicht mehr, den der Ladevorgang dort geschrieben hat.",
+        "emptiedAction": "Laden Sie das Dataset erneut und prüfen Sie dann.",
+        "otherExplanation": "Der sas-Ordner hat sich seit dem letzten Ladevorgang geändert: Sein Zählvertrag liegt in {{loadSas}}, und gelesen wird das Mapping in {{sas}}.",
+        "otherAction": "Stellen Sie in der Konfiguration den sas-Ordner wieder ein, in den der Ladevorgang geschrieben hat, oder laden Sie das Dataset erneut; prüfen Sie dann.",
+        "movedExplanation": "Der sas-Ordner hat sich seit dem letzten Ladevorgang geändert: Der Ladevorgang schrieb in {{loadSas}}, das seinen Zählvertrag nicht mehr enthält, und gelesen wird das Mapping in {{sas}}.",
+        "movedAction": "Verschieben Sie den sas zurück nach {{loadSas}} und legen Sie diesen sas-Ordner in der Konfiguration fest, oder laden Sie das Dataset erneut; prüfen Sie dann."
+      },
+      "alreadyRemoved": {
+        "explanation": "Die von diesem Ladevorgang erstellten Datensätze wurden bereits entfernt, und nichts wurde gelöscht.",
+        "action": "Die Karte zeigt den Ladevorgang jetzt so, wie der sas ihn festhält."
+      },
+      "nothingToRemove": {
+        "explanation": "Dieser Ladevorgang hat keinen Datensatz erstellt, den eine Entfernung nimmt, und nichts wurde gelöscht.",
+        "action": "Die Karte zeigt den Ladevorgang jetzt so, wie der sas ihn festhält."
+      },
+      "recordTypeLabel": {
+        "explanation": "Die {{object}}-Datensätze des Datasets nennen ihren Datensatztyp „{{name}}“ nach seiner Bezeichnung, die {{recordTypes}} in der Quell-Org teilen: Welchen jeder Datensatz hatte, lässt sich nicht sagen, und nichts wurde geschrieben.",
+        "action": "Geben Sie einem von ihnen in der Quell-Org eine andere Bezeichnung und klicken Sie dann erneut auf Extraktion starten."
+      },
+      "recordTypeNamespace": {
+        "explanation": "Das Dataset nennt den {{object}}-Datensatztyp {{name}} ohne seinen Namespace (es wurde extrahiert, bevor SandForge Namespaces las), und {{recordTypes}} tragen diesen Namen in der Ziel-Org: Welcher gemeint ist, lässt sich nicht sagen, und nichts wurde geschrieben.",
+        "action": "Klicken Sie erneut auf Extraktion starten: Ein jetzt extrahiertes Dataset nennt jeden Datensatztyp mit seinem Namespace."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben des Ladevorgangs sendet, oder sagt nicht, ob sie sie zustellt, und nichts wurde geschrieben.",
+        "action": "Haken Sie „Laden, auch wenn {{org}} die E-Mails zustellt“ an, um trotzdem zu laden, haken Sie das Stummschalten der Automatisierung an, um still zu halten, was die Umgehung der Org prüft, oder stellen Sie die Zustellbarkeit der Org auf System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "Der Ladevorgang ließe {{org}} mehr E-Mails senden, als ihr heute bleiben ({{limit}}: etwa {{emails}}, {{remaining}} von {{max}} verbleibend), und nichts wurde geschrieben.",
+        "action": "Haken Sie das Stummschalten der Automatisierung an, um still zu halten, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails."
       }
     }
   },

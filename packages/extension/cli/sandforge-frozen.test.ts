@@ -174,6 +174,50 @@ describe('parseArgs', () => {
     ).toMatchObject({ sweep: false });
   });
 
+  it('reads --accept-emails with load, and refuses it with any other step', () => {
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--accept-emails')),
+    ).toMatchObject({ acceptEmails: true });
+    expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT'))).toMatchObject({
+      acceptEmails: false,
+    });
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--accept-emails'),
+    ).toMatchObject({
+      code: 2,
+      message: expect.stringContaining('--accept-emails goes with load'),
+    });
+  });
+
+  it('reads --include-changed for the sweep of a reload, and refuses it where nothing takes it', () => {
+    // Given with a load, it was dropped without a word: what a reload's sweep
+    // kept as changed since was kept by every reload after.
+    expect(
+      parseArgs(
+        argv(
+          'load',
+          '--config',
+          'f.json',
+          '--target',
+          'TGT',
+          '--reload',
+          '--sweep',
+          '--include-changed',
+        ),
+      ),
+    ).toMatchObject({ reload: true, sweep: true, includeChanged: true });
+    for (const step of [['load', '--reload'], ['load'], ['verify']]) {
+      expect(
+        refuse(...step, '--config', 'f.json', '--target', 'TGT', '--include-changed'),
+      ).toMatchObject({
+        code: 2,
+        message: expect.stringContaining(
+          '--include-changed goes with remove, or with load --reload --sweep',
+        ),
+      });
+    }
+  });
+
   it('reads a removal told only to say what it would do, which removes nothing unasked', () => {
     expect(parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT')).preview).toBe(false);
     expect(

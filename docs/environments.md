@@ -196,7 +196,6 @@ totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 ```
 
 The dataset is read first, and held to its pin; the load's dry run counts what it would insert, as the **Load** tab's preview counts it. Applied:
@@ -219,7 +218,6 @@ totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 claims: run 1 (create)
 followers: run 1 (create)
 
@@ -300,7 +298,6 @@ state: kept on this machine, serial 4
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the removal of the runs of claims, the requests of the run of claims, which its script does not estimate, the removal of the runs of followers, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
-warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 followers: taking back run 1
 claims: run 2 (replace)
 followers: run 2 (replace)
@@ -1148,11 +1145,12 @@ apply:
   --replace-drifted          replace every drifted resource
   --accept-automation        take back the runs a replace or a delete takes back although the org
                              runs automation as records go
-  --accept-emails            let the seed and clone resources write although the org delivers every
-                             email its automation sends (Setup > Deliverability: All email), or
-                             would not say whether it does, and what still runs sends some;
-                             without it their dry runs block the plan, and --accept-automation
-                             and accept: { automation: true } never stand for it
+  --accept-emails            let the seed, clone and frozen resources write although the org
+                             delivers every email its automation sends (Setup > Deliverability:
+                             All email), or would not say whether it does, and what still runs
+                             sends some; without it their dry runs block the plan, and
+                             --accept-automation and accept: { automation: true } never stand
+                             for it
   --accept-no-state          apply to a Developer Edition or a sandbox this machine has no state
                              of: records an earlier apply left there would be created twice
   --yes                      do not ask; without it and with no terminal, stop at the question,
@@ -1263,7 +1261,8 @@ before it read or wrote — a production org, a kind of org or a sandbox the fil
 protected org, a state of another org, no state without --accept-no-state, another apply of the
 org under way, a removal refused for automation without --accept-automation, more API requests,
 storage or emails than the org has left, emails the org delivers or would not say it withholds
-without --accept-emails (a clone's or a seed's EMAILS_NOT_ACCEPTED, a rewind's EMAILS_DELIVERED), a
+without --accept-emails (a clone's, a seed's or a load's EMAILS_NOT_ACCEPTED, a rewind's
+EMAILS_DELIVERED), a
 checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or
@@ -1362,7 +1361,7 @@ And:
 - **another apply or destroy of the org under way on this machine**: `Two jobs applying to one org from two machines are not kept apart: give them one concurrency group.`;
 - **more than the org has left today**, summed over the resources the plan writes: API requests (`the apply would stop part way`), data storage (`the org would refuse records part way`) and emails (`each resource alone may fit, the day does not`);
 - **automation**: a removal the `apply` of a `replace` or a `delete` runs, or the `destroy`, deletes nothing while the org runs flows, Apex triggers, processes or workflow rules as records go, unless `--accept-automation`, or `accept: { automation: true }` on the resource;
-- **emails**: a seed or a clone resource writes nothing while the org delivers every email of what still runs (Setup > Deliverability: All email), or would not say whether it does, unless `--accept-emails`: their dry runs block the plan (`EMAILS_NOT_ACCEPTED`), and neither `--accept-automation` nor `accept: { automation: true }` stands for it; the emails of a resource's run are its line's to accept, never its file's;
+- **emails**: a seed, a clone or a frozen resource writes nothing while the org delivers every email of what still runs (Setup > Deliverability: All email), or would not say whether it does, unless `--accept-emails`: their dry runs block the plan (`EMAILS_NOT_ACCEPTED`), and neither `--accept-automation` nor `accept: { automation: true }` stands for it; the emails of a resource's run are its line's to accept, never its file's;
 - **a forge resource cloning a production org** without `anonymize` or `accept: { realData: true }`: [Real data](#real-data-from-a-production-org);
 - **a checkpoint the file asks that the checkpoint script refuses**, by its own estimate, before the first write: `would be refused`, with the checkpoint guard's words -- a user without View All Data and Modify All Data, more records than a take holds, more API requests than the org has left;
 - **a `reset` or a `destroy --rewind` with no checkpoint to rewind to**: `names no checkpoint taken after an apply`, `names no checkpoint taken before its first apply`, and a `reset` once the last apply did not end whole. The rewind's own refusals are its: automation without `--accept-automation`, emails the org delivers or would not say it withholds without `--accept-emails` (`EMAILS_DELIVERED`), deletions undo could not bring back without `--accept-no-undo`, records the recycle bin no longer gives back, which an environment never makes again with new Ids (`never makes records again with new Ids`);

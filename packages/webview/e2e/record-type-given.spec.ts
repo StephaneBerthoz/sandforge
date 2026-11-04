@@ -400,5 +400,65 @@ for (const theme of THEMES) {
       const results = await checkAccessibility(page);
       expect(results.violations.length, formatViolations(results.violations)).toBe(0);
     });
+
+    test('a Frozen Dataset preview says what the emails come to and the box that lets them go, and passes axe', async ({
+      page,
+    }) => {
+      const bridge = new MockBridge();
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(() => {
+        (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'frozen';
+      });
+      await page.goto('/');
+      await bridge.seedOrgs();
+      await page.waitForSelector('[data-testid="frozen-page"]', { timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', { status: FROZEN_STATUS });
+      await page.getByTestId('page-tab-load').click();
+      await page.getByTestId('frozen-load-target').click();
+      await page.getByTestId(`frozen-load-target-option-${QA_SANDBOX.id}`).click();
+      await expect(page.getByTestId('frozen-load-accept-emails')).not.toBeChecked();
+      await page.getByTestId('frozen-load-preview').click();
+      await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+      await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+        plan: {
+          ...FROZEN_PLAN,
+          emails: {
+            counted: [
+              {
+                limit: 'SingleEmail',
+                objects: [
+                  { objectApiName: 'Contact', rows: 3, perRecord: 2, sentBy: ['Contact welcome'] },
+                ],
+                emails: 6,
+                verdict: 'fits',
+                remaining: 15,
+                max: 15,
+              },
+            ],
+            verdict: 'asks',
+            deliverability: {
+              reading: { level: 'all' },
+              senders: [
+                { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome', why: 'email' },
+              ],
+            },
+            accepted: false,
+            refused: { code: 'EMAILS_NOT_ACCEPTED', message: 'QA delivers every email…' },
+          },
+        },
+      });
+
+      const emails = page.getByTestId('frozen-preview-emails');
+      await expect(emails.getByTestId('frozen-preview-emails-verdict')).toContainText(
+        'the load would be refused, nothing written, unless you tick',
+      );
+      await expect(emails.getByTestId('frozen-preview-emails-count-SingleEmail')).toHaveText(
+        'Single emails: about 6, with 15 of 15 left today.',
+      );
+      const results = await checkAccessibility(page);
+      expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+    });
   });
 }

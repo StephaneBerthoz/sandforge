@@ -497,13 +497,13 @@ async function forgetMask(
 /**
  * The scripts that read the target's automation before they write, and are
  * refused for the emails what still runs sends where it delivers them
- * (`EMAILS_NOT_ACCEPTED`): a seed, a clone and a masking. A frozen load reads
- * none, and asks nothing of them.
+ * (`EMAILS_NOT_ACCEPTED`): a seed, a clone, a masking and a frozen load.
  */
 const SCRIPTS_THAT_ASK_FOR_THE_EMAILS: ReadonlySet<string> = new Set([
   'sandforge-seed',
   'sandforge-clone',
   'sandforge-dataops',
+  'sandforge-frozen',
 ]);
 
 /**
@@ -862,15 +862,20 @@ async function runFrozenStep(
   // Held to what its dry run counted to insert: a dataset or a target that
   // changed since is refused before its first write, the purge included.
   const maxTotal = dryRunTotalOf(dry);
-  const line = applyLineOf(resource, {
-    target: target.alias,
-    templateFile,
-    runId: '',
-    summaryFile: '',
-    replace: input.replace,
-    acceptAutomation: input.acceptAutomation,
-    ...(maxTotal !== undefined ? { maxTotal } : {}),
-  });
+  // With the accord of the environment's line, as a seed's and a clone's:
+  // the load is refused for its emails otherwise, where the org delivers them.
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      replace: input.replace,
+      acceptAutomation: input.acceptAutomation,
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
+    }),
+    input.acceptEmails,
+  );
   const ran = await deps.runner(line.script, line.args, signal);
   const answer = answerOf(readFrozenRun, ran.stdout, deps.say);
   const count = answer !== undefined ? frozenRunCount(answer) : undefined;

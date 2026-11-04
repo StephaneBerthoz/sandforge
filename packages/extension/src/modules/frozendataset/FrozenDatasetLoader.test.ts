@@ -246,6 +246,8 @@ describe('FrozenDatasetLoader — guards', () => {
 
     expect(error).toBeInstanceOf(LoadGuardError);
     expect((error as LoadGuardError).code).toBe('guard-refused');
+    // What the panel says it from, as every module's page says a decline.
+    expect((error as LoadGuardError).params).toEqual({ decision: 'declined' });
     // Refusal happens on the FIRST batch: nothing reached the target org.
     expect(calls).toEqual([]);
   });
@@ -780,6 +782,13 @@ describe('FrozenDatasetLoader — fresh load', () => {
           'and ns__Retail, of package ns. Extract the dataset again: a dataset extracted now ' +
           'names each record type with its namespace. Nothing was written.',
       );
+      // Named for the panel to say it in the interface language.
+      expect((error as LoadConfigError).recordTypesUntold).toEqual({
+        reason: 'namespace',
+        objectApiName: 'Account',
+        name: 'Retail',
+        recordTypes: ['Retail', 'ns__Retail'],
+      });
       expect(calls).toEqual([]);
     });
 
@@ -800,6 +809,13 @@ describe('FrozenDatasetLoader — fresh load', () => {
         .catch((e: unknown) => e);
 
       expect((error as Error).message).toContain('which Retail and ns__Retail share in the source');
+      // Its words were English in every locale: the panel says them from this.
+      expect((error as LoadConfigError).recordTypesUntold).toEqual({
+        reason: 'label',
+        objectApiName: 'Account',
+        name: 'Retail',
+        recordTypes: ['Retail', 'ns__Retail'],
+      });
       expect(calls).toEqual([]);
     });
   });

@@ -55,6 +55,7 @@ import type {
   ForgeSweepResult,
   ForgeTargetAutomation,
   FrozenDiscoveryOrigin,
+  FrozenLoadEmailsInfo,
   FrozenLoadPlanInfo,
   FrozenLoadReportInfo,
   FrozenObjectVerdict,
@@ -156,6 +157,13 @@ import {
   loadRecordsRefusal,
 } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { referenceIdMappingFileName } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import {
+  indexLoad,
+  indexedLoadsOf,
+  otherSasRunsOf,
+  sasMarkOf,
+} from '../src/modules/frozendataset/otherSasLoads.js';
+import { loadEmailsLines } from '../src/modules/frozendataset/loadEmails.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
@@ -229,6 +237,21 @@ Options:
                          is named before anything is deleted; without the flag the
                          removal then deletes nothing, the reload writes nothing,
                          exit 1
+  --accept-emails        with load: write although the target delivers every email
+                         what still runs sends as the records go in, a reload's
+                         purge and sweep included (Setup > Deliverability: All
+                         email), or would not say whether it does: without it
+                         such a load is refused, exit 1 (EMAILS_NOT_ACCEPTED),
+                         nothing written. Read only when something that still
+                         runs sends one, with one line of anonymous Apex that
+                         sends nothing; on System email only or No access it is
+                         not needed. The emails are counted too, on the records
+                         of the dataset, at most, against what the target has
+                         left today: past it, the load is refused whatever the
+                         flag, exit 1 (FROZEN_EMAILS_EXCEEDED). --mute-automation
+                         keeps quiet what tests the org's bypass; what an Apex
+                         trigger sends is read nowhere. --dry-run says it all,
+                         and what a load would be refused for
 ${checkpointFirstHelp({
   run: 'the load',
   simulation: '--dry-run',
@@ -242,7 +265,11 @@ ${checkpointFirstHelp({
   ],
 })}
   --include-changed      remove also the records changed since the load, and what
-                         was added to them since (kept otherwise)
+                         was added to them since (kept otherwise); with load
+                         --reload --sweep, the sweep of each load replaced takes
+                         too what it finds changed since that load, which it
+                         keeps and names otherwise, the load kept recorded for
+                         a later sweep, and the reload no partial for them
   --sweep                with remove: before the load's records go, delete too what
                          the target's automation made for the load, that the
                          load's mapping does not hold: what the load's user
@@ -281,10 +308,11 @@ ${checkpointFirstHelp({
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
                          the load; with --sweep-list, say what it would take;
                          refused when another run wrote to the target
-                         in the window — a load swept with it is none —, or when
-                         that user created records in the window on objects
-                         neither the load nor the automation reaches (hand work,
-                         likely)
+                         in the window — a load swept with it is none, a load
+                         this command ran from another sas into the org is one
+                         —, or when that user created records in the window on
+                         objects neither the load nor the automation reaches
+                         (hand work, likely)
   --sweep-list           with remove: list what --sweep would delete, per object
                          with a few names and how many it ties to the load, and
                          for each other load it sweeps with it, and delete nothing
@@ -337,8 +365,10 @@ out — or a SIGHUP stops it the same way. Ctrl-C again ends it at once.
 Exit codes: 0 the step finished — a removal with nothing to take included, and a
 removal's preview once said, its refusals included —, and verify's verdict is
 PASSED; 1 it failed or could not start, verify's verdict is FAILED, a dry run says
-the load would be refused, or a removal stopped before its first delete at what the
-target runs, without --accept-automation; 2 a bad command line, or a question with
+the load would be refused, a load was refused for its emails before it wrote
+(EMAILS_NOT_ACCEPTED without --accept-emails, FROZEN_EMAILS_EXCEEDED), or a removal
+stopped before its first delete at what the target runs, without
+--accept-automation; 2 a bad command line, or a question with
 no terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
 completed with errors or the sweep of a reload did not take all it was asked to,
 or a removal left records of the load or its sweep did not take all it was asked
@@ -377,6 +407,11 @@ interface CliArgs {
    */
   checkpointFirst?: RunCheckpointRequest;
   includeChanged: boolean;
+  /**
+   * With load: write although the target delivers every email what still
+   * runs sends as the records go in, or would not say whether it does.
+   */
+  acceptEmails: boolean;
   /** With remove: sweep first what the target's automation created during the load. */
   sweep: boolean;
   /** With remove: list what a sweep would delete, and delete nothing. */
@@ -407,6 +442,7 @@ const FLAGS: CommandFlags = {
     '--mute-automation',
     '--accept-automation',
     '--include-changed',
+    '--accept-emails',
     '--sweep',
     '--sweep-list',
     ...SWEEP_CLASS_FLAGS,
@@ -488,8 +524,25 @@ export function parseArgs(argv: string[]): CliArgs {
     );
     process.exit(2);
   }
+  // Taken by a removal, and by the sweep of a reload: given anywhere else, it
+  // was dropped without a word.
+  if (
+    args.includes('--include-changed') &&
+    step !== 'remove' &&
+    !(step === 'load' && args.includes('--reload') && args.includes('--sweep'))
+  ) {
+    process.stderr.write(
+      '--include-changed goes with remove, or with load --reload --sweep, whose sweep then ' +
+        'takes what changed since the loads it replaces. Run with --help.\n',
+    );
+    process.exit(2);
+  }
   if (args.includes('--write-encrypted') && step !== 'load') {
     process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
+    process.exit(2);
+  }
+  if (args.includes('--accept-emails') && step !== 'load') {
+    process.stderr.write('--accept-emails goes with load. Run with --help.\n');
     process.exit(2);
   }
   if (args.includes('--mute-automation') && step !== 'load' && step !== 'remove') {
@@ -566,6 +619,7 @@ export function parseArgs(argv: string[]): CliArgs {
     acceptAutomation: args.includes('--accept-automation'),
     ...(checkpointFirst !== undefined ? { checkpointFirst } : {}),
     includeChanged: args.includes('--include-changed'),
+    acceptEmails: args.includes('--accept-emails'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
     ...classes,
@@ -1009,9 +1063,17 @@ const VERDICT_EXIT: Readonly<Record<string, number>> = {
  * (`ExtensionHandlers`): while one wrote in a load's window, a sweep takes
  * nothing tied to nothing of the load, whose it is cannot be told. Without
  * it, `--sweep-untied` took what a Sync run had just written. Each is dated
- * by the load's window it was found in. Exported so it can be tested.
+ * by the load's window it was found in. So are the loads this command ran
+ * from another sas into the org (`indexLoad`), each by its own span: those of
+ * the sas it runs on its mapping names. Exported so it can be tested.
+ *
+ * @param sasMark - The mark of the sas this command runs on (`sasMarkOf`).
  */
-export function commandLineOtherRuns(target: string, journalDir?: string): OtherModuleRuns {
+export function commandLineOtherRuns(
+  target: string,
+  journalDir?: string,
+  sasMark?: string,
+): OtherModuleRuns {
   return async (organizationId, written) => {
     const from = Date.parse(written?.first ?? '');
     const to = Math.max(from, Date.parse(written?.last ?? ''));
@@ -1023,7 +1085,13 @@ export function commandLineOtherRuns(target: string, journalDir?: string): Other
       own: { ids: [] },
       ...(journalDir !== undefined ? { journalDir } : {}),
     });
-    return runs.map(({ ids }) => ({ ids, from, to }));
+    return [
+      ...runs.map(({ ids }) => ({ ids, from, to })),
+      ...otherSasRunsOf(indexedLoadsOf(journalDir ?? journalDirOf(), organizationId), {
+        sasMark,
+        own: [],
+      }),
+    ];
   };
 }
 
@@ -1092,8 +1160,11 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
     // ended it, said beside the error: under a message that the load had
     // purged nothing, it was said in the audit trail alone.
     const swept = type === 'frozen:load:error' ? ((p.sweeps as FrozenReloadSweep[]) ?? []) : [];
+    // What a load refused for its emails was judged on, beside the refusal.
+    const emails = type === 'frozen:load:error' ? (p.emails as FrozenLoadEmailsInfo) : undefined;
     return [
       `! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`,
+      ...(emails ? loadEmailsLines(emails, 'the target') : []),
       ...(swept.length > 0 ? ['before the load ended, its sweep had already done this:'] : []),
       ...swept.flatMap(({ loadedAt, result }) => [
         `sweep of the load of ${loadedAt}:`,
@@ -1388,9 +1459,21 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       // around the purge as a removal of that load sweeps it.
       for (const swept of (p.report as { sweeps?: FrozenReloadSweep[] }).sweeps ?? []) {
         lines.push(`sweep of the load of ${swept.loadedAt}:`, ...sweepLines(swept.result));
+        // Kept unasked, they end no reload partial: the load stays recorded
+        // for the sweep that is asked to take them.
+        const changed = swept.result.objects.reduce((sum, o) => sum + o.keptChanged, 0);
+        if (changed > 0) {
+          lines.push(
+            `  ${changed} record(s) kept, changed since that load: load --reload --sweep ` +
+              '--include-changed, or remove --sweep --include-changed, takes them',
+          );
+        }
       }
       const muted = (p.report as { mutedAutomation?: MutedAutomation }).mutedAutomation;
       if (muted) lines.push(...muteLines(muted, 'the target'));
+      // What its gate made of the emails of what still ran as it wrote.
+      const emails = (p.report as { emails?: FrozenLoadEmailsInfo }).emails;
+      if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
       lines.push(
         ...frozenRecordTypeLines(
           (p.report as { recordTypesGiven?: RecordTypeGiven[] }).recordTypesGiven,
@@ -1543,6 +1626,9 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
             'any of them may refuse a record counted to insert',
         );
       }
+      // What the load's gate would make of the emails of what still runs.
+      const emails = (p.plan as { emails?: FrozenLoadEmailsInfo }).emails;
+      if (emails) lines.push(...loadEmailsLines(emails, 'the target'));
       return lines;
     }
     case 'frozen:verify:result': {
@@ -2019,7 +2105,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
   // The salt from the environment, or the file given; none is made up here.
   handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
-  if (args.target) handler.setOtherModuleRuns(commandLineOtherRuns(args.target));
+  // The other command lines' runs, and the loads of another sas into the org.
+  if (args.target) {
+    handler.setOtherModuleRuns(commandLineOtherRuns(args.target, undefined, sasMarkOf(sasDir)));
+  }
 
   // The extraction, the load and the removal are listed while they run, as in
   // the extension: what Ctrl-C stops them through, as the panel's Cancel does.
@@ -2303,6 +2392,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
             ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
+            // What its gate on the emails judges as the load would: the mute
+            // planned, nothing assigned, and the accord given or not.
+            ...(args.muteAutomation ? { muteAutomation: true } : {}),
+            ...(args.acceptEmails ? { acceptEmails: true } : {}),
           });
           // The load's own count gate, said of the plan it would be held to.
           const plan = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload
@@ -2312,6 +2405,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             : undefined;
           // MAX_RECORDS, as the load refuses it.
           if (tooMany) wouldRefuse({ code: 'MAX_RECORDS', message: tooMany });
+          // And its gate on the emails: past the target's daily limits, or
+          // delivered without --accept-emails, under the load's own code.
+          const emailsRefused = plan?.emails?.refused;
+          if (emailsRefused) wouldRefuse(emailsRefused);
           // What a reload's purge would fire, read and judged as the reload
           // reads it before it writes: a dry run that let by what its run then
           // refused would have a plan apply what it cannot. Asked with a
@@ -2499,6 +2596,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           }
         }
         log(`loading into ${args.target}${args.pilot ? ' (pilot)' : ''}…`);
+        const loadStartedAt = new Date().toISOString();
         await send('frozen:load', {
           targetOrgId,
           ...(args.pilot ? { pilot: true } : {}),
@@ -2509,7 +2607,39 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...(args.sweep ? { sweep: true } : {}),
           ...(args.sweepLate ? { sweepLate: true } : {}),
           ...(args.sweepUntied ? { sweepUntied: true } : {}),
+          ...(args.sweep && args.includeChanged ? { includeChanged: true } : {}),
+          ...(args.acceptEmails ? { acceptEmails: true } : {}),
         });
+        // Refused for its emails, with its code beside the refusals, as a
+        // seed or a sync refused for them gives it.
+        const emailsRefused = posted
+          .filter((m) => m.type === 'frozen:load:error')
+          .map((m) => m.payload ?? {})
+          .find((e) => e.code === 'EMAILS_NOT_ACCEPTED' || e.code === 'FROZEN_EMAILS_EXCEEDED');
+        if (emailsRefused) {
+          stepRefused = {
+            code: String(emailsRefused.code),
+            message: String(emailsRefused.message),
+          };
+          refusals.push(stepRefused);
+        }
+        // Kept where every load of this command is, whichever sas: the sweep
+        // of another sas's load into the org counts it a run of its window.
+        if (targetOrgId && frozenLoadWrote(posted)) {
+          try {
+            indexLoad(journalDirOf(), {
+              organizationId: targetOrgId,
+              sas: sasMarkOf(sasDir),
+              startedAt: loadStartedAt,
+              endedAt: new Date().toISOString(),
+            });
+          } catch (err: unknown) {
+            log(
+              `warning: this load could not be added to ${journalDirOf()}: another sas's sweep ` +
+                `of ${args.target ?? ''} will not see it (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+        }
         // Kept once the load wrote a record; deleted when it reports it wrote
         // none, or was refused before it wrote.
         if (checkpoints && taken) {
@@ -2722,6 +2852,9 @@ const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
   'MUTE_PRODUCTION',
   'MUTE_NO_RIGHT',
   'MUTE_FAILED',
+  // Its gate on the emails, which stops it before its first write.
+  'EMAILS_NOT_ACCEPTED',
+  'FROZEN_EMAILS_EXCEEDED',
 ]);
 
 /**

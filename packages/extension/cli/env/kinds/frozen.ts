@@ -601,6 +601,19 @@ function alignmentNotes(plan: Record<string, unknown> | undefined): string[] {
   });
 }
 
+/** The emails a load's gate counted per daily limit, as its dry run's plan carries them. */
+function frozenEmailsOf(plan: Record<string, unknown> | undefined): EnvDryRunCount['emails'] {
+  const counted = (plan?.['emails'] as { counted?: unknown } | undefined)?.counted;
+  if (!Array.isArray(counted)) return [];
+  return counted.flatMap((each) => {
+    const { limit, emails } = (each ?? {}) as Record<string, unknown>;
+    return (limit === 'SingleEmail' || limit === 'DailyWorkflowEmails') &&
+      typeof emails === 'number'
+      ? [{ limit, emails }]
+      : [];
+  });
+}
+
 /**
  * What a frozen dry run counted: per object the records a load would insert,
  * exactly, and in all what `--max-total` holds the run to. Its refusal is the
@@ -637,7 +650,9 @@ export function frozenDryRunCount(answer: FrozenDryRunAnswer): EnvDryRunCount {
       (sum, object) => sum + countedStorageBytes(object.objectApiName, { rows: object.toInsert }),
       0,
     ),
-    emails: [],
+    // What its gate counted against the org's daily limits, for the day's
+    // gate to add to the other resources': it counted none before.
+    emails: frozenEmailsOf(plan),
     ...(refusal !== undefined ? { refusal } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   };

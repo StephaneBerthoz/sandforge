@@ -463,11 +463,22 @@ export const ReloadSweeps: React.FC<ReloadSweepsProps> = ({ sweeps, org, testId 
             })}
           </span>
           <ForgeRunSweepResult result={swept.result} org={org} />
+          {/* Kept unasked, they end no run partial: what takes them is said. */}
+          {changedKept(swept.result) > 0 && (
+            <p className="text-[11px] text-text-secondary" data-testid={`${testId}-changed-kept`}>
+              {t('frozen.report.sweptChangedKept', { records: changedKept(swept.result) })}
+            </p>
+          )}
         </div>
       ))}
     </div>
   );
 };
+
+/** What a sweep kept as changed since the load it swept, over every object. */
+function changedKept(result: FrozenReloadSwept['result']): number {
+  return result.objects.reduce((sum, object) => sum + object.keptChanged, 0);
+}
 
 /** The records a load created that the platform does not delete, per object, in words. */
 function keptObjects(kept: NonNullable<FrozenLoadRecordsInfo['keptByThePlatform']>): string {

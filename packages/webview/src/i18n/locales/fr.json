@@ -5261,8 +5261,10 @@
         "sweep": "Balayer aussi : supprimer ce que les Flows et déclencheurs de la cible ont créé pour les chargements que ce rechargement remplace, et que la purge laisse dans l'org",
         "sweepOf": "Pour le chargement du {{date}}",
         "heldReading": "En attente de ce que prend le balayage, et de ce que {{org}} exécute quand il le supprime : le rechargement se confirme une fois les deux lus.",
-        "heldUnread": "Ce que prendrait le balayage n'a pas pu être lu, ni ce que {{org}} exécute quand il le supprime : un rechargement avec ce balayage ne peut pas être confirmé."
-      }
+        "heldUnread": "Ce que prendrait le balayage n'a pas pu être lu, ni ce que {{org}} exécute quand il le supprime : un rechargement avec ce balayage ne peut pas être confirmé.",
+        "includeChanged": "Prendre aussi ce que le balayage trouve modifié depuis le chargement qu'il balaie, et ce qui y a été ajouté depuis"
+      },
+      "acceptEmails": "Charger même si {{org}} délivre les e-mails que ses automatisations envoient quand le chargement écrit, ou ne dit pas s'ils partent"
     },
     "preview": {
       "title": "Ce que ferait un chargement dans {{org}}",
@@ -5292,7 +5294,18 @@
       "validationRulesOnChange_one": "{{object}} : {{count}} règle laissée de côté — sa formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
       "validationRulesOnChange_other": "{{object}} : {{count}} règles laissées de côté — leur formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
       "placeholderValidationRules_one": "Placeholder de {{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un placeholder qu'elle refuse arrête le chargement.",
-      "placeholderValidationRules_other": "Placeholder de {{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un placeholder que l'une d'elles refuse arrête le chargement."
+      "placeholderValidationRules_other": "Placeholder de {{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un placeholder que l'une d'elles refuse arrête le chargement.",
+      "emails": {
+        "refused": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le chargement écrit, ou ne dit pas s'ils partent : le chargement serait refusé, rien d'écrit, sauf si vous cochez « Charger même si {{org}} délivre les e-mails ».",
+        "accepted": "{{org}} délivre les e-mails que ce qui tourne encore envoie quand le chargement écrit, ou ne dit pas s'ils partent : la case cochée, le chargement les envoie.",
+        "withheld": "{{org}} ne délivre aucun des e-mails que ses automatisations envoient (System email only ou No access) : rien n'est demandé à leur sujet, et l'org les compte tout de même dans ses limites quotidiennes.",
+        "senders": "Ce qui les envoie : {{senders}}.",
+        "count": "{{limit}} : environ {{emails}}, avec {{remaining}} sur {{max}} restants aujourd'hui.",
+        "countExceeds": "{{limit}} : environ {{emails}}, plus que les {{remaining}} sur {{max}} restants aujourd'hui.",
+        "countUnread": "{{limit}} : environ {{emails}} ; ce qu'il reste aujourd'hui à l'org n'a pas pu être lu.",
+        "exceeded": "Au-delà de ce qu'il reste aujourd'hui à {{org}}, chaque enregistrement dont le Flow échoue à l'enregistrement est refusé : le chargement serait refusé, rien d'écrit, quelle que soit la case. Coupez ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui.",
+        "uncounted": "Tous n'ont pas été comptés : {{why}} n'a pas pu être lu."
+      }
     },
     "verify": {
       "run": "Re-vérifier",
@@ -5357,7 +5370,8 @@
         "targetNotLoaded": "L'enregistrement qu'il désigne n'a pas été chargé",
         "lostWithTheirRecord": "Perdus avec les enregistrements qui les portent, que le chargement n'a pas écrits : {{links}}"
       },
-      "sweptFor": "Balayé pour le chargement du {{date}}"
+      "sweptFor": "Balayé pour le chargement du {{date}}",
+      "sweptChangedKept": "Enregistrements gardés, modifiés depuis ce chargement : {{records}}. Un rechargement avec « Prendre aussi ce que le balayage trouve modifié depuis » coché les prend, de même qu'un retrait avec son balayage et les enregistrements modifiés depuis cochés."
     },
     "removal": {
       "title": "Dernier chargement",
@@ -5534,6 +5548,44 @@
       "checkpointRefused": {
         "explanation": "Le chargement a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris, ce que dit la sortie SandForge. Rien n'a été écrit.",
         "action": "Décochez Point de contrôle d'abord pour charger sans lui, ou corrigez ce qui le refuse."
+      },
+      "loadCancelled": {
+        "explanation": "Vous avez arrêté le chargement avant qu'il n'écrive quoi que ce soit, et rien n'a été écrit.",
+        "action": "Relancez le chargement quand vous serez prêt.",
+        "wroteExplanation": "Vous avez arrêté le chargement en route. Enregistrements qu'il avait écrits jusque-là, créés ou purgés : {{records}}.",
+        "wroteAction": "Ce qu'il a créé est gardé dans le mapping du sas : un retrait le reprend, et un rechargement le purge ou le retrouve."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "Le sas a changé depuis le dernier chargement : {{sas}} ne contient plus le contrat de comptage que le chargement y a écrit.",
+        "emptiedAction": "Chargez de nouveau le jeu de données, puis vérifiez.",
+        "otherExplanation": "Le dossier sas a changé depuis le dernier chargement : son contrat de comptage est dans {{loadSas}}, et le mapping lu est celui de {{sas}}.",
+        "otherAction": "Remettez dans la configuration le dossier sas où le chargement a écrit, ou chargez de nouveau le jeu de données, puis vérifiez.",
+        "movedExplanation": "Le dossier sas a changé depuis le dernier chargement : le chargement a écrit dans {{loadSas}}, qui ne contient plus son contrat de comptage, et le mapping lu est celui de {{sas}}.",
+        "movedAction": "Remettez le sas dans {{loadSas}} et indiquez ce dossier sas dans la configuration, ou chargez de nouveau le jeu de données, puis vérifiez."
+      },
+      "alreadyRemoved": {
+        "explanation": "Les enregistrements créés par ce chargement ont déjà été retirés, et rien n'a été supprimé.",
+        "action": "La carte montre maintenant le chargement tel que le sas le garde."
+      },
+      "nothingToRemove": {
+        "explanation": "Ce chargement n'a créé aucun enregistrement qu'un retrait prenne, et rien n'a été supprimé.",
+        "action": "La carte montre maintenant le chargement tel que le sas le garde."
+      },
+      "recordTypeLabel": {
+        "explanation": "Les enregistrements {{object}} du jeu de données nomment leur type d'enregistrement « {{name}} » par son libellé, que {{recordTypes}} partagent dans l'org source : on ne peut pas savoir lequel avait chaque enregistrement, et rien n'a été écrit.",
+        "action": "Donnez à l'un d'eux un autre libellé dans l'org source, puis cliquez de nouveau sur Lancer l'extraction."
+      },
+      "recordTypeNamespace": {
+        "explanation": "Le jeu de données nomme le type d'enregistrement {{object}} {{name}} sans son espace de noms (il a été extrait avant que SandForge lise les espaces de noms), et {{recordTypes}} portent ce nom dans l'org cible : on ne peut pas savoir lequel est visé, et rien n'a été écrit.",
+        "action": "Cliquez de nouveau sur Lancer l'extraction : un jeu de données extrait maintenant nomme chaque type d'enregistrement avec son espace de noms."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le chargement écrit, ou ne dit pas s'ils partent, et rien n'a été écrit.",
+        "action": "Cochez « Charger même si {{org}} délivre les e-mails » pour charger malgré tout, cochez la coupure de l'automatisation pour faire taire ce qui teste le contournement de l'org, ou passez la délivrabilité de l'org à System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "Le chargement ferait envoyer à {{org}} plus d'e-mails qu'il ne lui en reste aujourd'hui ({{limit}} : environ {{emails}}, {{remaining}} sur {{max}} restants), et rien n'a été écrit.",
+        "action": "Cochez la coupure de l'automatisation pour faire taire ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui."
       }
     }
   },

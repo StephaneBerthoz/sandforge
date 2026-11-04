@@ -33,9 +33,16 @@ import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
 import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import { indexedLoadsOf, sasMarkOf } from '../src/modules/frozendataset/otherSasLoads.js';
 import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
 import { tiedTargetOrg, type TiedRow, type TiedTargetOrg } from '../src/test/tiedTargetOrg.js';
-import { main, removalAutomation, removalAsked, parseArgs } from './sandforge-frozen.js';
+import {
+  frozenStepExit,
+  main,
+  removalAutomation,
+  removalAsked,
+  parseArgs,
+} from './sandforge-frozen.js';
 
 /**
  * What `sandforge-frozen remove` does of what the target runs as the records
@@ -821,6 +828,129 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(report?.sweeps?.[0]?.result.status).toBe('success');
       expect(permissions.assignments()).toEqual([]);
       expect(steps.indexOf('lease')).toBeLessThan(steps.indexOf('delete Asset'));
+    });
+
+    describe('an asset someone edited since the load it replaces', () => {
+      beforeEach(() => {
+        const EDITED = '2026-10-01T12:00:00.000+0000';
+        Object.assign(org.row('Asset', ASSET)!, {
+          LastModifiedDate: EDITED,
+          LastModifiedById: fakeId('005', 2),
+          SystemModstamp: EDITED,
+        });
+      });
+
+      /** The exit the load's own report gives, the verification it chains apart. */
+      const loadExit = (): number =>
+        frozenStepExit(
+          'load',
+          answered().posted.filter((m) => m.type === 'frozen:load:response'),
+        );
+
+      it('keeps it and says what takes it, and its report ends 0: it was not asked to take it', async () => {
+        // Kept, it ended this reload and every one after on exit 3.
+        await reloadStep('--sweep', '--mute-automation', '--yes', '--json');
+
+        expect(org.ids('Asset')).toEqual([ASSET]);
+        expect(loadExit()).toBe(0);
+        expect(stderr).toContain(
+          '1 record(s) kept, changed since that load: load --reload --sweep --include-changed, ' +
+            'or remove --sweep --include-changed, takes them',
+        );
+      });
+
+      it('takes it with --include-changed', async () => {
+        await reloadStep('--sweep', '--include-changed', '--mute-automation', '--yes', '--json');
+
+        expect(org.ids('Asset')).toEqual([]);
+        expect(loadExit()).toBe(0);
+      });
+    });
+
+    it('keeps the load it ran where another sas’s sweep reads it, marked with its sas', async () => {
+      await reloadStep('--sweep', '--mute-automation', '--yes', '--json');
+
+      expect(indexedLoadsOf(join(dir, 'journal'), ORG_ID)).toEqual([
+        { sas: sasMarkOf(dir), startedAt: expect.any(String), endedAt: expect.any(String) },
+      ]);
+    });
+
+    describe('with nothing it wrote', () => {
+      it('keeps nothing of a load refused before it wrote', async () => {
+        expect(await reloadStep('--sweep', '--yes', '--json')).toBe(1);
+
+        expect(indexedLoadsOf(join(dir, 'journal'), ORG_ID)).toEqual([]);
+      });
+    });
+
+    describe('into an org whose account flow sends an email, which would not say whether it delivers it', () => {
+      beforeEach(() => {
+        vi.mocked(TargetAutomationReader.prototype.read).mockImplementation(
+          async (_org, objects) => {
+            const read = automationOn(objects, onCase);
+            return objects.includes('Account')
+              ? {
+                  ...read,
+                  objects: [
+                    ...read.objects,
+                    {
+                      objectApiName: 'Account',
+                      flows: [
+                        {
+                          ...CASE_FLOW,
+                          apiName: 'Account_Welcome',
+                          label: 'Account welcome',
+                          startsOn: 'create',
+                          messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+                        } as unknown as ForgeTargetFlow,
+                      ],
+                      triggers: [],
+                    },
+                  ],
+                }
+              : read;
+          },
+        );
+      });
+
+      it('writes nothing without --accept-emails, and says why under its code', async () => {
+        // A load counted no email and took no accord: the flow emailed each account.
+        expect(await reloadStep('--sweep', '--mute-automation', '--yes', '--json')).toBe(1);
+
+        expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+        expect(answered().refused?.code).toBe('EMAILS_NOT_ACCEPTED');
+        expect(answered().refused?.message).toContain('Add --accept-emails to load all the same');
+        expect(org.ids('Asset')).toEqual([ASSET]);
+      });
+
+      it('says with --dry-run that a load would be refused, and why', async () => {
+        vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+          orgId: ORG_ID,
+          mode: { pilot: false, reload: true },
+          plannedAt: WRITTEN_OVER,
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          recordTypeIssues: 0,
+          personContacts: 0,
+          earlierLoads: 1,
+        } as unknown as Awaited<ReturnType<FrozenDatasetLoader['planLoad']>>);
+
+        expect(await reloadStep('--dry-run', '--mute-automation')).toBe(1);
+
+        expect(stdout).toContain('a load would be refused (EMAILS_NOT_ACCEPTED): ');
+        expect(stdout).toContain('deliverability: not read');
+        expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
+      });
+
+      it('loads with --accept-emails', async () => {
+        await reloadStep('--sweep', '--mute-automation', '--accept-emails', '--yes', '--json');
+
+        expect(FrozenDatasetLoader.prototype.load).toHaveBeenCalledTimes(1);
+        expect(answered().refused).toBeUndefined();
+      });
     });
 
     it('takes nothing of what the automation made without the sweep, as the purge alone did', async () => {

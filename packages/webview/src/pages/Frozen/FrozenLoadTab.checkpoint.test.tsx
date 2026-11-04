@@ -254,6 +254,37 @@ describe('FrozenLoadTab, Take a checkpoint now', () => {
       );
     });
 
+    it('says a load the user stopped in the interface’s words, with what it had written', () => {
+      // The banner showed the host's English in every locale, object by object.
+      render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      const load = lastSent('frozen:load');
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'err-3',
+              type: 'frozen:load:error',
+              timestamp: Date.now(),
+              correlationId: load?.id,
+              payload: {
+                message:
+                  'The load was cancelled after it had created 204 record(s) (Account: 3, ' +
+                  'Opportunity: 1, Contact: 200). What it created is kept in the mapping: a ' +
+                  'removal takes it back, and a reload purges it or finds it again.',
+                code: 'LOAD_CANCELLED',
+                written: 204,
+              },
+            },
+          }),
+        );
+      });
+      expect(screen.getByTestId('frozen-error')).toHaveTextContent(
+        'You stopped the load part way. Records it had written by then, created or purged: 204.',
+      );
+      expect(screen.getByTestId('frozen-error')).not.toHaveTextContent('record(s)');
+    });
+
     it('says what the sweep of a reload it stopped took, beside its error', () => {
       // Said in the audit trail alone, under a message that nothing was purged.
       render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);

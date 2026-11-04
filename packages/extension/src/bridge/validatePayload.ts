@@ -1301,6 +1301,10 @@ export const frozenLoadPayloadSchema = z.object({
   // made for each load it replaces, as a removal of that load sweeps it.
   sweep: z.boolean().optional(),
   ...sweepClassesShape,
+  // With the sweep: take too what it finds changed since the load it sweeps.
+  includeChanged: z.boolean().optional(),
+  // Write although the target delivers the emails of what still runs, or would not say.
+  acceptEmails: z.boolean().optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its

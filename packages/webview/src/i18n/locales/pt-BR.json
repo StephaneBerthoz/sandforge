@@ -5261,8 +5261,10 @@
         "sweep": "Varrer também: excluir o que os Flows e gatilhos do destino criaram para os carregamentos que esta recarga substitui, e que o expurgo deixa na org",
         "sweepOf": "Para o carregamento de {{date}}",
         "heldReading": "Aguardando o que a varredura leva, e o que {{org}} executa quando ela o exclui: a recarga pode ser confirmada depois que ambos forem lidos.",
-        "heldUnread": "Não foi possível ler o que a varredura levaria, nem o que {{org}} executa quando ela o exclui: uma recarga com esta varredura não pode ser confirmada."
-      }
+        "heldUnread": "Não foi possível ler o que a varredura levaria, nem o que {{org}} executa quando ela o exclui: uma recarga com esta varredura não pode ser confirmada.",
+        "includeChanged": "Levar também o que a varredura encontra alterado desde a carga que ela varre, e o que foi adicionado a isso desde então"
+      },
+      "acceptEmails": "Carregar mesmo que {{org}} entregue os e-mails que suas automações enviam quando a carga grava, ou não diga se os entrega"
     },
     "preview": {
       "title": "O que uma carga em {{org}} faria",
@@ -5292,7 +5294,18 @@
       "validationRulesOnChange_one": "{{object}}: {{count}} regra deixada de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} regras deixadas de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
       "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um marcador que ela recuse interrompe o carregamento.",
-      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um marcador que uma delas recuse interrompe o carregamento."
+      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um marcador que uma delas recuse interrompe o carregamento.",
+      "emails": {
+        "refused": "{{org}} entrega todos os e-mails que o que ainda roda envia quando a carga grava, ou não diz se os entrega: a carga seria recusada, nada gravado, a menos que você marque “Carregar mesmo que {{org}} entregue os e-mails”.",
+        "accepted": "{{org}} entrega os e-mails que o que ainda roda envia quando a carga grava, ou não diz se os entrega: com a caixa marcada, a carga os envia.",
+        "withheld": "{{org}} não entrega nenhum dos e-mails que suas automações enviam (System email only ou No access): nada é perguntado sobre eles, e a org ainda os conta nos seus limites diários.",
+        "senders": "O que os envia: {{senders}}.",
+        "count": "{{limit}}: cerca de {{emails}}, com {{remaining}} de {{max}} restantes hoje.",
+        "countExceeds": "{{limit}}: cerca de {{emails}}, mais que os {{remaining}} de {{max}} restantes hoje.",
+        "countUnread": "{{limit}}: cerca de {{emails}}; o que resta hoje à org não pôde ser lido.",
+        "exceeded": "Além do que resta hoje a {{org}}, cada registro cujo fluxo falha ao salvar é recusado: a carga seria recusada, nada gravado, seja o que for que a caixa diga. Silencie o que os envia, ou carregue numa org com mais e-mails restantes hoje.",
+        "uncounted": "Nem todos foram contados: {{why}} não pôde ser lido."
+      }
     },
     "verify": {
       "run": "Verificar novamente",
@@ -5357,7 +5370,8 @@
         "targetNotLoaded": "O registro para o qual aponta não foi carregado",
         "lostWithTheirRecord": "Perdidos com os registros que os contêm, que a carga não gravou: {{links}}"
       },
-      "sweptFor": "Varrido para o carregamento de {{date}}"
+      "sweptFor": "Varrido para o carregamento de {{date}}",
+      "sweptChangedKept": "Registros mantidos, alterados desde essa carga: {{records}}. Uma recarga com “Levar também o que a varredura encontra alterado” marcado os leva, assim como uma remoção com sua varredura e os registros alterados desde então marcados."
     },
     "removal": {
       "title": "Última carga",
@@ -5534,6 +5548,44 @@
       "checkpointRefused": {
         "explanation": "A carga foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado, ou não pôde ser criado, como diz a saída do SandForge. Nada foi gravado.",
         "action": "Desmarque Primeiro um ponto de verificação para carregar sem ele, ou corrija o que o recusa."
+      },
+      "loadCancelled": {
+        "explanation": "Você parou a carga antes que ela gravasse qualquer coisa, e nada foi gravado.",
+        "action": "Execute a carga de novo quando estiver pronto.",
+        "wroteExplanation": "Você parou a carga no meio. Registros que ela tinha gravado até então, criados ou expurgados: {{records}}.",
+        "wroteAction": "O que ela criou fica no mapeamento do sas: uma remoção o desfaz, e uma recarga o expurga ou o encontra de novo."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "O sas mudou desde a última carga: {{sas}} já não contém o contrato de contagem que a carga gravou ali.",
+        "emptiedAction": "Carregue o dataset de novo e verifique.",
+        "otherExplanation": "A pasta sas mudou desde a última carga: seu contrato de contagem está em {{loadSas}}, e o mapeamento lido é o de {{sas}}.",
+        "otherAction": "Volte a definir na configuração a pasta sas em que a carga gravou, ou carregue o dataset de novo; depois verifique.",
+        "movedExplanation": "A pasta sas mudou desde a última carga: a carga gravou em {{loadSas}}, que já não contém seu contrato de contagem, e o mapeamento lido é o de {{sas}}.",
+        "movedAction": "Mova o sas de volta para {{loadSas}} e defina essa pasta sas na configuração, ou carregue o dataset de novo; depois verifique."
+      },
+      "alreadyRemoved": {
+        "explanation": "Os registros que esta carga criou já foram removidos, e nada foi excluído.",
+        "action": "O cartão mostra agora a carga como o sas a guarda."
+      },
+      "nothingToRemove": {
+        "explanation": "Esta carga não criou nenhum registro que uma remoção leve, e nada foi excluído.",
+        "action": "O cartão mostra agora a carga como o sas a guarda."
+      },
+      "recordTypeLabel": {
+        "explanation": "Os registros {{object}} do dataset nomeiam seu tipo de registro “{{name}}” pelo rótulo, que {{recordTypes}} compartilham na org de origem: não dá para saber qual cada registro tinha, e nada foi gravado.",
+        "action": "Dê a um deles outro rótulo na org de origem e clique de novo em Executar extração."
+      },
+      "recordTypeNamespace": {
+        "explanation": "O dataset nomeia o tipo de registro {{object}} {{name}} sem seu namespace (ele foi extraído antes de o SandForge ler namespaces), e {{recordTypes}} têm esse nome na org de destino: não dá para saber qual é, e nada foi gravado.",
+        "action": "Clique de novo em Executar extração: um dataset extraído agora nomeia cada tipo de registro com seu namespace."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} entrega todos os e-mails que o que ainda roda envia quando a carga grava, ou não diz se os entrega, e nada foi gravado.",
+        "action": "Marque “Carregar mesmo que {{org}} entregue os e-mails” para carregar assim mesmo, marque o silêncio da automação para calar o que testa o bypass da org, ou defina a capacidade de entrega da org como System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "A carga faria {{org}} enviar mais e-mails do que lhe restam hoje ({{limit}}: cerca de {{emails}}, {{remaining}} de {{max}} restantes), e nada foi gravado.",
+        "action": "Marque o silêncio da automação para calar o que os envia, ou carregue numa org com mais e-mails restantes hoje."
       }
     }
   },

@@ -347,6 +347,19 @@ beforeEach(() => {
   }) as never);
   process.exitCode = undefined;
   targetOrg();
+  // Unless a case scripts it, the target runs nothing as the load writes:
+  // the gate on its emails reads what it runs, which is not what is tested here.
+  vi.spyOn(TargetAutomationReader.prototype, 'read').mockImplementation(
+    async (_orgId, objects) => ({
+      objectsRead: [...objects],
+      objects: [],
+      bypassGrants: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 1,
+    }),
+  );
 });
 
 afterEach(() => {

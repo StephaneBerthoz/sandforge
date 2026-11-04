@@ -16,7 +16,8 @@ import { FrozenDatasetHandler, type FrozenRemovalQuestion } from './FrozenDatase
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
-import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { AuditTrailStore, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { sasMarkOf } from '../../modules/frozendataset/otherSasLoads.js';
 import {
   buildFrozenManifest,
   SasReferenceIdMappingStore,
@@ -698,6 +699,80 @@ describe('a reload asked to sweep what the automation made for the loads it repl
       expect(tied.ids('Task')).toEqual([]);
       expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
     });
+
+    describe('a task someone edited since the load the reload replaces', () => {
+      /** Edited two hours after the load, by another user than the load's. */
+      const EDITED = '2026-10-01T12:00:00.000+0000';
+      beforeEach(() => {
+        Object.assign(tied.row('Task', TASK)!, {
+          LastModifiedDate: EDITED,
+          LastModifiedById: id('005', 2),
+          SystemModstamp: EDITED,
+        });
+      });
+
+      it('keeps it and says so, without ending that reload or the next one partial', async () => {
+        // Every reload kept it with includeChanged false, ended partial, exit
+        // 3, and no reload could ever take it.
+        await reload({ sweep: true });
+
+        expect(tied.ids('Task')).toEqual([TASK]);
+        expect(report()?.status).toBe('completed');
+        expect(report()?.sweeps?.[0]?.result).toMatchObject({
+          status: 'success',
+          objects: [expect.objectContaining({ objectApiName: 'Task', keptChanged: 1, deleted: 0 })],
+        });
+        // Kept recorded with what its sweep found, for a sweep asked to take it.
+        const replaced = (await recordedLoads()).find((load) => load.endedAt === LAST_WRITE);
+        expect(replaced).toMatchObject({ created: [], madeEarlier: [TASK] });
+        expect(new AuditTrailStore(store).list().entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              action: 'cleanup_delete',
+              outcome: 'success',
+              details: expect.objectContaining({ sweep: true, keptChanged: 1 }),
+            }),
+          ]),
+        );
+
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        await reload({ sweep: true });
+
+        expect(tied.ids('Task')).toEqual([TASK]);
+        expect(report()?.status).toBe('completed');
+      });
+
+      it('takes it once the reload is asked to include what changed since, as a removal is', async () => {
+        await reload({ sweep: true });
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await reload({ sweep: true, includeChanged: true });
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Task')).toEqual([]);
+        expect(report()?.sweeps).toEqual(
+          expect.arrayContaining([
+            {
+              loadedAt: LAST_WRITE,
+              result: expect.objectContaining({
+                status: 'success',
+                objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+              }),
+            },
+          ]),
+        );
+        expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
+      });
+
+      it('still ends partial when the sweep left what it was asked to take', async () => {
+        // Refused by Production Guard: that is no change since the load.
+        refusingTasks();
+        await reload({ sweep: true, includeChanged: true });
+
+        expect(tied.ids('Task')).toEqual([TASK]);
+        expect(report()?.status).toBe('partial');
+      });
+    });
   });
 
   describe('a chain of reloads a few minutes apart, each load’s flow opening a task tied to nothing', () => {
@@ -852,6 +927,63 @@ describe('a reload asked to sweep what the automation made for the loads it repl
 
       expect(tied.ids('Task')).toEqual(expect.arrayContaining([FIRST_TASK]));
       expect(report()?.status).toBe('partial');
+    });
+
+    it('still keeps what is tied to nothing while a load from another sas wrote into the org in the window', async () => {
+      // A sas read no load but its own: a second sas's load into the same
+      // org, in the window, was no other run, and --sweep-untied took the
+      // tasks its flow had opened.
+      await reload({ sweep: true });
+      const otherSas = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-other-sas-'));
+      try {
+        recordWriteRun(
+          deps,
+          {
+            action: 'frozen_load',
+            module: 'frozen',
+            operationId: 'req-other-sas',
+            orgId: TARGET_ORG,
+            outcome: 'success',
+            details: { sas: sasMarkOf(otherSas), startedAt: FIRST_WRITE },
+          },
+          new Date(LAST_WRITE),
+        );
+        vi.mocked(deps.broker.postToWebview).mockClear();
+
+        await reload({ sweep: true, sweepUntied: true });
+
+        expect(tied.ids('Task')).toEqual(expect.arrayContaining([FIRST_TASK]));
+        expect(report()?.status).toBe('partial');
+        expect(
+          report()
+            ?.sweeps?.find((swept) => swept.loadedAt === LAST_WRITE)
+            ?.result.left?.find((left) => left.class === 'untied')?.refusal,
+        ).toContain('Another run of this machine wrote to the target');
+      } finally {
+        fs.rmSync(otherSas, { recursive: true, force: true });
+      }
+    });
+
+    it('takes it all the same when the load in the window is one of its own sas, its mapping naming it', async () => {
+      await reload({ sweep: true });
+      recordWriteRun(
+        deps,
+        {
+          action: 'frozen_load',
+          module: 'frozen',
+          operationId: 'req-own-sas',
+          orgId: TARGET_ORG,
+          outcome: 'success',
+          details: { sas: sasMarkOf(sasDir), startedAt: FIRST_WRITE },
+        },
+        new Date(LAST_WRITE),
+      );
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await reload({ sweep: true, sweepUntied: true });
+
+      expect(tied.ids('Task')).toEqual([taskOf(3)]);
+      expect(report()?.status).toBe('completed');
     });
 
     describe('removed with a sweep once a reload’s sweep left what it was to take', () => {

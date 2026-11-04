@@ -458,12 +458,22 @@ function sessions(): Array<{ start: string; event?: string; block: string }> {
 // ─── The guide ───────────────────────────────────────────────────────────────
 
 describe('docs/environments.md', () => {
+  /**
+   * The journal folder the scripts the sessions run keep their runs in: a
+   * folder of the test's own. Left to the default, a Frozen load the replay
+   * ran added itself to the developer's own `~/.sandforge`.
+   */
+  let journals: string;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    journals = mkdtempSync(join(tmpdir(), 'sandforge-docs-journals-'));
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', journals);
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    rmSync(journals, { recursive: true, force: true });
   });
 
   it('prints the --help text the script prints, word for word', () => {

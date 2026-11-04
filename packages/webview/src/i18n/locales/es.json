@@ -5261,8 +5261,10 @@
         "sweep": "Barrer también: eliminar lo que los Flows y desencadenadores del destino crearon para las cargas que esta recarga reemplaza, y que la purga deja en la org",
         "sweepOf": "Para la carga del {{date}}",
         "heldReading": "Esperando lo que toma el barrido, y lo que {{org}} ejecuta cuando lo elimina: la recarga se confirma una vez leídas ambas cosas.",
-        "heldUnread": "No se pudo leer lo que tomaría el barrido, ni lo que {{org}} ejecuta cuando lo elimina: no se puede confirmar una recarga con este barrido."
-      }
+        "heldUnread": "No se pudo leer lo que tomaría el barrido, ni lo que {{org}} ejecuta cuando lo elimina: no se puede confirmar una recarga con este barrido.",
+        "includeChanged": "Tomar también lo que el barrido encuentra modificado desde la carga que barre, y lo que se le añadió desde entonces"
+      },
+      "acceptEmails": "Cargar aunque {{org}} entregue los correos que envían sus automatizaciones cuando la carga escribe, o no diga si los entrega"
     },
     "preview": {
       "title": "Lo que haría una carga en {{org}}",
@@ -5292,7 +5294,18 @@
       "validationRulesOnChange_one": "{{object}}: {{count}} regla omitida — su fórmula solo se cumple al cambiar un registro ({{functions}}), y una inserción nunca lo es: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} reglas omitidas — su fórmula solo se cumple al cambiar un registro ({{functions}}), y una inserción nunca lo es: {{rules}}",
       "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regla de validación activa del destino, que una vista previa no puede evaluar — un marcador que rechace detiene la carga.",
-      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} reglas de validación activas del destino, que una vista previa no puede evaluar — un marcador que una de ellas rechace detiene la carga."
+      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} reglas de validación activas del destino, que una vista previa no puede evaluar — un marcador que una de ellas rechace detiene la carga.",
+      "emails": {
+        "refused": "{{org}} entrega todos los correos que envía lo que sigue en marcha cuando la carga escribe, o no dice si los entrega: la carga se rechazaría, sin escribir nada, salvo que marque «Cargar aunque {{org}} entregue los correos».",
+        "accepted": "{{org}} entrega los correos que envía lo que sigue en marcha cuando la carga escribe, o no dice si los entrega: con la casilla marcada, la carga los envía.",
+        "withheld": "{{org}} no entrega ninguno de los correos que envían sus automatizaciones (System email only o No access): no se pregunta nada de ellos, y la org los cuenta igualmente en sus límites diarios.",
+        "senders": "Lo que los envía: {{senders}}.",
+        "count": "{{limit}}: unos {{emails}}, con {{remaining}} de {{max}} restantes hoy.",
+        "countExceeds": "{{limit}}: unos {{emails}}, más que los {{remaining}} de {{max}} restantes hoy.",
+        "countUnread": "{{limit}}: unos {{emails}}; no se pudo leer lo que le queda hoy a la org.",
+        "exceeded": "Más allá de lo que le queda hoy a {{org}}, cada registro cuyo flujo falla al guardar se rechaza: la carga se rechazaría, sin escribir nada, diga lo que diga la casilla. Silencie lo que los envía, o cargue en una org a la que le queden más correos hoy.",
+        "uncounted": "No se contaron todos: no se pudo leer {{why}}."
+      }
     },
     "verify": {
       "run": "Volver a verificar",
@@ -5357,7 +5370,8 @@
         "targetNotLoaded": "El registro al que apunta no se cargó",
         "lostWithTheirRecord": "Perdidos con los registros que los contienen, que la carga no escribió: {{links}}"
       },
-      "sweptFor": "Barrido para la carga del {{date}}"
+      "sweptFor": "Barrido para la carga del {{date}}",
+      "sweptChangedKept": "Registros conservados, modificados desde esa carga: {{records}}. Una recarga con «Tomar también lo que el barrido encuentra modificado» marcado los toma, igual que un retiro con su barrido y los registros modificados desde entonces marcados."
     },
     "removal": {
       "title": "Última carga",
@@ -5534,6 +5548,44 @@
       "checkpointRefused": {
         "explanation": "La carga se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar, como dice la salida de SandForge. No se escribió nada.",
         "action": "Desmarque Primero un punto de control para cargar sin él, o corrija lo que lo rechaza."
+      },
+      "loadCancelled": {
+        "explanation": "Detuvo la carga antes de que escribiera nada, y no se escribió nada.",
+        "action": "Ejecute la carga de nuevo cuando esté listo.",
+        "wroteExplanation": "Detuvo la carga a medias. Registros que había escrito hasta entonces, creados o purgados: {{records}}.",
+        "wroteAction": "Lo que creó se guarda en el mapeo del sas: un retiro lo deshace, y una recarga lo purga o lo vuelve a encontrar."
+      },
+      "sasChanged": {
+        "emptiedExplanation": "El sas cambió desde la última carga: {{sas}} ya no contiene el contrato de recuento que la carga escribió allí.",
+        "emptiedAction": "Cargue de nuevo el dataset y verifique.",
+        "otherExplanation": "La carpeta sas cambió desde la última carga: su contrato de recuento está en {{loadSas}}, y el mapeo leído es el de {{sas}}.",
+        "otherAction": "Vuelva a indicar en la configuración la carpeta sas en la que escribió la carga, o cargue de nuevo el dataset; después verifique.",
+        "movedExplanation": "La carpeta sas cambió desde la última carga: la carga escribió en {{loadSas}}, que ya no contiene su contrato de recuento, y el mapeo leído es el de {{sas}}.",
+        "movedAction": "Devuelva el sas a {{loadSas}} e indique esa carpeta sas en la configuración, o cargue de nuevo el dataset; después verifique."
+      },
+      "alreadyRemoved": {
+        "explanation": "Los registros que creó esta carga ya se retiraron, y no se eliminó nada.",
+        "action": "La tarjeta muestra ahora la carga tal como la guarda el sas."
+      },
+      "nothingToRemove": {
+        "explanation": "Esta carga no creó ningún registro que un retiro tome, y no se eliminó nada.",
+        "action": "La tarjeta muestra ahora la carga tal como la guarda el sas."
+      },
+      "recordTypeLabel": {
+        "explanation": "Los registros {{object}} del dataset nombran su tipo de registro «{{name}}» por su etiqueta, que {{recordTypes}} comparten en la org de origen: no se puede saber cuál tenía cada registro, y no se escribió nada.",
+        "action": "Dé a uno de ellos otra etiqueta en la org de origen y haga clic de nuevo en Ejecutar extracción."
+      },
+      "recordTypeNamespace": {
+        "explanation": "El dataset nombra el tipo de registro {{object}} {{name}} sin su espacio de nombres (se extrajo antes de que SandForge leyera los espacios de nombres), y {{recordTypes}} llevan ese nombre en la org de destino: no se puede saber cuál es, y no se escribió nada.",
+        "action": "Haga clic de nuevo en Ejecutar extracción: un dataset extraído ahora nombra cada tipo de registro con su espacio de nombres."
+      },
+      "emailsNotAccepted": {
+        "explanation": "{{org}} entrega todos los correos que envía lo que sigue en marcha cuando la carga escribe, o no dice si los entrega, y no se escribió nada.",
+        "action": "Marque «Cargar aunque {{org}} entregue los correos» para cargar de todos modos, marque el silencio de la automatización para callar lo que prueba la omisión de la org, o ponga la entregabilidad de la org en System email only."
+      },
+      "emailsExceeded": {
+        "explanation": "La carga haría que {{org}} enviara más correos de los que le quedan hoy ({{limit}}: unos {{emails}}, {{remaining}} de {{max}} restantes), y no se escribió nada.",
+        "action": "Marque el silencio de la automatización para callar lo que los envía, o cargue en una org a la que le queden más correos hoy."
       }
     }
   },

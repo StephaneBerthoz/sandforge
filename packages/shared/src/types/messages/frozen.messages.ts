@@ -116,6 +116,20 @@ export interface FrozenLoadOptionsPayload {
   sweep?: boolean;
   sweepLate?: boolean;
   sweepUntied?: boolean;
+  /**
+   * With `sweep`: take too what the sweep of each load replaced finds changed
+   * since that load, as a removal asked to include the records changed since
+   * takes them. Kept otherwise, and said kept: the load stays recorded for a
+   * later sweep, and the reload is not partial for them.
+   */
+  includeChanged?: boolean;
+  /**
+   * Write although the target delivers every email what still runs sends as
+   * the load writes, or would not say whether it does (`--accept-emails`).
+   * Without it such a load is refused, `EMAILS_NOT_ACCEPTED`, nothing
+   * written. Asked of a preview, it says whether a load would be refused.
+   */
+  acceptEmails?: boolean;
 }
 
 /**

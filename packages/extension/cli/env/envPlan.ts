@@ -953,24 +953,10 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           `${blocked.map((action) => `${action.resource} (${action.refusal ?? action.why})`).join('; ')}`
         : undefined) ??
     checkpointRefusalOf(checkpoints);
-  // A Frozen load's dry run counts no email: the day's email gate holds
-  // without what its records make the org send. Live, a load of 73 contacts
-  // into a Developer Edition of 15 single emails a day was let through,
-  // said nothing of.
-  const loads = actions
-    .filter((action) => action.kind === 'frozen' && RUNS.has(action.action))
-    .map((action) => action.resource);
-  const warnings = [
-    ...(input.warnings ?? []),
-    ...checkpointWarningsOf(file, input.state),
-    ...(loads.length > 0
-      ? [
-          `the emails the org sends as the records of ${loads.join(', ')} are loaded are not ` +
-            'counted: a Frozen load’s dry run does not count them, and the day’s email gate holds ' +
-            'without them',
-        ]
-      : []),
-  ];
+  // A Frozen load's dry run counts its emails, which the day's gate adds: it
+  // counted none, and a load of 73 contacts into a Developer Edition of 15
+  // single emails a day was let through, said nothing of.
+  const warnings = [...(input.warnings ?? []), ...checkpointWarningsOf(file, input.state)];
 
   const count = (kind: EnvActionKind): number =>
     actions.filter((action) => action.action === kind).length;

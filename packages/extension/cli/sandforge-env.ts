@@ -246,11 +246,12 @@ apply:
   --replace-drifted          replace every drifted resource
   --accept-automation        take back the runs a replace or a delete takes back although the org
                              runs automation as records go
-  --accept-emails            let the seed and clone resources write although the org delivers every
-                             email its automation sends (Setup > Deliverability: All email), or
-                             would not say whether it does, and what still runs sends some;
-                             without it their dry runs block the plan, and --accept-automation
-                             and accept: { automation: true } never stand for it
+  --accept-emails            let the seed, clone and frozen resources write although the org
+                             delivers every email its automation sends (Setup > Deliverability:
+                             All email), or would not say whether it does, and what still runs
+                             sends some; without it their dry runs block the plan, and
+                             --accept-automation and accept: { automation: true } never stand
+                             for it
   --accept-no-state          apply to a Developer Edition or a sandbox this machine has no state
                              of: records an earlier apply left there would be created twice
   --yes                      do not ask; without it and with no terminal, stop at the question,
@@ -361,7 +362,8 @@ before it read or wrote — a production org, a kind of org or a sandbox the fil
 protected org, a state of another org, no state without --accept-no-state, another apply of the
 org under way, a removal refused for automation without --accept-automation, more API requests,
 storage or emails than the org has left, emails the org delivers or would not say it withholds
-without --accept-emails (a clone's or a seed's EMAILS_NOT_ACCEPTED, a rewind's EMAILS_DELIVERED), a
+without --accept-emails (a clone's, a seed's or a load's EMAILS_NOT_ACCEPTED, a rewind's
+EMAILS_DELIVERED), a
 checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or

@@ -310,7 +310,7 @@ describe('FrozenLoadTab', () => {
       expect(screen.getByText(/may hold masks such as \*\*\*\*1234/)).toBeDefined();
     });
 
-    it('offers beside Load the box that mutes the target’s automation, and asks the load alone to once ticked', () => {
+    it('offers beside Load the box that mutes the target’s automation, and asks the load to once ticked', () => {
       useFrozenStore.setState({ status: WITH_COVERAGE([]) });
       render(tab());
       expect((screen.getByTestId('frozen-load-mute-toggle') as HTMLInputElement).checked).toBe(
@@ -324,10 +324,56 @@ describe('FrozenLoadTab', () => {
 
       expect(mutate.mock.calls).toEqual([
         ['frozen:load', { targetOrgId: 'org-dev' }],
-        // Its preview writes nothing, and mutes nothing.
-        ['frozen:load:preview', { targetOrgId: 'org-dev' }],
+        // Its preview writes nothing and assigns nothing: it plans the mute,
+        // as a dry run with --mute-automation does, to say what still sends.
+        ['frozen:load:preview', { targetOrgId: 'org-dev', muteAutomation: true }],
         ['frozen:load', { targetOrgId: 'org-dev', muteAutomation: true }],
       ]);
+    });
+
+    it('offers under it the box that accepts the emails, never ticked, and asks the load and its preview with it', () => {
+      // A load sent the emails of what still ran with no question.
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      const box = screen.getByTestId('frozen-load-accept-emails') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(box.closest('label')?.textContent).toBe(
+        'Load even though DEV-SANDBOX delivers the emails its automation sends as the load ' +
+          'writes, or would not say whether it does',
+      );
+
+      fireEvent.click(box);
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load:preview', { targetOrgId: 'org-dev', acceptEmails: true }],
+        ['frozen:load', { targetOrgId: 'org-dev', acceptEmails: true }],
+      ]);
+    });
+
+    it('says in the preview what the emails come to, and that a load would be refused for them', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            emails: {
+              counted: [],
+              verdict: 'asks',
+              deliverability: { reading: { level: 'all' }, senders: [] },
+              accepted: false,
+              refused: { code: 'EMAILS_NOT_ACCEPTED', message: 'DEV-SANDBOX delivers…' },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-emails-verdict').textContent).toContain(
+        'the load would be refused, nothing written, unless you tick “Load even though ' +
+          'DEV-SANDBOX delivers the emails”',
+      );
     });
 
     it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
@@ -416,6 +462,53 @@ describe('FrozenLoadTab', () => {
         /^Data_Load was assigned to the user the run wrote as in /,
       );
       expect(screen.getByTestId('frozen-load-report-muted-not-released')).toBeDefined();
+    });
+
+    it('says what a reload’s sweep kept as changed since the load it swept, and what takes it', () => {
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+          sweeps: [
+            {
+              loadedAt: '2026-10-01T10:05:00.000Z',
+              result: {
+                status: 'success',
+                objects: [
+                  {
+                    objectApiName: 'Task',
+                    found: 1,
+                    deleted: 0,
+                    alreadyGone: 0,
+                    keptChanged: 1,
+                    refused: 0,
+                    reasons: [],
+                  },
+                ],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-report-sweeps-changed-kept').textContent).toMatch(
+        /^Records kept, changed since that load: 1\. A reload with “Also take what the sweep finds changed since” ticked takes them/,
+      );
     });
   });
 
@@ -1196,6 +1289,37 @@ describe('FrozenLoadTab', () => {
 
           expect(loadsSent()).toEqual([
             ['frozen:load', { targetOrgId: 'org-dev', reload: true, sweep: true }],
+          ]);
+        });
+
+        it('offers with the sweep the box that takes what it finds changed since, and sends the reload with it', () => {
+          // A reload's sweep kept what changed since with no way to take it.
+          answers['frozen:remove:sweep'] = { data: LISTED };
+          confirmation();
+          answers['frozen:remove:automation'] = {
+            data: {
+              loadedAt: LOADED_AT,
+              automation: AUTOMATION,
+              steps: { setToDraft: [], delete: ['Account', 'Task'] },
+            },
+          };
+          expect(screen.queryByTestId('frozen-reload-include-changed')).toBeNull();
+          fireEvent.click(screen.getByTestId('frozen-reload-sweep-toggle'));
+          const box = screen.getByTestId('frozen-reload-include-changed') as HTMLInputElement;
+          expect(box.checked).toBe(false);
+          expect(box.closest('label')?.textContent).toBe(
+            'Also take what the sweep finds changed since the load it sweeps, and what was ' +
+              'added to it since',
+          );
+          fireEvent.click(box);
+          typeTheOrg();
+          fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+          expect(loadsSent()).toEqual([
+            [
+              'frozen:load',
+              { targetOrgId: 'org-dev', reload: true, sweep: true, includeChanged: true },
+            ],
           ]);
         });
       });

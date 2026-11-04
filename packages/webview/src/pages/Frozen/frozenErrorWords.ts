@@ -18,6 +18,24 @@ export interface FrozenErrorPayload {
   gaps?: unknown;
   /** The records a removal left of the last load, with `LOAD_REMOVED`. */
   left?: unknown;
+  /** The records a load stopped had written, with `LOAD_CANCELLED`. */
+  written?: unknown;
+  /** The sas a verification read, with `SAS_CHANGED`. */
+  sasDir?: unknown;
+  /** The sas the last load wrote to. */
+  loadSas?: unknown;
+  /** Whether `sasDir` names another sas than the load's. */
+  sasMoved?: unknown;
+  /** Whether the load's sas still holds its counting contract. */
+  contractThere?: unknown;
+  /** Production Guard's decision, with `GUARD_REFUSED` and the guard `guard-refused`. */
+  decision?: unknown;
+  /** Why it refused, in the user's words. */
+  reason?: unknown;
+  /** The record types a load could not tell apart, with `LOAD_CONFIG`. */
+  recordTypesUntold?: unknown;
+  /** What a load's gate found of the emails, with `EMAILS_NOT_ACCEPTED` and `FROZEN_EMAILS_EXCEEDED`. */
+  emails?: unknown;
 }
 
 /** Whether a value is a list of words the host sent. */
@@ -39,6 +57,12 @@ function isWords(value: unknown): value is string[] {
  * before saving, "it is the source of truth (object.field → generator)" with
  * no rules file, and "manifest source.orgId" on the first load the Load tab
  * offered, in every locale. Each now says what to click.
+ *
+ * So are a load the user stopped (`LOAD_CANCELLED`), a verification of a sas
+ * moved or emptied since the load (`SAS_CHANGED`), Production Guard's answer
+ * to a load, and a removal a card read before another one met
+ * (`ALREADY_REMOVED`, `NOTHING_TO_REMOVE`): each showed the host's English in
+ * every locale.
  *
  * What stays in the host's words is what is not SandForge's to say: a step
  * that failed (`LOAD_ERROR`, `EXTRACT_ERROR`, …) carries what the org or the
@@ -101,12 +125,118 @@ export function frozenErrorWords(
         ? `${t('frozen.refusal.loadConfig.explanation')} ${t('frozen.refusal.loadConfig.action', {
             gaps: payload.gaps.join('; '),
           })}`
-        : undefined;
+        : recordTypesWords(payload.recordTypesUntold, t);
     case 'TIMEOUT':
       return `${t('frozen.refusal.timeout.explanation')} ${t('frozen.refusal.timeout.action')}`;
+    case 'LOAD_CANCELLED':
+      return loadCancelledWords(payload, t);
+    case 'SAS_CHANGED':
+      return sasChangedWords(payload, t);
+    // Met by a card read before another panel or the command line removed
+    // the load, or found nothing left to take: the card is read again.
+    case 'ALREADY_REMOVED':
+      return `${t('frozen.refusal.alreadyRemoved.explanation')} ${t('frozen.refusal.alreadyRemoved.action')}`;
+    case 'NOTHING_TO_REMOVE':
+      return `${t('frozen.refusal.nothingToRemove.explanation')} ${t('frozen.refusal.nothingToRemove.action')}`;
+    case 'EMAILS_NOT_ACCEPTED':
+    case 'FROZEN_EMAILS_EXCEEDED':
+      return emailsWords(payload, t, aliasOf);
     default:
       return undefined;
   }
+}
+
+/**
+ * A load its gate on the emails refused, nothing written: the org delivers
+ * them without the box ticked, or they go past what it has left today. The
+ * host's sentence names `--accept-emails`, which no page has.
+ */
+function emailsWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  aliasOf: (orgId: string) => string,
+): string | undefined {
+  if (typeof payload.orgId !== 'string') return undefined;
+  const org = aliasOf(payload.orgId);
+  if (payload.code === 'EMAILS_NOT_ACCEPTED') {
+    return `${t('frozen.refusal.emailsNotAccepted.explanation', { org })} ${t(
+      'frozen.refusal.emailsNotAccepted.action',
+      { org },
+    )}`;
+  }
+  const counted = (payload.emails as { counted?: unknown } | undefined)?.counted;
+  const over = Array.isArray(counted)
+    ? (counted as Array<Record<string, unknown>>).find((count) => count.verdict === 'exceeds')
+    : undefined;
+  if (!over || typeof over.emails !== 'number') return undefined;
+  return `${t('frozen.refusal.emailsExceeded.explanation', {
+    org,
+    limit: t(
+      over.limit === 'SingleEmail' ? 'common.emailLimit.single' : 'common.emailLimit.workflow',
+    ),
+    emails: over.emails,
+    remaining: typeof over.remaining === 'number' ? over.remaining : 0,
+    max: typeof over.max === 'number' ? over.max : 0,
+  })} ${t('frozen.refusal.emailsExceeded.action')}`;
+}
+
+/** A load the user stopped, with what it had written by then; undefined when the host did not say. */
+function loadCancelledWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  if (typeof payload.written !== 'number') return undefined;
+  return payload.written > 0
+    ? `${t('frozen.refusal.loadCancelled.wroteExplanation', { records: payload.written })} ${t(
+        'frozen.refusal.loadCancelled.wroteAction',
+      )}`
+    : `${t('frozen.refusal.loadCancelled.explanation')} ${t('frozen.refusal.loadCancelled.action')}`;
+}
+
+/** A verification refused for a sas other than the last load's, by the folders the host names. */
+function sasChangedWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  const { sasDir, loadSas } = payload;
+  if (typeof sasDir !== 'string' || typeof loadSas !== 'string') return undefined;
+  if (payload.sasMoved !== true) {
+    return `${t('frozen.refusal.sasChanged.emptiedExplanation', { sas: sasDir })} ${t(
+      'frozen.refusal.sasChanged.emptiedAction',
+    )}`;
+  }
+  return payload.contractThere === true
+    ? `${t('frozen.refusal.sasChanged.otherExplanation', { sas: sasDir, loadSas })} ${t(
+        'frozen.refusal.sasChanged.otherAction',
+      )}`
+    : `${t('frozen.refusal.sasChanged.movedExplanation', { sas: sasDir, loadSas })} ${t(
+        'frozen.refusal.sasChanged.movedAction',
+        { loadSas },
+      )}`;
+}
+
+/** Two record types a load could not tell apart, named as the host names them; undefined without them. */
+function recordTypesWords(
+  untold: unknown,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  if (typeof untold !== 'object' || untold === null) return undefined;
+  const { reason, objectApiName, name, recordTypes } = untold as Record<string, unknown>;
+  if (typeof objectApiName !== 'string' || typeof name !== 'string' || !isWords(recordTypes)) {
+    return undefined;
+  }
+  const named = { object: objectApiName, name, recordTypes: recordTypes.join(', ') };
+  if (reason === 'label') {
+    return `${t('frozen.refusal.recordTypeLabel.explanation', named)} ${t(
+      'frozen.refusal.recordTypeLabel.action',
+    )}`;
+  }
+  if (reason === 'namespace') {
+    return `${t('frozen.refusal.recordTypeNamespace.explanation', named)} ${t(
+      'frozen.refusal.recordTypeNamespace.action',
+    )}`;
+  }
+  return undefined;
 }
 
 /** What refused a load at its entry, by the guard the host names; undefined when it names too little. */
@@ -117,6 +247,16 @@ function guardWords(
 ): string | undefined {
   if (payload.guard === 'empty-dataset') {
     return `${t('frozen.refusal.emptyDataset.explanation')} ${t('frozen.refusal.emptyDataset.action')}`;
+  }
+  // Production Guard's, said as every module's page says it: declined at its
+  // question, or refused for a reason the guard gives in the user's words.
+  // Given no decision — refused once batches went through — the host's words
+  // stay, which name what the load wrote.
+  if (payload.guard === 'guard-refused') {
+    if (payload.decision === 'declined') return t('common.refusal.guardDeclined');
+    return payload.decision === 'refused' && typeof payload.reason === 'string'
+      ? t('common.refusal.guardBlocked', { reason: payload.reason })
+      : undefined;
   }
   if (typeof payload.orgId !== 'string') return undefined;
   const org = aliasOf(payload.orgId);

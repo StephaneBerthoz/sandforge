@@ -549,8 +549,9 @@ describe('how a step ends, and what the apply then does', () => {
     expect(
       withEmailsAccepted({ script: 'sandforge-dataops', args: ['--json'] }, true).args,
     ).toEqual(['--json', '--accept-emails']);
+    // A frozen load is refused for its emails as a seed and a clone are.
     expect(withEmailsAccepted({ script: 'sandforge-frozen', args: ['--json'] }, true).args).toEqual(
-      ['--json'],
+      ['--json', '--accept-emails'],
     );
   });
 

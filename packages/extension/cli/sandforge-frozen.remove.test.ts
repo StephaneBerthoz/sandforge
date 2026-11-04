@@ -25,6 +25,7 @@ import { makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import { otherRunsInSweep } from '../src/bridge/handlers/removalSweep.js';
+import { indexLoad } from '../src/modules/frozendataset/otherSasLoads.js';
 import {
   commandLineOtherRuns,
   failsTheStep,
@@ -481,5 +482,26 @@ describe('commandLineOtherRuns', () => {
     ]);
     expect(await commandLineOtherRuns('TGT', dir)(ORG, WRITTEN)).toEqual([]);
     expect(await commandLineOtherRuns('TGT', dir)(ORG, undefined)).toEqual([]);
+  });
+
+  it('names a load this command ran from another sas into the org in the window, and none of its own sas', async () => {
+    // Read from clones, Sync and Seed alone, a --sweep-untied of one sas took
+    // the tasks a load from another sas had just made its flow open.
+    indexLoad(dir, {
+      organizationId: ORG,
+      sas: 'sha256:other',
+      startedAt: '2026-11-03T15:01:00.000Z',
+      endedAt: '2026-11-03T15:04:00.000Z',
+    });
+    indexLoad(dir, {
+      organizationId: ORG,
+      sas: 'sha256:this',
+      startedAt: '2026-11-03T15:00:00.000Z',
+      endedAt: '2026-11-03T15:05:00.000Z',
+    });
+
+    const runs = await commandLineOtherRuns('TGT', dir, 'sha256:this')(ORG, WRITTEN);
+
+    expect(otherRunsInSweep(WRITTEN, runs)).toEqual([{ ids: [], idsUntold: true }]);
   });
 });
