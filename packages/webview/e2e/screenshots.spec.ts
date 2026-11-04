@@ -1400,6 +1400,10 @@ test.describe('Marketplace Screenshots', () => {
     await page.getByTestId('gap-decided').nth(1).waitFor();
     // The last click leaves its button focused, ringed in the shot.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    // The Gaps row scrolls within itself since it holds a screen's worth of
+    // gaps: the clicks above left it on the last ones, past the gap that
+    // still refuses rows.
+    await page.getByTestId('review-gaps-scroll').evaluate((el) => el.scrollTo(0, 0));
     await settle(page);
     // The tabs take a second row since Controls joined them, and the graph
     // search keeps lines for what it finds: at 1400 pixels Rehearse, Simulate

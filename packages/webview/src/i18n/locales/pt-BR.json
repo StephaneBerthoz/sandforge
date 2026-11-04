@@ -3481,6 +3481,8 @@
       "staging1670Desc": "Uma cópia completa ou uma sandbox de UAT contém dados reais: marque Staging na sua caixa de edição, e o Production Guard pergunta ali antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros. O seu selo mostra STAGING.",
       "env1680": "Dados de teste como código",
       "env1680Desc": "Descreva em um sandforge.yaml versionado com o seu projeto os registros de que um ambiente precisa: o sandforge-env os planeja, aplica e remove em uma scratch org ou Developer Edition, a partir da CI ou de um terminal — Seed, clones do Forge e cargas Frozen, com pontos de verificação antes e depois.",
+      "dataops1740": "O DataOps pergunta antes que algo dispare",
+      "dataops1740Desc": "Na página DataOps, Aplicar, Restaurar, a exclusão da aba Limpeza e o apagamento de um titular listam o que a org executa ao gravar, contam seus e-mails e oferecem silenciá-la; Confirmar aguarda sua aceitação.",
       "review1740": "A revisão do Forge em uma tela",
       "review1740Desc": "No Forge, Revisão cabe em uma tela de 1280 por 800: cada linha, Ajustes e Executar Forge à vista, as orgs nomeadas acima de Como fazer. Abaixo de 560 pixels de largura, o gráfico abre como tabela.",
       "reload1740": "Um recarregamento recupera o que a automação criou",

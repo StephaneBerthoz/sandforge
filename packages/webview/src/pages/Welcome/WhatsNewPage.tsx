@@ -81,6 +81,12 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
   '1.74.0': [
     {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.dataops1740',
+      descKey: 'onboarding.whatsNew.dataops1740Desc',
+      navigateTo: 'dataops',
+    },
+    {
       category: 'improvement',
       titleKey: 'onboarding.whatsNew.review1740',
       descKey: 'onboarding.whatsNew.review1740Desc',

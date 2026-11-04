@@ -3481,6 +3481,8 @@
       "staging1670Desc": "Eine Vollkopie oder eine UAT-Sandbox enthält echte Daten: Aktivieren Sie Staging in ihrem Bearbeitungsdialog, und Production Guard fragt dort vor jedem Löschen, jedem Deployment und jedem Schreiben von mehr als 10.000 Datensätzen. Ihr Badge zeigt STAGING.",
       "env1680": "Testdaten als Code",
       "env1680Desc": "Beschreiben Sie in einer mit Ihrem Projekt versionierten sandforge.yaml die Datensätze, die eine Umgebung braucht: sandforge-env plant, wendet sie an und nimmt sie wieder zurück, in einer Scratch-Org oder Developer Edition, aus der CI oder einem Terminal — Seeds, Forge-Klone und Frozen-Ladungen, mit Prüfpunkten davor und danach.",
+      "dataops1740": "DataOps fragt, bevor etwas auslöst",
+      "dataops1740Desc": "Auf der Seite DataOps nennen „Anwenden“, „Wiederherstellen“, das Löschen im Tab Bereinigung und das Löschen einer betroffenen Person, was die Org beim Schreiben ausführt, zählen ihre E-Mails und bieten das Stummschalten an; „Bestätigen“ wartet auf Ihre Zustimmung.",
       "review1740": "Die Überprüfung in Forge auf einem Bildschirm",
       "review1740Desc": "In Forge passt die Überprüfung auf einen Bildschirm von 1280 mal 800: jede Zeile, „Einstellungen“ und „Forge ausführen“ im Blick, die Orgs über „Anleitung“ genannt. Unter 560 Pixeln Breite öffnet sich der Graph als Tabelle.",
       "reload1740": "Erneutes Laden nimmt zurück, was die Automatisierung erstellt hat",

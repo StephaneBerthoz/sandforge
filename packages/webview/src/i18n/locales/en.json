@@ -3481,6 +3481,8 @@
       "staging1670Desc": "A full copy or a UAT sandbox holds real data: tick Staging in its Edit dialog, and Production Guard asks before every delete, every deployment and every write of more than 10,000 records there. Its badge reads STAGING.",
       "env1680": "Test data as code",
       "env1680Desc": "Describe the records an environment needs in a sandforge.yaml committed with your project, and sandforge-env plans, applies and takes them back on a scratch org or a Developer Edition, from CI or a terminal: seeds, Forge clones and Frozen loads, with checkpoints around them.",
+      "dataops1740": "DataOps asks before anything fires",
+      "dataops1740Desc": "On the DataOps page, Apply, Restore, the Cleanup tab's delete and a subject's erasure list what the org runs as they write, count its emails and offer to mute it; Confirm waits until you accept.",
       "review1740": "Forge's Review on one screen",
       "review1740Desc": "In Forge, Review fits a 1280 by 800 screen: every row, Controls and Execute Forge in view, the orgs named above How to. Under 560 pixels wide, the graph opens as a table.",
       "reload1740": "A reload takes back what automation made",

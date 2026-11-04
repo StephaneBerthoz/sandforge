@@ -7,29 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.74.0] - 2026-11-04
 
-Forge's Review fits one screen, a Frozen reload takes back what automation made, and every gate counts what a run truly writes.
+Nothing fires in an org without a question, DataOps and Frozen loads included, and every count and refusal says what a run truly does.
 
 ### Added
 
-- **Frozen Dataset**: a reload can take back what automation made for the loads it replaces, listed and muted as a removal's sweep.
-- **Command line and MCP**: `sandforge-frozen load --reload --sweep`, `--sweep-late`, `--sweep-untied`; `--json` gains `writtenByThePlatform`.
+- **DataOps**: masking, restore, cleanup and erasure list what the org runs as they write, count its emails and offer to mute it before you confirm.
+- **Frozen Dataset**: a load counts the emails the target's flows send and asks first; a reload can take back what automation made for the loads it replaces.
+- **Command line and MCP**: `frozen load --reload --sweep`, `--include-changed`, `--accept-emails`; DataOps `--accept-automation`; `--sweep-list --sweep-late`.
 
 ### Changed
 
+- **DataOps, command line**: masking, `--restore` and `sandforge-cleanup` stop where the org runs automation: add `--accept-automation`, or `--accept-emails`.
+- **Automation**: an Anonymize step is refused, nothing masked, when what it fires is not accepted: turn on its acceptAutomation, acceptEmails or muteAutomation.
+- **Environments**: a mask resource whose org runs automation as it masks needs `accept: { automation: true }`, and its emails `--accept-emails`.
+- **Frozen Dataset, command line**: `load` is refused, exit 1, where the org delivers the emails its flows send: add `--accept-emails` or `--mute-automation`.
+- **Frozen Dataset, command line**: a load or removal refused before it writes ends on `refused (CODE): …`, not `! frozen:…:error`: read `refused` in `--json`.
+- **Frozen Dataset, command line**: `load --reload --sweep` reads `partial` when its sweep left records; `--include-changed` goes only with it and `remove`.
+- **Migration**: an SFDMU import writes only the fields its query selects, as SFDMU does: select `all` in that query to write every field again.
+- **Removals, command line**: a refused `--sweep-untied` exits 3 and reads `partial` in Frozen, clone, Sync and Seed: leave it off where other runs write.
 - **Autopilot, command line**: a run refused before writing gives a code per reason, the first under `refused`, the rest under `alsoRefused`.
-- **Removals, command line**: a refused `--sweep-untied` now exits 3 and reads `partial` in Frozen, clone, Sync and Seed; leave it off where other runs write.
-- **Frozen Dataset, command line**: `load --reload --sweep` reads `partial` when its sweep left records, and exits 1 writing nothing if its list cannot be read.
-- **Forge, command line**: `writePlan.totalRows` and `--max-total` leave out what the platform writes itself; read `writePlan.leftOut.byThePlatform`.
+- **Forge, command line**: `writePlan.totalRows` and `--max-total` leave out what the platform writes itself: read `writePlan.leftOut.byThePlatform`.
 
 ### Fixed
 
-- **Forge**: Review fits 1280 by 800, Team Selling opportunities keep team and splits, and what the platform writes is not counted.
-- **Mute automation**: Review and rehearsals say a rule the mute lifts is lifted; a lease journal that cannot be written takes its set back.
-- **Sync**: the write gate and its question count what a left-out object holds back and the prices the run writes, as the run does.
-- **Frozen Dataset**: a sweep takes what a replaced load left, ends Partial when it leaves records, and says what it deleted before a stop.
-- **Seed, Autopilot**: a refused `--fit` gives two sizes that differ, and a lease refused at the start reads as a refused mute.
-- **Checkpoint**: files and Documents left out are named among what a checkpoint does not hold, in the reader's language.
-- **Compare, Frozen Dataset**: each org is named once, and one no longer held is said so in words, Run waiting for a new pick.
+- **Forge**: Team Selling opportunities keep their team and splits, an opportunity keeps one contact role, and setup objects no longer hold Execute.
+- **Forge, Review**: it fits 1280 by 800 in six languages, and a decision on the org's own record type no longer acts on a package's of that name.
+- **Mute automation**: a rule the mute lifts is said lifted, and a run takes back every set it assigned, even when its lease journal fails.
+- **Sync**: the write check counts what a left-out object holds back and the prices the run writes, naming each lookup that holds rows back.
+- **Frozen Dataset**: a reload's sweep takes what the loads it replaces left, keeps what was changed since, and leaves another sas's records alone.
+- **Removals**: a removal reads and mutes what fires on the platform's copies, keeps late records for the next sweep, and its list counts what it takes.
+- **Checkpoints**: a rewind remakes an activated order as a draft then activates it, counts the emails of orders set to Draft, and says every refusal.
+- **Seed, Autopilot**: a refused `--fit` gives two sizes that differ, and Seed's offer to mute follows what its run writes.
+- **Command line**: every refusal, foreseen by a dry run or met by a run or a removal, names its code on its line and in `--json`.
 - **Help**: Show What's New on a patch release shows its release instead of opening nothing.
 
 ## [1.73.1] - 2026-11-03
