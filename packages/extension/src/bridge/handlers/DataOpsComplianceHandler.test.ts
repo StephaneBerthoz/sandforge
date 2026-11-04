@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   BaseMessage,
@@ -14,6 +18,7 @@ import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
@@ -533,6 +538,163 @@ describe('DataOpsComplianceHandler', () => {
 
     await erase({ acceptAutomation: true });
     expect(org.destroy).toHaveBeenCalled();
+  });
+
+  it('refuses an erasure in the words of its confirmation, which has boxes where the command line has flags', async () => {
+    // As the gate org answered: an update flow that emails, kept quiet by a
+    // set's bypass, on an org that delivers every email.
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      request: vi.fn(async ({ url }: { url: string }) =>
+        url === '/limits'
+          ? {
+              SingleEmail: { Max: 15, Remaining: 15 },
+              DailyWorkflowEmails: { Max: 525, Remaining: 525 },
+            }
+          : { compiled: true, success: true },
+      ),
+    } as never);
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [
+            {
+              apiName: 'Contact_Update_Email',
+              label: 'Contact Update Email',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Gate_Bypass', bypass: true }],
+              messages: [{ kind: 'email' as const, name: 'Send', limit: 'SingleEmail' as const }],
+            },
+          ],
+          triggers: [],
+        })),
+        bypassGrants: [
+          {
+            permission: 'Gate_Bypass',
+            permissionSets: [{ name: 'Gate_Bypass', label: 'Gate Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+    const { requestId } = await searchJane();
+
+    await handler.handle(
+      request('dataops:dsr:erase', {
+        orgId: 'org-1',
+        requestId,
+        mode: 'anonymize',
+        records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+        dryRun: false,
+      }),
+    );
+
+    expect(org.update).not.toHaveBeenCalled();
+    const refusal = posted().at(-1);
+    expect(refusal).toMatchObject({
+      type: 'dataops:error',
+      payload: { code: 'AUTOMATION_NOT_ACCEPTED' },
+    });
+    const said = String((refusal?.payload as { message?: unknown }).message);
+    // The banner showed "Add --accept-automation", "--accept-emails" and
+    // "--mute-automation": the page has none of them.
+    expect(said).not.toMatch(/--[a-z]/);
+    expect(said).toContain('Confirm the erasure from its confirmation, which lists what fires');
+    expect(said).toContain("Tick the confirmation's box that lets the org send these emails");
+    expect(said).toContain(
+      "With the confirmation's box that mutes the target's automation ticked, the erasure " +
+        'assigns Gate_Bypass',
+    );
+  });
+
+  it('answers an erasure that muted with what it took back, once it took it back', async () => {
+    const events: string[] = [];
+    const permissions = memoryPermissionOrg({
+      sets: [{ id: '0PSxx0000000001AAA', name: 'Flow_Bypass' }],
+      beforeWrite: (write) => {
+        events.push(write.kind === 'insert' ? 'assign' : 'unassign');
+      },
+    });
+    const { query, sobject } = org.conn;
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      query: (soql: string) =>
+        /FROM (Organization|UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(
+          soql,
+        )
+          ? permissions.connection.query(soql)
+          : query(soql),
+      identity: permissions.connection.identity,
+      sobject: (name: string) =>
+        name === 'PermissionSetAssignment' ? permissions.connection.sobject(name) : sobject(),
+    } as never);
+    vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
+      if (m.type === 'dataops:dsr:erase:response') {
+        events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'erase-mute-'));
+    handler.setMuteLeases({ dir, renewEveryMs: 0 });
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          flows: [
+            {
+              apiName: 'Notify_Owner',
+              label: 'Notify Owner',
+              timing: 'afterSave' as const,
+              startsOn: 'update' as const,
+              condition: 'read' as const,
+              permissions: [{ name: 'Skip_Flows', bypass: true }],
+            },
+          ],
+          triggers: [],
+        })),
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+    const { requestId } = await searchJane();
+
+    try {
+      await handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'anonymize',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun: false,
+          acceptAutomation: true,
+          muteAutomation: true,
+        }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(org.update).toHaveBeenCalled();
+    expect(events).toEqual(['assign', 'unassign', 'answered, 0 assigned']);
+    expect(answer('dataops:dsr:erase:response')).toMatchObject({
+      outcome: { status: 'success', done: 1 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
+    });
   });
 
   it('lists the log, the newest request first', async () => {

@@ -3629,6 +3629,10 @@ export class DataOpsHandler implements DomainHandler {
           ? ranMessage
           : `${ranMessage}. The backup held only part of the org's records, and the rest were ` +
             `left as they are: ${shortfall}.`;
+      // Given back before the answer, which says what it took back: the
+      // answer of a restore that muted left while its set was still assigned.
+      const released = await this.releaseMute(held, payload.orgId);
+      held = undefined;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
         status,
@@ -3650,7 +3654,7 @@ export class DataOpsHandler implements DomainHandler {
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
         ...(cancelled ? { cancelled: true } : {}),
-        ...(held ? { mutedAutomation: held.outcome } : {}),
+        ...(released ? { mutedAutomation: released } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
@@ -3667,6 +3671,8 @@ export class DataOpsHandler implements DomainHandler {
       }
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
+      await this.releaseMute(held, payload.orgId);
+      held = undefined;
       // Dual channel, single display (see handleBackup).
       sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err, {
         code: guardRefusalCode(err),
@@ -4010,21 +4016,55 @@ export class DataOpsHandler implements DomainHandler {
    * asked, then the rows masked page by page, two hundred an update, with
    * where the run got kept for a resume when it stops short. Each refusal and
    * the run's end are recorded in the audit trail here, and said through
-   * `replies`.
+   * `asked`: once the lease of its mute was given back, when it held one.
    *
    * @param payload - The run as it was asked for.
    * @param operationId - The id it runs under: its registry entry, its
    *   checkpoint and the name of its snapshot.
-   * @param replies - Where the run says why it stopped and how it ended.
+   * @param asked - Where the run says why it stopped and how it ended.
    * @param signal - A pipeline step's: aborted, the run stops as the page's
    *   Stop stops it.
    */
   private async mask(
     payload: MaskingAsked,
     operationId: string,
-    replies: MaskingReplies,
+    asked: MaskingReplies,
     signal?: AbortSignal,
   ): Promise<void> {
+    /** The lease of the mute it was asked for, held from before its snapshot to its end. */
+    let held: HeldMute | undefined;
+    /** Its answer, once its lease is given back: what it took back said with it. */
+    const deferred: { answer?: (released: MutedAutomation | undefined) => void } = {};
+    // A run's answer left while its lease was held: on the trap org, the
+    // page was told the masking had ended while the bypass it had assigned
+    // was still assigned, and its answer named nothing taken back. Forge,
+    // Sync, Seed and Autopilot give theirs back before their result
+    // (`writePathOrderDefects`); so does the run, however it ends once it
+    // holds one.
+    const replies: MaskingReplies = {
+      ...asked,
+      refused: (err, options) => {
+        if (!held) {
+          asked.refused(err, options);
+          return;
+        }
+        deferred.answer ??= (released) =>
+          asked.refused(
+            err,
+            released
+              ? { ...options, extraPayload: { ...options.extraPayload, mutedAutomation: released } }
+              : options,
+          );
+      },
+      ended: (result) => {
+        if (!held) {
+          asked.ended(result);
+          return;
+        }
+        deferred.answer ??= (released) =>
+          asked.ended(released ? { ...result, mutedAutomation: released } : result);
+      },
+    };
     // Follows the object in progress (see handleBackup).
     const failure: OperationFailureContext = { module: 'dataops', operation: replies.origin };
 
@@ -4088,8 +4128,6 @@ export class DataOpsHandler implements DomainHandler {
     let runError: unknown;
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
-    /** The lease of the mute it was asked for, held from before its snapshot to its end. */
-    let held: HeldMute | undefined;
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4967,6 +5005,9 @@ export class DataOpsHandler implements DomainHandler {
       settleRun(runError);
       pending?.release();
       signal?.removeEventListener('abort', onStepAbort);
+      // Answered last, its lease given back and its entries settled: an
+      // answer that cannot be posted leaves nothing of the run unsettled.
+      deferred.answer?.(released);
     }
   }
 

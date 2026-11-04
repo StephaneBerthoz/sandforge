@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
+  MutedAutomation,
   SubjectIdentifierKind,
   SubjectIdentifiers,
   SubjectSearchResult,
@@ -512,6 +513,8 @@ export class DataOpsComplianceHandler implements DomainHandler {
         return;
       }
       const leased = holding.held;
+      /** What the mute took back, once its lease was given back: the answer says it. */
+      const given: { back?: MutedAutomation } = {};
 
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const result = await runGuardedRemoval(
@@ -529,8 +532,8 @@ export class DataOpsComplianceHandler implements DomainHandler {
         this.liveTracker,
       ).finally(async () => {
         if (!leased) return;
-        const released = await leased.release();
-        for (const line of muteLines(released, target)) this.deps.log(`[INFO] ${line}`);
+        given.back = await leased.release();
+        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
       });
 
       const at = new Date().toISOString();
@@ -580,7 +583,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
         dryRun,
         plan,
         outcome: result.outcome,
-        ...(leased ? { mutedAutomation: leased.outcome } : {}),
+        ...(leased ? { mutedAutomation: given.back ?? leased.outcome } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(

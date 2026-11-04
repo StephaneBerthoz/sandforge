@@ -1,4 +1,4 @@
-import type { CleanupRecommendation, RemovalPlanObject } from '@sandforge/shared';
+import type { CleanupRecommendation, MutedAutomation, RemovalPlanObject } from '@sandforge/shared';
 import { CLEANUP_ACTION_LIMIT, guardTierOf } from '@sandforge/shared';
 
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -334,6 +334,8 @@ export class DataOpsCleanupHandler implements DomainHandler {
         return;
       }
       const held = holding.held;
+      /** What the mute took back, once its lease was given back: the answer says it. */
+      const given: { back?: MutedAutomation } = {};
       const plan: RemovalPlanObject = {
         objectApiName: object.name,
         label: object.label,
@@ -358,8 +360,8 @@ export class DataOpsCleanupHandler implements DomainHandler {
         this.liveTracker,
       ).finally(async () => {
         if (!held) return;
-        const released = await held.release();
-        for (const line of muteLines(released, target)) this.deps.log(`[INFO] ${line}`);
+        given.back = await held.release();
+        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
       });
       if (!result.ran) {
         sendHandlerError(
@@ -389,7 +391,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
         plan,
         truncated: resolved.truncated,
         outcome: result.outcome,
-        ...(held ? { mutedAutomation: held.outcome } : {}),
+        ...(held ? { mutedAutomation: given.back ?? held.outcome } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(

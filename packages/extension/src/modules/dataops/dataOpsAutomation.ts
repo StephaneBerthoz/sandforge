@@ -155,11 +155,14 @@ const ACT_WORDS: Readonly<
 };
 
 /**
- * Whose words an act's refusals are said in: the page's and the command
- * line's (`flags`), which name `--accept-automation` and its siblings; a
- * pipeline's Anonymize step (`step`), which nobody gives a flag to, and
- * which names its settings; a subject erasure (`erasure`), which writes over
- * or deletes as a masking or a cleanup does and is called by its own name.
+ * Whose words an act's refusals are said in: the command line's (`flags`),
+ * which name `--accept-automation` and its siblings, and which the page's
+ * masking, restore and cleanup are still told in, the command line asking a
+ * masking and a restore through the same requests; a pipeline's Anonymize
+ * step (`step`), which nobody gives a flag to, and which names its settings;
+ * a subject erasure (`erasure`), which writes over or deletes as a masking
+ * or a cleanup does, is called by its own name, and is the page's alone: it
+ * names its confirmation's boxes.
  */
 export type DataOpsVoice = 'flags' | 'step' | 'erasure';
 
@@ -171,11 +174,21 @@ const STEP_SETTINGS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The box of an erasure's confirmation each flag stands for. What fires has
+ * none: the confirmation lists it, and answering it accepts it.
+ */
+const ERASURE_BOXES: Readonly<Record<string, string>> = {
+  'accept-emails': "the confirmation's box that lets the org send these emails",
+  'mute-automation': "the confirmation's box that mutes the target's automation",
+};
+
+/**
  * A refusal in the voice of what asked for the act. The refusals of what
  * fires, of the emails and of a mute are worded once, for the command line,
  * here and in Forge's gate: a pipeline's step turns a setting on where the
- * command line adds a flag, and an erasure was told what "this cleanup"
- * would fire, an act it never asked for.
+ * command line adds a flag; an erasure was told what "this cleanup" would
+ * fire, an act it never asked for, and to add `--accept-emails` and
+ * `--mute-automation`, which its page does not have.
  */
 export function dataOpsSaid(message: string, voice: DataOpsVoice = 'flags'): string {
   if (voice === 'step') {
@@ -190,9 +203,25 @@ export function dataOpsSaid(message: string, voice: DataOpsVoice = 'flags'): str
       );
   }
   if (voice === 'erasure') {
+    const box = (flag: string): string => ERASURE_BOXES[flag] ?? `--${flag}`;
     return message
       .replace(/\b(this|the|This|The) (masking|cleanup)\b/g, '$1 erasure')
-      .replace(/\bto (mask|delete) all the same\b/g, 'to erase all the same');
+      .replace(/\bto (mask|delete) all the same\b/g, 'to erase all the same')
+      .replace(/\b(mask|delete) fewer records\b/g, 'erase fewer records')
+      .replace(
+        /\bAdd --accept-automation\b/g,
+        'Confirm the erasure from its confirmation, which lists what fires,',
+      )
+      .replace(/\bWith --mute-automation,/g, `With ${box('mute-automation')} ticked,`)
+      .replace(
+        /\bAdd --(accept-emails|mute-automation)\b/g,
+        (_, flag: string) => `Tick ${box(flag)}`,
+      )
+      .replace(
+        /(^|[.:;] )--(accept-emails|mute-automation)\b/g,
+        (_, before: string, flag: string) => `${before}${capitalized(box(flag))}`,
+      )
+      .replace(/--(accept-emails|mute-automation)\b/g, (_, flag: string) => box(flag));
   }
   return message;
 }

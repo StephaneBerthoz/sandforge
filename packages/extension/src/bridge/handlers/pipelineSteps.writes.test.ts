@@ -414,6 +414,65 @@ describe('the Anonymize step', () => {
     expect(result.error).toContain('2 of Contact still hold their values');
   });
 
+  it('says why the org refused the rows, and keeps its reasons and the run’s message', async () => {
+    // As the trap org answered a step muted and accepted: a validation rule
+    // the mute does not lift refused both contacts, and the step said only
+    // that they still held their values.
+    const message =
+      'Anonymization failure: 0 masked, 2 rejected by the org — those records still hold their ' +
+      'original values. Resume masks only what this run left.';
+    const errors = [
+      { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+      { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+    ];
+    const flows = runners({
+      anonymize: vi.fn(async () => ({
+        operationId: 'op',
+        result: maskingResult({
+          status: 'failure',
+          recordsProcessed: 0,
+          recordsFailed: 2,
+          recordsNotMasked: 2,
+          objects: [{ objectApiName: 'Contact', total: 2, processed: 0, failed: 2, notMasked: 2 }],
+          message,
+          errors,
+        }),
+      })),
+    });
+
+    const result = await executorWith(flows).execute(step('anonymize', MASK), context());
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain(
+      '2 of Contact still hold their values, refused by the org: Contact: Phone must be written ' +
+        '+33 X XX XX XX XX.; the snapshot snap-1 keeps',
+    );
+    expect(result.output).toMatchObject({ message, errors });
+  });
+
+  it('says what the run said of rows it left unreached, when the org refused none', async () => {
+    const message =
+      "Anonymization stopped at 95% of the org's daily API requests (950 of 1000): 4 masked — 2 " +
+      'still hold their original values (Contact 2). Resume it once the org has requests to spare.';
+    const flows = runners({
+      anonymize: vi.fn(async () => ({
+        operationId: 'op',
+        result: maskingResult({
+          status: 'partial',
+          recordsProcessed: 4,
+          recordsNotMasked: 2,
+          objects: [{ objectApiName: 'Contact', total: 6, processed: 4, failed: 0, notMasked: 2 }],
+          message,
+          stoppedAtApiLimit: true,
+        }),
+      })),
+    });
+
+    const result = await executorWith(flows).execute(step('anonymize', MASK), context());
+
+    expect(result.error).toContain(`2 of Contact still hold their values (${message})`);
+  });
+
   it('fails with the refusal, naming the snapshot it took, when it is refused', async () => {
     const anonymize = vi.fn(async () => {
       throw Object.assign(new Error('Phone is not shown to the user. Nothing was masked.'), {

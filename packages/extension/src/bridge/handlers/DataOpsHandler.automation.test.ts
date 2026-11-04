@@ -1,6 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import type { BaseMessage, ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 import { DataOpsHandler } from './DataOpsHandler.js';
@@ -11,6 +13,7 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg, type MemoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
@@ -71,14 +74,20 @@ function contactsOf(count: number): Array<Record<string, unknown>> {
   }));
 }
 
+/** What a mute reads and writes, which the org's permission sets answer: never its contacts. */
+const PERMISSION_TABLES =
+  /FROM (Organization|UserPermissionAccess|PermissionSetAssignment|PermissionSet|SetupEntityAccess|ObjectPermissions|CustomPermission)\b/;
+
 /**
  * An org of contacts, read and written as Salesforce does, whose requests
  * answer `/limits` and the line of Apex the deliverability is read with as an
- * org on All email does.
+ * org on All email does; and, when given, the permission sets a mute assigns
+ * and takes back through the same connection.
  */
-function orgOf(rows: Array<Record<string, unknown>>) {
+function orgOf(rows: Array<Record<string, unknown>>, permissions?: MemoryPermissionOrg) {
   const requests: string[] = [];
   const query = vi.fn(async (soql: string) => {
+    if (permissions && PERMISSION_TABLES.test(soql)) return permissions.connection.query(soql);
     if (soql === 'SELECT Id FROM Organization') {
       return { records: [{ Id: '00Dxx0000000001AAA' }], done: true, totalSize: 1 };
     }
@@ -109,7 +118,12 @@ function orgOf(rows: Array<Record<string, unknown>>) {
     query,
     queryMore: vi.fn(),
     describe: vi.fn().mockResolvedValue(contactDescribe),
-    sobject: vi.fn(() => ({ update, upsert })),
+    ...(permissions ? { identity: permissions.connection.identity } : {}),
+    sobject: vi.fn((name: string) =>
+      permissions && name === 'PermissionSetAssignment'
+        ? permissions.connection.sobject(name)
+        : { update, upsert },
+    ),
     soap: { undelete: vi.fn(async () => []) },
     request: vi.fn(async ({ url }: { url: string }) => {
       requests.push(url);
@@ -409,6 +423,104 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
         accord: { acceptAutomation: true, acceptEmails: true },
       });
       expect(update).toHaveBeenCalled();
+    });
+  });
+
+  describe('a masking and a restore that mute, answered once their lease is given back', () => {
+    const SET = '0PSxx0000000001AAA';
+    /** What the org was sent and what the page was answered, in the order it happened. */
+    const events: string[] = [];
+    let dir: string;
+    let permissions: MemoryPermissionOrg;
+
+    beforeEach(() => {
+      events.length = 0;
+      dir = mkdtempSync(path.join(tmpdir(), 'dataops-mute-'));
+      handler.setMuteLeases({ dir, renewEveryMs: 0 });
+      permissions = memoryPermissionOrg({
+        sets: [{ id: SET, name: 'Flow_Bypass' }],
+        beforeWrite: (write) => {
+          events.push(write.kind === 'insert' ? 'assign' : 'unassign');
+        },
+      });
+      // The flow's bypass, held by a set of the org the user does not hold.
+      read.mockResolvedValue({
+        ...runs([
+          { ...onUpdate('Notify Owner'), permissions: [{ name: 'Skip_Flows', bypass: true }] },
+        ]),
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+      });
+      // What the page is told as it is told it, with what the org still assigns then.
+      vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
+        if (m.type === 'dataops:anonymize:response' || m.type === 'dataops:rollback:response') {
+          events.push(`${m.type}, ${permissions.assignments().length} assigned`);
+        }
+      });
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('answers a masking that muted once it took its set back, and says it took it back', async () => {
+      const rows = contactsOf(3);
+      const { update } = orgOf(rows, permissions);
+
+      await send(
+        'dataops:anonymize',
+        { ...masking, acceptAutomation: true, muteAutomation: true },
+        'run-muted',
+      );
+
+      expect(update).toHaveBeenCalled();
+      expect(rows[0]?.FirstName).not.toBe('First1');
+      // On the trap org, the page's answer came while Trap_Bypass was still
+      // assigned, and named nothing taken back: a check made on it saw the
+      // bypass held.
+      expect(events).toEqual(['assign', 'unassign', 'dataops:anonymize:response, 0 assigned']);
+      expect(last('dataops:anonymize:response')?.payload.mutedAutomation).toMatchObject({
+        state: 'muted',
+        assigned: ['Flow_Bypass'],
+        released: true,
+        takenBack: ['Flow_Bypass'],
+      });
+    });
+
+    it('answers a restore that muted once it took its set back, and says it took it back', async () => {
+      const rows = contactsOf(2);
+      orgOf(rows, permissions);
+      await send(
+        'dataops:anonymize',
+        { ...masking, snapshot: true, acceptAutomation: true },
+        'snap',
+      );
+      const snapshot = last('dataops:anonymize:response')?.payload.snapshot as {
+        operationId: string;
+      };
+      events.length = 0;
+
+      await send(
+        'dataops:rollback',
+        {
+          orgId: 'org-1',
+          operationId: snapshot.operationId,
+          acceptAutomation: true,
+          muteAutomation: true,
+        },
+        'restore-muted',
+      );
+
+      expect(rows[0]?.FirstName).toBe('First1');
+      expect(events).toEqual(['assign', 'unassign', 'dataops:rollback:response, 0 assigned']);
+      expect(last('dataops:rollback:response')?.payload).toMatchObject({
+        totalRestored: 2,
+        mutedAutomation: { released: true, takenBack: ['Flow_Bypass'] },
+      });
     });
   });
 });

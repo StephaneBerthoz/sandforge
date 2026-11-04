@@ -14,6 +14,7 @@ import {
   type DataOpsAutomationOrg,
 } from './dataOpsAutomation.js';
 import type { MuteOrg } from '../forge/AutomationMuteLease.js';
+import { deliverabilityAfterLeaseStop } from '../forge/ForgeRunGate.js';
 
 /** A record-triggered flow, after the save, that sends `emails` single emails. */
 function flow(
@@ -395,17 +396,83 @@ describe('whose words a refusal is said in', () => {
   it('calls an erasure an erasure, whether it writes over records as a masking or deletes them as a cleanup', () => {
     expect(
       dataOpsSaid(
-        'This cleanup would make TGT send about 3 single emails. Add --accept-emails to delete ' +
-          'all the same. With --mute-automation, the cleanup assigns Skip_Flows.',
+        'This cleanup would make TGT send about 3 single emails, or delete fewer records. ' +
+          'Nothing was deleted.',
         'erasure',
       ),
     ).toBe(
-      'This erasure would make TGT send about 3 single emails. Add --accept-emails to erase ' +
-        'all the same. With --mute-automation, the erasure assigns Skip_Flows.',
+      'This erasure would make TGT send about 3 single emails, or erase fewer records. ' +
+        'Nothing was deleted.',
     );
     expect(
       dataOpsSaid('TGT runs automation as this masking writes over its records.', 'erasure'),
     ).toBe('TGT runs automation as this erasure writes over its records.');
+  });
+
+  it("names the boxes of an erasure's confirmation where the command line names its flags, every refusal of it", async () => {
+    const read = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: orgOf(sending),
+      accord: {},
+      mayMute: true,
+      voice: 'erasure',
+    });
+    const said = read.answer.refusals.map((r) => r.message).join(' ');
+    expect(read.answer.refusals.map((r) => r.code)).toEqual([
+      AUTOMATION_NOT_ACCEPTED,
+      'EMAILS_NOT_ACCEPTED',
+    ]);
+    // A subject erasure is the page's alone: its confirmation lists what
+    // fires, and has a box for the mute and one for the emails.
+    expect(said).toContain(
+      "With the confirmation's box that mutes the target's automation ticked, the erasure " +
+        'assigns Flow_Bypass',
+    );
+    expect(said).toContain(
+      'Nothing was written. Confirm the erasure from its confirmation, which lists what fires, ' +
+        'to erase all the same, or turn that automation off in TGT first.',
+    );
+    expect(said).toContain(
+      "Nothing was written. Tick the confirmation's box that lets the org send these emails to " +
+        'erase all the same',
+    );
+    expect(said).toContain(
+      "The confirmation's box that mutes the target's automation keeps quiet flow " +
+        '"Notify Owner" on Contact',
+    );
+    expect(said).not.toMatch(/--[a-z]/);
+  });
+
+  it("says an erasure past the day's emails, or one whose lease left a sender running, in the words of its confirmation", async () => {
+    const read = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: orgOf(sending, { single: { max: 15, remaining: 15 } }),
+      accord: { acceptAutomation: true, acceptEmails: true },
+      mayMute: true,
+      voice: 'erasure',
+    });
+    expect(read.answer.refusals.map((r) => r.code)).toEqual([EMAILS_EXCEEDED]);
+    expect(read.answer.refusals[0]?.message).toContain(
+      "(the confirmation's box that mutes the target's automation assigns one a permission set " +
+        'holds), or erase fewer records.',
+    );
+    expect(read.answer.refusals[0]?.message).not.toMatch(/--[a-z]/);
+
+    const relit = deliverabilityAfterLeaseStop({
+      planned: [],
+      held: [{ objectApiName: 'Contact', kind: 'flow', name: 'Notify Owner', why: 'email' }],
+      reading: { level: 'all' },
+      accepted: false,
+      target: 'TGT',
+      run: 'masking',
+    });
+    expect(dataOpsSaid(relit?.message ?? '', 'erasure')).toMatch(
+      /Nothing was written\. Tick the confirmation's box that lets the org send these emails to erase all the same, or run it again once the lease can assign them\.$/,
+    );
   });
 
   it("leaves the command line's own words as they are", () => {

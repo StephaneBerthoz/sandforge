@@ -47,7 +47,11 @@ import {
 import type { HealthSignal } from '../../modules/monitor/HealthCheck.js';
 import type { HealthSignalName } from '../../modules/monitor/MonitorOpsFactory.js';
 import { pipelineMaskingAsked } from './anonymizePipeline.js';
-import type { PipelineMaskingOutcome, PipelineMaskingRequest } from './anonymizePipeline.js';
+import type {
+  MaskingResult,
+  PipelineMaskingOutcome,
+  PipelineMaskingRequest,
+} from './anonymizePipeline.js';
 import {
   CheckpointStepRefused,
   type CheckpointPipelineRewindOutcome,
@@ -1197,6 +1201,29 @@ function acceptancesOf(config: Readonly<Record<string, unknown>>): Record<string
   );
 }
 
+/** How many of the org's reasons a step says before it counts the rest. */
+const MASKING_REASONS_SAID = 3;
+
+/**
+ * Why rows a masking left still hold their values: the org's reasons for
+ * those it refused, each once per object, as the run samples them; or, when
+ * it refused none, what the run said of those it never reached — past the
+ * org's API requests. On the trap org, a validation rule the mute does not
+ * lift refused every contact, and the step said only that they held their
+ * values, where the page's answer gave the rule's message.
+ */
+function maskingLeftWhy(result: Pick<MaskingResult, 'errors' | 'message'>): string {
+  const reasons = [
+    ...new Set(result.errors.map((error) => `${error.objectApiName}: ${error.message}`)),
+  ];
+  if (reasons.length === 0) return result.message ? ` (${result.message})` : '';
+  const more = reasons.length - MASKING_REASONS_SAID;
+  return (
+    `, refused by the org: ${reasons.slice(0, MASKING_REASONS_SAID).join('; ')}` +
+    (more > 0 ? `; and ${counted(more, 'other reason')}` : '')
+  );
+}
+
 function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
   return async (step: PipelineStep, context: StepContext) => {
     const startTime = new Date().toISOString();
@@ -1278,6 +1305,8 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
       recordsFailed: result.recordsFailed,
       recordsNotMasked: result.recordsNotMasked,
       objects: result.objects,
+      message: result.message,
+      errors: result.errors,
       ...(result.snapshot ? { snapshot: result.snapshot } : {}),
       ...(result.mutedAutomation ? { mutedAutomation: result.mutedAutomation } : {}),
     };
@@ -1295,7 +1324,7 @@ function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
     if (result.recordsNotMasked > 0) {
       const unmasked =
         `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
-        'still hold their values';
+        `still hold their values${maskingLeftWhy(result)}`;
       return failed(
         step,
         startTime,

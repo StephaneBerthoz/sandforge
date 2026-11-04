@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage, CleanupScanResult } from '@sandforge/shared';
 import { CLEANUP_ACTION_LIMIT } from '@sandforge/shared';
@@ -9,6 +13,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
@@ -259,6 +264,83 @@ describe('DataOpsCleanupHandler', () => {
       payload: { ...deleteStale(false).payload, acceptAutomation: true },
     } as never);
     expect(org.destroy).toHaveBeenCalledWith(stale);
+  });
+
+  it('answers a delete that muted with what it took back, once it took it back', async () => {
+    const events: string[] = [];
+    const permissions = memoryPermissionOrg({
+      sets: [{ id: '0PSxx0000000001AAA', name: 'Flow_Bypass' }],
+      beforeWrite: (write) => {
+        events.push(write.kind === 'insert' ? 'assign' : 'unassign');
+      },
+    });
+    const { query, sobject } = org.conn;
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.conn,
+      query: (soql: string) =>
+        /FROM (Organization|UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(
+          soql,
+        )
+          ? permissions.connection.query(soql)
+          : query(soql),
+      identity: permissions.connection.identity,
+      sobject: (name: string) =>
+        name === 'PermissionSetAssignment' ? permissions.connection.sobject(name) : sobject(),
+    } as never);
+    vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
+      if (m.type === 'dataops:cleanup:delete:response') {
+        events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'cleanup-mute-'));
+    handler.setMuteLeases({ dir, renewEveryMs: 0 });
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave' as const,
+                startsOn: 'delete' as const,
+                condition: 'read' as const,
+                permissions: [{ name: 'Skip_Flows', bypass: true }],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+
+    try {
+      await handler.handle({
+        ...deleteStale(false),
+        payload: { ...deleteStale(false).payload, muteAutomation: true },
+      } as never);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(org.destroy).toHaveBeenCalledWith(stale);
+    expect(events).toEqual(['assign', 'unassign', 'answered, 0 assigned']);
+    expect(answer('dataops:cleanup:delete:response')).toMatchObject({
+      outcome: { status: 'success', done: 2 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
+    });
   });
 
   it('deletes nothing on production', async () => {
