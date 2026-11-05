@@ -117,6 +117,7 @@ import {
 } from '../src/modules/checkpoint/rewindEmails.js';
 import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
+import { UNDO_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/undoCheckpoint.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
@@ -2338,6 +2339,23 @@ const COMMAND_LINE_WORDS: BoundWords = {
 };
 
 /**
+ * An undo's refusal in the command's words: refused for the org's
+ * automation, it names the flag that lifts it, as a rewind's refusal does,
+ * where the undo says it as the panel does.
+ */
+function undoRefusalWords(refusal: CheckpointRefusalLike): CheckpointRefusalLike {
+  return refusal.code === 'AUTOMATION'
+    ? {
+        ...refusal,
+        message: refusal.message.replace(
+          UNDO_AUTOMATION_LIFTED_BY,
+          'give --accept-automation to undo the rewind all the same',
+        ),
+      }
+    : refusal;
+}
+
+/**
  * The refusal a rewind of what `answer` previewed would meet before it
  * writes, for want of a flag: deletions Undo couldn't bring back without
  * `--accept-no-undo`, records to make again with new Ids without
@@ -3600,10 +3618,11 @@ interface WriteContext {
 function resultOfAnswer(
   sent: { answer: PanelAnswer; stoppedBy?: StopSignal },
   what: string,
+  words: (refusal: CheckpointRefusalLike) => CheckpointRefusalLike = (refusal) => refusal,
 ): RewindResult {
   const { answer, stoppedBy } = sent;
   if (answer.outcome !== 'answered') {
-    const refusal = refusalOfAnswer(answer, what);
+    const refusal = words(refusalOfAnswer(answer, what));
     if (stoppedBy !== undefined && refusal.code === 'CANCELLED') {
       throw new Stop(refusal, stopExitCode(stoppedBy));
     }
@@ -3927,7 +3946,7 @@ async function undo(
         timeoutMs: WRITE_TIMEOUT_MS,
       }),
   );
-  const result = resultOfAnswer(sent, 'The undo');
+  const result = resultOfAnswer(sent, 'The undo', undoRefusalWords);
   for (const line of undoLines(args.org, checkpoint, result)) say(line);
   for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
     say(line);

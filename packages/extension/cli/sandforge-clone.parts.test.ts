@@ -145,6 +145,8 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
   let org: GateOrg;
   let clock: number;
   let stdout: string[];
+  /** What the command said on stderr, its lines with --json. */
+  let stderr: string[];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const tooling = {
     query: vi.fn(async () => page([])),
@@ -341,11 +343,14 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     clock = Date.parse(at('10:00:00'));
     org = new GateOrg(() => clock);
     stdout = [];
+    stderr = [];
     vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new ExitCalled(typeof code === 'number' ? code : undefined);
     });
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      stderr.push(String(line));
+    });
     vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
       stdout.push(String(chunk));
       return true;
@@ -413,6 +418,28 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toEqual({});
   });
 
+  it("the cut part first says the resume's records may be what holds what it kept, and that the resume's removal takes them, in its lines and its JSON", async () => {
+    const { s1, s2 } = theRun();
+
+    const cut = await remove(s1, at('10:05:00'));
+
+    // Its own advice was --include-changed, which takes what others added
+    // since too: the resume's removal takes them without it, live as here.
+    expect(cut.exit).toBe(3);
+    expect(cut.result).toMatchObject({
+      heldByOtherParts: [{ part: 1, objects: ['OpportunityLineItem', 'Quote'] }],
+    });
+    expect(stderr).toContain(
+      'of what this removal kept for records that stay, what the run\'s part 1 (its summary\'s "part") ' +
+        "holds — its OpportunityLineItem, Quote records — goes with --remove of that part's summary, " +
+        "once that part's own records are gone, without --include-changed",
+    );
+    const resumed = await remove(s2, at('10:08:00'));
+    expect(resumed.result.status).toBe('success');
+    expect(resumed.result).not.toHaveProperty('heldByOtherParts');
+    expect(left()).toEqual({});
+  });
+
   it('the resume, then the journal: the journal takes the rest, and its preview says it would', async () => {
     const { s2 } = theRun();
 
@@ -470,6 +497,8 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
       ['Contact', 1, 0],
       ['Account', 0, 1],
     ]);
+    // The resume was removed first: nothing of another part is left to take them.
+    expect(cut.result).not.toHaveProperty('heldByOtherParts');
     expect(left()).toEqual({ Account: 1, Contact: 1 });
   });
 

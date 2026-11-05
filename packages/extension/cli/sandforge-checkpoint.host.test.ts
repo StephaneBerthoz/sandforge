@@ -1033,6 +1033,46 @@ describe('sandforge-checkpoint rewind', () => {
     expect(journalsOf(h, checkpoint)).toEqual([]);
   });
 
+  it('refuses an undo whose writes fire automation the org will not say, without --accept-automation, naming the flag as the rewind does: exit 1, nothing written', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    clock += 60_000;
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    const answered = JSON.parse(stdout) as { refusal: { code: string; message: string } };
+    expect(answered.refusal.code).toBe('AUTOMATION');
+    expect(answered.refusal.message).toMatch(
+      /^DEV-SB: what runs as the undo writes could not all be read, so automation may run\. .*Undo refused; give --accept-automation to undo the rewind all the same\. No record was written\.$/,
+    );
+    expect(stderr).toContain(
+      'Undo refused; give --accept-automation to undo the rewind all the same.',
+    );
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
   describe('on an org that delivers the emails of what still runs', () => {
     /** What an org on All email answers the read with. */
     const ALL_EMAIL = { compiled: true, success: true };
@@ -1707,6 +1747,51 @@ describe('sandforge-checkpoint rewind', () => {
       "DEV-SB is back at 'Before UAT' but for 1 record(s) that still differ",
     );
     expect(stderr).toMatch(/ {2}Account 1 — refused: .*Name must say who owns it/);
+    // It wrote the rest: its undo is offered.
+    expect(answer.undo?.until).toEqual(expect.any(String));
+    expect(stderr).toContain('  undo it until ');
+  });
+
+  it('offers no undo of a rewind that wrote nothing, the org refusing its every write: exit 1, neither its lines nor its JSON', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    // The case created since, the two accounts changed since, and the case
+    // deleted since, emptied from the bin: Salesforce still lists it deleted.
+    h.org.refuse.set(id('500', 2), 'Held by a rule of the org');
+    for (const account of [id('001', 1), id('001', 2)]) {
+      h.org.refuseUpdate.set(account, {
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        message: 'Name must say who owns it',
+      });
+    }
+    h.org.empty(id('500', 1));
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    const answer = JSON.parse(stdout) as RewindJson;
+    expect(answer).toMatchObject({
+      status: 'failure',
+      deleted: { done: 0 },
+      givenBack: { done: 0 },
+      broughtBack: { done: 0 },
+    });
+    expect(answer).not.toHaveProperty('undo');
+    expect(stderr).toContain("Nothing of the rewind of DEV-SB to 'Before UAT' went through");
+    expect(stderr).not.toContain('undo it until');
+    expect(stderr).not.toContain('undo --org');
+    expect(stateOf(h.org)).toEqual(before);
   });
 
   it('exits 4 when someone else changed a record during the rewind, left as they made it', async () => {

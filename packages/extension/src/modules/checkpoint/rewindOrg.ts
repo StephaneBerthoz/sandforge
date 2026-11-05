@@ -2299,6 +2299,14 @@ class Rewind {
     const read = await journal.read();
     const undoCannot = this.undoCannotOf(read);
     const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
+    // Through with no record and no file's link written, it has nothing an
+    // undo would take back, and offers none: live, a rewind every record of
+    // which the org kept said "Nothing of the rewind … went through", then
+    // offered its undo. Taken up after a stop, it has what its journal says
+    // the stopped pass sent, as its ledger line does.
+    const linked = (files?.unlinked ?? 0) + (files?.relinked ?? 0) + (files?.linksUpdated ?? 0);
+    const undoable =
+      cancelled || did || linked > 0 || (journal.resumed && read.lastWriteAt !== undefined);
     const carriers = (read.did.carriers ?? []).map(({ objectApiName, ids }) => ({
       objectApiName,
       count: ids.length,
@@ -2343,7 +2351,7 @@ class Rewind {
         unread,
         passes: second ? 2 : 1,
         leftToday: remaining,
-        undo: { until: undoUntil, cannot: undoCannot },
+        ...(undoable ? { undo: { until: undoUntil, cannot: undoCannot } } : {}),
         removedJournals,
         carriers,
         draftsLeft,

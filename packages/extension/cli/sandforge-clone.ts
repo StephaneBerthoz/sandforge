@@ -5327,6 +5327,44 @@ export function partsLeft(
 }
 
 /**
+ * Of a run cut and taken up, the parts other than the summary's that no
+ * removal was asked for yet and whose records are of objects among those
+ * holding what this removal kept for records that stay, each with those
+ * objects: the records of the same run, most often — the resume's quote and
+ * lines under the opportunity the cut part wrote —, which the removal of that
+ * part takes first, then what this one left. Live, removing the cut part
+ * first kept seven records for the resume's, and said only that
+ * `--include-changed` took them. Empty when nothing was so kept.
+ */
+function heldByOtherParts(
+  run: Pick<RunInParts, 'parts' | 'part' | 'earlier'>,
+  objects: ReadonlyArray<Pick<ForgeUndoObjectResult, 'keptDependents' | 'heldBy'>>,
+): Array<{ part: number; objects: string[] }> {
+  const holders = [...new Set(objects.flatMap((o) => (o.keptDependents > 0 ? o.heldBy : [])))];
+  const asked = new Set(run.earlier?.partsRemoved ?? []);
+  return run.parts.flatMap((part) => {
+    if (part.part === run.part || asked.has(part.part)) return [];
+    const wrote = new Set(
+      stillLeft(part.created, run.earlier?.removalLeft).map((o) => o.objectApiName),
+    );
+    const held = holders.filter((object) => wrote.has(object));
+    return held.length > 0 ? [{ part: part.part, objects: held }] : [];
+  });
+}
+
+/** What {@link heldByOtherParts} found, said after the removal's result: what takes it. */
+function heldByOtherPartsLines(
+  held: ReadonlyArray<{ part: number; objects: readonly string[] }>,
+): string[] {
+  return held.map(
+    ({ part, objects }) =>
+      `of what this removal kept for records that stay, what the run's part ${part} (its ` +
+      `summary's "part") holds — its ${objects.join(', ')} records — goes with --remove of ` +
+      "that part's summary, once that part's own records are gone, without --include-changed",
+  );
+}
+
+/**
  * The run's other parts, as a removal of `part` hands them over to be read
  * before its first write (`RunRemovalOptions.otherParts`): those with records
  * left, each dated as its journal dates it, with what the run's removals
@@ -5552,6 +5590,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let mutedAutomation: MutedAutomation | undefined;
   /** Why it stopped for objects its user may not delete, once it did. */
   let undeletableRefused: RunRefusal | undefined;
+  /** Of a run cut and taken up, its parts not removed yet whose records may hold what it kept. */
+  let keptForParts: Array<{ part: number; objects: string[] }> = [];
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
@@ -5584,6 +5624,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...(sweep ? { sweep } : {}),
               ...(sweepListing ? { sweepListing } : {}),
               ...(mutedAutomation ? { mutedAutomation } : {}),
+              ...(keptForParts.length > 0 ? { heldByOtherParts: keptForParts } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
@@ -5593,6 +5634,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ) + '\n',
       );
       for (const line of automationHeldLines(objects, args)) console.error(line);
+      for (const line of heldByOtherPartsLines(keptForParts)) console.error(line);
       return;
     }
     // A sweep alone took none of the run's records: only its own lines are said.
@@ -5601,6 +5643,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
     if (sweep) for (const line of sweepLines(sweep)) console.log(line);
     for (const line of automationHeldLines(objects, args)) console.log(line);
+    for (const line of heldByOtherPartsLines(keptForParts)) console.log(line);
     if (removalsFile) {
       console.log(
         `what this removal left on the run's records is kept in ${removalsFile}, ` +
@@ -6176,6 +6219,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     outcome ? removalStatus(objects, cancelled) : 'success',
     sweep,
   );
+  if (ofTheRun?.part !== undefined) keptForParts = heldByOtherParts(ofTheRun, objects);
   output(status, objects, org.id, removals && !failure ? removalsFile : undefined, sweep);
   if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }

@@ -198,6 +198,12 @@ export class UndoStopped extends Error {
 /** What a refusal before the first write did not do. */
 const NOTHING_WRITTEN = 'No record was written.';
 
+/**
+ * What lifts an undo's refusal for the org's automation, in the panel's
+ * words: the command line says its flag in their place.
+ */
+export const UNDO_AUTOMATION_LIFTED_BY = 'accept that it runs to undo the rewind all the same';
+
 /** A record by its first fifteen characters. */
 function keyOf(id: string): string {
   return id.slice(0, 15);
@@ -299,7 +305,7 @@ function automationRefusal(
     code: 'AUTOMATION',
     message:
       `${orgName}: ${what}. ${emailsUncountedWords('undo', emailsUncounted)}Undo refused; ` +
-      `accept that it runs to undo the rewind all the same. ${NOTHING_WRITTEN}`,
+      `${UNDO_AUTOMATION_LIFTED_BY}. ${NOTHING_WRITTEN}`,
   };
 }
 

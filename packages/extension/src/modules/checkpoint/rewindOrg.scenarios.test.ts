@@ -1670,8 +1670,10 @@ describe('an activated order a rewind makes again or keeps', () => {
       // Nothing was made: the flow on an order's insert never ran unasked.
       expect(t.org.creates).toEqual([]);
       expect(result.recreated ?? []).toEqual([]);
-      // Nothing else to write: nothing went through, each record said with why.
+      // Nothing else to write: nothing went through, each record said with why,
+      // and no undo is offered of what wrote nothing.
       expect(result.status).toBe('failure');
+      expect(result.undo).toBeUndefined();
       const words =
         "Kept as it is: Salesforce answered it is no longer in the recycle bin, and making it again runs what DEV-ED runs as it is created or given its status back (Order: 'Order created'), which this rewind did not ask about. Rewind again: its preview counts it to make again, and asks.";
       expect(result.residual).toEqual([
