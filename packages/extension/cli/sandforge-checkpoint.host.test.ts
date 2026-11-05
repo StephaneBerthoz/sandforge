@@ -2073,6 +2073,70 @@ describe('sandforge-checkpoint undo', () => {
     expect(JSON.parse(again.stdout)).toMatchObject({ refusal: { code: 'NOT_FOUND' } });
   });
 
+  it('still takes back the rewind that wrote, after a later rewind the org refused every write of: exit 0, the org as before the first', async () => {
+    const h = harness();
+    h.org.add('Case', { Id: id('500', 3), Subject: 'Emptied' });
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewind = () =>
+      h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+      );
+    const first = await rewind();
+    expect(first.code, first.stderr).toBe(0);
+    const { rewindId } = JSON.parse(first.stdout) as RewindJson;
+    // Deleted since, then emptied from the bin: still listed there, the org
+    // answers its undelete that it is not in it, and nothing else differs.
+    clock += 60_000;
+    h.org.trash('Case', id('500', 3), COLLEAGUE);
+    h.org.empty(id('500', 3));
+    const second = await rewind();
+    expect(second.code, second.stderr).toBe(1);
+    expect(JSON.parse(second.stdout)).toMatchObject({
+      status: 'failure',
+      broughtBack: { done: 0 },
+    });
+    expect(JSON.parse(second.stdout)).not.toHaveProperty('removedJournals');
+    expect(second.stderr).not.toContain('removed the journal of rewind');
+    expect(journalsOf(h, checkpoint)).toEqual([rewindId]);
+    clock += 60_000;
+
+    const asked = await h.run('undo', '--org', 'DEV-SB');
+    expect(asked.code).toBe(2);
+    expect(asked.stdout).toContain(
+      `undo the rewind ${rewindId} of DEV-SB to 'Before UAT' (open until `,
+    );
+
+    const { code, stdout, stderr } = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code, stderr).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ rewindId, status: 'success', residual: [] });
+    // The colleague's work back, but for the case they deleted since.
+    expect(stateOf(h.org).live).toEqual({
+      Account: [
+        { Id: id('001', 1), Name: 'Renamed', Subject: null },
+        { Id: id('001', 2), Name: 'Renamed too', Subject: null },
+      ],
+      Case: [{ Id: id('500', 2), Name: null, Subject: 'New' }],
+    });
+  });
+
   it('asks to send back to the recycle bin what the rewind brought back alone, never a record the bin no longer gave back to it', async () => {
     const h = harness();
     h.org.add('Case', { Id: id('500', 3), Subject: 'Emptied' });

@@ -293,6 +293,7 @@ import {
   RECYCLE_BIN_DAYS,
   newFolderId,
   previewDirOf,
+  rewindDirOf,
   type CheckpointFolder,
   type OrgCheckpointStore,
   type OrgLock,
@@ -2204,10 +2205,14 @@ class Rewind {
     // its first pass brought back: what came back with them goes with them.
     for (const { ids } of prior.did.carried ?? []) for (const id of ids) this.carried.add(id);
     const undoUntil = new Date(Date.parse(prior.head.startedAt) + UNDO_WINDOW_MS).toISOString();
-    await this.deps.store.update(checkpoint.checkpointId, (held) => ({
-      ...held,
-      lastRewind: { rewindId: journal.rewindId, undoUntil },
-    }));
+    // What the checkpoint said of its last rewind before this one, given back
+    // should this one write nothing: none when that was this one, stopped
+    // part way and taken up now.
+    let earlier: OrgCheckpoint['lastRewind'];
+    await this.deps.store.update(checkpoint.checkpointId, (held) => {
+      if (held.lastRewind?.rewindId !== journal.rewindId) earlier = held.lastRewind;
+      return { ...held, lastRewind: { rewindId: journal.rewindId, undoUntil } };
+    });
 
     const writing = writes(first.plan);
     const one = writing ? await this.pass(journal, first.plan, fresh.diff, 1) : new PassTally();
@@ -2266,29 +2271,51 @@ class Rewind {
             : 'failure'
           : 'success';
 
+    const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
+    // Through with no record and no file's link written, it has nothing an
+    // undo would take back, and offers none: live, a rewind every record of
+    // which the org kept said "Nothing of the rewind … went through", then
+    // offered its undo. Taken up after a stop, it has what its journal says
+    // the stopped pass sent, as its ledger line does.
+    const linked = (files?.unlinked ?? 0) + (files?.relinked ?? 0) + (files?.linksUpdated ?? 0);
+    const undoable =
+      cancelled ||
+      did ||
+      linked > 0 ||
+      (journal.resumed && (await journal.facts()).lastWriteAt !== undefined);
     let removedJournals: EarlierJournalRemoved[] = [];
     if (!cancelled) {
       await journal.end();
       this.ended = true;
       const endedAt = verify?.diff.readAt ?? this.now().toISOString();
+      // Through with nothing written, it is not the org's last rewind: nothing
+      // it did stands between the org and the rewind before it, which stays
+      // the one Undo reaches, its journal kept rather than deleted by a
+      // rewind that changed nothing.
+      const lastRewind = undoable ? { rewindId: journal.rewindId, endedAt, undoUntil } : earlier;
       try {
-        await this.deps.store.update(checkpoint.checkpointId, (held) => ({
-          ...held,
-          lastRewind: { rewindId: journal.rewindId, endedAt, undoUntil },
-        }));
+        await this.deps.store.update(checkpoint.checkpointId, (held) => {
+          delete held.lastRewind;
+          return lastRewind ? { ...held, lastRewind } : held;
+        });
       } catch (err: unknown) {
         this.notes.push(
-          `The checkpoint could not be told when the rewind ended (${extractErrorMessage(err)}): ` +
-            'its list may not offer to undo it.',
+          undoable
+            ? `The checkpoint could not be told when the rewind ended (${extractErrorMessage(err)}): ` +
+                'its list may not offer to undo it.'
+            : `The checkpoint could not be told the rewind wrote nothing (${extractErrorMessage(err)}): ` +
+                'its list may not offer to undo the rewind before it.',
         );
       }
       // Undo reaches the org's last rewind alone: the journals of its earlier
       // rewinds, which hold the values they wrote over, go now, each named.
       try {
-        removedJournals = await removeEarlierJournals(this.deps.store, this.lock, {
-          checkpointId: checkpoint.checkpointId,
-          rewindId: journal.rewindId,
-        });
+        if (undoable) {
+          removedJournals = await removeEarlierJournals(this.deps.store, this.lock, {
+            checkpointId: checkpoint.checkpointId,
+            rewindId: journal.rewindId,
+          });
+        }
       } catch (err: unknown) {
         this.notes.push(
           `The journals of the earlier rewinds of ${this.request.orgName} could not be deleted ` +
@@ -2298,15 +2325,6 @@ class Rewind {
     }
     const read = await journal.read();
     const undoCannot = this.undoCannotOf(read);
-    const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
-    // Through with no record and no file's link written, it has nothing an
-    // undo would take back, and offers none: live, a rewind every record of
-    // which the org kept said "Nothing of the rewind … went through", then
-    // offered its undo. Taken up after a stop, it has what its journal says
-    // the stopped pass sent, as its ledger line does.
-    const linked = (files?.unlinked ?? 0) + (files?.relinked ?? 0) + (files?.linksUpdated ?? 0);
-    const undoable =
-      cancelled || did || linked > 0 || (journal.resumed && read.lastWriteAt !== undefined);
     const carriers = (read.did.carriers ?? []).map(({ objectApiName, ids }) => ({
       objectApiName,
       count: ids.length,
@@ -2375,6 +2393,24 @@ class Rewind {
         clock: this.clock,
       });
       if (note !== undefined) this.notes.push(note);
+    }
+    // Through with nothing written, its journal holds nothing to undo, and
+    // only values it kept to write over and never did: it goes, closed
+    // first, as the journals of earlier rewinds go once a later one ends.
+    if (!cancelled && !undoable) {
+      await journal.close();
+      try {
+        await rm(rewindDirOf(this.request.folder, journal.rewindId), {
+          recursive: true,
+          force: true,
+        });
+      } catch (err: unknown) {
+        this.notes.push(
+          `The journal of this rewind, which wrote nothing, could not be deleted ` +
+            `(${extractErrorMessage(err)}): it stays until a later rewind that writes ends, ` +
+            'or its checkpoint goes.',
+        );
+      }
     }
     return outcome;
   }

@@ -1065,6 +1065,22 @@ describe('docs/modules/checkpoint.md', () => {
     );
     // Read as: they pile up until the checkpoint goes.
     expect(DOC).not.toContain('the journals of earlier rewinds stay with their checkpoint');
+
+    // Anchor: a rewind that wrote nothing gives its checkpoint back the last
+    // rewind it said before, deletes no earlier journal, and deletes its own.
+    expect(REWIND).toContain(
+      'const lastRewind = undoable ? { rewindId: journal.rewindId, endedAt, undoUntil } : earlier;',
+    );
+    expect(REWIND).toMatch(/if \(undoable\) \{\s*removedJournals = await removeEarlierJournals\(/);
+    expect(REWIND).toMatch(
+      /if \(!cancelled && !undoable\) \{\s*await journal\.close\(\);[\s\S]*?await rm\(rewindDirOf\(this\.request\.folder, journal\.rewindId\)/,
+    );
+    expect(section(DOC, '## Where checkpoints are kept')).toContain(
+      'A rewind that wrote nothing deletes none, and keeps no journal of its own.',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'A rewind that wrote nothing leaves it to the rewind before it.',
+    );
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {

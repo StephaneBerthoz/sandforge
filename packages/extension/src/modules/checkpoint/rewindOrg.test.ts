@@ -49,7 +49,7 @@ import {
   type OrgState,
   type Taken,
 } from '../../test/rewindTestOrg.js';
-import { rewindDirOf } from './OrgCheckpointStore.js';
+import { latestRewindOf, rewindDirOf } from './OrgCheckpointStore.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { readRewindJournal } from './rewindJournal.js';
 import {
@@ -1789,6 +1789,125 @@ describe('rewindOrg: stopped, and taken up again', () => {
     const undo = await undone(t, second.rewindId);
     expect(undo.status).toBe('success');
     expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Renamed again');
+  });
+
+  /**
+   * A rewind that went through, then a colleague's account deleted and
+   * emptied from the bin: Salesforce still lists it deleted, so the next
+   * rewind's preview counts it to bring back, and the org answers its
+   * undelete that it is not in the recycle bin, as it did live.
+   */
+  async function rewoundThenEmptied(): Promise<{ t: Taken; first: RewindResult }> {
+    const t = await taken();
+    changedSince(t.org);
+    const first = resultOf(await rewound(t, (await previewed(t)).previewId));
+    expect(first.status).toBe('success');
+    expect(first.undo).toBeDefined();
+    clock.now += 60_000;
+    t.org.trash('Account', account(3), COLLEAGUE);
+    t.org.empty(account(3));
+    return { t, first };
+  }
+
+  it('through with nothing written, the org refusing its every write, deletes no journal: the rewind before it stays the one its list offers to undo, and its Undo goes through', async () => {
+    const { t, first } = await rewoundThenEmptied();
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('failure');
+    expect(second.residual).toEqual([
+      { objectApiName: 'Account', reason: 'notInBin', count: 1, ids: [account(3)] },
+    ]);
+    expect(t.org.creates).toEqual([]);
+    expect(second.undo).toBeUndefined();
+    expect(second.removedJournals).toBeUndefined();
+    // Its own journal holds no value it wrote over: it goes, the first's stays.
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect(latestRewindOf(await t.store.checkpointsOf(ORG_ID))).toEqual({
+      checkpointId: t.checkpoint.checkpointId,
+      rewindId: first.rewindId,
+    });
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual({
+      rewindId: first.rewindId,
+      endedAt: expect.any(String),
+      undoUntil: first.undo?.until,
+    });
+    const [entry] = await t.store.list({ now: new Date(clock.now) });
+    expect(entry?.undo).toEqual({ rewindId: first.rewindId, until: first.undo?.until });
+
+    const undo = await undone(t, first.rewindId);
+
+    expect(undo.status).toBe('success');
+    // The colleague's work is back, but for the account they deleted since.
+    expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Renamed');
+    expect(liveIds(t.org, 'Account')).toEqual([account(1), account(4), account(5)]);
+  });
+
+  it('with nothing to write, opens no journal and leaves the checkpoint’s last rewind as it was', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const first = resultOf(await rewound(t, (await previewed(t)).previewId));
+    const kept = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
+    clock.now += 60_000;
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('success');
+    expect(second.removedJournals).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([first.rewindId]);
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toEqual(kept);
+  });
+
+  it('through with a part written, still deletes the journal of the rewind before it, and Undo reaches its own alone', async () => {
+    const { t, first } = await rewoundThenEmptied();
+    t.org.edit('Account', account(1), { Name: 'Renamed again' }, COLLEAGUE);
+
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('partial');
+    expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Account one');
+    expect(second.undo).toBeDefined();
+    expect(second.removedJournals).toEqual([
+      { checkpointId: t.checkpoint.checkpointId, name: 'Before UAT', rewindId: first.rewindId },
+    ]);
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([second.rewindId]);
+    expect(latestRewindOf(await t.store.checkpointsOf(ORG_ID))).toEqual({
+      checkpointId: t.checkpoint.checkpointId,
+      rewindId: second.rewindId,
+    });
+  });
+
+  it('stopped before its first write, then taken up with nothing left to write, leaves its checkpoint no rewind said stopped part way, nor a journal', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Account', account(3), COLLEAGUE);
+    const controller = new AbortController();
+    try {
+      const stoppedRun = await rewound(t, (await previewed(t)).previewId, {
+        deps: {
+          signal: controller.signal,
+          onProgress: ({ phase }) => {
+            if (phase === 'bringingBack') controller.abort();
+          },
+        },
+      });
+      expect(resultOf(stoppedRun).status).toBe('cancelled');
+    } catch (err: unknown) {
+      expect(err).toBeInstanceOf(RewindStopped);
+    }
+    const stopped = (await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind;
+    expect(stopped?.endedAt).toBeUndefined();
+    expect(t.org.inBin('Account').map((row) => row.Id)).toEqual([account(3)]);
+    // The colleague brings the account back themselves: nothing differs.
+    await t.org.undelete([account(3)]);
+
+    const again = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(again.rewindId).toBe(stopped?.rewindId);
+    expect(again.status).toBe('success');
+    expect(again.undo).toBeUndefined();
+    expect((await t.store.read(t.checkpoint.checkpointId))?.checkpoint?.lastRewind).toBeUndefined();
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([]);
   });
 });
 
