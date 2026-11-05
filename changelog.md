@@ -5,6 +5,36 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.75.0] - 2026-11-06
+
+Forge tells setup no user can create from a missing permission, every module keeps one contact role, and a sweep keeps what anyone changed.
+
+### Added
+
+- **DataOps**: a masking names the duplicate rules it will fire before you confirm, and says what they wrote during the run.
+- **Checkpoints**: a rewind stopped part way names the orders it left as drafts, and what rewinding again does to them.
+- **Command line and MCP**: `run_remove` takes `includeChanged`, `muteAutomation`, `leaveUndeletable`, `store`; `seed_run`, `clone_record` take `muteAutomation`.
+
+### Changed
+
+- **Removals, command line**: a sweep keeps what anyone changed after the run's last write and may end `partial`, exit 3: add `--include-changed` to take it.
+- **Forge, command line**: `sandforge-clone` refuses a root no user can create, such as Report, with `ROOT_NEVER_CREATED`, exit 1, before reading any row.
+- **Checkpoints, command line**: a rewind leaves, and names, a record out of the recycle bin whose making again fires unasked automation: exit 1, rewind again.
+- **Frozen Dataset, command line**: a load its verification fails ends `partial`, exit 3, not success and 0, in the command line, JSON and page: expect 3.
+
+### Fixed
+
+- **Forge**: setup no user can create is left out with its reason, not BLOCKING, and Review no longer shows decided a gap the run won't apply.
+- **Seed, Sync, Frozen Dataset**: an opportunity written with its contact keeps one contact role, as resumed and rehearsed Forge clones now do.
+- **Frozen Dataset**: two record types sharing a label load apart, and a load no longer syncs a quote whose lines it left out, deleting its products.
+- **Removals**: a clone cut and resumed is removed whole, each part saying what the next takes; a sweep's confirmation counts only what it takes and warns of your work.
+- **DataOps**: the page refuses in its confirmation's words, an erasure gives each refusal its code, and no production is offered the mute.
+- **Mute automation**: a lease whose journal could not be written no longer leaves another run's permission sets assigned after it.
+- **Checkpoints**: a preview counts only what the rewind writes; a rewind that wrote nothing keeps the Undo before it; an Undo asks before setting an order to Draft.
+- **Command line**: the last bare refusals give a code, a refused Seed or Sync run names every reason, on stderr too with `--json`, and relays name only what they take.
+- **Autopilot**: the minimap draws a skipped object hollow and dashed, told apart from one still waiting by more than colour.
+- **Automation**: a Rewind step asks for the org's alias, or its username for an org that has none, as its confirmation does.
+
 ## [1.74.0] - 2026-11-04
 
 Nothing fires in an org without a question, DataOps and Frozen loads included, and every count and refusal says what a run truly does.
