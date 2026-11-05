@@ -1061,6 +1061,9 @@
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
       "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
+      "writtenByThePlatform_one": "{{count}} Kontaktrolle mit der verknüpft, die die Plattform mit ihrer Opportunity für deren Kontakt geschrieben hat, nicht geschrieben; um die für sie generierten Felder ergänzt: {{given}}.",
+      "writtenByThePlatform_other": "{{count}} Kontaktrollen mit denen verknüpft, die die Plattform mit ihrer Opportunity für deren Kontakt geschrieben hat, nicht geschrieben; um die für sie generierten Felder ergänzt: {{given}}.",
+      "writtenByThePlatformRefused": "Die übrigen bleiben, wie die Plattform sie geschrieben hat. Die Worte des Ziels:",
       "openRecord": "Ersten erstellten Datensatz ({{object}}) in {{org}} öffnen",
       "notRun": "Noch wurde nichts geschrieben: Bestätigen startet den Seed."
     },

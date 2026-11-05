@@ -584,6 +584,59 @@ describe('SeedResultsStep', () => {
     expect(row.textContent).not.toContain('refused');
   });
 
+  it('says the contact roles linked to the ones the platform wrote with their opportunity, and the target’s words for those it kept as it wrote them', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 1,
+            writtenByThePlatform: {
+              records: 2,
+              given: 1,
+              refusal: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role is set by the account team.',
+            },
+          }),
+          objectResult({ objectApiName: 'Opportunity' }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const rows = screen.getAllByTestId('seed-result-written-by-the-platform');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe(
+      '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+        'contact each went in with, not written; given the fields generated for them: 1. ' +
+        "The others stay as the platform wrote them. The target's words: " +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role is set by the account team.',
+    );
+  });
+
+  it('says one role linked without the target’s words when it took the fields', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 1, given: 1 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-result-written-by-the-platform').textContent).toBe(
+      '1 contact role linked to the one the platform wrote with its opportunity, for the ' +
+        'contact it went in with, not written; given the fields generated for it: 1.',
+    );
+  });
+
   it('shows no fallback row when every AI field got an AI value', () => {
     render(
       <SeedResultsStep

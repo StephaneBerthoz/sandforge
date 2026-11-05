@@ -133,6 +133,11 @@ import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/
 import { seedObjectAccess, templateTheOrgTakes } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
 import {
+  rolesOfADryRun,
+  seedTargetOf,
+  writtenByThePlatformLine,
+} from '../src/modules/seed/seedPlatformRoles.js';
+import {
   SEED_STORAGE_EXCEEDED,
   seedFitBudgetOf,
   seedStorageBytes,
@@ -1600,6 +1605,9 @@ export function seedOrchestrator(deps: {
   describeFieldLengths?: SeedOrchestratorDependencies['describeFieldLengths'];
   describeRequiredFields?: SeedOrchestratorDependencies['describeRequiredFields'];
   objectAccess?: SeedOrchestratorDependencies['objectAccess'];
+  /** The target's read and update: the contact roles the platform wrote with the opportunities. */
+  readTarget?: SeedOrchestratorDependencies['readTarget'];
+  update?: SeedOrchestratorDependencies['update'];
   seed: number;
   locale?: string;
   /** The run's Ctrl-C: the orchestrator stops before its next object, as at the panel's Cancel. */
@@ -1623,6 +1631,8 @@ export function seedOrchestrator(deps: {
     ...(deps.describeFieldLengths ? { describeFieldLengths: deps.describeFieldLengths } : {}),
     ...(deps.describeRequiredFields ? { describeRequiredFields: deps.describeRequiredFields } : {}),
     ...(deps.objectAccess ? { objectAccess: deps.objectAccess } : {}),
+    ...(deps.readTarget ? { readTarget: deps.readTarget } : {}),
+    ...(deps.update ? { update: deps.update } : {}),
     planBuilder: new DataPlanBuilder(),
     // An AI generator that refuses. The faker answers every rule the templates
     // here carry, and a run that needs an API key is a run nobody can
@@ -2417,6 +2427,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         }
       : {}),
   });
+  /**
+   * What a dry run answers in place of the target: the contact role the
+   * platform writes with each opportunity it plans with a contact, which the
+   * run links the role it generates for that contact to, as a run does.
+   */
+  const dryRoles = args.dryRun ? rolesOfADryRun() : undefined;
+  /** Ids a dry run gives what it plans, each once across the run. */
+  let dryIds = 0;
   const insert = async (
     orgId: string,
     objectApiName: string,
@@ -2429,7 +2447,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
       // Answered record by record, as the REST path answers: rows placed by
       // key under these are then planned as the run places them.
-      const ids = records.map((_, i) => `dry-${i}`);
+      const ids = records.map(() => `dry-${dryIds++}`);
+      dryRoles?.inserted(objectApiName, records, ids);
       return { successIds: ids, errors: [], rows: ids.map((id) => ({ id })) };
     }
     if (records.length > 0) wrote = true;
@@ -2469,6 +2488,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ),
     objectAccess,
     insert,
+    // The roles the platform writes with the opportunities: read and given
+    // their fields, or, on a dry run, answered as the platform writes them.
+    ...(dryRoles
+      ? {
+          readTarget: dryRoles.readTarget,
+          update: async (orgId, objectApiName, records) => {
+            log(
+              `  [dry-run] ${objectApiName}: ${records.length} record(s) the platform writes ` +
+                'with their opportunity, given the fields generated for them (REST update)',
+            );
+            return dryRoles.update(orgId, objectApiName, records);
+          },
+        }
+      : seedTargetOf(conn)),
     seed,
     locale,
     signal: stop.signal,
@@ -2739,6 +2772,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`created: ${String((result as { totalRecordsCreated?: number }).totalRecordsCreated ?? 0)}`);
   for (const entry of result.objectResults ?? []) {
     log(`  ${entry.objectApiName}: ${entry.recordsCreated} created, ${entry.recordsFailed} failed`);
+    const byThePlatform = writtenByThePlatformLine(entry.writtenByThePlatform);
+    if (byThePlatform !== undefined) log(`      ${byThePlatform}`);
     for (const line of refusalLines(entry.errors ?? [])) log(`      ${line}`);
   }
   for (const line of scenarioKnowledgeLines(result.knowledge)) log(line);

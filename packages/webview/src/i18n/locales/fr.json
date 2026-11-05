@@ -1061,6 +1061,9 @@
     "results": {
       "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
       "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}.",
+      "writtenByThePlatform_one": "{{count}} rôle de contact rattaché à celui que la plateforme a écrit avec son opportunité, pour le contact avec lequel elle est entrée, non écrit ; ayant reçu les champs générés pour lui : {{given}}.",
+      "writtenByThePlatform_other": "{{count}} rôles de contact rattachés à ceux que la plateforme a écrits avec leur opportunité, pour le contact avec lequel chacune est entrée, non écrits ; ayant reçu les champs générés pour eux : {{given}}.",
+      "writtenByThePlatformRefused": "Les autres restent tels que la plateforme les a écrits. Les mots de la cible :",
       "openRecord": "Ouvrir le premier enregistrement créé ({{object}}) dans {{org}}",
       "notRun": "Rien n'a encore été écrit : Confirmer lance le seed."
     },

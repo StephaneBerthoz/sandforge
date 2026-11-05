@@ -206,3 +206,33 @@ describe('seedFitBudgetOf', () => {
     expect(seedFitBudgetOf(noRequests)).not.toHaveProperty('runRequests');
   });
 });
+
+describe('seedRequestsEstimate', () => {
+  const objects = (counts: Record<string, number>) => ({
+    objects: Object.entries(counts).map(([objectApiName, recordCount], insertOrder) => ({
+      objectApiName,
+      recordCount,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder,
+      batchSize: 200,
+    })),
+  });
+
+  it('counts the reads and the updates of the roles the platform writes with the opportunities, beside their insert', () => {
+    // A seed of 300 contacts, 300 opportunities and 300 roles of their
+    // contact may link every role to the platform's: two reads of two
+    // hundred opportunities' roles and two updates, besides the three Bulk
+    // API jobs of five calls each it counted.
+    expect(seedRequestsEstimate(objects({ Contact: 300, Opportunity: 300 }))).toBe(5 + 5);
+    expect(
+      seedRequestsEstimate(
+        objects({ Contact: 300, Opportunity: 300, OpportunityContactRole: 300 }),
+      ),
+    ).toBe(5 + 5 + 5 + 2 + 2);
+  });
+
+  it('counts no such call for roles of opportunities the seed does not write', () => {
+    expect(seedRequestsEstimate(objects({ Contact: 10, OpportunityContactRole: 10 }))).toBe(1 + 1);
+  });
+});

@@ -35,7 +35,11 @@ import type { ReferenceLinker } from './ReferenceLinker';
 import type { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import { sendRefusedRowsAgain, type SentAgain } from './sendRefusedRowsAgain.js';
 import { recordParentsRefusals } from './existingParents.js';
+import { OPPORTUNITY, SeedPlatformRoles, type UpdateFn } from './seedPlatformRoles.js';
+import { OPPORTUNITY_CONTACT_ROLE, type SoqlQuery } from '../../core/common/platformRecords.js';
 import type { CoreServices } from '../../services.js';
+
+export type { UpdateFn, UpdatedRow } from './seedPlatformRoles.js';
 
 /**
  * Records of an object a sequential seed generates and inserts at a time, at
@@ -251,6 +255,21 @@ export interface SeedOrchestratorDependencies {
   /** Draws the children of a `range` relation; `Math.random` unless a caller fixes it. */
   random?: () => number;
   /**
+   * Reads the target: the contact roles the platform wrote itself with the
+   * run's opportunities, each of the contact it went in with
+   * (`SeedPlatformRoles`). A role the seed generated for that contact on that
+   * opportunity is linked to it rather than inserted beside it: a real org
+   * held two roles of one contact on an opportunity the seed had written.
+   * Without it the roles go as generated, and the result says why.
+   */
+  readTarget?: SoqlQuery;
+  /**
+   * Updates records of the target, each by its id: what gives a role linked
+   * to the platform's the fields the run generated for it. Without it a
+   * linked role keeps what the platform wrote, and the result says so.
+   */
+  update?: UpdateFn;
+  /**
    * Called once every object is written, before the run answers: what a
    * scenario does with its records once they are all in the org — its
    * Knowledge articles published, its closed cases linked to them
@@ -387,7 +406,7 @@ export class SeedOrchestrator {
     operationId: UUID,
     startTime: number,
   ): Promise<SeedExecutionResult> {
-    const run = newRun(template, this.deps.onRowIds);
+    const run = newRun(template, this.platformRolesOf(orgId), this.deps.onRowIds);
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(
       template.objects,
       run.relations,
@@ -426,7 +445,7 @@ export class SeedOrchestrator {
             written.successIds.length + written.errors.length,
           );
         }
-        const sent = await this.insert(orgId, obj, records, ready);
+        const sent = await this.insert(orgId, obj, records, ready, run);
         slicesSent++;
         keepKeys(keys, ready.config.rows, recordsSent, records.length, sent.result);
         recordsSent += records.length;
@@ -728,18 +747,44 @@ export class SeedOrchestrator {
     obj: SeedTemplate['objects'][number],
     records: Record<string, unknown>[],
     ready: ReadyObject,
+    run: SeedRun,
   ): Promise<SentAgain> {
     const send = (rows: Record<string, unknown>[]): Promise<InsertResult> =>
       this.deps.insert(orgId, obj.objectApiName, rows, obj.batchSize);
-    const first = await send(records);
+    // The role the platform wrote with one of the run's opportunities, for
+    // the contact it went in with, is the one the seed generated for that
+    // contact: linked, given its fields, never sent a second time.
+    const linked =
+      obj.objectApiName === OPPORTUNITY_CONTACT_ROLE
+        ? await run.platformRoles.link(records)
+        : new Map<number, Readonly<Record<string, unknown>>>();
+    const toSend = linked.size > 0 ? records.filter((_, i) => !linked.has(i)) : records;
+    const first =
+      toSend.length === 0 && records.length > 0
+        ? { successIds: [], errors: [], rows: [] }
+        : await send(toSend);
     const sent = await sendRefusedRowsAgain(
       send,
-      records,
+      toSend,
       first,
       settledFields(ready),
       () => this.deps.signal?.aborted === true,
     );
-    return first.notes && first.notes.length > 0 ? { ...sent, notes: first.notes } : sent;
+    if (obj.objectApiName === OPPORTUNITY) {
+      run.platformRoles.opportunitiesWritten(toSend, sent.result);
+    }
+    const answered = linked.size > 0 ? withTheLinkedRows(sent, records.length, linked) : sent;
+    return first.notes && first.notes.length > 0 ? { ...answered, notes: first.notes } : answered;
+  }
+
+  /** The run's account of the roles the platform writes with its opportunities. */
+  private platformRolesOf(orgId: string): SeedPlatformRoles {
+    return new SeedPlatformRoles({
+      orgId,
+      readTarget: this.deps.readTarget,
+      update: this.deps.update,
+      stopped: () => this.deps.signal?.aborted === true,
+    });
   }
 
   /**
@@ -971,7 +1016,7 @@ export class SeedOrchestrator {
       payload: { operationId, totalPartitions: partitions.length, totalRecords },
     });
 
-    const run = newRun(template, this.deps.onRowIds);
+    const run = newRun(template, this.platformRolesOf(orgId), this.deps.onRowIds);
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(
       template.objects,
       run.relations,
@@ -1044,7 +1089,7 @@ export class SeedOrchestrator {
         }
         const partitionStart = Date.now();
         const partitionId = partitions[processedPartitions]?.id ?? this.deps.generateId();
-        const sent = await this.insert(orgId, obj, chunk, ready);
+        const sent = await this.insert(orgId, obj, chunk, ready, run);
         const insertResult = sent.result;
         keepKeys(keys, ready.config.rows, recordsSent, chunk.length, insertResult);
         recordsSent += chunk.length;
@@ -1211,6 +1256,8 @@ interface SeedRun {
   keys: Map<string, ReadonlyMap<string, KeyedRow>>;
   /** Told of each object of rows once written: see `SeedOrchestratorDependencies.onRowIds`. */
   onRowIds?: SeedOrchestratorDependencies['onRowIds'];
+  /** The contact roles the platform writes with the run's opportunities, and those linked to them. */
+  platformRoles: SeedPlatformRoles;
   objectResults: SeedObjectResult[];
 }
 
@@ -1221,7 +1268,11 @@ interface SeedRun {
 type KeyedRow = { id: string } | { why: string };
 
 /** A run of `template` before its first object. */
-function newRun(template: SeedTemplate, onRowIds?: SeedRun['onRowIds']): SeedRun {
+function newRun(
+  template: SeedTemplate,
+  platformRoles: SeedPlatformRoles,
+  onRowIds?: SeedRun['onRowIds'],
+): SeedRun {
   return {
     relations: template.relations ?? [],
     written: new Set(template.objects.map((o) => o.objectApiName)),
@@ -1229,6 +1280,7 @@ function newRun(template: SeedTemplate, onRowIds?: SeedRun['onRowIds']): SeedRun
     wroteNothing: new Set(),
     keys: new Map(),
     ...(onRowIds ? { onRowIds } : {}),
+    platformRoles,
     objectResults: [],
   };
 }
@@ -1294,8 +1346,12 @@ function recordWrite(
     run.keys.set(obj.objectApiName, keys);
     run.onRowIds?.(obj.objectApiName, idsByKey(keys));
   }
-  run.existingIds.set(obj.objectApiName, written.successIds);
-  if (obj.recordCount > 0 && written.successIds.length === 0) {
+  // The roles linked to the platform's are the object's records as much as
+  // those it inserted, for what points at them; counted apart, not created.
+  const platform = run.platformRoles.resultOf(obj.objectApiName);
+  const held = [...written.successIds, ...platform.linkedIds];
+  run.existingIds.set(obj.objectApiName, held);
+  if (obj.recordCount > 0 && held.length === 0) {
     run.wroteNothing.add(obj.objectApiName);
   }
   run.objectResults.push({
@@ -1303,8 +1359,11 @@ function recordWrite(
     recordsCreated: written.successIds.length,
     recordsFailed: written.errors.length,
     createdIds: written.successIds,
-    errors: [...written.errors, ...notes],
+    errors: [...written.errors, ...notes, ...platform.notes],
     ...fallback,
+    ...(platform.writtenByThePlatform
+      ? { writtenByThePlatform: platform.writtenByThePlatform }
+      : {}),
   });
 }
 
@@ -1431,6 +1490,36 @@ function keepKeys(
 function withUnwritten(written: InsertResult, ready: ReadyObject): InsertResult {
   const lines = ready.placed?.unwritten?.lines ?? [];
   return lines.length === 0 ? written : { ...written, errors: [...written.errors, ...lines] };
+}
+
+/**
+ * What an insert of the records of a slice the run sent answered, with each
+ * record linked to the platform's answered by that record's id, at its place
+ * among the slice's `count`: a row of a relation by key takes it as its id.
+ * The ids and errors stay those of the records sent; an insert that did not
+ * answer record by record answers none.
+ */
+function withTheLinkedRows(
+  sent: SentAgain,
+  count: number,
+  linked: ReadonlyMap<number, Readonly<Record<string, unknown>>>,
+): SentAgain {
+  const answered = sent.result.rows;
+  if (!answered) return sent;
+  const rows: InsertedRow[] = [];
+  let next = 0;
+  for (let i = 0; i < count; i++) {
+    const platform = linked.get(i);
+    if (platform) {
+      rows.push({ id: String(platform['Id']) });
+      continue;
+    }
+    const answer = answered[next++];
+    // The run was stopped before the rest were sent.
+    if (!answer) break;
+    rows.push(answer);
+  }
+  return { ...sent, result: { ...sent.result, rows } };
 }
 
 /** The fields any row gives a value, once each, in the order met. */

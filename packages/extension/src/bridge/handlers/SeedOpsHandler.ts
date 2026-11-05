@@ -2415,6 +2415,7 @@ export class SeedOpsHandler implements DomainHandler {
         await import('../../modules/seed/existingParents.js');
       const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
       const { describedFieldsOf } = await import('../../modules/seed/describedFields.js');
+      const { seedTargetOf } = await import('../../modules/seed/seedPlatformRoles.js');
       const seedKnowledge = scenario
         ? (await import('../../modules/seed/seedKnowledge.js')).seedKnowledge
         : undefined;
@@ -2464,6 +2465,10 @@ export class SeedOpsHandler implements DomainHandler {
         readPresentParentIds: (objectApiName: string, ids: readonly string[]) =>
           readPresentParentIds(conn, objectApiName, ids),
         describeKeyPrefix: describedFields.keyPrefix,
+        // The contact role the platform writes with each of the run's
+        // opportunities, read: the role the seed generated for that contact
+        // is linked to it and given its fields, not written beside it.
+        ...seedTargetOf(conn),
         planBuilder,
         fieldMapper,
         referenceLinker,

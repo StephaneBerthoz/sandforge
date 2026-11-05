@@ -997,6 +997,8 @@
     "results": {
       "aiFallback": "AI が値を返さなかったため、次の項目には生成された文が入りました: {{fields}}。AI がオフになっているか、呼び出しが拒否されました（理由は SandForge のログに記録されます）。",
       "aiFallbackShort": "AI の応答に値が欠けていたため、次の項目には生成された文が入りました: {{fields}}。",
+      "writtenByThePlatform_other": "{{count}} 件の取引先責任者の役割は、商談とともにプラットフォームがその取引先責任者の分として書き込んだものにリンクし、書き込んでいません。生成した項目を補ったもの: {{given}} 件。",
+      "writtenByThePlatformRefused": "残りはプラットフォームが書き込んだままです。ターゲットの文言:",
       "openRecord": "{{org}} で最初に作成したレコード（{{object}}）を開く",
       "notRun": "まだ何も書き込んでいません。「確認」で Seed を開始します。"
     },

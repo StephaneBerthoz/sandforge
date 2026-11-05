@@ -1061,6 +1061,9 @@
     "results": {
       "aiFallback": "A IA não retornou nenhum valor, então estes campos receberam frases geradas: {{fields}}. A IA está desativada, ou a chamada foi recusada (o log do SandForge informa o motivo).",
       "aiFallbackShort": "A resposta da IA deixou valores de fora, então estes campos receberam frases geradas: {{fields}}.",
+      "writtenByThePlatform_one": "{{count}} papel de contato vinculado ao que a plataforma gravou com sua oportunidade, para o contato com que ela entrou, não gravado; com os campos gerados para ele: {{given}}.",
+      "writtenByThePlatform_other": "{{count}} papéis de contato vinculados aos que a plataforma gravou com sua oportunidade, para o contato com que cada uma entrou, não gravados; com os campos gerados para eles: {{given}}.",
+      "writtenByThePlatformRefused": "Os demais ficam como a plataforma os gravou. As palavras do destino:",
       "openRecord": "Abrir o primeiro registro criado ({{object}}) em {{org}}",
       "notRun": "Nada foi gravado ainda: Confirmar inicia o seed."
     },

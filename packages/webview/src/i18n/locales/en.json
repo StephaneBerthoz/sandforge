@@ -1061,6 +1061,9 @@
     "results": {
       "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
       "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}.",
+      "writtenByThePlatform_one": "{{count}} contact role linked to the one the platform wrote with its opportunity, for the contact it went in with, not written; given the fields generated for it: {{given}}.",
+      "writtenByThePlatform_other": "{{count}} contact roles linked to the ones the platform wrote with their opportunity, for the contact each went in with, not written; given the fields generated for them: {{given}}.",
+      "writtenByThePlatformRefused": "The others stay as the platform wrote them. The target's words:",
       "openRecord": "Open a created {{object}} in {{org}}",
       "notRun": "Nothing has been written yet: Confirm starts the seed."
     },

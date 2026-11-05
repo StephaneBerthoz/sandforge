@@ -190,9 +190,30 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
           {executionResult.objectResults.map((obj) => (
             <Card key={obj.objectApiName}>
               <CardHeader title={obj.objectApiName} action={<SeedObjectBadge result={obj} />} />
-              {(obj.errors.length > 0 || obj.aiFallback) && (
+              {(obj.errors.length > 0 || obj.aiFallback || obj.writtenByThePlatform) && (
                 <CardBody>
                   <div className="flex flex-col gap-1">
+                    {/* The contact roles linked to the one the platform wrote
+                        with their opportunity, which the counts above leave out. */}
+                    {obj.writtenByThePlatform && (
+                      <p
+                        className="text-[10px] text-(--sf-text-secondary)"
+                        data-testid="seed-result-written-by-the-platform"
+                      >
+                        {t('seed.results.writtenByThePlatform', {
+                          count: obj.writtenByThePlatform.records,
+                          given: obj.writtenByThePlatform.given,
+                        })}
+                        {obj.writtenByThePlatform.refusal !== undefined && (
+                          <>
+                            {` ${t('seed.results.writtenByThePlatformRefused')} `}
+                            <span className="font-mono wrap-break-word">
+                              {obj.writtenByThePlatform.refusal}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    )}
                     {obj.aiFallback && (
                       <p
                         className="text-[10px] text-status-warning"

@@ -36,12 +36,28 @@ const SEED_BULK_THRESHOLD = 200;
  * by REST up to {@link SEED_BULK_THRESHOLD} records, as a Bulk API job past it.
  */
 export function seedRequestsEstimate(template: Pick<SeedTemplate, 'objects'>): number {
-  return runRequestsEstimate(
-    template.objects.map((object) => ({
+  return runRequestsEstimate([
+    ...template.objects.map((object) => ({
       rows: object.recordCount,
       bulk: object.recordCount > SEED_BULK_THRESHOLD,
     })),
-  );
+    ...platformRoleCalls(template),
+  ]);
+}
+
+/**
+ * The calls a seed of opportunities and contact roles makes besides their
+ * inserts, for the role the platform writes with each opportunity it inserts
+ * with a contact (`SeedPlatformRoles`): a read of the roles of two hundred
+ * opportunities, and an update of two hundred of the roles linked to the
+ * platform's. Counted as though every role were linked, and inserted all the
+ * same: too high by what is linked, never too low.
+ */
+function platformRoleCalls(template: Pick<SeedTemplate, 'objects'>): Array<{ rows: number }> {
+  const count = (name: string): number =>
+    template.objects.find((object) => object.objectApiName === name)?.recordCount ?? 0;
+  const linkable = Math.min(count('OpportunityContactRole'), count('Opportunity'));
+  return linkable > 0 ? [{ rows: linkable }, { rows: linkable }] : [];
 }
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 

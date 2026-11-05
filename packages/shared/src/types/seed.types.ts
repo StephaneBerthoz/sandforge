@@ -323,6 +323,14 @@ export interface SeedObjectResult {
    * other objects make it.
    */
   optional?: boolean;
+  /**
+   * The contact roles linked to the one the platform wrote itself as it took
+   * an opportunity the run created, for the contact the opportunity went in
+   * with, rather than written beside it: not among `recordsCreated`; how many
+   * an update gave the fields the run generated for them, and what the target
+   * answered one it refused. Absent when none.
+   */
+  writtenByThePlatform?: { records: number; given: number; refusal?: string };
 }
 
 /**
