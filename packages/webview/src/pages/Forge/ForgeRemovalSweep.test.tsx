@@ -389,6 +389,101 @@ describe('ForgeSweepListingView', () => {
     expect(container.textContent).not.toMatch(/\b[a-zA-Z0-9]{5}0[a-zA-Z0-9]{9,12}\b/);
   });
 
+  it('warns once what is tied to nothing is ticked that a record made by hand during the run reads as the automation’s, though the sweep ties nothing to the run', () => {
+    const untiedOnly: ForgeSweepListing = {
+      ...TOLD,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Call back'],
+          classes: { made: 0, madeOver: 0, late: 0, untied: 1 },
+        },
+      ],
+      late: [],
+      untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+    };
+    const { rerender } = render(
+      <ForgeSweepListingView listing={untiedOnly} ticks={{}} onTicksChange={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('forge-sweep-own-work')).toBeNull();
+
+    rerender(
+      <ForgeSweepListingView
+        listing={untiedOnly}
+        ticks={{ sweepUntied: true }}
+        onTicksChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-own-work').textContent).toBe(
+      "As you also delete what is tied to nothing of the run, records you created yourself as the run's " +
+        "user during the run, or under its records within a minute of them, read as the automation's, " +
+        "and a record you changed before the run's last write reads as unchanged: check the names " +
+        'before you confirm.',
+    );
+  });
+
+  it('warns once what came late is ticked that a record made by hand under the run’s records within a quarter of an hour reads as the automation’s', () => {
+    const lateOnly: ForgeSweepListing = {
+      ...TOLD,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Call back'],
+          classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+        },
+      ],
+      late: [{ objectApiName: 'Task', count: 1 }],
+      untied: { objects: [] },
+    };
+    const { rerender } = render(
+      <ForgeSweepListingView listing={lateOnly} ticks={{}} onTicksChange={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('forge-sweep-own-work')).toBeNull();
+
+    rerender(
+      <ForgeSweepListingView
+        listing={lateOnly}
+        ticks={{ sweepLate: true }}
+        onTicksChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-own-work').textContent).toBe(
+      "As you also delete what came late, records you created yourself as the run's user under the " +
+        "run's records within a quarter of an hour of them read as the automation's, and a record you " +
+        "changed before the run's last write reads as unchanged: check the names before you confirm.",
+    );
+  });
+
+  it('widens the warning to what both ticks take, and keeps it to the run’s ties when the second is refused', () => {
+    const { rerender } = render(
+      <ForgeSweepListingView
+        listing={TOLD}
+        ticks={{ sweepLate: true, sweepUntied: true }}
+        onTicksChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-own-work').textContent).toBe(
+      'As you also delete what came late and what is tied to nothing of the run, records you created ' +
+        "yourself as the run's user during the run, or under its records within a quarter of an hour " +
+        "of them, read as the automation's, and a record you changed before the run's last write reads " +
+        'as unchanged: check the names before you confirm.',
+    );
+
+    // A refused box takes nothing, ticked or not: what the warning names is what the sweep takes.
+    rerender(
+      <ForgeSweepListingView
+        listing={{ ...TOLD, untied: { ...TOLD.untied!, refusal: 'Hand work was seen.' } }}
+        ticks={{ sweepUntied: true }}
+        onTicksChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('forge-sweep-own-work').textContent).toMatch(
+      /^Records you created yourself as the run's user under the run's records within a minute/,
+    );
+  });
+
   it('offers both ticks unticked, and says what each takes', () => {
     render(<ForgeSweepListingView listing={TOLD} ticks={{}} onTicksChange={vi.fn()} />);
 

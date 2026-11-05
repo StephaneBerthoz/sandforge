@@ -135,6 +135,35 @@ function tiedOf(classes: ForgeSweepClasses): number {
   return classes.made + classes.madeOver;
 }
 
+/**
+ * The warning for what a sweep cannot tell from the automation's among what
+ * it takes, as `--sweep-list` words it: a record made by hand as the run's
+ * user under the run's records within a minute of them, within a quarter of
+ * an hour once what came late is ticked, at any time of the run once what is
+ * tied to nothing is. The page said only the first, and nothing at all once
+ * the box of what is tied to nothing was ticked over a list that tied nothing
+ * to the run: the box that takes the most hand work, refused only for the
+ * hand work the extension sees. Said when what the sweep takes holds records
+ * of those classes, none past the bound, which it does not sweep.
+ */
+function ownWorkKey(
+  found: ForgeSweepListing['found'],
+  taken: { late: boolean; untied: boolean },
+): string | undefined {
+  const holds = (count: (classes: ForgeSweepClasses) => number): boolean =>
+    found.some(
+      ({ classes, overBound }) => classes !== undefined && !overBound && count(classes) > 0,
+    );
+  const late = taken.late && holds((classes) => classes.late);
+  if (taken.untied && holds((classes) => classes.untied)) {
+    return late ? 'runRemoval.sweep.ownWorkLateUntied' : 'runRemoval.sweep.ownWorkUntied';
+  }
+  if (late) return 'runRemoval.sweep.ownWorkLate';
+  // What it ties to the run, changed since or not: what a person made by
+  // hand under the run's records reads as the automation's all the same.
+  return holds(tiedOf) ? 'runRemoval.sweep.ownWork' : undefined;
+}
+
 /** What a sweep's result says of what went along with the run's records, by class. */
 const GONE_ALONG_KEYS: Record<ForgeSweepLeftClass['class'], string> = {
   late: 'runRemoval.sweep.goneAlongLate',
@@ -350,11 +379,17 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
   // A sweep told the run's ties always says what it keeps, if only that it is nothing.
   const told = listing.untied !== undefined;
   const taken = takenWithNoMoreAsked(listing.found);
-  // What it ties to the run, changed since or not: what a person made by
-  // hand under the run's records reads as the automation's all the same.
   const tied = listing.found.some(
     ({ classes, overBound }) => classes !== undefined && !overBound && tiedOf(classes) > 0,
   );
+  // A tick takes only where it is offered, and the box of what is tied to
+  // nothing takes nothing while it is refused, ticked or not.
+  const offered =
+    ticks !== undefined && onTicksChange !== undefined && listing.refusal === undefined;
+  const ownWork = ownWorkKey(listing.found, {
+    late: offered && ticks.sweepLate === true,
+    untied: offered && ticks.sweepUntied === true && listing.untied?.refusal === undefined,
+  });
   return (
     <>
       {listing.window && (
@@ -413,9 +448,9 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
           <p data-testid="forge-sweep-none">{t('runRemoval.sweep.none')}</p>
         )
       )}
-      {tied && (
+      {ownWork !== undefined && (
         <p data-testid="forge-sweep-own-work" className="text-status-warning">
-          {t('runRemoval.sweep.ownWork')}
+          {t(ownWork)}
         </p>
       )}
       {ticks && onTicksChange && listing.refusal === undefined && (

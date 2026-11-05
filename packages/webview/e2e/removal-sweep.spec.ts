@@ -78,6 +78,21 @@ const LISTING = {
 /** The same, what is tied to nothing refused. */
 const REFUSED_LISTING = { ...LISTING, untied: { ...LISTING.untied, refusal: UNTIED_REFUSAL } };
 
+/** A sweep that ties nothing to the run, and found a task tied to nothing of it. */
+const UNTIED_ONLY_LISTING = {
+  ...LISTING,
+  found: [
+    {
+      objectApiName: 'Task',
+      count: 1,
+      names: ['Call back'],
+      classes: { made: 0, madeOver: 0, late: 0, untied: 1 },
+    },
+  ],
+  late: [],
+  untied: { objects: [{ objectApiName: 'Task', count: 1 }] },
+};
+
 /** An outcome that kept records for tasks the automation likely made. */
 const HELD_OBJECT = {
   objectApiName: 'Contact',
@@ -429,6 +444,27 @@ for (const theme of THEMES) {
 
         await expect(page.getByTestId('forge-sweep-untied-tick')).toBeDisabled();
         await expect(page.getByTestId('forge-sweep-untied-refused')).toContainText(UNTIED_REFUSAL);
+        await expectNoViolation(page);
+      });
+
+      test('warns once what is tied to nothing is ticked that what was made by hand during the run reads as the automation’s, and passes axe', async ({
+        page,
+      }) => {
+        const bridge = await confirmation.open(page, theme);
+        await readSweep(page, bridge, confirmation, UNTIED_ONLY_LISTING);
+
+        await expect(page.getByTestId('forge-sweep-takes')).toHaveText(
+          'With no more asked, the sweep takes nothing: it ties none of these records to the run.',
+        );
+        await expect(page.getByTestId('forge-sweep-own-work')).toHaveCount(0);
+
+        await page.getByTestId('forge-sweep-untied-tick').check();
+        await expect(page.getByTestId('forge-sweep-own-work')).toHaveText(
+          "As you also delete what is tied to nothing of the run, records you created yourself as the run's " +
+            "user during the run, or under its records within a minute of them, read as the automation's, " +
+            "and a record you changed before the run's last write reads as unchanged: check the names " +
+            'before you confirm.',
+        );
         await expectNoViolation(page);
       });
 
