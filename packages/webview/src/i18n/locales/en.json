@@ -1009,6 +1009,7 @@
         "summary": "Source records",
         "inserted": "Inserted",
         "linked": "Linked to existing",
+        "writtenByThePlatform": "Written by the platform with their opportunity, for its contact",
         "leftToThePlatform": "Left out (the platform writes them, or what they depend on, itself)",
         "secondPass": "Second pass — lookups filled in once the record they point at was in: {{filled}}/{{owed}}",
         "secondPassCancelled_one": "The clone was cancelled before this pass: the lookup it owed stays empty.",
@@ -1760,6 +1761,8 @@
     "conflictStrategyHint": "Asked for the objects written by upsert or update, which find the record the target org holds. A run only ever writes to the target org: to copy the other way, swap the two orgs.",
     "heldRecordsChosen": "When the target already holds the record: {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} contact role linked to the one the platform wrote with its opportunity, for the contact it went in with, not written; given the source's fields it lacked: {{given}}.",
+      "byThePlatform_other": "{{count}} contact roles linked to the ones the platform wrote with their opportunity, for the contact each went in with, not written; given the source's fields they lacked: {{given}}.",
       "linked_one": "{{count}} record linked to a record the target org already holds, not written: the target refused it as a duplicate of that record, and what the run writes under it points there.",
       "linked_other": "{{count}} records linked to records the target org already holds, not written: the target refused them as duplicates of those records, and what the run writes under them points there.",
       "refusal": "The target's words:",

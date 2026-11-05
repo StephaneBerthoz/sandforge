@@ -141,6 +141,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
             {t('seed.clone.results.linked')}: {objResult.linkedCount}
           </span>
         )}
+        {(objResult.writtenByThePlatform ?? 0) > 0 && (
+          <span
+            className="text-xs text-(--sf-text-secondary)"
+            data-testid="clone-object-written-by-the-platform"
+          >
+            {t('seed.clone.results.writtenByThePlatform')}: {objResult.writtenByThePlatform}
+          </span>
+        )}
         {(objResult.leftToThePlatform ?? 0) > 0 && (
           <span
             className="text-xs text-(--sf-text-secondary)"

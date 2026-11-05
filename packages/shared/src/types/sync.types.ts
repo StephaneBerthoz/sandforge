@@ -715,6 +715,14 @@ export interface SyncObjectResult {
    */
   linkedToExisting?: SyncLinkedToExisting;
   /**
+   * The contact roles linked to the one the platform wrote itself as it took
+   * an opportunity the run created, for the contact the opportunity went in
+   * with, rather than written beside it: counted among `skipped`, how many
+   * an update gave the source's fields they lacked, and what the target
+   * answered an update it refused. Absent when none.
+   */
+  writtenByThePlatform?: { records: number; given: number; refusal?: string };
+  /**
    * The records written without lookups they held from the source, and why.
    * Written, so said apart from `errors` too. Absent when none.
    */

@@ -62,6 +62,13 @@ export interface CloneObjectResult {
    */
   linkedCount?: number;
   /**
+   * Of `linkedCount`, the contact roles linked to the one the platform wrote
+   * itself as it took an opportunity the clone created, for the contact the
+   * opportunity went in with, and given the source's fields. Absent when
+   * there were none.
+   */
+  writtenByThePlatform?: number;
+  /**
    * Records found and never sent: the platform writes them itself and refuses
    * one from a copy — a tracked change — or they cannot go in without one it
    * does. Neither inserted nor failed. Optional for results produced before it

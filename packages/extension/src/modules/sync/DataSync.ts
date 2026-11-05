@@ -30,6 +30,7 @@ import { targetAccessOf, type TargetWriteFields } from './targetWriteFields.js';
 import { neutralizeSyncRows } from './syncContactPoints.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
+import { CONTACT_FIELD } from '../../core/common/platformRecords.js';
 
 /** Function to upsert records using an external ID field */
 export type UpsertFn = (
@@ -258,6 +259,20 @@ export class DataSync {
    * read as one. So does `writtenWithoutFields` of the rows written again
    * without the fields the target refused them on.
    */
+  /**
+   * Update records of the target as given, each with its id there: nothing
+   * mapped or prepared, the records being the target's own. What the run
+   * sends a contact role the platform wrote with one of its opportunities,
+   * to give it the source's fields.
+   */
+  updateRecords(
+    objectApiName: string,
+    records: Record<string, unknown>[],
+    batchSize: number,
+  ): Promise<OperationOutcome[]> {
+    return this.executeOperation(objectApiName, 'update', records, batchSize);
+  }
+
   async write(
     config: SyncObjectConfig,
     sourceRecords: Record<string, unknown>[],
@@ -410,6 +425,7 @@ export class DataSync {
     }
     if (run) {
       noteInRun(config, all, run);
+      noteContactsSentWith(config, prepared.payloads, retried.outcomes, run.links);
       // The lookups at rows of this write, now that those rows have copies.
       const within = await this.setLookups(
         config,
@@ -1070,6 +1086,31 @@ function noteCreatedWithoutRecordType(
   );
   const given = recordTypeGivenOfRows(config.objectApiName, whys, types);
   if (given) run.createdWithoutRecordType.set(config.objectApiName, { given, types, ids });
+}
+
+/**
+ * Note, of the opportunities a write created, the contact each went in with,
+ * as sent, in the target's ids: the platform wrote a role of that contact
+ * with it as it took it.
+ *
+ * @param payloads - What the write sent, one per outcome of `outcomes`.
+ */
+function noteContactsSentWith(
+  config: SyncObjectConfig,
+  payloads: readonly Record<string, unknown>[],
+  outcomes: readonly OperationOutcome[],
+  links: SyncWriteRun['links'],
+): void {
+  if (config.objectApiName !== 'Opportunity') return;
+  if (config.operation !== 'insert' && config.operation !== 'upsert') return;
+  payloads.forEach((payload, at) => {
+    const outcome = outcomes[at];
+    const contact = payload[CONTACT_FIELD];
+    if (!outcome?.success || typeof outcome.id !== 'string' || outcome.id === '') return;
+    if (config.operation !== 'insert' && outcome.created !== true) return;
+    if (typeof contact === 'string' && contact !== '')
+      links.noteSentWithContact(outcome.id, contact);
+  });
 }
 
 function noteInRun(

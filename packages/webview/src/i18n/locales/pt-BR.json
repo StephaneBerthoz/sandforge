@@ -1009,6 +1009,7 @@
         "summary": "Registros de origem",
         "inserted": "Inseridos",
         "linked": "Vinculados a existentes",
+        "writtenByThePlatform": "Gravados pela plataforma com sua oportunidade, para seu contato",
         "leftToThePlatform": "Deixados de fora (a própria plataforma os grava, ou aquilo de que dependem)",
         "secondPass": "Segunda passagem — vínculos preenchidos depois de gravado o registro para o qual apontam: {{filled}}/{{owed}}",
         "secondPassCancelled_one": "A clonagem foi cancelada antes desta passagem: o vínculo que devia preencher permanece vazio.",
@@ -1760,6 +1761,8 @@
     "conflictStrategyHint": "Perguntado para os objetos gravados por upsert ou atualização, que encontram o registro que a org de destino tem. Uma execução só grava na org de destino: para copiar no outro sentido, troque as duas orgs.",
     "heldRecordsChosen": "Quando a org de destino já tem o registro: {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} papel de contato vinculado ao que a plataforma gravou com sua oportunidade, para o contato com que ela entrou, não gravado; com os campos da origem que lhe faltavam: {{given}}.",
+      "byThePlatform_other": "{{count}} papéis de contato vinculados aos que a plataforma gravou com sua oportunidade, para o contato com que cada uma entrou, não gravados; com os campos da origem que lhes faltavam: {{given}}.",
       "linked_one": "{{count}} registro vinculado a um registro que a org de destino já tem, não gravado: o destino o recusou como duplicata desse registro, e o que a execução grava sob ele aponta para lá.",
       "linked_other": "{{count}} registros vinculados a registros que a org de destino já tem, não gravados: o destino os recusou como duplicatas desses registros, e o que a execução grava sob eles aponta para lá.",
       "refusal": "As palavras do destino:",

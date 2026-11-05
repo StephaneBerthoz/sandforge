@@ -112,9 +112,12 @@ import {
   type SyncDeltaStore,
 } from './SyncDelta.js';
 import {
+  CONTACT_FIELD,
+  OPPORTUNITY_CONTACT_ROLE,
   RowsLeftToThePlatform,
   leftToThePlatformNote,
   lookupsThePlatformFills,
+  rolesThePlatformWrote,
 } from '../../core/common/platformRecords.js';
 import {
   copyPlannedFiles,
@@ -627,6 +630,44 @@ function idKeyOf(id: string): string {
  * An object's result with the records an earlier run copied, which it left as
  * they are, counted as skipped and said apart.
  */
+/** What linking the roles the platform wrote came to: see `rolesWrittenWithTheirOpportunity`. */
+interface RolesOfTheirOpportunity {
+  records: number;
+  given: number;
+  refusal?: string;
+  /** Why the roles were not looked up, and went as read. */
+  unread?: string;
+}
+
+/**
+ * `result`, with the contact roles linked to those the platform wrote with
+ * the run's opportunities counted among its skipped records and said; or,
+ * where they could not be looked up, why an opportunity may hold the role of
+ * its contact twice.
+ */
+function withRolesOfTheirOpportunity(
+  result: SyncObjectResult,
+  said: RolesOfTheirOpportunity | undefined,
+): SyncObjectResult {
+  if (!said) return result;
+  if (said.unread !== undefined) {
+    return {
+      ...result,
+      errors: [
+        ...result.errors,
+        "The contact roles the platform wrote with the run's opportunities were not looked up, " +
+          `so written as read: an opportunity may hold the role of its contact twice. ${said.unread}`,
+      ],
+    };
+  }
+  const { records, given, refusal } = said;
+  return {
+    ...result,
+    skipped: result.skipped + records,
+    writtenByThePlatform: { records, given, ...(refusal !== undefined ? { refusal } : {}) },
+  };
+}
+
 function withAlreadyCopied(result: SyncObjectResult, alreadyCopied: number): SyncObjectResult {
   if (alreadyCopied === 0) return result;
   return { ...result, skipped: result.skipped + alreadyCopied, alreadyCopied };
@@ -2775,9 +2816,16 @@ export class SyncOrchestrator {
     copied?: ReadonlySet<string>,
     onLookupsToSet?: (pending: PendingLookup[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const prepared = await this.prepare(config, objectConfig, leftOut, read, copied, run.gateReads);
+    const asRead = await this.prepare(config, objectConfig, leftOut, read, copied, run.gateReads);
+    // The roles the platform wrote with the run's opportunities are linked,
+    // and out of what the write sends.
+    const roles = await this.rolesWrittenWithTheirOpportunity(objectConfig, asRead, run, onWritten);
+    const prepared = roles.prepared;
     const asCopied = (result: SyncObjectResult): SyncObjectResult =>
-      withEncryptedLeftOut(withAlreadyCopied(result, prepared.alreadyCopied), prepared);
+      withRolesOfTheirOpportunity(
+        withEncryptedLeftOut(withAlreadyCopied(result, prepared.alreadyCopied), prepared),
+        roles.said,
+      );
     if (prepared.records.length === 0) {
       return asCopied(withRowsLeftOut(createEmptyResult(objectConfig), leftOut));
     }
@@ -2872,6 +2920,135 @@ export class SyncOrchestrator {
     );
     const heldWith = linkStandIns();
     return asCopied(withRowsLeftOut(withPricesHeldWithTheirs(synced, settled, heldWith), leftOut));
+  }
+
+  /**
+   * Of the contact roles an insert or an upsert is about to write, each the
+   * platform wrote itself as it took an opportunity this run created, for the
+   * contact the opportunity went in with (`rolesThePlatformWrote`), read from
+   * the target: linked to that record — what names the role names it, and a
+   * saved configuration keeps the pair, as it keeps a record linked to one
+   * the target held (`onWritten`) — given by an update the source's fields
+   * it lacks, its role, which the platform leaves empty, and out of what the
+   * write sends. Sent, the source's role stood beside the platform's: two
+   * primary roles of one contact where the source held one, as a Forge clone
+   * left them before it linked them.
+   *
+   * Not looked up — the run reads nothing of the target, or the read failed
+   * — the roles go as read, and the result says why an opportunity may then
+   * hold the role of its contact twice. An update the target refuses leaves
+   * the platform's record as it wrote it, linked all the same, and said.
+   */
+  private async rolesWrittenWithTheirOpportunity(
+    objectConfig: SyncObjectConfig,
+    prepared: PreparedObject,
+    run: RunContext,
+    onWritten?: (
+      outcomes: readonly OperationOutcome[],
+      sourceIds: ReadonlyArray<string | undefined>,
+    ) => void,
+  ): Promise<{ prepared: PreparedObject; said?: RolesOfTheirOpportunity }> {
+    const query = this.deps.queryTargetRows;
+    if (
+      objectConfig.objectApiName !== OPPORTUNITY_CONTACT_ROLE ||
+      (objectConfig.operation !== 'insert' && objectConfig.operation !== 'upsert') ||
+      !query ||
+      !run.links.sentWithAContact ||
+      prepared.records.length === 0
+    ) {
+      return { prepared };
+    }
+    const inTheTarget = (value: unknown): string | undefined =>
+      typeof value === 'string' && value !== '' ? run.links.targetOf(value) : undefined;
+    // As the write sends them: the role's opportunity and contact in the target.
+    const rows = prepared.records.map((record, at) => ({
+      OpportunityId: inTheTarget(record['OpportunityId']),
+      [CONTACT_FIELD]: inTheTarget(record[CONTACT_FIELD]),
+      IsPrimary: prepared.sources[at]?.['IsPrimary'] ?? record['IsPrimary'],
+    }));
+    const describe = await this.deps
+      .describeTargetFields?.(OPPORTUNITY_CONTACT_ROLE)
+      .catch(() => undefined);
+    const given = (field: string): boolean =>
+      field !== 'Id' &&
+      field !== 'OpportunityId' &&
+      field !== CONTACT_FIELD &&
+      (describe?.creatable.has(field) ?? true);
+    const fields = [...new Set(prepared.records.flatMap((record) => Object.keys(record)))].filter(
+      given,
+    );
+    let found: Map<number, Readonly<Record<string, unknown>>>;
+    try {
+      found = await rolesThePlatformWrote(
+        async (soql) => (await query(soql)) as Array<Record<string, unknown>>,
+        rows,
+        (opportunity) => run.links.contactSentWith(opportunity),
+        fields,
+      );
+    } catch (err: unknown) {
+      return {
+        prepared,
+        said: { records: 0, given: 0, unread: err instanceof Error ? err.message : String(err) },
+      };
+    }
+    if (found.size === 0) return { prepared };
+
+    const updates: Array<Record<string, unknown>> = [];
+    for (const [at, record] of found) {
+      const lacks = Object.entries(prepared.records[at] ?? {}).filter(
+        ([field, value]) =>
+          given(field) &&
+          value !== null &&
+          value !== undefined &&
+          String(record[field] ?? '') !== String(value),
+      );
+      if (lacks.length > 0)
+        updates.push({ Id: String(record['Id']), ...Object.fromEntries(lacks) });
+    }
+    let givenTheirFields = 0;
+    let refusal: string | undefined;
+    if (updates.length > 0) {
+      try {
+        const answers = await this.deps.dataSync.updateRecords(
+          OPPORTUNITY_CONTACT_ROLE,
+          updates,
+          objectConfig.batchSize,
+        );
+        updates.forEach((update, at) => {
+          const answer = answers[at];
+          if (answer?.success) givenTheirFields++;
+          else refusal ??= `${String(update['Id'])}: ${answer?.errors[0] ?? 'not updated'}`;
+        });
+      } catch (err: unknown) {
+        refusal = err instanceof Error ? err.message : String(err);
+      }
+    }
+    const linkedIds: string[] = [];
+    const linkedOutcomes: OperationOutcome[] = [];
+    for (const [at, record] of found) {
+      const sourceId = prepared.sourceIds[at];
+      const roleId = String(record['Id']);
+      run.links.roleLinkedFor(String(rows[at].OpportunityId));
+      if (sourceId === undefined) continue;
+      run.links.noteWritten(sourceId, roleId);
+      linkedIds.push(sourceId);
+      linkedOutcomes.push({ success: false, errors: [], existingId: roleId });
+    }
+    onWritten?.(linkedOutcomes, linkedIds);
+    const sent = (_: unknown, at: number): boolean => !found.has(at);
+    return {
+      prepared: {
+        ...prepared,
+        records: prepared.records.filter(sent),
+        sourceIds: prepared.sourceIds.filter(sent),
+        sources: prepared.sources.filter(sent),
+      },
+      said: {
+        records: found.size,
+        given: givenTheirFields,
+        ...(refusal !== undefined ? { refusal } : {}),
+      },
+    };
   }
 
   /**

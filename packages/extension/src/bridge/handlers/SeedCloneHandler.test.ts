@@ -1528,6 +1528,150 @@ describe('SeedCloneHandler', () => {
       );
     });
 
+    describe('the contact role the platform writes with an opportunity sent with its contact', () => {
+      /** Fake ids: a contact and a deal of the source, their role, and what the target gives them. */
+      const BUYER = '003Fk00000BuYeAIAV';
+      const DEAL = '006Fk00000DeAlAIAV';
+      const ROLE = '00KFk00000RoLeAIAV';
+      const NEW_BUYER = '003Fk00000NeWbAIAV';
+      const NEW_DEAL = '006Fk00000NeWdAIAV';
+      const PLATFORM_ROLE = '00KFk00000PlAtRIAV';
+
+      /**
+       * Clone the buyer, the deal it is the primary contact of, and its role
+       * on the deal, Decision Maker. The target writes, as it takes an
+       * opportunity sent with its `ContactId`, a role of that contact,
+       * primary, with no role, and takes a role sent beside it as a second
+       * one, as a real org did.
+       */
+      async function cloneTheDeal(objects = ['Contact', 'Opportunity', 'OpportunityContactRole']) {
+        const reference = (name: string, ...referenceTo: string[]) => ({
+          name,
+          type: 'reference',
+          referenceTo,
+        });
+        /** The roles the target holds. */
+        const roles: Array<Record<string, unknown>> = [];
+        const query = vi.fn(async (soql: string) => ({
+          records: soql.includes(' FROM OpportunityContactRole WHERE OpportunityId IN ')
+            ? roles.filter((role) => soql.includes(`'${String(role['OpportunityId'])}'`))
+            : [],
+        }));
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async (name: string) => ({
+            keyPrefix: null,
+            fields:
+              name === 'OpportunityContactRole'
+                ? [
+                    { ...reference('OpportunityId', 'Opportunity'), updateable: false },
+                    reference('ContactId', 'Contact'),
+                    { name: 'Role', type: 'picklist' },
+                    { name: 'IsPrimary', type: 'boolean' },
+                  ]
+                : name === 'Opportunity'
+                  ? [
+                      { name: 'Name', type: 'string' },
+                      { ...reference('ContactId', 'Contact'), updateable: false },
+                    ]
+                  : [{ name: 'LastName', type: 'string' }],
+            recordTypeInfos: [],
+          })),
+          query,
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        linker.resolveInsertOrder.mockReturnValue(objects);
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'Contact'
+            ? [{ Id: BUYER, LastName: 'Buyer' }]
+            : name === 'Opportunity'
+              ? [{ Id: DEAL, Name: 'Deal', ContactId: BUYER }]
+              : [
+                  {
+                    Id: ROLE,
+                    OpportunityId: DEAL,
+                    ContactId: BUYER,
+                    Role: 'Decision Maker',
+                    IsPrimary: true,
+                  },
+                ],
+        );
+        writer.insert.mockImplementation(
+          async (name: string, records: Array<Record<string, unknown>>) =>
+            records.map((record) => {
+              if (name === 'Opportunity' && typeof record['ContactId'] === 'string') {
+                roles.push({
+                  Id: PLATFORM_ROLE,
+                  OpportunityId: NEW_DEAL,
+                  ContactId: record['ContactId'],
+                  Role: null,
+                  IsPrimary: true,
+                });
+              }
+              const id =
+                name === 'Contact'
+                  ? NEW_BUYER
+                  : name === 'Opportunity'
+                    ? NEW_DEAL
+                    : '00KFk00000NeWrAIAV';
+              if (name === 'OpportunityContactRole') roles.push({ ...record, Id: id });
+              return { id, success: true, errors: [] };
+            }),
+        );
+        writer.update.mockImplementation(
+          async (_name: string, records: Array<Record<string, unknown>>) =>
+            records.map(() => ({ success: true, errors: [] })),
+        );
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({ objects: objects.map((objectApiName) => ({ objectApiName })) }),
+          ),
+        );
+
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        return {
+          roles,
+          inserted: writer.insert.mock.calls
+            .filter((c) => c[0] === 'OpportunityContactRole')
+            .flatMap((c) => c[1] as unknown[]),
+          updated: writer.update.mock.calls
+            .filter((c) => c[0] === 'OpportunityContactRole')
+            .flatMap((c) => c[1] as unknown[]),
+          result: (
+            response.payload as unknown as {
+              objectResults: Array<{
+                objectApiName: string;
+                insertedCount: number;
+                linkedCount?: number;
+                writtenByThePlatform?: number;
+                idMappings: unknown[];
+              }>;
+            }
+          ).objectResults.find((r) => r.objectApiName === 'OpportunityContactRole'),
+        };
+      }
+
+      it("links the source's role to the one the platform wrote, gives it the source's role, and sends none", async () => {
+        const { roles, inserted, updated, result } = await cloneTheDeal();
+
+        // One role of the buyer on the deal's copy, as the source holds one.
+        expect(roles.filter((role) => role['ContactId'] === NEW_BUYER)).toHaveLength(1);
+        expect(inserted).toEqual([]);
+        expect(updated).toEqual([{ Id: PLATFORM_ROLE, Role: 'Decision Maker' }]);
+        expect(result).toMatchObject({ insertedCount: 0, linkedCount: 1, writtenByThePlatform: 1 });
+        expect(result?.idMappings).toContainEqual({ sourceId: ROLE, targetId: PLATFORM_ROLE });
+      });
+
+      it('writes the role as read when the opportunity is not one the clone writes', async () => {
+        const { inserted, result } = await cloneTheDeal(['Contact', 'OpportunityContactRole']);
+
+        expect(inserted).toHaveLength(1);
+        expect(result).toMatchObject({ insertedCount: 1 });
+        expect(result?.writtenByThePlatform).toBeUndefined();
+      });
+    });
+
     it('reports execute failures on operation:failed as retryable', async () => {
       writer.insert.mockRejectedValue(new Error('bulk write exploded'));
 

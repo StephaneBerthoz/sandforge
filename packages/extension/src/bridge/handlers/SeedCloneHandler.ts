@@ -52,12 +52,15 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
   ACTIVITY_OF_RELATION,
+  CONTACT_FIELD,
   EMAIL_MESSAGE,
+  OPPORTUNITY_CONTACT_ROLE,
   RowsLeftToThePlatform,
   TASK,
   existingActivityRelations,
   giveLinkedRelationsTheirFlags,
   lookupsThePlatformFills,
+  rolesThePlatformWrote,
   rowsACopySends,
   tasksWrittenWithEmails,
   waitsForItsTask,
@@ -1285,6 +1288,14 @@ export class SeedCloneHandler implements DomainHandler {
 
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
+      /**
+       * The contact each opportunity the clone created went in with, by the
+       * opportunity's id in the target, both the target's: the platform wrote
+       * a role of that contact with it (`rolesWrittenWithTheirOpportunity`).
+       */
+      const contactSentWith = new Map<string, string>();
+      /** The record of each role linked to the platform's, as read, by the role's source id. */
+      const platformRoles = new Map<string, Readonly<Record<string, unknown>>>();
       /** The lookups written records went in without, for the second pass to fill. */
       const owedLookups: PendingFkUpdate[] = [];
       /** The records read and left to the platform, across objects: what hangs from them goes too. */
@@ -1577,6 +1588,102 @@ export class SeedCloneHandler implements DomainHandler {
       };
 
       /**
+       * Of the contact roles about to be written, each the platform wrote
+       * itself as it took one of the clone's opportunities, for the contact
+       * the opportunity went in with (`rolesThePlatformWrote`), by the role's
+       * source id: its record is the source's role, linked, given the
+       * source's fields it lacks (`giveTheRolesTheirFields`), never sent.
+       * Sent, the source's role stood beside the platform's: two primary
+       * roles of one contact where the source held one. The record read is
+       * kept for the fields it holds (`platformRoles`). None when the target
+       * could not be asked: the roles go as read.
+       */
+      const rolesWrittenWithTheirOpportunity = async (
+        sourceRecords: readonly Record<string, unknown>[],
+        writeRecords: readonly Record<string, unknown>[],
+      ): Promise<Map<string, string>> => {
+        if (contactSentWith.size === 0) return new Map();
+        const describe = describeMap.get(OPPORTUNITY_CONTACT_ROLE);
+        const fields = [...new Set(writeRecords.flatMap((record) => Object.keys(record)))].filter(
+          (field) => givenToARole(describe, field),
+        );
+        let found: Map<number, Readonly<Record<string, unknown>>>;
+        try {
+          found = await rolesThePlatformWrote(
+            readTarget,
+            writeRecords.map((record, i) => ({
+              OpportunityId: record['OpportunityId'],
+              [CONTACT_FIELD]: record[CONTACT_FIELD],
+              IsPrimary: sourceRecords[i]?.['IsPrimary'],
+            })),
+            (opportunity) => contactSentWith.get(opportunity),
+            fields,
+          );
+        } catch (err: unknown) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: the roles the platform wrote with the ` +
+              `clone's opportunities not looked up, written as read — an opportunity may hold ` +
+              `the role of its contact twice: ${extractErrorMessage(err)}`,
+          );
+          return new Map();
+        }
+        const linked = new Map<string, string>();
+        for (const [index, record] of found) {
+          const sourceId = sourceRecords[index]?.['Id'];
+          if (typeof sourceId !== 'string') continue;
+          linked.set(sourceId, String(record['Id']));
+          platformRoles.set(sourceId, record);
+          // One role an opportunity.
+          contactSentWith.delete(String(writeRecords[index]?.['OpportunityId']));
+        }
+        return linked;
+      };
+
+      /**
+       * Give each role linked to the one the platform wrote the fields of the
+       * source's it holds otherwise — its role, which the platform leaves
+       * empty — where the target lets them be updated, and log what it
+       * refused: a role it refused stays as the platform wrote it, linked all
+       * the same. A cancel sends nothing more.
+       */
+      const giveTheRolesTheirFields = async (
+        linkedRows: ReadonlyArray<readonly [Record<string, unknown>, string]>,
+        linkedWrites: readonly Record<string, unknown>[],
+      ): Promise<void> => {
+        const describe = describeMap.get(OPPORTUNITY_CONTACT_ROLE);
+        const updates: Array<Record<string, unknown> & { Id: string }> = [];
+        linkedRows.forEach(([row, id], i) => {
+          const held = platformRoles.get(String(row['Id'])) ?? {};
+          const lacks = Object.entries(linkedWrites[i] ?? {}).filter(
+            ([field, value]) =>
+              givenToARole(describe, field) &&
+              value !== null &&
+              value !== undefined &&
+              String(held[field] ?? '') !== String(value),
+          );
+          if (lacks.length > 0) updates.push({ Id: id, ...Object.fromEntries(lacks) });
+        });
+        if (updates.length === 0 || cancelled || abortController.signal.aborted) return;
+        let answers: Awaited<ReturnType<BulkDataWriter['update']>>;
+        try {
+          answers = await writer.update(OPPORTUNITY_CONTACT_ROLE, updates, defaultBatchSize);
+        } catch (updateErr: unknown) {
+          if (!(updateErr instanceof WriteCancelledError)) throw updateErr;
+          cancelled = true;
+          answers = updateErr.written;
+        }
+        const refused = updates.flatMap((update, i) =>
+          answers[i]?.success ? [] : [`${update.Id}: ${answers[i]?.errors[0] ?? 'not updated'}`],
+        );
+        if (refused.length > 0) {
+          this.deps.log(
+            `[seed:clone] ${OPPORTUNITY_CONTACT_ROLE}: linked, and left as the platform wrote ` +
+              `them, without the fields of the source's roles: ${refused.slice(0, 3).join(' | ')}`,
+          );
+        }
+      };
+
+      /**
        * The tasks have had their turn, whatever they wrote: the emails that
        * waited for the task each names go in, with the id that task has in the
        * target in place of the source's. Counted with the other emails.
@@ -1757,16 +1864,24 @@ export class SeedCloneHandler implements DomainHandler {
         // The task the platform wrote with one of the clone's emails is the
         // one read from the source: linked, never sent a second time. So is
         // the relation it wrote for a task's or an event's who.
+        // And the contact role the platform wrote with one of the clone's
+        // opportunities, for the contact it went in with.
         const linked =
           objectApiName === TASK
             ? await tasksWrittenWithTheirEmail(sourceRecords)
-            : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
+            : objectApiName === OPPORTUNITY_CONTACT_ROLE
+              ? await rolesWrittenWithTheirOpportunity(sourceRecords, writeRecords)
+              : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
         /** Each row linked to, with the id of the record linked in its place. */
         const linkedRows: Array<readonly [Record<string, unknown>, string]> = [];
+        /** The rows linked to, as they would have gone: what a role linked is given. */
+        const linkedWrites: Record<string, unknown>[] = [];
         if (linked.size > 0) {
           const sent = sourceRecords.map((record) => !linked.has(String(record['Id'])));
           sourceRecords.forEach((record, i) => {
-            if (!sent[i]) linkedRows.push([record, linked.get(String(record['Id'])) ?? '']);
+            if (sent[i]) return;
+            linkedRows.push([record, linked.get(String(record['Id'])) ?? '']);
+            linkedWrites.push(writeRecords[i]);
           });
           sourceRecords = sourceRecords.filter((_, i) => sent[i]);
           writeRecords = writeRecords.filter((_, i) => sent[i]);
@@ -1783,6 +1898,21 @@ export class SeedCloneHandler implements DomainHandler {
         if (stopped) {
           cancelled = true;
           if (outcomes.length === 0) break;
+        }
+        // The platform writes a role of the contact an opportunity goes in
+        // with, as it creates it: noted for the roles' turn.
+        if (objectApiName === OPPORTUNITY) {
+          outcomes.forEach((outcome, i) => {
+            const contact = writeRecords[i]?.[CONTACT_FIELD];
+            if (outcome.success && outcome.id && outcome.created !== false) {
+              if (typeof contact === 'string' && contact !== '') {
+                contactSentWith.set(outcome.id, contact);
+              }
+            }
+          });
+        }
+        if (objectApiName === OPPORTUNITY_CONTACT_ROLE && linkedRows.length > 0) {
+          await giveTheRolesTheirFields(linkedRows, linkedWrites);
         }
         // The relation the platform wrote for an event's who is no invitee,
         // and holds no answer: one the event also invited gets the flag back,
@@ -1817,6 +1947,9 @@ export class SeedCloneHandler implements DomainHandler {
           insertedCount: 0,
           failedCount: 0,
           linkedCount: linked.size,
+          ...(objectApiName === OPPORTUNITY_CONTACT_ROLE && linked.size > 0
+            ? { writtenByThePlatform: linked.size }
+            : {}),
           ...(leftOut > 0 ? { leftToThePlatform: leftOut } : {}),
           ...(fieldsNotInTarget.length > 0 ? { fieldsNotInTarget } : {}),
           idMappings: [],
@@ -2468,6 +2601,20 @@ function trimSampleRecord(
  * describe; the clone leaves such a field out the same way and names it in
  * the result (`fieldsTheTargetLacks`).
  */
+/** The object whose records the platform writes a contact role with. */
+const OPPORTUNITY = 'Opportunity';
+
+/**
+ * Whether a role linked to the one the platform wrote is given `field` of
+ * the source's: one the target's describe of the role names and lets be
+ * updated, but the two that pair it with the platform's record.
+ */
+function givenToARole(describe: DescribeSObjectResultLike | undefined, field: string): boolean {
+  if (field === 'OpportunityId' || field === CONTACT_FIELD) return false;
+  const described = describe?.fields.find((f) => f.name === field);
+  return described !== undefined && described.updateable !== false;
+}
+
 function prepareRecordForWrite(
   objectApiName: string,
   record: Record<string, unknown>,

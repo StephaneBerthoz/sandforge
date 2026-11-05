@@ -1394,6 +1394,7 @@ export function objectWrittenLines(
   result: Pick<
     SyncObjectResult,
     | 'linkedToExisting'
+    | 'writtenByThePlatform'
     | 'lookupsLeftOut'
     | 'lookupsSetAfter'
     | 'writtenWithoutFields'
@@ -1410,6 +1411,17 @@ export function objectWrittenLines(
       `${linked.records} record(s) linked to a record the target holds, not written: the ` +
         `target refused them as a duplicate of it${linked.refusal ? ` (${linked.refusal})` : ''}; ` +
         'what the run writes under them points at that record.',
+    );
+  }
+  const byThePlatform = result.writtenByThePlatform;
+  if (byThePlatform) {
+    lines.push(
+      `${byThePlatform.records} record(s) linked to the contact role the platform wrote with ` +
+        `their opportunity, for its contact, not written; ${byThePlatform.given} given the ` +
+        `source's fields ${byThePlatform.given === 1 ? 'it' : 'they'} lacked` +
+        (byThePlatform.refusal
+          ? `, the others left as the platform wrote them (${byThePlatform.refusal}).`
+          : '.'),
     );
   }
   for (const { records, fields, reason, refusal } of result.lookupsLeftOut ?? []) {

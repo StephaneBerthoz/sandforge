@@ -46,6 +46,38 @@ describe('SyncWrittenLines', () => {
     expect(list.className).not.toContain('status-error');
   });
 
+  it('says the contact roles linked to the ones the platform wrote with their opportunity, and how many an update gave their fields', async () => {
+    const result = {
+      writtenByThePlatform: {
+        records: 2,
+        given: 1,
+        refusal: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason',
+      },
+    };
+    const { unmount } = render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-byThePlatform').textContent).toBe(
+      '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+        "contact each went in with, not written; given the source's fields they lacked: 1. " +
+        "The target's words: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason",
+    );
+    unmount();
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    render(
+      <SyncWrittenLines
+        result={{ writtenByThePlatform: { records: 1, given: 1 } }}
+        testId="lines"
+      />,
+    );
+    expect(screen.getByTestId('lines-byThePlatform').textContent).toBe(
+      fr.sync.written.byThePlatform_one.replace('{{count}}', '1').replace('{{given}}', '1'),
+    );
+  });
+
   it('says nothing of a write that linked no record and left no lookup out', () => {
     render(<SyncWrittenLines result={{}} testId="lines" />);
 

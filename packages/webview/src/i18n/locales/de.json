@@ -1009,6 +1009,7 @@
         "summary": "Quelldatensätze",
         "inserted": "Eingefügt",
         "linked": "Mit Vorhandenem verknüpft",
+        "writtenByThePlatform": "Von der Plattform mit ihrer Opportunity für deren Kontakt geschrieben",
         "leftToThePlatform": "Ausgelassen (die Plattform schreibt sie oder das, wovon sie abhängen, selbst)",
         "secondPass": "Zweiter Durchlauf — Verknüpfungen ausgefüllt, sobald der Datensatz, auf den sie verweisen, vorhanden war: {{filled}}/{{owed}}",
         "secondPassCancelled_one": "Der Klon wurde vor diesem Durchlauf abgebrochen: Die Verknüpfung, die er ausfüllen sollte, bleibt leer.",
@@ -1760,6 +1761,8 @@
     "conflictStrategyHint": "Gefragt für die per Upsert oder Aktualisierung geschriebenen Objekte, die den Datensatz der Ziel-Org finden. Ein Lauf schreibt immer nur in die Ziel-Org: Um in die andere Richtung zu kopieren, tauschen Sie die beiden Orgs.",
     "heldRecordsChosen": "Wenn die Ziel-Org den Datensatz bereits enthält: {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} Kontaktrolle mit der verknüpft, die die Plattform mit ihrer Opportunity für deren Kontakt geschrieben hat, nicht geschrieben; um die fehlenden Felder der Quelle ergänzt: {{given}}.",
+      "byThePlatform_other": "{{count}} Kontaktrollen mit denen verknüpft, die die Plattform mit ihrer Opportunity für deren Kontakt geschrieben hat, nicht geschrieben; um die fehlenden Felder der Quelle ergänzt: {{given}}.",
       "linked_one": "{{count}} Datensatz mit einem Datensatz verknüpft, den die Ziel-Org bereits enthält, nicht geschrieben: Das Ziel hat ihn als Duplikat dieses Datensatzes abgelehnt, und was der Lauf darunter schreibt, verweist dorthin.",
       "linked_other": "{{count}} Datensätze mit Datensätzen verknüpft, die die Ziel-Org bereits enthält, nicht geschrieben: Das Ziel hat sie als Duplikate dieser Datensätze abgelehnt, und was der Lauf darunter schreibt, verweist dorthin.",
       "refusal": "Die Worte des Ziels:",

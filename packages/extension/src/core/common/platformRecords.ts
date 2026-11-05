@@ -742,7 +742,7 @@ export const OPPORTUNITY_CONTACT_ROLE = 'OpportunityContactRole';
 export const CONTACT_FIELD = 'ContactId';
 
 /** Whether a role row is its opportunity's primary one: `IsPrimary`, as the API answers it. */
-const isPrimaryRole = (row: Record<string, unknown>): boolean =>
+export const isPrimaryRole = (row: Record<string, unknown>): boolean =>
   row['IsPrimary'] === true || row['IsPrimary'] === 'true';
 
 /**
@@ -798,6 +798,27 @@ export function contactRolesSoql(ids: readonly string[], fields: readonly string
   return `SELECT ${columns} FROM ${OPPORTUNITY_CONTACT_ROLE} WHERE OpportunityId IN ${inListOf(ids)}`;
 }
 
+const CONTACT_ROLES_SOQL_RE =
+  /^SELECT Id, OpportunityId, ContactId((?:, \w+)*) FROM OpportunityContactRole WHERE OpportunityId IN (\(.*\))$/;
+
+/**
+ * The fields besides those that pair a role and the opportunities a query of
+ * {@link contactRolesSoql} asks about; undefined for any other query. What
+ * answers it in place of the target — a rehearsal, which wrote no
+ * opportunity — reads it so.
+ */
+export function contactRolesOfSoql(
+  soql: string,
+): { fields: string[]; opportunities: string[] } | undefined {
+  const asked = CONTACT_ROLES_SOQL_RE.exec(soql);
+  if (!asked) return undefined;
+  const [, tail, list] = asked;
+  return {
+    fields: tail.split(', ').filter((field) => field !== ''),
+    opportunities: idsOfInList(list),
+  };
+}
+
 /**
  * The contact roles the target holds of the opportunities `ids`, read with
  * `fields` besides: a statement per two hundred opportunities.
@@ -839,6 +860,47 @@ export function platformRolesOf(
     if (record) found.set(index, record);
   }
   return found;
+}
+
+/**
+ * Of the contact roles a copy is about to send, the record the platform wrote
+ * itself for each with an opportunity the copy created with a contact, read
+ * from the target, by the role's index: of that opportunity and that contact,
+ * the primary role first, one an opportunity (`rolesThePlatformWrites`). A
+ * role no record is found for is not listed: it goes in as sent. What a copy
+ * that does not hold the opportunity's source row asks — a Seed clone, a
+ * Sync — with the ids it sends.
+ *
+ * @param rows - The roles as they are to be sent: `OpportunityId` and
+ *   `ContactId` in the target's ids, `IsPrimary` as read.
+ * @param sentWith - The contact, in the target's ids, an opportunity the copy
+ *   created went in with, by the opportunity's id in the target; nothing for
+ *   one sent without one, or the copy did not create.
+ * @param fields - Fields read besides those that pair a role with a row.
+ */
+export async function rolesThePlatformWrote(
+  query: SoqlQuery,
+  rows: readonly Record<string, unknown>[],
+  sentWith: (opportunity: string) => string | undefined,
+  fields: readonly string[] = [],
+): Promise<Map<number, Readonly<Record<string, unknown>>>> {
+  const chosen = rolesThePlatformWrites(rows, sentWith);
+  if (chosen.length === 0) return new Map();
+  const paired = new Map(
+    chosen.map((index) => [
+      index,
+      {
+        opportunity: String(rows[index]['OpportunityId']),
+        contact: String(rows[index][CONTACT_FIELD]),
+      },
+    ]),
+  );
+  const held = await contactRolesOf(
+    query,
+    [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
+    fields,
+  );
+  return platformRolesOf(paired, held);
 }
 
 /**

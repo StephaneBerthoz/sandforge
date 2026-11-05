@@ -1009,6 +1009,7 @@
         "summary": "Enregistrements source",
         "inserted": "Insérés",
         "linked": "Rattachés à l'existant",
+        "writtenByThePlatform": "Écrits par la plateforme avec leur opportunité, pour son contact",
         "leftToThePlatform": "Laissés de côté (la plateforme les écrit elle-même, ou ce dont ils dépendent)",
         "secondPass": "Seconde passe — liens remplis une fois l'enregistrement désigné écrit : {{filled}}/{{owed}}",
         "secondPassCancelled_one": "Le clonage a été annulé avant cette passe : le lien qu'il devait remplir reste vide.",
@@ -1760,6 +1761,8 @@
     "conflictStrategyHint": "Demandé pour les objets écrits par upsert ou par mise à jour, qui trouvent l'enregistrement que l'org cible détient. Une exécution n'écrit jamais que dans l'org cible : pour copier dans l'autre sens, intervertissez les deux orgs.",
     "heldRecordsChosen": "Quand l'org cible détient déjà l'enregistrement : {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} rôle de contact rattaché à celui que la plateforme a écrit avec son opportunité, pour le contact avec lequel elle est entrée, non écrit ; ayant reçu les champs de la source qui lui manquaient : {{given}}.",
+      "byThePlatform_other": "{{count}} rôles de contact rattachés à ceux que la plateforme a écrits avec leur opportunité, pour le contact avec lequel chacune est entrée, non écrits ; ayant reçu les champs de la source qui leur manquaient : {{given}}.",
       "linked_one": "{{count}} enregistrement lié à un enregistrement que l'org cible détient déjà, non écrit : la cible l'a refusé comme doublon de cet enregistrement, et ce que l'exécution écrit sous lui pointe vers celui-ci.",
       "linked_other": "{{count}} enregistrements liés à des enregistrements que l'org cible détient déjà, non écrits : la cible les a refusés comme doublons de ces enregistrements, et ce que l'exécution écrit sous eux pointe vers ceux-ci.",
       "refusal": "Les mots de la cible :",

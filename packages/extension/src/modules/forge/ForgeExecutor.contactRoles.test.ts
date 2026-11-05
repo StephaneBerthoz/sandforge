@@ -1,13 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
-import { ForgeExecutor } from './ForgeExecutor.js';
+import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
 import type {
+  ExecuteOptions,
   FieldInfo,
   ForgeExecutorDeps,
   ForgeProgressEvent,
   ForgeWriteBoundary,
 } from './ForgeExecutor.js';
 import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { partialSummaryOf } from './interruptedRun.js';
+import { RehearsalWriter, rehearsalExecutorDeps } from './rehearsal/RehearsalWriter.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
@@ -579,5 +583,221 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
     const plan = writePlanOf(shown?.objects ?? []);
     expect(plan.totalRows).toBe(4);
     expect(plan.leftOut?.byThePlatform).toBeUndefined();
+  });
+});
+
+/**
+ * The deal's clone stopped once the target took the opportunity: the account,
+ * the contact and the opportunity in, the platform's role written with it,
+ * and none of the source's roles sent. What the run threw, the target as it
+ * stands, and the journal it kept when it was given one.
+ */
+async function stoppedAfterTheOpportunity(journaled = false, tables = sourceRows()) {
+  const { deps, target } = orgs(tables);
+  const executor = new ForgeExecutor(deps);
+  deps.insertRecords.mockImplementation(
+    async (_org: string, object: string, rows: Record<string, unknown>[]) => {
+      const answered = target.insert(object, rows);
+      if (object === 'Opportunity') executor.abort();
+      return answered;
+    },
+  );
+  const disk = memoryRunFile();
+  const store = journaled ? ForgeRunStore.open(disk) : undefined;
+  const stopped = await executor
+    .execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      ...(store ? { stream: { store } } : {}),
+    })
+    .then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+  store?.close();
+  deps.insertRecords.mockImplementation(
+    async (_org: string, object: string, rows: Record<string, unknown>[]) =>
+      target.insert(object, rows),
+  );
+  return { deps, target, stopped, disk };
+}
+
+describe('ForgeExecutor, a run that writes the roles of an opportunity a run before it wrote', () => {
+  it('links the role to the one the platform wrote with the opportunity of the run it retries, and sends none', async () => {
+    const { deps, target, stopped } = await stoppedAfterTheOpportunity();
+    expect(stopped).toBeInstanceOf(ForgeAbortedError);
+    const deal = copyOf(target);
+    // The platform's role is in the target, the run's is not.
+    expect(target.rolesOf(deal)).toHaveLength(1);
+    const said: ForgeProgressEvent[] = [];
+
+    const retried = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      (event) => said.push(event),
+      { ...ROOTED_AT_THE_DEAL, writtenBefore: partialSummaryOf(stopped)?.remapTable },
+    );
+
+    // One role, as the source holds one: the platform's, its role given.
+    expect(target.sent['OpportunityContactRole']).toBeUndefined();
+    expect(target.rolesOf(deal)).toEqual([
+      expect.objectContaining({ Role: 'Decision Maker', IsPrimary: true }),
+    ]);
+    expect(retried.remapTable[BUYERS_ROLE]).toBe(target.rolesOf(deal)[0]['Id']);
+    expect(retried.failedCount).toBe(0);
+    expect(finishedRunStatus(retried)).toBe('success');
+    expect(said.map((event) => event.message)).toContain(
+      'Completed OpportunityContactRole: 0 succeeded, 1 written by the platform with their ' +
+        "opportunity, for its contact, 1 given the source's fields it lacked, 0 failed",
+    );
+    // In the target before this run, written with the opportunity of the run
+    // it retries, which a removal of that run takes with it: none of this
+    // run's to take.
+    expect(retried.withTheirRecordSourceIds ?? []).not.toContain(BUYERS_ROLE);
+    expect(retried.existingRecords).toEqual([
+      { objectApiName: 'OpportunityContactRole', linked: 1, unidentified: 0 },
+    ]);
+  });
+
+  it('links it when the run is taken up from its journal, and leaves it to go with the opportunity', async () => {
+    const { deps, target, stopped, disk } = await stoppedAfterTheOpportunity(true);
+    expect(stopped).toBeInstanceOf(ForgeAbortedError);
+    const deal = copyOf(target);
+    const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+
+    const resumed = await new ForgeExecutor(deps).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { ...ROOTED_AT_THE_DEAL, stream: { store } },
+    );
+    store.close();
+
+    expect(target.sent['OpportunityContactRole']).toBeUndefined();
+    expect(target.rolesOf(deal)).toEqual([
+      expect.objectContaining({ Role: 'Decision Maker', IsPrimary: true }),
+    ]);
+    expect(resumed.failedCount).toBe(0);
+    expect(finishedRunStatus(resumed)).toBe('success');
+    // The opportunity is the run's, written by the part that stopped: the
+    // platform deletes the role with it.
+    expect(resumed.withTheirRecordSourceIds).toContain(BUYERS_ROLE);
+    expect(resumed.writtenByThePlatform).toEqual([
+      { objectApiName: 'OpportunityContactRole', rows: 1 },
+    ]);
+  });
+
+  it('writes the role of another contact as read beside it, on a retry as in a run', async () => {
+    const { deps, target, stopped } = await stoppedAfterTheOpportunity(false, withAnAdviser());
+    const deal = copyOf(target);
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      writtenBefore: partialSummaryOf(stopped)?.remapTable,
+    });
+
+    expect(target.sent['OpportunityContactRole']).toEqual([
+      expect.objectContaining({ OpportunityId: deal, Role: 'Technical Buyer' }),
+    ]);
+    expect(target.rolesOf(deal).map((role) => [role['Role'], role['IsPrimary']])).toEqual([
+      ['Decision Maker', true],
+      ['Technical Buyer', false],
+    ]);
+  });
+});
+
+describe('ForgeExecutor, the opportunity of a role copied from outside the graph', () => {
+  it('goes in without its contact, the platform writes no role with it, and the role goes in as read', async () => {
+    // From the buyer, whose role names a deal the graph does not reach: the
+    // expansion copies the deal without the lookups it holds, its ContactId
+    // among them, so the target writes no role with it.
+    const { deps, target } = orgs();
+    const graph: ForgeGraph = {
+      nodes: [node('Contact', 0), node('Account', 1), node('OpportunityContactRole', 1)],
+      edges: [
+        edge('Account', 'Contact'),
+        edge('Contact', 'OpportunityContactRole', { required: true }),
+      ],
+      totalRecords: 0,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    const summary = await new ForgeExecutor(deps).execute(graph, 'src', 'tgt', () => undefined, {
+      rootRecordId: BUYER,
+      rootObjectApiName: 'Contact',
+      expandOrphanParents: true,
+    });
+
+    const deal = copyOf(target);
+    expect(target.sent['Opportunity']).toHaveLength(1);
+    expect(target.sent['Opportunity']?.[0]).not.toHaveProperty('ContactId');
+    expect(target.rolesOf(deal).map((role) => role['Role'])).toEqual(['Decision Maker']);
+    expect(summary.failedCount).toBe(0);
+  });
+});
+
+describe('ForgeExecutor, a rehearsal of an opportunity sent with its primary contact', () => {
+  const KEY_PREFIXES: Record<string, string> = {
+    Account: '001',
+    Contact: '003',
+    Opportunity: '006',
+    OpportunityContactRole: '00K',
+  };
+
+  /** The rows the rehearsal's writer keeps, prepared as the CLI's `--rehearse` prepares them. */
+  async function rehearsed(tables = sourceRows(), options: ExecuteOptions = ROOTED_AT_THE_DEAL) {
+    const { deps, target } = orgs(tables);
+    const writer = new RehearsalWriter(async (object) => KEY_PREFIXES[object] ?? null);
+    await new ForgeExecutor(rehearsalExecutorDeps(deps, writer)).execute(
+      dealGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      options,
+    );
+    return { writer, target };
+  }
+
+  it('hands its writer none of the role the platform writes with the opportunity, as the run sends none', async () => {
+    const { writer, target } = await rehearsed();
+
+    expect(writer.rows.map((row) => row.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+      'Opportunity',
+    ]);
+    // Nothing reached the target.
+    expect(target.tables['Opportunity']).toEqual([]);
+  });
+
+  it("hands it the role of another contact, under the opportunity's placeholder", async () => {
+    const { writer } = await rehearsed(withAnAdviser());
+
+    const deal = writer.rows.find((row) => row.objectApiName === 'Opportunity');
+    const adviser = writer.rows.find(
+      (row) => row.objectApiName === 'Contact' && row.fields['LastName'] === 'Adviser',
+    );
+    expect(writer.rows.filter((row) => row.objectApiName === 'OpportunityContactRole')).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({
+          OpportunityId: deal?.placeholderId,
+          ContactId: adviser?.placeholderId,
+          Role: 'Technical Buyer',
+        }),
+      }),
+    ]);
+  });
+
+  it('hands it the role as read when the opportunity goes in without its contact', async () => {
+    const { writer } = await rehearsed(sourceRows(), {
+      ...ROOTED_AT_THE_DEAL,
+      fieldExclusions: { Opportunity: ['ContactId'] },
+    });
+
+    expect(writer.rows.filter((row) => row.objectApiName === 'OpportunityContactRole')).toEqual([
+      expect.objectContaining({ fields: expect.objectContaining({ Role: 'Decision Maker' }) }),
+    ]);
   });
 });

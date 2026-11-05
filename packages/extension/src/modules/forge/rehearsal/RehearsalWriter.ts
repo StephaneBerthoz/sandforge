@@ -3,12 +3,16 @@ import {
   ACCOUNT,
   ACTIVE_SPLIT_TYPES_SOQL,
   CONTACT,
+  CONTACT_FIELD,
+  OPPORTUNITY_CONTACT_ROLE,
   OPPORTUNITY_SPLIT,
   OPPORTUNITY_TEAM_MEMBER,
   PERSON_CONTACT_FIELD,
   TEAM_USER_FIELD,
   WRITTEN_BY_THE_PLATFORM,
   accountsOfPersonContactsSoql,
+  contactRolesOfSoql,
+  contactRolesSoql,
   opportunitiesOfOwnersSoql,
   opportunityOwnersSoql,
   opportunityTeamOfSoql,
@@ -119,6 +123,13 @@ export class RehearsalWriter {
    * by its first 15 characters, to the opportunity's row.
    */
   private readonly platformTeam = new Map<string, RehearsedRow>();
+  /**
+   * The placeholder of the contact role the platform writes with each
+   * opportunity the run creates with a contact, by its first 15 characters,
+   * to the opportunity's row. Numbered after the team's, as both stand past
+   * every row a run creates.
+   */
+  private readonly platformRoles = new Map<string, RehearsedRow>();
   /** Key prefix per object, asked once. */
   private readonly prefixes = new Map<string, Promise<string | null>>();
   /** The user the run writes as, asked once. */
@@ -237,8 +248,55 @@ export class RehearsalWriter {
           () => query(orgId, ACTIVE_SPLIT_TYPES_SOQL),
         );
       }
+      const roles = contactRolesOfSoql(soql);
+      if (roles) {
+        return this.rolesOf(roles, (held) =>
+          query(orgId, contactRolesSoql(held, roles.fields), onTruncated),
+        );
+      }
       return this.namesAPlaceholder(soql) ? [] : query(orgId, soql, onTruncated);
     };
+  }
+
+  /**
+   * The answer to the read of the contact roles of the opportunities `roles`
+   * names: the target's for those it holds, and, for each the run creates
+   * with a contact, the role the platform writes with it — of that contact,
+   * primary, with no role — under a placeholder of its own. The run links the
+   * source's role of that contact to it, as it links it to the platform's in
+   * a run, and sends the others. Answered with none, a rehearsal sent the
+   * source's role beside the one the platform writes, which no run sends.
+   */
+  private async rolesOf(
+    roles: { fields: readonly string[]; opportunities: readonly string[] },
+    askTheTarget: (held: string[]) => Promise<Record<string, unknown>[]>,
+  ): Promise<Record<string, unknown>[]> {
+    const held = roles.opportunities.filter((id) => !this.rowOf(id));
+    const answered = held.length > 0 ? await askTheTarget(held) : [];
+    const ours = roles.opportunities.flatMap((id) => {
+      const row = this.rowOf(id);
+      const contact = row?.objectApiName === 'Opportunity' ? row.fields[CONTACT_FIELD] : undefined;
+      return row && typeof contact === 'string' && contact !== '' ? [{ id, row, contact }] : [];
+    });
+    if (ours.length === 0) return answered;
+    const prefix = await this.prefixOf(OPPORTUNITY_CONTACT_ROLE);
+    return [
+      ...answered,
+      ...ours.map(({ id, row, contact }) => {
+        const role = placeholderId(
+          prefix,
+          PLATFORM_TEAM_SEQ + this.platformTeam.size + this.platformRoles.size,
+        );
+        this.platformRoles.set(role.slice(0, 15), row);
+        return {
+          ...Object.fromEntries(roles.fields.map((field) => [field, null])),
+          Id: role,
+          OpportunityId: id,
+          [CONTACT_FIELD]: contact,
+          ...(roles.fields.includes('IsPrimary') ? { IsPrimary: true } : {}),
+        };
+      }),
+    ];
   }
 
   /**
@@ -304,7 +362,10 @@ export class RehearsalWriter {
       const owner = await this.ownerOf(id);
       if (owner === undefined) continue;
       for (const type of types) {
-        const record = placeholderId(prefix, PLATFORM_TEAM_SEQ + this.platformTeam.size);
+        const record = placeholderId(
+          prefix,
+          PLATFORM_TEAM_SEQ + this.platformTeam.size + this.platformRoles.size,
+        );
         this.platformTeam.set(record.slice(0, 15), this.rowOf(id) as RehearsedRow);
         written.push({
           Id: record,
@@ -369,7 +430,8 @@ export class RehearsalWriter {
       if (
         this.rowOf(candidate) ||
         this.personContactOf(candidate) ||
-        this.platformTeam.has(candidate.slice(0, 15))
+        this.platformTeam.has(candidate.slice(0, 15)) ||
+        this.platformRoles.has(candidate.slice(0, 15))
       ) {
         return true;
       }

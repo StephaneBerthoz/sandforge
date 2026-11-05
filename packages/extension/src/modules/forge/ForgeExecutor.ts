@@ -183,6 +183,7 @@ import {
   flagsNotKeptNote,
   isOpportunityTeamObject,
   isPersonAccountRow,
+  isPrimaryRole,
   leftToThePlatformNote as leftOutNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
@@ -9734,12 +9735,17 @@ export class ForgeExecutor {
    * platform's: two primary roles of one contact where the source held one.
    *
    * Asked of the roles whose opportunity this run created with a contact
-   * (`contactSentWith`). A simulation, which wrote no opportunity, links those
-   * a real run finds, and reads nothing. Not looked up, the roles go in as
-   * read, and the report says why an opportunity may then hold a contact's
-   * role twice. An update the target refuses leaves the platform's record as
-   * it wrote it, linked all the same: it is the role, short of the fields the
-   * report names.
+   * (`contactSentWith`), and of the primary role of an opportunity the run
+   * this one retries or takes up wrote, whose contact is the one it went in
+   * with: the source's `ContactId` is its primary role's. Asked of none of
+   * those, a run taken up after its opportunities went in, or retried, sent
+   * each primary role beside the platform's, which a stop before the roles
+   * left unlinked. A simulation, which wrote no opportunity, links those a
+   * real run finds of the opportunities it creates, and reads nothing. Not
+   * looked up, the roles go in as read, and the report says why an
+   * opportunity may then hold a contact's role twice. An update the target
+   * refuses leaves the platform's record as it wrote it, linked all the
+   * same: it is the role, short of the fields the report names.
    *
    * @param cleaned - The node's rows as cleaned; those linked are removed.
    * @param payloads - Their payloads, index-aligned; those linked are removed.
@@ -9756,10 +9762,31 @@ export class ForgeExecutor {
     },
   ): Promise<{ linked: number; given: number }> {
     const none = { linked: 0, given: 0 };
-    if (state.contactSentWith.size === 0 || cleaned.length === 0) return none;
-    const { remapper, simulated } = state;
+    if (cleaned.length === 0) return none;
+    const { remapper, simulated, config } = state;
+    /**
+     * The contact each opportunity a run before this one wrote went in with,
+     * as its primary role sends it, by the opportunity's source id: the
+     * platform's role, if it wrote one, is of that contact. The target says
+     * whether it did. A simulation reads nothing of the target, and counts
+     * such a role as written, as the gate does.
+     */
+    const writtenBefore = new Map<string, string>();
+    if (!simulated && config.writtenBefore.size > 0) {
+      cleaned.forEach(({ source }, index) => {
+        const opportunity = source['OpportunityId'];
+        const contact = payloads[index]?.[CONTACT_FIELD];
+        if (typeof opportunity !== 'string' || typeof contact !== 'string' || contact === '') {
+          return;
+        }
+        if (isPrimaryRole(source) && config.writtenBefore.has(opportunity)) {
+          writtenBefore.set(opportunity, contact);
+        }
+      });
+    }
+    if (state.contactSentWith.size === 0 && writtenBefore.size === 0) return none;
     // Compared as sent: the role's contact and the opportunity's, both in the
-    // target's ids, of an opportunity this run created.
+    // target's ids, of an opportunity this run created or one before it wrote.
     const chosen = rolesThePlatformWrites(
       cleaned.map(({ source }, index) => ({
         OpportunityId: source['OpportunityId'],
@@ -9767,7 +9794,9 @@ export class ForgeExecutor {
         IsPrimary: source['IsPrimary'],
       })),
       (opportunity) =>
-        remapper.isCreated(opportunity) ? state.contactSentWith.get(opportunity) : undefined,
+        remapper.isCreated(opportunity)
+          ? state.contactSentWith.get(opportunity)
+          : writtenBefore.get(opportunity),
     );
     if (chosen.length === 0) return none;
 
@@ -9833,17 +9862,24 @@ export class ForgeExecutor {
           leftAs:
             "Linked, and left as the platform wrote them, without the fields of the source's roles",
         });
+    /** Of those linked, the roles of an opportunity this run created, in this part or an earlier one. */
+    let withTheirs = 0;
     for (const [index, record] of records) {
       const built = cleaned[index];
       const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
       const recordId = String(record['Id']);
       if (sourceId === undefined) continue;
+      const opportunity = String(built.source['OpportunityId']);
       // One role an opportunity: a page read after this one links none to it.
-      state.contactSentWith.delete(String(built.source['OpportunityId']));
+      state.contactSentWith.delete(opportunity);
       remapper.addExisting(sourceId, recordId, OPPORTUNITY_CONTACT_ROLE);
       // Written by the platform with an opportunity this run created, it goes
-      // when that opportunity goes: no removal deletes it on its own.
-      state.withTheirRecord.add(sourceId);
+      // when that opportunity goes: no removal deletes it on its own. One of
+      // the run this one retries goes with that run's opportunity.
+      if (remapper.wasCreated(opportunity)) {
+        state.withTheirRecord.add(sourceId);
+        withTheirs++;
+      }
       // The lookups it went without are owed on the record, as on a role inserted.
       if (built.nullifiedFks.length > 0) {
         this.oweToTheSecondPass(
@@ -9864,10 +9900,18 @@ export class ForgeExecutor {
       cleaned.splice(index, 1);
       payloads.splice(index, 1);
     }
-    // Linked, and none of them among the records the target held: each came
-    // with an opportunity the run created.
+    // Linked, and none of them among the records the target held but those
+    // of an opportunity the run this one retries wrote, in the target before
+    // it as the person accounts' contacts and the teams of such records are.
     state.linkedCount += records.size;
-    countWrittenByThePlatform(state, OPPORTUNITY_CONTACT_ROLE, records.size);
+    countWrittenByThePlatform(state, OPPORTUNITY_CONTACT_ROLE, withTheirs);
+    if (records.size > withTheirs) {
+      state.existingRecords.push({
+        objectApiName: OPPORTUNITY_CONTACT_ROLE,
+        linked: records.size - withTheirs,
+        unidentified: 0,
+      });
+    }
     return { linked: records.size, given };
   }
 

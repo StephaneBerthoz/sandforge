@@ -93,6 +93,37 @@ export class SyncRunLinks {
   private readonly deleted = new Set<string>();
   /** Owners of the source the target refused in this run, by the first fifteen characters of their id. */
   private readonly ownersRefused = new Set<string>();
+  /**
+   * The contact each opportunity the run created went in with, by the
+   * opportunity's id in the target, both the target's, by their first fifteen
+   * characters: the platform wrote a role of that contact with it.
+   */
+  private readonly contactsSentWith = new Map<string, string>();
+
+  /**
+   * An opportunity the run created, and the contact it went in with: the
+   * platform writes a role of that contact as it takes it, which the run
+   * links the source's role to (`SyncOrchestrator`'s roles of their
+   * opportunity).
+   */
+  noteSentWithContact(opportunityId: string, contactId: string): void {
+    this.contactsSentWith.set(idKey(opportunityId), contactId);
+  }
+
+  /** The contact an opportunity the run created went in with, until a role is linked to the platform's. */
+  contactSentWith(opportunityId: string): string | undefined {
+    return this.contactsSentWith.get(idKey(opportunityId));
+  }
+
+  /** One role an opportunity: the platform's, once linked, is no other's. */
+  roleLinkedFor(opportunityId: string): void {
+    this.contactsSentWith.delete(idKey(opportunityId));
+  }
+
+  /** Whether an opportunity the run created went in with a contact, its role still to link. */
+  get sentWithAContact(): boolean {
+    return this.contactsSentWith.size > 0;
+  }
 
   /**
    * An owner of the source the target refused in this run, on `OwnerId`, for

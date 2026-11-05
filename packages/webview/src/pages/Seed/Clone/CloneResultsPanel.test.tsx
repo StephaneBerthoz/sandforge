@@ -250,6 +250,26 @@ describe('CloneResultsPanel', () => {
     expect(screen.getByTestId('clone-results-linked').textContent).toBe('Linked to existing: 50');
   });
 
+  it("says, of an object's rows linked, the contact roles the platform wrote with their opportunity", () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      objectResults: [
+        {
+          ...mockSuccessResult.objectResults[0],
+          objectApiName: 'OpportunityContactRole',
+          insertedCount: 0,
+          linkedCount: 1,
+          writtenByThePlatform: 1,
+        },
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-object-written-by-the-platform').textContent).toBe(
+      'Written by the platform with their opportunity, for its contact: 1',
+    );
+  });
+
   it('shows no linked count for a clone the target held nothing of', () => {
     render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 

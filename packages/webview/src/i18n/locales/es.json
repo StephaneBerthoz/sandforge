@@ -1009,6 +1009,7 @@
         "summary": "Registros de origen",
         "inserted": "Insertados",
         "linked": "Vinculados a existentes",
+        "writtenByThePlatform": "Escritos por la plataforma con su oportunidad, para su contacto",
         "leftToThePlatform": "Excluidos (la plataforma los escribe ella misma, o aquello de lo que dependen)",
         "secondPass": "Segunda pasada — vínculos rellenados una vez escrito el registro al que apuntan: {{filled}}/{{owed}}",
         "secondPassCancelled_one": "La clonación se canceló antes de esta pasada: el vínculo que debía rellenar queda vacío.",
@@ -1760,6 +1761,8 @@
     "conflictStrategyHint": "Se pregunta para los objetos escritos por upsert o actualización, que encuentran el registro que tiene la org de destino. Una ejecución solo escribe en la org de destino: para copiar en el otro sentido, intercambie las dos orgs.",
     "heldRecordsChosen": "Cuando la org de destino ya tiene el registro: {{choice}}.",
     "written": {
+      "byThePlatform_one": "{{count}} rol de contacto vinculado al que la plataforma escribió con su oportunidad, para el contacto con el que entró, no escrito; con los campos del origen que le faltaban: {{given}}.",
+      "byThePlatform_other": "{{count}} roles de contacto vinculados a los que la plataforma escribió con su oportunidad, para el contacto con el que entró cada una, no escritos; con los campos del origen que les faltaban: {{given}}.",
       "linked_one": "{{count}} registro vinculado a un registro que la org de destino ya tiene, no escrito: el destino lo rechazó como duplicado de ese registro, y lo que la ejecución escribe debajo apunta allí.",
       "linked_other": "{{count}} registros vinculados a registros que la org de destino ya tiene, no escritos: el destino los rechazó como duplicados de esos registros, y lo que la ejecución escribe debajo apunta allí.",
       "refusal": "Las palabras del destino:",

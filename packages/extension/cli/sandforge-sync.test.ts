@@ -35,6 +35,27 @@ describe('what a run prints of an object', () => {
     ]);
   });
 
+  it('prints the contact roles linked to the ones the platform wrote with their opportunity, and what an update gave them', () => {
+    expect(objectWrittenLines({ writtenByThePlatform: { records: 2, given: 2 } })).toEqual([
+      '2 record(s) linked to the contact role the platform wrote with their opportunity, for ' +
+        "its contact, not written; 2 given the source's fields they lacked.",
+    ]);
+    expect(
+      objectWrittenLines({
+        writtenByThePlatform: {
+          records: 2,
+          given: 1,
+          refusal: '00KTGT000000001AAA: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role needs a reason',
+        },
+      }),
+    ).toEqual([
+      '2 record(s) linked to the contact role the platform wrote with their opportunity, for ' +
+        "its contact, not written; 1 given the source's fields it lacked, the others left as " +
+        'the platform wrote them (00KTGT000000001AAA: FIELD_CUSTOM_VALIDATION_EXCEPTION: A role ' +
+        'needs a reason).',
+    ]);
+  });
+
   it('prints the records written again without a field, given a lookup later or left without one, apart from its refusals', () => {
     expect(
       objectWrittenLines({

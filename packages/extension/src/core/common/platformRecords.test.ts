@@ -41,6 +41,7 @@ import {
   writtenByThePlatform,
   writtenWithWords,
   contactRolesOf,
+  contactRolesOfSoql,
   contactRolesSoql,
   platformRolesOf,
   rolesThePlatformWrites,
@@ -1756,6 +1757,20 @@ describe('the contact role the platform writes with an opportunity', () => {
       "SELECT Id, OpportunityId, ContactId FROM OpportunityContactRole WHERE OpportunityId IN ('006A')",
     );
     expect(() => contactRolesSoql(['006A'], ['Role; DELETE'])).toThrow();
+  });
+
+  it('tells, of the read of the roles, the fields asked besides and the opportunities, as a rehearsal answers it', () => {
+    expect(contactRolesOfSoql(contactRolesSoql(['006A', '006B'], ['Role', 'IsPrimary']))).toEqual({
+      fields: ['Role', 'IsPrimary'],
+      opportunities: ['006A', '006B'],
+    });
+    expect(contactRolesOfSoql(contactRolesSoql(['006A']))).toEqual({
+      fields: [],
+      opportunities: ['006A'],
+    });
+    expect(contactRolesOfSoql("SELECT Id FROM OpportunityContactRole WHERE Id = '00KA'")).toBe(
+      undefined,
+    );
   });
 
   it('is said written by the platform with its opportunity, for its contact', () => {

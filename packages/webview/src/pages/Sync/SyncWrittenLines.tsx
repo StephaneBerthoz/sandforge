@@ -11,6 +11,7 @@ import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
 type WrittenResult = Pick<
   SyncObjectResult,
   | 'linkedToExisting'
+  | 'writtenByThePlatform'
   | 'lookupsLeftOut'
   | 'lookupsSetAfter'
   | 'writtenWithoutFields'
@@ -45,6 +46,7 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
 export function hasWrittenLines(result: WrittenResult): boolean {
   return (
     result.linkedToExisting !== undefined ||
+    result.writtenByThePlatform !== undefined ||
     (result.lookupsLeftOut?.length ?? 0) > 0 ||
     result.lookupsSetAfter !== undefined ||
     result.writtenWithoutFields !== undefined ||
@@ -72,6 +74,7 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
   const { t } = useTranslation();
   if (!hasWrittenLines(result)) return null;
   const linked = result.linkedToExisting;
+  const byThePlatform = result.writtenByThePlatform;
   const setAfter = result.lookupsSetAfter;
   const without = result.writtenWithoutFields;
   /** The target's words, after a line that names them. */
@@ -94,6 +97,15 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
         <li data-testid={`${testId}-linked`}>
           {t('sync.written.linked', { count: linked.records })}
           {words(linked.refusal)}
+        </li>
+      )}
+      {byThePlatform && (
+        <li data-testid={`${testId}-byThePlatform`}>
+          {t('sync.written.byThePlatform', {
+            count: byThePlatform.records,
+            given: byThePlatform.given,
+          })}
+          {words(byThePlatform.refusal)}
         </li>
       )}
       {(result.lookupsLeftOut ?? []).map(({ records, fields, reason, refusal }, at) => (
