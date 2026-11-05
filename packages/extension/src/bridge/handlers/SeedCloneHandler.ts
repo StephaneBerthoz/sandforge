@@ -91,6 +91,7 @@ import {
   confirmationStorageOf,
   countedStorageBytes,
   deliverabilityPartOf,
+  emailsOfLimit,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
@@ -2176,7 +2177,6 @@ export class SeedCloneHandler implements DomainHandler {
  * ways out. The page says it from the figures, in its language.
  */
 function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
-  const limit = figures.limit === 'SingleEmail' ? 'single emails' : 'workflow emails';
   const ways = [
     `narrow the filters of ${figures.objects.join(', ')} or leave them out`,
     `turn off ${figures.senders.map((name) => `"${name}"`).join(', ')}`,
@@ -2191,7 +2191,7 @@ function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
   ];
   return (
     `The clone was refused before it wrote anything: its records would make ${figures.org} ` +
-    `send about ${figures.emails} ${limit}, ${figures.remaining} of ${figures.max} left today. ` +
+    `send about ${emailsOfLimit(figures.emails, figures.limit)}, ${figures.remaining} of ${figures.max} left today. ` +
     'Past what is left, a flow that sends in the save refuses its record ' +
     "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
     `To clone them, ${ways.join('; or ')}. Nothing was written.`

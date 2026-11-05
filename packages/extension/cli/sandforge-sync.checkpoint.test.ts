@@ -685,6 +685,44 @@ describe('sandforge-sync --checkpoint-first', () => {
     expect(dry.wouldBeRefusedCodes).toEqual(['MUTE_NO_RIGHT']);
   });
 
+  it('refuses a real run its mute refuses for each reason of its gate too, under alsoRefused, as its dry run names them', async () => {
+    // Refused for its mute, a run said that code alone, and a CI job that
+    // answered it was refused again for its checkpoint.
+    const events: string[] = [];
+    orgs(events);
+    const refusal = { code: 'RUN_WRITING' as const, message: 'A SandForge run is writing to TGT.' };
+    checkpointsOf(events, { estimate: { refusal } });
+    vi.mocked(muteForRun).mockRejectedValue(
+      new MuteRefusedError({ code: 'MUTE_NO_RIGHT', message: 'The user cannot assign.' }),
+    );
+
+    expect(await exitOf(argv('--mute-automation', '--checkpoint-first', '--json'))).toBe(1);
+
+    const real = JSON.parse(out.join('')) as {
+      refused: { code: string };
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+    expect(real.refused.code).toBe('MUTE_NO_RIGHT');
+    expect(real.alsoRefused).toEqual([
+      {
+        code: 'CHECKPOINT_REFUSED',
+        message:
+          'The checkpoint before the run was refused: A SandForge run is writing to TGT. Fix ' +
+          'what refuses it, or run without --checkpoint-first to write without one. Nothing ' +
+          'was written.',
+      },
+    ]);
+    expect(events).not.toContain('take');
+    expect(events).not.toContain('write');
+
+    out.length = 0;
+    await exitOf(argv('--mute-automation', '--checkpoint-first', '--dry-run', '--json'));
+    expect(JSON.parse(out.join('')).wouldBeRefusedCodes).toEqual([
+      'MUTE_NO_RIGHT',
+      'CHECKPOINT_REFUSED',
+    ]);
+  });
+
   it('says with --dry-run that a scope it could not read would refuse a real run', async () => {
     orgs([]);
     checkpointsOf([], { scopeFails: 'the store is locked' });

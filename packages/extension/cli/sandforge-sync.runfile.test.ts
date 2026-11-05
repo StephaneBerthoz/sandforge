@@ -459,7 +459,32 @@ describe('the file a run of sandforge-sync keeps', () => {
 
       await expect(main(argv('--remove', file, '--target', 'OTHER'))).rejects.toThrow('exit 1');
 
-      expect(stderr).toContain('is not the org the run wrote to');
+      expect(stderr).toContain('refused (OTHER_ORG): OTHER is not the org the run wrote to');
+      expect(jobsAsked).toEqual([]);
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('refuses a run another process is still writing under its code, with --json on stdout', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout empty.
+      const [head, ...rest] = readFileSync(file, 'utf8').split('\n');
+      const read = JSON.parse(head) as { run: Record<string, unknown> };
+      const now = new Date().toISOString();
+      read.run.writer = { pid: process.ppid, hostStartedAt: now };
+      writeFileSync(file, [JSON.stringify(read), ...rest].join('\n'));
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--json'))).rejects.toThrow(
+        'exit 1',
+      );
+
+      expect(stderr).toContain(
+        `refused (RUN_WRITING): The run is still writing, in process ${process.ppid}`,
+      );
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-sync',
+        action: 'remove',
+        target: 'TGT',
+        refused: { code: 'RUN_WRITING' },
+      });
       expect(jobsAsked).toEqual([]);
       expect(org.deletes).toEqual([]);
     });

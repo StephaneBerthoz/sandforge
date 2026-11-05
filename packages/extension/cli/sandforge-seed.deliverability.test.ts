@@ -369,6 +369,46 @@ describe('sandforge-seed --accept-emails', () => {
     );
   });
 
+  it('names every reason its gate refuses a real run for, the first under refused, the others under alsoRefused', async () => {
+    // Past the emails left and on All email without --accept-emails: it was
+    // refused for the first alone, and a CI job that raised the limit was
+    // refused again for the second.
+    fakeOrg(ALL_EMAIL, 15_000, false, 1);
+
+    await expect(main(argv('--json'))).rejects.toThrow(
+      /^refused \(SEED_EMAILS_EXCEEDED\): The seed was refused before it wrote anything[^\n]*\nrefused \(EMAILS_NOT_ACCEPTED\): TGT delivers every email/,
+    );
+
+    const answer = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    expect(answer).toMatchObject({
+      dryRun: false,
+      refused: { code: 'SEED_EMAILS_EXCEEDED' },
+      alsoRefused: [
+        {
+          code: 'EMAILS_NOT_ACCEPTED',
+          message: expect.stringContaining('TGT delivers every email') as string,
+        },
+      ],
+    });
+    expect(writes()).toEqual([]);
+
+    // In the order its dry run says them.
+    stdout.length = 0;
+    await main(argv('--dry-run', '--json'));
+    expect(JSON.parse(stdout.join('')).wouldBeRefusedCodes).toEqual([
+      'SEED_EMAILS_EXCEEDED',
+      'EMAILS_NOT_ACCEPTED',
+    ]);
+  });
+
+  it('gives no alsoRefused to a run refused for one reason', async () => {
+    fakeOrg();
+
+    await expect(main(argv('--json'))).rejects.toThrow(/^refused \(EMAILS_NOT_ACCEPTED\)/);
+
+    expect(JSON.parse(stdout.join(''))).not.toHaveProperty('alsoRefused');
+  });
+
   it('prints a summary --remove reads as a run that wrote nothing', async () => {
     fakeOrg();
 

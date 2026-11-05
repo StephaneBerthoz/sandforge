@@ -411,6 +411,45 @@ describe('sandforge-sync --accept-emails', () => {
     expect(events).not.toContain('write');
   });
 
+  it('names every reason its gate refuses a real run for, the first under refused, the others under alsoRefused, as its dry run says them', async () => {
+    // Past the emails left today and on All email without --accept-emails: a
+    // real run said the first code alone, and a CI job that raised the limit
+    // was refused again for the second.
+    const events: string[] = [];
+    orgs(events, 'all', false, DESCRIBED, 1);
+    expect(await exitOf(argv('--dry-run', '--json'))).toBe(0);
+    const dry = JSON.parse(out.join('')) as { wouldBeRefusedCodes?: string[] };
+
+    out.length = 0;
+    orgs(events, 'all', false, DESCRIBED, 1);
+    expect(await exitOf(argv('--json'))).toBe(1);
+    const real = JSON.parse(out.join('')) as {
+      refused: { code: string };
+      alsoRefused?: Array<{ code: string; message: string }>;
+    };
+
+    expect(real.refused.code).toBe('SYNC_EMAILS_EXCEEDED');
+    expect(real.alsoRefused).toEqual([
+      {
+        code: 'EMAILS_NOT_ACCEPTED',
+        message: expect.stringContaining('TGT delivers every email') as string,
+      },
+    ]);
+    expect(dry.wouldBeRefusedCodes).toEqual([
+      real.refused.code,
+      ...(real.alsoRefused ?? []).map(({ code }) => code),
+    ]);
+
+    // Each on its line.
+    out.length = 0;
+    orgs(events, 'all', false, DESCRIBED, 1);
+    expect(await exitOf(argv())).toBe(1);
+    expect(out.join('')).toMatch(
+      /refused \(SYNC_EMAILS_EXCEEDED\): [^\n]*\nrefused \(EMAILS_NOT_ACCEPTED\): TGT delivers every email/,
+    );
+    expect(events).not.toContain('write');
+  });
+
   it('says an upsert on a field the target matches none on before it writes: counted refused, under wouldBeRefused, and refused in a run', async () => {
     const onName = [
       'node',

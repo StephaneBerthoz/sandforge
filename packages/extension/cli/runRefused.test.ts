@@ -68,6 +68,32 @@ describe('refusedRemovalSummary', () => {
     });
     expect(refusalOfSummary(answer, 'sandforge-seed')).toBeUndefined();
   });
+
+  it('names a preview refused before it read a record as the preview', () => {
+    const other = { code: 'OTHER_ORG', message: 'TGT is not the org the run wrote to.' };
+
+    expect(
+      JSON.parse(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-clone',
+            action: 'remove-preview',
+            summary: 'clone.json',
+            target: 'TGT',
+            elapsedMs: 3,
+          },
+          other,
+        ),
+      ),
+    ).toEqual({
+      tool: 'sandforge-clone',
+      action: 'remove-preview',
+      summary: 'clone.json',
+      target: 'TGT',
+      refused: other,
+      elapsedMs: 3,
+    });
+  });
 });
 
 describe('refusedSummary', () => {

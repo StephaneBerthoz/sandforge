@@ -328,11 +328,19 @@ describe('sandforge-clone --remove --preview', () => {
     vi.mocked(makeConn).mockReturnValue(targetConn({ Id: OTHER_ORG, IsSandbox: true }));
     const queried = vi.spyOn(org, 'query');
 
-    await expect(main(argv('--remove', file, '--target', 'TGT', '--preview'))).rejects.toThrow(
-      'exit 1',
-    );
+    await expect(
+      main(argv('--remove', file, '--target', 'TGT', '--preview', '--json')),
+    ).rejects.toThrow('exit 1');
 
-    expect(exit.stderr()).toContain(`TGT is not the org the run wrote to (${ORG_ID})`);
+    expect(exit.stderr()).toContain(
+      `refused (OTHER_ORG): TGT is not the org the run wrote to (${ORG_ID})`,
+    );
+    // Its code with --json, which a pipeline reads: the sentence alone, and stdout empty.
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-clone',
+      action: 'remove-preview',
+      refused: { code: 'OTHER_ORG' },
+    });
     expect(queried).not.toHaveBeenCalled();
   });
 

@@ -277,6 +277,28 @@ describe('readDataOpsAct', () => {
     expect(dataOpsStop(read.answer)?.message).toContain('Add --accept-emails to mask all the same');
   });
 
+  it('says one email of a limit in the singular', async () => {
+    // A masking of one contact said "about 1 single emails".
+    const read = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: [{ objectApiName: 'Contact', records: 1 }],
+      org: orgOf(
+        automationOf({ Contact: { flows: [flow('Notify Owner', 'update', { emails: 1 })] } }),
+        { single: { max: 15, remaining: 0 } },
+      ),
+      accord: {},
+      mayMute: true,
+    });
+
+    expect(read.answer.lines).toContain(
+      '  emails: about 1 single email (1 per Contact), past the 0 of 15 left today',
+    );
+    expect(read.answer.refusals.map((r) => r.message).join(' ')).toContain(
+      'send about 1 single email (1 per Contact)',
+    );
+  });
+
   it('stops on the first refusal under its code, each other one under its own, and says nothing was written once', async () => {
     const read = await readDataOpsAct({
       act: 'masking',

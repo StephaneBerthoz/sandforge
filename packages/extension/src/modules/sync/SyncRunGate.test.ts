@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DATA_STORAGE_NOT_TOLD, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
-import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
+import { API_BUDGET_EXCEEDED, readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import {
   gateSyncWrite,
   measureSyncWrite,
   mutingSyncWriteGate,
+  syncGateStops,
   syncRunWrites,
   syncWriteGate,
   syncWritePlan,
@@ -400,6 +401,41 @@ describe('gateSyncWrite', () => {
       });
     }
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('lists every reason it stops a run for in the order it meets them, the first the one it stops with', async () => {
+    // Past the storage, the requests and the emails left today at once: the
+    // command line was refused for the storage alone, and a pipeline that
+    // freed it was refused again for the requests.
+    const measured = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 3_000 }]),
+      measures({
+        readStorage: async () => ({
+          maxMB: 5,
+          remainingMB: 4,
+          dailyApiRequests: { max: 15_000, remaining: 3 },
+        }),
+        readAutomation: async () => WELCOME_FLOW,
+      }),
+    );
+
+    const stops = syncGateStops(measured, { policy: 'refuse', org: 'TRAP' });
+
+    expect(stops.map(({ code }) => code)).toEqual([
+      'SYNC_STORAGE_EXCEEDED',
+      API_BUDGET_EXCEEDED,
+      'SYNC_EMAILS_EXCEEDED',
+    ]);
+    const answer = await gateSyncWrite(measured, {
+      policy: 'refuse',
+      org: 'TRAP',
+      orgTier: 'development',
+    });
+    expect(answer).toEqual({ go: false, ...stops[0] });
+    // Asked, the emails are the user's to answer: no stop of them.
+    expect(syncGateStops(measured, { policy: 'ask', org: 'TRAP' }).map(({ code }) => code)).toEqual(
+      ['SYNC_STORAGE_EXCEEDED', API_BUDGET_EXCEEDED],
+    );
   });
 
   it('asks the user who started the run past a daily email limit, naming the records left as they are', async () => {

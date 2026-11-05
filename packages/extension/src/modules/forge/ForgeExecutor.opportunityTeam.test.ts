@@ -881,7 +881,7 @@ describe('ForgeExecutor, where the records the platform wrote with the run’s o
       { limit: 'SingleEmail', emails: 1 },
     ]);
     expect(emailCheckLines(checks, 'DEV')).toEqual([
-      '  emails: these records make DEV send about 1 single emails (1 per OpportunityTeamMember, ' +
+      '  emails: these records make DEV send about 1 single email (1 per OpportunityTeamMember, ' +
         'by flow "Welcome to the team"; 1 OpportunityTeamMember written by the platform with ' +
         'their opportunity, for its owner, whose flows run all the same); it has 4990 of 5000 left today',
     ]);

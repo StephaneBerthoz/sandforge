@@ -563,15 +563,22 @@ describe('sandforge-clone --remove', () => {
       expect(removeRunRecords).toHaveBeenCalledTimes(1);
     });
 
-    it('refuses an org other than the one the run wrote to, and deletes nothing', async () => {
+    it('refuses an org other than the one the run wrote to under its code, and deletes nothing', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout empty.
       organization = { Id: '00D000000000003AAA', IsSandbox: true };
 
-      expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBe(1);
+      expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--json'])).toBe(1);
 
       expect(stderr.join('')).toContain(
-        `TGT is not the org the run wrote to (${TARGET_ORG}), and its records are removed from ` +
-          'that org only. Nothing was deleted.',
+        `refused (OTHER_ORG): TGT is not the org the run wrote to (${TARGET_ORG}), and its ` +
+          'records are removed from that org only. Nothing was deleted.',
       );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        tool: 'sandforge-clone',
+        action: 'remove',
+        target: 'TGT',
+        refused: { code: 'OTHER_ORG' },
+      });
       expect(removeRunRecords).not.toHaveBeenCalled();
     });
 

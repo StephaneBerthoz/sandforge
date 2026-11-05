@@ -475,6 +475,35 @@ describe('seedEmailGate', () => {
     ]);
   });
 
+  it('says one email of a limit in the singular, past what is left and unread alike', () => {
+    // A seed of one contact said "about 1 workflow emails".
+    const one = [{ objectApiName: 'Contact', recordCount: 1 }];
+    const unread = seedEmailGate(
+      read(trapAutomation(), { unread: 'INSUFFICIENT_ACCESS' }),
+      one,
+      'my-dev-org',
+    );
+    expect(unread.unknown).toContain(
+      'about 1 workflow email, but what my-dev-org has left today could not be read (INSUFFICIENT_ACCESS)',
+    );
+
+    // The workflow rule alone, which emails each contact once.
+    const trap = trapAutomation();
+    const ruleAlone = {
+      ...trap,
+      objects: trap.objects.map((object) => ({ ...object, flows: [] })),
+    };
+    const over = seedEmailGate(
+      read(ruleAlone, {
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8040, remaining: 0 },
+      }),
+      one,
+      'my-dev-org',
+    );
+    expect(over.refusal).toContain('about 1 workflow email (1 per Contact), 0 of 8040 left today');
+  });
+
   it('warns and does not refuse when the automation could not be read at all', () => {
     expect(seedEmailGate({ error: 'Session expired' }, CRM_COUNTS, 'my-dev-org')).toEqual({
       checks: [],

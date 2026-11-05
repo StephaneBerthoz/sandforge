@@ -34,6 +34,7 @@ import {
   emailChecksOf,
   emailRefusal,
   emailsCountedPerRecord,
+  emailsOfLimit,
   singleCountAsWorkflow,
   emailsUncountedOf,
   farPastTheSimulation,
@@ -1014,6 +1015,34 @@ describe('emailRefusal', () => {
         "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
         'Assign the user a bypass that keeps what sends quiet, or write fewer records.',
     );
+  });
+
+  it('says one email of a limit in the singular, in the refusal and in the gate’s line', () => {
+    // A clone of one contact into a Developer Edition said "about 1 single
+    // emails", live.
+    const one = {
+      limit: 'SingleEmail' as const,
+      objects: [{ objectApiName: 'Contact', rows: 1, perRecord: 1, sentBy: ['Contact welcome'] }],
+      emails: 1,
+      verdict: 'exceeds' as const,
+      remaining: 0,
+      max: 15,
+    };
+
+    expect(emailRefusal([one], 'TARGET')).toContain(
+      'would make TARGET send about 1 single email, 0 of 15 left today',
+    );
+    expect(emailCheckLines([one], 'TARGET')[0]).toContain(
+      'these records make TARGET send about 1 single email (1 per Contact',
+    );
+    expect(
+      emailCheckLines(
+        [{ ...one, limit: 'DailyWorkflowEmails', emails: 2, verdict: 'fits', remaining: 9 }],
+        'TARGET',
+      )[0],
+    ).toContain('send about 2 workflow emails (');
+    expect(emailsOfLimit(1, 'DailyWorkflowEmails')).toBe('1 workflow email');
+    expect(emailsOfLimit(0, 'SingleEmail')).toBe('0 single emails');
   });
 
   it('refuses nothing that fits, or that no limit could be read for', () => {

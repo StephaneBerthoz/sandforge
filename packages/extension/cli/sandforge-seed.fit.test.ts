@@ -493,7 +493,8 @@ describe('a seed fitted from the command line', () => {
     await expect(
       main(argv(2_000, '--fit-cap', 'Account=1500', '--fit-within', '1')),
     ).rejects.toThrow(
-      /^refused \(SEED_CANNOT_FIT\): The seed was refused before it wrote anything: it cannot be fitted to TGT: with these caps the seed takes [\d.]+ MB, room for what the org's automation creates under them included, past the 1 MB that fit: lower them, or fit by share\. Nothing was written\.$/,
+      // Its storage refuses it too, on a line of its own, as its dry run says.
+      /^refused \(SEED_CANNOT_FIT\): The seed was refused before it wrote anything: it cannot be fitted to TGT: with these caps the seed takes [\d.]+ MB, room for what the org's automation creates under them included, past the 1 MB that fit: lower them, or fit by share\. Nothing was written\.\nrefused \(SEED_STORAGE_EXCEEDED\): The records to write take about [\d.]+ MB of data storage/,
     );
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
 
@@ -509,6 +510,7 @@ describe('a seed fitted from the command line', () => {
         code: 'SEED_CANNOT_FIT',
         message: expect.stringMatching(/^The seed was refused before it wrote anything/) as string,
       },
+      alsoRefused: [{ code: 'SEED_STORAGE_EXCEEDED' }],
     });
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
 

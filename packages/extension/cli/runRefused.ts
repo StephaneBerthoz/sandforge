@@ -14,6 +14,19 @@ export interface RunRefusal {
   message: string;
 }
 
+/**
+ * The code a removal, or its preview, is refused with when the org its alias
+ * reaches is not the one the run wrote to, as a checkpoint of another org is
+ * refused: the records of the run are in that org alone.
+ */
+export const OTHER_ORG = 'OTHER_ORG';
+
+/**
+ * The code a removal, or its preview, is refused with while the run is still
+ * writing, in another process: as a rewind is refused while a run writes.
+ */
+export const RUN_WRITING = 'RUN_WRITING';
+
 /** The line a refused run ends on. */
 export function refusedLine({ code, message }: RunRefusal): string {
   return `refused (${code}): ${message}`;
@@ -86,6 +99,11 @@ export function refusedSummary(
 /** What the answer of a removal refused before its first delete names. */
 export interface RefusedRemoval {
   tool: string;
+  /**
+   * The removal itself, or its preview (`--remove --preview`), refused before
+   * it read a record of the run: another org than the one the run wrote to.
+   */
+  action?: 'remove' | 'remove-preview';
   /** What the removal was asked to take back: the summary, or the run's file. */
   summary: string;
   target: string;
@@ -99,12 +117,8 @@ export interface RefusedRemoval {
  * says no `dryRun`: saved and given to `--remove`, it reads as no run's summary.
  */
 export function refusedRemovalSummary(removal: RefusedRemoval, refused: RunRefusal): string {
-  const { tool, summary, target, elapsedMs } = removal;
-  return `${JSON.stringify(
-    { tool, action: 'remove', summary, target, refused, elapsedMs },
-    null,
-    2,
-  )}\n`;
+  const { tool, action = 'remove', summary, target, elapsedMs } = removal;
+  return `${JSON.stringify({ tool, action, summary, target, refused, elapsedMs }, null, 2)}\n`;
 }
 
 /**

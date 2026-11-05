@@ -1159,6 +1159,123 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('hands muteAutomation to a seed and a clone as --mute-automation, a dry run as a write, and names it where their lines name the flag', async () => {
+    // seed_run and clone_record relayed "--mute-automation keeps quiet ..."
+    // and took no such parameter.
+    const sends =
+      'refused (EMAILS_NOT_ACCEPTED): DEV delivers every email its automation sends. ' +
+      'Nothing was written. --mute-automation keeps quiet flow "Welcome Email" on Contact, ' +
+      'which tests a bypass a permission set of DEV holds.\n';
+    const { ran, run } = scripts(() => ({ code: 1, stderr: sends }));
+    const c = client(run);
+    await c.initialized();
+
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+      muteAutomation: true,
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+      muteAutomation: true,
+    });
+    await c.call('seed_run', { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true });
+
+    expect(ran[0]?.args).toContain('--mute-automation');
+    expect(ran[1]?.args).toContain('--mute-automation');
+    expect(ran[2]?.args).not.toContain('--mute-automation');
+    for (const answered of [seeded, cloned]) {
+      expect(textOf(answered)).toContain(
+        "--mute-automation, named above, is this tool's muteAutomation: true.",
+      );
+    }
+    await c.close();
+  });
+
+  it('hands store to the removal of a Sync run as its --store, names it where the line asks for it, and refuses it for any other module', async () => {
+    // run_remove relayed "Give --store with the next removal" and took no store.
+    const unsaid =
+      'The run was of the saved configuration cfg-1, and its store was not given: its next ' +
+      'delta run is not told what this removal took, and a later run may point a lookup at a ' +
+      'record it deleted. Give --store with the next removal, or run the configuration full ' +
+      'next time.\n';
+    const { ran, run } = scripts(() => ({ stdout: '{}', stderr: unsaid }));
+    const c = client(run);
+    await c.initialized();
+
+    const removed = await c.call('run_remove', {
+      module: 'sync',
+      org: 'DEV',
+      run: 'run.json',
+      confirm: 'DEV',
+      store: 'configs/sync',
+    });
+    const seed = await c.call('run_remove', {
+      module: 'seed',
+      org: 'DEV',
+      run: 'run.json',
+      confirm: 'DEV',
+      store: 'configs/sync',
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-sync',
+        args: ['--remove', 'run.json', '--target', 'DEV', '--store', 'configs/sync', '--json'],
+      },
+    ]);
+    expect(textOf(removed)).toContain(
+      "--store, named above, is this tool's store: the directory of the run's saved " +
+        'configuration, as the person using you names it.',
+    );
+    expect(seed).toMatchObject({
+      isError: true,
+      structuredContent: { refusal: { code: 'ARGUMENTS' } },
+    });
+    expect(textOf(seed)).toContain('store goes with module "sync"');
+    await c.close();
+  });
+
+  it("says what to write in the file where an environment's removal asks for --accept-automation, which neither env tool takes", async () => {
+    const fires =
+      'refused (AUTOMATION_NOT_ACCEPTED): SB runs automation on the records this removal ' +
+      'deletes: Account: Apex trigger AccountCleanup (before delete). Nothing was deleted. Add ' +
+      '--accept-automation to remove all the same, or turn that automation off in SB first.\n';
+    const { run } = scripts(() => ({ code: 1, stderr: fires }));
+    const c = client(run);
+    await c.initialized();
+
+    const destroyed = await c.call('env_destroy', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+    const applied = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+
+    for (const [answered, tool] of [
+      [destroyed, 'env_destroy'],
+      [applied, 'env_apply'],
+    ] as const) {
+      expect(textOf(answered)).toContain(
+        `--accept-automation, named above, is no parameter of ${tool}: an environment's ` +
+          "acceptance of automation is its file's. Write accept: { automation: true } on the " +
+          'resource whose run it names, in the file, once the person using you has accepted ' +
+          `what fires, then call ${tool} again.`,
+      );
+      expect(textOf(answered)).not.toContain("is this tool's acceptAutomation");
+    }
+    await c.close();
+  });
+
   it('answers a script that could not be started with why', async () => {
     const c = client(() => Promise.reject(new Error('spawn ENOENT')));
     await c.initialized();

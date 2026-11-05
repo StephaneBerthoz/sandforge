@@ -649,6 +649,23 @@ describe('sandforge-clone target automation', () => {
     expect(stderr).not.toContain('With --mute-automation');
   });
 
+  it('offers no mute in its refusal to the reader of an environment, which never mutes, its lines naming the set all the same', async () => {
+    // An environment's apply relayed "With --mute-automation, the clone
+    // assigns ...", which neither its line nor its file takes.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    try {
+      withOrgs(fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] }));
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(stderr).not.toContain('With --mute-automation');
+      expect(printed.join('\n')).toContain('held by permission set Data_Load');
+      expect(orgs.TGT.written).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('writes nothing when it could not read what fires, unless told to go on', async () => {
     withOrgs(flowsRefused());
 
@@ -910,6 +927,26 @@ describe('sandforge-clone target automation', () => {
       expect(orgs.TGT.written).toEqual([]);
     });
 
+    it('names --max-total and what narrows the clone as this script’s own to the reader of a command that takes none of them', async () => {
+      // Relayed by the MCP server's clone_record, "raise --max-total" named a
+      // parameter the tool does not take.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      try {
+        withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+        expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
+
+        expect(stderr).toBe(
+          "refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than the 1 this script's " +
+            "own --max-total holds it to: narrow the clone with this script's own --max, " +
+            '--exclude-object or --filter, or raise its --max-total. Nothing was written.\n',
+        );
+        expect(orgs.TGT.written).toEqual([]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('answers a refusal at its gate with --json on stdout, its code apart, as Sync does', async () => {
       // stdout stayed empty: a CI job's `jq .refused.code` read nothing.
       withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
@@ -993,7 +1030,7 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
 
       expect(printed).toContain(
-        '  emails: these records make TGT send about 1 single emails (1 per Contact, by Contact ' +
+        '  emails: these records make TGT send about 1 single email (1 per Contact, by Contact ' +
           'welcome), its email alerts among them: TGT counts them against its single emails, ' +
           'as a Developer Edition does, more than the 0 of 15 it has left today: past them the ' +
           'action fails, and a record whose flow fails in the save is refused ' +
@@ -1003,7 +1040,7 @@ describe('sandforge-clone target automation', () => {
       expect(printed).toContain(
         '  a real run would be refused (EMAILS_EXCEEDED): ' +
           "The target's automation would make TGT send about 1 " +
-          'single emails (its email alerts among them, as a Developer Edition counts them), 0 ' +
+          'single email (its email alerts among them, as a Developer Edition counts them), 0 ' +
           'of 15 left today: past them, each record whose flow fails in the save is refused ' +
           "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the " +
           'day. Assign the user a bypass that keeps what sends quiet, or write fewer records.',
@@ -1013,7 +1050,7 @@ describe('sandforge-clone target automation', () => {
       withOrgs(developerEdition());
       expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
 
-      expect(stderr).toContain("The target's automation would make TGT send about 1 single emails");
+      expect(stderr).toContain("The target's automation would make TGT send about 1 single email ");
       // Under the code its dry run named.
       expect(stderr).toContain('refused (EMAILS_EXCEEDED): ');
       expect(stderr).toContain('Nothing was written.');

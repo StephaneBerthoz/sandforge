@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunRefusal } from './runRefused.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { undeletableAnswer, undeletableRefusal } from './undeletableAnswer.js';
 
 describe('undeletableAnswer', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const objects = [{ objectApiName: 'Account', records: 12 }];
 
   it('stops the removal before its first delete, handing on the refusal under its code, naming the objects and the flag that goes on', async () => {
@@ -47,6 +52,21 @@ describe('undeletableAnswer', () => {
       'Those stay, with the records they hang from; the rest is removed (--leave-undeletable).',
     ]);
     expect(refusals).toEqual([]);
+  });
+
+  it('sends the reader of a command that does not take the flag to this script’s own removal', () => {
+    // Relayed by sandforge-env, "run again with --leave-undeletable" named a
+    // flag the destroy refused, exit 2.
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-env');
+    expect(undeletableRefusal(objects, 'DEV').message).toContain(
+      "or run this script's own removal with --leave-undeletable to remove the rest and leave " +
+        'them.',
+    );
+    // The MCP server's run_remove takes it: leaveUndeletable.
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+    expect(undeletableRefusal(objects, 'DEV').message).toContain(
+      'or run again with --leave-undeletable to remove the rest and leave them.',
+    );
   });
 
   it('names every object it is refused for', () => {

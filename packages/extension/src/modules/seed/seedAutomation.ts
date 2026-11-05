@@ -47,6 +47,7 @@ import {
   singleCountAsWorkflow,
   emailChecksOf,
   emailsCountedPerRecord,
+  emailsOfLimit,
   type EmailCheck,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
@@ -230,12 +231,6 @@ export async function readSeedAutomation(input: {
   return { preview: seedAutomationPreview(automation, input.org, limits, deliverability, writes) };
 }
 
-/** How each daily limit is said. */
-const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
-
 /** Items joined as a sentence lists them: "a", "a and b", "a, b, and c". */
 function listed(items: readonly string[], last = 'and'): string {
   if (items.length <= 1) return items.join('');
@@ -327,7 +322,7 @@ export function seedEmailGate(
       .filter((check) => check.verdict === 'unread')
       .map(
         (check) =>
-          `about ${check.emails} ${LIMIT_WORDS[check.limit]}, but what ${org} has left today ` +
+          `about ${emailsOfLimit(check.emails, check.limit)}, but what ${org} has left today ` +
           `could not be read (${check.unread ?? 'not said'})`,
       ),
     ...(preview.blinded
@@ -366,7 +361,7 @@ export function seedEmailGate(
   const said = exceeding
     .map(
       (check) =>
-        `about ${check.emails} ${LIMIT_WORDS[check.limit]} (` +
+        `about ${emailsOfLimit(check.emails, check.limit)} (` +
         check.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join(', ') +
         `), ${check.remaining ?? 0} of ${check.max ?? 0} left today`,
     )

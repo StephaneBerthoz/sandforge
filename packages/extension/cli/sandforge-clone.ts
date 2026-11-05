@@ -56,7 +56,7 @@ import { join as joinPath, resolve as resolvePath, sep } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
-import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
+import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { runExitCode } from './exitCodes.js';
@@ -352,6 +352,7 @@ import type {
   RunCheckpointTaken,
 } from '@sandforge/shared';
 import {
+  OTHER_ORG,
   refusalOfSummary,
   refusedLine,
   refusedRemovalSummary,
@@ -899,9 +900,14 @@ Remove what a run created:
                          or as the org's Automated Process user; and what the
                          run's user created in the run's window, a second
                          before its first write to a minute after its last,
-                         tied to nothing of it. Records someone changed since
-                         stay, unless --include-changed. Runs alone when an
-                         earlier --remove took every record of the run
+                         tied to nothing of it.
+                         What anyone changed more than 2 s after the run's
+                         last write, and after its own creation, stays — the
+                         run's user and its automation too — unless
+                         --include-changed, and the sweep then ends partial,
+                         exit 3; a change made before the run's last write
+                         reads as unchanged. Runs alone when an earlier
+                         --remove took every record of the run
                                                                 (default: off)
   --sweep-late           with --sweep, take too what it lists as made late;
                          with --sweep-list, say what it would take
@@ -920,7 +926,9 @@ Remove what a run created:
                          tied to nothing, unless --sweep-untied; what came
                          more than 15 minutes after its record, or after the
                          removal began, which cannot be told from work done
-                         by hand; what someone changed since; what the
+                         by hand; what anyone changed after the run's last
+                         write, the run's own user included, unless
+                         --include-changed; what the
                          automation changed or deleted rather than created,
                          which a checkpoint taken before the run takes back;
                          what left the org (emails, outbound messages); more
@@ -934,7 +942,8 @@ Remove what a run created:
                          (PRODUCTION_TARGET), what fires as it deletes
                          (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
                          MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
-                         delete (UNDELETABLE_NOT_LEFT)
+                         delete (UNDELETABLE_NOT_LEFT), an org that is not the
+                         one the run wrote to (OTHER_ORG, its --preview too)
   --audit <file>         record the removal, and the sweep, in the audit trail
                          kept in <file>
 
@@ -4238,31 +4247,37 @@ function sweepNoteLines(listing: Pick<ForgeSweepListing, 'unread' | 'handWork'>)
 /** Objects named in one line at most; the rest are counted. */
 const OBJECTS_NAMED = 10;
 
-/** The command that relays this script's lines to whoever reads them, when one does. */
-function relayedBy(): string | undefined {
-  const by = process.env[RELAYED_BY_VARIABLE]?.trim();
-  return by === undefined || by === '' ? undefined : by;
+/**
+ * Why a run is refused past `--max-total`, and what narrows it: the options of
+ * this script's line. Relayed by a command that takes none of them — the MCP
+ * server's `clone_record`, an environment's apply, which gives each clone its
+ * dry run's count — they are this script's own: told "raise --max-total", an
+ * agent had no parameter to raise it with. Exported so it can be tested.
+ */
+export function maxTotalRefusal(rows: number, max: number): string {
+  if (relayTakes('--max-total')) {
+    return (
+      `The run would write ${rows} records, more than --max-total ${max}: narrow the clone ` +
+      '(--max, --exclude-object, --filter), or raise --max-total.'
+    );
+  }
+  return (
+    `The run would write ${rows} records, more than the ${max} ` +
+    `${ownOptionWords('--max-total')} holds it to: narrow the clone with this script's own ` +
+    '--max, --exclude-object or --filter, or raise its --max-total.'
+  );
 }
 
 /**
- * The options of a sweep a command that relays this script's lines takes
- * itself: `sandforge-env destroy --sweep`. The MCP server's `run_remove`
- * takes none.
- */
-const TAKEN_BY_THE_RELAY: ReadonlyMap<string, readonly string[]> = new Map([
-  ['sandforge-env', ['--sweep']],
-]);
-
-/**
  * An option of a sweep, as a line names it to whoever reads it: the option
- * itself on this script's own output, or relayed by a command that takes it;
- * relayed by a command whose line does not take it (`sandforge-env`, the MCP
- * server's `run_remove`), this script's own removal given it. Exported so it
- * can be tested.
+ * itself on this script's own output, or relayed by a command that takes it
+ * (`sandforge-env destroy`, its `--sweep`); relayed by a command whose line
+ * does not take it (an apply of `sandforge-env`, the MCP server's
+ * `run_remove`), this script's own removal given it. Exported so it can be
+ * tested.
  */
 export function sweepOptionWords(option: string): string {
-  const by = relayedBy();
-  if (by === undefined || TAKEN_BY_THE_RELAY.get(by)?.includes(option) === true) return option;
+  if (relayTakes(option)) return option;
   const sweep = option === '--sweep-list' || option === '--sweep' ? '' : '--sweep ';
   return `this script's own removal with ${sweep}${option}`;
 }
@@ -4575,7 +4590,7 @@ export function automationHeldLines(
     asked.sweep === true
       ? `${what}: the sweep left them — ${sweepOptionWords('--sweep-list')} says why; ` +
         `${sweepOptionWords('--sweep-late')} takes those it lists as late, --include-changed ` +
-        'those someone changed since'
+        "those changed after the run's last write"
       : `${what}: ${sweepOptionWords('--sweep')} takes them first ` +
         `(${sweepOptionWords('--sweep-list')} shows them)`,
   ];
@@ -5271,11 +5286,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   ) {
     const { conn, org } = await reach();
     if (read.summary.targetOrgId !== undefined && !sameRecord(read.summary.targetOrgId, org.id)) {
-      process.stderr.write(
-        `${args.target} is not the org the run wrote to (${read.summary.targetOrgId}), and its ` +
-          'records are removed from that org only. Nothing was deleted.\n',
-      );
-      process.exit(1);
+      refuseBeforeAnyRead(otherOrgRefusal(read.summary.targetOrgId));
     }
     const reconciled = await nodeRunJournal(journalDirOf()).reconcileAt(
       journalOfRun,
@@ -5454,11 +5465,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const refusal = args.sweepList ? undefined : productionRefusal(args.target, org, 'remove');
   if (refusal) endRefused({ code: 'PRODUCTION_TARGET', message: refusal });
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its records ` +
-        'are removed from that org only. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseBeforeAnyRead(otherOrgRefusal(summary.targetOrgId));
   }
   summary = await datedFromItsJournal(conn, summary);
 
@@ -5648,6 +5655,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
    */
   function endRefused(refused: RunRefusal): never {
     recordRemoval({ outcome: 'stopped', code: refused.code });
+    return refuseBeforeAnyRead(refused);
+  }
+
+  /**
+   * End the removal refused, its line and, with --json, stdout naming its
+   * code, with no entry in the audit trail: refused for another org than the
+   * one the run wrote to, it deleted nothing from either and reads nothing
+   * of the run. It said a sentence on stderr and left stdout empty.
+   */
+  function refuseBeforeAnyRead(refused: RunRefusal): never {
     process.stderr.write(`${refusedLine(refused)}\n`);
     if (args.json) {
       process.stdout.write(
@@ -5663,6 +5680,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
     }
     return process.exit(1);
+  }
+
+  /** Why the removal is refused when the org is not the one the run wrote to. */
+  function otherOrgRefusal(wroteTo: string): RunRefusal {
+    return {
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${wroteTo}), and its records are ` +
+        'removed from that org only. Nothing was deleted.',
+    };
   }
 
   async function checkTheAutomation(swept: readonly string[]): Promise<void> {
@@ -5696,7 +5723,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // The sets that keep it quiet, which --mute-automation assigns under a
       // lease: never a command assigning them by hand, with the user's name.
       assign: bypassesToAssign(automation, removalBypassesOf(automation, drafted)),
-      mayMute: removalMute === undefined,
+      // Relayed by a command that does not mute, the mute is not offered.
+      mayMute: removalMute === undefined && relayTakes('--mute-automation'),
     });
     if (automationStop && !args.acceptAutomation) {
       endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
@@ -5927,7 +5955,8 @@ export function clonePreviewLines(
  * stopped a removal looks for in the target first, not beside the summary;
  * and nothing is asked. A preview only reads, so a production org is read
  * and the refusal a removal would meet is said; an org that is not the one
- * the run wrote to is refused, exit 1, as the removal refuses it.
+ * the run wrote to is refused, exit 1, as the removal refuses it, under
+ * `OTHER_ORG`.
  *
  * With `--sweep`, what the sweep would take is listed as `--sweep-list` lists
  * it, and what fires as its records go is read with the run's own: previewed
@@ -6045,10 +6074,27 @@ async function previewRemoval(
   const conn = makeConn(session);
   const org = await typeOrg(conn);
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${summary.targetOrgId}): its records ` +
-        'are read in that org only. Nothing of the run was read.\n',
-    );
+    const refused = {
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${summary.targetOrgId}): its records ` +
+        'are read in that org only. Nothing of the run was read.',
+    };
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-clone',
+            action: 'remove-preview',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
     process.exit(1);
   }
   const refusals: RunRefusal[] = [];
@@ -6086,7 +6132,7 @@ async function previewRemoval(
   const automationStop = removalAutomationRefusal(automation, args.target, {
     drafted,
     assign: bypassesToAssign(automation, removalBypassesOf(automation, drafted)),
-    mayMute: !args.muteAutomation,
+    mayMute: !args.muteAutomation && relayTakes('--mute-automation'),
   });
   if (automationStop && !args.acceptAutomation) {
     refusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
@@ -7345,7 +7391,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         updated.map((object) => object.objectApiName),
       ),
     ),
-    mayMute: !muteAutomation,
+    // Relayed by a command that does not mute — an environment's apply —,
+    // the mute is not offered.
+    mayMute: !muteAutomation && relayTakes('--mute-automation'),
   });
   runAudit().automationRead({ automation: gated }, updated);
   if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
@@ -7373,7 +7421,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         target: args.target,
         run: 'clone',
         keepsAddresses: args.keepContactPoints,
-        mayMute: !muteAutomation,
+        mayMute: !muteAutomation && relayTakes('--mute-automation'),
       });
   if (emails?.gate.line !== undefined) say(`  ${emails.gate.line}`);
   runAudit().emailsRead(emails?.gate.audit);
@@ -7870,11 +7918,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
     const overTotal =
-      plan.totalRows > args.maxTotal
-        ? `The run would write ${plan.totalRows} records, more than --max-total ` +
-          `${args.maxTotal}: narrow the clone (--max, --exclude-object, --filter), or raise ` +
-          '--max-total.'
-        : undefined;
+      plan.totalRows > args.maxTotal ? maxTotalRefusal(plan.totalRows, args.maxTotal) : undefined;
     const overStorage = storageRefusal(check, args.target);
     // The checkpoint's refusal in the command's words, and the requests past
     // what the target has left, each said whatever else refuses the run.

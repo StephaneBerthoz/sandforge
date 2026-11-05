@@ -1009,6 +1009,35 @@ describe('what a run says before its first write', () => {
     ]);
   });
 
+  it('says one email of a limit in the singular', () => {
+    // A sync of one contact said "about 1 single emails".
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'Contact', rows: 1 }],
+        total: 1,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.002, maxMB: 5, remainingMB: 3 },
+        emails: [
+          {
+            limit: 'SingleEmail',
+            emails: 1,
+            verdict: 'exceeds',
+            remaining: 0,
+            max: 15,
+            objects: [{ objectApiName: 'Contact', perRecord: 1 }],
+          },
+        ],
+        verdict: 'asks',
+      },
+      'TRAP',
+    );
+
+    expect(lines).toContain(
+      '  emails: these records make TRAP send about 1 single email (1 per Contact), more than ' +
+        'the 0 of 15 it has left today',
+    );
+  });
+
   it('says the API requests the run takes, and each object the target takes none of', () => {
     const lines = writeCheckLines(
       {

@@ -48,6 +48,7 @@ import {
   automationUnreadOf,
   bypassAssistantSentences,
   bypassesToAssign,
+  emailsOfLimit,
   readEmailLimits,
   type EmailLimit,
   type LimitsTransport,
@@ -417,17 +418,11 @@ export function dataOpsAutomationRefusal(
   return parts.join(' ');
 }
 
-/** How each daily email limit is said. */
-const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
-
 /** What one limit's count says: the emails, per record of each object, and what is left. */
 function emailsWords(check: CheckpointEmails): string {
   const per = check.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join(', ');
   return (
-    `about ${check.emails} ${LIMIT_WORDS[check.limit]} (${per}` +
+    `about ${emailsOfLimit(check.emails, check.limit)} (${per}` +
     (check.alertsCounted
       ? '; its email alerts among them, as a Developer Edition counts them'
       : '') +

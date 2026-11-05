@@ -7,6 +7,7 @@
  * only what the org said of each.
  */
 
+import { ownOptionWords, relayTakes } from './relayWords.js';
 import type { RunRefusal } from './runRefused.js';
 
 /** The flag that lets a removal go on without the objects its user may not delete. */
@@ -19,7 +20,10 @@ export const UNDELETABLE_NOT_LEFT = 'UNDELETABLE_NOT_LEFT';
  * Why a removal stops before its first delete for `objects`, whose records
  * the user it runs as may not delete, under its code: the command ends on it
  * as on every refusal before a delete, its line and, with --json, stdout
- * naming the code. Said in two sentences of its own, it had none.
+ * naming the code. Said in two sentences of its own, it had none. Relayed by
+ * a command that does not take the flag, `sandforge-env`, the flag is this
+ * script's own: "run again with --leave-undeletable" named a flag the
+ * destroy refused.
  *
  * @param target - The org, as the command line was given it.
  */
@@ -28,12 +32,15 @@ export function undeletableRefusal(
   target: string,
 ): RunRefusal {
   const named = objects.map((o) => `${o.objectApiName} (${o.records} records)`).join(', ');
+  const run = relayTakes(LEAVE_UNDELETABLE_FLAG)
+    ? `run again with ${LEAVE_UNDELETABLE_FLAG}`
+    : `run ${ownOptionWords(LEAVE_UNDELETABLE_FLAG, 'removal')}`;
   return {
     code: UNDELETABLE_NOT_LEFT,
     message:
       `The user SandForge connects as may not delete the records of ${named} in ${target}. ` +
-      'Nothing was removed. Give that user Delete on those objects, or run again with ' +
-      `${LEAVE_UNDELETABLE_FLAG} to remove the rest and leave them.`,
+      `Nothing was removed. Give that user Delete on those objects, or ${run} to remove the ` +
+      'rest and leave them.',
   };
 }
 

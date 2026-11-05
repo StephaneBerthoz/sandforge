@@ -425,11 +425,17 @@ describe('sandforge-seed --remove --preview', () => {
     writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
     const exit = stubExit();
 
-    await expect(main(argv('--remove', file, '--target', 'OTHER', '--preview'))).rejects.toThrow(
-      'exit 1',
-    );
+    await expect(
+      main(argv('--remove', file, '--target', 'OTHER', '--preview', '--json')),
+    ).rejects.toThrow('exit 1');
 
-    expect(exit.stderr()).toContain('is not the org the run wrote to');
+    expect(exit.stderr()).toContain('refused (OTHER_ORG): OTHER is not the org the run wrote to');
+    // Its code with --json, which a pipeline reads: the sentence alone, and stdout empty.
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-seed',
+      action: 'remove-preview',
+      refused: { code: 'OTHER_ORG' },
+    });
     expect(org.requests).toBe(0);
   });
 

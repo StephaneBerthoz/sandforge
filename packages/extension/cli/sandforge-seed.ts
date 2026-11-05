@@ -99,9 +99,12 @@ import {
 import { loadOrg, makeConn } from './sfSession.js';
 import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { relayTakes } from './relayWords.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
 import {
+  OTHER_ORG,
+  RUN_WRITING,
   refusalOfSummary,
   refusedLine,
   refusedRemovalSummary,
@@ -392,7 +395,9 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          a real run would be refused (CODE): ... A run
                          refused before its first write prints "refused":
                          {"code", "message"} instead, the code its line
-                         names: refused (SEED_STORAGE_EXCEEDED): ...
+                         names: refused (SEED_STORAGE_EXCEEDED): ..., each
+                         other reason of its gate under "alsoRefused", on a
+                         line of its own, in the order of wouldBeRefused
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the org refused others            (default: off)
   --run-id <id>          the run's id, which names its file, its summary's
@@ -486,8 +491,13 @@ Remove what a run created:
                          Listed and kept: what is tied to the run but came
                          later, up to 15 minutes, or as the org's Automated
                          Process user; and what the run's user created in the
-                         window tied to nothing of the run. Records someone
-                         changed since stay, unless --include-changed
+                         window tied to nothing of the run.
+                         What anyone changed more than 2 s after the run's
+                         last write, and after its own creation, stays — the
+                         run's user and its automation too — unless
+                         --include-changed, and the sweep then ends partial,
+                         exit 3; a change made before the run's last write
+                         reads as unchanged
                                                            (default: off)
   --sweep-late           with --sweep, take too what it lists as made late;
                          with --sweep-list, say what it would take
@@ -503,9 +513,11 @@ Remove what a run created:
                          leaves: what another user created; what is tied to
                          nothing, unless --sweep-untied; what came more than
                          15 minutes after its record, or after the removal
-                         began; what someone changed since; what the
-                         automation changed rather than created; what left the
-                         org; and what the panel or another machine wrote
+                         began; what anyone changed after the run's last
+                         write, the run's own user included, unless
+                         --include-changed; what the automation changed
+                         rather than created; what left the org; and what the
+                         panel or another machine wrote
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
@@ -517,7 +529,9 @@ Remove what a run created:
                          (PRODUCTION_TARGET), what fires as it deletes
                          (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
                          MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
-                         delete (UNDELETABLE_NOT_LEFT)
+                         delete (UNDELETABLE_NOT_LEFT), an org that is not the
+                         one the run wrote to (OTHER_ORG), a run still writing
+                         (RUN_WRITING), each its --preview's too
 
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
@@ -2115,17 +2129,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    * names the code, and with --json the summary on stdout carries it, where a
    * CI job reads `.refused.code`. Refused for its storage, its checkpoint or
    * its mute, a seed said a sentence on stderr and left stdout empty.
+   *
+   * @param also - What else its gate refused it for, each on its line and
+   *   under `alsoRefused`, as Autopilot and a clone give them: refused for the
+   *   first alone, a CI job told of it was refused again for the next.
    */
-  const refuse = (refused: RunRefusal): never => {
+  const refuse = (refused: RunRefusal, also: readonly RunRefusal[] = []): never => {
     if (args.json) {
       process.stdout.write(
         refusedSummary(
           { tool: 'sandforge-seed', target: args.target, elapsedMs: Date.now() - t0 },
           refused,
+          also,
         ),
       );
     }
-    throw new Error(refusedLine(refused));
+    throw new Error([refused, ...also].map(refusedLine).join('\n'));
   };
   let mute: RunMute | undefined;
   /** Why a dry run's mute would be refused, said with the rest of its refusals. */
@@ -2136,9 +2155,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
     } catch (err: unknown) {
       if (!isMuteRefusedError(err)) throw err;
-      if (!args.dryRun) refuse(err.refusal);
+      // A real run is refused for it with the rest of its gate, below.
       muteRefused = err.refusal;
-      log(`  ${wouldBeRefusedLine(err.refusal)}`);
+      if (args.dryRun) log(`  ${wouldBeRefusedLine(err.refusal)}`);
     }
   }
   // What still runs of it once the mute's plan holds, nothing assigned, and
@@ -2174,12 +2193,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let checkpointPlanned: { ask: CommandCheckpointAsk; estimate: RunCheckpointEstimate } | undefined;
   /** Why a real run would be refused for its checkpoint, of a dry run. */
   const checkpointRefusals: RunRefusal[] = [];
-  /** Refuse a real run for its checkpoint, nothing written; a dry run says it would be. */
+  /** A real run's refusal for its checkpoint, nothing written; a dry run says it would be. */
   const refuseForCheckpoint = (refusal: string): void => {
     const refused = { code: CHECKPOINT_REFUSED, message: refusal };
-    if (!args.dryRun) refuse(refused);
     checkpointRefusals.push(refused);
-    log(`  ${wouldBeRefusedLine(refused)}`);
+    if (args.dryRun) log(`  ${wouldBeRefusedLine(refused)}`);
   };
   const writing = template.objects.filter((object) => object.recordCount > 0);
   if (checkpoints && writing.length > 0) {
@@ -2212,7 +2230,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     target: args.target,
     run: 'seed',
     keepsAddresses: true,
-    mayMute: args.muteAutomation !== true,
+    // Relayed by a command that does not mute — an environment's apply —,
+    // the mute is not offered.
+    mayMute: args.muteAutomation !== true && relayTakes('--mute-automation'),
   });
   const deliverabilityRequests = deliverabilityPartOf(emails.ofRun);
 
@@ -2234,11 +2254,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let fit: { applied: boolean; fit: SeedFit } | undefined;
   /** Why a real run would be refused for its fit, of a dry run. */
   let fitRefused: RunRefusal | undefined;
-  /** Refuse a real run for its fit, under its code; a dry run says it would be. */
+  /** A real run's refusal for its fit, under its code; a dry run says it would be. */
   const refuseForFit = (refused: RunRefusal): void => {
-    if (!args.dryRun) refuse(refused);
     fitRefused = refused;
-    log(`  ${wouldBeRefusedLine(refused)}`);
+    if (args.dryRun) log(`  ${wouldBeRefusedLine(refused)}`);
   };
   // Refused for its checkpoint, there is nothing to fit: no smaller seed
   // answers it.
@@ -2323,8 +2342,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       code: storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED,
       message: storage.refusal,
     };
-    if (!args.dryRun) refuse(storageRefused);
-    log(`  ${wouldBeRefusedLine(storageRefused)}`);
+    if (args.dryRun) log(`  ${wouldBeRefusedLine(storageRefused)}`);
   }
   // What the target runs as these records are created, and the emails they
   // make it send, before the first write: a seed of 75 contacts left a
@@ -2346,17 +2364,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     automation.gate.refusal !== undefined
       ? { code: SEED_EMAILS_EXCEEDED, message: automation.gate.refusal }
       : undefined;
-  if (emailsExceeded) {
-    if (!args.dryRun) refuse(emailsExceeded);
-    log(`  ${wouldBeRefusedLine(emailsExceeded)}`);
-  }
+  if (emailsExceeded && args.dryRun) log(`  ${wouldBeRefusedLine(emailsExceeded)}`);
   // The flag the answer a question would have had; `--accept-automation`,
   // which a seed's line does not take, never stands for it.
   const emailsStop = emails.gate.stop;
-  if (emailsStop) {
-    if (!args.dryRun) refuse(emailsStop);
-    log(`  ${wouldBeRefusedLine(emailsStop)}`);
-  }
+  if (emailsStop && args.dryRun) log(`  ${wouldBeRefusedLine(emailsStop)}`);
+  /**
+   * Every reason the gate refuses a real run for, each under its code, in the
+   * order a dry run says them, which is the order the gate meets them: a
+   * real run is refused for the first, the others under `alsoRefused`. It was
+   * refused for its first reason alone, and a CI job that answered it was
+   * refused again for the next. What a dry run says a real run would be
+   * refused for, as an environment's plan reads it, every refusal of the gate
+   * among them, as Sync's: its storage and its API requests were said under
+   * `storage.refusal` and `apiRequests.refusal` alone, and a pipeline reading
+   * `wouldBeRefused` took a seed past them for one that would write.
+   */
+  const gateRefusals: RunRefusal[] = [
+    ...(muteRefused !== undefined ? [muteRefused] : []),
+    ...checkpointRefusals,
+    ...(fitRefused !== undefined ? [fitRefused] : []),
+    ...(storageRefused !== undefined ? [storageRefused] : []),
+    ...(emailsExceeded !== undefined ? [emailsExceeded] : []),
+    ...(emailsStop ? [emailsStop] : []),
+  ];
+  const [gateRefused, ...alsoRefused] = gateRefusals;
+  if (!args.dryRun && gateRefused !== undefined) refuse(gateRefused, alsoRefused);
   log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
 
   // What the run creates, kept as it writes it in its file, as the panel's
@@ -2686,22 +2719,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const checkpointSaid = args.dryRun ? checkpointPlanned?.estimate : checkpointInfo;
   /** What a real run's records would be refused for, for their emails: past the day's, or delivered. */
   const emailRefusalSaid = automation.gate.refusal ?? emailsStop?.message;
-  /**
-   * What a dry run says a real run would be refused for, as an environment's
-   * plan reads it, every refusal of the gate among them, as Sync's: its
-   * storage and its API requests were said under `storage.refusal` and
-   * `apiRequests.refusal` alone, and a pipeline reading `wouldBeRefused` took
-   * a seed past them for one that would write. Each with the code a real
-   * run is refused with: the words alone, a pipeline could not tell them apart.
-   */
-  const wouldBeRefused: RunRefusal[] = [
-    ...(muteRefused !== undefined ? [muteRefused] : []),
-    ...checkpointRefusals,
-    ...(fitRefused !== undefined ? [fitRefused] : []),
-    ...(storageRefused !== undefined ? [storageRefused] : []),
-    ...(emailsExceeded !== undefined ? [emailsExceeded] : []),
-    ...(emailsStop ? [emailsStop] : []),
-  ];
+  /** Of a dry run: each with the code a real run is refused with, the words alone telling none apart. */
+  const wouldBeRefused = gateRefusals;
 
   if (args.json) {
     process.stdout.write(
@@ -3343,11 +3362,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // stopped: its open Bulk API job would be aborted mid-upload, and what it
   // goes on to create would never be offered for removal.
   if (writtenElsewhere(run)) {
-    process.stderr.write(
-      `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
-        'ended. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: RUN_WRITING,
+      message:
+        `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
+        'ended. Nothing was deleted.',
+    });
   }
   if (args.preview) return previewRemoval(args, subject, run, say, t0);
 
@@ -3418,11 +3438,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     subject.targetOrgId !== undefined &&
     subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
-        'created is removed from that org only. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
+        'created is removed from that org only. Nothing was deleted.',
+    });
   }
   // The Bulk API jobs the run's file names that no line of it answers: a run
   // killed, or ended by an error, while one ran. The job ran on to its end in
@@ -3538,8 +3559,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /**
    * End the removal refused before its first delete, as a refused run ends:
    * its line names its code, and with --json stdout carries it. Refused for
-   * a production org, what fires as it deletes, its mute or objects its user
-   * may not delete, it said a sentence on stderr and left stdout empty.
+   * a production org, what fires as it deletes, its mute, objects its user
+   * may not delete, another org than the run's or a run still writing, it
+   * said a sentence on stderr and left stdout empty. A preview refused for a
+   * run still writing is named the preview.
    */
   function refuseTheRemoval(refused: RunRefusal): never {
     process.stderr.write(`${refusedLine(refused)}\n`);
@@ -3548,6 +3571,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         refusedRemovalSummary(
           {
             tool: 'sandforge-seed',
+            ...(args.preview ? { action: 'remove-preview' as const } : {}),
             summary: args.summaryPath,
             target: args.target,
             elapsedMs: Date.now() - t0,
@@ -3588,7 +3612,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // The sets that keep it quiet, which --mute-automation assigns under a
       // lease: never a command assigning them by hand, with the user's name.
       assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
-      mayMute: removalMute === undefined,
+      // Relayed by a command that does not mute, the mute is not offered.
+      mayMute: removalMute === undefined && relayTakes('--mute-automation'),
     });
     if (automationStop && !args.acceptAutomation) {
       endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
@@ -3793,7 +3818,7 @@ export function removalPreviewLines(
  * the org, nor beside the summary or the run's file, and nothing is asked. A
  * preview only reads, so a production org is read and the refusal a removal
  * would meet is said; an org that is not the one the run wrote to is
- * refused, exit 1, as the removal refuses it.
+ * refused, exit 1, as the removal refuses it, under `OTHER_ORG`.
  *
  * With `--sweep`, what the sweep would take is listed as `--sweep-list` lists
  * it, and what fires as its records go is read with the run's own: previewed
@@ -3864,10 +3889,27 @@ async function previewRemoval(
     subject.targetOrgId !== undefined &&
     subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${subject.targetOrgId}): its records ` +
-        'are read in that org only. Nothing of the run was read.\n',
-    );
+    const refused = {
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${subject.targetOrgId}): its records ` +
+        'are read in that org only. Nothing of the run was read.',
+    };
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-seed',
+            action: 'remove-preview',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
     process.exit(1);
   }
   const refusals: RunRefusal[] = [];
@@ -3897,7 +3939,7 @@ async function previewRemoval(
   const automationStop = removalStepsAutomationRefusal(automation, args.target, {
     steps,
     assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
-    mayMute: !args.muteAutomation,
+    mayMute: !args.muteAutomation && relayTakes('--mute-automation'),
   });
   if (automationStop && !args.acceptAutomation) {
     refusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });

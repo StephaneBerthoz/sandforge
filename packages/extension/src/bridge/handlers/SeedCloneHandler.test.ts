@@ -2319,6 +2319,31 @@ describe('SeedCloneHandler', () => {
         ]);
       });
 
+      it('says one email in the singular as it refuses the clone of one contact', async () => {
+        developerEditionTarget(0);
+        handler.setTargetAutomation({ read: vi.fn(async () => contactFlow()) });
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+          alias: 'my-dev-org',
+          orgType: 'Developer',
+        } as never);
+        await previewContacts(1);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(posted(deps, 'operation:failed')).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              code: 'CLONE_EMAILS_EXCEEDED',
+              error: expect.stringContaining(
+                'would make my-dev-org send about 1 single email, 0 of 15 left today.',
+              ),
+            }),
+          }),
+        ]);
+      });
+
       it('refuses a clone past the API requests the target has left today, before anything is written', async () => {
         // Nothing compared them: a clone into an org whose integrations had
         // used the day's requests stopped part way through.

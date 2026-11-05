@@ -1421,11 +1421,21 @@ export function unreadEmailOf(
   return { limit: check.limit, emails: check.emails, unread: check.unread ?? '' };
 }
 
-/** How each daily email limit is said. */
-const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
+/** How each daily email limit is said, of one email and of more. */
+const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, { one: string; more: string }>> = {
+  SingleEmail: { one: 'single email', more: 'single emails' },
+  DailyWorkflowEmails: { one: 'workflow email', more: 'workflow emails' },
 };
+
+/**
+ * `emails` emails of a daily limit, as a line says them: "1 single email",
+ * "20 single emails". A clone's gate that counted one said "about 1 single
+ * emails", live, as a rewind's preview did.
+ */
+export function emailsOfLimit(emails: number, limit: ForgeEmailLimit): string {
+  const words = EMAIL_LIMIT_WORDS[limit];
+  return `${emails} ${emails === 1 ? words.one : words.more}`;
+}
 
 /** What a check says of the email alerts among its single emails, when they are. */
 function alertsWords(check: EmailCheck, org: string): string {
@@ -1446,7 +1456,7 @@ export function emailRefusal(checks: readonly EmailCheck[], org: string): string
   const said = over
     .map(
       (check) =>
-        `about ${check.emails} ${EMAIL_LIMIT_WORDS[check.limit]}` +
+        `about ${emailsOfLimit(check.emails, check.limit)}` +
         (check.alertsCounted
           ? ' (its email alerts among them, as a Developer Edition counts them)'
           : '') +
@@ -1464,7 +1474,6 @@ export function emailRefusal(checks: readonly EmailCheck[], org: string): string
 /** What the command's write gate says of the emails the rows make the target send. */
 export function emailCheckLines(checks: readonly EmailCheck[], org: string): string[] {
   return checks.map((check) => {
-    const words = EMAIL_LIMIT_WORDS[check.limit];
     const per = check.objects
       .map(
         (o) =>
@@ -1476,7 +1485,7 @@ export function emailCheckLines(checks: readonly EmailCheck[], org: string): str
       )
       .join('; ');
     const sent =
-      `  emails: these records make ${org} send about ${check.emails} ${words} (${per})` +
+      `  emails: these records make ${org} send about ${emailsOfLimit(check.emails, check.limit)} (${per})` +
       alertsWords(check, org);
     if (check.verdict === 'unread') {
       return `${sent}; what it has left today could not be read (${check.unread ?? ''})`;

@@ -556,6 +556,78 @@ export type SyncGateAnswer =
       emails?: RunEmailsSaid;
     };
 
+/** A reason the gate stops a run before its first write, as its answer carries it. */
+export type SyncGateStop = Omit<Extract<SyncGateAnswer, { go: false }>, 'go'>;
+
+/**
+ * Every reason the gate stops a measured run for before any question is put,
+ * in the order it meets them: an object the target takes none of, the
+ * checkpoint asked first, the data storage, the API requests, and, for a run
+ * nobody answers for, the emails past a daily limit and those the target
+ * delivers. {@link gateSyncWrite} stops the run with the first; the command
+ * line names each other one beside it. Stopped for the first alone, a run of
+ * the command line said one code, and a CI job that answered it was refused
+ * again for the next.
+ */
+export function syncGateStops(
+  measured: MeasuredSyncWrite,
+  input: { policy: SyncGatePolicy; org: string; emailsLiftedBy?: string },
+): SyncGateStop[] {
+  const { check, storage, emails, plan, api } = measured;
+  const stops: SyncGateStop[] = [];
+  // An object the target takes none of stops the run unless the user, asked,
+  // leaves it out: nobody watches a scheduled run or the command line, and a
+  // run with nothing else to write has nothing to go on with.
+  const unwritable = check.unwritable ?? [];
+  if (unwritable.length > 0 && (input.policy !== 'ask' || check.total === 0)) {
+    stops.push({
+      code: 'SYNC_TARGET_UNWRITABLE',
+      message: unwritableRefusal(unwritable, input.org, check.heldBack),
+    });
+  }
+  if (check.total === 0) return stops;
+  // The checkpoint asked first, refused at its scope or unread: the run is
+  // refused before its question, whoever answers for it, as the option
+  // promised a rewind the run could not then have.
+  if (measured.checkpointFailed !== undefined) {
+    stops.push({ code: CHECKPOINT_REFUSED, message: measured.checkpointFailed });
+  } else {
+    const refused = checkpointScopeStop(measured.checkpoint);
+    if (refused) stops.push(refused);
+  }
+  if (plan.totalRows > 0 && storage.verdict === 'exceeds') {
+    stops.push({
+      code: 'SYNC_STORAGE_EXCEEDED',
+      message:
+        `The records to write take about ${formatMB(storage.estimateMB)} MB of data storage, ` +
+        `and ${input.org} has ${storage.remainingMB} MB left of ${storage.maxMB} MB: leave ` +
+        `objects out, narrow their filters, or free data storage in ${input.org}. Nothing was ` +
+        'written.',
+    });
+  }
+  // Past the requests the target has left today, whoever answers for it: it
+  // would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED.
+  const overBudget = apiBudgetRefusal(api, input.org);
+  if (overBudget) stops.push({ code: API_BUDGET_EXCEEDED, message: overBudget });
+  if (input.policy !== 'ask') {
+    const over = emailRefusal(emails, input.org);
+    if (over) {
+      stops.push({ code: 'SYNC_EMAILS_EXCEEDED', message: `${over} Nothing was written.` });
+    }
+    // Past the limits no accord helps: said first, as what no flag lifts.
+    const emailsGate = measured.runEmails?.gate;
+    const stop = emailsGate?.stop;
+    if (stop) {
+      stops.push({
+        code: stop.code,
+        message: emailsRefusalWords(stop.message, 'sync', input.emailsLiftedBy),
+        ...runEmailsSaidOf(emailsGate, false),
+      });
+    }
+  }
+  return stops;
+}
+
 /**
  * Hold a measured run to its policy: see {@link SyncGatePolicy}.
  *
@@ -574,59 +646,15 @@ export async function gateSyncWrite(
     emailsLiftedBy?: string;
   },
 ): Promise<SyncGateAnswer> {
-  const { check, storage, emails, plan, api } = measured;
-  // An object the target takes none of stops the run unless the user, asked,
-  // leaves it out: nobody watches a scheduled run or the command line, and a
-  // run with nothing else to write has nothing to go on with.
-  const unwritable = check.unwritable ?? [];
-  if (unwritable.length > 0 && (input.policy !== 'ask' || check.total === 0)) {
-    return {
-      go: false,
-      code: 'SYNC_TARGET_UNWRITABLE',
-      message: unwritableRefusal(unwritable, input.org, check.heldBack),
-    };
-  }
+  const { check, storage, emails, api } = measured;
+  const [stop] = syncGateStops(measured, input);
+  if (stop) return { go: false, ...stop };
   if (check.total === 0) return { go: true, asked: false };
-  // The checkpoint asked first, refused at its scope or unread: the run is
-  // refused before its question, whoever answers for it, as the option
-  // promised a rewind the run could not then have.
-  if (measured.checkpointFailed !== undefined) {
-    return { go: false, code: CHECKPOINT_REFUSED, message: measured.checkpointFailed };
-  }
-  const refused = checkpointScopeStop(measured.checkpoint);
-  if (refused) return { go: false, ...refused };
-  if (plan.totalRows > 0 && storage.verdict === 'exceeds') {
-    return {
-      go: false,
-      code: 'SYNC_STORAGE_EXCEEDED',
-      message:
-        `The records to write take about ${formatMB(storage.estimateMB)} MB of data storage, ` +
-        `and ${input.org} has ${storage.remainingMB} MB left of ${storage.maxMB} MB: leave ` +
-        `objects out, narrow their filters, or free data storage in ${input.org}. Nothing was ` +
-        'written.',
-    };
-  }
-  // Past the requests the target has left today, whoever answers for it: it
-  // would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED.
-  const overBudget = apiBudgetRefusal(api, input.org);
-  if (overBudget) return { go: false, code: API_BUDGET_EXCEEDED, message: overBudget };
   const emailsGate = measured.runEmails?.gate;
   if (input.policy !== 'ask') {
-    const over = emailRefusal(emails, input.org);
-    if (over) {
-      return { go: false, code: 'SYNC_EMAILS_EXCEEDED', message: `${over} Nothing was written.` };
-    }
-    // Past the limits no accord helps: said first, as what no flag lifts.
-    const stop = emailsGate?.stop;
-    return stop
-      ? {
-          go: false,
-          code: stop.code,
-          message: emailsRefusalWords(stop.message, 'sync', input.emailsLiftedBy),
-          ...runEmailsSaidOf(emailsGate, false),
-        }
-      : { go: true, asked: false, ...runEmailsSaidOf(emailsGate, measured.emailsAccepted) };
+    return { go: true, asked: false, ...runEmailsSaidOf(emailsGate, measured.emailsAccepted) };
   }
+  const unwritable = check.unwritable ?? [];
   if (check.verdict === 'writes') {
     return { go: true, asked: false, ...runEmailsSaidOf(emailsGate, false) };
   }

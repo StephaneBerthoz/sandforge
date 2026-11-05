@@ -616,6 +616,17 @@ describe('what takes what a sweep kept, as a line relayed by sandforge-env says 
     ).toContain(
       ": --sweep takes them first (this script's own removal with --sweep-list shows them)",
     );
+
+    // Its apply does not: told the same, the removal of a run it replaced said
+    // "--sweep takes them first".
+    for (const relay of ['sandforge-env apply', 'sandforge-env, relayed by sandforge-mcp']) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(
+        automationHeldLines([{ heldByAutomation: 1, automationHolders: ['Task'] }], {
+          sweep: false,
+        })[0],
+      ).toContain(": this script's own removal with --sweep takes them first");
+    }
   });
 });
 

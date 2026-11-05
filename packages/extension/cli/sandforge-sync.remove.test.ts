@@ -490,12 +490,21 @@ describe('sandforge-sync --remove', () => {
         'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
         '--leave-undeletable to remove the rest and leave them.',
     ],
+    [
+      'another org than the one the run wrote to',
+      'OTHER_ORG',
+      'TGT is not the org the run wrote to (00D000000000002AAA), and what it created is ' +
+        'removed from that org only. Nothing was deleted.',
+    ],
   ])(
     'names the code of a removal refused for %s, on its line and with --json on stdout',
     async (_why, code, words) => {
       // Refused so, it said a sentence with no code on stderr and left stdout
       // empty: a CI job could not tell one refusal from another.
       if (code === 'PRODUCTION_TARGET') edition = 'Enterprise Edition';
+      if (code === 'OTHER_ORG') {
+        writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
+      }
       if (code === 'UNDELETABLE_NOT_LEFT') org.undeletable.add('Account');
       if (code === 'AUTOMATION_NOT_ACCEPTED') {
         automationRead.mockResolvedValueOnce({

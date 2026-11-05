@@ -151,9 +151,12 @@ import {
   type TypedTarget,
 } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { ownOptionWords, relayTakes } from './relayWords.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
 import {
+  OTHER_ORG,
+  RUN_WRITING,
   refusalOfSummary,
   refusedLine,
   refusedRemovalSummary,
@@ -205,6 +208,7 @@ import {
   EMAILS_NOT_ACCEPTED,
   bypassesToAssign,
   deliverabilityLineOf,
+  emailsOfLimit,
   formatMB,
   readApiBudget,
   readDataStorage,
@@ -221,10 +225,12 @@ import {
   gateSyncWrite,
   measureSyncWrite,
   mutingSyncWriteGate,
+  syncGateStops,
   syncRunWrites,
   takeSyncCheckpoint,
   unwritableRefusal,
   type SyncGateAnswer,
+  type SyncGateStop,
   type SyncWriteGate,
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
@@ -317,7 +323,11 @@ Options:
                          run (see SANDFORGE_JOURNAL_DIR). A dry run's names
                          under wouldBeRefused what a real run would be
                          refused for, the code of each under
-                         wouldBeRefusedCodes, as its line names it.
+                         wouldBeRefusedCodes, as its line names it. A real
+                         run refused before its first write prints
+                         "refused": {"code", "message"} instead, the code its
+                         line names: refused (CODE): ..., each other reason
+                         of its gate under "alsoRefused", on a line of its own.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the target refused others        (default: off)
   --mute-automation      mute the target's automation for the run through
@@ -439,8 +449,13 @@ Remove what a run created:
                          but came later, up to 15 minutes, or as the org's
                          Automated Process user; and what the run's user
                          created in the window tied to nothing of the run.
-                         Records someone changed since stay, unless
-                         --include-changed                  (default: off)
+                         What anyone changed more than 2 s after the run's
+                         last write, and after its own creation, stays — the
+                         run's user and its automation too — unless
+                         --include-changed, and the sweep then ends partial,
+                         exit 3; a change made before the run's last write
+                         reads as unchanged
+                                                           (default: off)
   --sweep-late           with --sweep, take too what it lists as made late;
                          with --sweep-list, say what it would take
   --sweep-untied         with --sweep, take too what it lists as tied to
@@ -456,9 +471,11 @@ Remove what a run created:
                          leaves: what another user created; what is tied to
                          nothing, unless --sweep-untied; what came more than
                          15 minutes after its record, or after the removal
-                         began; what someone changed since; what the
-                         automation changed rather than created; what left the
-                         org; and what the panel or another machine wrote
+                         began; what anyone changed after the run's last
+                         write, the run's own user included, unless
+                         --include-changed; what the automation changed
+                         rather than created; what left the org; and what the
+                         panel or another machine wrote
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
@@ -470,7 +487,9 @@ Remove what a run created:
                          (PRODUCTION_TARGET), what fires as it writes
                          (AUTOMATION_NOT_ACCEPTED), its mute (MUTE_PRODUCTION,
                          MUTE_NO_RIGHT, MUTE_FAILED), objects its user may not
-                         delete (UNDELETABLE_NOT_LEFT)
+                         delete (UNDELETABLE_NOT_LEFT), an org that is not the
+                         one the run wrote to (OTHER_ORG), a run still writing
+                         (RUN_WRITING)
 
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
@@ -1046,12 +1065,6 @@ export function inTheCommandsWords(answer: SyncGateAnswer): SyncGateAnswer {
   };
 }
 
-/** How each daily email limit is said. */
-const EMAIL_LIMIT_WORDS: Readonly<Record<SyncWriteCheck['emails'][number]['limit'], string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
-
 /** Why the target takes none of an object's records, as the command says it. */
 const UNWRITABLE_WORDS: Readonly<
   Record<NonNullable<SyncWriteCheck['unwritable']>[number]['why'], string>
@@ -1115,8 +1128,8 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   for (const email of check.emails) {
     const per = email.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join('; ');
     const sent =
-      `  emails: these records make ${target} send about ${email.emails} ` +
-      `${EMAIL_LIMIT_WORDS[email.limit]} (${per})` +
+      `  emails: these records make ${target} send about ` +
+      `${emailsOfLimit(email.emails, email.limit)} (${per})` +
       (email.alertsCounted
         ? ', its email alerts among them, as a Developer Edition counts them'
         : '');
@@ -2049,18 +2062,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    * API requests or emails left today: the lines said it, `wouldBeRefused`
    * did not, and a pipeline that read it went on to a run refused.
    */
-  let gateRefused: RunRefusal | undefined;
+  let gateRefused: RunRefusal[] = [];
+  /**
+   * What refused a real run at its gate beside the reason it is refused with,
+   * each under its own code, in the order the gate meets them: given under
+   * `alsoRefused`, each on its line, as a clone and Autopilot give them.
+   * Refused for its mute, the run is refused for each reason of its gate
+   * beside it. The first code alone, a CI job that answered it was refused
+   * again for the next.
+   */
+  let alsoRefusedAtGate: RunRefusal[] = [];
+  /** A reason of the gate, in the command's words: the checkpoint's, its flag. */
+  const commandWords = (stop: SyncGateStop): RunRefusal => {
+    const said = inTheCommandsWords({ go: false, ...stop });
+    return said.go ? stop : { code: said.code, message: said.message };
+  };
   const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
     measure: async (counted) => {
       const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       checkpointFailed = measured.checkpointFailed;
       emailsRefused = measured.runEmails?.gate.stop;
-      // Asked as a real run's hold asks it.
-      const answer = await gateSyncWrite(measured, { policy: 'refuse', org: args.target, orgTier });
-      gateRefused =
-        !answer.go && !SAID_APART.has(answer.code)
-          ? { code: answer.code, message: answer.message }
-          : undefined;
+      // Asked as a real run's hold asks it, every reason it would be refused for.
+      const stops = syncGateStops(measured, { policy: 'refuse', org: args.target });
+      gateRefused = stops
+        .filter((stop) => !SAID_APART.has(stop.code))
+        .map(({ code, message }) => ({ code, message }));
+      // Measured for a real run its mute refused: every reason of its gate
+      // refuses it too.
+      if (!args.dryRun) alsoRefusedAtGate = stops.map(commandWords);
       return measured.check;
     },
     hold: async (counted) => {
@@ -2076,6 +2105,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         org: args.target,
         orgTier,
       });
+      const [first, ...others] = syncGateStops(measured, { policy: 'refuse', org: args.target });
+      alsoRefusedAtGate = !answer.go && first?.code === answer.code ? others.map(commandWords) : [];
       // Taken once the gate let the run through, the flags the answer a
       // question would have had, and before the mute's lease: refused, it
       // refuses the run with nothing assigned and nothing written.
@@ -2331,7 +2362,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       checkpointRefused !== undefined
         ? { code: CHECKPOINT_REFUSED, message: checkpointRefused }
         : undefined,
-      gateRefused,
+      ...gateRefused,
       emailsRefused,
     ].filter((reason): reason is RunRefusal => reason !== undefined);
     const elapsed = Date.now() - t0;
@@ -2420,6 +2451,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     // Stopped while it took the checkpoint first, it ends as a stopped run ends.
     const stopped = err.code === RUN_CANCELLED;
+    const also = stopped ? [] : alsoRefusedAtGate;
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -2429,6 +2461,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             target: args.target,
             dryRun: false,
             refused: { code: err.code, message: err.message },
+            ...(also.length > 0 ? { alsoRefused: also } : {}),
             ...(gateCheck ? { writeCheck: gateCheck } : {}),
             ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
             elapsedMs: Date.now() - t0,
@@ -2438,7 +2471,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      log(stopped ? `\n${err.message}` : `\n${refusedLine(err)}`);
+      log(stopped ? `\n${err.message}` : `\n${[err, ...also].map(refusedLine).join('\n')}`);
     }
     process.exit(stopped ? stopExitCode(interrupted ?? 'SIGINT') : 1);
   } finally {
@@ -3252,11 +3285,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // stopped: its open Bulk API job would be aborted mid-upload, and what it
   // goes on to create would never be offered for removal.
   if (writtenElsewhere(run)) {
-    process.stderr.write(
-      `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
-        'ended. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: RUN_WRITING,
+      message:
+        `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
+        'ended. Nothing was deleted.',
+    });
   }
 
   /** What the sweep found, said before its first delete: what it took, and what it listed and kept. */
@@ -3344,11 +3378,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     subject.targetOrgId !== undefined &&
     subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
-        'created is removed from that org only. Nothing was deleted.\n',
-    );
-    process.exit(1);
+    refuseTheRemoval({
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
+        'created is removed from that org only. Nothing was deleted.',
+    });
   }
   // The Bulk API jobs the run's file names that no line of it answers: a
   // run killed, or ended by an error, while one ran. The job ran on to its
@@ -3580,8 +3615,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /**
    * End the removal refused before its first write, as a refused run ends:
    * its line names its code, and with --json stdout carries it. Refused for a
-   * production org, what fires as it writes, its mute or objects its user may
-   * not delete, it said a sentence on stderr and left stdout empty.
+   * production org, what fires as it writes, its mute, objects its user may
+   * not delete, another org than the run's or a run still writing, it said a
+   * sentence on stderr and left stdout empty.
    */
   function refuseTheRemoval(refused: RunRefusal): never {
     process.stderr.write(`${refusedLine(refused)}\n`);
@@ -3632,7 +3668,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // The sets that keep it quiet, which --mute-automation assigns under a
       // lease: never a command assigning them by hand, with the user's name.
       assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, steps)),
-      mayMute: removalMute === undefined,
+      // Relayed by a command that does not mute, the mute is not offered.
+      mayMute: removalMute === undefined && relayTakes('--mute-automation'),
     });
     if (automationStop && !args.acceptAutomation) {
       endRefused({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
@@ -3737,8 +3774,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(
       `The run was of the saved configuration ${subject.configId}, and its store was not given: ` +
         'its next delta run is not told what this removal took, and a later run may point a ' +
-        'lookup at a record it deleted. Give --store with the next removal, or run the ' +
-        'configuration full next time.\n',
+        `lookup at a record it deleted. Give ${ownOptionWords('--store')} with the next ` +
+        'removal, or run the configuration full next time.\n',
     );
   }
   const { readWhole, filesForgotten } = outcome.result;

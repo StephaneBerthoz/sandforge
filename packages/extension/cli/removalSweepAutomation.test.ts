@@ -352,6 +352,21 @@ describe.each(COMMANDS)('$name --remove --sweep', ({ name, main, summary }) => {
     expect(org.deletes).toEqual([]);
   });
 
+  it('offers no mute to the reader of an environment, which never mutes a removal', async () => {
+    // Relayed by sandforge-env, the refusal said "With --mute-automation, the
+    // removal assigns ...", a flag neither its destroy nor its file takes.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env');
+    try {
+      expect(await remove('--sweep')).toBe(1);
+
+      expect(stderr).toContain('refused (AUTOMATION_NOT_ACCEPTED): ');
+      expect(stderr).not.toContain('--mute-automation');
+      expect(org.deletes).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('says which records its user may not delete before it assigns anything, and assigns nothing once it stops there', async () => {
     // Taken before the question, the lease held the sets assigned while it
     // stayed open, for nothing once it was answered no.

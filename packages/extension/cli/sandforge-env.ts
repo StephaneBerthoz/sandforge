@@ -503,19 +503,35 @@ export interface CliArgs {
 }
 
 /**
- * How an environment runs its steps: each script in a process of its own,
- * told that its lines are relayed by this command, whose reader cannot give
- * it the options a script's own advice names. Relayed itself, by the MCP
- * server, it tells them that server relays them: told this command did, a
- * removal under env_destroy, which takes no sweep, said "--sweep takes them
- * first". Exported so it can be tested.
+ * The command a script an environment runs is told relays its lines: what of
+ * a script's advice that reader can give. A destroy takes `--sweep` and hands
+ * it on (`sandforge-env`); an apply and a plan take no sweep, and told the
+ * same, a removal an apply's replace runs said "--sweep takes them first".
+ * Relayed itself, by the MCP server, it names both: the server's env tools
+ * hand this command no sweep, and no mute, which the server's own seed_run
+ * and run_remove take. Told the server alone relayed it, a removal under
+ * env_destroy said "With --mute-automation, …". Exported so it can be tested.
+ *
+ * @param outer - The command that relays this one, when one does.
  */
-export function envStepRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
-  const outer = process.env[RELAYED_BY_VARIABLE]?.trim();
-  return spawnRunner({ ...options, relayedBy: outer ? outer : 'sandforge-env' });
+export function envRelayOf(command: Command, outer: string | undefined): string {
+  const self = command === 'destroy' ? 'sandforge-env' : `sandforge-env ${command}`;
+  return outer !== undefined && outer !== '' ? `${self}, relayed by ${outer}` : self;
 }
 
-const ENV_STEP_RUNNER = envStepRunner();
+/**
+ * How an environment runs its steps: each script in a process of its own,
+ * told that its lines are relayed by this command ({@link envRelayOf}),
+ * whose reader cannot give it the options a script's own advice names.
+ * Exported so it can be tested.
+ */
+export function envStepRunner(
+  options: Omit<SpawnOptions, 'relayedBy'> = {},
+  command: Command = 'destroy',
+): CommandRunner {
+  const outer = process.env[RELAYED_BY_VARIABLE]?.trim();
+  return spawnRunner({ ...options, relayedBy: envRelayOf(command, outer) });
+}
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
 function refuseLine(line: string): never {
@@ -936,7 +952,7 @@ async function prepare(
     state,
     warnings,
     ...(noState !== undefined ? { noState } : {}),
-    runner: deps.runner ?? ENV_STEP_RUNNER,
+    runner: deps.runner ?? envStepRunner({}, args.command),
   };
 }
 

@@ -410,12 +410,21 @@ describe('sandforge-seed --remove', () => {
         'TGT. Nothing was removed. Give that user Delete on those objects, or run again with ' +
         '--leave-undeletable to remove the rest and leave them.',
     ],
+    [
+      'another org than the one the run wrote to',
+      'OTHER_ORG',
+      'TGT is not the org the run wrote to (00D000000000002AAA), and what it created is ' +
+        'removed from that org only. Nothing was deleted.',
+    ],
   ])(
     'names the code of a removal refused for %s, on its line and with --json on stdout',
     async (_why, code, words) => {
       // Refused so, it said a sentence with no code on stderr and left stdout
       // empty: a CI job could not tell one refusal from another.
       if (code === 'PRODUCTION_TARGET') edition = 'Enterprise Edition';
+      if (code === 'OTHER_ORG') {
+        writeFileSync(file, JSON.stringify(summary({ targetOrgId: '00D000000000002AAA' })));
+      }
       if (code === 'UNDELETABLE_NOT_LEFT') org.undeletable.add('Account');
       if (code === 'AUTOMATION_NOT_ACCEPTED') {
         automationRead.mockResolvedValueOnce({
@@ -1047,6 +1056,63 @@ describe('sandforge-seed --remove', () => {
     expect(org.deletes).toEqual([]);
     expect(stdout).toContain('Task');
     expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
+  });
+
+  it('refuses a run another process is still writing under its code, its preview too, deleting nothing', async () => {
+    // Refused so, it said a sentence with no code on stderr and left stdout
+    // empty, its preview as well.
+    const runs = join(dir, 'journal', 'seed-runs');
+    mkdirSync(runs, { recursive: true });
+    const runFile = join(runs, 'sandforge-seed-writing.ndjson');
+    const now = new Date().toISOString();
+    writeFileSync(
+      runFile,
+      [
+        {
+          run: {
+            runId: 'sandforge-seed-writing',
+            configId: 'sandforge-seed',
+            configName: 'sandforge-seed',
+            sourceOrgId: 'TGT',
+            targetOrgId: 'TGT',
+            targetOrganizationId: ORG_ID,
+            startedAt: now,
+            writer: { pid: process.ppid, hostStartedAt: now },
+          },
+        },
+        { object: 'Account', created: [A1], at: now },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join('\n') + '\n',
+    );
+    vi.mocked(makeConn).mockClear();
+    const exit = stubExit();
+
+    await expect(main(argv('--remove', runFile, '--target', 'TGT', '--json'))).rejects.toThrow(
+      'exit 1',
+    );
+
+    expect(exit.stderr()).toContain(
+      `refused (RUN_WRITING): The run is still writing, in process ${process.ppid}: remove it ` +
+        'once it has ended. Nothing was deleted.',
+    );
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-seed',
+      action: 'remove',
+      refused: { code: 'RUN_WRITING' },
+    });
+
+    stdout = '';
+    await expect(
+      main(argv('--remove', runFile, '--target', 'TGT', '--preview', '--json')),
+    ).rejects.toThrow('exit 1');
+    expect(JSON.parse(stdout)).toMatchObject({
+      tool: 'sandforge-seed',
+      action: 'remove-preview',
+      refused: { code: 'RUN_WRITING' },
+    });
+    expect(org.deletes).toEqual([]);
+    expect(makeConn).not.toHaveBeenCalled();
   });
 
   it('refuses an org that is not the one the run wrote to', async () => {
