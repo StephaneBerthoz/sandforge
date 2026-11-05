@@ -5584,8 +5584,8 @@
         "action": "The card now shows the load as the sas holds it."
       },
       "recordTypeLabel": {
-        "explanation": "The dataset's {{object}} records name their record type “{{name}}” by its label, which {{recordTypes}} share in the source org: which one each record had cannot be told, and nothing was written.",
-        "action": "Give one of them another label in the source org, then click Run extraction again."
+        "explanation": "The dataset's {{object}} records name their record type “{{name}}” by its label alone (they were extracted before SandForge kept each record's record type by its name), and {{recordTypes}} share that label in the source org: which one each record had cannot be told, and nothing was written.",
+        "action": "Click Run extraction again: a dataset extracted now keeps each record's record type by its name."
       },
       "recordTypeNamespace": {
         "explanation": "The dataset names the {{object}} record type {{name}} without its namespace (it was extracted before SandForge read namespaces), and {{recordTypes}} carry that name in the target org: which one is meant cannot be told, and nothing was written.",

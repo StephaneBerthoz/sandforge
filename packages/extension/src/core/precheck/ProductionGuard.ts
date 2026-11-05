@@ -464,6 +464,14 @@ export interface ProductionGuardOptions {
    * absent, there is nobody to ask, and {@link confirmRun} says so.
    */
   requestRunConfirmation?: (question: RunConfirmation) => Promise<boolean>;
+  /**
+   * Why {@link requestConfirmation} answers no for a tier without asking
+   * anyone, when it does: a command line's, for a production org. Undefined
+   * for a tier someone would be asked about, or let through. What a preview,
+   * which asks nothing, says a run there would be answered
+   * ({@link declinedWithoutAsking}).
+   */
+  declinesWithoutAsking?: (orgTier: SafetyTier) => string | undefined;
 }
 
 /**
@@ -605,6 +613,19 @@ export class ProductionGuard {
     return result.question === undefined
       ? this.options.requestConfirmation(result.impactSummary, orgTier)
       : this.options.requestConfirmation(result.impactSummary, orgTier, result.question);
+  }
+
+  /**
+   * Why the confirmation `result` needs would be answered no without anyone
+   * asked — the answer {@link ProductionGuardOptions.declinesWithoutAsking}
+   * gives its tier —, or undefined when it needs none, is given its answer
+   * beforehand, or would be put to someone. Asks nothing: what a preview says
+   * a run would meet.
+   */
+  declinedWithoutAsking(result: SafetyCheckResult, orgTier: SafetyTier): string | undefined {
+    if (!result.allowed || !result.requiresConfirmation || liveAnswer()) return undefined;
+    if (!this.options.requestConfirmation) return undefined;
+    return this.options.declinesWithoutAsking?.(orgTier);
   }
 
   /**

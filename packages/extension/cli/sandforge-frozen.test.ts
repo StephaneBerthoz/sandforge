@@ -1554,6 +1554,40 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('says of the contact roles it reused those the platform wrote with their opportunity', () => {
+    // Inserted beside the platform's, the source's role left the opportunity
+    // two of one contact; linked, the line said "1 reused" and no more.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [
+            {
+              objectApiName: 'OpportunityContactRole',
+              fromFiles: 2,
+              inserted: 1,
+              reused: 1,
+              writtenByThePlatform: 1,
+              skippedDuplicates: [],
+              failed: [],
+            },
+          ],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+        },
+      },
+    });
+
+    expect(lines[1]).toBe(
+      '  OpportunityContactRole: 1 inserted, 1 reused (1 written by the platform with their ' +
+        'opportunity, for its contact), 0 duplicate(s), 0 failed of 2',
+    );
+  });
+
   it('names each field the target refused records on that went in written again, with what refused it', () => {
     // The Load tab said them, and the command said none: a record in the
     // target short of a value the dataset held read as one written whole.
@@ -1978,6 +2012,8 @@ describe('refusedFirstOf', () => {
     for (const code of [
       'AUTOMATION_NOT_ACCEPTED',
       'GUARD_BLOCKED',
+      // Its question answered no, as the removal's preview says it.
+      'GUARD_DECLINED',
       'MUTE_NO_RIGHT',
       'MUTE_FAILED',
     ]) {

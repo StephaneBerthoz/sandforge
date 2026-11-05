@@ -5584,8 +5584,8 @@
         "action": "Die Karte zeigt den Ladevorgang jetzt so, wie der sas ihn festhält."
       },
       "recordTypeLabel": {
-        "explanation": "Die {{object}}-Datensätze des Datasets nennen ihren Datensatztyp „{{name}}“ nach seiner Bezeichnung, die {{recordTypes}} in der Quell-Org teilen: Welchen jeder Datensatz hatte, lässt sich nicht sagen, und nichts wurde geschrieben.",
-        "action": "Geben Sie einem von ihnen in der Quell-Org eine andere Bezeichnung und klicken Sie dann erneut auf Extraktion starten."
+        "explanation": "Die {{object}}-Datensätze des Datasets nennen ihren Datensatztyp „{{name}}“ nur nach seiner Bezeichnung (sie wurden extrahiert, bevor SandForge für jeden Datensatz den Namen seines Datensatztyps behielt), und {{recordTypes}} teilen diese Bezeichnung in der Quell-Org: Welchen jeder Datensatz hatte, lässt sich nicht sagen, und nichts wurde geschrieben.",
+        "action": "Klicken Sie erneut auf Extraktion starten: Ein jetzt extrahiertes Dataset behält für jeden Datensatz den Namen seines Datensatztyps."
       },
       "recordTypeNamespace": {
         "explanation": "Das Dataset nennt den {{object}}-Datensatztyp {{name}} ohne seinen Namespace (es wurde extrahiert, bevor SandForge Namespaces las), und {{recordTypes}} tragen diesen Namen in der Ziel-Org: Welcher gemeint ist, lässt sich nicht sagen, und nichts wurde geschrieben.",

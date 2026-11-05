@@ -297,10 +297,13 @@ describe('frozenErrorWords', () => {
           aliasOf,
         ),
       ).toBe(
-        "The dataset's Account records name their record type “Retail” by its label, which " +
-          'acme__Retail, Retail share in the source org: which one each record had cannot be ' +
-          'told, and nothing was written. Give one of them another label in the source org, ' +
-          'then click Run extraction again.',
+        // A dataset extracted now keeps each record's record type by its name,
+        // and loads where two share the label: the refusal is an old dataset's.
+        "The dataset's Account records name their record type “Retail” by its label alone " +
+          "(they were extracted before SandForge kept each record's record type by its name), " +
+          'and acme__Retail, Retail share that label in the source org: which one each record ' +
+          'had cannot be told, and nothing was written. Click Run extraction again: a dataset ' +
+          "extracted now keeps each record's record type by its name.",
       );
       expect(
         frozenErrorWords(

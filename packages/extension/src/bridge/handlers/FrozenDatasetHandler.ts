@@ -4123,6 +4123,10 @@ export class FrozenDatasetHandler implements DomainHandler {
    * load for, asked without a confirmation, under the code the removal is
    * refused with: nothing for a sandbox or a Developer Edition org, the
    * delete of a production org refused, and without the guard, everything.
+   * A delete it would ask about, of a production org whose override lets it
+   * through, is declined where the question is answered no without anyone
+   * asked — a command line's —, as the removal then ends `GUARD_DECLINED`:
+   * the preview said nothing of it.
    */
   private removalGuardRefusals(
     orgId: string,
@@ -4130,20 +4134,32 @@ export class FrozenDatasetHandler implements DomainHandler {
   ): Array<{ code: string; message: string }> {
     const productionGuard = this.deps.infraServices?.productionGuard;
     if (!productionGuard) return [{ ...PRODUCTION_GUARD_MISSING }];
+    const orgTier = this.targetTier(orgId);
     const check = productionGuard.check({
       orgId,
-      orgTier: this.targetTier(orgId),
+      orgTier,
       operation: 'delete',
       objectName: 'the records a Frozen load created',
       recordCount: planned,
       module: 'frozen',
     });
-    return check.allowed
+    if (!check.allowed) {
+      return [
+        {
+          code: 'GUARD_BLOCKED',
+          message: `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        },
+      ];
+    }
+    const declined = productionGuard.declinedWithoutAsking(check, orgTier);
+    return declined === undefined
       ? []
       : [
           {
-            code: 'GUARD_BLOCKED',
-            message: `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+            code: 'GUARD_DECLINED',
+            message:
+              `Production Guard asks before this delete, and its question is answered no: ` +
+              `${declined} (${check.impactSummary}). Nothing would be deleted.`,
           },
         ];
   }

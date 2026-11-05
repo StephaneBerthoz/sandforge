@@ -7,7 +7,7 @@ import type { BaseMessage, FrozenProjectConfig, FrozenRemovalPreview } from '@sa
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
-import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ProductionGuard, type SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
@@ -27,6 +27,26 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
+
+/**
+ * The guard a command line hands the handler (`commandLineGuard`): its
+ * question answered no for a production org, said on the command's output,
+ * yes for any other.
+ */
+function commandLineGuard(log: (line: string) => void, orgLabel: string): ProductionGuard {
+  const declines = (tier: SafetyTier): string | undefined =>
+    tier === 'production'
+      ? `${orgLabel} is taken for a production org, and this command writes to none`
+      : undefined;
+  return new ProductionGuard({
+    requestConfirmation: async (impactSummary, tier) => {
+      const why = declines(tier);
+      if (why !== undefined) log(`refused: ${why} (${impactSummary})`);
+      return why === undefined;
+    },
+    declinesWithoutAsking: declines,
+  });
+}
 
 /** A fake record id: the object's prefix, then a counter. */
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -312,6 +332,53 @@ describe('frozen:remove:preview', () => {
     expect(preview()?.refusalCodes).toEqual(['GUARD_BLOCKED']);
     expect(confirm).not.toHaveBeenCalled();
     expect(org.writes).toEqual([]);
+  });
+
+  it('says the command line declines the delete of a production org its override lets through, as the removal then does', async () => {
+    // The preview said nothing, and the removal it previewed ended
+    // GUARD_DECLINED: the command line answers no for a production org.
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+      orgType: 'Production',
+      alias: 'PROD',
+    } as never);
+    const lines: string[] = [];
+    const guard = commandLineGuard((line) => lines.push(line), 'PROD');
+    guard.setProductionOverride(TARGET_ORG, true);
+    deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];
+
+    await askPreview();
+
+    expect(preview()?.refusalCodes).toEqual(['GUARD_DECLINED']);
+    expect(preview()?.refusals).toEqual([
+      expect.stringMatching(
+        /^Production Guard asks before this delete, and its question is answered no: PROD is taken for a production org, and this command writes to none \(DELETE 3 .*\)\. Nothing would be deleted\.$/,
+      ),
+    ]);
+    // Nothing asked: the command line's answer is not printed by a preview.
+    expect(lines).toEqual([]);
+    expect(org.writes).toEqual([]);
+
+    await handler.handle(
+      buildMsg('frozen:remove', { targetOrgId: TARGET_ORG, loadedAt: LOAD_ENDED }),
+    );
+
+    expect(errorsOn('frozen:remove:error').map((e) => e.code)).toEqual(['GUARD_DECLINED']);
+    expect(org.writes).toEqual([]);
+  });
+
+  it('says nothing of a delete a Staging sandbox asks about, which the command line lets through', async () => {
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+      orgType: 'Sandbox',
+      alias: 'UAT',
+      staging: true,
+    } as never);
+    deps.infraServices = {
+      productionGuard: commandLineGuard(() => undefined, 'UAT'),
+    } as unknown as HandlerDeps['infraServices'];
+
+    await askPreview();
+
+    expect(preview()?.refusals).toEqual([]);
   });
 });
 

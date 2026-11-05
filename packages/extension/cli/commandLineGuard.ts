@@ -16,14 +16,18 @@ import { ProductionGuard, type SafetyTier } from '../src/core/precheck/Productio
  * @param orgLabel - The alias the command writes to, as its user typed it.
  */
 export function commandLineGuard(log: (line: string) => void, orgLabel: string): ProductionGuard {
+  // Said by the answer, and by a preview that asks nothing of what it would be.
+  const declines = (tier: SafetyTier): string | undefined =>
+    tier === 'production'
+      ? `${orgLabel} is taken for a production org, and this command writes to none`
+      : undefined;
   return new ProductionGuard({
     requestConfirmation: (impactSummary: string, tier: SafetyTier): Promise<boolean> => {
-      if (tier !== 'production') return Promise.resolve(true);
-      log(
-        `refused: ${orgLabel} is taken for a production org, and this command writes to none ` +
-          `(${impactSummary})`,
-      );
+      const why = declines(tier);
+      if (why === undefined) return Promise.resolve(true);
+      log(`refused: ${why} (${impactSummary})`);
       return Promise.resolve(false);
     },
+    declinesWithoutAsking: declines,
   });
 }

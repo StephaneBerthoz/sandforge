@@ -91,7 +91,9 @@ import {
 } from '../../core/metadata/recordTypeGiven.js';
 import {
   ambiguousRecordTypeReason,
+  findRecordTypeByName,
   qualifiedRecordTypeName,
+  type RecordTypeNameParts,
 } from '../../core/metadata/recordTypeNames.js';
 import {
   addWrittenWithoutFields,
@@ -103,13 +105,16 @@ import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
   CONTACT,
+  CONTACT_FIELD,
   DELETED_PAST_DRAFT,
   EMAIL_MESSAGE,
   NATURAL_KEYS,
+  OPPORTUNITY_CONTACT_ROLE,
   PERSON_CONTACT_FIELD,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   TASK,
+  contactRolesOf,
   draftStartOf,
   emailOnACase,
   emailWriteEdges,
@@ -121,7 +126,9 @@ import {
   leftToThePlatformNote,
   lookupsThePlatformFills,
   personContactsOfAccounts,
+  platformRolesOf,
   recordsByNaturalKey,
+  rolesThePlatformWrites,
   standardPriceIds,
   statusCategories,
   type LeftToThePlatform,
@@ -130,6 +137,7 @@ import {
   tasksWrittenWithEmails,
   waitsForItsTask,
   withTheRelationItIs,
+  writtenWithWords,
   type AccountKind,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
@@ -150,6 +158,7 @@ import type { FrozenManifest } from './manifest.js';
 import type {
   FrozenDataset,
   FrozenRecord,
+  FrozenRecordTypeRef,
   LoadCreatedRecords,
   LoadJournal,
   PersonContactLink,
@@ -364,9 +373,10 @@ export type FrozenLoadGateOptions = Pick<
 
 /**
  * Two record types of an object the dataset cannot tell apart: one label the
- * source gave two of them (`label`), or a name a dataset extracted without
- * namespaces gives two of the target's (`namespace`), each named as the
- * refusal names it. What the panel words the refusal from.
+ * source gave two of them, in a dataset whose records kept no name of their
+ * record type (`label`), or a name a dataset extracted without namespaces
+ * gives two of the target's (`namespace`), each named as the refusal names
+ * it. What the panel words the refusal from.
  */
 export interface RecordTypesUntold {
   reason: 'label' | 'namespace';
@@ -675,6 +685,11 @@ function recordsGivenAType(
   return entries;
 }
 
+/** A dataset's record type by its namespace and DeveloperName, as `findRecordTypeByName` reads one. */
+function partsOfRef(ref: FrozenRecordTypeRef): RecordTypeNameParts {
+  return { namespacePrefix: ref.namespacePrefix, developerName: ref.developerName };
+}
+
 /**
  * What the target gives a record whose record type was dropped, as an issue
  * says it: the type by name, and why that one.
@@ -727,6 +742,9 @@ interface PendingFk {
   /** referenceId carried by the FK at pass 1. */
   targetReferenceId: string;
 }
+
+/** The object a contact role is of, whose insert with its contact writes one. */
+const OPPORTUNITY = 'Opportunity';
 
 /** Synthetic mapping key prefix for placeholder records. */
 const PLACEHOLDER_KEY_PREFIX = 'placeholder:';
@@ -2777,6 +2795,22 @@ export class FrozenDatasetLoader {
           fixedAtInsert.get(objectApiName) ?? new Set(),
         );
       }
+      /** The contact roles linked to the one the platform wrote with their opportunity. */
+      let rolesThePlatformWrote = 0;
+      if (objectApiName === OPPORTUNITY_CONTACT_ROLE) {
+        const roles = await this.matchContactRolesWrittenWithOpportunities(options, {
+          working,
+          aligned,
+          refIndex,
+          mapping,
+          reused,
+          withTheirRecord,
+          pendingFk,
+          fixedAtInsert: fixedAtInsert.get(objectApiName) ?? new Set(),
+        });
+        rolesThePlatformWrote = roles.linked;
+        flagsNotKept = roles.note;
+      }
       const lifecycle = STATUS_LIFECYCLES[objectApiName];
       let startingRecords = lifecycle
         ? await this.startAsDrafts(orgId, objectApiName, lifecycle, rows, deferredStatuses)
@@ -2896,6 +2930,9 @@ export class FrozenDatasetLoader {
       endTheObjectWritten = undefined;
       if (objectApiName === CONTACT) settleTheContactsSent();
       objectResult = withPersonContacts(objectResult);
+      if (rolesThePlatformWrote > 0) {
+        objectResult = { ...objectResult, writtenByThePlatform: rolesThePlatformWrote };
+      }
       /*
        * Stopped at the email object — before its insert, or before a call of
        * it — the load stops once its line is said, before the task object's
@@ -4313,7 +4350,16 @@ export class FrozenDatasetLoader {
       delete fields.RecordTypeId;
       return { referenceId: record.referenceId, fields };
     }
-    const refs = (dataset.recordTypes[objectApiName] ?? []).filter((rt) => rt.name === rtName);
+    // By the name the record kept of its record type, where it kept one: the
+    // label alone two of the object can share. A dataset extracted before
+    // the name was kept has the label alone.
+    const types = dataset.recordTypes[objectApiName] ?? [];
+    const named =
+      record.recordTypeDeveloperName === undefined
+        ? undefined
+        : findRecordTypeByName(record.recordTypeDeveloperName, types, partsOfRef);
+    const refs =
+      named && 'found' in named ? [named.found] : types.filter((rt) => rt.name === rtName);
     const ref = refs[0];
     if (!ref) {
       delete fields.RecordTypeId;
@@ -4326,8 +4372,9 @@ export class FrozenDatasetLoader {
       });
       return { referenceId: record.referenceId, fields };
     }
-    // A record carries its record type's label: two of the object under one
-    // label — a package's and the org's own — leave nothing to tell which.
+    // A record that kept no name of its record type has its label: two of the
+    // object under one label — a package's and the org's own — leave nothing
+    // to tell which. A dataset extracted now keeps the name.
     if (refs.length > 1) {
       const sharing = refs.map((rt) =>
         qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName),
@@ -4335,8 +4382,9 @@ export class FrozenDatasetLoader {
       throw new LoadConfigError(
         `The dataset's ${objectApiName} records name record type "${rtName}" by its label, ` +
           `which ${sharing.join(' and ')} ` +
-          `share in the source: which one each record had cannot be told. Give one of them ` +
-          `another label in the source org and extract the dataset again.`,
+          `share in the source: which one each record had cannot be told, the dataset having ` +
+          `been extracted before SandForge kept each record's record type by its name. Extract ` +
+          `the dataset again. Nothing was written.`,
         undefined,
         { reason: 'label', objectApiName, name: rtName, recordTypes: sharing },
       );
@@ -4983,6 +5031,150 @@ export class FrozenDatasetLoader {
       reused.add(task);
       withTheirRecord.set(task, email.key);
     }
+  }
+
+  /**
+   * Link each contact role of the dataset the platform wrote itself as it
+   * took an opportunity this load wrote with its contact, to the role it
+   * wrote (`rolesThePlatformWrites`), as a clone links it.
+   *
+   * An opportunity inserted with its `ContactId` is given by the platform a
+   * contact role of that contact, primary, with no role. The dataset carries
+   * the source's role of that contact: inserted beside the platform's, the
+   * opportunity held the contact's role twice where the source held it once.
+   * So the platform's is looked up by its opportunity and its contact, mapped
+   * and counted as reused, kept in `withTheirRecord` with its opportunity,
+   * which the platform deletes it with, and given by an update the fields of
+   * the source's role it lacks — its role, which the platform leaves empty —
+   * where the target lets them be updated. A field an update cannot set, or
+   * one the target refuses, stays as the platform wrote it, and the object's
+   * line says so; the role stays linked either way. A lookup of the role at
+   * a record not written yet is owed to pass 2, as on a role inserted. A role
+   * the platform did not write — its opportunity went in without the
+   * contact, or was not this load's — is inserted as any other.
+   *
+   * @returns How many roles were linked, and what the object's line says of them.
+   */
+  private async matchContactRolesWrittenWithOpportunities(
+    options: FrozenLoadOptions,
+    turn: {
+      working: FrozenDataset;
+      aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>;
+      refIndex: ReadonlyMap<string, string>;
+      mapping: Map<string, string>;
+      reused: Set<string>;
+      withTheirRecord: Map<string, string>;
+      pendingFk: PendingFk[];
+      /** The role's fields no update can set, as the target describes it. */
+      fixedAtInsert: ReadonlySet<string>;
+    },
+  ): Promise<{ linked: number; note?: string }> {
+    const { aligned, refIndex, mapping, reused } = turn;
+    const idOf = (value: unknown): string | undefined =>
+      typeof value === 'string' ? mapping.get(value) : undefined;
+    /** The contact each opportunity this load wrote went in with, both in the target's ids. */
+    const contactOf = new Map<string, string>();
+    for (const opportunity of turn.working.objects.find((o) => o.objectApiName === OPPORTUNITY)
+      ?.records ?? []) {
+      const id = mapping.get(opportunity.referenceId);
+      const contact = idOf(opportunity.fields[CONTACT_FIELD]);
+      if (id && contact && !reused.has(opportunity.referenceId)) contactOf.set(id, contact);
+    }
+    if (contactOf.size === 0) return { linked: 0 };
+    // Compared in the target's ids, which the platform's role names: ids
+    // match on their first fifteen characters, which two referenceIds of one
+    // object can share (`Opportunity-000001`, `Opportunity-000002`).
+    const rows = aligned.map((r) => ({
+      OpportunityId: idOf(r.fields.OpportunityId),
+      [CONTACT_FIELD]: idOf(r.fields[CONTACT_FIELD]),
+      IsPrimary: r.fields.IsPrimary,
+    }));
+    const chosen = rolesThePlatformWrites(rows, (opportunity) => contactOf.get(opportunity)).filter(
+      (index) => !reused.has(aligned[index].referenceId),
+    );
+    if (chosen.length === 0) return { linked: 0 };
+
+    /** The fields of a row the platform's role is given, the lookups in the target's ids; the rest owed. */
+    const givenOf = (
+      row: (typeof aligned)[number],
+    ): { fields: Record<string, unknown>; owed: PendingFk[] } => {
+      const fields: Record<string, unknown> = {};
+      const owed: PendingFk[] = [];
+      for (const [field, value] of Object.entries(row.fields)) {
+        if (field === 'OpportunityId' || field === CONTACT_FIELD) continue;
+        if (turn.fixedAtInsert.has(field)) continue;
+        if (value === '' || value === null || value === undefined) continue;
+        if (typeof value === 'string' && refIndex.has(value)) {
+          const id = mapping.get(value);
+          if (id) fields[field] = id;
+          else {
+            owed.push({
+              objectApiName: OPPORTUNITY_CONTACT_ROLE,
+              referenceId: row.referenceId,
+              field,
+              targetReferenceId: value,
+            });
+          }
+        } else fields[field] = value;
+      }
+      return { fields, owed };
+    };
+    const paired = new Map(
+      chosen.map((index) => [
+        index,
+        {
+          opportunity: String(rows[index].OpportunityId),
+          contact: String(rows[index][CONTACT_FIELD]),
+        },
+      ]),
+    );
+    const asked = [
+      ...new Set(chosen.flatMap((index) => Object.keys(givenOf(aligned[index]).fields))),
+    ];
+    const held = await contactRolesOf(
+      (soql) => this.deps.orgAccess.query(options.orgId, soql),
+      [...new Set([...paired.values()].map(({ opportunity }) => opportunity))],
+      asked,
+    );
+    const records = platformRolesOf(paired, held);
+    if (records.size === 0) return { linked: 0 };
+
+    const updates: Array<Record<string, unknown> & { Id: string }> = [];
+    for (const [index, record] of records) {
+      const row = aligned[index];
+      const id = String(record.Id);
+      mapping.set(row.referenceId, id);
+      reused.add(row.referenceId);
+      turn.withTheirRecord.set(row.referenceId, String(row.fields.OpportunityId));
+      const { fields, owed } = givenOf(row);
+      turn.pendingFk.push(...owed);
+      const lacking = Object.entries(fields).filter(
+        ([field, value]) => String(record[field] ?? '') !== String(value),
+      );
+      if (lacking.length > 0) updates.push({ Id: id, ...Object.fromEntries(lacking) });
+    }
+    const linked = records.size;
+    const written = `${linked} written by the platform with ${writtenWithWords(OPPORTUNITY_CONTACT_ROLE)}`;
+    if (updates.length === 0) return { linked, note: written };
+    const without = (count: number, why: string): string =>
+      `${written}, ${count} of them left as it wrote ${count === 1 ? 'it' : 'them'}, without the ` +
+      `fields of the source's role: ${why}`;
+    if (options.signal?.aborted) {
+      return { linked, note: without(updates.length, 'the load was cancelled before the update') };
+    }
+    await this.checkGuard(options, 'update', OPPORTUNITY_CONTACT_ROLE, updates.length);
+    const outcomes = await this.deps.writer.update(
+      options.orgId,
+      OPPORTUNITY_CONTACT_ROLE,
+      updates,
+    );
+    const refused = updates.flatMap((_update, at) => {
+      const outcome = outcomes[at];
+      if (outcome?.success) return [];
+      return [outcome ? outcome.errors.join('; ') || 'refused' : 'no answer came for it'];
+    });
+    if (refused.length === 0) return { linked, note: written };
+    return { linked, note: without(refused.length, refused[0]) };
   }
 
   /**

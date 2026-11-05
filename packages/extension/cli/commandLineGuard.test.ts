@@ -25,6 +25,28 @@ describe('commandLineGuard', () => {
     expect(lines[0]).toMatch(/^refused: MY-ALIAS is taken for a production org/);
   });
 
+  it('says, asking nothing, why it declines what it would answer no, as a preview reads it', async () => {
+    // A removal's preview asks nothing: it said nothing of the delete of a
+    // production org its override lets through, which the removal then
+    // ended declined.
+    const lines: string[] = [];
+    const guard = commandLineGuard((line) => lines.push(line), 'MY-ALIAS');
+    guard.setProductionOverride('org-001', true);
+    const production = guard.check(request({ orgTier: 'production', operation: 'delete' }));
+    const staging = guard.check(request({ orgTier: 'staging', operation: 'delete' }));
+
+    expect(guard.declinedWithoutAsking(production, 'production')).toBe(
+      'MY-ALIAS is taken for a production org, and this command writes to none',
+    );
+    expect(guard.declinedWithoutAsking(staging, 'staging')).toBeUndefined();
+    expect(lines).toEqual([]);
+    // What it says it declines, it declines.
+    await expect(guard.confirmIfNeeded(production, 'production')).resolves.toBe(false);
+    expect(lines[0]).toBe(
+      `refused: MY-ALIAS is taken for a production org, and this command writes to none (${production.impactSummary})`,
+    );
+  });
+
   it('lets a non-production write through, as the command asks its own question', async () => {
     const lines: string[] = [];
     const guard = commandLineGuard((line) => lines.push(line), 'MY-ALIAS');

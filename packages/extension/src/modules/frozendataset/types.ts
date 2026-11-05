@@ -116,6 +116,16 @@ export interface FrozenRecord {
    * record's `referenceId`; `RecordTypeId` carries the RecordType Name.
    */
   fields: Record<string, unknown>;
+  /**
+   * The record type the record had in the source, as metadata names it:
+   * `ns__Retail` for package `ns`'s, `Retail` for the org's own. What the load
+   * resolves it by: the label `RecordTypeId` carries is one two record types
+   * of an object can share — a package's and the org's own — and then says
+   * nothing of which the record had. Absent from a record on Master, of an
+   * object with no record type, and from a dataset extracted before it was
+   * kept, whose label is then all there is.
+   */
+  recordTypeDeveloperName?: string;
 }
 
 /** Pseudonymized records for one object. */

@@ -150,6 +150,7 @@ import {
   worstExit,
 } from './exitCodes.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { writtenWithWords } from '../src/core/common/platformRecords.js';
 import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
 import {
@@ -1045,8 +1046,9 @@ const MUTE_REFUSED_CODES = ['MUTE_PRODUCTION', 'MUTE_NO_RIGHT', 'MUTE_FAILED'] a
  * The codes the handler refuses a step with before its first write, by each
  * step's error: a load for its emails, its mute, what fires as its sweep
  * deletes or no Production Guard; a removal for what fires as it deletes, its
- * mute or Production Guard. Any other code of the same error may come after
- * records were written, or deleted.
+ * mute or Production Guard — its refusal, or its question answered no, which
+ * the removal's preview says under the same code. Any other code of the same
+ * error may come after records were written, or deleted.
  */
 const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
@@ -1064,6 +1066,7 @@ const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     new Set([
       'AUTOMATION_NOT_ACCEPTED',
       'GUARD_BLOCKED',
+      'GUARD_DECLINED',
       'PRODUCTION_GUARD_MISSING',
       ...MUTE_REFUSED_CODES,
     ]),
@@ -1351,6 +1354,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
           fromFiles: number;
           inserted: number;
           reused: number;
+          writtenByThePlatform?: number;
           skippedDuplicates: unknown[];
           failed: Array<{ errors?: string[]; error?: string }>;
           writtenWithoutFields?: {
@@ -1401,9 +1405,15 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       }
       lines.push(...maybeMasksLines(r.alignment.removals, 'left'));
       for (const o of r.perObject) {
+        // Linked to what the platform wrote with a record the load inserted
+        // — a contact's role, with its opportunity — rather than sent beside it.
+        const platform = o.writtenByThePlatform ?? 0;
         lines.push(
-          `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused, ` +
-            `${o.skippedDuplicates.length} duplicate(s), ${o.failed.length} failed of ${o.fromFiles}`,
+          `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused` +
+            (platform > 0
+              ? ` (${platform} written by the platform with ${writtenWithWords(o.objectApiName)})`
+              : '') +
+            `, ${o.skippedDuplicates.length} duplicate(s), ${o.failed.length} failed of ${o.fromFiles}`,
         );
         const first = o.failed[0];
         if (first) lines.push(`      first refusal: ${first.errors?.[0] ?? first.error ?? '?'}`);

@@ -5584,8 +5584,8 @@
         "action": "La carte montre maintenant le chargement tel que le sas le garde."
       },
       "recordTypeLabel": {
-        "explanation": "Les enregistrements {{object}} du jeu de données nomment leur type d'enregistrement « {{name}} » par son libellé, que {{recordTypes}} partagent dans l'org source : on ne peut pas savoir lequel avait chaque enregistrement, et rien n'a été écrit.",
-        "action": "Donnez à l'un d'eux un autre libellé dans l'org source, puis cliquez de nouveau sur Lancer l'extraction."
+        "explanation": "Les enregistrements {{object}} du jeu de données nomment leur type d'enregistrement « {{name}} » par son seul libellé (ils ont été extraits avant que SandForge garde le nom du type d'enregistrement de chaque enregistrement), et {{recordTypes}} partagent ce libellé dans l'org source : on ne peut pas savoir lequel avait chaque enregistrement, et rien n'a été écrit.",
+        "action": "Cliquez de nouveau sur Lancer l'extraction : un jeu de données extrait maintenant garde le nom du type d'enregistrement de chaque enregistrement."
       },
       "recordTypeNamespace": {
         "explanation": "Le jeu de données nomme le type d'enregistrement {{object}} {{name}} sans son espace de noms (il a été extrait avant que SandForge lise les espaces de noms), et {{recordTypes}} portent ce nom dans l'org cible : on ne peut pas savoir lequel est visé, et rien n'a été écrit.",

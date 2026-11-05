@@ -5584,8 +5584,8 @@
         "action": "O cartão mostra agora a carga como o sas a guarda."
       },
       "recordTypeLabel": {
-        "explanation": "Os registros {{object}} do dataset nomeiam seu tipo de registro “{{name}}” pelo rótulo, que {{recordTypes}} compartilham na org de origem: não dá para saber qual cada registro tinha, e nada foi gravado.",
-        "action": "Dê a um deles outro rótulo na org de origem e clique de novo em Executar extração."
+        "explanation": "Os registros {{object}} do dataset nomeiam seu tipo de registro “{{name}}” apenas pelo rótulo (foram extraídos antes de o SandForge guardar o nome do tipo de registro de cada registro), e {{recordTypes}} compartilham esse rótulo na org de origem: não dá para saber qual cada registro tinha, e nada foi gravado.",
+        "action": "Clique de novo em Executar extração: um dataset extraído agora guarda o nome do tipo de registro de cada registro."
       },
       "recordTypeNamespace": {
         "explanation": "O dataset nomeia o tipo de registro {{object}} {{name}} sem seu namespace (ele foi extraído antes de o SandForge ler namespaces), e {{recordTypes}} têm esse nome na org de destino: não dá para saber qual é, e nada foi gravado.",

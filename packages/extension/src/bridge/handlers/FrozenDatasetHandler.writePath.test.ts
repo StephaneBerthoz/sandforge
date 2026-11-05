@@ -10,7 +10,7 @@ import type {
   RunCheckpointEstimate,
   RunCheckpointTaken,
 } from '@sandforge/shared';
-import { buildFrozenManifest } from '../../modules/frozendataset/index.js';
+import { buildFrozenManifest, FrozenDatasetWriter } from '../../modules/frozendataset/index.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -25,6 +25,8 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { muteForRun } from '../../modules/forge/AutomationMuteLease.js';
+import type { MutedAutomation } from '@sandforge/shared';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -33,6 +35,11 @@ vi.mock('../../logger.js', () => ({
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
+
+vi.mock('../../modules/forge/AutomationMuteLease.js', async (original) => {
+  const actual = await original<typeof import('../../modules/forge/AutomationMuteLease.js')>();
+  return { ...actual, muteForRun: vi.fn(actual.muteForRun) };
+});
 
 /** The writes of the load, through the writer the handler builds: all that is not real here. */
 const written = vi.hoisted(() => ({ insert: vi.fn() }));
@@ -93,6 +100,28 @@ const ACCOUNT_FLOW: ForgeTargetAutomation = {
   conditionsBound: 25,
   requests: 4,
 };
+
+/** What the target runs on the accounts: a flow that emails each, quiet under the same bypass. */
+const ACCOUNT_EMAIL_FLOW: ForgeTargetAutomation = {
+  ...ACCOUNT_FLOW,
+  objects: [
+    {
+      objectApiName: 'Account',
+      flows: [
+        {
+          apiName: 'Account_Welcome_Email',
+          label: 'Account welcome email',
+          timing: 'afterSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [{ name: 'Load_Data', bypass: true }],
+          messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+} as unknown as ForgeTargetAutomation;
 
 /** What the target runs as an account is deleted, under the same bypass. */
 const ACCOUNT_DELETE_FLOW: ForgeTargetAutomation = {
@@ -489,6 +518,177 @@ describe('frozen:load, its write path through the real loader', () => {
       rows: 2,
       why: { masterInSource: 1, dropped: 1 },
       predicted: { developerName: 'SFX_Retail', basis: 'onlyOneOpen' },
+    });
+  });
+
+  it('loads a dataset written to disk with each record’s record type by its name, where two share a label', async () => {
+    // Two Account record types under one label, a package's and the org's
+    // own: named by their label alone in the dataset, the load was refused.
+    const PACKAGED_ID = '012C1000000000CAAA';
+    const OWN_ID = '012C1000000000DAAA';
+    const sasDir = tempDir('sandforge-frozen-rt-names-');
+    const manifest = buildFrozenManifest({
+      version: '1.2.0',
+      source: { orgId: '00D000000000002AAA', decisionDate: '2026-09-01' },
+      saltFingerprint: 'abcdef012345',
+      rulesVersion: '1.0.0',
+      volumetry: { budgetMax: 100, measured: {}, measuredAt: '2026-09-01T00:00:00.000Z' },
+      nonReidentification: {
+        passed: true,
+        checks: [],
+        author: 'qa',
+        checkedAt: '2026-09-01T00:00:00.000Z',
+      },
+      author: 'qa',
+    });
+    await new FrozenDatasetWriter().write(
+      path.join(sasDir, 'dataset'),
+      {
+        datasetVersion: '1.2.0',
+        objects: [
+          {
+            objectApiName: 'Account',
+            records: [
+              {
+                referenceId: 'A1',
+                fields: { Name: 'A1', RecordTypeId: 'Retail' },
+                recordTypeDeveloperName: 'ns__Retail',
+              },
+              {
+                referenceId: 'A2',
+                fields: { Name: 'A2', RecordTypeId: 'Retail' },
+                recordTypeDeveloperName: 'Retail',
+              },
+            ],
+          },
+        ],
+        recordTypes: {
+          Account: [
+            { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+            { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          ],
+        },
+        personContactSidecar: [],
+      },
+      manifest,
+      { passed: true, checks: [], author: 'qa', checkedAt: '2026-09-01T00:00:00.000Z' },
+    );
+    store.set(
+      'frozen:config',
+      { rootObject: 'Account', axes: [], edgeCases: [], budgetMaxRecords: 2500, sasDir },
+      'frozen',
+    );
+    const { connection } = target();
+    const answered = connection.query.getMockImplementation();
+    connection.query.mockImplementation(async (soql: string) =>
+      / FROM RecordType\b/.test(soql) && soql.includes("DeveloperName = 'Retail'")
+        ? {
+            totalSize: 2,
+            done: true,
+            records: [
+              { Id: PACKAGED_ID, DeveloperName: 'Retail', NamespacePrefix: 'ns' },
+              { Id: OWN_ID, DeveloperName: 'Retail', NamespacePrefix: null },
+            ],
+          }
+        : answered?.(soql),
+    );
+
+    await load({});
+
+    expect(posted('frozen:load:error')).toEqual([]);
+    const [, , rows] = written.insert.mock.calls[0] as [
+      string,
+      string,
+      Array<Record<string, unknown>>,
+    ];
+    expect(rows.map((row) => row.RecordTypeId)).toEqual([PACKAGED_ID, OWN_ID]);
+  });
+
+  describe('a lease that does not hold the sets its plan said', () => {
+    /**
+     * The mute planned as the run plans it, its lease read back holding none
+     * of its sets — taken meanwhile by another run's lease, as the lease
+     * reads it back —, each end of it in `calls`.
+     */
+    function shortLease(): void {
+      vi.mocked(muteForRun).mockImplementationOnce(async (org, read, options) => {
+        const { muteForRun: actual } = await vi.importActual<
+          typeof import('../../modules/forge/AutomationMuteLease.js')
+        >('../../modules/forge/AutomationMuteLease.js');
+        const planned = await actual(org, read, options);
+        const held: MutedAutomation = { ...planned.muted, state: 'muted', assigned: [] };
+        return {
+          ...planned,
+          ...(planned.prepared
+            ? {
+                prepared: {
+                  ...planned.prepared,
+                  acquire: async () => {
+                    calls.push('assignment insert');
+                    return {
+                      outcome: held,
+                      release: async () => {
+                        calls.push('assignment delete');
+                        return { ...held, released: true };
+                      },
+                    };
+                  },
+                },
+              }
+            : {}),
+        };
+      });
+    }
+
+    it('refuses the load before its first write, the lease given back, when what it left running emails', async () => {
+      // What the sets were to keep quiet ran as the load wrote, and sent its
+      // emails: the gate had counted them muted, and asked nothing.
+      handler.setTargetAutomation({ read: vi.fn(async () => ACCOUNT_EMAIL_FLOW) });
+      target();
+      shortLease();
+
+      await load({ muteAutomation: true });
+
+      expect(written.insert).not.toHaveBeenCalled();
+      expect(calls.filter((call) => call.startsWith('assignment'))).toEqual([
+        'assignment insert',
+        'assignment delete',
+      ]);
+      const error = posted('frozen:load:error')[0]?.payload;
+      expect(error?.code).toBe('EMAILS_NOT_ACCEPTED');
+      expect(String(error?.message)).toContain(
+        "The mute's lease does not hold every permission set it was to assign",
+      );
+      expect(String(error?.message)).toContain('Account welcome email');
+      expect(String(error?.message)).toContain('Nothing was written.');
+      expect(trail()[0]).toMatchObject({
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'EMAILS_NOT_ACCEPTED' }),
+      });
+      expect(
+        writePathOrderDefects([
+          'reads',
+          'leasePlan',
+          'stillRunning',
+          'question',
+          'leaseAcquire',
+          'afterLeaseCheck',
+          'leaseRelease',
+        ]),
+      ).toEqual([]);
+    });
+
+    it('loads when the emails were accepted, under what the lease holds', async () => {
+      handler.setTargetAutomation({ read: vi.fn(async () => ACCOUNT_EMAIL_FLOW) });
+      target();
+      shortLease();
+
+      await load({ muteAutomation: true, acceptEmails: true });
+
+      expect(posted('frozen:load:error')).toEqual([]);
+      expect(written.insert).toHaveBeenCalled();
+      expect(calls.indexOf('assignment insert')).toBeLessThan(calls.indexOf('write'));
+      expect(calls.indexOf('write')).toBeLessThan(calls.indexOf('assignment delete'));
     });
   });
 

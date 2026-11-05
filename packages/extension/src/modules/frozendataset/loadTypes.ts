@@ -430,6 +430,13 @@ export interface PerObjectLoadResult {
    * that ran to its end.
    */
   notInserted?: number;
+  /**
+   * Of the records reused, those the platform wrote itself with a record the
+   * load inserted — a contact's role, written with the opportunity it went in
+   * with — and the load linked to rather than sent beside them. Absent when
+   * there was none.
+   */
+  writtenByThePlatform?: number;
 }
 
 /** Purge accounting for reload mode (children before parents). */

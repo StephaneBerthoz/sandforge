@@ -5584,8 +5584,8 @@
         "action": "La tarjeta muestra ahora la carga tal como la guarda el sas."
       },
       "recordTypeLabel": {
-        "explanation": "Los registros {{object}} del dataset nombran su tipo de registro «{{name}}» por su etiqueta, que {{recordTypes}} comparten en la org de origen: no se puede saber cuál tenía cada registro, y no se escribió nada.",
-        "action": "Dé a uno de ellos otra etiqueta en la org de origen y haga clic de nuevo en Ejecutar extracción."
+        "explanation": "Los registros {{object}} del dataset nombran su tipo de registro «{{name}}» solo por su etiqueta (se extrajeron antes de que SandForge guardara el nombre del tipo de registro de cada registro), y {{recordTypes}} comparten esa etiqueta en la org de origen: no se puede saber cuál tenía cada registro, y no se escribió nada.",
+        "action": "Haga clic de nuevo en Ejecutar extracción: un dataset extraído ahora guarda el nombre del tipo de registro de cada registro."
       },
       "recordTypeNamespace": {
         "explanation": "El dataset nombra el tipo de registro {{object}} {{name}} sin su espacio de nombres (se extrajo antes de que SandForge leyera los espacios de nombres), y {{recordTypes}} llevan ese nombre en la org de destino: no se puede saber cuál es, y no se escribió nada.",

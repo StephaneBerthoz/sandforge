@@ -543,6 +543,12 @@ export interface FrozenPerObjectLoadResult {
    * none, and from reports written before a refused record was written again.
    */
   writtenWithoutFields?: FrozenWrittenWithoutFields;
+  /**
+   * Of the records reused, those the platform wrote itself with a record the
+   * load inserted — a contact's role, with its opportunity — linked to rather
+   * than sent beside them. Absent when there was none.
+   */
+  writtenByThePlatform?: number;
 }
 
 /** Final load report — every exclusion/adjustment is listed. */

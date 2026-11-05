@@ -792,7 +792,42 @@ describe('FrozenDatasetLoader — fresh load', () => {
       expect(calls).toEqual([]);
     });
 
-    it('refuses a dataset whose records name by one label two record types of an object', async () => {
+    it('loads each record as the record type it kept the name of, where two of the object share its label', async () => {
+      // Named by its label alone, which a package's record type and the org's
+      // own shared, a record left nothing to tell which it had: the load was
+      // refused.
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      const [account] = dataset.objects[0].records;
+      account.fields.RecordTypeId = 'Retail';
+      account.recordTypeDeveloperName = 'ns__Retail';
+      dataset.objects[0].records.push({
+        referenceId: 'Account-000002',
+        fields: { Name: 'Anon Account 2', RecordTypeId: 'Retail' },
+        recordTypeDeveloperName: 'Retail',
+      });
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [
+        { Id: ORG_OWN, NamespacePrefix: null },
+        { Id: PACKAGED, NamespacePrefix: 'ns' },
+      ]);
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      const sent = calls.find((c) => c.objectApiName === 'Account')?.payload as Array<
+        Record<string, unknown>
+      >;
+      expect(sent.map((row) => row.RecordTypeId)).toEqual([PACKAGED, ORG_OWN]);
+      expect(report.alignment.recordTypeIssues).toEqual([]);
+    });
+
+    it('refuses a dataset extracted before records kept their record type’s name, whose label two record types share', async () => {
       const dataset = makeAccountContactDataset();
       dataset.recordTypes = {
         Account: [
@@ -808,7 +843,12 @@ describe('FrozenDatasetLoader — fresh load', () => {
         .load(makeOptions(deps, dataset))
         .catch((e: unknown) => e);
 
-      expect((error as Error).message).toContain('which Retail and ns__Retail share in the source');
+      expect((error as Error).message).toBe(
+        'The dataset\'s Account records name record type "Retail" by its label, which Retail and ' +
+          'ns__Retail share in the source: which one each record had cannot be told, the dataset ' +
+          "having been extracted before SandForge kept each record's record type by its name. " +
+          'Extract the dataset again. Nothing was written.',
+      );
       // Its words were English in every locale: the panel says them from this.
       expect((error as LoadConfigError).recordTypesUntold).toEqual({
         reason: 'label',

@@ -184,6 +184,58 @@ describe('FrozenDatasetAnonymizer', () => {
     ]);
   });
 
+  it('keeps each record’s record type by its name, where two of the object share a label', () => {
+    // The label alone was all a record kept: a package's record type and the
+    // org's own under one label left the load nothing to tell them apart by,
+    // and it was refused.
+    const extracted = makeExtracted();
+    extracted.recordTypeMap = [
+      {
+        id: RT_BUSINESS,
+        sobjectType: 'Account',
+        developerName: 'Retail',
+        name: 'Retail',
+        namespacePrefix: 'ns',
+      },
+      {
+        id: RT_INDIVIDUAL,
+        sobjectType: 'Account',
+        developerName: 'Retail',
+        name: 'Retail',
+        namespacePrefix: null,
+      },
+    ];
+    const [first] = extracted.objects[0].records;
+    extracted.objects[0].records.push({
+      referenceId: 'Account-000002',
+      sourceId: to18('001A000000bbbbB'),
+      fields: { ...first.fields, Id: to18('001A000000bbbbB'), RecordTypeId: RT_INDIVIDUAL },
+    });
+    extracted.objects[0].records.push({
+      referenceId: 'Account-000003',
+      sourceId: to18('001A000000dddDD'),
+      fields: { ...first.fields, Id: to18('001A000000dddDD'), RecordTypeId: null },
+    });
+
+    const frozen = anonymizer.anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    const accounts = frozen.objects[0].records;
+    expect(accounts.map((r) => [r.fields.RecordTypeId, r.recordTypeDeveloperName])).toEqual([
+      ['Retail', 'ns__Retail'],
+      ['Retail', 'Retail'],
+      // On Master in the source: no record type to name.
+      [null, undefined],
+    ]);
+    expect(accounts[2]).not.toHaveProperty('recordTypeDeveloperName');
+    // Nothing of it reads as a value the control would refuse.
+    expect(new NonReidentificationControl().run(extracted, frozen, rules).passed).toBe(true);
+  });
+
   it('dead-ID sweep empties out-of-scope lookups (18-char checksum discriminant)', () => {
     const frozen = anonymizer.anonymize({
       extracted: makeExtracted(),
