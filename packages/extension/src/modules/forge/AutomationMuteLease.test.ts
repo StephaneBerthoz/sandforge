@@ -141,15 +141,23 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** Leases taken as process `pid` of this machine, the other processes alive unless told. */
+/**
+ * Leases taken as process `pid` of this machine, the other processes alive
+ * unless told. A release it could not finish is tried again past the end of
+ * any test, unless the test says when.
+ */
 function asProcess(pid: number, alive: (pid: number) => boolean = () => true): MuteLeaseOptions {
   return {
     dir,
     self: { host: 'this-machine', pid, startedAt: '2026-10-30T08:00:00.000Z' },
     checks: { isAlive: alive, bootedAt: () => Date.parse('2026-10-30T07:00:00.000Z') },
     renewEveryMs: 0,
+    retryEveryMs: 60 * 60_000,
   };
 }
+
+/** A release process 100 could not finish, tried again every thirty seconds of the test's clock. */
+const RETRY_EVERY_MS = 30_000;
 
 function orgWith(setup: MemoryPermissionOrgSetup = {}) {
   return memoryPermissionOrg({ sets: SETS, ...setup });
@@ -571,6 +579,38 @@ describe('a lease that no longer holds', () => {
     expect(org.assignments()).toEqual([]);
   });
 
+  /*
+   * A run assigns its sets one after the other, and journals each as the org
+   * answers it: a process that dies between an assignment and its line
+   * leaves that set first in `assigning`, and those after it never asked of
+   * the org. Each was looked up by user and set all the same, and taken back
+   * as the dead run's: an admin's assignment of a set that run never got to
+   * went with it.
+   */
+  it('looks up only the set a dead process was assigning as it died, never those it had not tried', async () => {
+    const org = orgWith();
+    // Died as it assigned PS_BypassFlow: PS_BypassVR was never asked of the org.
+    leftBehind(org, 999, '2099-01-01T00:00:00.000Z', [], [SET_FLOW, SET_VR]);
+    // Assigned by an admin once the dead run had journaled its lease.
+    const admins = org.assign(SET_VR);
+
+    const held = await (
+      await prepared(
+        org,
+        asProcess(100, (pid) => pid !== 999),
+      )
+    ).acquire('run-1');
+
+    expect(org.writes.filter((w) => w.kind === 'delete')).toEqual([]);
+    expect(held.outcome).toMatchObject({ assigned: ['PS_BypassFlow'], held: ['PS_BypassVR'] });
+    expect(held.outcome.tookBackOfEnded).toBeUndefined();
+    const done = await held.release();
+    expect(done).toMatchObject({ released: true, takenBack: ['PS_BypassFlow'] });
+    expect(org.assignments()).toEqual([
+      { id: admins, assigneeId: org.userId, permissionSetId: SET_VR },
+    ]);
+  });
+
   it('says nothing of a run that ended when it found nothing it was assigning', async () => {
     const org = orgWith();
     leftBehind(org, 999, '2099-01-01T00:00:00.000Z', [], [SET_FLOW]);
@@ -729,12 +769,40 @@ describe('what a run says of a journal it cannot use', () => {
         'run locks it only while it takes, renews or ends a lease of the same org and user, but ' +
         'a lock its process could not remove holds until that process has ended, ' +
         `${lockHoldsUntil(org)} at the latest. Should none of its runs be muting this org, end ` +
-        `process 200): the lease ends at ${held.outcome.leaseEndsAt}, and the next run that ` +
-        'mutes this org releases it',
+        'process 200): this process tries again while it runs, and takes them back once it can ' +
+        `use the journal; past ${held.outcome.leaseEndsAt}, or once process 100 has ended, the ` +
+        'next run that mutes this org releases the lease',
     );
     expect(done.reason).not.toContain(org.organizationId.slice(0, 15));
     expect(done.reason).not.toContain(org.userId.slice(0, 15));
     expect(muteLines(done, 'TARGET').join('\n')).not.toContain(org.userId.slice(0, 15));
+  });
+
+  /*
+   * What a run could not take back as it ended, the journal locked, stayed
+   * assigned to the user once the lock was gone: its lease, before its end,
+   * held them for the runs of other processes while its own process ran,
+   * and no run of that process came to release it.
+   */
+  it('takes back, from its own process, what it could not as the run ended once the journal is no longer locked', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    const org = orgWith();
+    const held = await (
+      await prepared(org, { ...waitingOn(200), retryEveryMs: RETRY_EVERY_MS })
+    ).acquire('run-1');
+    lockedBy(org, 200);
+    expect(await held.release()).toMatchObject({ released: false, takenBack: [] });
+    expect(org.assignments()).toHaveLength(2);
+
+    // Still locked thirty seconds later: nothing taken back yet.
+    await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
+    expect(org.writes.filter((w) => w.kind === 'delete')).toEqual([]);
+
+    // Process 200 ends, its lock with it.
+    rmSync(`${muteJournalFileOf(dir, org.organizationId, org.userId)}.lock`, { force: true });
+    await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
+    await vi.waitFor(() => expect(org.assignments()).toEqual([]));
+    expect(journalOf(org).leases).toEqual([]);
   });
 
   // Read and written by its owner alone: a journal another user made is not
@@ -871,9 +939,9 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       expect((error as Error).message).toBe(
         `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow (The org refused ` +
           'the delete: UNABLE_TO_LOCK_ROW) could not be taken back. The journal still names ' +
-          "this run's lease: once the journal can be written, the next run that mutes this org " +
-          'from this process releases the lease, and one from another process at the latest ' +
-          'once process 100 has ended.',
+          "this run's lease: this process tries again while it runs, and releases the lease " +
+          'once the journal can be written; the next run that mutes this org from another ' +
+          'process releases it at the latest once process 100 has ended.',
       );
 
       // The next run of the same process.
@@ -929,9 +997,9 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
         expect((error as Error).message).toBe(
           `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow (The org refused ` +
             'the delete: UNABLE_TO_LOCK_ROW) could not be taken back. The journal still names ' +
-            "this run's lease: once the journal can be written, the next run that mutes this org " +
-            'from this process releases the lease, and one from another process at the latest ' +
-            'once process 100 has ended.',
+            "this run's lease: this process tries again while it runs, and releases the lease " +
+            'once the journal can be written; the next run that mutes this org from another ' +
+            'process releases it at the latest once process 100 has ended.',
         );
         const [stuck] = org.assignments();
         delete refuse[stuck.id];
@@ -1050,10 +1118,11 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       });
       expect(done.reason).toBe(
         `The journal of the mute leases in ${dir} ${UNWRITTEN} The journal still names this ` +
-          "run's lease: once the journal can be written, the next run that mutes this org from " +
-          'this process releases the lease, and one from another process at the latest once ' +
-          `process 100 has ended. Until ${held.outcome.leaseEndsAt}, a run of another process ` +
-          'that ends leaves what it holds of PS_BypassFlow, PS_BypassVR assigned for that lease.',
+          "run's lease: this process tries again while it runs, and releases the lease once the " +
+          'journal can be written; the next run that mutes this org from another process releases ' +
+          'it at the latest once process 100 has ended. Until it is released, and before ' +
+          `${held.outcome.leaseEndsAt}, a run of another process that ends may leave what it holds ` +
+          'of PS_BypassFlow, PS_BypassVR assigned for that lease, which the release takes back.',
       );
       expect(done.reason).not.toContain('could not be taken back');
       expect(muteLines(done, 'TGT').slice(-2)).toEqual([
@@ -1105,10 +1174,11 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       expect(done.reason).toBe(
         `The journal of the mute leases in ${dir} ${UNWRITTEN} PS_BypassFlow stays assigned for ` +
           'another run that mutes this org as the same user. The journal still names this ' +
-          "run's lease: once the journal can be written, the next run that mutes this org from " +
-          'this process releases the lease, and one from another process at the latest once ' +
-          `process 100 has ended. Until ${both.outcome.leaseEndsAt}, a run of another process ` +
-          'that ends leaves what it holds of PS_BypassFlow, PS_BypassVR assigned for that lease.',
+          "run's lease: this process tries again while it runs, and releases the lease once the " +
+          'journal can be written; the next run that mutes this org from another process releases ' +
+          'it at the latest once process 100 has ended. Until it is released, and before ' +
+          `${both.outcome.leaseEndsAt}, a run of another process that ends may leave what it holds ` +
+          'of PS_BypassFlow, PS_BypassVR assigned for that lease, which the release takes back.',
       );
       expect(muteLines(done, 'TGT').slice(-2)).toEqual([
         '  taken back: PS_BypassVR, as the run ended',
@@ -1128,6 +1198,147 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       await next.release();
       expect(org.assignments()).toEqual([]);
       expect(journalOf(org).leases).toEqual([]);
+    });
+
+    /*
+     * A release whose journal could not be written leaves the journal naming
+     * its lease as it was taken: its sets all assigned, its end within the
+     * hour, its process at work. For a run of another process, that is a run
+     * under way: one that took its lease within that hour assigned the sets
+     * again and, as it ended, left them assigned for that lease rather than
+     * take them back, both runs saying so. Nothing took them back before a
+     * run that came past the lease's end, or once its process had ended.
+     */
+    describe('a release whose journal could not be written, its process at work', () => {
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      /** Process 100's run, ended as the folder turned read only: what its release did, the folder writable again. */
+      async function endedUnjournaled(org: ReturnType<typeof orgWith>, turned: () => boolean) {
+        const held = await (
+          await prepared(org, { ...asProcess(100), retryEveryMs: RETRY_EVERY_MS })
+        ).acquire('run-a');
+        try {
+          return { held, done: await held.release() };
+        } finally {
+          if (turned()) chmodSync(dir, 0o700);
+        }
+      }
+
+      /** An org whose folder of journals turns read only at the first delete. */
+      function readOnlyAtFirstDelete(): { org: ReturnType<typeof orgWith>; turned: () => boolean } {
+        let turned = false;
+        const org = orgWith({
+          beforeWrite: (write) => {
+            if (write.kind === 'delete' && !turned) {
+              chmodSync(dir, 0o500);
+              turned = true;
+            }
+          },
+        });
+        return { org, turned: () => turned };
+      }
+
+      it('is finished by its own process once the journal can be written, and a run of another process then takes back what it assigned', async () => {
+        const { org, turned } = readOnlyAtFirstDelete();
+        const { done } = await endedUnjournaled(org, turned);
+        expect(done).toMatchObject({
+          released: false,
+          takenBack: ['PS_BypassFlow', 'PS_BypassVR'],
+          notTakenBack: [],
+        });
+        expect(done.reason).toContain('this process tries again while it runs');
+        expect(journalOf(org).leases.map((lease) => lease['runId'])).toEqual(['run-a']);
+
+        // Process 100 runs on, and tries again: the lock it could not remove
+        // in the read-only folder is its own, and goes with its lease.
+        await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
+        await vi.waitFor(() => expect(journalOf(org).leases).toEqual([]));
+
+        const other = await (await prepared(org, asProcess(200))).acquire('run-b');
+        expect(other.outcome).toMatchObject({
+          assigned: ['PS_BypassFlow', 'PS_BypassVR'],
+          held: [],
+        });
+        const otherDone = await other.release();
+        expect(otherDone).toMatchObject({
+          released: true,
+          takenBack: ['PS_BypassFlow', 'PS_BypassVR'],
+        });
+        expect(otherDone.passed).toBeUndefined();
+        expect(muteLines(otherDone, 'TGT').slice(-1)).toEqual([
+          '  taken back: PS_BypassFlow, PS_BypassVR, as the run ended',
+        ]);
+        expect(org.assignments()).toEqual([]);
+        expect(journalOf(org).leases).toEqual([]);
+      });
+
+      it('takes back, as its own process releases the lease, what a run of another process left assigned for it meanwhile', async () => {
+        const { org, turned } = readOnlyAtFirstDelete();
+        await endedUnjournaled(org, turned);
+        // The lock its process could not remove, gone as a folder that takes
+        // its removal leaves it: a disk that was full.
+        rmSync(`${muteJournalFileOf(dir, org.organizationId, org.userId)}.lock`, { force: true });
+
+        // A run of another process, ended before process 100 tries again:
+        // the journal names a lease at work that needs its sets.
+        const other = await (await prepared(org, asProcess(200))).acquire('run-b');
+        const otherDone = await other.release();
+        expect(otherDone).toMatchObject({
+          released: true,
+          takenBack: [],
+          passed: ['PS_BypassFlow', 'PS_BypassVR'],
+        });
+        expect(org.assignments()).toHaveLength(2);
+
+        await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
+        await vi.waitFor(() => expect(org.assignments()).toEqual([]));
+        expect(journalOf(org).leases).toEqual([]);
+      });
+
+      /*
+       * Refused as it took its lease, a run takes back what it assigned; the
+       * journal, not written, names its lease as it was before its first
+       * assignment, the sets it was assigning with it. A run of another
+       * process released that lease as one whose process died assigning, and
+       * looked its sets up by user and set: an admin's assignment of one,
+       * made since, went as the refused run's.
+       */
+      it('releases from its own process, by what it knows it assigned, a lease refused as it was taken', async () => {
+        const folder = readOnlyOnceAssigning();
+        const org = orgWith({ beforeWrite: folder.beforeWrite });
+        let refused: unknown;
+        try {
+          refused = await (
+            await prepared(org, { ...asProcess(100), retryEveryMs: RETRY_EVERY_MS })
+          )
+            .acquire('run-1')
+            .catch((err: unknown) => err);
+        } finally {
+          folder.restore();
+        }
+        expect((refused as MuteRefusedError).code).toBe('MUTE_FAILED');
+        expect(journalOf(org).leases).toEqual([
+          expect.objectContaining({ runId: 'run-1', assigning: [SET_FLOW, SET_VR] }),
+        ]);
+        const admins = org.assign(SET_FLOW);
+
+        await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
+        await vi.waitFor(() => expect(journalOf(org).leases).toEqual([]));
+
+        const other = await (await prepared(org, asProcess(200))).acquire('run-2');
+        expect(other.outcome).toMatchObject({ assigned: ['PS_BypassVR'], held: ['PS_BypassFlow'] });
+        expect(other.outcome.tookBackOfEnded).toBeUndefined();
+        await other.release();
+        expect(org.assignments()).toEqual([
+          { id: admins, assigneeId: org.userId, permissionSetId: SET_FLOW },
+        ]);
+      });
     });
 
     it('says the journal that could not be written as it takes back a set the org refused', async () => {

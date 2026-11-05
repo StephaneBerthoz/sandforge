@@ -172,11 +172,14 @@ describe('MutedAutomationResult', () => {
     expect(screen.getByTestId('muted-released').textContent).toBe(
       'Taken back as the run ended: Bypass_Automation.',
     );
+    // The window releases the lease once it can, what another run left for it with it.
     expect(screen.getByTestId('muted-not-released').textContent).toBe(
       "The journal of this machine's mute leases couldn't be written as the run ended, and " +
-        "still names the run's lease: until that lease ends, a run from another window or the " +
-        'command line that mutes dev may leave its permission sets assigned for it. The next ' +
-        'run that mutes dev says why.',
+        "still names the run's lease: this window tries again while it stays open, and releases " +
+        'the lease once the journal can be written. Until then, and at most until that lease ' +
+        'ends, a run from another window or the command line that mutes dev may leave its ' +
+        'permission sets assigned for it, and the release takes them back. The next run that ' +
+        'mutes dev says why.',
     );
   });
 

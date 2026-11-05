@@ -7420,7 +7420,7 @@
       "takenBack": "Taken back as the run ended: {{sets}}.",
       "passed_one": "{{sets}} stays assigned for another run that mutes {{org}} as the same user, which takes it back as it ends.",
       "passed_other": "{{sets}} stay assigned for another run that mutes {{org}} as the same user, which takes them back as it ends.",
-      "journalUnwritten": "The journal of this machine's mute leases couldn't be written as the run ended, and still names the run's lease: until that lease ends, a run from another window or the command line that mutes {{org}} may leave its permission sets assigned for it. The next run that mutes {{org}} says why.",
+      "journalUnwritten": "The journal of this machine's mute leases couldn't be written as the run ended, and still names the run's lease: this window tries again while it stays open, and releases the lease once the journal can be written. Until then, and at most until that lease ends, a run from another window or the command line that mutes {{org}} may leave its permission sets assigned for it, and the release takes them back. The next run that mutes {{org}} says why.",
       "tookBackOfEnded_one": "Taken back before the run: {{sets}}, left assigned to the user the run wrote as by a run that ended as it assigned it. Found by user and set, not by id: had an admin assigned it to that user since, assign it again.",
       "tookBackOfEnded_other": "Taken back before the run: {{sets}}, left assigned to the user the run wrote as by a run that ended as it assigned them. Found by user and set, not by id: had an admin assigned them to that user since, assign them again.",
       "nothing": "Nothing could be muted in {{org}}: the run went ahead as without the option.",

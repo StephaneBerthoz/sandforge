@@ -21,7 +21,10 @@
  * lease, which removes them as it ends. A lease past its end, whose process
  * is gone, or that never finished assigning its sets, holds nothing, and is
  * released by the next run that takes one: a machine that died under a run
- * leaves the assignments to that.
+ * leaves the assignments to that. A release its process could not finish —
+ * the journal not written, or locked by another — that process tries again
+ * while it runs: its lease, still named, holds for the runs of other
+ * processes until then.
  *
  * The journal of an org's user is one file in `.sandforge/mute-leases` of the
  * home directory, whatever `SANDFORGE_JOURNAL_DIR` says, as the checkpoint
@@ -189,6 +192,9 @@ export const MUTE_LEASE_MINUTES = 60;
 /** How often a held lease pushes its end back while its run goes on. */
 export const MUTE_RENEW_EVERY_MS = 5 * 60_000;
 
+/** How often a release its process could not finish is tried again, while that process runs. */
+export const MUTE_RETRY_EVERY_MS = 30_000;
+
 /** How long a run waits for another to be done with the journal before it gives up. */
 const JOURNAL_WAIT_MS = 60_000;
 
@@ -288,6 +294,8 @@ export interface MuteLeaseOptions {
   minutes?: number;
   /** How often a held lease is renewed: {@link MUTE_RENEW_EVERY_MS}; 0 never. */
   renewEveryMs?: number;
+  /** How often a release this process could not finish is tried again: {@link MUTE_RETRY_EVERY_MS}. */
+  retryEveryMs?: number;
 }
 
 /** This process. */
@@ -412,6 +420,8 @@ function heldOffAcquiring(holder: JournalLockHolder): string {
  * @param heldOff - What a lock another process kept for a minute left
  *   undone, and what to do, as the refusal says it: as a lease is taken,
  *   nothing was assigned and the run is to be run again.
+ * @param waitMs - How long another process's lock is waited for: a minute,
+ *   but for a release tried again, which tries once and comes back.
  */
 async function withJournal<T>(
   file: string,
@@ -419,10 +429,11 @@ async function withJournal<T>(
   options: MuteLeaseOptions,
   change: (journal: Journal, save: (journal: Journal) => Promise<void>) => Promise<T>,
   heldOff: (holder: JournalLockHolder) => string = heldOffAcquiring,
+  waitMs: number = JOURNAL_WAIT_MS,
 ): Promise<T> {
   const self = options.self ?? THIS_PROCESS;
   const lockOptions = { self, ...(options.checks ? { checks: options.checks } : {}) };
-  const deadline = Date.now() + JOURNAL_WAIT_MS;
+  const deadline = Date.now() + waitMs;
   await mkdir(dirname(file), { recursive: true, mode: JOURNAL_DIR_MODE }).catch((err: unknown) => {
     throw journalFailed(file, 'made', err);
   });
@@ -511,12 +522,12 @@ interface Released {
 
 /**
  * Release `lease` in `journal`: each assignment it created another live lease
- * needs passes to that lease; every other is deleted. A set it was assigning
- * when its process died is looked up by user and set, and taken as its own
- * when the user holds it and no other lease created it: the run read the
- * user without it before it journaled the set. No field of an assignment read
- * so far tells the run's from one an admin made that user since, which goes
- * with it: what is taken so is said (`found`). The lease goes from the
+ * needs passes to that lease; every other is deleted. The set it was
+ * assigning when its process died is looked up by user and set, and taken as
+ * its own when the user holds it and no other lease created it: the run read
+ * the user without it before it journaled the set. No field of an assignment
+ * read so far tells the run's from one an admin made that user since, which
+ * goes with it: what is taken so is said (`found`). The lease goes from the
  * journal, unless an assignment could not be deleted: it stays, past its
  * end, for the next run to try again.
  */
@@ -529,16 +540,20 @@ async function releaseLease(
   const others = journal.leases.filter((other) => other !== lease && live(other));
   const created = [...lease.created];
   const foundIds = new Set<string>();
-  if (lease.assigning.length > 0) {
+  // A run assigns its sets one after the other, and journals each once the
+  // org has answered it: the first it names as assigning is the one its
+  // process may have died assigning, and those after it were never asked of
+  // the org. Each was looked up all the same, and an admin's assignment of a
+  // set the run never got to went as the run's.
+  const inFlight = lease.assigning[0];
+  if (inFlight !== undefined) {
     const ownedElsewhere = new Set(
       journal.leases.flatMap((other) => (other === lease ? [] : other.created.map((c) => c.id))),
     );
     const found = await org
       .query(
         'SELECT Id, PermissionSetId, PermissionSet.Name FROM PermissionSetAssignment ' +
-          `WHERE AssigneeId = '${journal.userId}' AND PermissionSetId IN (${lease.assigning
-            .map((id) => `'${id}'`)
-            .join(', ')})`,
+          `WHERE AssigneeId = '${journal.userId}' AND PermissionSetId IN ('${inFlight}')`,
       )
       .then((answer) => answer.records)
       .catch(() => []);
@@ -639,11 +654,12 @@ interface StillHeld {
 /**
  * Who releases a lease the journal still names, its write having failed, in
  * words. A folder turned read only keeps the journal's lock too, which holds
- * for the runs of other processes while this one runs: a run of this process
- * releases the lease once the journal can be written, one of another process
- * at the latest once this one ended. Run from a window, the lease of a
- * refused run stayed alive for a run of the command line, which left what
- * the org kept where it was: the words said the next run took it back.
+ * for the runs of other processes while this one runs: this process tries
+ * again while it runs and releases the lease once the journal can be
+ * written, a run of another process at the latest once this one ended. Run
+ * from a window, the lease of a refused run stayed alive for a run of the
+ * command line, which left what the org kept where it was: the words said the
+ * next run took it back.
  *
  * @param pid - This process, as the words name it.
  * @param held - What the line still holds for the runs of other processes,
@@ -652,12 +668,13 @@ interface StillHeld {
  */
 function stillNamedWords(pid: number, held?: StillHeld): string {
   return (
-    "The journal still names this run's lease: once the journal can be written, the next " +
-    'run that mutes this org from this process releases the lease, and one from another ' +
-    `process at the latest once process ${pid} has ended.` +
+    "The journal still names this run's lease: this process tries again while it runs, and " +
+    'releases the lease once the journal can be written; the next run that mutes this org ' +
+    `from another process releases it at the latest once process ${pid} has ended.` +
     (held
-      ? ` Until ${held.until}, a run of another process that ends leaves what it holds of ` +
-        `${held.sets.join(', ')} assigned for that lease.`
+      ? ` Until it is released, and before ${held.until}, a run of another process that ends ` +
+        `may leave what it holds of ${held.sets.join(', ')} assigned for that lease, which the ` +
+        'release takes back.'
       : '')
   );
 }
@@ -980,6 +997,66 @@ export async function acquireMute(
   let journaled = false;
   /** The needed sets by name, as what a journal not written still holds says them. */
   const neededNames = needs.map((id) => nameOf.get(id)!);
+  const retryEvery = options.retryEveryMs ?? MUTE_RETRY_EVERY_MS;
+  let finishing: ReturnType<typeof setInterval> | undefined;
+
+  /*
+   * A release that ran in the org and could not be journaled, or could not
+   * take the journal, leaves the journal naming the lease as it was: its
+   * sets all assigned, its end within the hour, its process at work. For a
+   * run of another process that is a run under way: one that ended within
+   * that hour left the sets it had assigned for that lease rather than take
+   * them back, and nothing took them back before a run past the lease's end,
+   * or once its process had ended. That process alone knows its run is over:
+   * it tries again while it runs, once at the lock each time, and releases
+   * the lease as a run's end does, what another run left for it with it.
+   */
+
+  /**
+   * Finish, from this process and while it runs, a release it could not.
+   *
+   * @param gone - What it took back already: none of it is the org's to answer again.
+   * @param still - What it still holds that the journal, as last written, may not name.
+   */
+  const finishLater = (gone: readonly Created[], still: readonly Created[]): void => {
+    if (finishing !== undefined) return;
+    const goneIds = new Set(gone.map((c) => c.id));
+    let trying = false;
+    const stop = (): void => clearInterval(finishing);
+    finishing = setInterval(() => {
+      if (trying) return;
+      trying = true;
+      void withJournal(
+        file,
+        ids,
+        options,
+        async (journal, save) => {
+          const line = journal.leases.find((l) => l.runId === runId && l.acquiredAt === acquiredAt);
+          if (line) {
+            // Each assignment it made is known by the id the org answered:
+            // none of its sets is looked up by user and set.
+            line.assigning = [];
+            line.created = [
+              ...line.created,
+              ...still.filter((c) => !line.created.some((named) => named.id === c.id)),
+            ].filter((c) => !goneIds.has(c.id));
+            const done = await releaseLease(org, journal, line, live);
+            // Gone from the org whether or not the journal keeps it this time.
+            for (const c of done.removed) goneIds.add(c.id);
+            await save(journal);
+          }
+          stop();
+        },
+        undefined,
+        0,
+      )
+        .catch(() => undefined)
+        .finally(() => {
+          trying = false;
+        });
+    }, retryEvery);
+    finishing.unref?.();
+  };
 
   const taken = await withJournal(file, ids, options, async (journal, save) => {
     const found = setNames(await releaseStale(org, journal, live));
@@ -1023,6 +1100,10 @@ export async function acquireMute(
       const released = await releaseLease(org, journal, lease, live);
       heldHere.delete(key);
       const unsaved = await saved();
+      // Not journaled: this process finishes the release once it can.
+      if (unsaved !== undefined) {
+        finishLater(released.removed, [...released.passed, ...released.left]);
+      }
       // The line left of a lease that was still assigning holds nothing for
       // anyone ({@link isLive}); one whose sets were all assigned holds them,
       // for the runs of other processes, until its end.
@@ -1177,6 +1258,7 @@ export async function acquireMute(
         } catch (err: unknown) {
           heldHere.delete(key);
           const done = ran.done;
+          finishLater(done?.removed ?? [], done ? [...done.passed, ...done.left] : []);
           if (done !== undefined) {
             // The release ran in the org, and the journal alone could not be
             // written: the release said "the assignments could not be taken
@@ -1204,8 +1286,10 @@ export async function acquireMute(
             released: false,
             takenBack: [],
             reason:
-              `the assignments could not be taken back (${extractErrorMessage(err)}): the lease ` +
-              `ends at ${outcome.leaseEndsAt}, and the next run that mutes this org releases it`,
+              `the assignments could not be taken back (${extractErrorMessage(err)}): this ` +
+              'process tries again while it runs, and takes them back once it can use the journal; ' +
+              `past ${outcome.leaseEndsAt}, or once process ${self.pid} has ended, the next run ` +
+              'that mutes this org releases the lease',
           };
         }
       })();
