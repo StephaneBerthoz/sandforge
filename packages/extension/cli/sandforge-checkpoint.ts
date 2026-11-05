@@ -104,6 +104,7 @@ import {
   acceptanceRefusal as acceptanceOf,
   boundsRefusals,
   previewTotals,
+  remakeUnasked,
   rewindStepsOf,
   selectionDiff,
   type BoundWords,
@@ -399,24 +400,27 @@ JSON (--json), one value on stdout:
                      of what still runs, with mutedAutomation and mutePlan
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
-                      reason, count}], carriers?: [{object, count}], undo?: {until, cannot:
-                      [{object, count, reason?}]}, verify: {differences, stable, passes,
-                      notCompared}, residual: [{object, reason, by?, count, message?}], unread:
-                      [{object, reason}], objects: [{object, deleted, givenBack, broughtBack,
-                      refused}], apiRequests: {used, leftToday}, result}:
+                      reason, count}], carriers?: [{object, count}], draftsLeft?: [{object,
+                      count, ids}], undo?: {until, cannot: [{object, count, reason?}]}, verify:
+                      {differences, stable, passes, notCompared}, residual: [{object, reason,
+                      by?, count, message?}], unread: [{object, reason}], objects: [{object,
+                      deleted, givenBack, broughtBack, refused}], apiRequests: {used,
+                      leftToday}, result}:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
                      before a record they point at, which the rewind deleted next; carriers, of
                      what it brought back and deleted, the records brought back for a moment;
+                     draftsLeft, of a rewind stopped part way, the orders and contracts it made
+                     again as drafts and had not given their status back yet, by their new Ids;
                      files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
                      files and records it wrote, when it wrote one; with --object, limitedTo,
                      the objects named, and notRewound, {objects, records}, the objects not
                      named that still differ and their records that do, which the status
                      does not count
-  undo               as rewind, without recreated, cannotUndo, carriers and undo, with
-                     carriedAlone?: [{object, count}], the records sent back to the recycle bin
-                     on their own that had gone there with a record the rewind brought back for
-                     a moment
+  undo               as rewind, without recreated, cannotUndo, carriers, draftsLeft and undo,
+                     with carriedAlone?: [{object, count}], the records sent back to the
+                     recycle bin on their own that had gone there with a record the rewind
+                     brought back for a moment
   delete             {deleted: [id], kept: [id]}
   export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
                       keyShown}: keyShown, whether a new key was drawn and shown on stderr; never
@@ -1662,15 +1666,17 @@ function onStatusBack(
  * it makes again the same way once Salesforce answers the bin no longer holds
  * them. The platform refuses one made past Draft, and an order takes its
  * products only as a draft. Not said, a dry run left out the update a rewind
- * then made of an activated order, live.
+ * then made of an activated order, live. Those it leaves all the same
+ * (`left`, {@link remakeLeftOf}) are not said made again.
  */
 function madeAsDraftLines(
   diff: Pick<RewindDiff, 'objects'>,
   automation: ForgeTargetAutomation | undefined,
+  left: readonly string[] = [],
 ): string[] {
   const lifecycled = diff.objects.filter((o) => STATUS_LIFECYCLES[o.objectApiName] !== undefined);
   const remade = lifecycled.filter((o) => toRecreateOf(o) > 0);
-  const inBin = lifecycled.filter((o) => toBringBackOf(o) > 0);
+  const inBin = lifecycled.filter((o) => toBringBackOf(o) > 0 && !left.includes(o.objectApiName));
   const lines: string[] = [];
   if (remade.length > 0) {
     lines.push(
@@ -1694,10 +1700,48 @@ function madeAsDraftLines(
   return lines;
 }
 
-/** One line per object the org runs something on as a rewind writes. */
-function automationLines(orgName: string, automation: ForgeTargetAutomation): string[] {
+/**
+ * Of the objects a rewind brings back, those whose records it leaves all the
+ * same once Salesforce answers the recycle bin no longer holds them, though
+ * --accept-recreate is given, and what runs as they are made again: making
+ * them again runs what its question does not ask about — what the org runs
+ * as one is created, or as an order made as a draft is given its status back
+ * — or what runs then could not all be read (`remakeUnasked`), as the rewind
+ * judges it. Nothing without a read of the org's automation, which asks
+ * about nothing.
+ */
+function remakeLeftOf(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+  automation: ForgeTargetAutomation | undefined,
+): { objects: string[]; fired: string[] } {
+  if (!automation) return { objects: [], fired: [] };
+  const steps = rewindStepsOf(diff);
+  const objects: string[] = [];
+  const fired = new Set<string>();
+  for (const object of diff.objects) {
+    if (toBringBackOf(object) === 0) continue;
+    const unasked = remakeUnasked(automation, steps, [object.objectApiName]);
+    if (unasked.fired.length === 0 && !unasked.blind) continue;
+    objects.push(object.objectApiName);
+    for (const each of unasked.fired) fired.add(`${each.objectApiName}: '${each.name}'`);
+  }
+  return { objects, fired: [...fired] };
+}
+
+/**
+ * One line per object the org runs something on as a rewind writes, of the
+ * objects it writes (`written`), by its own plan: read for every object of
+ * the diff, a dry run without --accept-outside named the flow of an order it
+ * kept, live, as the table counted it to delete.
+ */
+function automationLines(
+  orgName: string,
+  automation: ForgeTargetAutomation,
+  written: readonly string[],
+): string[] {
   const lines: string[] = [];
   for (const object of automation.objects) {
+    if (!written.includes(object.objectApiName)) continue;
     // What a bypass the user holds, or the mute would hold, keeps quiet does not run.
     const flows = [...object.flows, ...(object.processes ?? []), ...(object.workflowRules ?? [])]
       .filter((flow) => !flow.permissions.some(({ bypass, held }) => bypass && held === true))
@@ -1835,15 +1879,26 @@ export function previewLines(
         'names their old Ids no longer finds them',
     );
   }
-  if (totals.toBringBack > 0) {
+  // What it leaves all the same: making it again runs what it does not ask about.
+  const left = totals.toBringBack > 0 ? remakeLeftOf(diff, answer.automation) : undefined;
+  if (left) {
+    const runs =
+      left.fired.length > 0
+        ? `making them again runs ${someOf(left.fired, 4)}`
+        : 'what runs as they are made again could not all be read';
     lines.push(
       '  if Salesforce answers that a record to bring back is no longer in the recycle bin — it ' +
         'still lists one emptied from it as deleted —, --accept-recreate makes it again with a ' +
         'new Id, with what was to come back with it; without it, the rewind leaves them and ' +
-        'names them',
+        'names them' +
+        (left.objects.length > 0
+          ? `; ${someOf(left.objects)} records it leaves all the same, with what was to come ` +
+            `back with them, and names them: ${runs}, which this rewind does not ask about — a ` +
+            'rewind after it counts them to make again, and asks'
+          : ''),
     );
   }
-  lines.push(...madeAsDraftLines(diff, answer.automation));
+  lines.push(...madeAsDraftLines(diff, answer.automation, left?.objects));
   const unexplained = diff.objects.filter((o) => o.unexplained > 0);
   if (unexplained.length > 0) {
     lines.push(
@@ -1946,7 +2001,9 @@ export function previewLines(
       `  could not be read: ${unread.objectApiName} — ${unread.reason} (never taken for unchanged)`,
     );
   }
-  if (answer.automation) lines.push(...automationLines(orgName, answer.automation));
+  if (answer.automation) {
+    lines.push(...automationLines(orgName, answer.automation, objectsWrittenBy(diff)));
+  }
   if (answer.emails) lines.push(...emailLines(orgName, answer.emails));
   if (answer.emailsUncounted !== undefined) {
     lines.push(
@@ -2524,6 +2581,14 @@ export function rewindLines(
       `  made again ${count(remade.done)} record(s) the recycle bin no longer held, with new Ids`,
     );
   }
+  // Stopped between their insert and their status: drafts, named by their new Ids.
+  for (const drafts of result.draftsLeft ?? []) {
+    lines.push(
+      `  left as drafts: ${drafts.objectApiName} ${count(drafts.count)} (${someOf(drafts.ids, 3)}) ` +
+        '— made again as drafts, the rewind stopped before it gave them back the status the ' +
+        'checkpoint holds: rewind again gives it back to them, an update',
+    );
+  }
   lines.push(...linksLines('rewind', orgName, result));
   lines.push(...followingLines('rewind', result, names));
   if (result.undo) {
@@ -2760,6 +2825,15 @@ export function resultJson(
           carriers: (result.carriers ?? []).map((o) => ({
             object: o.objectApiName,
             count: o.count,
+          })),
+        }
+      : {}),
+    ...(act === 'rewind' && (result.draftsLeft ?? []).length > 0
+      ? {
+          draftsLeft: (result.draftsLeft ?? []).map((o) => ({
+            object: o.objectApiName,
+            count: o.count,
+            ids: [...o.ids],
           })),
         }
       : {}),

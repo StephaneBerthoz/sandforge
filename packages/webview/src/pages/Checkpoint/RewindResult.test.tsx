@@ -354,6 +354,35 @@ describe('RewindResult', () => {
     expect(screen.getByRole('button', { name: 'Rewind again' })).toBeInTheDocument();
   });
 
+  it('names the order a stopped rewind made again as a draft and left before its status went back, by its new Id, with what Rewind again does (GC2)', () => {
+    renderResult(
+      rewindResult({
+        status: 'cancelled',
+        deleted: [],
+        recreated: [{ objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] }],
+        draftsLeft: [{ objectApiName: 'Order', count: 1, ids: ['801000000000007AAA'] }],
+      }),
+    );
+    const drafts = screen.getByTestId('checkpoint-result-drafts-left');
+    expect(within(drafts).getByRole('heading').textContent).toBe('Left as drafts in DEV-SB');
+    expect(screen.getByTestId('checkpoint-result-drafts-left-Order').textContent).toBe(
+      'Order: 1 record made again as a draft (801000000000007AAA), its status not given back yet',
+    );
+    expect(drafts.textContent).toContain(
+      'The rewind stopped before it gave them back the status the checkpoint holds. Rewind again gives it back to them, an update, which runs what DEV-SB runs as one is updated.',
+    );
+    expect(screen.getByRole('button', { name: 'Rewind again' })).toBeInTheDocument();
+  });
+
+  it('names no draft of a rewind that left none', () => {
+    renderResult(
+      rewindResult({
+        recreated: [{ objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] }],
+      }),
+    );
+    expect(screen.queryByTestId('checkpoint-result-drafts-left')).toBeNull();
+  });
+
   it('says nothing was brought back for a moment by a rewind that wrote nothing', () => {
     renderResult(
       rewindResult({ status: 'failure', carriers: [{ objectApiName: 'Account', count: 1 }] }),

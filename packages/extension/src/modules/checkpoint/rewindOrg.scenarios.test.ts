@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RewindDiff } from '@sandforge/shared';
 import { paced } from '../../test/runnerPace.js';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -1506,14 +1507,16 @@ describe('an activated order a rewind makes again or keeps', () => {
     );
 
     // What the user reads: a rewind stopped part way, the order and its
-    // product made again, and nothing more of the order than that.
+    // product made again, and the order named a draft, by its new Id.
     expect(stopped.status).toBe('cancelled');
     expect(stopped.recreated).toEqual([
       { objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] },
       { objectApiName: 'OrderItem', planned: 1, created: 1, refused: 0, reasons: [] },
     ]);
     expect(stopped.residual).toEqual([]);
-    expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Draft' })]);
+    const [draft] = t.org.all('Order');
+    expect(draft).toMatchObject({ Status: 'Draft' });
+    expect(stopped.draftsLeft).toEqual([{ objectApiName: 'Order', count: 1, ids: [draft?.Id] }]);
     expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Order')).toEqual([]);
 
     t.org.create = create;
@@ -1538,6 +1541,7 @@ describe('an activated order a rewind makes again or keeps', () => {
     const again = resultOf(await rewound(t, read.diff.previewId));
 
     expect(again.status).toBe('success');
+    expect(again.draftsLeft).toBeUndefined();
     expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
     expect(t.org.all('OrderItem')).toHaveLength(1);
   });
@@ -1571,6 +1575,200 @@ describe('an activated order a rewind makes again or keeps', () => {
     expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Draft' })]);
     expect(t.org.all('OrderItem')).toHaveLength(1);
     expect(result.status).not.toBe('success');
+  });
+
+  describe('emptied from the recycle bin, which the org still lists it in (GC2, P11)', () => {
+    /** A flow that emails an order's owner as it is created, and no other write. */
+    const ORDER_CREATE_EMAIL = automationOf({
+      objectsRead: ['Account', 'Contact', 'Opportunity', 'Order', 'OrderItem'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_created',
+              label: 'Order created',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+
+    /**
+     * The order of {@link purgedSince}, emptied from the recycle bin instead:
+     * the org still reads it deleted, with its product, and answers its
+     * undelete "Entity is not in the recycle bin" (P11). Its preview counts
+     * both to bring back, nothing to make again.
+     */
+    async function emptiedSince(): Promise<Taken> {
+      const t = await taken(
+        (org) => {
+          baseRecords(org);
+          org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+          org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+          org.add('Order', {
+            Id: order(1),
+            Status: 'Activated',
+            Description: 'Signed',
+            AccountId: account(1),
+          });
+          org.add('OrderItem', { Id: item(1), Quantity: 2, OrderId: order(1) });
+        },
+        new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+        [...PICKED, 'Order', 'OrderItem'],
+      );
+      clock.now = SINCE;
+      t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+      clock.now = SINCE + 5_000;
+      t.org.trash('Order', order(1), COLLEAGUE);
+      t.org.empty(order(1));
+      return t;
+    }
+
+    async function previewedWith(
+      t: Taken,
+      readAutomation: RewindDeps['readAutomation'],
+    ): Promise<RewindDiff> {
+      clock.now = Math.max(clock.now, PREVIEWED);
+      const outcome = await previewCheckpoint(
+        { org: t.org, store: t.store, ...(readAutomation ? { readAutomation } : {}) },
+        request(t),
+      );
+      if (!outcome.previewed) throw new Error(outcome.refusal.message);
+      return outcome.diff;
+    }
+
+    it('is not made again by a rewind that brings it back when what the org runs as an order is created was not asked: kept, named with what runs, and the rewind after it counts it to make again and asks', async () => {
+      const t = await emptiedSince();
+      const diff = await previewedWith(t, ORDER_CREATE_EMAIL);
+      expect(
+        diff.objects
+          .filter(({ objectApiName }) => objectApiName.startsWith('Order'))
+          .map(({ objectApiName, toBringBack, toRecreate }) => [
+            objectApiName,
+            toBringBack.inBin + toBringBack.withParent,
+            toRecreate ?? 0,
+          ]),
+      ).toEqual([
+        ['OrderItem', 1, 0],
+        ['Order', 1, 0],
+      ]);
+
+      const result = resultOf(
+        await rewound(t, diff.previewId, {
+          deps: { readAutomation: ORDER_CREATE_EMAIL },
+          request: { acceptRecreate: true },
+        }),
+      );
+
+      // Nothing was made: the flow on an order's insert never ran unasked.
+      expect(t.org.creates).toEqual([]);
+      expect(result.recreated ?? []).toEqual([]);
+      // Nothing else to write: nothing went through, each record said with why.
+      expect(result.status).toBe('failure');
+      const words =
+        "Kept as it is: Salesforce answered it is no longer in the recycle bin, and making it again runs what DEV-ED runs as it is created or given its status back (Order: 'Order created'), which this rewind did not ask about. Rewind again: its preview counts it to make again, and asks.";
+      expect(result.residual).toEqual([
+        { objectApiName: 'OrderItem', reason: 'kept', count: 1, ids: [item(1)], message: words },
+        { objectApiName: 'Order', reason: 'kept', count: 1, ids: [order(1)], message: words },
+      ]);
+      expect(result.undeleted).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Order', refused: 1, reasons: [words] }),
+      );
+
+      // Read again, the org's answer kept with the checkpoint: both to make
+      // again, and what runs then asked about before anything is written.
+      clock.now += 60_000;
+      const again = await previewedWith(t, ORDER_CREATE_EMAIL);
+      expect(
+        again.objects
+          .filter(({ objectApiName }) => objectApiName.startsWith('Order'))
+          .map(({ objectApiName, toRecreate }) => [objectApiName, toRecreate ?? 0]),
+      ).toEqual([
+        ['OrderItem', 1],
+        ['Order', 1],
+      ]);
+      expect(
+        await rewound(t, again.previewId, {
+          deps: { readAutomation: ORDER_CREATE_EMAIL },
+          request: { acceptRecreate: true },
+        }),
+      ).toMatchObject({
+        rewound: false,
+        refusal: {
+          code: 'AUTOMATION',
+          message: expect.stringContaining(
+            '1 flow(s), trigger(s) or rule(s) of Order run as the rewind brings records back, makes them again',
+          ) as unknown,
+        },
+      });
+      expect(t.org.creates).toEqual([]);
+
+      const made = resultOf(
+        await rewound(t, again.previewId, {
+          deps: { readAutomation: ORDER_CREATE_EMAIL },
+          request: { acceptRecreate: true, acceptAutomation: true },
+        }),
+      );
+      expect(made.status).toBe('success');
+      expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
+      expect(t.org.all('OrderItem')).toHaveLength(1);
+    });
+
+    it('is made again in the same rewind when nothing the org runs as an order is created or updated was left unasked: as a draft, its product under it, then its status', async () => {
+      const t = await emptiedSince();
+      const quiet = automationOf({
+        objectsRead: ['Account', 'Contact', 'Opportunity', 'Order', 'OrderItem'],
+      });
+      const diff = await previewedWith(t, quiet);
+
+      const result = resultOf(
+        await rewound(t, diff.previewId, {
+          deps: { readAutomation: quiet },
+          request: { acceptRecreate: true },
+        }),
+      );
+
+      expect(result.status).toBe('success');
+      expect(result.recreated).toEqual([
+        { objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] },
+        { objectApiName: 'OrderItem', planned: 1, created: 1, refused: 0, reasons: [] },
+      ]);
+      expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
+    });
+
+    it('is not made again when what runs as one is made could not all be read: nothing proves it quiet', async () => {
+      const t = await emptiedSince();
+      const blind = automationOf({
+        objectsRead: ['Account', 'Contact', 'Opportunity', 'Order', 'OrderItem'],
+        unread: [{ part: 'triggers', reason: 'INSUFFICIENT_ACCESS: no Tooling API' }],
+      });
+      const diff = await previewedWith(t, blind);
+
+      const result = resultOf(
+        await rewound(t, diff.previewId, {
+          deps: { readAutomation: blind },
+          request: { acceptRecreate: true, acceptAutomation: true },
+        }),
+      );
+
+      expect(t.org.creates).toEqual([]);
+      expect(result.residual).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Order',
+          reason: 'kept',
+          message: expect.stringContaining(
+            'what DEV-ED runs as it is created or given its status back could not all be read',
+          ) as unknown,
+        }),
+      );
+    });
   });
 });
 

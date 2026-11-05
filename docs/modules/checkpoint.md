@@ -542,24 +542,27 @@ JSON (--json), one value on stdout:
                      of what still runs, with mutedAutomation and mutePlan
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
-                      reason, count}], carriers?: [{object, count}], undo?: {until, cannot:
-                      [{object, count, reason?}]}, verify: {differences, stable, passes,
-                      notCompared}, residual: [{object, reason, by?, count, message?}], unread:
-                      [{object, reason}], objects: [{object, deleted, givenBack, broughtBack,
-                      refused}], apiRequests: {used, leftToday}, result}:
+                      reason, count}], carriers?: [{object, count}], draftsLeft?: [{object,
+                      count, ids}], undo?: {until, cannot: [{object, count, reason?}]}, verify:
+                      {differences, stable, passes, notCompared}, residual: [{object, reason,
+                      by?, count, message?}], unread: [{object, reason}], objects: [{object,
+                      deleted, givenBack, broughtBack, refused}], apiRequests: {used,
+                      leftToday}, result}:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
                      before a record they point at, which the rewind deleted next; carriers, of
                      what it brought back and deleted, the records brought back for a moment;
+                     draftsLeft, of a rewind stopped part way, the orders and contracts it made
+                     again as drafts and had not given their status back yet, by their new Ids;
                      files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
                      files and records it wrote, when it wrote one; with --object, limitedTo,
                      the objects named, and notRewound, {objects, records}, the objects not
                      named that still differ and their records that do, which the status
                      does not count
-  undo               as rewind, without recreated, cannotUndo, carriers and undo, with
-                     carriedAlone?: [{object, count}], the records sent back to the recycle bin
-                     on their own that had gone there with a record the rewind brought back for
-                     a moment
+  undo               as rewind, without recreated, cannotUndo, carriers, draftsLeft and undo,
+                     with carriedAlone?: [{object, count}], the records sent back to the
+                     recycle bin on their own that had gone there with a record the rewind
+                     brought back for a moment
   delete             {deleted: [id], kept: [id]}
   export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
                       keyShown}: keyShown, whether a new key was drawn and shown on stderr; never

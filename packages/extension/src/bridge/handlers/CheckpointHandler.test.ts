@@ -3676,7 +3676,7 @@ describe('CheckpointHandler — a pipeline’s Rewind step', () => {
     expect(changed.code).toBe('NOT_CONFIRMED');
     expect(changed.message).toBe(
       'Rewind step "Rewind the sandbox" has not been confirmed since it was changed: open it ' +
-        "and type the org's alias. No record was written.",
+        "and type the org's alias, or its username for an org that has none. No record was written.",
     );
     expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connected);
   });

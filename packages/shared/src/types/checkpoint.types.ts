@@ -1328,6 +1328,14 @@ export interface RewindResult {
    */
   carriers?: Array<{ objectApiName: string; count: number }>;
   /**
+   * A rewind's alone: per object, the orders and contracts it made again as
+   * drafts and was stopped before it gave back the status the checkpoint
+   * holds, by their new Ids — the first of them when there are many. They
+   * stay drafts until a rewind again gives them that status, an update.
+   * Absent when there is none.
+   */
+  draftsLeft?: Array<{ objectApiName: string; count: number; ids: string[] }>;
+  /**
    * An undo's alone: per object, the records it sent back to the recycle bin
    * on their own that had gone there with a record the rewind brought back
    * for a moment, which stays there. Back in the bin, such a record no

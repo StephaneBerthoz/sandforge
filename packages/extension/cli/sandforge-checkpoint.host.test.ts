@@ -1405,6 +1405,9 @@ describe('sandforge-checkpoint rewind', () => {
       );
       expect(kept.stderr).not.toContain('nothing to rewind');
       expect(kept.stderr).not.toContain('a rewind now would be refused');
+      // What runs as it writes, of what it writes: nothing of the account it keeps.
+      expect(kept.stderr).not.toContain("'Account gone'");
+      expect(kept.stderr).not.toContain('runs as a rewind writes');
 
       // Told it may, it deletes the account and its case, and its flow is asked for.
       const deletes = await h.run(
@@ -1419,6 +1422,9 @@ describe('sandforge-checkpoint rewind', () => {
         toDelete: 1,
         wouldBeRefusedCodes: ['AUTOMATION'],
       });
+      expect(deletes.stderr).toContain(
+        "  what DEV-SB runs as a rewind writes (updates, deletes, records brought back):\n    Account: 1 flow(s) or rule(s): 'Account gone'",
+      );
       expect(stateOf(h.org)).toEqual(before);
     });
 

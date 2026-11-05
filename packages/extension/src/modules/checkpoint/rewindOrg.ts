@@ -300,6 +300,7 @@ import {
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
 import { ORG_ACCESS, actAccessOf, type ActAccess } from './rewindAccess.js';
+import { remakeUnasked, type RemakeUnasked } from './rewindBounds.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import {
   actDeliverability,
@@ -500,6 +501,39 @@ export const NOT_REMADE_WORDS =
 
 /** What a refusal before the first write did not do. */
 const NOTHING_WRITTEN = 'No record was written.';
+
+/** What fires that a line names at most, the rest counted. */
+const FIRED_NAMED = 4;
+
+/**
+ * Why a rewind left a record the org answered is no longer in the recycle
+ * bin, and what was to come back with it, though making records again was
+ * accepted: making it again runs what its question did not ask about — what
+ * the org runs as it is created, or as an order made as a draft is given
+ * its status back — or what runs then could not all be read. The org's
+ * answer is kept with the checkpoint: a rewind after it counts the record to
+ * make again, and asks.
+ */
+export function notAskedWords(
+  orgName: string,
+  objects: readonly string[],
+  unasked: RemakeUnasked,
+): string {
+  const as = objects.some((name) => STATUS_LIFECYCLES[name] !== undefined)
+    ? 'as it is created or given its status back'
+    : 'as it is created';
+  const named = [...new Set(unasked.fired.map((each) => `${each.objectApiName}: '${each.name}'`))];
+  const more = named.length - FIRED_NAMED;
+  const what =
+    named.length > 0
+      ? `making it again runs what ${orgName} runs ${as} (` +
+        `${named.slice(0, FIRED_NAMED).join(', ')}${more > 0 ? ` and ${more} more` : ''})`
+      : `what ${orgName} runs ${as} could not all be read`;
+  return (
+    `Kept as it is: Salesforce answered it is no longer in the recycle bin, and ${what}, which ` +
+    'this rewind did not ask about. Rewind again: its preview counts it to make again, and asks.'
+  );
+}
 
 const ACCOUNT = 'Account';
 const CONTACT = 'Contact';
@@ -1249,6 +1283,18 @@ class PassTally {
    * again was not accepted.
    */
   readonly notInBin = new Map<string, RecordKeySet>();
+  /**
+   * By key, such records, and what was to come back with them, left though
+   * making them again was accepted, with why: making them again runs what
+   * the rewind's question did not ask about (`notAskedWords`).
+   */
+  readonly notAsked = new Map<string, string>();
+  /**
+   * Per object, the records it made again as drafts that a stop left before
+   * their status went back, by their new Ids: drafts until a rewind again
+   * gives it them.
+   */
+  readonly draftsLeft = new Map<string, string[]>();
   /** Per object, such records the checkpoint cannot make again: a file, or one it holds no values of. */
   readonly lost = new Map<string, RecordKeySet>();
   /**
@@ -1769,6 +1815,14 @@ class Rewind {
    * back nor set on the record made again.
    */
   private readonly leftFields = new Map<string, Set<string>>();
+  /**
+   * What its question was asked on once it let the rewind write: the writes
+   * of each step, and what of the org's automation still runs. A record the
+   * org answers is no longer in the recycle bin is made again only where
+   * that write ran nothing unasked (`remakeUnasked`). Absent when no
+   * automation was read, which asks about nothing.
+   */
+  private asked: { automation: ForgeTargetAutomation; steps: ForgeRemovalSteps } | undefined;
 
   constructor(
     private readonly deps: RewindDeps,
@@ -2036,6 +2090,7 @@ class Rewind {
     ) {
       return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
+    if (automation) this.asked = { automation, steps };
     // The emails of what still runs, where the org delivers them all or would
     // not say: written only once they were accepted, which the acceptance of
     // the automation never stands for.
@@ -2266,6 +2321,18 @@ class Rewind {
         );
       }
     }
+    // Made again as drafts, a stop left before their status went back.
+    const drafts = new Map<string, string[]>();
+    for (const passTally of [one, ...(second ? [second.tally] : [])]) {
+      for (const [objectApiName, ids] of passTally.draftsLeft) {
+        drafts.set(objectApiName, [...(drafts.get(objectApiName) ?? []), ...ids]);
+      }
+    }
+    const draftsLeft = [...drafts].map(([objectApiName, ids]) => ({
+      objectApiName,
+      count: ids.length,
+      ids: ids.slice(0, REWIND_RESIDUAL_IDS),
+    }));
     const outcome: RewindOutcome & { rewound: true } = {
       rewound: true,
       result: this.resultOf({
@@ -2279,6 +2346,7 @@ class Rewind {
         undo: { until: undoUntil, cannot: undoCannot },
         removedJournals,
         carriers,
+        draftsLeft,
         ...(files ? { files } : {}),
         ...(scope ? { scope } : {}),
       }),
@@ -2411,6 +2479,8 @@ class Rewind {
     removedJournals?: EarlierJournalRemoved[];
     /** Per object, the carriers it brought back for a moment. */
     carriers?: RewindResult['carriers'];
+    /** Per object, what it made again as drafts that a stop left before their status went back. */
+    draftsLeft?: RewindResult['draftsLeft'];
     /** What it did to the links between files and records. */
     files?: RewindFilesResult;
     /** Of a rewind limited to some objects, those objects, and what it left of the others. */
@@ -2430,6 +2500,7 @@ class Rewind {
       undeleted: parts.tally.undeleted.filter((object) => object.planned > 0),
       ...(parts.tally.recreated.length > 0 ? { recreated: parts.tally.recreated } : {}),
       ...((parts.carriers ?? []).length > 0 ? { carriers: parts.carriers } : {}),
+      ...((parts.draftsLeft ?? []).length > 0 ? { draftsLeft: parts.draftsLeft } : {}),
       residual: parts.residual,
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
       passes: parts.passes,
@@ -3220,15 +3291,28 @@ class Rewind {
    * Give the records made again as drafts the status the checkpoint holds,
    * once the pass made every record under them, 200 an update: an order takes
    * its products only as a draft. One the org refuses is said in its object's
-   * result, made again but left a draft.
+   * result, made again but left a draft. Those a stop leaves before their
+   * update are named, drafts (`draftsLeft`): a stopped rewind said it made
+   * an activated order again, and not that it stayed a draft.
    */
   private async giveStatusesBack(
     owed: ReadonlyMap<string, ReadonlyArray<{ id: string; field: string; status: string }>>,
     tally: PassTally,
   ): Promise<void> {
-    for (const [objectApiName, records] of owed) {
+    const objects = [...owed];
+    for (const [place, [objectApiName, records]] of objects.entries()) {
       for (let at = 0; at < records.length; at += RECORDS_PER_CALL) {
-        if (this.stopped()) return;
+        if (this.stopped()) {
+          const left = [[objectApiName, records.slice(at)] as const, ...objects.slice(place + 1)];
+          for (const [name, drafts] of left) {
+            if (drafts.length === 0) continue;
+            tally.draftsLeft.set(name, [
+              ...(tally.draftsLeft.get(name) ?? []),
+              ...drafts.map(({ id }) => id),
+            ]);
+          }
+          return;
+        }
         const batch = records.slice(at, at + RECORDS_PER_CALL);
         const answers = saveAnswersOf(
           await this.org.update(
@@ -3434,6 +3518,21 @@ class Rewind {
   }
 
   /**
+   * Why records of `objects` the org answered are no longer in the recycle
+   * bin are not made again in this rewind: what runs as they are made, which
+   * its question did not ask about. Nothing when it did, or ran nothing, and
+   * when no automation was read, which asks about nothing.
+   */
+  private remakeUnaskedWords(objects: readonly string[]): string | undefined {
+    const asked = this.asked;
+    if (!asked) return undefined;
+    const names = [...new Set(objects)];
+    const unasked = remakeUnasked(asked.automation, asked.steps, names);
+    if (unasked.fired.length === 0 && !unasked.blind) return undefined;
+    return notAskedWords(this.request.orgName, names, unasked);
+  }
+
+  /**
    * `outcome` once what the org answered is no longer in the recycle bin is
    * settled — what the undelete left of `answered`, each with the records
    * named in the bin as coming back with it: what the checkpoint can make
@@ -3467,6 +3566,8 @@ class Rewind {
     const moved = new Set<string>();
     let notRemade = 0;
     let outOfReach = 0;
+    /** Why what making again would run unasked was left, the last said. */
+    let notAsked: string | undefined;
     const outOfSight = (object: string): boolean => this.access.heldAs(object) === 'parent';
     // Kept by the checkpoint whatever becomes of them here: a later preview
     // takes them as stuck in the bin, and never counts them to bring back.
@@ -3490,10 +3591,21 @@ class Rewind {
           tally.mark('outOfReach', child.objectApiName, child.id);
         } else if (await makesAgain(child.objectApiName, child.id)) along.push(child);
       }
-      if (remake) {
+      // Made again only where what runs as it is made was asked about: what
+      // its question never named stays, said, for a rewind after it to ask.
+      const unasked = remake
+        ? this.remakeUnaskedWords([objectApiName, ...along.map((child) => child.objectApiName)])
+        : undefined;
+      if (remake && unasked === undefined) {
         await remake.add(objectApiName, id);
         for (const child of along) await remake.add(child.objectApiName, child.id);
         moved.add(keyOf(id));
+        continue;
+      }
+      if (unasked !== undefined) {
+        notAsked = unasked;
+        tally.notAsked.set(keyOf(id), unasked);
+        for (const child of along) tally.notAsked.set(keyOf(child.id), unasked);
         continue;
       }
       notRemade++;
@@ -3512,11 +3624,15 @@ class Rewind {
               ? object.reasons.map((reason) =>
                   NOT_IN_BIN.test(reason) ? NOT_REMADE_WORDS : reason,
                 )
-              : outOfReach > 0
+              : notAsked !== undefined
                 ? object.reasons.map((reason) =>
-                    NOT_IN_BIN.test(reason) ? OUT_OF_REACH_WORDS : reason,
+                    NOT_IN_BIN.test(reason) ? (notAsked ?? reason) : reason,
                   )
-                : object.reasons;
+                : outOfReach > 0
+                  ? object.reasons.map((reason) =>
+                      NOT_IN_BIN.test(reason) ? OUT_OF_REACH_WORDS : reason,
+                    )
+                  : object.reasons;
         return {
           ...object,
           planned: object.planned - moved.size,
@@ -3990,6 +4106,13 @@ class Rewind {
           }
           if (tallies.some((tally) => tally.lost.get(name)?.has(id) === true)) {
             add(name, 'goneForGood', id);
+            continue;
+          }
+          const notAsked = tallies
+            .map((tally) => tally.notAsked.get(keyOf(id)))
+            .find((words) => words !== undefined);
+          if (notAsked !== undefined) {
+            add(name, 'kept', id, { message: notAsked });
             continue;
           }
           if (tallies.some((tally) => tally.notInBin.get(name)?.has(id) === true)) {

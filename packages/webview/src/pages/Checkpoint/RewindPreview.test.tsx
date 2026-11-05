@@ -849,7 +849,7 @@ describe('RewindPreview', () => {
     expect(screen.queryByTestId('checkpoint-preview-recreate')).toBeNull();
   });
 
-  it('offers to make again what Salesforce answers is no longer in the recycle bin whenever the rewind brings records back, saying it still lists one emptied from it, without holding Rewind for it (live: five emptied records read in the bin)', () => {
+  it('offers to make again what Salesforce answers is no longer in the recycle bin whenever the rewind brings records back, saying it still lists one emptied from it, and that it leaves what making it again runs unlisted here, without holding Rewind for it (live: five emptied records read in the bin)', () => {
     const { onRewind } = renderPreview();
     answerPreview();
     const section = screen.getByTestId('checkpoint-preview-recreate');
@@ -857,7 +857,7 @@ describe('RewindPreview', () => {
       'If the recycle bin no longer holds them',
     );
     expect(screen.getByTestId('checkpoint-preview-recreate-if-emptied').textContent).toBe(
-      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.',
+      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too — unless making it again runs something of the org this preview does not list, as a record is created or an order given its status back: it then leaves them, names them, and the next preview counts them to make again and asks. Unticked, it leaves them, and names them.',
     );
     expect(within(section).queryByRole('listitem')).toBeNull();
     const rewind = screen.getByTestId('checkpoint-preview-rewind');

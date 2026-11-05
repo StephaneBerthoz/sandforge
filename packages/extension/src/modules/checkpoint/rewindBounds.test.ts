@@ -485,7 +485,7 @@ describe('the refusals of a rewind nobody can be asked about', () => {
       code: 'NOT_CONFIRMED',
       message:
         'Rewind step "Nightly reset" has not been confirmed since it was changed: open it and ' +
-        "type the org's alias. No record was written.",
+        "type the org's alias, or its username for an org that has none. No record was written.",
     });
     expect(notConfirmedRefusal('Nightly reset', false).message).toMatch(
       /^Rewind step "Nightly reset" has never been confirmed: /,

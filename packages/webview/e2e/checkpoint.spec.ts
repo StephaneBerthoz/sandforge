@@ -885,6 +885,7 @@ for (const theme of THEMES) {
         result: rewindResult('ck-picked', {
           status: 'cancelled',
           carriers: [{ objectApiName: 'Account', count: 1 }],
+          draftsLeft: [{ objectApiName: 'Order', count: 1, ids: ['801000000000007AAA'] }],
         }),
         operationId: started.id,
       });
@@ -893,6 +894,10 @@ for (const theme of THEMES) {
       );
       await expect(page.getByTestId('checkpoint-result-carriers-stopped')).toHaveText(
         `Stopped before the rewind was through: what of them it had not deleted again yet is still in ${ORG}. Rewind again deletes it, with what came back with it.`,
+      );
+      // An order made again as a draft, its status not given back yet, named.
+      await expect(page.getByTestId('checkpoint-result-drafts-left-Order')).toHaveText(
+        'Order: 1 record made again as a draft (801000000000007AAA), its status not given back yet',
       );
       await expect(page.getByTestId('checkpoint-result-rewind-again')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');

@@ -156,6 +156,51 @@ const RecreatedResult: React.FC<{
   );
 };
 
+/** The new Ids a line names at most. */
+const DRAFT_IDS_SHOWN = 3;
+
+/**
+ * What a stopped rewind made again as drafts and left before it gave them
+ * back their status, object by object, by their new Ids: an activated order
+ * made again stays a draft until Rewind again gives it its status, an update.
+ */
+const DraftsLeftResult: React.FC<{
+  draftsLeft: NonNullable<RewindOutcome['draftsLeft']>;
+  orgName: string;
+}> = ({ draftsLeft, orgName }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-result-drafts-left"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.result.draftsLeft.title', { org: orgName })}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {draftsLeft.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`checkpoint-result-drafts-left-${object.objectApiName}`}
+          >
+            {t('checkpoint.result.draftsLeft.line', {
+              count: object.count,
+              formatted: formatNumber(object.count),
+              object: object.objectApiName,
+              ids:
+                object.ids.slice(0, DRAFT_IDS_SHOWN).join(', ') +
+                (object.count > DRAFT_IDS_SHOWN ? ', …' : ''),
+            })}
+          </li>
+        ))}
+      </ul>
+      <p>{t('checkpoint.result.draftsLeft.rewindAgain', { org: orgName })}</p>
+    </section>
+  );
+};
+
 /**
  * What a rewind brought back for a moment, object by object: records the
  * checkpoint does not hold, deleted since with records it holds, which
@@ -407,6 +452,9 @@ export const RewindResult: React.FC<RewindResultProps> = ({
       )}
       {rewinding && (result.recreated?.length ?? 0) > 0 && (
         <RecreatedResult recreated={result.recreated ?? []} orgName={orgName} />
+      )}
+      {rewinding && (result.draftsLeft?.length ?? 0) > 0 && (
+        <DraftsLeftResult draftsLeft={result.draftsLeft ?? []} orgName={orgName} />
       )}
       {result.restored.length > 0 && (
         <RestoredResult

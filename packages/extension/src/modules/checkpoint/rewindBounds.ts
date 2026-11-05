@@ -41,6 +41,7 @@ import {
   firedOnRemovalStepsOf,
   type CheckpointEmails,
   type CheckpointRefusal,
+  type ForgeFiredOnRemovalStep,
   type ForgeRemovalSteps,
   type ForgeTargetAutomation,
   type RewindBounds,
@@ -52,6 +53,7 @@ import {
   type RunDeliverability,
 } from '@sandforge/shared';
 
+import { STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { FILE_LINK_OBJECT } from './checkpointScope.js';
 import {
   actEmailsGate,
@@ -220,6 +222,50 @@ export function rewindStepsOf(
     ),
     setToDraft: diff.objects.filter((o) => draftedByDiff(o) > 0).map((o) => o.objectApiName),
     delete: linked(deleted, links?.unlink ?? 0),
+  };
+}
+
+/** What runs, unasked, as a rewind makes again what it set out to bring back: see {@link remakeUnasked}. */
+export interface RemakeUnasked {
+  /** What fires as one is created, or as an order or a contract is given its status back. */
+  fired: ForgeFiredOnRemovalStep[];
+  /** Whether what runs then could not all be read: nothing proves those writes quiet. */
+  blind: boolean;
+}
+
+/**
+ * What runs, unasked, as a rewind makes again records of `objects` it set out
+ * to bring back, once Salesforce answers that the recycle bin no longer holds
+ * them: it still lists one emptied from it as deleted, and no read tells the
+ * two apart (P11). A record made again is created, an order or a contract
+ * made as a draft is then given its status back, and what runs on either
+ * write is what `steps` — the writes its question was asked on — did not
+ * name for that object. A part of the automation not read, or an object whose
+ * automation was not read, leaves those writes unproven quiet. What a bypass
+ * the user holds, or the mute holds, keeps quiet does not run.
+ *
+ * Seen of an order emptied from the bin: its preview counted it to bring
+ * back, and a rewind told it may make records again made it, running what
+ * the org runs as an order is created, which nobody was asked about.
+ */
+export function remakeUnasked(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'objectsRead' | 'unread'>,
+  steps: ForgeRemovalSteps,
+  objects: readonly string[],
+): RemakeUnasked {
+  const named = (step: readonly string[] | undefined, name: string): boolean =>
+    (step ?? []).includes(name);
+  const created = objects.filter((name) => !named(steps.recreate, name));
+  const statused = objects.filter(
+    (name) => STATUS_LIFECYCLES[name] !== undefined && !named(steps.giveBack, name),
+  );
+  const read = new Set(automation.objectsRead);
+  const unasked = [...created, ...statused];
+  return {
+    fired: firedOnRemovalStepsOf(automation, { recreate: created, giveBack: statused }),
+    blind:
+      unasked.length > 0 &&
+      (blindedBy(automation.unread) || unasked.some((name) => !read.has(name))),
   };
 }
 
@@ -632,6 +678,7 @@ export function notConfirmedRefusal(stepName: string, changedSince: boolean): Ch
     message:
       `Rewind step "${stepName}" has ` +
       (changedSince ? 'not been confirmed since it was changed' : 'never been confirmed') +
-      `: open it and type the org's alias. ${NOTHING_WRITTEN}`,
+      `: open it and type the org's alias, or its username for an org that has none. ` +
+      NOTHING_WRITTEN,
   };
 }

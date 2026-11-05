@@ -451,7 +451,7 @@ describe('parseArgs', () => {
       '{refusal: {code, message}}',
       '  rewind --dry-run   as preview',
       '  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,',
-      '  undo               as rewind, without recreated, cannotUndo, carriers and undo, with',
+      '  undo               as rewind, without recreated, cannotUndo, carriers, draftsLeft and undo,',
       'Exit codes: 0 done',
       'rewind or undo with --yes and no checkpoint named, or a question with no terminal',
       '--fail-on-change, the org differs',
@@ -1188,6 +1188,59 @@ describe('previewLines', () => {
       estimate,
     });
     expect(giving).not.toContain(offer);
+  });
+
+  it('says which records to bring back --accept-recreate leaves all the same, for what making them again runs that the rewind does not ask about, and that a rewind after it asks (GC2, P11)', () => {
+    const onCreate: ForgeTargetAutomation = {
+      objectsRead: ['Order', 'OrderItem'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Created',
+              label: 'Order created',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 2,
+    };
+    const diff = diffOf([
+      object({
+        objectApiName: 'OrderItem',
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      }),
+      object({
+        objectApiName: 'Order',
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+      }),
+    ]);
+
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate, automation: onCreate });
+
+    expect(lines).toContain(
+      "  if Salesforce answers that a record to bring back is no longer in the recycle bin — it still lists one emptied from it as deleted —, --accept-recreate makes it again with a new Id, with what was to come back with it; without it, the rewind leaves them and names them; Order records it leaves all the same, with what was to come back with them, and names them: making them again runs Order: 'Order created', which this rewind does not ask about — a rewind after it counts them to make again, and asks",
+    );
+    // Not said made again as a draft: it is left.
+    expect(lines.join('\n')).not.toContain('makes it again as a draft');
+
+    const blind = previewLines('DEV-SB', checkpoint, {
+      diff,
+      estimate,
+      automation: { ...onCreate, objects: [], unread: [{ part: 'triggers', reason: 'refused' }] },
+    });
+    expect(blind.join('\n')).toContain(
+      'OrderItem, Order records it leaves all the same, with what was to come back with them, and names them: what runs as they are made again could not all be read, which this rewind does not ask about',
+    );
   });
 
   it('says the records it brings back for a moment, in none of the three numbers, and what the org runs on them runs twice; counts them in --json', () => {
@@ -2003,6 +2056,29 @@ describe('rewindLines, undoLines and resultJson', () => {
     expect(
       rewindLines('DEV-SB', checkpoint, resultOf({ ...carried, status: 'failure' })).join('\n'),
     ).not.toContain('brought back for a moment');
+  });
+
+  it('names the order a stopped rewind made again as a draft and left before its status went back, with what a rewind again does, and lists it in its JSON (GC2)', () => {
+    const draft = '801000000000007AAA';
+    const stopped = resultOf({
+      status: 'cancelled',
+      deleted: [],
+      restored: [],
+      undeleted: [],
+      recreated: [{ objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] }],
+      draftsLeft: [{ objectApiName: 'Order', count: 1, ids: [draft] }],
+    });
+
+    const lines = rewindLines('DEV-SB', checkpoint, stopped);
+
+    expect(lines).toContain(
+      `  left as drafts: Order 1 (${draft}) — made again as drafts, the rewind stopped before it gave them back the status the checkpoint holds: rewind again gives it back to them, an update`,
+    );
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, stopped).draftsLeft).toEqual([
+      { object: 'Order', count: 1, ids: [draft] },
+    ]);
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('draftsLeft');
+    expect(rewindLines('DEV-SB', checkpoint, resultOf()).join('\n')).not.toContain('drafts');
   });
 
   it('says what an undo sent back to the recycle bin on its own that had gone there with a record the rewind brought back for a moment, and lists it in its JSON (P-B1)', () => {
