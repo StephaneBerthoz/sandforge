@@ -759,10 +759,11 @@ const NOTHING_AGAIN = /\s*\bNothing was (?:written|deleted)\./g;
  * The refusal an act stops with, as asked: under the first of its read's
  * code, every other one under its own beside it (`alsoRefused`), as a run of
  * Autopilot or a clone refused for several reasons gives them, and a message
- * that says each in turn, the sentence that nothing was written said once.
- * The two came under the first one's code alone — what fires, then its emails
- * —, and the message said "Nothing was written." twice. Undefined when the
- * act may write.
+ * that says each in turn, the sentence that nothing was written said once —
+ * by the message, never by a refusal beside it, which said it again on a
+ * real org. The two came under the first one's code alone — what fires, then
+ * its emails —, and the message said "Nothing was written." twice. Undefined
+ * when the act may write.
  */
 export function dataOpsStop(
   answer: Pick<DataOpsAutomationAnswer, 'refusals'>,
@@ -780,7 +781,10 @@ export function dataOpsStop(
   return {
     code: first.code,
     message,
-    alsoRefused: rest.map((refusal) => ({ code: refusal.code, message: refusal.message })),
+    alsoRefused: rest.map((refusal) => ({
+      code: refusal.code,
+      message: refusal.message.replace(NOTHING_AGAIN, '').trim(),
+    })),
   };
 }
 

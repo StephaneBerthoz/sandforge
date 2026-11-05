@@ -660,14 +660,25 @@ describe('DataOpsComplianceHandler', () => {
       /^dev runs automation as this erasure writes over its records: .* Nothing was written\. Confirm the erasure from its confirmation, .* dev delivers every email its automation sends .* Tick the confirmation's box that lets the org send these emails/,
     );
     expect(payload.alsoRefused?.[0].message).not.toMatch(/--[a-z]/);
+    // Said once, by the message: on the gate org, the refusal beside it said
+    // "Nothing was written." again.
+    expect(payload.alsoRefused?.[0].message).not.toMatch(/Nothing was (written|deleted)/);
+    expect(payload.alsoRefused?.[0].message).toContain(
+      'and an address an alert names. Tick the confirmation',
+    );
     expect(new AuditTrailStore(deps.configStore).list().entries[0]).toMatchObject({
       outcome: 'stopped',
       details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
     });
   });
 
-  /** Jane's contact, which takes a task along when it is deleted, as a real describe says. */
-  function janeWithATask(): void {
+  /**
+   * Jane's contact, which takes a task along when it is deleted, as a real
+   * describe says, and a flow before a task's delete: the objects each read
+   * of what fires was asked about are told to the list it answers.
+   */
+  function janeWithATask(): string[][] {
+    const asked: string[][] = [];
     // Contact.childRelationships of a real org: Task.WhoId deletes along
     // (cascadeDelete), and Task is an object people work with.
     org.conn.describe.mockResolvedValue({
@@ -684,32 +695,36 @@ describe('DataOpsComplianceHandler', () => {
     } as unknown as { sobjects: never[] });
     // A flow before a task's delete, and nothing on the contact itself.
     handler.setTargetAutomation({
-      read: async (_orgId: string, objects: readonly string[]) => ({
-        objectsRead: [...objects],
-        objects: objects.includes('Task')
-          ? [
-              {
-                objectApiName: 'Task',
-                flows: [
-                  {
-                    apiName: 'Task_Delete_Guard',
-                    label: 'Task Delete Guard',
-                    timing: 'beforeSave' as const,
-                    startsOn: 'delete' as const,
-                    condition: 'read' as const,
-                    permissions: [],
-                  },
-                ],
-                triggers: [],
-              },
-            ]
-          : [],
-        unread: [],
-        conditionsNotRead: 0,
-        conditionsBound: 0,
-        requests: 1,
-      }),
+      read: async (_orgId: string, objects: readonly string[]) => {
+        asked.push([...objects]);
+        return {
+          objectsRead: [...objects],
+          objects: objects.includes('Task')
+            ? [
+                {
+                  objectApiName: 'Task',
+                  flows: [
+                    {
+                      apiName: 'Task_Delete_Guard',
+                      label: 'Task Delete Guard',
+                      timing: 'beforeSave' as const,
+                      startsOn: 'delete' as const,
+                      condition: 'read' as const,
+                      permissions: [],
+                    },
+                  ],
+                  triggers: [],
+                },
+              ]
+            : [],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 1,
+        };
+      },
     });
+    return asked;
   }
 
   /** Delete Jane, as a dry run or for real, with what the confirmation answered. */
@@ -725,27 +740,17 @@ describe('DataOpsComplianceHandler', () => {
       }),
     );
 
-  it('deletes nothing a flow runs before on the records a delete takes along, until the confirmation accepts it', async () => {
-    // The erasure read what fires on the contacts alone: the flow before a
-    // task's delete was never named, though the task went with its contact.
-    janeWithATask();
+  it("deletes a contact without asking about a flow before a task's delete: the task goes with it, and the platform runs none of it", async () => {
+    // On a scratch org, a task's before delete flow and its before delete
+    // trigger each refused the task's own delete; the delete of its contact
+    // went through, the task went with it, and neither ran. The erasure
+    // asked about them all the same, and refused for them.
+    const asked = janeWithATask();
     const { requestId } = await searchJane();
 
     await eraseJane(requestId, false);
 
-    expect(org.destroy).not.toHaveBeenCalled();
-    expect(posted().at(-1)).toMatchObject({
-      type: 'dataops:error',
-      payload: {
-        code: 'AUTOMATION_NOT_ACCEPTED',
-        message: expect.stringContaining(
-          'dev runs automation as this erasure deletes its records: Task: flow ' +
-            '"Task Delete Guard" (before delete)',
-        ),
-      },
-    });
-
-    await eraseJane(requestId, false, { acceptAutomation: true });
+    expect(asked).toEqual([['Contact']]);
     expect(org.destroy).toHaveBeenCalledWith(['003000000000001AAA']);
     expect(answer<{ outcome: unknown }>('dataops:dsr:erase:response').outcome).toMatchObject({
       status: 'success',
@@ -753,7 +758,7 @@ describe('DataOpsComplianceHandler', () => {
     });
   });
 
-  it('plans a delete with the records it takes along, which its confirmation reads what fires on', async () => {
+  it('plans a delete with the records it takes along, and gives its confirmation the records it deletes itself to read what fires on', async () => {
     janeWithATask();
     const { requestId } = await searchJane();
 
@@ -763,10 +768,7 @@ describe('DataOpsComplianceHandler', () => {
       'dataops:dsr:erase:response',
     );
     expect(planned.plan[0].related).toEqual([{ objectApiName: 'Task', label: 'Task', records: 1 }]);
-    expect(planned.written).toEqual([
-      { objectApiName: 'Contact', records: 1 },
-      { objectApiName: 'Task', records: 1 },
-    ]);
+    expect(planned.written).toEqual([{ objectApiName: 'Contact', records: 1 }]);
     expect(org.destroy).not.toHaveBeenCalled();
   });
 

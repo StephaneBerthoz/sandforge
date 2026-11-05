@@ -381,9 +381,10 @@ describe('SubjectRequestSection', () => {
     });
   });
 
-  it('reads what fires on what a delete takes along, as the dry run says it', () => {
-    // A contact's tasks go with it: the confirmation read what fires on the
-    // contacts alone, and a flow before a task's delete went unasked.
+  it('reads what fires on the records the dry run says the erasure deletes itself, while its review counts what goes along', () => {
+    // A contact's tasks go with it, and the platform runs none of what fires
+    // before a task's delete as they go: the dry run counts them in its plan,
+    // and names the contacts alone as what the confirmation reads it on.
     states['dataops:dsr:search'].data = found;
     states.review.data = {
       requestId: REQUEST,
@@ -397,22 +398,17 @@ describe('SubjectRequestSection', () => {
           related: [{ objectApiName: 'Task', label: 'Task', records: 3 }],
         },
       ],
-      written: [
-        { objectApiName: 'Contact', records: 2 },
-        { objectApiName: 'Task', records: 3 },
-      ],
+      written: [{ objectApiName: 'Contact', records: 2 }],
     };
     section();
     fireEvent.click(screen.getByTestId('dsr-mode-delete'));
     fireEvent.click(screen.getByTestId('dsr-erase-btn'));
 
+    expect(screen.getByTestId('removal-plan-related').textContent).toContain('Task: 3 records');
     expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       act: 'cleanup',
-      objects: [
-        { objectApiName: 'Contact', records: 2 },
-        { objectApiName: 'Task', records: 3 },
-      ],
+      objects: [{ objectApiName: 'Contact', records: 2 }],
       erasure: true,
     });
   });

@@ -386,8 +386,7 @@ number, or several, and **Search**. It looks in the objects the inventory read:
 - Both start with a review that writes nothing: the fields each object would
   have overwritten and how, or how many related records the org would delete
   along with them. Then a confirmation armed by typing the org's name, which
-  lists what the org runs as the records are written over or deleted -- for a
-  delete, as the records the org deletes along with them go too -- as a
+  lists what the org runs as the records are written over or deleted, as a
   masking's or a cleanup's does (see
   [What the org runs as DataOps writes](#what-the-org-runs-as-dataops-writes)),
   then **Production Guard**:
@@ -437,8 +436,7 @@ Each recommendation can be:
   other objects the org deletes along with them (counted per object people
   work with; the org's own history, sharing and feed rows are not), then a
   confirmation armed by typing the org's name, which lists what the org runs
-  as they go, those it deletes along with them included, then **Production
-  Guard**.
+  as they go, then **Production Guard**.
   Deleted records go to the
   recycle bin. A delete is listed in Live Operations while it runs, where
   Cancel stops it before its next call of 200 records, the records deleted by
@@ -512,12 +510,13 @@ Forge, Sync, Seed and Frozen Dataset do:
 - **What fires**, object by object and write by write: on update for a masking
   and a restore, after undelete for what a restore brings back, before and
   after delete for a cleanup, and what could not be read. A Cleanup delete and
-  an erasure by delete read it on the records the org deletes along with
-  theirs as well, object by object as their review counted them: a contact
-  takes its tasks with it, an account its contacts and opportunities, and what
-  runs as those go is named and asked about as what runs on the records
-  themselves. An object the review could not count is not read.
-  `sandforge-cleanup` reads it on the objects it names
+  an erasure by delete read it on the records they delete themselves, not on
+  those the org deletes along with them, which their review counts: a record
+  the platform deletes with its parent runs none of its delete automation. On
+  a scratch org, a task that went with its contact ran neither its before
+  delete trigger nor its before delete flow, though each refused the task's
+  own delete, and Salesforce has no flow that starts after a delete.
+  `sandforge-cleanup` reads it on the objects it names, as the page does
 - **Duplicate rules**: the active ones of what a masking, a restore or an
   erasure in place writes over, named; a masking then says what they wrote
   during it (see [Anonymize](#anonymize))

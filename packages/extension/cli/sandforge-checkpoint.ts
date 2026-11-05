@@ -1074,13 +1074,22 @@ function orgOf(checkpoint: OrgCheckpoint): string {
   return checkpoint.org.alias ?? checkpoint.org.username;
 }
 
-/** The objects a scope left out, one line per reason. */
+/** A reason's own "Left out", which the line says before the objects. */
+const SAID_LEFT_OUT = /^Left out(?::\s*|\s+(?=as asked\b))/;
+
+/**
+ * The objects a scope left out, one line per reason, "left out" said once:
+ * a reason read on its own starts with it, and the line said "left out:
+ * ProcessInstance — Left out: Salesforce alone creates its records".
+ */
 function leftOutLines(leftOut: readonly CheckpointLeftOutObject[]): string[] {
   const byReason = new Map<string, string[]>();
   for (const { objectApiName, reason } of leftOut) {
     byReason.set(reason, [...(byReason.get(reason) ?? []), objectApiName]);
   }
-  return [...byReason].map(([reason, objects]) => `  left out: ${someOf(objects)} — ${reason}`);
+  return [...byReason].map(
+    ([reason, objects]) => `  left out: ${someOf(objects)} — ${reason.replace(SAID_LEFT_OUT, '')}`,
+  );
 }
 
 /** Why a field is not in the snapshot, as a person reads it. */

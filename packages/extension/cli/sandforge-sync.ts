@@ -1397,6 +1397,32 @@ const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
 };
 
 /**
+ * The line the command prints of an object's counts. The contact roles linked
+ * to the ones the platform wrote with their opportunity are counted linked,
+ * as the line under it says them, not among the records skipped: on a
+ * scratch org it read "0 processed, 0 succeeded, 0 failed, 1 skipped" over
+ * "1 record(s) linked to the contact role the platform wrote". The result
+ * keeps them among its `skipped`.
+ */
+export function objectCountsLine(
+  result: Pick<SyncObjectResult, 'objectApiName'> &
+    Partial<
+      Pick<
+        SyncObjectResult,
+        'processed' | 'success' | 'failed' | 'skipped' | 'writtenByThePlatform'
+      >
+    >,
+): string {
+  const linked = result.writtenByThePlatform?.records ?? 0;
+  const skipped = Math.max(0, (result.skipped ?? 0) - linked);
+  return (
+    `${result.objectApiName}: ${result.processed ?? 0} processed, ${result.success ?? 0} ` +
+    `succeeded, ${result.failed ?? 0} failed, ${skipped} skipped` +
+    (linked > 0 ? `, ${linked} linked` : '')
+  );
+}
+
+/**
  * The lines the command prints of what an object's write did that no refusal
  * says: the records linked to one the target holds rather than written, those
  * written without lookups they held, with why, those given lookups at an
@@ -2549,12 +2575,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`\nstatus:  ${(result as { status?: string }).status ?? 'unknown'}`);
   for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   for (const entry of objects as Array<Record<string, unknown>>) {
-    const failed = Number(entry.failed ?? 0);
-    log(
-      `  ${String(entry.objectApiName)}: ${String(entry.processed ?? 0)} processed, ` +
-        `${String(entry.success ?? 0)} succeeded, ${failed} failed, ` +
-        `${String(entry.skipped ?? 0)} skipped`,
-    );
+    log(`  ${objectCountsLine(entry as Partial<SyncObjectResult> & { objectApiName: string })}`);
     // Not inserted a second time: an earlier run of the configuration copied them.
     if (typeof entry.alreadyCopied === 'number') {
       log(

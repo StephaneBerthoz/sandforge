@@ -761,9 +761,10 @@ export interface DataOpsSubjectEraseResponse extends BaseMessage {
     dryRun: boolean;
     plan: RemovalPlanObject[];
     /**
-     * A dry run's: the records the erasure writes, per object, what the org
-     * deletes along with them included — what its confirmation reads what
-     * fires on, as the erasure reads it before its first write.
+     * A dry run's: the records the erasure writes itself, per object, not
+     * those the org deletes along with them (`plan[].related`), whose
+     * automation the platform does not run — what its confirmation reads
+     * what fires on, as the erasure reads it before its first write.
      */
     written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */
@@ -848,9 +849,10 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
     /** More records are recommended than one delete reads. */
     truncated: boolean;
     /**
-     * A dry run's: the records the delete takes, per object, what the org
-     * deletes along with them included — what its confirmation reads what
-     * fires on, as the delete reads it before its first write.
+     * A dry run's: the records the delete takes itself, per object, not those
+     * the org deletes along with them (`plan.related`), whose automation the
+     * platform does not run — what its confirmation reads what fires on, as
+     * the delete reads it before its first write.
      */
     written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */

@@ -180,7 +180,7 @@ describe('CleanupPanel', () => {
     });
   });
 
-  it('reads what fires on what the org deletes along with the records, as the dry run counts it', () => {
+  it('reads what fires on the records the dry run says the delete takes itself, while its review counts what goes along', () => {
     states['dataops:cleanup:scan'].data = scanned;
     render(<CleanupPanel orgId="org-1" orgName="dev1" />);
     fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
@@ -195,23 +195,18 @@ describe('CleanupPanel', () => {
         uncounted: [],
       },
       truncated: false,
-      written: [
-        { objectApiName: 'Account', records: 2 },
-        { objectApiName: 'Contact', records: 5 },
-      ],
+      written: [{ objectApiName: 'Account', records: 2 }],
     };
     fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
     fireEvent.click(screen.getByTestId('cleanup-delete-btn'));
 
-    // The five contacts the accounts take with them: a flow before their
-    // delete was never listed in the confirmation.
+    // The five contacts the accounts take with them are counted; what fires
+    // before a contact's delete does not run as they go with their account.
+    expect(screen.getByTestId('removal-plan-related').textContent).toContain('Contact: 5 records');
     expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       act: 'cleanup',
-      objects: [
-        { objectApiName: 'Account', records: 2 },
-        { objectApiName: 'Contact', records: 5 },
-      ],
+      objects: [{ objectApiName: 'Account', records: 2 }],
       fromPage: true,
     });
   });

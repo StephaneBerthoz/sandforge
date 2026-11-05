@@ -191,7 +191,11 @@ describe('runErasure', () => {
 });
 
 describe('erasureWrittenOf', () => {
-  it('counts with a delete what the org deletes along with it, and nothing of what it leaves alone', () => {
+  it('counts with a delete the records it deletes itself, and none of what the org deletes along with them', () => {
+    // On a scratch org, a contact deleted took its task along, and neither
+    // the task's before delete trigger nor its before delete flow ran: each
+    // refused the task's own delete. What goes along is counted in the plan,
+    // and read for no automation.
     expect(
       erasureWrittenOf([
         {
@@ -203,7 +207,7 @@ describe('erasureWrittenOf', () => {
             { objectApiName: 'CampaignMember', label: 'Campaign Member', records: 1 },
           ],
         },
-        // Erased itself, and taken along with the contacts: both are written.
+        // Erased itself: its own delete runs what fires before it.
         {
           objectApiName: 'Task',
           label: 'Task',
@@ -220,8 +224,7 @@ describe('erasureWrittenOf', () => {
       ]),
     ).toEqual([
       { objectApiName: 'Contact', records: 2 },
-      { objectApiName: 'Task', records: 4 },
-      { objectApiName: 'CampaignMember', records: 1 },
+      { objectApiName: 'Task', records: 1 },
     ]);
   });
 

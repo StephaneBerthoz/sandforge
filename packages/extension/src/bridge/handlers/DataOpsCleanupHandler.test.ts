@@ -195,10 +195,9 @@ describe('DataOpsCleanupHandler', () => {
         uncounted: [],
       },
       truncated: false,
-      written: [
-        { objectApiName: 'Account', records: 2 },
-        { objectApiName: 'Contact', records: 5 },
-      ],
+      // What the confirmation reads what fires on: the accounts it deletes,
+      // not the contacts the org deletes with them.
+      written: [{ objectApiName: 'Account', records: 2 }],
     });
     expect(org.destroy).not.toHaveBeenCalled();
   });
@@ -250,8 +249,7 @@ describe('DataOpsCleanupHandler', () => {
 
     await handler.handle(deleteStale(false));
 
-    // With the contacts the accounts take along, which the plan counts.
-    expect(read).toHaveBeenCalledWith('org-1', ['Account', 'Contact']);
+    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
     expect(org.destroy).not.toHaveBeenCalled();
     expect(posted().at(-1)).toMatchObject({
       type: 'dataops:error',
@@ -271,25 +269,31 @@ describe('DataOpsCleanupHandler', () => {
     expect(org.destroy).toHaveBeenCalledWith(stale);
   });
 
-  it('reads what fires on the records the org deletes along with those it deletes, and refuses a flow before their delete', async () => {
+  it("deletes the accounts without asking about a flow before a contact's delete: the contacts go with them, and the platform runs none of it", async () => {
+    // On a scratch org, a record the platform deleted along with its parent
+    // ran neither its before delete flow nor its before delete trigger, each
+    // of which refused its own delete. The cleanup counted the contacts
+    // again to ask about them all the same, and refused for them.
     const read = vi.fn(async (_orgId: string, objects: readonly string[]) => ({
       objectsRead: [...objects],
-      objects: [
-        {
-          objectApiName: 'Contact',
-          flows: [
+      objects: objects.includes('Contact')
+        ? [
             {
-              apiName: 'Guard_Contact_Delete',
-              label: 'Guard Contact Delete',
-              timing: 'beforeSave' as const,
-              startsOn: 'delete' as const,
-              condition: 'read' as const,
-              permissions: [],
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Guard_Contact_Delete',
+                  label: 'Guard Contact Delete',
+                  timing: 'beforeSave' as const,
+                  startsOn: 'delete' as const,
+                  condition: 'read' as const,
+                  permissions: [],
+                },
+              ],
+              triggers: [],
             },
-          ],
-          triggers: [],
-        },
-      ],
+          ]
+        : [],
       unread: [],
       conditionsNotRead: 0,
       conditionsBound: 0,
@@ -297,26 +301,18 @@ describe('DataOpsCleanupHandler', () => {
     }));
     handler.setTargetAutomation({ read });
 
-    // The dry run says what the page's confirmation reads it on: the five
-    // contacts the accounts take with them as well.
     await handler.handle(deleteStale(true));
-    expect(answer<{ written: unknown }>('dataops:cleanup:delete:response').written).toEqual([
-      { objectApiName: 'Account', records: 2 },
-      { objectApiName: 'Contact', records: 5 },
-    ]);
-
+    org.query.mockClear();
     await handler.handle(deleteStale(false));
 
-    // The delete read the accounts alone: a flow before a contact's delete,
-    // which went with its account, was never named nor asked about.
-    expect(read).toHaveBeenCalledWith('org-1', ['Account', 'Contact']);
-    expect(org.destroy).not.toHaveBeenCalled();
-    expect(posted().at(-1)).toMatchObject({
-      type: 'dataops:error',
-      payload: {
-        code: 'AUTOMATION_NOT_ACCEPTED',
-        message: expect.stringContaining('Contact: flow "Guard Contact Delete" (before delete)'),
-      },
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
+    // The contacts are not counted again for it.
+    expect(org.query.mock.calls.filter(([soql]) => soql.includes('FROM Contact'))).toEqual([]);
+    expect(org.destroy).toHaveBeenCalledWith(stale);
+    expect(answer('dataops:cleanup:delete:response')).toMatchObject({
+      dryRun: false,
+      outcome: { status: 'success', done: 2 },
     });
   });
 

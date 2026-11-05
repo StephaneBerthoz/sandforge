@@ -2371,6 +2371,50 @@ describe('files', () => {
     expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('files');
   });
 
+  it('says once that an object was left out, before why, whichever words its reason starts with', () => {
+    // On a scratch org: "left out: CreditMemoInvApplication, ProcessInstance —
+    // Left out: Salesforce alone creates its records…".
+    const created =
+      'Left out: Salesforce alone creates its records, such as approvals, Einstein insights, ' +
+      'Data.com clean info and invoices, and no permission lets a user create one.';
+    const setup =
+      "Users, permissions and setup are left out, and so are the org's own logs and jobs.";
+    const scope = {
+      mode: 'picked' as const,
+      objects: [],
+      leftOut: [
+        { objectApiName: 'BulkApiResultEventStore', code: 'setup' as const, reason: setup },
+        {
+          objectApiName: 'CreditMemoInvApplication',
+          code: 'platformCreated' as const,
+          reason: created,
+        },
+        { objectApiName: 'ProcessInstance', code: 'platformCreated' as const, reason: created },
+        {
+          objectApiName: 'Widget__c',
+          code: 'excludedByUser' as const,
+          reason: 'Left out as asked.',
+        },
+      ],
+      estimate,
+    };
+
+    const lines = scopeLines('DEV-SB', scope);
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        `  left out: BulkApiResultEventStore — ${setup}`,
+        '  left out: CreditMemoInvApplication, ProcessInstance — Salesforce alone creates its ' +
+          'records, such as approvals, Einstein insights, Data.com clean info and invoices, and ' +
+          'no permission lets a user create one.',
+        '  left out: Widget__c — as asked.',
+      ]),
+    );
+    expect(lines.filter((line) => line.includes('— Left out'))).toEqual([]);
+    // The answer in --json keeps each reason whole: it is read on its own there.
+    expect(scopeJson(scope).leftOut).toEqual(scope.leftOut);
+  });
+
   it('says before a take the files it keeps, the objects of files added to those picked, and what a user without Query All Files does not see; and answers them in --json', () => {
     const scope = {
       mode: 'picked' as const,

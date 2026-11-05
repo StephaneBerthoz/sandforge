@@ -7,6 +7,7 @@ import {
   cliFileDeps,
   contactPointLines,
   deltaLine,
+  objectCountsLine,
   objectCurrencyLines,
   objectErrorLines,
   objectPriceLines,
@@ -33,6 +34,42 @@ describe('what a run prints of an object', () => {
       refusal,
       held,
     ]);
+  });
+
+  it('counts the contact roles linked to the ones the platform wrote as linked, not skipped, as its line under it says', () => {
+    // On a scratch org: "OpportunityContactRole: 0 processed, 0 succeeded, 0
+    // failed, 1 skipped", over "1 record(s) linked to the contact role the
+    // platform wrote with their opportunity".
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 0,
+        success: 0,
+        failed: 0,
+        skipped: 1,
+        writtenByThePlatform: { records: 1, given: 1 },
+      }),
+    ).toBe('OpportunityContactRole: 0 processed, 0 succeeded, 0 failed, 0 skipped, 1 linked');
+    // What an earlier run copied stays skipped beside them.
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 2,
+        success: 2,
+        failed: 0,
+        skipped: 3,
+        writtenByThePlatform: { records: 2, given: 2 },
+      }),
+    ).toBe('OpportunityContactRole: 2 processed, 2 succeeded, 0 failed, 1 skipped, 2 linked');
+    expect(
+      objectCountsLine({
+        objectApiName: 'Account',
+        processed: 1,
+        success: 1,
+        failed: 0,
+        skipped: 0,
+      }),
+    ).toBe('Account: 1 processed, 1 succeeded, 0 failed, 0 skipped');
   });
 
   it('prints the contact roles linked to the ones the platform wrote with their opportunity, and what an update gave them', () => {

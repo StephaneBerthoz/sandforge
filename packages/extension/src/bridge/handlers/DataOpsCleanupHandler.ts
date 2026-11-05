@@ -293,10 +293,9 @@ export class DataOpsCleanupHandler implements DomainHandler {
       // trigger after it, the emails they send — read before the guard is
       // asked and before anything is deleted, and refused unless the page's
       // question answered it: a cleanup fired them with no question asked.
-      // Read on what the org deletes along with them too, counted again: its
-      // plan counted the contacts an account takes, and its read named none
-      // of what fires as they go, as an erasure's did not.
-      const along = await countRelated(session, object, ids, await workedObjects(session));
+      // Read on the records it deletes itself, not on what the org deletes
+      // along with them, whose automation the platform does not run (see
+      // `erasureWrittenOf`).
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
       const reader = this.targetAutomation;
@@ -305,15 +304,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
       const gated = await readDataOpsAct({
         act: 'cleanup',
         target,
-        objects: erasureWrittenOf([
-          {
-            objectApiName: object.name,
-            label: object.label,
-            records: ids.length,
-            related: along.related,
-            uncounted: along.uncounted,
-          },
-        ]),
+        objects: [{ objectApiName: object.name, records: ids.length }],
         org: dataOpsAutomationOrgOf(
           conn,
           (names) =>

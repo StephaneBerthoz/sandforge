@@ -70,9 +70,9 @@ interface EraseAnswer {
   dryRun: boolean;
   plan: RemovalPlanObject[];
   /**
-   * A dry run's: the records the erasure writes, per object, what the org
-   * deletes along with them included — what the confirmation reads what
-   * fires on.
+   * A dry run's: the records the erasure writes itself, per object, not those
+   * the org deletes along with them — what the confirmation reads what fires
+   * on.
    */
   written?: DataOpsAutomationObject[];
   outcome?: RemovalOutcome;
@@ -261,10 +261,10 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
   const plan = review.data?.dryRun ? review.data.plan : null;
   const toErase = plan ? plannedRecords(plan) : 0;
   /**
-   * The records the erasure writes over or deletes, per object, what the org
-   * deletes along with them included: what the org's automation is read on.
-   * The extension's dry run says them, as its run reads them: a flow before
-   * a task's delete was never named, though the task went with its contact.
+   * The records the erasure writes over or deletes itself, per object: what
+   * the org's automation is read on. The extension's dry run says them, as
+   * its run reads them; what the org deletes along with them runs none of
+   * its delete automation as it goes, and is counted in the plan alone.
    */
   const plannedWritten = review.data?.dryRun ? review.data.written : undefined;
   const written = useMemo(

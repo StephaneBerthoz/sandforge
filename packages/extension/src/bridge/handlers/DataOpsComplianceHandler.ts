@@ -433,8 +433,9 @@ export class DataOpsComplianceHandler implements DomainHandler {
       const session = await this.session(orgId, 'dataops:dsr:erase');
       const prepared = await prepareErasure(session, this.detector, mode, parsed.records);
       const plan = prepared.map((p) => p.plan);
-      // What the erasure writes, what the org deletes along with it included:
-      // what fires is read on it, here and by the confirmation.
+      // What the erasure writes itself — not what the org deletes along with
+      // it, whose automation the platform does not run: what fires is read
+      // on it, here and by the confirmation.
       const written = erasureWrittenOf(plan);
       if (dryRun) {
         const response = buildResponse(this.deps, msg, 'dataops:dsr:erase:response', {
@@ -461,11 +462,10 @@ export class DataOpsComplianceHandler implements DomainHandler {
       }
 
       // What the org runs as the person's records are written over — as a
-      // masking writes — or deleted — as a cleanup deletes, with what the org
-      // deletes along with them —, the emails it sends, and the mute asked
-      // for, read before the guard is asked and before anything is written,
-      // and refused unless the page's question answered it: an erasure fired
-      // the org's flows on them unasked.
+      // masking writes — or deleted — as a cleanup deletes —, the emails it
+      // sends, and the mute asked for, read before the guard is asked and
+      // before anything is written, and refused unless the page's question
+      // answered it: an erasure fired the org's flows on them unasked.
       const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const reader = this.targetAutomation;

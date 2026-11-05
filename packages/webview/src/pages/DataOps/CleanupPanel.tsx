@@ -51,7 +51,7 @@ interface DeleteAnswer {
   dryRun: boolean;
   plan: RemovalPlanObject;
   truncated: boolean;
-  /** A dry run's: the records the delete takes, what the org deletes along with them included. */
+  /** A dry run's: the records the delete takes itself, not those the org deletes along with them. */
   written?: DataOpsAutomationObject[];
   outcome?: RemovalOutcome;
 }
@@ -422,9 +422,9 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
                 orgId={orgId}
                 org={orgName}
                 act="cleanup"
-                // What the org deletes along with them too, as the delete
-                // reads it: a flow before a contact's delete, which went with
-                // its account, was never listed.
+                // The records the delete takes itself, as the delete reads
+                // them: what the org deletes along with them runs none of its
+                // delete automation as it goes.
                 objects={
                   planned.written ?? [
                     { objectApiName: planned.plan.objectApiName, records: toDelete },

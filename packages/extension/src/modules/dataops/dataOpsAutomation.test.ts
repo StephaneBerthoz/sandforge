@@ -314,8 +314,12 @@ describe('readDataOpsAct', () => {
     const stop = dataOpsStop(read.answer);
 
     expect(stop?.code).toBe(AUTOMATION_NOT_ACCEPTED);
+    const emails = read.answer.refusals[1]?.message ?? '';
+    expect(emails).toContain('Nothing was written.');
+    // The one beside it says what refuses it, and leaves the sentence that
+    // nothing was written to the message: on the gate org it said it again.
     expect(stop?.alsoRefused).toEqual([
-      { code: 'EMAILS_NOT_ACCEPTED', message: read.answer.refusals[1]?.message },
+      { code: 'EMAILS_NOT_ACCEPTED', message: emails.replace(' Nothing was written.', '') },
     ]);
     // Both refusals said, the sentence that nothing was written once: it came twice.
     expect(stop?.message).toContain('Add --accept-automation to mask all the same');

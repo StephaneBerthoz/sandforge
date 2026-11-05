@@ -136,23 +136,19 @@ export async function prepareErasure(
 
 /**
  * The records an erasure writes, per object, as what the org runs is read on
- * them: those it overwrites or deletes, and, for a delete, those the org
- * deletes along with them (`related`) — a contact takes its tasks, its roles
- * and its campaign memberships with it. Those were counted in the plan and
- * read nowhere else: a flow before a task's delete was never named, nor
- * asked about, though the task went with its contact. An object refused, or
- * with nothing to erase, writes nothing; one both erased and taken along
- * counts both.
+ * them: those it overwrites or deletes itself. Not those the org deletes
+ * along with them (`related`), which the plan counts: on a scratch org, a
+ * contact deleted took its task with it, and neither the task's before
+ * delete trigger nor its before delete flow ran, though each refused the
+ * task's own delete — and the platform has no flow after a delete. Read on
+ * them, an erasure asked about automation that never runs, and refused for
+ * it. An object refused, or with nothing to erase, writes nothing.
  */
 export function erasureWrittenOf(plan: readonly RemovalPlanObject[]): DataOpsAutomationObject[] {
   const written = new Map<string, number>();
-  const add = (objectApiName: string, records: number): void => {
-    if (records > 0) written.set(objectApiName, (written.get(objectApiName) ?? 0) + records);
-  };
   for (const object of plan) {
     if (object.refused || object.records === 0) continue;
-    add(object.objectApiName, object.records);
-    for (const along of object.related ?? []) add(along.objectApiName, along.records);
+    written.set(object.objectApiName, (written.get(object.objectApiName) ?? 0) + object.records);
   }
   return [...written].map(([objectApiName, records]) => ({ objectApiName, records }));
 }
