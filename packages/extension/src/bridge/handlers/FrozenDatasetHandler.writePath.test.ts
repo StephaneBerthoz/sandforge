@@ -181,6 +181,8 @@ describe('frozen:load, its write path through the real loader', () => {
   let handler: FrozenDatasetHandler;
   let store: ConfigStore;
   let calls: string[];
+  /** The ids the target gave what the load inserted: what a count of the verification finds. */
+  let inserted: Set<string>;
   let requestConfirmation: Mock<() => Promise<boolean>>;
   const dirs: string[] = [];
 
@@ -214,9 +216,10 @@ describe('frozen:load, its write path through the real loader', () => {
       path.join(datasetDir, 'data', 'Account.json'),
       JSON.stringify({
         objectApiName: 'Account',
+        // Ranked as an extraction ranks them: what the verification groups the mapping by.
         records: [
-          { referenceId: 'A1', fields: { Name: 'A1', RecordTypeId: null } },
-          { referenceId: 'A2', fields: { Name: 'A2', RecordTypeId: 'Hidden' } },
+          { referenceId: 'Account-000001', fields: { Name: 'A1', RecordTypeId: null } },
+          { referenceId: 'Account-000002', fields: { Name: 'A2', RecordTypeId: 'Hidden' } },
         ],
       }),
     );
@@ -261,6 +264,16 @@ describe('frozen:load, its write path through the real loader', () => {
         if (/^SELECT RecordTypeId, COUNT\(Id\) n FROM Account/.test(soql)) {
           calls.push('recordTypeReadBack');
           return page([{ RecordTypeId: RETAIL_ID, n: 1 }]);
+        }
+        // The verification the load chains counts what it wrote, as the org holds it.
+        const counted = /^SELECT COUNT\(\) FROM Account WHERE Id IN \((.*)\)$/.exec(soql);
+        if (counted) {
+          const ids = counted[1].split(',').map((id) => id.trim().replace(/^'|'$/g, ''));
+          return {
+            totalSize: ids.filter((id) => inserted.has(id)).length,
+            done: true,
+            records: [],
+          };
         }
         if (/ FROM Account\b/.test(soql)) return page([]);
         return leaseQuery(soql);
@@ -362,13 +375,14 @@ describe('frozen:load, its write path through the real loader', () => {
     handler.setTargetAutomation({ read: vi.fn(async () => ACCOUNT_FLOW) });
     handler.setMuteLeases({ dir: tempDir('frozen-leases-'), renewEveryMs: 0 });
     let created = 0;
+    inserted = new Set();
     written.insert.mockImplementation(async (_org: string, _object: string, rows: unknown[]) => {
       calls.push('write');
-      return rows.map(() => ({
-        id: `001C10${String(++created).padStart(9, '0')}AAA`,
-        success: true,
-        errors: [],
-      }));
+      return rows.map(() => {
+        const id = `001C10${String(++created).padStart(9, '0')}AAA`;
+        inserted.add(id);
+        return { id, success: true, errors: [] };
+      });
     });
   });
 
@@ -602,6 +616,65 @@ describe('frozen:load, its write path through the real loader', () => {
       Array<Record<string, unknown>>,
     ];
     expect(rows.map((row) => row.RecordTypeId)).toEqual([PACKAGED_ID, OWN_ID]);
+  });
+
+  it('refuses a dataset whose records name a record type by a label two share before it assigns anything, asked to mute', async () => {
+    // Run for real on a trap org: refused LOAD_CONFIG, nothing written, but
+    // only once the bypass had been assigned and then taken back, which no
+    // line said, three times for three refusals.
+    const sasDir = tempDir('sandforge-frozen-rt-labels-');
+    const manifest = buildFrozenManifest({
+      version: '1.2.0',
+      source: { orgId: '00D000000000002AAA', decisionDate: '2026-09-01' },
+      saltFingerprint: 'abcdef012345',
+      rulesVersion: '1.0.0',
+      volumetry: { budgetMax: 100, measured: {}, measuredAt: '2026-09-01T00:00:00.000Z' },
+      nonReidentification: {
+        passed: true,
+        checks: [],
+        author: 'qa',
+        checkedAt: '2026-09-01T00:00:00.000Z',
+      },
+      author: 'qa',
+    });
+    await new FrozenDatasetWriter().write(
+      path.join(sasDir, 'dataset'),
+      {
+        datasetVersion: '1.2.0',
+        objects: [
+          {
+            objectApiName: 'Account',
+            records: [
+              { referenceId: 'Account-000001', fields: { Name: 'A1', RecordTypeId: 'Retail' } },
+            ],
+          },
+        ],
+        recordTypes: {
+          Account: [
+            { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+            { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          ],
+        },
+        personContactSidecar: [],
+      },
+      manifest,
+      { passed: true, checks: [], author: 'qa', checkedAt: '2026-09-01T00:00:00.000Z' },
+    );
+    store.set(
+      'frozen:config',
+      { rootObject: 'Account', axes: [], edgeCases: [], budgetMaxRecords: 2500, sasDir },
+      'frozen',
+    );
+    target();
+
+    await load({ muteAutomation: true });
+
+    const [error] = posted('frozen:load:error');
+    expect(error?.payload).toMatchObject({ code: 'LOAD_CONFIG', written: 0 });
+    expect(error?.payload).not.toHaveProperty('mutedAutomation');
+    expect(calls.filter((call) => call.startsWith('assignment'))).toEqual([]);
+    expect(written.insert).not.toHaveBeenCalled();
+    expect(trail()).toEqual([expect.objectContaining({ outcome: 'stopped' })]);
   });
 
   describe('a lease that does not hold the sets its plan said', () => {

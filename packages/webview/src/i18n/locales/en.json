@@ -5319,6 +5319,7 @@
       "toPurge": "To purge",
       "toDeactivate": "To deactivate",
       "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
+      "quotesLeftUnsynced": "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
       "defaultsPerRecord": "Each record gets a value of its own — its rank appended to the declared value, the field being unique in the target or the record's name, or the token the value carries ({n}, {referenceId}) replaced: {{fields}}",
@@ -5363,7 +5364,8 @@
       "status": {
         "completed": "Completed",
         "completed-with-errors": "Completed with errors",
-        "partial": "Partial: the sweep left records"
+        "partial": "Partial: the sweep left records",
+        "verificationFailed": "Partial: the verification failed"
       },
       "inserted": "Inserted",
       "reused": "Reused",
@@ -5382,6 +5384,7 @@
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
       "excludedObjects": "Objects not loaded",
       "heldForExcludedParents": "Left out at load — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; declare a placeholder in requiredLookupPlaceholders to load them: {{objects}}",
+      "quotesLeftUnsynced": "Left unsynced with their quote, their products kept — the load wrote fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
       "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
       "failedReasons": "Why records failed",
       "statusCode": "Status code",

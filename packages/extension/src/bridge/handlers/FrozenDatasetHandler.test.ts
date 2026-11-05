@@ -20,6 +20,7 @@ import {
   type FrozenDataset,
 } from '../../modules/frozendataset/index.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
+import { auditedLoadsOf } from '../../modules/frozendataset/otherSasLoads.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
@@ -1449,6 +1450,37 @@ describe('FrozenDatasetHandler', () => {
         ]);
       });
 
+      it('records a load its configuration refused before it wrote as stopped, no run of any window, and says it wrote nothing', async () => {
+        // Recorded failed, it was a load that wrote for the sweep of another
+        // sas's load into the org, which then refused --sweep-untied for it.
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockRejectedValue(
+          new LoadConfigError(
+            'The dataset leaves 1 required field(s) empty that the configuration does not ' +
+              'cover. Nothing was written.',
+            ['requiredFieldDefaults["Account.Name"]: a value for this required field'],
+          ),
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        const entries = new AuditTrailStore(store).list().entries;
+        expect(entries).toEqual([
+          expect.objectContaining({
+            outcome: 'stopped',
+            objects: [],
+            // Unmarked with its sas and its span: no sweep reads it as a run of its window.
+            details: { code: 'LOAD_CONFIG' },
+          }),
+        ]);
+        expect(auditedLoadsOf(entries)).toEqual([]);
+        expect(posted(deps, 'frozen:load:error')[0]?.payload).toMatchObject({
+          code: 'LOAD_CONFIG',
+          written: 0,
+        });
+      });
+
       it('records a load refused after a batch went through as failed', async () => {
         const { config } = writeDataset();
         const store = wire(config);
@@ -1862,6 +1894,73 @@ describe('FrozenDatasetHandler', () => {
           expect(posted(deps, 'operation:completed').at(-1)?.payload).toMatchObject({
             result: { status: 'completed-with-errors' },
           });
+        });
+
+        it('ends partial a load that wrote all it was to and that its verification failed, then posts the verdict', async () => {
+          // Run for real, the platform deleted two products the load had just
+          // written: the load said completed, exit 0, and only the verdict
+          // posted after it said FAILED.
+          wireListed();
+          const store = deps.configStore as ConfigStore;
+          loaderLoad.mockResolvedValue({ ...report(), status: 'completed' });
+          const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+            status: 'failed',
+            checks: [
+              {
+                name: 'counts',
+                passed: false,
+                detail: 'Count mismatches — OpportunityLineItem: expected 2, got 0',
+              },
+            ],
+            attempts: 2,
+            objects: [],
+            measuredAt: '2026-09-02T12:00:00.000Z',
+          });
+          onTestFinished(() => verify.mockRestore());
+
+          await load();
+
+          const types = vi
+            .mocked(deps.broker.postToWebview)
+            .mock.calls.map(([m]) => (m as { type: string }).type)
+            .filter((type) => type !== 'frozen:load:progress');
+          expect(types.slice(-3)).toEqual([
+            'frozen:load:response',
+            'operation:completed',
+            'frozen:verify:result',
+          ]);
+          expect(posted(deps, 'frozen:load:response')[0]?.payload.report).toMatchObject({
+            status: 'partial',
+            verification: 'failed',
+          });
+          expect(posted(deps, 'operation:completed').at(-1)?.payload).toMatchObject({
+            result: { status: 'partial' },
+          });
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'partial' })]);
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({ action: 'frozen_load', outcome: 'partial' }),
+          ]);
+          expect(store.get<{ status: string }>('frozen:lastRun')?.status).toBe('partial');
+        });
+
+        it('keeps a load completed that its verification passed', async () => {
+          wireListed();
+          loaderLoad.mockResolvedValue({ ...report(), status: 'completed' });
+          const verify = vi.spyOn(PostLoadVerifier.prototype, 'verify').mockResolvedValue({
+            status: 'passed',
+            checks: [],
+            attempts: 2,
+            objects: [],
+            measuredAt: '2026-09-02T12:00:00.000Z',
+          });
+          onTestFinished(() => verify.mockRestore());
+
+          await load();
+
+          const answer = posted(deps, 'frozen:load:response')[0]?.payload.report;
+          expect(answer).toMatchObject({ status: 'completed' });
+          expect(answer).not.toHaveProperty('verification');
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'completed' })]);
         });
 
         it('ends a load that failed as failed, and still shows its one error', async () => {

@@ -5319,6 +5319,7 @@
       "toPurge": "À purger",
       "toDeactivate": "À désactiver",
       "heldForExcludedParents": "Seraient laissés de côté, non envoyés — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; aucun enregistrement technique n'est demandé pour lui : {{objects}}",
+      "quotesLeftUnsynced": "Seraient laissées sans devis synchronisé, leurs produits gardés — le chargement écrirait moins de lignes du devis que de produits de l'opportunité, et synchroniser un devis remplace les produits d'une opportunité par ses lignes : {{objects}}",
       "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
       "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
       "defaultsPerRecord": "Chaque enregistrement reçoit une valeur à lui — son rang ajouté à la valeur déclarée, le champ étant unique dans la cible ou le nom de l'enregistrement, ou le jeton que porte la valeur ({n}, {referenceId}) remplacé : {{fields}}",
@@ -5363,7 +5364,8 @@
       "status": {
         "completed": "Terminé",
         "completed-with-errors": "Terminé avec erreurs",
-        "partial": "Partiel : le balayage a laissé des enregistrements"
+        "partial": "Partiel : le balayage a laissé des enregistrements",
+        "verificationFailed": "Partiel : la vérification a échoué"
       },
       "inserted": "Insérés",
       "reused": "Réutilisés",
@@ -5382,6 +5384,7 @@
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "excludedObjects": "Objets non chargés",
       "heldForExcludedParents": "Laissés de côté au chargement — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; déclarez un enregistrement technique dans requiredLookupPlaceholders pour les charger : {{objects}}",
+      "quotesLeftUnsynced": "Laissées sans devis synchronisé, leurs produits gardés — le chargement a écrit moins de lignes du devis que de produits de l'opportunité, et synchroniser un devis remplace les produits d'une opportunité par ses lignes : {{objects}}",
       "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}",
       "failedReasons": "Pourquoi des enregistrements ont échoué",
       "statusCode": "Code de statut",

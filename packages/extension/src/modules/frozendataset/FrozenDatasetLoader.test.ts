@@ -858,6 +858,53 @@ describe('FrozenDatasetLoader — fresh load', () => {
       });
       expect(calls).toEqual([]);
     });
+
+    it('refuses such a dataset at its gate, before the mute and the checkpoint are taken, on the line of the record types', async () => {
+      // Refused only once the load had started, it had the bypass assigned,
+      // then taken back, for a load that wrote nothing: run for real on a trap
+      // org, three times for three refusals.
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      const lines: FrozenLoadProgressEvent[] = [];
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .gateLoad({ ...makeOptions(deps, dataset), onProgress: (event) => lines.push(event) })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LoadConfigError);
+      expect((error as LoadConfigError).recordTypesUntold).toMatchObject({ reason: 'label' });
+      expect(lines.map((line) => [line.phase, line.status])).toEqual([
+        ['align', 'started'],
+        ['align', 'error'],
+      ]);
+      expect(vi.mocked(deps.orgAccess.describe)).not.toHaveBeenCalled();
+      expect(calls).toEqual([]);
+    });
+
+    it('lets through its gate a dataset whose records each kept the name of their record type', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      dataset.objects[0].records[0].recordTypeDeveloperName = 'ns__Retail';
+      const deps = makeDeps({ dataset, writer: makeWriter([]) });
+
+      await expect(
+        new FrozenDatasetLoader(deps).gateLoad(makeOptions(deps, dataset)),
+      ).resolves.toBe('allowed');
+    });
   });
 
   it('ends the line of the alignment failed when a record type cannot be read, saying why', async () => {

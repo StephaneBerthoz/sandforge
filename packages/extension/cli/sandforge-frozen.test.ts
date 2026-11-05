@@ -1711,6 +1711,50 @@ describe('messageLines', () => {
     );
   });
 
+  it('says which opportunities a load and its dry run leave unsynced with their quote, and why', () => {
+    // Synced with a quote whose lines the dataset left out, the opportunity
+    // lost the two products the load had just written, and no line said so.
+    const note =
+      "1 left unsynced with its quote: the load wrote 2 of its products and none of the quote's lines, " +
+      'which excludedObjects leaves out — synced, the platform replaces an opportunity’s products';
+    const loaded = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          quotesLeftUnsynced: [{ objectApiName: 'Opportunity', count: 1, note }],
+        },
+      },
+    });
+    const planned = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+          quotesLeftUnsynced: [
+            { objectApiName: 'Opportunity', count: 1, note: `1 would be ${note.slice(2)}` },
+          ],
+        },
+      },
+    });
+
+    expect(loaded).toContain(`  Opportunity: ${note}`);
+    expect(planned).toContain(`  Opportunity: 1 would be ${note.slice(2)}`);
+  });
+
   it('says what a reload purged, and what it left of a load that did not say what it created', () => {
     const lines = messageLines({
       type: 'frozen:load:response',

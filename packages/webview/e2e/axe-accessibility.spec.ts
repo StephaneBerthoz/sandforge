@@ -990,6 +990,7 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   heldForExcludedParents: [
     { objectApiName: 'InsurancePolicyParticipant', count: 2, note: '2 left out' },
   ],
+  quotesLeftUnsynced: [{ objectApiName: 'Opportunity', count: 1, note: '1 left unsynced' }],
   mappingPath: '/home/qa/.sandforge-sas/referenceid-mapping.json',
   contractPath: '/home/qa/.sandforge-sas/counting-contract.json',
 };
@@ -13611,6 +13612,10 @@ for (const theme of STATE_THEMES) {
       // The records it left out for a parent excludedObjects leaves out.
       await page
         .getByTestId('frozen-report-held-for-excluded')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      // The opportunities it left unsynced with their quote, their products kept.
+      await page
+        .getByTestId('frozen-report-quotes-left-unsynced')
         .waitFor({ state: 'visible', timeout: 10_000 });
       // The links it could not make: the lookups left empty, per object, and
       // the one that went with a contact the target refused.

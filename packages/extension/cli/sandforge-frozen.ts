@@ -97,6 +97,7 @@ import {
   type SweepClassArgs,
 } from './sandforge-clone.js';
 import type { OtherModuleRuns } from '../src/bridge/handlers/removalSweep.js';
+import { PRODUCTION_GUARD_MISSING } from '../src/bridge/handlers/HandlerTypes.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
 import {
   muteLines,
@@ -346,8 +347,9 @@ ${checkpointFirstHelp({
                          into it) and its version — for extract, load and verify;
                          "mapping", the file in the sas naming the records the loads
                          into the target created, for load, verify and remove; per
-                         object, what the step counted ("objects"); verify's verdict,
-                         and a load's, per object ("verdict"); what a dry run or a
+                         object, what the step counted ("objects"); how a load or a
+                         removal ended ("status"); verify's verdict, and a load's, per
+                         object ("verdict"); what a dry run or a
                          removal's preview would be refused for ("refusals"), with the
                          code of each ("refusalCodes"), as its line names it: a load
                          would be refused (CODE): ..., a removal would be refused
@@ -380,12 +382,12 @@ the load would be refused, a load was refused for its emails before it wrote
 stopped before its first delete at what the target runs, without
 --accept-automation; 2 a bad command line, or a question with
 no terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
-completed with errors or the sweep of a reload did not take all it was asked to,
-or a removal left records of the load or its sweep did not take all it was asked
-to; 4 verify's verdict is UNSTABLE: no two readings agreed;
-130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a SIGHUP. A load is judged by its
-own report: the verification it runs after it is said, and the verify step gives it
-a code.
+completed with errors, the verification it runs after it was FAILED or PARTIAL, or
+the sweep of a reload did not take all it was asked to, or a removal left records
+of the load or its sweep did not take all it was asked to; 4 verify's verdict is
+UNSTABLE: no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a
+SIGHUP. A load is judged by its own report, which ends partial on a verification
+FAILED or PARTIAL; one UNSTABLE is said, and the verify step gives it a code.
 `;
 
 const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
@@ -1156,10 +1158,11 @@ export function commandLineOtherRuns(
 /**
  * The exit code of a step that ran through, from what it posted: `verify` by
  * its verdict — FAILED 1, PARTIAL 3, UNSTABLE 4 —, `load` 3 when it completed
- * with errors, `remove` 3 when it left records of the load or its sweep did
- * not take all it was asked to, which its status says. A load is judged by its
- * own report: the verification it runs after it is said, and `verify` gives
- * its verdict a code. Exported so it can be tested.
+ * with errors or partial, `remove` 3 when it left records of the load or its
+ * sweep did not take all it was asked to, which its status says. A load is
+ * judged by its own report, which the verification it chains ends partial when
+ * it is FAILED or PARTIAL; `verify` gives every verdict a code. Exported so it
+ * can be tested.
  */
 export function frozenStepExit(step: string, posted: readonly Posted[]): number {
   return worstExit(
@@ -1220,6 +1223,9 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
     const swept = type === 'frozen:load:error' ? ((p.sweeps as FrozenReloadSweep[]) ?? []) : [];
     // What a load refused for its emails was judged on, beside the refusal.
     const emails = type === 'frozen:load:error' ? (p.emails as FrozenLoadEmailsInfo) : undefined;
+    // What its mute assigned and took back, once its lease was taken.
+    const muted =
+      type === 'frozen:load:error' ? (p.mutedAutomation as MutedAutomation | undefined) : undefined;
     // Refused before its first write, the step ends on the line a refused
     // clone, seed or sync ends on, what it was judged on said above it.
     const refused = refusedFirstOf(message);
@@ -1228,6 +1234,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         ? []
         : [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`]),
       ...(emails ? loadEmailsLines(emails, 'the target') : []),
+      ...(muted ? muteLines(muted, 'the target') : []),
       ...(swept.length > 0 ? ['before the load ended, its sweep had already done this:'] : []),
       ...swept.flatMap(({ loadedAt, result }) => [
         `sweep of the load of ${loadedAt}:`,
@@ -1391,6 +1398,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
+        quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -1422,10 +1430,12 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       // which of them the platform writes itself.
       // Nor sent either: what they cannot go in without is an object
       // excludedObjects leaves out.
+      // And a synced quote left unset, which would have taken the products.
       for (const left of [
         ...(r.leftToThePlatform ?? []),
         ...(r.untypedFeedItems ?? []),
         ...(r.heldForExcludedParents ?? []),
+        ...(r.quotesLeftUnsynced ?? []),
       ]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
@@ -1591,6 +1601,7 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         leftUnrecorded?: Record<string, number>;
         keptByThePlatform?: Record<string, number>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
+        quotesLeftUnsynced?: Array<{ objectApiName: string; note: string }>;
         validationRulesUnread?: string;
       };
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
@@ -1623,7 +1634,10 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
         lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
       }
       lines.push(...maybeMasksLines(plan.removals, 'would leave'));
-      for (const held of plan.heldForExcludedParents ?? []) {
+      for (const held of [
+        ...(plan.heldForExcludedParents ?? []),
+        ...(plan.quotesLeftUnsynced ?? []),
+      ]) {
         lines.push(`  ${held.objectApiName}: ${held.note}`);
       }
       for (const placeholder of plan.placeholders) {
@@ -1892,7 +1906,7 @@ export interface FrozenAnswer {
   objects?: Array<Record<string, string | number>>;
   /** Verify's verdict, and the one a load chains after it. */
   verdict?: FrozenAnswerVerdict;
-  /** How a removal ended. */
+  /** How a load or a removal ended: a load's `partial` once the verification it chains did not pass. */
   status?: string;
   /** Set on a removal's preview: nothing was deleted. */
   preview?: true;
@@ -2046,6 +2060,7 @@ export async function frozenAnswer(
           toDeactivate: o.toDeactivate,
         }));
       }
+      if (report) answer.status = report.status;
       const verdict = last('frozen:verify:result')?.verdict as FrozenVerifyVerdict | undefined;
       if (verdict) answer.verdict = verdictAnswer(verdict);
       break;
@@ -2965,9 +2980,15 @@ export function datasetObjectsOf(dir: string): string[] {
   }
 }
 
-/** The codes of a load refused before it wrote anything: its payload, its replace, its mute. */
+/**
+ * The codes of a load refused before it wrote anything, whose error the
+ * handler sends before it can say what the load wrote: its payload, its
+ * configuration unsaved, a Production Guard missing, its replace, its mute.
+ */
 const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
   'INVALID_PAYLOAD',
+  'CONFIG_MISSING',
+  PRODUCTION_GUARD_MISSING.code,
   'REPLACE_LEAVES_RECORDS',
   'MUTE_PRODUCTION',
   'MUTE_NO_RIGHT',
@@ -2980,8 +3001,13 @@ const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
 /**
  * Whether a load wrote to the target, as what it posted says: its report's
  * inserts, placeholders, purge and deactivations; refused before it wrote by
- * the code of its error; written, as far as can be told, when it stopped or
- * failed part way, whose error does not say. Exported so it can be tested.
+ * the code of its error, or by the error itself, which says `written: 0` of
+ * a load refused or failed before its first write — its configuration, its
+ * entry guards, a read of the target —; written, as far as can be told, when
+ * it stopped or failed part way, whose error does not say. Taken for one
+ * that wrote, a load its configuration refused, "Nothing was written", was
+ * kept in the index, and another sas's sweep refused --sweep-untied for it.
+ * Exported so it can be tested.
  */
 export function frozenLoadWrote(posted: readonly Posted[]): boolean {
   const last = (type: string): Record<string, unknown> | undefined =>
@@ -2997,8 +3023,10 @@ export function frozenLoadWrote(posted: readonly Posted[]): boolean {
       counted(report.purge?.deactivated) > 0
     );
   }
-  const code = last('frozen:load:error')?.code;
-  return !(typeof code === 'string' && LOAD_REFUSED_BEFORE_WRITING.has(code));
+  const error = last('frozen:load:error');
+  const code = error?.code;
+  if (typeof code === 'string' && LOAD_REFUSED_BEFORE_WRITING.has(code)) return false;
+  return error?.written !== 0;
 }
 
 /**

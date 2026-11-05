@@ -496,6 +496,26 @@ describe('plan and apply a frozen resource', () => {
     );
   });
 
+  it('leaves the load partial, exit 3, when the verification it chains finds a record it wrote gone, and says what it found', async () => {
+    // Run for real, the platform deleted two products a load had just
+    // written: the load exited 0, and only the verdict it chained said FAILED.
+    let contacts = 0;
+    world.onCreate = (object) => {
+      if (object !== 'Contact' || ++contacts !== 2) return;
+      const [first] = named('Contact', 'claim');
+      world.org.trash('Contact', String(first?.['Id']));
+    };
+
+    const applied = await apply();
+    world.onCreate = undefined;
+
+    expect(applied.code, applied.said).toBe(3);
+    const step = applied.result.steps.find((each) => each.resource === 'claims');
+    expect(step).toMatchObject({ status: 'partial', exitCode: 3 });
+    expect(step?.objects[0]?.reason).toBe('its verification found Contact FAILED (1 of 2 found)');
+    expect((await stateOf()).state?.resources['claims']?.status).toBe('partial');
+  });
+
   it('reads its drift by its verification: a contact of the load deleted since FAILS its object, named, and plan --fail-on-drift exits 3', async () => {
     await apply();
     const [contact] = named('Contact', 'claim');

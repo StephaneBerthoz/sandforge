@@ -624,6 +624,82 @@ describe('FrozenLoadTab', () => {
       expect(screen.queryByTestId('frozen-preview-record-types')).toBeNull();
     });
 
+    it('says, in the preview and in the report, the opportunities it leaves unsynced with their quote, their products kept', () => {
+      // Synced with a quote whose lines the dataset left out, an opportunity
+      // lost the two products the load had just written, and nothing said so.
+      const unsynced = [{ objectApiName: 'Opportunity', count: 1, note: '1 left unsynced' }];
+      answers['frozen:load:preview'] = {
+        data: { plan: { ...PLAN, quotesLeftUnsynced: unsynced } },
+      };
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          quotesLeftUnsynced: unsynced,
+          mappingPath: '',
+          contractPath: '',
+        },
+      });
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-quotes-left-unsynced').textContent).toBe(
+        "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: Opportunity (1)",
+      );
+      expect(screen.getByTestId('frozen-report-quotes-left-unsynced').textContent).toBe(
+        "Left unsynced with their quote, their products kept — the load wrote fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: Opportunity (1)",
+      );
+    });
+
+    it('calls a load its verification did not pass partial for the verification, and a sweep’s for the sweep', () => {
+      // Said completed, a load whose products the platform deleted once
+      // written drew a green badge above the verification's FAILED.
+      const report = (verification?: 'failed'): FrozenLoadReportInfo => ({
+        status: 'partial',
+        ...(verification ? { verification } : {}),
+        orgId: 'org-dev',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-10-09T10:00:00.000Z',
+        durationMs: 10,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '',
+        contractPath: '',
+      });
+      useFrozenStore.setState({ loadReport: report('failed') });
+      const { unmount } = render(tab());
+
+      expect(
+        within(screen.getByTestId('frozen-load-report')).getByText(
+          'Partial: the verification failed',
+        ),
+      ).toBeDefined();
+      unmount();
+
+      useFrozenStore.setState({ loadReport: report() });
+      render(tab());
+      expect(
+        within(screen.getByTestId('frozen-load-report')).getByText(
+          'Partial: the sweep left records',
+        ),
+      ).toBeDefined();
+    });
+
     it('says which records the load would leave out for a parent excludedObjects leaves out', () => {
       answers['frozen:load:preview'] = {
         data: {

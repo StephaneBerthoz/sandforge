@@ -238,6 +238,7 @@ import {
   type FrozenObjectData,
   type FrozenRecordTypeRef,
   type NonReidentificationReport,
+  type PostLoadVerdict,
   type PersonContactLink,
   type RecordedLoad,
   type RuleSchemaField,
@@ -876,6 +877,7 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
     ...(report.heldForExcludedParents
       ? { heldForExcludedParents: report.heldForExcludedParents }
       : {}),
+    ...(report.quotesLeftUnsynced ? { quotesLeftUnsynced: report.quotesLeftUnsynced } : {}),
     ...(report.recordTypesGiven ? { recordTypesGiven: report.recordTypesGiven } : {}),
     ...(report.runUserId ? { runUserId: report.runUserId } : {}),
     mappingPath: report.mappingPath,
@@ -2655,6 +2657,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.liveTracker?.register(operationId, 'frozen', description);
     /** Whether the load's end was posted: the verification chained after it cannot post another. */
     let ended = false;
+    /** Whether the verification chained after it runs: its steps are no step of the load's in Live Operations. */
+    let verifying = false;
 
     // A throwaway `new AbortController()` was handed to BulkDataWriter, so its
     // signal could never fire and the load was never registered —
@@ -2675,7 +2679,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps.broker.postToWebview(progressMsg);
       // The loader counts its progress in phases, not in records: the list
       // shows its share done and its step, and no record count.
-      if (!ended) {
+      if (!ended && !verifying) {
         this.liveTracker?.updateProgress(operationId, event.progress, 0, 0, event.message);
       }
     }, 100);
@@ -2746,6 +2750,10 @@ export class FrozenDatasetHandler implements DomainHandler {
     let checkpoint: RunCheckpointInfo | undefined;
     /** Whether the loader had the load: what it wrote is said only by what it reports. */
     let loadStarted = false;
+    /** Whether the loader answered with its report: an error after it is of a load that ran through. */
+    let reported = false;
+    /** Whether the mute's lease was taken: a load that ends on an error says what it did. */
+    let leaseTaken = false;
     /** The sweep asked with a reload, one per load it replaces: see `reloadSweepsOf`. */
     let sweeps: SweepOfALoad[] = [];
 
@@ -2927,7 +2935,10 @@ export class FrozenDatasetHandler implements DomainHandler {
         });
       }
       const held = mute?.prepared ? await mute.prepared.acquire(operationId) : undefined;
-      if (held) mutedAutomation = held.outcome;
+      if (held) {
+        mutedAutomation = held.outcome;
+        leaseTaken = true;
+      }
       // A set the lease does not hold leaves running what it was to keep
       // quiet: a sender among it no gate judged refuses the load, unless the
       // emails were accepted, the lease given back first.
@@ -2986,16 +2997,12 @@ export class FrozenDatasetHandler implements DomainHandler {
       const report = await loaded.finally(async () => {
         if (held) mutedAutomation = await held.release();
       });
+      reported = true;
       throttledProgress.flush();
       // What each sweep did, recorded beside the load, and said in its report.
       const swepts = await this.settleReloadSweeps(sweeps);
       /** Whether a sweep left what it was asked to take: the load then ends partial. */
       const sweepLeft = swepts.some((swept) => swept.result.status !== 'success');
-      // A sweep that left what it was to take ends the load partial, as it
-      // ends the removal it is asked with: never a success, in the report,
-      // the last run, Live Operations and the command line alike.
-      const status: FrozenLoadReportInfo['status'] =
-        report.status === 'completed' && sweepLeft ? 'partial' : report.status;
       // Kept once the load wrote a record, whatever it came to; deleted when
       // it wrote none.
       if (taken) checkpoint = await this.settleCheckpoint(taken, recordsWritten(report) > 0);
@@ -3003,8 +3010,35 @@ export class FrozenDatasetHandler implements DomainHandler {
         await mappingStore.recorded().catch(() => undefined),
         startedAt,
       );
+      // The post-load verification, read-only, chained before the load's end
+      // is said: one that does not pass ends partial a load that wrote all it
+      // was to. Said after it, a load whose two opportunity products the
+      // platform deleted once written ended a success, exit 0, above
+      // "verification: FAILED". Posted after the load's end, as it was.
+      const manifestPath = path.join(datasetDir, 'manifest.json');
+      verifying = true;
+      const verified = await this.verifyLoad({
+        orgId: parsed.targetOrgId,
+        contractPath: report.contractPath,
+        manifestPath,
+        dataset,
+        mappingStore,
+        config,
+        onProgress: throttledProgress,
+      });
+      const verdict = 'verdict' in verified ? verified.verdict.status : undefined;
+      const verification = verdict === 'failed' || verdict === 'partial' ? verdict : undefined;
+      // A sweep that left what it was to take ends the load partial, as it
+      // ends the removal it is asked with: never a success, in the report,
+      // the last run, Live Operations and the command line alike. So does a
+      // verification that did not pass, as Forge's verification of a run does.
+      const status: FrozenLoadReportInfo['status'] =
+        report.status === 'completed' && (sweepLeft || verification !== undefined)
+          ? 'partial'
+          : report.status;
+      const outcome = frozenOutcome(report);
       recordLoad(
-        frozenOutcome(report),
+        verification !== undefined && outcome === 'success' ? 'partial' : outcome,
         frozenAuditObjects(report),
         await frozenCarried(dataset, mappingStore),
       );
@@ -3012,7 +3046,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const lastRun: FrozenLastRun = {
         contractPath: report.contractPath,
         datasetDir,
-        manifestPath: path.join(datasetDir, 'manifest.json'),
+        manifestPath,
         targetOrgId: parsed.targetOrgId,
         status,
         at: new Date().toISOString(),
@@ -3023,6 +3057,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         report: {
           ...toLoadReportInfo(report),
           status,
+          ...(verification ? { verification } : {}),
           ...(mutedAutomation ? { mutedAutomation } : {}),
           ...(checkpoint ? { checkpoint } : {}),
           ...(swepts.length > 0 ? { sweeps: swepts } : {}),
@@ -3035,20 +3070,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status });
       ended = true;
       // Records the org refused: listed partial, as the report says.
-      if (report.status === 'completed-with-errors' || sweepLeft) {
+      if (status !== 'completed') {
         this.liveTracker?.partial(operationId);
       } else this.liveTracker?.complete(operationId);
 
-      // Chained post-load verification — read-only.
-      await this.runVerification(msg, {
-        orgId: parsed.targetOrgId,
-        contractPath: report.contractPath,
-        manifestPath: lastRun.manifestPath,
-        dataset,
-        mappingStore,
-        config,
-        onProgress: throttledProgress,
-      });
+      this.postVerification(msg, verified);
       settle();
     } catch (err: unknown) {
       throttledProgress.flush();
@@ -3139,11 +3165,20 @@ export class FrozenDatasetHandler implements DomainHandler {
         ((guardDecision === 'refused' || guardDecision === 'declined') && !batchLetThrough);
       const failed = err instanceof FrozenLoadFailedError ? err : undefined;
       const cause = failed ? failed.cause : err;
+      const code = refusedFirst?.code ?? this.errorCodeFor(cause, 'LOAD_ERROR');
+      // Nothing written: the loader names a failure once it wrote
+      // (`FrozenLoadFailedError`), and no batch went through. Such a load is
+      // recorded stopped, under its code, as one a check of its own stopped
+      // before it started, and its error says it wrote nothing: no run of
+      // another sas's window. Run for real, a load its configuration refused
+      // ("Nothing was written") counted as one that wrote, and another sas's
+      // sweep then refused --sweep-untied for it.
+      const wroteNothing = failed === undefined && !reported && !batchLetThrough;
       recordLoad(
-        stopped ? 'stopped' : 'failure',
+        stopped || wroteNothing ? 'stopped' : 'failure',
         failed ? frozenAuditObjects(failed.written) : undefined,
         undefined,
-        refusedFirst?.code,
+        refusedFirst?.code ?? (wroteNothing ? code : undefined),
       );
       // Production Guard's refusal once batches went through is a failure
       // with records written, which the host's words alone name: the panel's
@@ -3152,13 +3187,21 @@ export class FrozenDatasetHandler implements DomainHandler {
         failed && cause instanceof LoadGuardError
           ? { guard: cause.code }
           : this.errorDetailOf(cause);
+      // What the mute did, once its lease was taken: assigned, then taken
+      // back as the load ended. Said nowhere, a load refused for its
+      // configuration under the lease left the trail an assignment no line named.
+      const withMute = leaseTaken && mutedAutomation ? { mutedAutomation } : {};
+      const extra = {
+        ...detail,
+        ...withCheckpoint,
+        ...withSweeps,
+        ...withMute,
+        ...(wroteNothing ? { written: 0 } : {}),
+      };
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
-        code: refusedFirst?.code ?? this.errorCodeFor(cause, 'LOAD_ERROR'),
+        code,
         retryable: cause instanceof TimeoutError,
-        extraPayload:
-          detail || checkpoint || sweptBefore.length > 0
-            ? { ...detail, ...withCheckpoint, ...withSweeps }
-            : undefined,
+        extraPayload: Object.keys(extra).length > 0 ? extra : undefined,
       });
       // The load's end, as every write run posts it: with the error alone,
       // the recent operations and the side panel showed a failed load running
@@ -3787,16 +3830,24 @@ export class FrozenDatasetHandler implements DomainHandler {
   /** Shared verification runner (chained after load + standalone verify). */
   private async runVerification(
     msg: InboundRequest,
-    args: {
-      orgId: string;
-      contractPath: string;
-      manifestPath: string;
-      dataset: FrozenDataset;
-      mappingStore: SasReferenceIdMappingStore;
-      config: FrozenProjectConfig;
-      onProgress: (event: FrozenLoadProgressEvent) => void;
-    },
+    args: Parameters<FrozenDatasetHandler['verifyLoad']>[0],
   ): Promise<void> {
+    this.postVerification(msg, await this.verifyLoad(args));
+  }
+
+  /**
+   * Verify a load, read-only, and keep the verdict as its org's last: what it
+   * found, or what kept it from running. Posts nothing.
+   */
+  private async verifyLoad(args: {
+    orgId: string;
+    contractPath: string;
+    manifestPath: string;
+    dataset: FrozenDataset;
+    mappingStore: SasReferenceIdMappingStore;
+    config: FrozenProjectConfig;
+    onProgress: (event: FrozenLoadProgressEvent) => void;
+  }): Promise<{ verdict: PostLoadVerdict } | { error: unknown }> {
     try {
       const verifier = new PostLoadVerifier({
         orgAccess: this.buildTargetOrgAccess(),
@@ -3818,14 +3869,28 @@ export class FrozenDatasetHandler implements DomainHandler {
         status: verdict.status,
         measuredAt: verdict.measuredAt,
       });
+      return { verdict };
+    } catch (err: unknown) {
+      return { error: err };
+    }
+  }
+
+  /** Post what {@link verifyLoad} found, or why it could not run. */
+  private postVerification(
+    msg: InboundRequest,
+    verified: { verdict: PostLoadVerdict } | { error: unknown },
+  ): void {
+    if ('verdict' in verified) {
+      const { verdict } = verified;
       const response = buildResponse(this.deps, msg, 'frozen:verify:result', { verdict });
       this.deps.broker.postToWebview(response);
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'frozen:verify', 'frozen:verify:error', msg, err, {
-        code: this.errorCodeFor(err, 'VERIFY_ERROR'),
-        retryable: err instanceof TimeoutError,
-      });
+      return;
     }
+    const err = verified.error;
+    sendHandlerError(this.deps, 'frozen:verify', 'frozen:verify:error', msg, err, {
+      code: this.errorCodeFor(err, 'VERIFY_ERROR'),
+      retryable: err instanceof TimeoutError,
+    });
   }
 
   // ── frozen:remove ──────────────────────────────────────────────────────

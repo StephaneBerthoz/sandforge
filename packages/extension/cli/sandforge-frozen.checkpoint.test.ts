@@ -640,8 +640,19 @@ describe('what a load writes, as its checkpoint is told it', () => {
       frozenLoadWrote([{ type: 'frozen:load:error', payload: { code } }]);
     expect(failed('REPLACE_LEAVES_RECORDS')).toBe(false);
     expect(failed('MUTE_NO_RIGHT')).toBe(false);
+    expect(failed('CONFIG_MISSING')).toBe(false);
+    expect(failed('NOT_INITIALIZED')).toBe(false);
     // Stopped or failed part way: what it wrote is not told, and the checkpoint is kept.
     expect(failed('LOAD_CANCELLED')).toBe(true);
     expect(failed('LOAD_ERROR')).toBe(true);
+    // A refusal of its configuration may come once a placeholder went in: it
+    // wrote nothing only when its error says so.
+    expect(failed('LOAD_CONFIG')).toBe(true);
+    const saying = (code: string, written: number) =>
+      frozenLoadWrote([{ type: 'frozen:load:error', payload: { code, written } }]);
+    expect(saying('LOAD_CONFIG', 0)).toBe(false);
+    expect(saying('GUARD_REFUSED', 0)).toBe(false);
+    expect(saying('LOAD_CANCELLED', 0)).toBe(false);
+    expect(saying('LOAD_CANCELLED', 3)).toBe(true);
   });
 });

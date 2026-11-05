@@ -654,9 +654,11 @@ describe('FrozenDatasetLoader.gateLoad', () => {
 
     await new FrozenDatasetLoader(org.deps).gateLoad(optionsOf(org, data));
     await new FrozenDatasetLoader(org.deps).gateLoad(optionsOf(org, data, { reload: true }));
-    await new FrozenDatasetLoader(org.deps).gateLoad(
-      optionsOf(org, data, { reload: true, pilot: {} }),
-    );
+    // A pilot's configuration names its root, which its gate scopes it by.
+    await new FrozenDatasetLoader({
+      ...org.deps,
+      config: { rootObjectApiName: 'Opportunity' },
+    }).gateLoad(optionsOf(org, data, { reload: true, pilot: {} }));
 
     expect(vi.mocked(guard.check).mock.calls.map(([request]) => request)).toMatchObject([
       { operation: 'insert', objectName: 'Opportunity', recordCount: { atMost: 2 } },

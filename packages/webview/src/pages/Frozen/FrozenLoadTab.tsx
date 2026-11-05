@@ -1054,6 +1054,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
+              {(plan.quotesLeftUnsynced?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-quotes-left-unsynced"
+                >
+                  {t('frozen.preview.quotesLeftUnsynced', {
+                    objects: (plan.quotesLeftUnsynced ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {plan.placeholders.length > 0 && (
                 <p
                   className="text-[11px] text-text-secondary"
@@ -1303,7 +1315,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.report.title')}
                 </h2>
                 <Badge variant={loadReport.status === 'completed' ? 'success' : 'warning'}>
-                  {t(`frozen.report.status.${loadReport.status}`)}
+                  {/* Partial for the verification chained after it, which found it short. */}
+                  {loadReport.status === 'partial' && loadReport.verification !== undefined
+                    ? t('frozen.report.status.verificationFailed')
+                    : t(`frozen.report.status.${loadReport.status}`)}
                 </Badge>
                 <span className="text-[10px] text-text-secondary">
                   {Math.round(loadReport.durationMs / 1000)}s
@@ -1644,6 +1659,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.report.heldForExcludedParents', {
                     objects: (loadReport.heldForExcludedParents ?? [])
                       .map((held) => `${held.objectApiName} (${held.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* Written, but not synced with their quote: synced, they would have lost their products. */}
+              {(loadReport.quotesLeftUnsynced?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-report-quotes-left-unsynced"
+                >
+                  {t('frozen.report.quotesLeftUnsynced', {
+                    objects: (loadReport.quotesLeftUnsynced ?? [])
+                      .map((left) => `${left.objectApiName} (${left.count})`)
                       .join(', '),
                   })}
                 </p>

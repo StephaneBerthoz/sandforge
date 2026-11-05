@@ -419,12 +419,16 @@ export class PostLoadVerifier {
     // What the load did not write. The counts are of what it wrote, and
     // matched them: run for real, a load that failed a third of the dataset —
     // the accounts refused by a validation rule, every contract for want of
-    // its account — was verified PASSED.
+    // its account — was verified PASSED. And what it wrote that the target
+    // no longer holds: run for real, the platform deleted an opportunity's
+    // two products once the load had written them, and beside the counts
+    // that failed, this check said every record had gone in.
     const notLoaded = notLoadedOf(contract);
+    const gone = goneOf(contract, snapshot);
     checks.push({
       name: 'load',
-      passed: notLoaded.records === 0,
-      detail: notLoadedDetail(notLoaded),
+      passed: notLoaded.records === 0 && gone.length === 0,
+      detail: notLoadedDetail(notLoaded, gone),
     });
 
     const orphanEntries = Object.entries(snapshot.orphans).filter(([, ids]) => ids.length > 0);
@@ -600,10 +604,50 @@ function notLoadedOf(contract: CountingContract): NotLoaded {
   return notLoaded;
 }
 
-/** What the `load` check says of what the load did not write. */
-function notLoadedDetail(notLoaded: NotLoaded): string {
+/** Of an object, the records the load counted that a reading found fewer of. */
+interface Gone {
+  objectApiName: string;
+  /** How many of them the target no longer holds. */
+  gone: number;
+  /** How many the contract expects. */
+  of: number;
+}
+
+/**
+ * Per object, the records the load wrote or linked that the target holds
+ * fewer of than the contract expects: deleted since, by the platform or by
+ * anyone. A reading of more is no record gone, and is the counts' to say.
+ */
+function goneOf(contract: CountingContract, snapshot: VerificationSnapshot): Gone[] {
+  return Object.entries(contract.objects)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([objectApiName, entry]) => {
+      const found = snapshot.counts[objectApiName] ?? 0;
+      return found < entry.expected
+        ? [{ objectApiName, gone: entry.expected - found, of: entry.expected }]
+        : [];
+    });
+}
+
+/** What the `load` check says of what the target no longer holds: `''` when it holds it all. */
+function goneDetail(gone: readonly Gone[]): string {
+  if (gone.length === 0) return '';
+  const records = gone.reduce((sum, o) => sum + o.gone, 0);
+  return (
+    `${records} record(s) it wrote or linked are no longer in the target — ` +
+    gone.map((o) => `${o.objectApiName} (${o.gone} of ${o.of})`).join(', ')
+  );
+}
+
+/** What the `load` check says of what the load did not write, and of what is gone since. */
+function notLoadedDetail(notLoaded: NotLoaded, gone: readonly Gone[] = []): string {
   const loadable = notLoadableDetail(notLoaded);
-  if (notLoaded.records === 0) return `Every record the load had to write went in${loadable}`;
+  const since = goneDetail(gone);
+  if (notLoaded.records === 0) {
+    return since === ''
+      ? `Every record the load had to write went in${loadable}`
+      : `The load wrote every record it had to, and ${since}${loadable}`;
+  }
   const parts = [
     ...(notLoaded.whole.length > 0
       ? [
@@ -626,7 +670,7 @@ function notLoadedDetail(notLoaded: NotLoaded): string {
       ? [`${notLoaded.heldBack} held back for a parent the target org refused`]
       : []),
   ];
-  return `${notLoaded.records} record(s) not loaded: ${why.join(', ')}. ${parts.join('; ')}${loadable}`;
+  return `${notLoaded.records} record(s) not loaded: ${why.join(', ')}. ${parts.join('; ')}${since === '' ? '' : `; ${since}`}${loadable}`;
 }
 
 /** The records of objects the load could not send, said apart: `''` when there are none. */

@@ -535,6 +535,13 @@ export interface FrozenLoadReport {
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
   /**
+   * The opportunities the load left unsynced with the quote the source syncs
+   * them with, their products kept: it wrote fewer lines under the quote than
+   * products under the opportunity, and a sync replaces an opportunity's
+   * products with its quote's lines. Absent when it left none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
+  /**
    * Per object, the record type the target gave the records the load created
    * without one, as read back. Absent when there was nothing to say.
    */

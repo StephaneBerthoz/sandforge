@@ -609,7 +609,15 @@ function verifiedEnd(
   ended: ReturnType<typeof runEnd>,
   verified: Verified | undefined,
 ): ReturnType<typeof runEnd> {
-  if (verified === undefined || ended.status !== 'applied') return ended;
+  if (verified === undefined) return ended;
+  // A frozen load its own verification ended partial, exit 3, says what that
+  // verification found, as an applied run does.
+  if (ended.status === 'partial' && ended.short === undefined && 'short' in verified) {
+    return verified.short === undefined || verified.unstable
+      ? ended
+      : { ...ended, short: `its verification found ${verified.short}` };
+  }
+  if (ended.status !== 'applied') return ended;
   if ('unread' in verified) return { ...ended, short: `not verified: ${verified.unread}` };
   if (verified.unstable) {
     return {

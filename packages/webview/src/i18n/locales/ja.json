@@ -5037,6 +5037,7 @@
       "toPurge": "削除予定",
       "toDeactivate": "無効化予定",
       "heldForExcludedParents": "除外され、送信されません — これらのレコードが欠かせない参照項目が excludedObjects で除外されたオブジェクトを指している、またはそのようなレコードに依存しています。そのためのプレースホルダーは求められません: {{objects}}",
+      "quotesLeftUnsynced": "見積と同期せず、商品を保持します — 読み込みで書き込む見積の明細が商談の商品より少なく、見積を同期すると商談の商品がその明細に置き換えられます: {{objects}}",
       "placeholders": "作成するプレースホルダーと、それぞれが埋めるレコード: {{fields}}",
       "defaults": "宣言済みのデフォルト値と、それぞれが埋めるレコード: {{fields}}",
       "defaultsPerRecord": "各レコードに固有の値が入ります — 項目がターゲットで一意であるかレコード名であるため宣言値に順位を付加するか、値に含まれるトークン ({n}、{referenceId}) を置き換えます: {{fields}}",
@@ -5075,7 +5076,8 @@
       "status": {
         "completed": "完了",
         "completed-with-errors": "エラーありで完了",
-        "partial": "一部のみ: 一掃でレコードが残りました"
+        "partial": "一部のみ: 一掃でレコードが残りました",
+        "verificationFailed": "一部のみ: 検証に失敗しました"
       },
       "inserted": "挿入",
       "reused": "再利用",
@@ -5094,6 +5096,7 @@
       "leftToThePlatform": "読み込み時に除外 — プラットフォーム自身が書き込むレコード、またはそれに依存するレコード: {{objects}}",
       "excludedObjects": "読み込まれなかったオブジェクト",
       "heldForExcludedParents": "読み込み時に除外 — これらのレコードが欠かせない参照項目が excludedObjects で除外されたオブジェクトを指している、またはそのようなレコードに依存しています。読み込むには requiredLookupPlaceholders にプレースホルダーを宣言してください: {{objects}}",
+      "quotesLeftUnsynced": "見積と同期せず、商品を保持 — 読み込みで書き込んだ見積の明細が商談の商品より少なく、見積を同期すると商談の商品がその明細に置き換えられます: {{objects}}",
       "untypedFeedItems": "読み込み時に除外 — データセットにこれらのフィードアイテム、またはそれらが依存するものの種別がないため、追跡された変更と投稿を区別できません。読み込むにはデータセットを再抽出してください: {{objects}}",
       "failedReasons": "レコードが失敗した理由",
       "statusCode": "ステータスコード",

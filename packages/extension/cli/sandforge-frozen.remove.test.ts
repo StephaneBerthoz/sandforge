@@ -256,7 +256,9 @@ describe('the exit code of a step', () => {
     });
     expect(frozenStepExit('load', [load('completed'), verdict('passed')])).toBe(0);
     expect(frozenStepExit('load', [load('completed-with-errors'), verdict('passed')])).toBe(3);
-    // The verification a load runs after it is said; `verify` gives it a code.
+    // A verification that did not pass ends the load's report partial.
+    expect(frozenStepExit('load', [load('partial'), verdict('failed')])).toBe(3);
+    // One whose readings never agreed is said; `verify` gives it a code.
     expect(frozenStepExit('load', [load('completed'), verdict('unstable')])).toBe(0);
   });
 

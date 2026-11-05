@@ -87,6 +87,7 @@ const loadAnswer = z
     step: z.literal('load'),
     dataset: datasetSchema,
     mapping: name,
+    status: z.enum(['completed', 'completed-with-errors', 'partial']),
     objects: z
       .array(
         z

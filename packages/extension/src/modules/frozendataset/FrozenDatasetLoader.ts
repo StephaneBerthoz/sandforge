@@ -150,6 +150,13 @@ import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, datasetRecordCount, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
 import {
+  OPPORTUNITY_OBJECT,
+  QUOTE_LINE_OBJECT,
+  SYNCED_QUOTE_FIELD,
+  quotesLeftUnsynced,
+  quotesLeftUnsyncedNote,
+} from './syncedQuotes.js';
+import {
   writeCountingContract,
   countingContractPath,
   type CountingContractEntry,
@@ -733,6 +740,52 @@ async function keptAfterFailure(
   return new FrozenLoadFailedError(cause, load.written);
 }
 
+/**
+ * The refusal of a dataset whose records of `objectApiName` name their record
+ * type by `label`, which the record types `sharing` carry in the source: which
+ * one each record had cannot be told.
+ */
+function labelSharedBy(
+  objectApiName: string,
+  label: string,
+  sharing: readonly FrozenRecordTypeRef[],
+): LoadConfigError {
+  const names = sharing.map((rt) => qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName));
+  return new LoadConfigError(
+    `The dataset's ${objectApiName} records name record type "${label}" by its label, ` +
+      `which ${names.join(' and ')} ` +
+      `share in the source: which one each record had cannot be told, the dataset having ` +
+      `been extracted before SandForge kept each record's record type by its name. Extract ` +
+      `the dataset again. Nothing was written.`,
+    undefined,
+    { reason: 'label', objectApiName, name: label, recordTypes: names },
+  );
+}
+
+/**
+ * The first record of `dataset` that names its record type by a label two
+ * record types of its object share in the source, and keeps no name of it:
+ * the load's refusal of it ({@link labelSharedBy}). Read from the dataset
+ * alone, before anything is asked of the target.
+ */
+function recordTypeLabelUntold(dataset: FrozenDataset): LoadConfigError | undefined {
+  for (const { objectApiName, records } of dataset.objects) {
+    const types = dataset.recordTypes[objectApiName] ?? [];
+    if (types.length < 2) continue;
+    for (const record of records) {
+      const label = record.fields.RecordTypeId;
+      if (typeof label !== 'string' || label === '') continue;
+      if (record.recordTypeDeveloperName !== undefined) {
+        const named = findRecordTypeByName(record.recordTypeDeveloperName, types, partsOfRef);
+        if (named && 'found' in named) continue;
+      }
+      const sharing = types.filter((rt) => rt.name === label);
+      if (sharing.length > 1) return labelSharedBy(objectApiName, label, sharing);
+    }
+  }
+  return undefined;
+}
+
 /** A cycle FK nullified at pass 1, to patch at pass 2. */
 interface PendingFk {
   objectApiName: string;
@@ -1305,6 +1358,37 @@ export class FrozenDatasetLoader {
       options.onProgress?.(endOfACheck('guards', 2, 'Entry guards not passed', err));
       throw err;
     }
+    // What the dataset alone refuses, before the mute and the checkpoint are
+    // taken for it, on the line the load would have said it on. Run for real
+    // on a trap org, a load refused for a record type label two types shared
+    // had assigned the bypass first, and taken it back, for a load that wrote
+    // nothing; refused three times, three times.
+    let scoped = options.dataset;
+    if (options.pilot) {
+      try {
+        scoped = this.filterPilotScope(options.dataset, options.pilot.rootReferenceId);
+      } catch (err: unknown) {
+        options.onProgress?.({
+          phase: 'pilot',
+          status: 'started',
+          progress: 3,
+          message: 'Selecting the root folder',
+        });
+        options.onProgress?.(endOfACheck('pilot', 4, 'Root folder not selected', err));
+        throw err;
+      }
+    }
+    const untold = recordTypeLabelUntold(scoped);
+    if (untold) {
+      options.onProgress?.({
+        phase: 'align',
+        status: 'started',
+        progress: 12,
+        message: 'Resolving record types',
+      });
+      options.onProgress?.(endOfACheck('align', 20, 'Schema not aligned', untold));
+      throw untold;
+    }
     const purges = options.reload === true && !options.pilot;
     return this.consultGuard(options, {
       orgId: options.orgId,
@@ -1412,6 +1496,7 @@ export class FrozenDatasetLoader {
       plannedAt: now().toISOString(),
       undeletableObjects: this.config.undeletableObjects ?? {},
       requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
+      excludedObjects: this.config.excludedObjects ?? [],
     });
     return this.withValidationRules(plan);
   }
@@ -2002,6 +2087,7 @@ export class FrozenDatasetLoader {
           plannedAt: startedAt.toISOString(),
           undeletableObjects: this.config.undeletableObjects ?? {},
           requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
+          excludedObjects: this.config.excludedObjects ?? [],
         }),
       ),
       options.maxRecords,
@@ -3009,12 +3095,27 @@ export class FrozenDatasetLoader {
       report: { resolved: 0, unresolved: [] },
       unanswered: 0,
     };
+    // An opportunity's synced quote, set here, makes its products the quote's
+    // lines: left unset where the load wrote fewer of these than of those,
+    // and said. See `syncedQuotes.ts`.
+    const unsynced = quotesLeftUnsynced(alignedByObject, (referenceId) => mapping.has(referenceId));
+    const leftUnset = new Set(unsynced.map((left) => left.opportunity));
+    const patches = pendingFk.filter(
+      (pending) =>
+        pending.objectApiName !== OPPORTUNITY_OBJECT ||
+        pending.field !== SYNCED_QUOTE_FIELD ||
+        !leftUnset.has(pending.referenceId),
+    );
+    const unsetNote =
+      unsynced.length > 0
+        ? `, ${unsynced.length} synced quote${unsynced.length === 1 ? '' : 's'} left unset`
+        : '';
     const endOfPass2 = (failedOn?: { cause: unknown }): FrozenLoadProgressEvent =>
       endOfTheStep(
         {
           phase: 'pass2',
           progress: 88,
-          did: `Pass 2: ${cyclePass.report.resolved} resolved, ${cyclePass.report.unresolved.length} unresolved`,
+          did: `Pass 2: ${cyclePass.report.resolved} resolved, ${cyclePass.report.unresolved.length} unresolved${unsetNote}`,
           refused: cyclePass.report.unresolved.length,
           notDone: cyclePass.unanswered,
           done: 'resolved',
@@ -3022,7 +3123,7 @@ export class FrozenDatasetLoader {
         failedOn,
       );
     try {
-      await this.patchCycleFks(options, pendingFk, mapping, cyclePass);
+      await this.patchCycleFks(options, patches, mapping, cyclePass);
     } catch (err: unknown) {
       emit(endOfPass2({ cause: err }));
       throw err;
@@ -3183,6 +3284,7 @@ export class FrozenDatasetLoader {
       ...(heldForExcluded.length > 0
         ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
         : {}),
+      ...quotesLeftUnsyncedOf(unsynced, this.config),
       ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
       ...(runUserId ? { runUserId } : {}),
       mappingPath: this.deps.mappingStore.filePath,
@@ -4375,20 +4477,7 @@ export class FrozenDatasetLoader {
     // A record that kept no name of its record type has its label: two of the
     // object under one label — a package's and the org's own — leave nothing
     // to tell which. A dataset extracted now keeps the name.
-    if (refs.length > 1) {
-      const sharing = refs.map((rt) =>
-        qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName),
-      );
-      throw new LoadConfigError(
-        `The dataset's ${objectApiName} records name record type "${rtName}" by its label, ` +
-          `which ${sharing.join(' and ')} ` +
-          `share in the source: which one each record had cannot be told, the dataset having ` +
-          `been extracted before SandForge kept each record's record type by its name. Extract ` +
-          `the dataset again. Nothing was written.`,
-        undefined,
-        { reason: 'label', objectApiName, name: rtName, recordTypes: sharing },
-      );
-    }
+    if (refs.length > 1) throw labelSharedBy(objectApiName, rtName, refs);
     // `ns__Retail` for a package's record type, by its namespace when the
     // dataset kept it; a dataset extracted before it was read names each by
     // its DeveloperName alone, resolved as before when the target holds one.
@@ -5857,6 +5946,7 @@ function loadPlanOf(
     plannedAt: string;
     undeletableObjects: Readonly<Record<string, string>>;
     requiredFieldDefaults: Readonly<Record<string, unknown>>;
+    excludedObjects?: readonly string[];
   },
 ): FrozenLoadPlanInfo {
   const { working, loading, alignedByObject, reused, reusedByKeys, alignment, ranks } = prepared;
@@ -5950,6 +6040,9 @@ function loadPlanOf(
     prepared,
     (referenceId) => !reused.has(referenceId) && !withTheirAccount.has(referenceId),
   ).map(({ given }) => given);
+  const alignedIds = new Set(
+    [...alignedByObject.values()].flatMap((records) => records.map((r) => r.referenceId)),
+  );
   return {
     orgId: context.orgId,
     mode: context.mode,
@@ -5981,8 +6074,31 @@ function loadPlanOf(
     ...(heldForExcluded.length > 0
       ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
       : {}),
+    // What it writes is what it aligned: linked or inserted.
+    ...quotesLeftUnsyncedOf(
+      quotesLeftUnsynced(alignedByObject, (referenceId) => alignedIds.has(referenceId)),
+      context,
+      true,
+    ),
     ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
   };
+}
+
+/**
+ * The report's or the plan's `quotesLeftUnsynced`, `{}` when the load leaves
+ * no quote unsynced: see `syncedQuotes.ts`.
+ */
+function quotesLeftUnsyncedOf(
+  left: ReturnType<typeof quotesLeftUnsynced>,
+  config: { readonly excludedObjects?: readonly string[] },
+  would = false,
+): { quotesLeftUnsynced?: FrozenLeftToThePlatform[] } {
+  const note = quotesLeftUnsyncedNote(
+    left,
+    (config.excludedObjects ?? []).includes(QUOTE_LINE_OBJECT),
+    would,
+  );
+  return note ? { quotesLeftUnsynced: [note] } : {};
 }
 
 /**

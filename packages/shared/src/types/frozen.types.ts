@@ -557,9 +557,18 @@ export interface FrozenLoadReportInfo {
    * How the load ended: `partial` for a reload that wrote all it was to and
    * whose sweep (`sweeps`) was refused or did not take all it was asked to,
    * as the removal a sweep goes with ends. Said `completed`, the panel drew a
-   * green badge above a sweep Production Guard had refused.
+   * green badge above a sweep Production Guard had refused. `partial` too for
+   * a load the verification chained after it did not pass (`verification`).
    */
   status: 'completed' | 'completed-with-errors' | 'partial';
+  /**
+   * The verdict of the verification chained after the load, when it did not
+   * pass: a load that wrote all it was to ends `partial` on it. Said
+   * `completed`, a load whose two opportunity products the platform deleted
+   * after their write exited 0 above `verification: FAILED`. Absent when the
+   * verification passed, was unstable, or could not run.
+   */
+  verification?: 'failed' | 'partial';
   /**
    * What the run muted of the target's automation, when it was asked to
    * (`muteAutomation`): the permission sets assigned to the user it wrote as
@@ -676,6 +685,13 @@ export interface FrozenLoadReportInfo {
    * such a record. Absent when none was.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * The opportunities the load left unsynced with the quote the source syncs
+   * them with, their products kept: it wrote fewer lines under the quote than
+   * products under the opportunity, and a sync replaces an opportunity's
+   * products with its quote's lines. Absent when it left none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
   /**
    * What the sweep asked with a reload did, per load it replaced, as a
    * removal of that load would have swept it: what the target's automation
@@ -819,6 +835,13 @@ export interface FrozenLoadPlanInfo {
    * records not sent. Absent when none would be.
    */
   heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
+   * The opportunities the load would leave unsynced with the quote the
+   * source syncs them with, keeping their products: it would write fewer
+   * lines under the quote than products under the opportunity. Absent when
+   * it would leave none.
+   */
+  quotesLeftUnsynced?: FrozenLeftToThePlatform[];
   /**
    * On a reload, per object, records of a load recorded before loads kept
    * what they created that the purge would leave in place: that load may have

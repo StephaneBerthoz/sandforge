@@ -31,7 +31,10 @@ import { makeConn } from './sfSession.js';
 import { typed } from './prompt.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
-import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
+import {
+  FrozenDatasetLoader,
+  LoadConfigError,
+} from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import { indexedLoadsOf, sasMarkOf } from '../src/modules/frozendataset/otherSasLoads.js';
 import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
@@ -978,6 +981,36 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
         expect(await reloadStep('--sweep', '--yes', '--json')).toBe(1);
 
         expect(indexedLoadsOf(join(dir, 'journal'), ORG_ID)).toEqual([]);
+      });
+
+      it('keeps nothing of a load its configuration refused under the mute, and says what the mute assigned and took back', async () => {
+        // Run for real on a trap org: refused LOAD_CONFIG, "Nothing was
+        // written", the load was kept in the index as one that wrote, and
+        // another sas's --sweep-untied was refused for it; and the bypass it
+        // had assigned, then taken back, was said by no line.
+        vi.mocked(FrozenDatasetLoader.prototype.load).mockRejectedValue(
+          new LoadConfigError(
+            'The dataset leaves 1 required field(s) empty that the configuration does not ' +
+              'cover. Nothing was written. Declare them all, then load again — records are ' +
+              'never silently excluded:\n- requiredFieldDefaults["Account.Name"]: a value for ' +
+              'this required field',
+            ['requiredFieldDefaults["Account.Name"]: a value for this required field'],
+          ),
+        );
+
+        expect(await reloadStep('--sweep', '--mute-automation', '--yes', '--json')).toBe(1);
+
+        expect(indexedLoadsOf(join(dir, 'journal'), ORG_ID)).toEqual([]);
+        const error = JSON.parse(stdout).posted.find(
+          (m: { type: string }) => m.type === 'frozen:load:error',
+        );
+        expect(error.payload).toMatchObject({
+          code: 'LOAD_CONFIG',
+          written: 0,
+          mutedAutomation: { assigned: ['Data_Load'], released: true },
+        });
+        expect(stderr).toContain('mute: assigned Data_Load to the user the run writes as in');
+        expect(stderr).toContain('  taken back: Data_Load, as the run ended');
       });
     });
 
