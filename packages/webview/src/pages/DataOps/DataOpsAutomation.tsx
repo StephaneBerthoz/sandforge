@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   firedOnRemovalStepsOf,
+  guardTierOf,
   mutePlanOf,
   removalStepsBypassesOf,
   removalStepsWrites,
@@ -11,6 +12,7 @@ import {
   type DataOpsAutomationObject,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import {
   DELETE_WHEN_KEYS,
@@ -209,8 +211,16 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
         : undefined,
     [answer, automation, act],
   );
+  // A production org's automation is never muted, whatever the setting
+  // (`MUTE_PRODUCTION`): the box is not offered there, as no refusal names it.
+  const production = useOrgStore((s) => {
+    const known = s.orgs.find((o) => o.id === orgId);
+    return known !== undefined && guardTierOf(known) === 'production';
+  });
   const planned =
-    answer && automation ? mutePlanOf(automation, removalStepsWrites(answer.steps)) : null;
+    answer && automation && !production
+      ? mutePlanOf(automation, removalStepsWrites(answer.steps))
+      : null;
   // The active duplicate rules of what it writes over: a masking writes the
   // same address over every record, and on the trap org a rule's report then
   // wrote a duplicate record set no line of the question had named.

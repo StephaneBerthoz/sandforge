@@ -225,6 +225,26 @@ your own:
   failed, records never reached as not sent; a run you cancelled as
   cancelled, or as stopped under `RUN_CANCELLED` when it had masked nothing
   and the org had refused nothing) and in the output log.
+- **Duplicate rules.** A masking writes one kind of value over every record
+  -- the same `preserve_format` address, names drawn alike -- and an org's
+  active duplicate rules then match the masked records with each other. Before
+  its question, the read of what the org runs names, object by object, the
+  active duplicate rules of what it writes over, as Restore's question and an
+  erasure in place name them: a record a rule only alerts on is written, one a
+  rule blocks is refused, and what a rule that reports writes, a duplicate
+  record set and its items, stays. Once its last write is in, a run that
+  masked a record of such an object waits 5 seconds, the few seconds a rule's
+  report takes to land, then reads the duplicate record items created since
+  its first write that sit in a set holding one of the records it masked, and
+  those sets created since: a query of the items, then a query of their sets
+  for every 200 of them. Its result says how many sets and items the rules
+  wrote for the records it masked (at least that many past 2,000 items), that
+  they wrote nothing, or that it could not be read; a run that fails half way
+  says it as well. What they wrote is kept, never removed: every item names a
+  record that stays, and a masking deletes nothing. The page warns when they
+  wrote something or it could not be read, and `--json` carries it under
+  `duplicates`. A run that masked no record of an object with an active rule
+  waits for nothing and reads none of it
 - **Resume where it stopped.** A run that stopped before the end keeps, on
   this machine, where it got: per object, whether it was read to the end, the
   last record it handled, and the records the org refused. The Anonymize tab
@@ -366,7 +386,8 @@ number, or several, and **Search**. It looks in the objects the inventory read:
 - Both start with a review that writes nothing: the fields each object would
   have overwritten and how, or how many related records the org would delete
   along with them. Then a confirmation armed by typing the org's name, which
-  lists what the org runs as the records are written over or deleted, as a
+  lists what the org runs as the records are written over or deleted -- for a
+  delete, as the records the org deletes along with them go too -- as a
   masking's or a cleanup's does (see
   [What the org runs as DataOps writes](#what-the-org-runs-as-dataops-writes)),
   then **Production Guard**:
@@ -415,7 +436,9 @@ Each recommendation can be:
 - **Deleted**: a review first says how many records go and how many records of
   other objects the org deletes along with them (counted per object people
   work with; the org's own history, sharing and feed rows are not), then a
-  confirmation armed by typing the org's name, then **Production Guard**.
+  confirmation armed by typing the org's name, which lists what the org runs
+  as they go, those it deletes along with them included, then **Production
+  Guard**.
   Deleted records go to the
   recycle bin. A delete is listed in Live Operations while it runs, where
   Cancel stops it before its next call of 200 records, the records deleted by
@@ -488,7 +511,16 @@ Forge, Sync, Seed and Frozen Dataset do:
 
 - **What fires**, object by object and write by write: on update for a masking
   and a restore, after undelete for what a restore brings back, before and
-  after delete for a cleanup, and what could not be read
+  after delete for a cleanup, and what could not be read. A Cleanup delete and
+  an erasure by delete read it on the records the org deletes along with
+  theirs as well, object by object as their review counted them: a contact
+  takes its tasks with it, an account its contacts and opportunities, and what
+  runs as those go is named and asked about as what runs on the records
+  themselves. An object the review could not count is not read.
+  `sandforge-cleanup` reads it on the objects it names
+- **Duplicate rules**: the active ones of what a masking, a restore or an
+  erasure in place writes over, named; a masking then says what they wrote
+  during it (see [Anonymize](#anonymize))
 - **The emails**, counted against what the org has left today of its single
   and workflow emails: past them, the write is refused (`EMAILS_EXCEEDED`),
   whatever is accepted
@@ -499,7 +531,8 @@ Forge, Sync, Seed and Frozen Dataset do:
 In the panel, Apply's and Resume's confirmation, Restore's question, the
 Cleanup delete's confirmation and a subject request's Erase confirmation list
 it before the org's name is typed, and wait for it; the box **Mute the target's automation for this run** sits under it
-when the org's own bypass silences something of it, and on an org that
+when the org's own bypass silences something of it, on any org but a
+production one, whose automation is never muted, and on an org that
 delivers the emails, a box lets them go, which the confirmation itself never
 stands for. On the command line, `sandforge-dataops anonymize`, its
 `--restore`, `sandforge-backup --restore` and `sandforge-cleanup` say it
@@ -508,7 +541,9 @@ something fires or could not be read (`AUTOMATION_NOT_ACCEPTED`), nor without
 `--accept-emails` when the org delivers what still runs sends
 (`EMAILS_NOT_ACCEPTED`); `--mute-automation` keeps quiet what the org's own
 bypasses keep quiet, under a lease, as every other module's runs do (see
-[Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run)).
+[Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run)),
+and is refused on a production org (`MUTE_PRODUCTION`), where no refusal
+offers it.
 A dry run says all of it, and what a real run would be refused for, exit `1`.
 With `--json`, the masking's and the restore's answer carry it as
 `dataops:automation:response`, the cleanup's under `automation`. A pipeline's

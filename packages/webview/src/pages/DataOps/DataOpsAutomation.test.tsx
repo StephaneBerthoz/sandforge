@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import type { DataOpsAutomationAnswer } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
+import type { DataOpsAutomationAnswer, SalesforceOrg } from '@sandforge/shared';
+import { useOrgStore } from '../../stores/useOrgStore';
 import {
   accordPayloadOf,
   DataOpsAutomation,
@@ -102,7 +104,52 @@ beforeEach(() => {
   read.data = null;
   read.loading = false;
   read.error = null;
+  useOrgStore.setState({ orgs: [] });
 });
+
+/** The org the section writes to, as the registry holds it, of the type given. */
+function orgTyped(orgType: SalesforceOrg['orgType'], edition: string): SalesforceOrg {
+  return {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.example.com',
+    instanceUrl: 'https://dev1.example.com',
+    orgId: '00D000000000001',
+    orgType,
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition, features: [] },
+    status: 'connected',
+    lastConnected: '2024-01-01T00:00:00Z',
+    tags: [],
+  };
+}
+
+/** {@link FIRES}, its flow quiet under Skip_Flows, which a permission set of the org holds. */
+const MUTABLE: DataOpsAutomationAnswer = {
+  ...FIRES,
+  automation: {
+    ...FIRES.automation!,
+    objects: [
+      {
+        ...FIRES.automation!.objects[0]!,
+        flows: [
+          {
+            ...FIRES.automation!.objects[0]!.flows[0]!,
+            permissions: [{ name: 'Skip_Flows', bypass: true }],
+          },
+        ],
+      },
+    ],
+    bypassGrants: [
+      {
+        permission: 'Skip_Flows',
+        permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+      },
+    ],
+  },
+};
 
 describe('DataOpsAutomation', () => {
   it('reads what the org runs as the masking writes, and holds the confirmation until it answers', () => {
@@ -198,6 +245,20 @@ describe('DataOpsAutomation', () => {
     );
 
     expect(read.mutate).toHaveBeenCalledWith(expect.objectContaining({ muteAutomation: true }));
+  });
+
+  it('offers the mute where a bypass silences what fires, and not on a production org, where it is refused', () => {
+    read.data = MUTABLE;
+    useOrgStore.setState({ orgs: [orgTyped('Sandbox', 'Developer Edition')] });
+    const { unmount } = renderSection();
+    expect(screen.getByTestId('dataops-automation-masking-mute-toggle')).toBeTruthy();
+    unmount();
+
+    // Ticked, it was refused before anything was written (MUTE_PRODUCTION).
+    useOrgStore.setState({ orgs: [orgTyped('Production', 'Enterprise Edition')] });
+    renderSection();
+    expect(screen.queryByTestId('dataops-automation-masking-mute')).toBeNull();
+    expect(screen.getByTestId('dataops-automation-masking').textContent).toContain('Notify Owner');
   });
 
   it('holds a masking past the emails the org has left today, whatever is ticked, and says why', () => {

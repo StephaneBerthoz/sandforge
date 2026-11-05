@@ -15,6 +15,7 @@ import {
 } from './dataOpsAutomation.js';
 import type { MuteOrg } from '../forge/AutomationMuteLease.js';
 import { deliverabilityAfterLeaseStop } from '../forge/ForgeRunGate.js';
+import { NO_APEX_IN_PRODUCTION } from '../forge/targetDeliverability.js';
 
 /** A record-triggered flow, after the save, that sends `emails` single emails. */
 function flow(
@@ -472,6 +473,60 @@ describe('readDataOpsAct', () => {
       'EMAILS_NOT_ACCEPTED',
     ]);
     expect(org.deliverabilityReads()).toBe(1);
+  });
+
+  it('offers the mute in no refusal on a production org, where it is refused: what fires, its emails, past the day', async () => {
+    // One flow on update sending one email, which Skip_Flows keeps quiet, and
+    // the set that holds it: on a sandbox, each refusal named the mute.
+    const sending = {
+      ...automationOf({
+        Contact: { flows: [flow('Notify Owner', 'update', { emails: 1, bypass: 'Skip_Flows' })] },
+      }),
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+        },
+      ],
+    };
+    /** A production org: no Apex runs there, so whether it delivers is not read. */
+    const production = (single: { max: number; remaining: number }): DataOpsAutomationOrg => ({
+      ...orgOf(sending, { single }),
+      readDeliverability: async () => NO_APEX_IN_PRODUCTION,
+      production: true,
+    });
+
+    const asked = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: production({ max: 5_000, remaining: 5_000 }),
+      accord: {},
+      mayMute: true,
+    });
+    expect(asked.answer.refusals.map((r) => r.code)).toEqual([
+      AUTOMATION_NOT_ACCEPTED,
+      'EMAILS_NOT_ACCEPTED',
+    ]);
+    const past = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: production({ max: 15, remaining: 15 }),
+      accord: { acceptAutomation: true, acceptEmails: true },
+      mayMute: true,
+    });
+    expect(past.answer.refusals.map((r) => r.code)).toEqual([EMAILS_EXCEEDED]);
+
+    const said = [...asked.answer.refusals, ...past.answer.refusals].map((r) => r.message);
+    // What fires, and the set that holds its bypass, are still named; the mute is not.
+    expect(said[0]).toContain('TGT runs automation as this masking writes over its records');
+    expect(said[0]).toContain('Add --accept-automation to mask all the same');
+    expect(said[1]).toContain('Add --accept-emails to mask all the same');
+    expect(said[2]).toContain(
+      'Turn off what sends them, or mask fewer records. Nothing was written.',
+    );
+    for (const message of said) expect(message).not.toContain('--mute-automation');
   });
 
   it('plans the mute asked for, and refuses it on a production org before anything is assigned', async () => {

@@ -773,7 +773,8 @@ describe('DataOpsComplianceHandler', () => {
   /**
    * An update flow a set's bypass keeps quiet, and the permission records the
    * mute assigns that set through: what it assigns and takes back is told to
-   * `events`, as is each answer of an erasure, with what is still assigned.
+   * `events`, as is each answer of an erasure and the end Live Operations is
+   * told of, with what is still assigned.
    */
   function mutableFlow(): { events: string[]; dir: string } {
     const events: string[] = [];
@@ -799,6 +800,9 @@ describe('DataOpsComplianceHandler', () => {
     vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
       if (m.type === 'dataops:dsr:erase:response' || m.type === 'dataops:error') {
         events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+      if (m.type === 'operation:completed' || m.type === 'operation:failed') {
+        events.push(`${m.type}, ${permissions.assignments().length} assigned`);
       }
     });
     const dir = mkdtempSync(join(tmpdir(), 'erase-mute-'));
@@ -861,7 +865,14 @@ describe('DataOpsComplianceHandler', () => {
     await eraseMuted(dir);
 
     expect(org.update).toHaveBeenCalled();
-    expect(events).toEqual(['assign', 'unassign', 'answered, 0 assigned']);
+    // Ended in Live Operations once its set is taken back, as a masking and a
+    // cleanup are: it was said ended while the set was still assigned.
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
     expect(answer('dataops:dsr:erase:response')).toMatchObject({
       outcome: { status: 'success', done: 1 },
       mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
@@ -893,7 +904,12 @@ describe('DataOpsComplianceHandler', () => {
 
     await eraseMuted(dir);
 
-    expect(events).toEqual(['assign', 'unassign', 'answered, 0 assigned']);
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
     expect(posted().at(-1)).toMatchObject({
       type: 'dataops:error',
       payload: {
@@ -905,6 +921,28 @@ describe('DataOpsComplianceHandler', () => {
           takenBack: ['Flow_Bypass'],
         },
       },
+    });
+  });
+
+  it('says an erasure the org refused whole ended once its mute took its set back', async () => {
+    const { events, dir } = mutableFlow();
+    // The org's answer to the update never came: the session ended meanwhile.
+    org.update.mockRejectedValueOnce(new Error('INVALID_SESSION_ID: Session expired or invalid'));
+
+    await eraseMuted(dir);
+
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
+    expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
+      result: { status: 'failure', done: 0, failed: 1 },
+    });
+    expect(answer('dataops:dsr:erase:response')).toMatchObject({
+      outcome: { status: 'failure', failed: 1 },
+      mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },
     });
   });
 

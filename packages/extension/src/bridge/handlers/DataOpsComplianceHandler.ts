@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
-  DataOpsAutomationRefusal,
   MutedAutomation,
   SubjectIdentifierKind,
   SubjectIdentifiers,
@@ -13,7 +12,9 @@ import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
 import {
+  alsoRefusedPayload,
   dataOpsAutomationOrgOf,
+  dataOpsStop,
   holdDataOpsMute,
   readDataOpsAct,
 } from '../../modules/dataops/dataOpsAutomation.js';
@@ -78,39 +79,6 @@ function simulated(msg: object): boolean {
   return typeof payload === 'object' && payload !== null && 'dryRun' in payload
     ? payload.dryRun === true
     : false;
-}
-
-/** The sentence a refusal says once nothing was written, or deleted, as it stopped. */
-const NOTHING_SAID = /\bnothing (?:was )?(?:written|deleted)\b/i;
-/** That sentence, said again by a refusal after another one said it. */
-const NOTHING_AGAIN = /\s*\bNothing was (?:written|deleted)\./g;
-
-/**
- * How an erasure stops on the refusals its read met: the first under its own
- * code, every other one under its own beside it (`alsoRefused`), as a run of
- * Autopilot or a clone refused for several reasons gives them; and what the
- * page says, each refusal in turn, the sentence that nothing was written said
- * once. The two came under the first one's code alone — what fires, then its
- * emails —, and the banner said "Nothing was written." twice.
- */
-function erasureStopOf(
-  refusals: readonly DataOpsAutomationRefusal[],
-): { code: string; message: string; alsoRefused: DataOpsAutomationRefusal[] } | undefined {
-  const [first, ...rest] = refusals;
-  if (!first) return undefined;
-  let said = false;
-  const message = refusals
-    .map((refusal) => {
-      if (said) return refusal.message.replace(NOTHING_AGAIN, '').trim();
-      said = NOTHING_SAID.test(refusal.message);
-      return refusal.message;
-    })
-    .join(' ');
-  return {
-    code: first.code,
-    message,
-    alsoRefused: rest.map(({ code, message }) => ({ code, message })),
-  };
 }
 
 /** The kinds of identifier a search was given, never the identifiers. */
@@ -519,8 +487,10 @@ export class DataOpsComplianceHandler implements DomainHandler {
         voice: 'erasure',
       });
       // The mute's lease, held from before the guard's question to the end of
-      // the erasure, given back however it ends.
-      const stop = erasureStopOf(gated.answer.refusals);
+      // the erasure, given back however it ends. Refused as a masking and a
+      // cleanup are: the first refusal under its code, each other under its
+      // own, and the sentence that nothing was written said once.
+      const stop = dataOpsStop(gated.answer);
       const holding = stop
         ? { refused: stop }
         : await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true, 'erasure');
@@ -544,23 +514,30 @@ export class DataOpsComplianceHandler implements DomainHandler {
           operationId,
           objects: [],
         });
-        const also = stop?.alsoRefused ?? [];
         sendHandlerError(
           this.deps,
           'dataops:dsr:erase',
           'dataops:error',
           msg,
           new Error(holding.refused.message),
-          {
-            code: holding.refused.code,
-            ...(also.length > 0 ? { extraPayload: { alsoRefused: also } } : {}),
-          },
+          { code: holding.refused.code, ...(stop ? alsoRefusedPayload(stop) : {}) },
         );
         return;
       }
       const leased = holding.held;
       /** What the mute took back, once its lease was given back: the answer says it. */
       const given: { back?: MutedAutomation } = {};
+      /**
+       * Give the lease back, once: before the erasure is said ended in Live
+       * Operations (`operation:completed`), or when the guard stopped it. It
+       * was said ended there while the set it had assigned was still
+       * assigned, as a masking and a cleanup were.
+       */
+      const giveBack = async (): Promise<void> => {
+        if (!leased || given.back) return;
+        given.back = await leased.release();
+        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
+      };
       /**
        * What the mute did, said with however the erasure ends — answered,
        * declined at the guard, or stopped half way — as the masking says it:
@@ -582,13 +559,10 @@ export class DataOpsComplianceHandler implements DomainHandler {
           description: `Erase ${recordCount} record(s) of a subject request`,
           origin: 'dataops:dsr:erase',
           run: (onObject, signal) => runErasure(session, engine, prepared, onObject, signal),
+          beforeEnd: giveBack,
         },
         this.liveTracker,
-      ).finally(async () => {
-        if (!leased) return;
-        given.back = await leased.release();
-        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
-      });
+      ).finally(giveBack);
 
       const at = new Date().toISOString();
       if (!result.ran) {

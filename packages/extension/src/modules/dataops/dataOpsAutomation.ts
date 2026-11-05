@@ -519,6 +519,13 @@ export interface DataOpsAutomationOrg {
   readDeliverability: () => Promise<DeliverabilityRead>;
   /** The org a mute assigns its sets in (`muteOrgOf`): reached only when the act mutes. */
   muteOrg: () => Promise<MuteOrg>;
+  /**
+   * Whether it is a production org, by the tier Production Guard reads: its
+   * automation is never muted there (`MUTE_PRODUCTION`), so no refusal offers
+   * the mute. A refusal of what fires, of its emails or past the day's emails
+   * named `--mute-automation` on a production org all the same.
+   */
+  production?: boolean;
 }
 
 /**
@@ -527,9 +534,10 @@ export interface DataOpsAutomationOrg {
  * requests, its permission sets through its records. The line of Apex never
  * runs in a production org, which a DataOps write reaches once Production
  * Guard's question was answered: its emails then ask, as an org that would
- * not say asks.
+ * not say asks, and no refusal offers the mute, which is refused there.
  *
  * @param readAutomation - What the org runs on the objects, as the handler reads it.
+ * @param production - Whether it is a production org, by its tier.
  */
 export function dataOpsAutomationOrgOf(
   conn: LimitsTransport & Parameters<typeof muteOrgOf>[0],
@@ -542,6 +550,7 @@ export function dataOpsAutomationOrgOf(
     readDeliverability: () =>
       production ? Promise.resolve(NO_APEX_IN_PRODUCTION) : readEmailDeliverability(conn),
     muteOrg: async () => muteOrgOf(conn),
+    ...(production ? { production } : {}),
   };
 }
 
@@ -651,7 +660,8 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   }
   /** What still runs once the mute's plan holds: the read itself when the act does not mute. */
   const running = mute?.automation ?? known;
-  const mayMute = input.mayMute && accord.muteAutomation !== true;
+  /** Whether a refusal names the mute: one the act can ask for, not asked, and not refused here. */
+  const mayMute = input.mayMute && accord.muteAutomation !== true && input.org.production !== true;
 
   const lines = [
     ...dataOpsAutomationLines(known ?? read, target, act, steps),

@@ -472,6 +472,51 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('offers the mute in none of its refusals on an org the registry types as production, where it is refused', async () => {
+    // A flow on update sending one email, which Skip_Flows keeps quiet, and the set holding it.
+    const bypassed: ForgeTargetFlow = {
+      ...onUpdate('Notify Owner', 1),
+      permissions: [{ name: 'Skip_Flows', bypass: true }],
+    };
+    read.mockResolvedValue({
+      ...runs([bypassed]),
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+        },
+      ],
+    });
+    const { requests } = orgOf(contactsOf(3));
+    const asked = {
+      orgId: 'org-1',
+      act: 'masking',
+      objects: [{ objectApiName: 'Contact', records: 3 }],
+    };
+    const refusals = (): string =>
+      (last('dataops:automation:response')?.payload.refusals as Array<{ message: string }>)
+        .map((r) => r.message)
+        .join(' ');
+
+    await send('dataops:automation', asked, 'sandbox-read');
+    expect(refusals()).toContain('With --mute-automation, the masking assigns Flow_Bypass');
+    expect(requests.filter((url) => url !== '/limits')).toHaveLength(1);
+
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+      alias: 'ORG',
+      orgType: 'Production',
+    } as never);
+    const before = requests.length;
+    await send('dataops:automation', asked, 'production-read');
+
+    const said = refusals();
+    expect(said).toContain('ORG runs automation as this masking writes over its records');
+    expect(said).toContain('Add --accept-emails to mask all the same');
+    expect(said).not.toContain('--mute-automation');
+    // No Apex in a production org: whether it delivers was not read, and is asked.
+    expect(requests.slice(before).filter((url) => url !== '/limits')).toEqual([]);
+  });
+
   describe('the duplicate rules of what a masking writes over', () => {
     /** What the trap org runs on Contact: nothing fires, its standard duplicate rule is active. */
     const ruled: ForgeTargetAutomation = {
@@ -548,6 +593,43 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       expect(last('notification')?.payload).toMatchObject({
         level: 'warning',
         message: expect.stringContaining('wrote 1 duplicate record set(s) and 2 item(s)'),
+      });
+    });
+
+    it('says what they wrote for the records it masked before it failed half way, as a finished masking does', async () => {
+      // Two updates of 200 and 1: the first is masked, and the org's rule
+      // reports its records alike; the answer to the second never comes.
+      const rows = contactsOf(201);
+      const tables: DuplicateTables = { sets: [], items: [] };
+      const { update } = orgOf(rows, undefined, tables);
+      const answered = update.getMockImplementation();
+      if (!answered) throw new Error('the org answers no update');
+      update.mockImplementationOnce(answered).mockImplementationOnce(async () => {
+        throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      });
+
+      await send('dataops:anonymize', { ...masking, acceptAutomation: true }, 'run-fails');
+
+      expect(update).toHaveBeenCalledTimes(2);
+      const failed = last('dataops:error')?.payload;
+      expect(failed?.duplicates).toEqual({
+        rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
+        sets: 1,
+        items: 200,
+      });
+      expect(String(failed?.message)).toContain(
+        'socket hang up — 200 masked before it stopped; 1 still hold their original values',
+      );
+      expect(String(failed?.message)).toContain(
+        'The duplicate rules of ORG on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+          'duplicate record set(s) and 200 item(s) during the masking, for records it masked: ' +
+          'kept, as they name records that stay.',
+      );
+      // Kept, as a finished masking keeps them.
+      expect(tables.sets).toHaveLength(1);
+      expect(tables.items).toHaveLength(200);
+      expect(last('operation:failed')?.payload).toMatchObject({
+        error: expect.stringContaining('socket hang up'),
       });
     });
   });

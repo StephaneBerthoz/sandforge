@@ -4221,6 +4221,13 @@ export class DataOpsHandler implements DomainHandler {
     const maskedUnderRules = new Set<string>();
     /** When the org last answered one of its updates, on this machine's clock. */
     let lastWriteAt = 0;
+    /**
+     * What the duplicate rules wrote for the records it masked, read once
+     * their reports had time to land, however the run ends: nothing until it
+     * reaches the org, nor when it masked no record of an object that has one.
+     * Never throws.
+     */
+    let duplicatesOfRun = async (): Promise<MaskingDuplicatesWritten | undefined> => undefined;
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4259,22 +4266,32 @@ export class DataOpsHandler implements DomainHandler {
      * a run that failed half-way through used to say only what the org said,
      * and nothing told the user half the org was still unmasked.
      */
-    const failRun = (err: unknown, retryable: boolean): void => {
+    const failRun = (
+      err: unknown,
+      retryable: boolean,
+      duplicates?: MaskingDuplicatesWritten,
+    ): void => {
       runError = err;
       const reason = extractErrorMessage(err);
       const totals = maskingTotals(tallies);
       const left = counted && totals.recordsNotMasked > 0;
+      // What its duplicate rules wrote for what it masked before it stopped,
+      // said as a finished run says it: a failure said nothing of the sets
+      // they wrote.
+      const duplicatesSaid = maskingDuplicatesSentence(duplicates, this.orgNameOf(payload.orgId));
       const extraPayload = {
         ...(counted ? { ...totals, objects: maskingResultObjects(tallies) } : {}),
         ...(snapshot ? { snapshot } : {}),
+        ...(duplicates ? { duplicates } : {}),
       };
+      const told = left
+        ? `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
+          `${totals.recordsNotMasked} still hold their original values ` +
+          `(${leftByObject(tallies)}).`
+        : reason;
       replies.refused(
-        left
-          ? new Error(
-              `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
-                `${totals.recordsNotMasked} still hold their original values ` +
-                `(${leftByObject(tallies)}).`,
-            )
+        left || duplicatesSaid
+          ? new Error(duplicatesSaid ? `${told} ${duplicatesSaid}` : told)
           : err,
         { code: guardRefusalCode(err), extraPayload },
       );
@@ -4581,6 +4598,15 @@ export class DataOpsHandler implements DomainHandler {
         gated.answer.automation,
         tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
       );
+      duplicatesOfRun = () =>
+        duplicateRules.length > 0 && maskedUnderRules.size > 0
+          ? this.duplicatesWritten(conn, {
+              rules: duplicateRules,
+              since: duplicatesSince,
+              masked: maskedUnderRules,
+              lastWriteAt,
+            })
+          : Promise.resolve(undefined);
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
@@ -5050,15 +5076,7 @@ export class DataOpsHandler implements DomainHandler {
       await giveBack();
       // What the duplicate rules wrote for the records it masked, once their
       // reports had time to land: said, and kept.
-      const duplicates =
-        duplicateRules.length > 0 && maskedUnderRules.size > 0
-          ? await this.duplicatesWritten(conn, {
-              rules: duplicateRules,
-              since: duplicatesSince,
-              masked: maskedUnderRules,
-              lastWriteAt,
-            })
-          : undefined;
+      const duplicates = await duplicatesOfRun();
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
         // — already, when the cancel came through it — and posted as a
@@ -5119,9 +5137,12 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
       // run's failure: only the loop, stopping at the cancel, says a run was
-      // cancelled. Dual channel, single display (see handleBackup).
+      // cancelled. Dual channel, single display (see handleBackup). What its
+      // duplicate rules wrote for the records it masked before it failed is
+      // read, once its lease is given back, as a run that ended reads it.
       await giveBack();
-      failRun(err, true);
+      const duplicates = await duplicatesOfRun().catch(() => undefined);
+      failRun(err, true, duplicates);
     } finally {
       const released = await giveBack();
       if (released) replies.muted?.(released);
