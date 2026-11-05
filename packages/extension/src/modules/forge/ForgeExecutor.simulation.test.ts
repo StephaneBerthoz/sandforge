@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
-import { forgeGapId } from '@sandforge/shared';
+import {
+  forgeGapId,
+  ignoredGapEntry,
+  picklistMappingEntry,
+  skippedRowsEntry,
+} from '@sandforge/shared';
 import { ForgeExecutor } from './ForgeExecutor.js';
 import type {
   ExecuteOptions,
@@ -960,6 +965,86 @@ describe('ForgeExecutor, a package’s record type beside the org’s own of the
         [TARGET_PACKAGED, 'Old'],
       ],
     ]);
+  });
+
+  it('leaves the package’s unmapped Retail undecided by an ignore kept under the bare name the org’s own carries', async () => {
+    // The source's own Retail goes in as the target's own, and has no gap:
+    // the read holds the package's alone. An ignore kept before namespaces,
+    // under the bare name, is the org's own's as the run names it, and said
+    // the package's "left as it is", which nobody had decided.
+    const { deps, options } = namespacedOrgs({ packageInTarget: false });
+    const unmapped = (name: string) =>
+      forgeGapId('record_type_unmapped', 'Order__c', 'RecordTypeId', undefined, name);
+
+    const { summary } = await run(deps, {
+      ...options,
+      dryRun: true,
+      decisions: { ...REGION_GIVEN, ignoredGaps: [unmapped('Retail')] },
+    });
+
+    const ids = (summary.gaps ?? []).map((gap) => gap.id);
+    const packaged = gapOf(summary, unmapped('ns__Retail'));
+    expect(ids).not.toContain(unmapped('Retail'));
+    expect(packaged).toMatchObject({ severity: 'blocking', rows: 1 });
+    expect(packaged?.detail).toMatchObject({ sameDeveloperName: ['Retail'] });
+    expect(packaged?.detail?.['ignored']).toBeUndefined();
+    expect(packaged && ignoredGapEntry([unmapped('Retail')], packaged, ids)).toBeUndefined();
+  });
+
+  it('leaves the package’s refused value undecided by a decision kept under the bare name of the org’s own Retail, which takes the value', async () => {
+    // The target's own Retail takes Open, which the package's refuses: the
+    // read holds the package's gap of Open alone. Held back or mapped under
+    // the bare name, as a template kept it before namespaces, the run applies
+    // it to the org's own rows alone and sends the package's order with
+    // Open; Review read the decision as the package's gap's, and said it
+    // decided.
+    const ownOpen = forgeGapId('picklist_value_refused', 'Order__c', 'Status__c', 'Retail', 'Open');
+    const packagedOpen = forgeGapId(
+      'picklist_value_refused',
+      'Order__c',
+      'Status__c',
+      'ns__Retail',
+      'Open',
+    );
+    const mapping = {
+      object: 'Order__c',
+      field: 'Status__c',
+      recordType: 'Retail',
+      from: 'Open',
+      to: 'New',
+    };
+    const skipped = { object: 'Order__c', gapId: ownOpen };
+    const decided: Array<NonNullable<ExecuteOptions['decisions']>> = [
+      { ...REGION_GIVEN, skippedRows: [skipped] },
+      { ...REGION_GIVEN, picklistValueMappings: [mapping] },
+    ];
+    const found: Array<{ ids: string[]; gap: ExecutionSummary['gaps'] }> = [];
+    for (const decisions of decided) {
+      const { deps, options } = namespacedOrgs({ packageInTarget: true });
+      const answer = deps.queryRecords.getMockImplementation()!;
+      deps.queryRecords.mockImplementation(async (org: string, soql: string) =>
+        org === 'src' && soql.includes(' FROM Order__c')
+          ? selectRows({ Order__c: [...SOURCE.Order__c, order(4, PACKAGED, 'Open')] }, soql)
+          : answer(org, soql),
+      );
+      const { summary } = await run(deps, { ...options, dryRun: true, decisions });
+      const ids = (summary.gaps ?? []).map((gap) => gap.id);
+      found.push({ ids, gap: summary.gaps?.filter((gap) => gap.id === packagedOpen) });
+    }
+
+    for (const { ids, gap } of found) {
+      expect(ids).not.toContain(ownOpen);
+      expect(gap).toEqual([
+        expect.objectContaining({
+          recordType: 'ns__Retail',
+          rows: 1,
+          detail: expect.objectContaining({ sameDeveloperName: ['Retail'] }),
+        }),
+      ]);
+    }
+    const [held, mapped] = found;
+    expect(skippedRowsEntry([skipped], held.gap![0], held.ids)).toBeUndefined();
+    expect(picklistMappingEntry([mapping], mapped.gap![0], mapped.ids)).toBeUndefined();
   });
 });
 

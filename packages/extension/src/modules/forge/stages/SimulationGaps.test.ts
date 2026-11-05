@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { forgeGapId } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import type { PicklistField } from './RecordTypePicklists.js';
+import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
 import {
   SimulationGaps,
   currencyGapOf,
@@ -90,6 +91,92 @@ describe('the id of a gap of a package’s record type, before its namespace', (
     const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
 
     expect(gaps.list(new Set([old])).map((gap) => gap.detail?.['ignored'])).toEqual([true]);
+  });
+});
+
+describe('the record types a package’s carries the name of', () => {
+  const type = (
+    recordTypeId: string,
+    developerName: string,
+    namespacePrefix?: string | null,
+    master = false,
+  ): RecordTypeAvailability => ({
+    recordTypeId,
+    developerName,
+    ...(namespacePrefix !== undefined ? { namespacePrefix } : {}),
+    name: developerName,
+    available: true,
+    active: true,
+    master,
+    defaultRecordTypeMapping: false,
+  });
+  const MASTER = type('012000000000000AAA', 'Master', undefined, true);
+  const OWN = type('012000000000001AAA', 'Retail', null);
+  const PACKAGED = type('012000000000002AAA', 'ns__Retail', 'ns');
+  const OTHER_PACKAGE = type('012000000000003AAA', 'other__Retail', 'other');
+
+  it('says beside a package’s gap the other record types of its org of the same DeveloperName', () => {
+    // The org's own Retail takes the value the package's refuses: the read
+    // holds no gap of it, and nothing told a decision kept under the bare
+    // name for the org's own.
+    const gaps = new SimulationGaps();
+    gaps.knowRecordTypes('Order__c', 'target', [MASTER, OWN, PACKAGED, OTHER_PACKAGE]);
+    for (const recordType of ['ns__Retail', 'Retail']) {
+      gaps.add({
+        kind: 'picklist_value_refused',
+        severity: 'blocking',
+        objectApiName: 'Order__c',
+        field: 'Status__c',
+        recordType,
+        value: 'Open',
+        rows: 1,
+        decisions: ['map_value', 'skip_rows', 'ignore'],
+      });
+    }
+
+    expect(
+      gaps.list(new Set()).map((gap) => [gap.recordType, gap.detail?.['sameDeveloperName']]),
+    ).toEqual([
+      ['ns__Retail', ['Retail', 'other__Retail']],
+      ['Retail', undefined],
+    ]);
+  });
+
+  it('reads an unmapped record type among the source’s, and leaves it unmarked by an ignore kept under the bare name', () => {
+    const gaps = new SimulationGaps();
+    gaps.knowRecordTypes('Order__c', 'source', [OWN, PACKAGED]);
+    gaps.knowRecordTypes('Order__c', 'target', [type('012000000000009AAA', 'Wholesale', null)]);
+    gaps.add(recordTypeGapOf('record_type_unmapped', 'Order__c', 'ns__Retail', 1, ['Wholesale']));
+    const old = forgeGapId('record_type_unmapped', 'Order__c', 'RecordTypeId', undefined, 'Retail');
+
+    expect(gaps.list(new Set([old]))[0]?.detail).toEqual({
+      mapTo: ['Wholesale'],
+      sameDeveloperName: ['Retail'],
+    });
+  });
+
+  it('says nothing of a package’s record type alone of its name, nor of record types read without their namespace', () => {
+    const gaps = new SimulationGaps();
+    gaps.knowRecordTypes('Order__c', 'target', [MASTER, PACKAGED]);
+    gaps.knowRecordTypes('Case', 'target', [
+      type('012000000000004AAA', 'Retail'),
+      type('012000000000005AAA', 'ns__Retail'),
+    ]);
+    for (const objectApiName of ['Order__c', 'Case']) {
+      gaps.add(recordTypeGapOf('record_type_unavailable', objectApiName, 'ns__Retail', 1, []));
+    }
+    const old = (objectApiName: string) =>
+      forgeGapId('record_type_unavailable', objectApiName, 'RecordTypeId', 'Retail');
+
+    // Without the names, the read alone tells, as before.
+    expect(
+      gaps
+        .list(new Set([old('Order__c'), old('Case')]))
+        .map((gap) => [gap.objectApiName, gap.detail]),
+    ).toEqual([
+      ['Case', { mapTo: [], ignored: true }],
+      ['Order__c', { mapTo: [], ignored: true }],
+    ]);
   });
 });
 

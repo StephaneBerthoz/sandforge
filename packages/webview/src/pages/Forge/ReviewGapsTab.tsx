@@ -56,10 +56,14 @@ const DETAIL_KEYS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Detail entries the tab shows in a part of its own: the permission sets
- * that would keep a validation rule quiet, with the command that assigns one.
+ * Detail entries the tab leaves out of a gap's detail: the permission sets
+ * that would keep a validation rule quiet, shown in a part of their own with
+ * the command that assigns one; and the other record types a package's record
+ * type shares its name with (`sameDeveloperName`), which the tab reads a
+ * decision back by — one kept under the bare name answers not the gap, shown
+ * undecided — and which a name of the code would have said to the reader.
  */
-const DETAIL_SHOWN_APART: ReadonlySet<string> = new Set(['assign']);
+const DETAIL_SHOWN_APART: ReadonlySet<string> = new Set(['assign', 'sameDeveloperName']);
 
 /** The select value that maps a record type to the object's default: no DeveloperName is. */
 const DEFAULT_RECORD_TYPE = '*';

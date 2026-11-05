@@ -204,6 +204,54 @@ describe('picklistMappingEntry', () => {
   });
 });
 
+describe('a package’s gap whose org carries its record type’s name on another record type', () => {
+  // The org's own Support takes the value, and has no gap in the read: the
+  // simulation says beside the package's gap that it carries the name. A
+  // decision kept under the bare name is the org's own's as the run applies
+  // it, never the package's.
+  const id = forgeGapId('picklist_value_refused', 'Case', 'Status', 'ns__Support', 'Open');
+  const before = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Open');
+  const packaged = {
+    id,
+    recordType: 'ns__Support',
+    detail: { allowedValues: ['New'], sameDeveloperName: ['Support'] },
+  };
+
+  it('takes no ignore, hold-back or mapping kept under the bare name', () => {
+    const mapping = (recordType?: string) => ({ ...(recordType ? { recordType } : {}), to: 'x' });
+
+    expect(ignoredGapEntry([before], packaged, [id])).toBeUndefined();
+    expect(skippedRowsEntry([{ gapId: before }], packaged, [id])).toBeUndefined();
+    expect(picklistMappingEntry([mapping('Support')], packaged, [id])).toBeUndefined();
+    // Under its own name, or for every record type, an entry answers it still.
+    expect(ignoredGapEntry([id], packaged, [id])).toBe(id);
+    expect(skippedRowsEntry([{ gapId: id }], packaged, [id])).toEqual({ gapId: id });
+    const every = mapping();
+    expect(picklistMappingEntry([mapping('Support'), every], packaged, [id])).toBe(every);
+  });
+
+  it('takes the bare name for the gap whose detail names no other, as before', () => {
+    const alone = { id, recordType: 'ns__Support', detail: { allowedValues: ['New'] } };
+
+    expect(ignoredGapEntry([before], alone, [id])).toBe(before);
+    expect(skippedRowsEntry([{ gapId: before }], alone, [id])).toEqual({ gapId: before });
+  });
+
+  it('takes no ignore kept under the bare name of an unmapped record type the source’s own carries', () => {
+    const unmapped = forgeGapId(
+      'record_type_unmapped',
+      'Account',
+      'RecordTypeId',
+      undefined,
+      'ns__Retail',
+    );
+    const old = forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'Retail');
+    const gap = { id: unmapped, detail: { mapTo: ['Retail'], sameDeveloperName: ['Retail'] } };
+
+    expect(ignoredGapEntry([old], gap, [unmapped])).toBeUndefined();
+  });
+});
+
 describe('mergeGaps', () => {
   it('keeps one line per gap, with the gravest severity, the most rows and every decision', () => {
     const merged = mergeGaps(

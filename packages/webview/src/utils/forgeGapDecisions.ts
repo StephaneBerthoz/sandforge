@@ -196,7 +196,10 @@ function sameField(a: ForgeFieldRef, b: ForgeFieldRef): boolean {
  *   can be no other's of them: on a target with the org's own Support and a
  *   package's ns__Support, the decision taken on the first answered the
  *   second, which read "left as it is" while nobody had decided it, and a
- *   decision taken on the second took the first one's away.
+ *   decision taken on the second took the first one's away. Nor when the
+ *   gap's simulation says the org's own carries the name too, with no gap
+ *   of its own (`detail.sameDeveloperName`): the run applies the entry to
+ *   the org's own rows alone.
  */
 export function decisionOf(
   config: ForgeConfig | null,
@@ -207,7 +210,7 @@ export function decisionOf(
   const ids = read.map((shown) => shown.id);
   // The entry the config holds, which may be the id before a package's namespace:
   // the one Undo takes out.
-  const ignored = ignoredGapEntry(config.ignoredGaps, gap.id, ids);
+  const ignored = ignoredGapEntry(config.ignoredGaps, gap, ids);
   if (ignored !== undefined) return { kind: 'ignored', gapId: ignored };
   if (config.excludedObjects?.includes(gap.objectApiName)) {
     return { kind: 'object_excluded', object: gap.objectApiName };
@@ -217,7 +220,7 @@ export function decisionOf(
   if (offers.has('skip_rows')) {
     const entry = skippedRowsEntry(
       (config.skippedRows ?? []).filter((e) => e.object === object),
-      gap.id,
+      gap,
       ids,
     );
     if (entry) return { kind: 'skipped_rows', entry };

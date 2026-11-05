@@ -5659,6 +5659,7 @@ export class ForgeExecutor {
     rows: number,
   ): void {
     const object = node.objectApiName;
+    state.gaps?.knowRecordTypes(object, 'target', types.target?.recordTypes ?? []);
     for (const use of types.closed) {
       state.gaps?.add(
         recordTypeGapOf(
@@ -12157,6 +12158,7 @@ export class ForgeExecutor {
     }
     if (rows.unmapped.size > 0) {
       const sourceTypes = await this.sourceRecordTypesOf(state, objectApiName);
+      gaps.knowRecordTypes(objectApiName, 'source', sourceTypes);
       for (const [id, count] of rows.unmapped) {
         const name =
           sourceTypes.find((type) => type.recordTypeId.slice(0, 15) === id.slice(0, 15))
@@ -12601,6 +12603,7 @@ export class ForgeExecutor {
       const targetObject = await this.targetObjectInfoOf(state, node.objectApiName);
       // What a decision's bare name names among them.
       const targetTypes = targetTypesNamed(targetObject);
+      state.gaps?.knowRecordTypes(node.objectApiName, 'target', targetObject?.recordTypes ?? []);
 
       // A record type can be active in the target and still be closed to the
       // user the run writes as. Found out at the insert, every record of it

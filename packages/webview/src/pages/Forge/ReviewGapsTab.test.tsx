@@ -411,6 +411,42 @@ describe('ReviewGapsTab', () => {
       expect(useForgeStore.getState().config?.excludedObjects).toEqual(['Case']);
     });
 
+    it('asks again of a package’s record type a decision kept under the bare name of the org’s own, which has no gap', () => {
+      // The simulation says the source's own Retail carries the package's
+      // name too: the run takes an ignore kept before namespaces under the
+      // bare name for the org's own. The tab said the package's gap "left as
+      // it is" and Execute no longer asked.
+      const unmapped: ForgeGap = {
+        id: forgeGapId('record_type_unmapped', 'Case', 'RecordTypeId', undefined, 'ns__Retail'),
+        kind: 'record_type_unmapped',
+        severity: 'blocking',
+        source: 'simulation',
+        objectApiName: 'Case',
+        field: 'RecordTypeId',
+        value: 'ns__Retail',
+        rows: 1,
+        detail: { mapTo: ['Claim', 'Retail'], sameDeveloperName: ['Retail'] },
+        decisions: ['map_record_type', 'exclude_object', 'ignore'],
+      };
+      const old = forgeGapId('record_type_unmapped', 'Case', 'RecordTypeId', undefined, 'Retail');
+      act(() => {
+        useForgeStore.getState().setConfig({ ...CONFIG, ignoredGaps: [old] });
+        useForgeStore.getState().setGaps('metadata', []);
+        useForgeStore.getState().setGaps('simulation', [unmapped]);
+      });
+      render(<ReviewGapsTab />);
+      const gap = item(unmapped);
+
+      expect(within(gap).queryByTestId('gap-decided')).toBeNull();
+      expect(within(gap).getByTestId('gap-decisions')).toBeTruthy();
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(1);
+      // What the run read of the source's record types decides; it is no
+      // detail of the gap the reader is given under a name of the code.
+      expect(within(gap).getByTestId('gap-detail').textContent).toBe(
+        'Target record typesClaim, Retail',
+      );
+    });
+
     it('says an object no user can create the platform’s, asked of nobody before Execute', () => {
       // A calendar the clone reached was said blocking, the admin asked to
       // grant a Create no user can be granted.

@@ -353,6 +353,92 @@ describe('each decision, written and taken back', () => {
     expect(withoutGapDecision(kept, unmapped, [unmapped])).toEqual(CONFIG);
   });
 
+  describe('a package’s gap whose record type’s name the org’s own carries too, with no gap of its own', () => {
+    // The simulation says beside the package's gap which record types of
+    // its org carry its DeveloperName too. Kept before namespaces under the
+    // bare name, a decision is the org's own's, as the run applies it: the
+    // package's gap read "left as it is", "held back" or "written as", and
+    // Execute no longer asked, while its rows went as read and the target
+    // refused them.
+    const unmapped: ForgeGap = {
+      id: forgeGapId('record_type_unmapped', 'Account', 'RecordTypeId', undefined, 'ns__Retail'),
+      kind: 'record_type_unmapped',
+      severity: 'blocking',
+      source: 'simulation',
+      objectApiName: 'Account',
+      field: 'RecordTypeId',
+      value: 'ns__Retail',
+      rows: 1,
+      detail: { mapTo: ['Retail', 'Other'], sameDeveloperName: ['Retail'] },
+      decisions: ['map_record_type', 'exclude_object', 'ignore'],
+    };
+    const refused: ForgeGap = {
+      ...REFUSED,
+      id: forgeGapId('picklist_value_refused', 'Case', 'Status', 'ns__Support', 'Open'),
+      field: 'Status',
+      value: 'Open',
+      recordType: 'ns__Support',
+      detail: { allowedValues: ['New'], sameDeveloperName: ['Support'] },
+      decisions: ['map_value', 'leave_empty', 'skip_rows'],
+    };
+    const ownOpen = forgeGapId('picklist_value_refused', 'Case', 'Status', 'Support', 'Open');
+
+    it('asks again of an unmapped record type an ignore kept under the bare name', () => {
+      const old = forgeGapId(
+        'record_type_unmapped',
+        'Account',
+        'RecordTypeId',
+        undefined,
+        'Retail',
+      );
+      const kept = { ...CONFIG, ignoredGaps: [old] };
+
+      expect(decisionOf(kept, unmapped, [unmapped])).toBeNull();
+      expect(undecidedBlockingGaps({ simulation: [unmapped] }, kept)).toBe(1);
+      expect(decisionsAnsweringNoGap(kept, [unmapped])).toEqual([{ kind: 'ignored', gapId: old }]);
+    });
+
+    it('asks again of a refused value a hold-back, a mapping or an ignore kept under the bare name', () => {
+      const kept: ForgeConfig[] = [
+        { ...CONFIG, skippedRows: [{ object: 'Case', gapId: ownOpen }] },
+        {
+          ...CONFIG,
+          picklistValueMappings: [
+            { object: 'Case', field: 'Status', recordType: 'Support', from: 'Open', to: 'New' },
+          ],
+        },
+        { ...CONFIG, ignoredGaps: [ownOpen] },
+      ];
+
+      for (const config of kept) {
+        expect(decisionOf(config, refused, [refused])).toBeNull();
+        expect(undecidedBlockingGaps({ simulation: [refused] }, config)).toBe(1);
+      }
+    });
+
+    it('reads a record type mapping kept under the bare name as the org’s own, as the run applies it', () => {
+      // The run maps the source's own Retail by it, and the package's goes
+      // unmapped: its gap stays to decide.
+      const mapped = {
+        ...CONFIG,
+        recordTypeMappings: [{ object: 'Account', from: 'Retail', to: 'Other' }],
+      };
+
+      expect(decisionOf(mapped, unmapped, [unmapped])).toBeNull();
+      expect(decisionsAnsweringNoGap(mapped, [unmapped])).toEqual([
+        { kind: 'record_type', entry: { object: 'Account', from: 'Retail', to: 'Other' } },
+      ]);
+    });
+
+    it('reads a decision taken on the package’s gap under its own name as answering it', () => {
+      const config = withGapDecision(CONFIG, refused, { kind: 'skip_rows' }, [refused]);
+
+      expect(config.skippedRows).toEqual([{ object: 'Case', gapId: refused.id }]);
+      expect(choiceOf(decisionOf(config, refused, [refused])!)).toEqual({ kind: 'skip_rows' });
+      expect(undecidedBlockingGaps({ simulation: [refused] }, config)).toBe(0);
+    });
+  });
+
   it('holds back the rows of a value by the gap’s id, and takes that back', () => {
     const config = withGapDecision(CONFIG, REFUSED, { kind: 'skip_rows' }, [REFUSED]);
 

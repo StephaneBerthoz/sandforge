@@ -57,25 +57,60 @@ const RECORD_TYPE_VALUE_KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
 ]);
 
 /**
- * The entry of `ignored` that says to leave the gap `id` as it is, or undefined
- * when none does: the id itself, or the one it had before a package's record
- * type was named with its namespace. A template and a saved run keep the old
- * one, `…|Type|…` for `…|ns__Type|…`, and the decision taken was asked again.
+ * A gap as the entries answering it are looked up by: its id, and its detail
+ * where the read gave it ({@link sameDeveloperNameOf}), or its id alone.
+ */
+type GapLookedUp = string | Pick<ForgeGap, 'id' | 'detail'>;
+
+/** The id of a gap looked up. */
+function idOf(gap: GapLookedUp): string {
+  return typeof gap === 'string' ? gap : gap.id;
+}
+
+/**
+ * The other record types that carry the DeveloperName of the package's record
+ * type a gap is of, in its org, by their names — `Retail`, the org's own,
+ * beside `ns__Retail` — as the simulation that found the gap read them
+ * (`detail.sameDeveloperName`): the target's for the record type rows go in
+ * with, the source's for one unmapped. None when the read did not say.
+ *
+ * Where one does, a bare `Retail` names it there and not the package's, as
+ * the run reads a bare name (`findRecordTypeByName`): an entry kept under the
+ * bare name is not the package's gap's, whether or not the other has a gap of
+ * its own in the same read.
+ */
+function sameDeveloperNameOf(gap: GapLookedUp): readonly string[] {
+  if (typeof gap === 'string') return [];
+  const names = gap.detail?.['sameDeveloperName'];
+  return Array.isArray(names) ? names : [];
+}
+
+/**
+ * The entry of `ignored` that says to leave the gap as it is, or undefined
+ * when none does: its id, or the one it had before a package's record type
+ * was named with its namespace. A template and a saved run keep the old one,
+ * `…|Type|…` for `…|ns__Type|…`, and the decision taken was asked again.
  *
  * The old one answers only a gap it can be no other gap's of the same read
  * (`read`, the ids of the gaps it found): on a target with the org's own
  * Support and a package's ns__Support, ignoring the first wrote the id the
  * second had before its namespace, and the second, which nobody decided, read
- * "left as it is" and Execute no longer asked.
+ * "left as it is" and Execute no longer asked. Nor does it answer a gap whose
+ * detail says the org's own, or another package's, carries its record type's
+ * DeveloperName too ({@link sameDeveloperNameOf}): the org's own having no gap
+ * in the read, the package's read decided all the same.
+ *
+ * @param gap - The gap, or its id where the read gave nothing else of it.
  */
 export function ignoredGapEntry(
   ignored: Iterable<string> | undefined,
-  id: string,
+  gap: GapLookedUp,
   read: Iterable<string>,
 ): string | undefined {
   const entries = new Set(ignored ?? []);
+  const id = idOf(gap);
   if (entries.has(id)) return id;
-  const before = oldIdOfTheGap(id, read);
+  const before = oldIdOfTheGap(gap, read);
   return before !== undefined && entries.has(before) ? before : undefined;
 }
 
@@ -96,14 +131,16 @@ function idBeforeNamespace(id: string): string | undefined {
 }
 
 /**
- * The id `id` had before its namespace, when an entry under it can be the
- * gap's alone among those of the same read: no other gap of `read` is that id,
- * as the org's own record type's is, nor had it before a namespace of its own,
- * as another package's of the same DeveloperName did.
+ * The id the gap had before its namespace, when an entry under it can be the
+ * gap's alone: its detail names no other record type of its org carrying its
+ * DeveloperName ({@link sameDeveloperNameOf}), and no other gap of `read` is
+ * that id, as the org's own record type's is, nor had it before a namespace of
+ * its own, as another package's of the same DeveloperName did.
  */
-function oldIdOfTheGap(id: string, read: Iterable<string>): string | undefined {
+function oldIdOfTheGap(gap: GapLookedUp, read: Iterable<string>): string | undefined {
+  const id = idOf(gap);
   const before = idBeforeNamespace(id);
-  if (before === undefined) return undefined;
+  if (before === undefined || sameDeveloperNameOf(gap).length > 0) return undefined;
   for (const other of read) {
     if (other !== id && (other === before || idBeforeNamespace(other) === before)) {
       return undefined;
@@ -113,28 +150,32 @@ function oldIdOfTheGap(id: string, read: Iterable<string>): string | undefined {
 }
 
 /**
- * The entry of `skipped` that holds back the rows of the gap `id`, or undefined
- * when none does: by the id, or the one it had before a package's record type
+ * The entry of `skipped` that holds back the rows of the gap, or undefined
+ * when none does: by its id, or the one it had before a package's record type
  * was named with its namespace, as {@link ignoredGapEntry} reads it — and
- * reads not an entry of another gap of the same read (`read`).
+ * reads not an entry of another gap of the same read (`read`), nor one the run
+ * applies to the org's own record type of the same name.
+ *
+ * @param gap - The gap, or its id where the read gave nothing else of it.
  */
 export function skippedRowsEntry<T extends { gapId: string }>(
   skipped: readonly T[],
-  id: string,
+  gap: GapLookedUp,
   read: Iterable<string>,
 ): T | undefined {
-  const exact = skipped.find((entry) => entry.gapId === id);
+  const exact = skipped.find((entry) => entry.gapId === idOf(gap));
   if (exact) return exact;
-  const before = oldIdOfTheGap(id, read);
+  const before = oldIdOfTheGap(gap, read);
   return before === undefined ? undefined : skipped.find((entry) => entry.gapId === before);
 }
 
 /**
  * Of the mappings of one value of one field, the one that answers `gap`, of
  * that value on one record type: for that record type; for it as it was named
- * before its package's namespace, when no other gap of the same read (`read`)
- * is of that value on a record type of that name, as the run applies it
- * (`holdsForRecordType`); then for every record type.
+ * before its package's namespace, when the run applies it to the gap's rows
+ * (`holdsForRecordType`) — no other record type of the target carries the
+ * name ({@link sameDeveloperNameOf}), nor is another gap of the same read
+ * (`read`) of that value on one of that name; then for every record type.
  *
  * On a target with the org's own Support and a package's ns__Support, the
  * mapping taken on the first answered the second: the run writes it to the
@@ -142,10 +183,10 @@ export function skippedRowsEntry<T extends { gapId: string }>(
  */
 export function picklistMappingEntry<T extends { recordType?: string }>(
   mappings: readonly T[],
-  gap: { id: string; recordType?: string },
+  gap: Pick<ForgeGap, 'id' | 'recordType' | 'detail'>,
   read: Iterable<string>,
 ): T | undefined {
-  const bare = bareRecordTypeOfTheGap(gap.id, read);
+  const bare = bareRecordTypeOfTheGap(gap, read);
   return (
     mappings.find((mapping) => mapping.recordType === gap.recordType) ??
     (bare !== undefined ? mappings.find((mapping) => mapping.recordType === bare) : undefined) ??
@@ -154,15 +195,21 @@ export function picklistMappingEntry<T extends { recordType?: string }>(
 }
 
 /**
- * The name the package's record type of the gap `id` had before its
- * namespace, when a mapping of its value under that name can be the gap's
- * alone: no other gap of `read`, of whatever kind, is of the same value on
- * the org's own record type of that name, or on another package's.
+ * The name the package's record type of the gap had before its namespace,
+ * when a mapping of its value under that name can be the gap's alone: the
+ * gap's detail names no other record type of the target carrying it, and no
+ * other gap of `read`, of whatever kind, is of the same value on the org's
+ * own record type of that name, or on another package's.
  */
-function bareRecordTypeOfTheGap(id: string, read: Iterable<string>): string | undefined {
-  const parts = forgeGapParts(id);
+function bareRecordTypeOfTheGap(
+  gap: Pick<ForgeGap, 'id' | 'detail'>,
+  read: Iterable<string>,
+): string | undefined {
+  const parts = forgeGapParts(gap.id);
   const bare = PACKAGED_NAME.exec(parts?.recordType ?? '')?.[1];
-  if (parts === null || bare === undefined) return undefined;
+  if (parts === null || bare === undefined || sameDeveloperNameOf(gap).length > 0) {
+    return undefined;
+  }
   for (const other of read) {
     const theirs = forgeGapParts(other);
     if (

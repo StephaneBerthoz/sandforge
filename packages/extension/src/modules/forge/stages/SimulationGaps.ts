@@ -21,6 +21,15 @@ import { allowsControllingValue } from '../describeBounds.js';
 import { isPersonAccountRow } from '../../../core/common/platformRecords.js';
 import type { PicklistChange, PicklistField } from './RecordTypePicklists.js';
 import { CURRENCY_FIELD } from '../../../core/common/recordCurrencies.js';
+import {
+  partsOfRecordType,
+  type RecordTypeAvailability,
+} from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  partsOfRecordTypeName,
+  qualifiedRecordTypeName,
+  type RecordTypeNameParts,
+} from '../../../core/metadata/recordTypeNames.js';
 
 /** A gap as a detector finds it: its id and source are the collector's to give. */
 export type FoundGap = Omit<ForgeGap, 'id' | 'source'>;
@@ -64,10 +73,38 @@ const LARGEST_KEPT: ReadonlySet<string> = new Set(['longest', 'colliding']);
  */
 export class SimulationGaps {
   private readonly gaps = new Map<string, ForgeGap>();
+  /** Per object, each org's record types by namespace and DeveloperName, as the run named them. */
+  private readonly recordTypes = new Map<
+    string,
+    Partial<Record<RecordTypesOf, RecordTypeNameParts[]>>
+  >();
 
   /** How many gaps were found. */
   get size(): number {
     return this.gaps.size;
+  }
+
+  /**
+   * The record types of `objectApiName` in one org, as the run's describe of
+   * it gives them: what the gap of a package's record type there says of the
+   * others that carry its DeveloperName (`detail.sameDeveloperName`). Nothing
+   * is kept when one of them was not named by its `RecordType` row, as the
+   * run then tells the org's own from a package's by nothing either.
+   *
+   * @param org - The target's, for the record types rows go in with; the
+   *   source's, for one the target has no counterpart of.
+   */
+  knowRecordTypes(
+    objectApiName: string,
+    org: RecordTypesOf,
+    types: readonly RecordTypeAvailability[],
+  ): void {
+    const named = types.filter((type) => !type.master);
+    if (named.some((type) => type.namespacePrefix === undefined)) return;
+    this.recordTypes.set(objectApiName, {
+      ...this.recordTypes.get(objectApiName),
+      [org]: named.map(partsOfRecordType),
+    });
   }
 
   /** Count a gap found, on `found.rows` rows. */
@@ -102,18 +139,60 @@ export class SimulationGaps {
 
   /**
    * Every gap found, gravest first, those the user chose to leave as they are
-   * marked so in their detail: reported still, never applied.
+   * marked so in their detail: reported still, never applied. The gap of a
+   * package's record type says which others of its org carry its
+   * DeveloperName ({@link withSameDeveloperName}).
    */
   list(ignored: ReadonlySet<string>): ForgeGap[] {
     const read = [...this.gaps.keys()];
-    const gaps = [...this.gaps.values()].map((gap) =>
-      ignoredGapEntry(ignored, gap.id, read) !== undefined
-        ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } }
-        : gap,
-    );
+    const gaps = [...this.gaps.values()]
+      .map((gap) => this.withSameDeveloperName(gap))
+      .map((gap) =>
+        ignoredGapEntry(ignored, gap, read) !== undefined
+          ? { ...gap, detail: { ...(gap.detail ?? {}), ignored: true } }
+          : gap,
+      );
     return mergeGaps(gaps);
   }
+
+  /**
+   * `gap`, of a package's record type, with the names of the other record
+   * types of its org that carry its DeveloperName in its detail
+   * (`sameDeveloperName`): the target's for the record type its rows go in
+   * with, the source's for one unmapped. A bare name names one of those, as
+   * the run reads it, and never the package's: a decision kept before
+   * namespaces under the bare name is not the gap's.
+   *
+   * Told by the gaps of the read alone, the org's own Retail of the target
+   * taking a value the package's refused had no gap of it, and Review read a
+   * hold-back kept under `Retail` as the package's gap's, said it decided,
+   * and Execute no longer asked: the run held back the org's own rows, and
+   * sent the package's, which the target refused.
+   */
+  private withSameDeveloperName(gap: ForgeGap): ForgeGap {
+    const unmapped = gap.kind === 'record_type_unmapped';
+    const name = unmapped ? gap.value : gap.recordType;
+    const types = this.recordTypes.get(gap.objectApiName)?.[unmapped ? 'source' : 'target'];
+    if (name === undefined || types === undefined) return gap;
+    const parts = partsOfRecordTypeName(name);
+    if (!parts.namespacePrefix) return gap;
+    const others = types
+      .filter(
+        (type) =>
+          type.developerName === parts.developerName &&
+          type.namespacePrefix !== parts.namespacePrefix,
+      )
+      .map((type) => qualifiedRecordTypeName(type.namespacePrefix, type.developerName));
+    if (others.length === 0) return gap;
+    return {
+      ...gap,
+      detail: { ...(gap.detail ?? {}), sameDeveloperName: [...new Set(others)].sort() },
+    };
+  }
 }
+
+/** The org whose record types a gap names: see {@link SimulationGaps.knowRecordTypes}. */
+type RecordTypesOf = 'source' | 'target';
 
 /** A list of values as a gap's detail lists them: sorted, at most {@link LISTED_VALUES}. */
 function listed(values: Iterable<string>): string[] {
