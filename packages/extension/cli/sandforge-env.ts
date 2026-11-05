@@ -75,7 +75,12 @@ import {
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
 import { typed } from './prompt.js';
-import { spawnRunner, type CommandRunner, type SpawnOptions } from './scriptRunner.js';
+import {
+  RELAYED_BY_VARIABLE,
+  spawnRunner,
+  type CommandRunner,
+  type SpawnOptions,
+} from './scriptRunner.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import {
@@ -500,10 +505,14 @@ export interface CliArgs {
 /**
  * How an environment runs its steps: each script in a process of its own,
  * told that its lines are relayed by this command, whose reader cannot give
- * it the options a script's own advice names. Exported so it can be tested.
+ * it the options a script's own advice names. Relayed itself, by the MCP
+ * server, it tells them that server relays them: told this command did, a
+ * removal under env_destroy, which takes no sweep, said "--sweep takes them
+ * first". Exported so it can be tested.
  */
 export function envStepRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): CommandRunner {
-  return spawnRunner({ ...options, relayedBy: 'sandforge-env' });
+  const outer = process.env[RELAYED_BY_VARIABLE]?.trim();
+  return spawnRunner({ ...options, relayedBy: outer ? outer : 'sandforge-env' });
 }
 
 const ENV_STEP_RUNNER = envStepRunner();

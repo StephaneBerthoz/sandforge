@@ -451,6 +451,26 @@ describe('destroy --sweep', () => {
     }
   }, 120_000);
 
+  it('tells each script it runs, when the MCP server relays this command, that the server’s reader reads its lines', async () => {
+    // Relayed by env_destroy, which takes no sweep, a removal told this
+    // command relayed it said "--sweep takes them first": a flag of this
+    // command's own line, which no tool of the server gives.
+    const inherited = process.execArgv;
+    process.execArgv = ['--import', 'tsx'];
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+    try {
+      const run = envStepRunner({
+        scriptPath: () => join(__dirname, 'testing', 'stopProbe.ts'),
+      });
+      const ran = await run('sandforge-clone', ['exit'], new AbortController().signal);
+
+      expect(JSON.parse(ran.stdout)).toMatchObject({ relayedBy: 'sandforge-mcp' });
+    } finally {
+      process.execArgv = inherited;
+      vi.unstubAllEnvs();
+    }
+  }, 120_000);
+
   it('keeps what came late and what is tied to nothing: --sweep-late and --sweep-untied are no flags of it', async () => {
     for (const flag of ['--sweep-late', '--sweep-untied']) {
       const { code } = await run(['destroy', '--org', 'TGT', '--sweep', flag]);

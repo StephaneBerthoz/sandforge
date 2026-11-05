@@ -44,6 +44,7 @@ vi.mock('../src/modules/sync/SyncOrchestrator.js', () => ({
 
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { main, runFileOf } from './sandforge-sync.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -471,6 +472,69 @@ describe('the file a run of sandforge-sync keeps', () => {
 
       expect(stderr).toContain(`is the file of the run ${runId} under another name`);
       expect(org.deletes).toEqual([]);
+    });
+  });
+
+  describe('a run killed during a call no job id names', () => {
+    const runId = 'sandforge-sync-killed-rest';
+    let file: string;
+
+    beforeEach(() => {
+      // As a run killed during a REST call leaves its file: the call under
+      // way, the org's ids of what it took never given, no end.
+      mkdirSync(runsDir(), { recursive: true });
+      file = join(runsDir(), `${runId}.ndjson`);
+      const at = new Date(Date.now() - 5 * 60_000).toISOString();
+      writeFileSync(
+        file,
+        [
+          JSON.stringify({
+            run: {
+              runId,
+              configId: 'sandforge-sync',
+              configName: 'sandforge-sync',
+              sourceOrgId: 'SRC',
+              targetOrgId: 'TGT',
+              targetOrganizationId: ORG_ID,
+              startedAt: at,
+              answersNameJobs: true,
+            },
+          }),
+          JSON.stringify({ object: 'Account', created: [A1], at }),
+          JSON.stringify({ sending: { object: 'Contact', rows: 3, at } }),
+          '',
+        ].join('\n'),
+      );
+      org.add('Account', { Id: A1 }, at);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('names the listing that shows what the call left, on its own output', async () => {
+      vi.stubEnv(RELAYED_BY_VARIABLE, '');
+
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain(
+        '  the run stopped during a call of 3 Contact row(s): those TGT took are not in its ' +
+          "file, and stay; --sweep-list shows what the run's user created in the run's window",
+      );
+    });
+
+    it('names, relayed by the MCP server, whose run_remove lists no sweep, the listing this script’s own removal gives', async () => {
+      // Relayed so, "--sweep-list shows" named a flag no tool of the server
+      // takes, as the clone's same line no longer does.
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain(
+        "and stay; this script's own removal with --sweep-list shows what the run's user " +
+          "created in the run's window",
+      );
+      expect(stdout).not.toContain('; --sweep-list shows');
     });
   });
 

@@ -599,9 +599,11 @@ export const TOOLS: readonly ServedTool[] = [
       '(module "forge") or Sync (module "sync") created, as that script\'s --remove --json does; ' +
       'a Sync run also gives the records it wrote over their values back. run is the summary ' +
       "file the run's --json was saved to, its run file or journal, or, for Seed and Sync, its " +
-      'run id. Records changed since the run are kept. A production org is refused. Needs ' +
-      'confirm, the alias of org. acceptAutomation lets it delete although the org runs ' +
-      'automation as the records go.',
+      'run id. Records changed since the run are kept, unless includeChanged. A production org ' +
+      'is refused. Needs confirm, the alias of org. acceptAutomation lets it delete although ' +
+      'the org runs automation as the records go; muteAutomation keeps that automation quiet ' +
+      "for the removal through the org's own bypass. Where its user may not delete the records " +
+      'of some objects of the run, it stops before its first delete, unless leaveUndeletable.',
     readOnly: false,
     destructive: true,
     args: z.strictObject({
@@ -617,15 +619,37 @@ export const TOOLS: readonly ServedTool[] = [
             'relative path is read from where the server was started.',
         ),
       confirm: confirmOf('org').optional(),
+      includeChanged: acceptance(
+        'Take also the records changed since the run, and what was added to them since: on a ' +
+          "shared sandbox, others' work. Only once the person using you has accepted it.",
+      ),
       acceptAutomation: acceptance(
         'Delete although the org runs flows, Apex triggers, processes or workflow rules as the ' +
           'records go, or would not say what it runs: only once the person using you has ' +
           'accepted it.',
       ),
+      muteAutomation: acceptance(
+        'Keep quiet what the org runs as the records go, through its own bypass: the removal ' +
+          'assigns the permission sets holding it to the user it deletes as, for the removal ' +
+          'alone, under a lease, and takes them back as it ends; what no bypass keeps quiet ' +
+          'still needs acceptAutomation. Refused on a production org and for a user who cannot ' +
+          'assign permission sets. Only once the person using you has agreed to it.',
+      ),
+      leaveUndeletable: acceptance(
+        'Where the user the alias connects as may not delete the records of some objects of ' +
+          'the run, remove the rest and leave those, with the records they hang from; without ' +
+          'it the removal stops before its first delete and names them. Only once the person ' +
+          'using you has accepted it.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes: 'deletes the records the run created, into the recycle bin',
-    flags: { '--accept-automation': 'acceptAutomation' },
+    flags: {
+      '--include-changed': 'includeChanged',
+      '--accept-automation': 'acceptAutomation',
+      '--mute-automation': 'muteAutomation',
+      '--leave-undeletable': 'leaveUndeletable',
+    },
     run: (args) => ({
       script: REMOVAL_SCRIPT[args.module],
       args: [
@@ -633,7 +657,10 @@ export const TOOLS: readonly ServedTool[] = [
         args.run,
         '--target',
         args.org,
+        ...(args.includeChanged === true ? ['--include-changed'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+        ...(args.leaveUndeletable === true ? ['--leave-undeletable'] : []),
         '--json',
       ],
     }),

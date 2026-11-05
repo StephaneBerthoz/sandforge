@@ -9,8 +9,11 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 
+import { removalAutomationRefusal } from '../src/modules/forge/ForgeRunGate.js';
+import { refusedLine } from './runRefused.js';
 import { main as envMain } from './sandforge-env.js';
 import { runInProcess } from './testing/envWorld.js';
+import { undeletableRefusal } from './undeletableAnswer.js';
 
 import {
   ERROR,
@@ -1054,6 +1057,105 @@ describe("sandforge-mcp: a script's answer", () => {
       'run_remove with module "forge" and run "/j/forge-runs/f1.ndjson" takes this run back.',
     );
     expect(textOf(dry)).not.toContain('run_remove');
+    await c.close();
+  });
+
+  it('hands includeChanged, muteAutomation and leaveUndeletable to the line of a removal, each only once asked', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    for (const module of ['seed', 'forge', 'sync']) {
+      await c.call('run_remove', {
+        module,
+        org: 'DEV',
+        run: 'run.json',
+        confirm: 'DEV',
+        includeChanged: true,
+        acceptAutomation: true,
+        muteAutomation: true,
+        leaveUndeletable: true,
+      });
+    }
+
+    const line = [
+      '--remove',
+      'run.json',
+      '--target',
+      'DEV',
+      '--include-changed',
+      '--accept-automation',
+      '--mute-automation',
+      '--leave-undeletable',
+      '--json',
+    ];
+    expect(ran).toEqual([
+      { script: 'sandforge-seed', args: line },
+      { script: 'sandforge-clone', args: line },
+      { script: 'sandforge-sync', args: line },
+    ]);
+    await c.close();
+  });
+
+  it("names the parameter each answer a removal's lines give stands for: the records changed since, the mute, what its user may not delete", async () => {
+    // run_remove relayed these flags and took none of them: the person using
+    // the agent was sent to a parameter the tool refused.
+    const automation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete' as const] }],
+        },
+      ],
+      unread: [],
+    };
+    const fires = removalAutomationRefusal(automation, 'DEV', {
+      assign: [{ permission: 'Skip_Cleanup', permissionSet: 'Cleanup_Bypass', others: [] }],
+      mayMute: true,
+    });
+    const answers: Array<Partial<CommandRun>> = [
+      {
+        code: 1,
+        stderr: `${refusedLine({ code: 'AUTOMATION_NOT_ACCEPTED', message: fires ?? '' })}\n`,
+      },
+      {
+        code: 1,
+        stderr: `${refusedLine(undeletableRefusal([{ objectApiName: 'Account', records: 2 }], 'DEV'))}\n`,
+      },
+      {
+        code: 0,
+        stderr:
+          'records changed since the run stay, as do those records added since depend on ' +
+          '(--include-changed takes them)\n',
+      },
+    ];
+    const { run } = scripts(() => answers.shift() ?? {});
+    const c = client(run);
+    await c.initialized();
+    const remove = (module: string) =>
+      c.call('run_remove', { module, org: 'DEV', run: 'run.json', confirm: 'DEV' });
+
+    const muted = textOf(await remove('seed'));
+    const left = textOf(await remove('sync'));
+    const changed = textOf(await remove('forge'));
+
+    expect(muted).toContain('With --mute-automation, the removal assigns Cleanup_Bypass');
+    expect(muted).toContain(
+      "--mute-automation, named above, is this tool's muteAutomation: true. Give it only once " +
+        'the person using you has accepted what it lets through.',
+    );
+    expect(muted).toContain(
+      "--accept-automation, named above, is this tool's acceptAutomation: true.",
+    );
+    expect(left).toContain('run again with --leave-undeletable');
+    expect(left).toContain(
+      "--leave-undeletable, named above, is this tool's leaveUndeletable: true.",
+    );
+    expect(changed).toContain(
+      "--include-changed, named above, is this tool's includeChanged: true.",
+    );
     await c.close();
   });
 

@@ -254,6 +254,7 @@ import {
   sweepLines,
   sweepListingLines,
   sweepOrgOf,
+  sweepOptionWords,
   sweepPartsOptions,
   sweepUnsaid,
   syncRunSpanOf,
@@ -3354,8 +3355,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (!run.end && run.inFlight && run.inFlight.job === undefined) {
     say(
       `  the run stopped during a call of ${run.inFlight.rows} ${run.inFlight.objectApiName} ` +
-        `row(s): those ${args.target} took are not in its file, and stay; --sweep-list shows ` +
-        "what the run's user created in the run's window",
+        `row(s): those ${args.target} took are not in its file, and stay; ` +
+        `${sweepOptionWords('--sweep-list')} shows what the run's user created in the run's window`,
     );
   }
   const plan = syncRemovalPlan(run);
@@ -3496,7 +3497,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (args.sweep) {
     say(
       "before them, a sweep deletes what the target's automation made for the run, as the " +
-        "run's user, tied to its records — run with --sweep-list to see what",
+        `run's user, tied to its records — run ${sweepOptionWords('--sweep-list')} to see what`,
     );
   }
   // Ctrl-C stops the removal before its next call to the org, as Cancel does

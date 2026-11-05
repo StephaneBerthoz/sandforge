@@ -51,6 +51,7 @@ import {
   type WritePathStep,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { main } from './sandforge-sync.js';
 
 /**
@@ -822,5 +823,35 @@ describe('sandforge-sync --remove with a sweep', () => {
 
     expect(sweepParts).not.toHaveBeenCalled();
     expect(JSON.parse(stdout).result.sweep).toBeUndefined();
+  });
+
+  describe('the listing a removal with a sweep names', () => {
+    beforeEach(() => {
+      vi.mocked(sweepParts).mockImplementation(
+        partsAnswering({ status: 'success', objects: [], unread: [], handWork: [] }),
+      );
+      stubExit();
+    });
+
+    it('names --sweep-list on its own output, as a seed’s removal does', async () => {
+      vi.stubEnv(RELAYED_BY_VARIABLE, '');
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
+
+      expect(stdout).toContain("run's user, tied to its records — run --sweep-list to see what");
+    });
+
+    it('names, relayed by a command whose reader lists no sweep, this script’s own removal with it', async () => {
+      // Relayed so, "run with --sweep-list" named a flag that reader could
+      // not give.
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge-mcp');
+
+      await main(argv('--remove', file, '--target', 'TGT', '--sweep'));
+
+      expect(stdout).toContain(
+        "tied to its records — run this script's own removal with --sweep-list to see what",
+      );
+      expect(stdout).not.toContain('run with --sweep-list');
+    });
   });
 });

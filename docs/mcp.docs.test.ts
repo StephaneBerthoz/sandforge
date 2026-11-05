@@ -171,6 +171,24 @@ describe('docs/mcp.md', () => {
     expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
   });
 
+  it('names the parameter each flag a removal names in its advice stands for, as run_remove passes it', () => {
+    const rule = section('The confirm rule');
+
+    expect(rule).toContain(
+      "as it is `run_remove`'s, whose `muteAutomation` and `leaveUndeletable` are " +
+        '`--mute-automation` and `--leave-undeletable`',
+    );
+    for (const [flag, parameter] of [
+      ['--include-changed', 'includeChanged'],
+      ['--accept-automation', 'acceptAutomation'],
+      ['--mute-automation', 'muteAutomation'],
+      ['--leave-undeletable', 'leaveUndeletable'],
+    ]) {
+      expect(SERVER).toContain(`'${flag}': '${parameter}',`);
+      expect(SERVER).toContain(`...(args.${parameter} === true ? ['${flag}'] : []),`);
+    }
+  });
+
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {
     const anchor = 'anchor: nothing shipped gives the model tools or acts on a tool call';
 
