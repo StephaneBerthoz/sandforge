@@ -36,7 +36,11 @@ import { RestorePanel, type RestoreCounts } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { CleanupPanel, CompliancePanel, QualityPanel } from './dataOpsParts';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
-import { accordPayloadOf, type DataOpsAutomationAccord } from './DataOpsAutomation';
+import {
+  accordPayloadOf,
+  ASKED_FROM_PAGE,
+  type DataOpsAutomationAccord,
+} from './DataOpsAutomation';
 import { formatNumber } from '../../utils/formatters';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
@@ -438,6 +442,7 @@ export const DataOpsPage: React.FC = () => {
       ...(rewriteAll ? { rewriteAll: true } : {}),
       ...(includeChanged ? { includeChanged: true } : {}),
       ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
     });
   };
   /** What the last restore wrote, left alone and had refused, from its answer. */
@@ -546,6 +551,7 @@ export const DataOpsPage: React.FC = () => {
       templateId,
       ...(options.snapshot ? { snapshot: true } : {}),
       ...accordPayloadOf(options.accord),
+      ...ASKED_FROM_PAGE,
     });
   };
 
@@ -569,6 +575,7 @@ export const DataOpsPage: React.FC = () => {
       templateId,
       resumeFrom,
       ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
     });
   };
 

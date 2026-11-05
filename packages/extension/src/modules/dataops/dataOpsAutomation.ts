@@ -43,6 +43,7 @@ import {
   removalStepsWrites,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { duplicateRulesOn } from './maskingDuplicates.js';
 import {
   automationUnreadOf,
   bypassAssistantSentences,
@@ -63,6 +64,7 @@ import {
   muteForRun,
   muteLines,
   muteOrgOf,
+  planMute,
   type HeldMute,
   type MuteLeaseOptions,
   type MuteOrg,
@@ -156,15 +158,29 @@ const ACT_WORDS: Readonly<
 
 /**
  * Whose words an act's refusals are said in: the command line's (`flags`),
- * which name `--accept-automation` and its siblings, and which the page's
- * masking, restore and cleanup are still told in, the command line asking a
- * masking and a restore through the same requests; a pipeline's Anonymize
- * step (`step`), which nobody gives a flag to, and which names its settings;
- * a subject erasure (`erasure`), which writes over or deletes as a masking
- * or a cleanup does, is called by its own name, and is the page's alone: it
- * names its confirmation's boxes.
+ * which name `--accept-automation` and its siblings; the DataOps page's
+ * (`page`), whose masking, restore and cleanup are asked through the requests
+ * the command line sends too, and which names its confirmation and its boxes;
+ * a pipeline's Anonymize step (`step`), which nobody gives a flag to, and
+ * which names its settings; a subject erasure (`erasure`), which writes over
+ * or deletes as a masking or a cleanup does, is called by its own name, and
+ * is the page's alone: it names its confirmation's boxes too.
  */
-export type DataOpsVoice = 'flags' | 'step' | 'erasure';
+export type DataOpsVoice = 'flags' | 'page' | 'step' | 'erasure';
+
+/**
+ * The voice of a request, by the marks it carries: a subject erasure's, then
+ * the page's; the command line's, which marks nothing, otherwise. The page's
+ * masking, restore and cleanup were refused in flags, `--mute-automation`
+ * and `--accept-emails`, which it has none of.
+ */
+export function dataOpsVoiceOf(asked: {
+  erasure?: boolean;
+  fromPage?: boolean;
+}): DataOpsVoice | undefined {
+  if (asked.erasure === true) return 'erasure';
+  return asked.fromPage === true ? 'page' : undefined;
+}
 
 /** The setting of a pipeline's step each flag stands for. */
 const STEP_SETTINGS: Readonly<Record<string, string>> = {
@@ -174,21 +190,50 @@ const STEP_SETTINGS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The box of an erasure's confirmation each flag stands for. What fires has
- * none: the confirmation lists it, and answering it accepts it.
+ * The box of a page's confirmation each flag stands for — a masking's, a
+ * restore's, a cleanup's, an erasure's. What fires has none: the
+ * confirmation lists it, and answering it accepts it.
  */
-const ERASURE_BOXES: Readonly<Record<string, string>> = {
+const CONFIRMATION_BOXES: Readonly<Record<string, string>> = {
   'accept-emails': "the confirmation's box that lets the org send these emails",
   'mute-automation': "the confirmation's box that mutes the target's automation",
 };
+
+/** The act each verb of "to … all the same" is confirmed as. */
+const CONFIRMED_ACTS: Readonly<Record<string, string>> = {
+  mask: 'masking',
+  restore: 'restore',
+  delete: 'cleanup',
+  erase: 'erasure',
+};
+
+/** A refusal in the words of a page's confirmation: its list of what fires, and its boxes. */
+function confirmationSaid(message: string): string {
+  const box = (flag: string): string => CONFIRMATION_BOXES[flag] ?? `--${flag}`;
+  return message
+    .replace(
+      /\bAdd --accept-automation to (mask|restore|delete|erase) all the same\b/g,
+      (_, verb: string) =>
+        `Confirm the ${CONFIRMED_ACTS[verb] ?? verb} from its confirmation, which lists what ` +
+        `fires, to ${verb} all the same`,
+    )
+    .replace(/\bWith --mute-automation,/g, `With ${box('mute-automation')} ticked,`)
+    .replace(/\bAdd --(accept-emails|mute-automation)\b/g, (_, flag: string) => `Tick ${box(flag)}`)
+    .replace(
+      /(^|[.:;] )--(accept-emails|mute-automation)\b/g,
+      (_, before: string, flag: string) => `${before}${capitalized(box(flag))}`,
+    )
+    .replace(/--(accept-emails|mute-automation)\b/g, (_, flag: string) => box(flag));
+}
 
 /**
  * A refusal in the voice of what asked for the act. The refusals of what
  * fires, of the emails and of a mute are worded once, for the command line,
  * here and in Forge's gate: a pipeline's step turns a setting on where the
- * command line adds a flag; an erasure was told what "this cleanup" would
- * fire, an act it never asked for, and to add `--accept-emails` and
- * `--mute-automation`, which its page does not have.
+ * command line adds a flag; the page names its confirmation and its boxes,
+ * where it was told to add `--accept-emails` and `--mute-automation`, which
+ * it does not have; an erasure, told so too, was also told what "this
+ * cleanup" would fire, an act it never asked for.
  */
 export function dataOpsSaid(message: string, voice: DataOpsVoice = 'flags'): string {
   if (voice === 'step') {
@@ -203,26 +248,14 @@ export function dataOpsSaid(message: string, voice: DataOpsVoice = 'flags'): str
       );
   }
   if (voice === 'erasure') {
-    const box = (flag: string): string => ERASURE_BOXES[flag] ?? `--${flag}`;
-    return message
-      .replace(/\b(this|the|This|The) (masking|cleanup)\b/g, '$1 erasure')
-      .replace(/\bto (mask|delete) all the same\b/g, 'to erase all the same')
-      .replace(/\b(mask|delete) fewer records\b/g, 'erase fewer records')
-      .replace(
-        /\bAdd --accept-automation\b/g,
-        'Confirm the erasure from its confirmation, which lists what fires,',
-      )
-      .replace(/\bWith --mute-automation,/g, `With ${box('mute-automation')} ticked,`)
-      .replace(
-        /\bAdd --(accept-emails|mute-automation)\b/g,
-        (_, flag: string) => `Tick ${box(flag)}`,
-      )
-      .replace(
-        /(^|[.:;] )--(accept-emails|mute-automation)\b/g,
-        (_, before: string, flag: string) => `${before}${capitalized(box(flag))}`,
-      )
-      .replace(/--(accept-emails|mute-automation)\b/g, (_, flag: string) => box(flag));
+    return confirmationSaid(
+      message
+        .replace(/\b(this|the|This|The) (masking|cleanup)\b/g, '$1 erasure')
+        .replace(/\bto (mask|delete) all the same\b/g, 'to erase all the same')
+        .replace(/\b(mask|delete) fewer records\b/g, 'erase fewer records'),
+    );
   }
+  if (voice === 'page') return confirmationSaid(message);
   return message;
 }
 
@@ -296,6 +329,16 @@ export function dataOpsAutomationLines(
   if (lines.length === 1 && unread.length === 0) {
     const objects = new Set(Object.values(steps).flat()).size;
     lines.push(`  nothing fires on the ${objects} object(s) it ${words.writes} records of`);
+  }
+  // The duplicate rules of what it writes over: a masking writes the same
+  // address over every record, and on the trap org a rule's report then wrote
+  // a duplicate record set that no line had named. A delete runs none.
+  for (const on of duplicateRulesOn(automation, steps.giveBack ?? [])) {
+    lines.push(
+      `  ${on.objectApiName}: duplicate rules ${on.rules.map((rule) => `"${rule}"`).join(', ')}: ` +
+        `${words.the} saves a record a rule only alerts on, a rule that blocks still refuses it, ` +
+        'and what a rule that reports writes (a duplicate record set and its items) stays',
+    );
   }
   const held = heldBypassPermissionsOf(automation);
   if (held.length > 0) {
@@ -417,15 +460,28 @@ export function dataOpsEmailLines(
 }
 
 /**
+ * What the mute does for the emails of an act past what the org has left:
+ * it already mutes, and they are what still runs (`muting`); it would assign
+ * these sets and what still sends would then fit (`enough`); it would assign
+ * some and they would still be past it (`notEnough`). Absent when it cannot
+ * be asked for, or would assign nothing: no set holds a bypass of what sends.
+ */
+export type DataOpsEmailsMute =
+  { kind: 'muting' } | { kind: 'enough'; sets: readonly string[] } | { kind: 'notEnough' };
+
+/**
  * The refusal of an act whose writes would make the org send more emails of
  * a daily limit than it has left today. Nothing lifts it: past them, the org
  * refuses each record whose flow fails in the save, and its own emails stop
- * for the day.
+ * for the day. The mute is named only where it would bring them within what
+ * is left: the refusal named `--mute-automation` for an act already muted, and
+ * where no set held a bypass of what sends them.
  */
 export function dataOpsEmailsRefusal(
   act: DataOpsAct,
   emails: readonly CheckpointEmails[],
   target: string,
+  mute?: DataOpsEmailsMute,
 ): string | undefined {
   const over = emails.filter((check) => check.verdict === 'exceeds');
   if (over.length === 0) return undefined;
@@ -435,12 +491,21 @@ export function dataOpsEmailsRefusal(
       (check) => `${emailsWords(check)}, ${check.remaining ?? 0} of ${check.max ?? 0} left today`,
     )
     .join('; ');
+  const ways =
+    mute?.kind === 'enough'
+      ? 'Turn off what sends them, give the user it writes as the bypass that keeps them quiet ' +
+        `(--mute-automation assigns ${mute.sets.join(', ')} for ${words.the} alone, and what ` +
+        `still sends then fits what is left today), or ${words.verb} fewer records.`
+      : `Turn off what sends them, or ${words.verb} fewer records.` +
+        (mute?.kind === 'muting'
+          ? ' What sends them still runs under the mute.'
+          : mute?.kind === 'notEnough'
+            ? ' --mute-automation would not keep enough of them quiet.'
+            : '');
   return (
     `${capitalized(words.this)} would make ${target} send ${said}: past them, each record whose ` +
     "flow fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails " +
-    'stop for the rest of the day. Turn off what sends them, give the user it writes as the ' +
-    `bypass that keeps it quiet (--mute-automation assigns one a permission set holds), or ` +
-    `${words.verb} fewer records. ${words.nothing}`
+    `stop for the rest of the day. ${ways} ${words.nothing}`
   );
 }
 
@@ -612,6 +677,8 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   const written = dataOpsWrittenOf(act, objects);
   let emails: CheckpointEmails[] = [];
   let uncounted: string | undefined;
+  /** What the mute does for them, once they are past what the org has left. */
+  let emailsMute: DataOpsEmailsMute | undefined;
   if (running) {
     const sends = written.some((each) =>
       emailsPerWriteOf(running, each.write).some((s) => s.objectApiName === each.objectApiName),
@@ -621,11 +688,25 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
         .readLimits()
         .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
       emails = checkpointEmails(written, running, limits);
+      if (emails.some((check) => check.verdict === 'exceeds')) {
+        // Counted again as what still runs once the mute's plan holds, read
+        // only: the mute is offered only where it brings them within what is left.
+        const planned = !mute && mayMute && known ? planMute(known, writes) : undefined;
+        emailsMute = mute
+          ? { kind: 'muting' }
+          : planned && planned.plan.assign.length > 0
+            ? checkpointEmails(written, planned.automation, limits).some(
+                (check) => check.verdict === 'exceeds',
+              )
+              ? { kind: 'notEnough' }
+              : { kind: 'enough', sets: planned.plan.assign.map((set) => set.permissionSet) }
+            : undefined;
+      }
     }
     uncounted = checkpointEmailsUncounted(written, running);
   }
   lines.push(...dataOpsEmailLines(emails, target, uncounted));
-  const exceeded = dataOpsEmailsRefusal(act, emails, target);
+  const exceeded = dataOpsEmailsRefusal(act, emails, target, emailsMute);
   if (exceeded !== undefined) refusals.push({ code: EMAILS_EXCEEDED, message: exceeded });
 
   // Whether the org delivers what still runs sends, read only when something
@@ -664,18 +745,45 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
   return { answer, ...(mute ? { mute } : {}), emails: runEmails };
 }
 
+/** The sentence a refusal says once nothing was written, or deleted, as it stopped. */
+const NOTHING_SAID = /\bnothing (?:was )?(?:written|deleted)\b/i;
+/** That sentence, said again by a refusal after another one said it. */
+const NOTHING_AGAIN = /\s*\bNothing was (?:written|deleted)\./g;
+
 /**
- * The refusal an act stops with, as asked: the first of its read's, every
- * other one said after it, so that a run told of one is told of them all.
- * Undefined when the act may write.
+ * The refusal an act stops with, as asked: under the first of its read's
+ * code, every other one under its own beside it (`alsoRefused`), as a run of
+ * Autopilot or a clone refused for several reasons gives them, and a message
+ * that says each in turn, the sentence that nothing was written said once.
+ * The two came under the first one's code alone — what fires, then its emails
+ * —, and the message said "Nothing was written." twice. Undefined when the
+ * act may write.
  */
 export function dataOpsStop(
   answer: Pick<DataOpsAutomationAnswer, 'refusals'>,
-): DataOpsAutomationRefusal | undefined {
+): (DataOpsAutomationRefusal & { alsoRefused: DataOpsAutomationRefusal[] }) | undefined {
   const [first, ...rest] = answer.refusals;
   if (!first) return undefined;
+  let said = false;
+  const message = answer.refusals
+    .map((refusal) => {
+      if (said) return refusal.message.replace(NOTHING_AGAIN, '').trim();
+      said = NOTHING_SAID.test(refusal.message);
+      return refusal.message;
+    })
+    .join(' ');
   return {
     code: first.code,
-    message: [first.message, ...rest.map((refusal) => refusal.message)].join(' '),
+    message,
+    alsoRefused: rest.map((refusal) => ({ code: refusal.code, message: refusal.message })),
   };
+}
+
+/** What a refusal's error channel carries of the refusals after the first, when there are any. */
+export function alsoRefusedPayload(stop: { alsoRefused: readonly DataOpsAutomationRefusal[] }): {
+  extraPayload?: { alsoRefused: DataOpsAutomationRefusal[] };
+} {
+  return stop.alsoRefused.length > 0
+    ? { extraPayload: { alsoRefused: [...stop.alsoRefused] } }
+    : {};
 }

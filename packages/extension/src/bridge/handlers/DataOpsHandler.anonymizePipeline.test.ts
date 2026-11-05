@@ -126,6 +126,13 @@ function contactsOf(count: number, scoped = count): Array<Record<string, unknown
 /** The filter the tests give a run: the contacts whose last name starts with `Scoped`. */
 const WHERE = "LastName LIKE 'Scoped%'";
 
+/** What an org answers for a record a validation rule refuses: the trap org's phone rule. */
+const VALIDATION_REFUSAL = {
+  statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+  message: 'Phone must be written +33 X XX XX XX XX.',
+  fields: ['Phone'],
+};
+
 /** How the fake org answers beside its rows. */
 interface OrgOptions {
   /** Per object, its describe: a contact's whole by default. */
@@ -175,8 +182,11 @@ function orgOf(rows: Array<Record<string, unknown>>, options: OrgOptions = {}) {
   const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
     options.beforeUpdate?.(++updates);
     return batch.map((sent) => {
+      // As the trap org refused a masked phone: the rule's own message, its
+      // code beside it. Refused with the bare code, a run's errors read
+      // "FIELD_CUSTOM_VALIDATION_EXCEPTION", which no org ever says.
       if (options.refuses?.(String(sent.Id))) {
-        return { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION' }] };
+        return { success: false, errors: [VALIDATION_REFUSAL] };
       }
       Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
       return { success: true, id: sent.Id };
@@ -694,6 +704,11 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
         recordsNotMasked: 2,
         objects: [{ objectApiName: 'Contact', total: 5, processed: 3, failed: 2, notMasked: 2 }],
       });
+      // Why, in the org's words: the rule's message, as the step says it.
+      expect(result.errors).toEqual([
+        { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+        { objectApiName: 'Contact', message: 'Phone must be written +33 X XX XX XX XX.' },
+      ]);
       expect(rows[1].Email).toBe('person2@example.com');
       expect(trail()).toEqual([expect.objectContaining({ outcome: 'partial' })]);
     });

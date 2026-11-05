@@ -195,6 +195,10 @@ describe('DataOpsCleanupHandler', () => {
         uncounted: [],
       },
       truncated: false,
+      written: [
+        { objectApiName: 'Account', records: 2 },
+        { objectApiName: 'Contact', records: 5 },
+      ],
     });
     expect(org.destroy).not.toHaveBeenCalled();
   });
@@ -246,7 +250,8 @@ describe('DataOpsCleanupHandler', () => {
 
     await handler.handle(deleteStale(false));
 
-    expect(read).toHaveBeenCalledWith('org-1', ['Account']);
+    // With the contacts the accounts take along, which the plan counts.
+    expect(read).toHaveBeenCalledWith('org-1', ['Account', 'Contact']);
     expect(org.destroy).not.toHaveBeenCalled();
     expect(posted().at(-1)).toMatchObject({
       type: 'dataops:error',
@@ -264,6 +269,98 @@ describe('DataOpsCleanupHandler', () => {
       payload: { ...deleteStale(false).payload, acceptAutomation: true },
     } as never);
     expect(org.destroy).toHaveBeenCalledWith(stale);
+  });
+
+  it('reads what fires on the records the org deletes along with those it deletes, and refuses a flow before their delete', async () => {
+    const read = vi.fn(async (_orgId: string, objects: readonly string[]) => ({
+      objectsRead: [...objects],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Guard_Contact_Delete',
+              label: 'Guard Contact Delete',
+              timing: 'beforeSave' as const,
+              startsOn: 'delete' as const,
+              condition: 'read' as const,
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    }));
+    handler.setTargetAutomation({ read });
+
+    // The dry run says what the page's confirmation reads it on: the five
+    // contacts the accounts take with them as well.
+    await handler.handle(deleteStale(true));
+    expect(answer<{ written: unknown }>('dataops:cleanup:delete:response').written).toEqual([
+      { objectApiName: 'Account', records: 2 },
+      { objectApiName: 'Contact', records: 5 },
+    ]);
+
+    await handler.handle(deleteStale(false));
+
+    // The delete read the accounts alone: a flow before a contact's delete,
+    // which went with its account, was never named nor asked about.
+    expect(read).toHaveBeenCalledWith('org-1', ['Account', 'Contact']);
+    expect(org.destroy).not.toHaveBeenCalled();
+    expect(posted().at(-1)).toMatchObject({
+      type: 'dataops:error',
+      payload: {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: expect.stringContaining('Contact: flow "Guard Contact Delete" (before delete)'),
+      },
+    });
+  });
+
+  it('refuses a delete the page asked for in the words of its confirmation, which has no flags', async () => {
+    handler.setTargetAutomation({
+      read: async (_orgId: string, objects: readonly string[]) => ({
+        objectsRead: [...objects],
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [
+              {
+                apiName: 'Guard_Delete',
+                label: 'Guard Delete',
+                timing: 'beforeSave' as const,
+                startsOn: 'delete' as const,
+                condition: 'read' as const,
+                permissions: [],
+              },
+            ],
+            triggers: [],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 1,
+      }),
+    });
+
+    // As the Cleanup tab sends it, its confirmation not answered.
+    await handler.handle({
+      ...deleteStale(false),
+      payload: { ...deleteStale(false).payload, fromPage: true },
+    } as never);
+
+    expect(org.destroy).not.toHaveBeenCalled();
+    const refused = posted().at(-1) as { payload: { code: string; message: string } };
+    expect(refused.payload.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(refused.payload.message).toContain(
+      'Nothing was deleted. Confirm the cleanup from its confirmation, which lists what fires, ' +
+        'to delete all the same, or turn that automation off in dev first.',
+    );
+    expect(refused.payload.message).not.toMatch(/--[a-z]/);
   });
 
   it('answers a delete that muted with what it took back, once it took it back', async () => {
@@ -290,6 +387,9 @@ describe('DataOpsCleanupHandler', () => {
     vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
       if (m.type === 'dataops:cleanup:delete:response') {
         events.push(`answered, ${permissions.assignments().length} assigned`);
+      }
+      if (m.type === 'operation:completed') {
+        events.push(`operation:completed, ${permissions.assignments().length} assigned`);
       }
     });
     const dir = mkdtempSync(join(tmpdir(), 'cleanup-mute-'));
@@ -336,7 +436,13 @@ describe('DataOpsCleanupHandler', () => {
     }
 
     expect(org.destroy).toHaveBeenCalledWith(stale);
-    expect(events).toEqual(['assign', 'unassign', 'answered, 0 assigned']);
+    // Ended in Live Operations once its set is taken back, as a masking is.
+    expect(events).toEqual([
+      'assign',
+      'unassign',
+      'operation:completed, 0 assigned',
+      'answered, 0 assigned',
+    ]);
     expect(answer('dataops:cleanup:delete:response')).toMatchObject({
       outcome: { status: 'success', done: 2 },
       mutedAutomation: { assigned: ['Flow_Bypass'], released: true, takenBack: ['Flow_Bypass'] },

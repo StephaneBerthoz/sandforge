@@ -199,6 +199,33 @@ describe('runGuardedRemoval', () => {
     });
   });
 
+  it('calls its end before it says the run ended, whether the write went through or failed half way', async () => {
+    for (const failing of [false, true]) {
+      const d = deps('Sandbox', new ProductionGuard());
+      /** What the run had said when its end was called: a delete's lease is given back there. */
+      let saidAtEnd: string[] = [];
+      const run = removal({
+        ...(failing
+          ? {
+              run: async () => {
+                throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+              },
+            }
+          : {}),
+        beforeEnd: async () => {
+          saidAtEnd = posted(d);
+        },
+      });
+
+      await runGuardedRemoval(d, run);
+
+      // Called once the run had started, and before it was said ended.
+      expect(saidAtEnd).toContain('operation:started');
+      expect(saidAtEnd).not.toContain(failing ? 'operation:failed' : 'operation:completed');
+      expect(posted(d)).toContain(failing ? 'operation:failed' : 'operation:completed');
+    }
+  });
+
   it('keeps no value and no Id in the audit trail', async () => {
     const d = deps('Sandbox', new ProductionGuard());
 

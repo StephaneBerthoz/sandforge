@@ -16,6 +16,7 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg, type MemoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -78,16 +79,87 @@ function contactsOf(count: number): Array<Record<string, unknown>> {
 const PERMISSION_TABLES =
   /FROM (Organization|UserPermissionAccess|PermissionSetAssignment|PermissionSet|SetupEntityAccess|ObjectPermissions|CustomPermission)\b/;
 
+/** The org's clock as a masking starts writing. */
+const ORG_CLOCK = '2026-11-04T12:31:20.000Z';
+
+/** A duplicate record set or item, as the org keeps it. */
+interface DuplicateRow {
+  Id: string;
+  CreatedDate: string;
+  DuplicateRecordSetId?: string;
+  RecordId?: string;
+}
+
+/** The duplicate record sets and items an org holds. */
+interface DuplicateTables {
+  sets: DuplicateRow[];
+  items: DuplicateRow[];
+}
+
+/** The columns each object has, as its describe lists them: another one is refused. */
+const DUPLICATE_COLUMNS: Record<string, readonly string[]> = {
+  DuplicateRecordItem: ['Id', 'Name', 'DuplicateRecordSetId', 'RecordId', 'CreatedDate'],
+  DuplicateRecordSet: ['Id', 'Name', 'DuplicateRuleId', 'RecordCount', 'CreatedDate'],
+};
+
+/** What the org answers a read of its duplicate record sets or items: the columns, the date, the ids. */
+function duplicatesAnswer(tables: DuplicateTables, soql: string) {
+  const [, select = '', object = ''] = /^SELECT (.+?) FROM (\w+)/.exec(soql) ?? [];
+  const fields = select.split(', ');
+  for (const field of fields) {
+    if (!DUPLICATE_COLUMNS[object]?.includes(field)) {
+      throw new Error(`INVALID_FIELD: No such column '${field}' on entity '${object}'.`);
+    }
+  }
+  const since = /CreatedDate >= (\S+)/.exec(soql)?.[1];
+  const ids = /\bId IN \(([^)]*)\)/
+    .exec(soql)?.[1]
+    ?.split(', ')
+    .map((id) => id.slice(1, -1));
+  const records = (object === 'DuplicateRecordSet' ? tables.sets : tables.items)
+    .filter(
+      (row) =>
+        (since === undefined || Date.parse(row.CreatedDate) >= Date.parse(since)) &&
+        (ids === undefined || ids.includes(row.Id)),
+    )
+    .map((row) =>
+      Object.fromEntries(fields.map((f) => [f, (row as unknown as Record<string, unknown>)[f]])),
+    );
+  return { records, done: true, totalSize: records.length };
+}
+
+/** A rule's report of records written alike: a new set, and an item for each. */
+function reportAlike(tables: DuplicateTables, ids: readonly string[]): void {
+  const at = new Date(Date.parse(ORG_CLOCK) + 3_000).toISOString();
+  const set = `0GLxx${String(tables.sets.length + 1).padStart(10, '0')}AAA`;
+  tables.sets.push({ Id: set, CreatedDate: at });
+  for (const id of ids) {
+    tables.items.push({
+      Id: `0GMxx${String(tables.items.length + 1).padStart(10, '0')}AAA`,
+      CreatedDate: at,
+      DuplicateRecordSetId: set,
+      RecordId: id,
+    });
+  }
+}
+
 /**
  * An org of contacts, read and written as Salesforce does, whose requests
  * answer `/limits` and the line of Apex the deliverability is read with as an
  * org on All email does; and, when given, the permission sets a mute assigns
  * and takes back through the same connection.
  */
-function orgOf(rows: Array<Record<string, unknown>>, permissions?: MemoryPermissionOrg) {
+function orgOf(
+  rows: Array<Record<string, unknown>>,
+  permissions?: MemoryPermissionOrg,
+  duplicates?: DuplicateTables,
+) {
   const requests: string[] = [];
   const query = vi.fn(async (soql: string) => {
     if (permissions && PERMISSION_TABLES.test(soql)) return permissions.connection.query(soql);
+    if (duplicates && /FROM DuplicateRecord(Item|Set)\b/.test(soql)) {
+      return duplicatesAnswer(duplicates, soql);
+    }
     if (soql === 'SELECT Id FROM Organization') {
       return { records: [{ Id: '00Dxx0000000001AAA' }], done: true, totalSize: 1 };
     }
@@ -112,7 +184,16 @@ function orgOf(rows: Array<Record<string, unknown>>, permissions?: MemoryPermiss
       Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
       return { success: true, id: sent.Id };
     });
-  const update = vi.fn(async (batch: Array<Record<string, unknown>>) => write(batch));
+  const update = vi.fn(async (batch: Array<Record<string, unknown>>) => {
+    // A rule that reports: the records written alike, in a set of their own,
+    // written by the org a few seconds after the save.
+    if (duplicates)
+      reportAlike(
+        duplicates,
+        batch.map((sent) => String(sent.Id)),
+      );
+    return write(batch);
+  });
   const upsert = vi.fn(async (batch: Array<Record<string, unknown>>) => write(batch));
   const conn = {
     query,
@@ -124,7 +205,10 @@ function orgOf(rows: Array<Record<string, unknown>>, permissions?: MemoryPermiss
         ? permissions.connection.sobject(name)
         : { update, upsert },
     ),
-    soap: { undelete: vi.fn(async () => []) },
+    soap: {
+      undelete: vi.fn(async () => []),
+      getServerTimestamp: vi.fn(async () => ({ timestamp: ORG_CLOCK })),
+    },
     request: vi.fn(async ({ url }: { url: string }) => {
       requests.push(url);
       if (url === '/limits') {
@@ -299,6 +383,40 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
     expect(update).toHaveBeenCalled();
   });
 
+  it('refuses a masking and a restore under the first refusal, each other one under its code, nothing written said once', async () => {
+    read.mockResolvedValue(runs([onUpdate('Notify Owner', 1)]));
+    const { update, upsert } = orgOf(contactsOf(2));
+
+    await send('dataops:anonymize', masking, 'run-twice-refused');
+    const masked = last('dataops:error')?.payload;
+    await send(
+      'dataops:anonymize',
+      { ...masking, snapshot: true, acceptAutomation: true, acceptEmails: true },
+      'snap-twice',
+    );
+    const snapshot = last('dataops:anonymize:response')?.payload.snapshot as {
+      operationId: string;
+    };
+    upsert.mockClear();
+    await send(
+      'dataops:rollback',
+      { orgId: 'org-1', operationId: snapshot.operationId },
+      'restore-twice-refused',
+    );
+    const restored = last('dataops:error')?.payload;
+
+    for (const refused of [masked, restored]) {
+      expect(refused).toMatchObject({
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        alsoRefused: [expect.objectContaining({ code: 'EMAILS_NOT_ACCEPTED' })],
+      });
+      // The banner said "Nothing was written." twice, the emails' code nowhere.
+      expect(String(refused?.message).match(/Nothing was written\./g)).toHaveLength(1);
+    }
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it('refuses a restore whose update flow fires as it puts the values back, until it is accepted', async () => {
     const rows = contactsOf(2);
     const { upsert } = orgOf(rows);
@@ -352,6 +470,175 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       'EMAILS_NOT_ACCEPTED',
     ]);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  describe('the duplicate rules of what a masking writes over', () => {
+    /** What the trap org runs on Contact: nothing fires, its standard duplicate rule is active. */
+    const ruled: ForgeTargetAutomation = {
+      ...runs([]),
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          duplicateRules: [
+            {
+              name: 'Standard Contact Duplicate Rule',
+              developerName: 'Standard_Rule_for_Contacts',
+            },
+          ],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      read.mockResolvedValue(ruled);
+      handler.setDuplicatesSettle(0);
+    });
+
+    it('names them before its question', async () => {
+      orgOf(contactsOf(2), undefined, { sets: [], items: [] });
+
+      await send('dataops:automation', {
+        orgId: 'org-1',
+        act: 'masking',
+        objects: [{ objectApiName: 'Contact', records: 2 }],
+      });
+
+      expect(last('dataops:automation:response')?.payload.lines).toContain(
+        '  Contact: duplicate rules "Standard Contact Duplicate Rule": the masking saves a record ' +
+          'a rule only alerts on, a rule that blocks still refuses it, and what a rule that ' +
+          'reports writes (a duplicate record set and its items) stays',
+      );
+    });
+
+    it('says what they wrote during it for the records it masked, and removes none of it', async () => {
+      const rows = contactsOf(2);
+      // A set from before the run, holding an item of the first contact.
+      const tables: DuplicateTables = {
+        sets: [{ Id: '0GLxx0000000900AAA', CreatedDate: '2026-10-01T08:00:00.000Z' }],
+        items: [
+          {
+            Id: '0GMxx0000000900AAA',
+            CreatedDate: '2026-10-01T08:00:00.000Z',
+            DuplicateRecordSetId: '0GLxx0000000900AAA',
+            RecordId: String(rows[0]?.Id),
+          },
+        ],
+      };
+      const { update } = orgOf(rows, undefined, tables);
+
+      await send('dataops:anonymize', { ...masking, acceptAutomation: true }, 'run-duplicates');
+
+      expect(update).toHaveBeenCalled();
+      const answer = last('dataops:anonymize:response')?.payload;
+      expect(answer?.duplicates).toEqual({
+        rules: [{ objectApiName: 'Contact', rules: ['Standard Contact Duplicate Rule'] }],
+        sets: 1,
+        items: 2,
+      });
+      expect(String(answer?.message)).toContain(
+        'The duplicate rules of ORG on Contact ("Standard Contact Duplicate Rule") wrote 1 ' +
+          'duplicate record set(s) and 2 item(s) during the masking, for records it masked: ' +
+          'kept, as they name records that stay.',
+      );
+      // Kept: the org still holds the set and its items, and the page is told.
+      expect(tables.sets).toHaveLength(2);
+      expect(tables.items).toHaveLength(3);
+      expect(last('notification')?.payload).toMatchObject({
+        level: 'warning',
+        message: expect.stringContaining('wrote 1 duplicate record set(s) and 2 item(s)'),
+      });
+    });
+  });
+
+  describe('asked from the DataOps page, which has a confirmation and boxes, not flags', () => {
+    it('refuses a masking in the words of its confirmation', async () => {
+      const { update } = orgOf(contactsOf(3));
+
+      await send('dataops:anonymize', { ...masking, fromPage: true }, 'page-refused');
+
+      const refused = last('dataops:error')?.payload;
+      expect(refused).toMatchObject({ code: 'AUTOMATION_NOT_ACCEPTED' });
+      expect(String(refused?.message)).toContain(
+        'Nothing was written. Confirm the masking from its confirmation, which lists what ' +
+          'fires, to mask all the same, or turn that automation off in ORG first.',
+      );
+      expect(String(refused?.message)).not.toMatch(/--[a-z]/);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it("refuses a masking whose emails the org delivers, naming the confirmation's box that lets them go", async () => {
+      read.mockResolvedValue(runs([onUpdate('Notify Owner', 1)]));
+      const { update } = orgOf(contactsOf(3));
+
+      await send(
+        'dataops:anonymize',
+        { ...masking, acceptAutomation: true, fromPage: true },
+        'page-emails',
+      );
+
+      const refused = last('dataops:error')?.payload;
+      expect(refused).toMatchObject({ code: 'EMAILS_NOT_ACCEPTED' });
+      expect(String(refused?.message)).toContain(
+        "Nothing was written. Tick the confirmation's box that lets the org send these emails " +
+          'to mask all the same',
+      );
+      expect(String(refused?.message)).not.toMatch(/--[a-z]/);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a restore in the words of its confirmation', async () => {
+      const { upsert } = orgOf(contactsOf(2));
+      await send(
+        'dataops:anonymize',
+        { ...masking, snapshot: true, acceptAutomation: true },
+        'snap',
+      );
+      const snapshot = last('dataops:anonymize:response')?.payload.snapshot as {
+        operationId: string;
+      };
+
+      await send(
+        'dataops:rollback',
+        { orgId: 'org-1', operationId: snapshot.operationId, fromPage: true },
+        'page-restore',
+      );
+
+      const refused = last('dataops:error')?.payload;
+      expect(refused).toMatchObject({ code: 'AUTOMATION_NOT_ACCEPTED' });
+      expect(String(refused?.message)).toContain(
+        'Confirm the restore from its confirmation, which lists what fires, to restore all the ' +
+          'same',
+      );
+      expect(String(refused?.message)).not.toMatch(/--[a-z]/);
+      expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it('answers the read its confirmation lists in its words, and the command line in its flags', async () => {
+      read.mockResolvedValue(runs([onUpdate('Notify Owner', 1)]));
+      orgOf(contactsOf(3));
+      const asked = {
+        orgId: 'org-1',
+        act: 'masking',
+        objects: [{ objectApiName: 'Contact', records: 3 }],
+      };
+
+      await send('dataops:automation', { ...asked, fromPage: true }, 'page-read');
+      const page = last('dataops:automation:response')?.payload.refusals as Array<{
+        message: string;
+      }>;
+      await send('dataops:automation', asked, 'cli-read');
+      const cli = last('dataops:automation:response')?.payload.refusals as Array<{
+        message: string;
+      }>;
+
+      expect(page.map((r) => r.message).join(' ')).not.toMatch(/--[a-z]/);
+      expect(cli.map((r) => r.message).join(' ')).toContain(
+        'Add --accept-automation to mask all the same',
+      );
+      expect(cli.map((r) => r.message).join(' ')).toContain('Add --accept-emails');
+    });
   });
 
   describe("a pipeline's Anonymize step, which nobody watches", () => {
@@ -432,11 +719,23 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
     const events: string[] = [];
     let dir: string;
     let permissions: MemoryPermissionOrg;
+    let tracker: LiveOperationTracker;
 
     beforeEach(() => {
       events.length = 0;
       dir = mkdtempSync(path.join(tmpdir(), 'dataops-mute-'));
       handler.setMuteLeases({ dir, renewEveryMs: 0 });
+      // How Live Operations lists the run's end, with what the org still assigns then.
+      tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      const ended = new Set<string>();
+      tracker.onChange((operations) => {
+        for (const op of operations) {
+          if (op.status === 'running' || ended.has(op.operationId)) continue;
+          ended.add(op.operationId);
+          events.push(`Live Operations ${op.status}, ${permissions.assignments().length} assigned`);
+        }
+      });
       permissions = memoryPermissionOrg({
         sets: [{ id: SET, name: 'Flow_Bypass' }],
         beforeWrite: (write) => {
@@ -457,13 +756,18 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       });
       // What the page is told as it is told it, with what the org still assigns then.
       vi.mocked(deps.broker.postToWebview).mockImplementation((m: BaseMessage) => {
-        if (m.type === 'dataops:anonymize:response' || m.type === 'dataops:rollback:response') {
+        if (
+          m.type === 'dataops:anonymize:response' ||
+          m.type === 'dataops:rollback:response' ||
+          m.type === 'operation:completed'
+        ) {
           events.push(`${m.type}, ${permissions.assignments().length} assigned`);
         }
       });
     });
 
     afterEach(() => {
+      tracker.dispose();
       rmSync(dir, { recursive: true, force: true });
     });
 
@@ -481,8 +785,15 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       expect(rows[0]?.FirstName).not.toBe('First1');
       // On the trap org, the page's answer came while Trap_Bypass was still
       // assigned, and named nothing taken back: a check made on it saw the
-      // bypass held.
-      expect(events).toEqual(['assign', 'unassign', 'dataops:anonymize:response, 0 assigned']);
+      // bypass held. Live Operations and `operation:completed` still said the
+      // run ended before its set was taken back.
+      expect(events).toEqual([
+        'assign',
+        'unassign',
+        'operation:completed, 0 assigned',
+        'Live Operations completed, 0 assigned',
+        'dataops:anonymize:response, 0 assigned',
+      ]);
       expect(last('dataops:anonymize:response')?.payload.mutedAutomation).toMatchObject({
         state: 'muted',
         assigned: ['Flow_Bypass'],
@@ -516,7 +827,13 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
       );
 
       expect(rows[0]?.FirstName).toBe('First1');
-      expect(events).toEqual(['assign', 'unassign', 'dataops:rollback:response, 0 assigned']);
+      expect(events).toEqual([
+        'assign',
+        'unassign',
+        'operation:completed, 0 assigned',
+        'Live Operations completed, 0 assigned',
+        'dataops:rollback:response, 0 assigned',
+      ]);
       expect(last('dataops:rollback:response')?.payload).toMatchObject({
         totalRestored: 2,
         mutedAutomation: { released: true, takenBack: ['Flow_Bypass'] },

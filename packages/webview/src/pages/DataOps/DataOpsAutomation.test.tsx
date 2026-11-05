@@ -108,14 +108,51 @@ describe('DataOpsAutomation', () => {
   it('reads what the org runs as the masking writes, and holds the confirmation until it answers', () => {
     const { onHeld } = renderSection();
 
+    // Marked as the page's: what it would be refused for names its confirmation, not flags.
     expect(read.mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       act: 'masking',
       objects: [{ objectApiName: 'Contact', records: 40 }],
+      fromPage: true,
     });
     expect(onHeld).toHaveBeenLastCalledWith(
       'Waiting for what dev1 runs as these records are written.',
     );
+  });
+
+  it('names the duplicate rules of what the masking writes over, and what a rule that reports leaves', () => {
+    const contact = FIRES.automation!.objects[0]!;
+    read.data = {
+      ...FIRES,
+      automation: {
+        ...FIRES.automation!,
+        objects: [
+          {
+            ...contact,
+            duplicateRules: [
+              {
+                name: 'Standard Contact Duplicate Rule',
+                developerName: 'Standard_Rule_for_Contacts',
+              },
+            ],
+          },
+        ],
+      },
+    } satisfies DataOpsAutomationAnswer;
+    renderSection();
+
+    expect(screen.getByTestId('dataops-automation-masking-duplicates-Contact').textContent).toBe(
+      'Duplicate rules active on Contact: Standard Contact Duplicate Rule. A record a rule only ' +
+        'alerts on is written, one a rule blocks is refused, and what a rule that reports ' +
+        'writes, a duplicate record set and its items, stays in dev1.',
+    );
+  });
+
+  it('names no duplicate rule where none is active', () => {
+    read.data = FIRES;
+    renderSection();
+
+    expect(screen.queryByTestId('dataops-automation-masking-duplicates-Contact')).toBeNull();
   });
 
   it('lists the flow its updates fire and the emails it sends, and holds until they are let through', () => {

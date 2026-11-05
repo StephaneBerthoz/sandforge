@@ -288,6 +288,7 @@ test.describe('DataOps — with a connected org', () => {
     await page.getByTestId('restore-btn-op-backup-1').click();
     // It reads what the org runs as the values go back, and waits for it.
     const [read] = await outgoing(page, 'dataops:automation');
+    // Both marked as the page's: what refuses them names its confirmation, not flags.
     expect(read.payload).toEqual({
       orgId: 'org-src-1',
       act: 'restore',
@@ -295,6 +296,7 @@ test.describe('DataOps — with a connected org', () => {
         { objectApiName: 'Account', records: 500 },
         { objectApiName: 'Contact', records: 1000 },
       ],
+      fromPage: true,
     });
     await nothingFires(page);
     await page.getByRole('button', { name: 'Restore into DevSandbox' }).click();
@@ -304,6 +306,7 @@ test.describe('DataOps — with a connected org', () => {
       orgId: 'org-src-1',
       operationId: 'op-backup-1',
       acceptAutomation: true,
+      fromPage: true,
     });
   });
 
@@ -969,6 +972,8 @@ test.describe('DataOps — Cleanup', () => {
     const [, remove] = await outgoing(page, 'dataops:cleanup:delete');
     expect((remove.payload as Record<string, unknown>).dryRun).toBe(false);
     expect((remove.payload as Record<string, unknown>).acceptAutomation).toBe(true);
+    // The page's: what refuses it names its confirmation, not the command line's flags.
+    expect((remove.payload as Record<string, unknown>).fromPage).toBe(true);
     await respondToLast(page, 'dataops:cleanup:delete', 'dataops:cleanup:delete:response', {
       objectApiName: 'Account',
       dryRun: false,

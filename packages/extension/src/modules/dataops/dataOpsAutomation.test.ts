@@ -151,6 +151,41 @@ describe('what the command line says of what fires', () => {
     ]);
   });
 
+  it('names the duplicate rules of what a masking writes over, before it asks, and none for a delete', () => {
+    // As the trap org reads: nothing fires on Contact, its standard rule is active.
+    const automation: ForgeTargetAutomation = {
+      ...automationOf({ Contact: {} }),
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          duplicateRules: [
+            {
+              name: 'Standard Contact Duplicate Rule',
+              developerName: 'Standard_Rule_for_Contacts',
+            },
+          ],
+        },
+      ],
+    };
+    expect(
+      dataOpsAutomationLines(automation, 'TGT', 'masking', dataOpsStepsOf('masking', ['Contact'])),
+    ).toEqual([
+      'masking automation: what TGT runs as the masking writes over the records',
+      '  nothing fires on the 1 object(s) it writes over records of',
+      '  Contact: duplicate rules "Standard Contact Duplicate Rule": the masking saves a record a ' +
+        'rule only alerts on, a rule that blocks still refuses it, and what a rule that reports ' +
+        'writes (a duplicate record set and its items) stays',
+    ]);
+    expect(
+      dataOpsAutomationLines(automation, 'TGT', 'cleanup', dataOpsStepsOf('cleanup', ['Contact'])),
+    ).toEqual([
+      'cleanup automation: what TGT runs as the cleanup deletes the records',
+      '  nothing fires on the 1 object(s) it deletes records of',
+    ]);
+  });
+
   it('names the after-undelete trigger a restore fires as it brings records back from the recycle bin', () => {
     const lines = dataOpsAutomationLines(
       automationOf({ Contact: { trigger: ['afterUndelete'] } }),
@@ -241,6 +276,30 @@ describe('readDataOpsAct', () => {
     expect(dataOpsStop(read.answer)?.message).toContain('Add --accept-emails to mask all the same');
   });
 
+  it('stops on the first refusal under its code, each other one under its own, and says nothing was written once', async () => {
+    const read = await readDataOpsAct({
+      act: 'masking',
+      target: 'TGT',
+      objects: contacts,
+      org: orgOf(
+        automationOf({ Contact: { flows: [flow('Notify Owner', 'update', { emails: 1 })] } }),
+      ),
+      accord: {},
+      mayMute: true,
+    });
+
+    const stop = dataOpsStop(read.answer);
+
+    expect(stop?.code).toBe(AUTOMATION_NOT_ACCEPTED);
+    expect(stop?.alsoRefused).toEqual([
+      { code: 'EMAILS_NOT_ACCEPTED', message: read.answer.refusals[1]?.message },
+    ]);
+    // Both refusals said, the sentence that nothing was written once: it came twice.
+    expect(stop?.message).toContain('Add --accept-automation to mask all the same');
+    expect(stop?.message).toContain('Add --accept-emails to mask all the same');
+    expect(stop?.message.match(/Nothing was written\./g)).toHaveLength(1);
+  });
+
   it('lets a masking through once both are accepted, and asks nothing of an org that delivers none', async () => {
     const automation = automationOf({
       Contact: { flows: [flow('Notify Owner', 'update', { emails: 1 })] },
@@ -282,6 +341,104 @@ describe('readDataOpsAct', () => {
     expect(read.answer.refusals[0]?.message).toContain(
       'This masking would make TGT send about 40 single emails (1 per Contact), 15 of 15 left today',
     );
+  });
+
+  describe("what the refusal past the day's emails says of the mute", () => {
+    /** A target that is no production org, whose permission sets the mute reads. */
+    const sandbox: MuteOrg = {
+      typeOrg: async () => ({ id: '00Dxx0000000001AAA', sandbox: true, edition: 'Developer' }),
+      query: async () => ({ records: [{ PermissionsAssignPermissionSets: true }] }),
+      identity: async () => ({
+        user_id: '005xx0000000001AAA',
+        organization_id: '00Dxx0000000001AAA',
+      }),
+      createAssignment: async () => ({ success: true, id: '0Paxx0000000001AAA' }),
+      deleteAssignment: async () => ({ success: true }),
+    };
+    /** Two flows on update, each sending one email; `Skip_Flows` keeps the first quiet, when given. */
+    function sendingTwice(bypassed: 'first' | 'none'): ForgeTargetAutomation {
+      return {
+        ...automationOf({
+          Contact: {
+            flows: [
+              flow('Notify Owner', 'update', {
+                emails: 1,
+                ...(bypassed === 'first' ? { bypass: 'Skip_Flows' } : {}),
+              }),
+              flow('Notify Team', 'update', { emails: 1 }),
+            ],
+          },
+        }),
+        bypassGrants: [
+          {
+            permission: 'Skip_Flows',
+            permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+          },
+        ],
+      };
+    }
+    async function exceeded(
+      automation: ForgeTargetAutomation,
+      options: { remaining: number; mute?: boolean },
+    ): Promise<string> {
+      const read = await readDataOpsAct({
+        act: 'masking',
+        target: 'TGT',
+        objects: contacts,
+        org: {
+          ...orgOf(automation, { single: { max: 100, remaining: options.remaining } }),
+          muteOrg: async () => sandbox,
+        },
+        accord: {
+          acceptAutomation: true,
+          acceptEmails: true,
+          ...(options.mute ? { muteAutomation: true } : {}),
+        },
+        mayMute: true,
+      });
+      const refusal = read.answer.refusals.find((r) => r.code === EMAILS_EXCEEDED);
+      expect(refusal).toBeDefined();
+      return refusal?.message ?? '';
+    }
+
+    it('names the mute, and the set it assigns, when what still sends under it fits what is left', async () => {
+      // 40 contacts, two emails each: 80 past 50 left; quiet, the first flow leaves 40.
+      const said = await exceeded(sendingTwice('first'), { remaining: 50 });
+      expect(said).toContain(
+        'give the user it writes as the bypass that keeps them quiet (--mute-automation assigns ' +
+          'Flow_Bypass for the masking alone, and what still sends then fits what is left today), ' +
+          'or mask fewer records.',
+      );
+    });
+
+    it('says the mute would not keep enough of them quiet when what still sends under it is past what is left', async () => {
+      // Quiet, the first flow leaves 40, past the 30 left.
+      const said = await exceeded(sendingTwice('first'), { remaining: 30 });
+      expect(said).toContain(
+        'Turn off what sends them, or mask fewer records. --mute-automation would not keep ' +
+          'enough of them quiet.',
+      );
+      expect(said).not.toContain('--mute-automation assigns');
+    });
+
+    it('names no mute when no permission set holds a bypass of what sends them', async () => {
+      const said = await exceeded(sendingTwice('none'), { remaining: 50 });
+      expect(said).toContain(
+        'Turn off what sends them, or mask fewer records. Nothing was written.',
+      );
+      expect(said).not.toContain('--mute-automation');
+    });
+
+    it('says what sends them still runs under the mute when the masking already mutes', async () => {
+      // Muted, the first flow is quiet; the second sends 40, past the 30 left.
+      const said = await exceeded(sendingTwice('first'), { remaining: 30, mute: true });
+      expect(said).toContain('This masking would make TGT send about 40 single emails');
+      expect(said).toContain(
+        'Turn off what sends them, or mask fewer records. What sends them still runs under the ' +
+          'mute.',
+      );
+      expect(said).not.toContain('--mute-automation');
+    });
   });
 
   it('reads nothing and refuses nothing when no object holds a record to write', async () => {
@@ -456,9 +613,10 @@ describe('whose words a refusal is said in', () => {
       voice: 'erasure',
     });
     expect(read.answer.refusals.map((r) => r.code)).toEqual([EMAILS_EXCEEDED]);
+    // Quiet, the one flow that sends leaves nothing: the box is named, with its set.
     expect(read.answer.refusals[0]?.message).toContain(
-      "(the confirmation's box that mutes the target's automation assigns one a permission set " +
-        'holds), or erase fewer records.',
+      "(the confirmation's box that mutes the target's automation assigns Flow_Bypass for the " +
+        'erasure alone, and what still sends then fits what is left today), or erase fewer records.',
     );
     expect(read.answer.refusals[0]?.message).not.toMatch(/--[a-z]/);
 

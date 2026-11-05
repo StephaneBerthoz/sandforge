@@ -2447,6 +2447,7 @@
       "emailsUnread_one": "Cerca de {{formatted}} dos seus {{limit}} sai quando estes registros são gravados; não foi possível ler o que resta hoje a {{org}}.",
       "emailsUnread_other": "Cerca de {{formatted}} dos seus {{limit}} saem quando estes registros são gravados; não foi possível ler o que resta hoje a {{org}}.",
       "acceptEmails": "Deixar {{org}} enviar estes e-mails",
+      "duplicateRules": "Regras de duplicidade ativas em {{object}}: {{rules}}. Um registro sobre o qual uma regra só alerta é gravado, um que uma regra bloqueia é recusado, e o que uma regra que relata grava, um conjunto de registros duplicados e seus itens, permanece em {{org}}.",
       "refused": "Isto seria recusado: {{reason}}",
       "held": {
         "reading": "Aguardando o que {{org}} executa quando estes registros são gravados.",

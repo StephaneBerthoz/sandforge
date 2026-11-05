@@ -14,8 +14,10 @@ import type {
   DataOpsAct,
   DataOpsAnonymizationRule,
   DataOpsAutomationObject,
+  DataOpsAutomationRefusal,
   DataOpsWriteAccord,
   ListedAnonymizationTemplate,
+  MaskingDuplicatesWritten,
   MutedAutomation,
 } from '@sandforge/shared';
 import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
@@ -143,13 +145,21 @@ import type { LiveRun } from './liveRun.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
 import {
+  alsoRefusedPayload,
   dataOpsAutomationOrgOf,
   dataOpsStop,
+  dataOpsVoiceOf,
   holdDataOpsMute,
   readDataOpsAct,
   type DataOpsActRead,
   type DataOpsVoice,
 } from '../../modules/dataops/dataOpsAutomation.js';
+import {
+  DUPLICATES_SETTLE_MS,
+  duplicateRulesOn,
+  maskingDuplicatesSentence,
+  readMaskingDuplicates,
+} from '../../modules/dataops/maskingDuplicates.js';
 import {
   muteLines,
   type HeldMute,
@@ -1383,6 +1393,45 @@ export class DataOpsHandler implements DomainHandler {
     this.muteLeases = options;
   }
 
+  /** How long after a masking's last write what its duplicate rules wrote is read. */
+  private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
+
+  /** Another wait than the org's few seconds before a masking's duplicate rules are read. */
+  setDuplicatesSettle(ms: number): void {
+    this.duplicatesSettleMs = ms;
+  }
+
+  /**
+   * What the duplicate rules wrote during a masking for the records it
+   * masked, read once their reports had time to land after its last write.
+   * Never throws: what could not be read is said as unread.
+   */
+  private async duplicatesWritten(
+    conn: Connection,
+    input: {
+      rules: MaskingDuplicatesWritten['rules'];
+      since: { at: string } | { unread: string } | undefined;
+      masked: ReadonlySet<string>;
+      lastWriteAt: number;
+    },
+  ): Promise<MaskingDuplicatesWritten> {
+    const { rules, since } = input;
+    if (!since || 'unread' in since) {
+      return {
+        rules,
+        sets: 0,
+        items: 0,
+        unread: since ? `the org's clock: ${since.unread}` : "the org's clock was not read",
+      };
+    }
+    const wait = input.lastWriteAt + this.duplicatesSettleMs - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    return readMaskingDuplicates(
+      { query: async (soql) => conn.query<Record<string, unknown>>(soql) },
+      { rules, since: since.at, masked: input.masked },
+    );
+  }
+
   /** The handler's own reader of the org's automation, as Forge reads it. */
   private ownReader(): Promise<TargetAutomationReader> {
     this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
@@ -1466,14 +1515,15 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      // A subject erasure's question names the erasure, not the act it writes as.
+      // A subject erasure's question names the erasure, not the act it writes as;
+      // the page's names its confirmation and its boxes, not the command line's flags.
       const read = await this.readAct(
         conn,
         parsed.orgId,
         parsed.act,
         parsed.objects,
         parsed,
-        parsed.erasure === true ? 'erasure' : undefined,
+        dataOpsVoiceOf(parsed),
       );
       const response = buildResponse(this.deps, msg, 'dataops:automation:response', {
         ...read.answer,
@@ -3182,10 +3232,16 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       /** Refuse the restore before its first write, under its code, and record it so. */
-      const refuseBeforeWrite = (code: string, message: string, written: WriteRun): void => {
+      const refuseBeforeWrite = (
+        code: string,
+        message: string,
+        written: WriteRun,
+        alsoRefused: DataOpsAutomationRefusal[] = [],
+      ): void => {
         recordWriteRun(this.deps, { ...written, outcome: 'stopped', source: undefined, code });
         sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message), {
           code,
+          ...alsoRefusedPayload({ alsoRefused }),
         });
         sendOperationFailed(this.deps, rollbackOpId, message, false, {
           context: failure,
@@ -3203,10 +3259,11 @@ export class DataOpsHandler implements DomainHandler {
         'restore',
         backupMeta.objects.map((o) => ({ objectApiName: o.objectApiName, records: o.recordCount })),
         payload,
+        dataOpsVoiceOf(payload),
       );
       const gateRefused = dataOpsStop(gated.answer);
       if (gateRefused) {
-        refuseBeforeWrite(gateRefused.code, gateRefused.message, run);
+        refuseBeforeWrite(gateRefused.code, gateRefused.message, run, gateRefused.alsoRefused);
         return;
       }
 
@@ -3291,7 +3348,12 @@ export class DataOpsHandler implements DomainHandler {
 
       // The mute's lease, once the guard let the restore go: held from its
       // first write to its end, given back however it ends.
-      const holding = await holdDataOpsMute(gated, rollbackOpId, payload.acceptEmails === true);
+      const holding = await holdDataOpsMute(
+        gated,
+        rollbackOpId,
+        payload.acceptEmails === true,
+        dataOpsVoiceOf(payload),
+      );
       if ('refused' in holding) {
         refuseBeforeWrite(holding.refused.code, holding.refused.message, run);
         return;
@@ -3575,6 +3637,12 @@ export class DataOpsHandler implements DomainHandler {
           objects: restored,
         });
       }
+      // Given back before the restore is said ended anywhere, its answer
+      // saying what it took back: the answer of a restore that muted left while
+      // its set was still assigned, and Live Operations and `operation:completed`
+      // still did.
+      const released = await this.releaseMute(held, payload.orgId);
+      held = undefined;
       if (cancelled) {
         this.deps.infraServices?.backgroundRegistry?.abort(rollbackOpId);
         sendOperationCompleted(this.deps, rollbackOpId, {
@@ -3629,10 +3697,6 @@ export class DataOpsHandler implements DomainHandler {
           ? ranMessage
           : `${ranMessage}. The backup held only part of the org's records, and the rest were ` +
             `left as they are: ${shortfall}.`;
-      // Given back before the answer, which says what it took back: the
-      // answer of a restore that muted left while its set was still assigned.
-      const released = await this.releaseMute(held, payload.orgId);
-      held = undefined;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
         status,
@@ -3973,7 +4037,9 @@ export class DataOpsHandler implements DomainHandler {
     if (!parsed) return;
     // The id of the request, as a backup and a restore run under theirs: the
     // page's Stop names the run by it. A fresh id per run left the page, and
-    // its Stop, nothing to name it with.
+    // its Stop, nothing to name it with. Refused in the words of where it was
+    // asked: the page's confirmation, or the command line's flags.
+    const voice = dataOpsVoiceOf(parsed);
     await this.mask(parsed, msg.id, {
       ...this.pageMaskingReplies(msg),
       accord: {
@@ -3981,6 +4047,7 @@ export class DataOpsHandler implements DomainHandler {
         acceptEmails: parsed.acceptEmails === true,
         muteAutomation: parsed.muteAutomation === true,
       },
+      ...(voice ? { voice } : {}),
     });
   }
 
@@ -3995,8 +4062,13 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
         // The page shows a run's end through this notification and nothing
-        // else: a run that left records unmasked, for whatever reason, says so.
-        if (result.recordsNotMasked > 0) {
+        // else: a run that left records unmasked, for whatever reason, says so,
+        // as does one whose duplicate rules wrote what it keeps, or could not say.
+        const duplicates = result.duplicates;
+        const leftDuplicates =
+          duplicates !== undefined &&
+          (duplicates.sets > 0 || duplicates.items > 0 || duplicates.unread !== undefined);
+        if (result.recordsNotMasked > 0 || leftDuplicates) {
           sendNotification(
             this.deps,
             result.status === 'failure' ? 'error' : 'warning',
@@ -4035,6 +4107,15 @@ export class DataOpsHandler implements DomainHandler {
     let held: HeldMute | undefined;
     /** Its answer, once its lease is given back: what it took back said with it. */
     const deferred: { answer?: (released: MutedAutomation | undefined) => void } = {};
+    /** What its lease gave back, once given back: once, whichever way the run ends. */
+    let givenBack: { released: MutedAutomation | undefined } | undefined;
+    // Given back before the run is said ended anywhere: Live Operations and
+    // `operation:completed` said a masking that muted had ended while the set
+    // it had assigned was still assigned.
+    const giveBack = async (): Promise<MutedAutomation | undefined> => {
+      givenBack ??= { released: await this.releaseMute(held, payload.orgId) };
+      return givenBack.released;
+    };
     // A run's answer left while its lease was held: on the trap org, the
     // page was told the masking had ended while the bypass it had assigned
     // was still assigned, and its answer named nothing taken back. Forge,
@@ -4128,6 +4209,18 @@ export class DataOpsHandler implements DomainHandler {
     let runError: unknown;
     /** Its entry in Live Operations, once it is listed. */
     let live: LiveRun | undefined;
+    /**
+     * The active duplicate rules of the objects it masks, as the read before
+     * its question found them: what they write during the run is read once its
+     * last write is in, and said with its result.
+     */
+    let duplicateRules: MaskingDuplicatesWritten['rules'] = [];
+    /** The org's clock just before its first write, or why it could not be read. */
+    let duplicatesSince: { at: string } | { unread: string } | undefined;
+    /** The records it masked of the objects that have one. */
+    const maskedUnderRules = new Set<string>();
+    /** When the org last answered one of its updates, on this machine's clock. */
+    let lastWriteAt = 0;
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4143,7 +4236,7 @@ export class DataOpsHandler implements DomainHandler {
      * Stop a run the user stopped before its first write, as every write path
      * records such a stop and tells the page: under the code that says so.
      */
-    const stoppedBeforeStart = (): void => {
+    const stoppedBeforeStart = async (): Promise<void> => {
       recordWriteRun(this.deps, {
         ...run,
         outcome: 'stopped',
@@ -4155,6 +4248,7 @@ export class DataOpsHandler implements DomainHandler {
         code: ABORTED_BEFORE_START,
         ...(snapshot ? { extraPayload: { snapshot } } : {}),
       });
+      await giveBack();
       sendOperationCompleted(this.deps, operationId, { aborted: true });
     };
 
@@ -4454,9 +4548,13 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       /** Refuse the run before its first write, under its code, and record it so. */
-      const refuseBeforeWrite = (code: string, message: string): void => {
+      const refuseBeforeWrite = (
+        code: string,
+        message: string,
+        alsoRefused: DataOpsAutomationRefusal[] = [],
+      ): void => {
         recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined, code });
-        replies.refused(new Error(message), { code });
+        replies.refused(new Error(message), { code, ...alsoRefusedPayload({ alsoRefused }) });
         sendOperationFailed(this.deps, operationId, message, false, {
           context: failure,
           authored: true,
@@ -4476,9 +4574,13 @@ export class DataOpsHandler implements DomainHandler {
       );
       const gateRefused = dataOpsStop(gated.answer);
       if (gateRefused) {
-        refuseBeforeWrite(gateRefused.code, gateRefused.message);
+        refuseBeforeWrite(gateRefused.code, gateRefused.message, gateRefused.alsoRefused);
         return;
       }
+      duplicateRules = duplicateRulesOn(
+        gated.answer.automation,
+        tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
+      );
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
@@ -4519,7 +4621,7 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.log(`[WARN] dataops:anonymize ${operationId}: ${warning}`);
       }
       if (stop.signal.aborted) {
-        stoppedBeforeStart();
+        await stoppedBeforeStart();
         return;
       }
       // The mute's lease, once the guard let the run go: held from before
@@ -4554,7 +4656,7 @@ export class DataOpsHandler implements DomainHandler {
         // Stopped while the snapshot was read: the snapshot is not kept, and
         // nothing was masked.
         if ('refused' in kept && stop.signal.aborted) {
-          stoppedBeforeStart();
+          await stoppedBeforeStart();
           return;
         }
         if ('refused' in kept) {
@@ -4565,6 +4667,7 @@ export class DataOpsHandler implements DomainHandler {
             code: SNAPSHOT_NOT_TAKEN,
           });
           replies.refused(new Error(kept.refused), { code: SNAPSHOT_NOT_TAKEN });
+          await giveBack();
           sendOperationFailed(this.deps, operationId, kept.refused, kept.retryable, {
             context: failure,
             authored: true,
@@ -4573,7 +4676,7 @@ export class DataOpsHandler implements DomainHandler {
         }
         snapshot = kept.taken;
         if (stop.signal.aborted) {
-          stoppedBeforeStart();
+          await stoppedBeforeStart();
           return;
         }
       }
@@ -4597,6 +4700,16 @@ export class DataOpsHandler implements DomainHandler {
         stop,
       );
       live = listLive(this.liveTracker, operationId, 'dataops', description, grandTotal);
+      // When it starts writing, on the org's clock: what its duplicate rules
+      // write from then on is read once it ends.
+      if (duplicateRules.length > 0) {
+        const orgNow = async (): Promise<string> =>
+          (await conn.soap.getServerTimestamp()).timestamp;
+        duplicatesSince = await orgNow().then(
+          (at) => ({ at }),
+          (err: unknown) => ({ unread: extractErrorMessage(err) }),
+        );
+      }
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
@@ -4648,6 +4761,10 @@ export class DataOpsHandler implements DomainHandler {
         if (usageAtStop()) break;
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
+        /** Whether the object has a duplicate rule, whose items name the records it masks. */
+        const underRules = duplicateRules.some(
+          (on) => on.objectApiName.toLowerCase() === safeObj.toLowerCase(),
+        );
 
         const { select: fields, rulesOf } = await this.maskedFields(
           described,
@@ -4746,6 +4863,7 @@ export class DataOpsHandler implements DomainHandler {
               throw err;
             }
             noteApiUsage(`dataops:anonymize update ${safeObj}`);
+            lastWriteAt = Date.now();
             // Same dropped count as the restore: a record the org refuses keeps
             // its real PII, and reporting only the successes hid exactly that.
             const refusedIds: string[] = [];
@@ -4753,6 +4871,8 @@ export class DataOpsHandler implements DomainHandler {
             answers.forEach((r, i) => {
               if (r.success) {
                 tally.masked++;
+                const masked = batch[i]?.Id;
+                if (underRules && typeof masked === 'string') maskedUnderRules.add(masked);
                 return;
               }
               tally.refused++;
@@ -4927,6 +5047,18 @@ export class DataOpsHandler implements DomainHandler {
             `not masked — ${left}`,
         );
       }
+      await giveBack();
+      // What the duplicate rules wrote for the records it masked, once their
+      // reports had time to land: said, and kept.
+      const duplicates =
+        duplicateRules.length > 0 && maskedUnderRules.size > 0
+          ? await this.duplicatesWritten(conn, {
+              rules: duplicateRules,
+              since: duplicatesSince,
+              masked: maskedUnderRules,
+              lastWriteAt,
+            })
+          : undefined;
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
         // — already, when the cancel came through it — and posted as a
@@ -4967,7 +5099,8 @@ export class DataOpsHandler implements DomainHandler {
       // that left nothing.
       const resumeHint =
         resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
-      const message = ranMessage + resumeHint;
+      const duplicatesSaid = maskingDuplicatesSentence(duplicates, this.orgNameOf(payload.orgId));
+      const message = ranMessage + resumeHint + (duplicatesSaid ? ` ${duplicatesSaid}` : '');
       replies.ended({
         templateId: payload.templateId,
         status,
@@ -4981,14 +5114,16 @@ export class DataOpsHandler implements DomainHandler {
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
         ...(snapshot ? { snapshot } : {}),
         ...(held ? { mutedAutomation: held.outcome } : {}),
+        ...(duplicates ? { duplicates } : {}),
       });
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
       // run's failure: only the loop, stopping at the cancel, says a run was
       // cancelled. Dual channel, single display (see handleBackup).
+      await giveBack();
       failRun(err, true);
     } finally {
-      const released = await this.releaseMute(held, payload.orgId);
+      const released = await giveBack();
       if (released) replies.muted?.(released);
       // A run that threw after it started: recorded with what it masked — partial once it wrote a row,
       // failed otherwise — and, per object, the rows it never reached.

@@ -162,10 +162,12 @@ describe('CleanupPanel', () => {
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
+    // Marked as the page's: what refuses them names its confirmation, not flags.
     expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
       orgId: 'org-1',
       act: 'cleanup',
       objects: [{ objectApiName: 'Account', records: 2 }],
+      fromPage: true,
     });
     // Confirmed once what the org runs as the records go was listed.
     expect(states.remove.mutate).toHaveBeenCalledWith({
@@ -174,6 +176,43 @@ describe('CleanupPanel', () => {
       recommendation: { kind: 'stale', days: 365 },
       dryRun: false,
       acceptAutomation: true,
+      fromPage: true,
+    });
+  });
+
+  it('reads what fires on what the org deletes along with the records, as the dry run counts it', () => {
+    states['dataops:cleanup:scan'].data = scanned;
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
+    fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
+    states.plan.data = {
+      objectApiName: 'Account',
+      dryRun: true,
+      plan: {
+        objectApiName: 'Account',
+        label: 'Account',
+        records: 2,
+        related: [{ objectApiName: 'Contact', label: 'Contact', records: 5 }],
+        uncounted: [],
+      },
+      truncated: false,
+      written: [
+        { objectApiName: 'Account', records: 2 },
+        { objectApiName: 'Contact', records: 5 },
+      ],
+    };
+    fireEvent.click(screen.getByTestId('cleanup-stale-delete'));
+    fireEvent.click(screen.getByTestId('cleanup-delete-btn'));
+
+    // The five contacts the accounts take with them: a flow before their
+    // delete was never listed in the confirmation.
+    expect(states['dataops:automation'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      act: 'cleanup',
+      objects: [
+        { objectApiName: 'Account', records: 2 },
+        { objectApiName: 'Contact', records: 5 },
+      ],
+      fromPage: true,
     });
   });
 

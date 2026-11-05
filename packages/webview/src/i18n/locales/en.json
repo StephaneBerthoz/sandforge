@@ -2447,6 +2447,7 @@
       "emailsUnread_one": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
       "emailsUnread_other": "About {{formatted}} of its {{limit}} go out as these records are written; what {{org}} has left today could not be read.",
       "acceptEmails": "Let {{org}} send these emails",
+      "duplicateRules": "Duplicate rules active on {{object}}: {{rules}}. A record a rule only alerts on is written, one a rule blocks is refused, and what a rule that reports writes, a duplicate record set and its items, stays in {{org}}.",
       "refused": "This would be refused: {{reason}}",
       "held": {
         "reading": "Waiting for what {{org}} runs as these records are written.",

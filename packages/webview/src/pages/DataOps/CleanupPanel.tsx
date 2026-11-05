@@ -10,6 +10,7 @@ import type {
   CleanupObjectResult as CleanupResult,
   CleanupRecommendation,
   CleanupScanResult,
+  DataOpsAutomationObject,
   DataQualityScanTarget,
   RemovalOutcome,
   RemovalPlanObject,
@@ -27,6 +28,7 @@ import { mergeObjectResults, parseStaleDays } from './QualityPanel';
 import { RemovalOutcomeView, RemovalPlanView } from './RemovalPlanView';
 import {
   accordPayloadOf,
+  ASKED_FROM_PAGE,
   DataOpsAutomation,
   NO_ACCORD,
   type DataOpsAutomationAccord,
@@ -49,6 +51,8 @@ interface DeleteAnswer {
   dryRun: boolean;
   plan: RemovalPlanObject;
   truncated: boolean;
+  /** A dry run's: the records the delete takes, what the org deletes along with them included. */
+  written?: DataOpsAutomationObject[];
   outcome?: RemovalOutcome;
 }
 
@@ -213,6 +217,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
       recommendation: review.recommendation,
       dryRun: false,
       ...accordPayloadOf(given),
+      ...ASKED_FROM_PAGE,
     });
   };
 
@@ -417,7 +422,14 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
                 orgId={orgId}
                 org={orgName}
                 act="cleanup"
-                objects={[{ objectApiName: planned.plan.objectApiName, records: toDelete }]}
+                // What the org deletes along with them too, as the delete
+                // reads it: a flow before a contact's delete, which went with
+                // its account, was never listed.
+                objects={
+                  planned.written ?? [
+                    { objectApiName: planned.plan.objectApiName, records: toDelete },
+                  ]
+                }
                 accord={accord}
                 onAccordChange={setAccord}
                 onHeld={setAutomationHeld}

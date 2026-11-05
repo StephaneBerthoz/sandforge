@@ -2447,6 +2447,7 @@
       "emailsUnread_one": "Environ {{formatted}} de ses {{limit}} part quand ces enregistrements sont écrits ; ce qu'il reste à {{org}} aujourd'hui n'a pas pu être lu.",
       "emailsUnread_other": "Environ {{formatted}} de ses {{limit}} partent quand ces enregistrements sont écrits ; ce qu'il reste à {{org}} aujourd'hui n'a pas pu être lu.",
       "acceptEmails": "Laisser {{org}} envoyer ces e-mails",
+      "duplicateRules": "Règles de doublons actives sur {{object}} : {{rules}}. Un enregistrement sur lequel une règle ne fait qu'alerter est écrit, celui qu'une règle bloque est refusé, et ce qu'écrit une règle qui signale, un ensemble d'enregistrements en double et ses éléments, reste dans {{org}}.",
       "refused": "Ce serait refusé : {{reason}}",
       "held": {
         "reading": "En attente de ce que {{org}} exécute quand ces enregistrements sont écrits.",

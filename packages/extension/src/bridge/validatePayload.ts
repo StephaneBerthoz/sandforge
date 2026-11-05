@@ -903,6 +903,8 @@ const dataOpsWriteAccordShape = {
   acceptEmails: z.boolean().optional(),
   muteAutomation: z.boolean().optional(),
 };
+/** Asked from the DataOps page, whose refusals name its confirmation and boxes, not flags. */
+const dataOpsAskedFromShape = { fromPage: z.literal(true).optional() };
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,
@@ -911,6 +913,7 @@ export const dataOpsRollbackPayloadSchema = z.object({
   /** Of a Sync run's backup, restore the records changed or deleted since the run too. */
   includeChanged: z.boolean().optional(),
   ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
 });
 /**
  * What the org runs as a DataOps act writes the records of these objects:
@@ -926,6 +929,7 @@ export const dataOpsAutomationPayloadSchema = z.object({
     .max(MAX_OBJECTS_PER_REQUEST),
   erasure: z.boolean().optional(),
   ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
 });
 /**
  * The objects and the filter of a masking run, as its preview and its
@@ -955,6 +959,7 @@ export const dataOpsAnonymizePayloadSchema = z
     resumeFrom: opaqueIdSchema.optional(),
     snapshot: z.boolean().optional(),
     ...dataOpsWriteAccordShape,
+    ...dataOpsAskedFromShape,
   })
   .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT)
   // A resume carries on over rows the run it resumes already masked: a
@@ -1115,6 +1120,7 @@ export const dataOpsCleanupExportPayloadSchema = z.object({
 export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSchema.extend({
   dryRun: z.boolean(),
   ...dataOpsWriteAccordShape,
+  ...dataOpsAskedFromShape,
 });
 
 // ── monitor:* payload schemas ─────────────────────────────────────────────

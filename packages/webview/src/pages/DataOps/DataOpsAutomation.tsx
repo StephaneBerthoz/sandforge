@@ -52,6 +52,14 @@ export function accordPayloadOf(accord: DataOpsAutomationAccord | undefined): {
   };
 }
 
+/**
+ * The mark every write the page asks for carries: the command line sends the
+ * same masking, restore and cleanup requests, and their refusals named its
+ * flags, `--mute-automation` and `--accept-emails`, which the page has none
+ * of. Marked, they name the confirmation and its boxes.
+ */
+export const ASKED_FROM_PAGE = { fromPage: true } as const;
+
 /** The words of the section, per act, each taking `{{org}}`. */
 const WORDS: Readonly<Record<DataOpsAct, RemovalAutomationWords>> = {
   masking: {
@@ -158,7 +166,9 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
         orgId,
         act,
         objects: JSON.parse(counted) as DataOpsAutomationObject[],
-        ...(erasure ? { erasure: true } : {}),
+        // Its refusals in the words of the confirmation it is listed in: an
+        // erasure's, which names the erasure, or the page's.
+        ...(erasure ? { erasure: true } : ASKED_FROM_PAGE),
         ...(muting ? { muteAutomation: true } : {}),
       }),
     [orgId, act, counted, erasure, muting, mutate],
@@ -201,6 +211,15 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
   );
   const planned =
     answer && automation ? mutePlanOf(automation, removalStepsWrites(answer.steps)) : null;
+  // The active duplicate rules of what it writes over: a masking writes the
+  // same address over every record, and on the trap org a rule's report then
+  // wrote a duplicate record set no line of the question had named.
+  const writtenOver = new Set((answer?.steps.giveBack ?? []).map((name) => name.toLowerCase()));
+  const duplicateRules = (automation?.objects ?? []).filter(
+    (object) =>
+      writtenOver.has(object.objectApiName.toLowerCase()) &&
+      (object.duplicateRules ?? []).length > 0,
+  );
   const refused = (answer?.refusals ?? []).filter((r) => refusesWhateverIsAnswered(r.code));
   const asksEmails = answer?.emailsAsk === true && answer.deliverability !== undefined;
   const error =
@@ -240,6 +259,18 @@ export const DataOpsAutomation: React.FC<DataOpsAutomationProps> = ({
       onReadAgain={readAgain}
       after={
         <>
+          {duplicateRules.map((object) => (
+            <p
+              key={object.objectApiName}
+              data-testid={`dataops-automation-${act}-duplicates-${object.objectApiName}`}
+            >
+              {t('dataops.automation.duplicateRules', {
+                object: object.objectApiName,
+                rules: (object.duplicateRules ?? []).map((rule) => rule.name).join(', '),
+                org,
+              })}
+            </p>
+          ))}
           <AutomationMuteBox
             offer={planned}
             checked={accord.muteAutomation}

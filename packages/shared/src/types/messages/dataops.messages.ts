@@ -401,6 +401,18 @@ export interface DataOpsWriteAccord {
   muteAutomation?: boolean;
 }
 
+/**
+ * Where a DataOps write was asked from: the DataOps page marks its masking,
+ * restore and cleanup, and the read of what fires it lists before them
+ * (`fromPage`, as a rewind's page marks its own). The command line sends the
+ * same requests, and their refusals named its flags: told to add
+ * `--mute-automation` and `--accept-emails`, the page had neither. Marked,
+ * they name the page's confirmation and its boxes.
+ */
+export interface DataOpsAskedFrom {
+  fromPage?: true;
+}
+
 /** The records of one object a DataOps act writes. */
 export interface DataOpsAutomationObject {
   objectApiName: string;
@@ -421,7 +433,8 @@ export interface DataOpsAutomationRequest extends BaseMessage {
     objects: DataOpsAutomationObject[];
     /** A subject erasure's, which writes as a masking or a cleanup and is named so. */
     erasure?: boolean;
-  } & DataOpsWriteAccord;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Why a DataOps act would be refused before it writes, with its code. */
@@ -485,7 +498,8 @@ export interface DataOpsRollbackRequest extends BaseMessage {
      * Sync leaves them.
      */
     includeChanged?: boolean;
-  } & DataOpsWriteAccord;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Request to anonymize data with a masking template (validated by dataOpsAnonymizePayloadSchema). */
@@ -515,7 +529,8 @@ export interface DataOpsAnonymizeRequest extends BaseMessage {
      * already wrote over some of those rows.
      */
     snapshot?: boolean;
-  } & DataOpsWriteAccord;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Response after a successful backup of the selected objects. */
@@ -578,6 +593,25 @@ export interface DataOpsRollbackResponse extends BaseMessage {
 }
 
 /**
+ * What the duplicate rules of the org wrote while a masking ran, for the
+ * records it masked: read once its last write was in, and kept. A masking
+ * writes the same address over every record, and a rule that reports writes a
+ * duplicate record set of the records alike.
+ */
+export interface MaskingDuplicatesWritten {
+  /** The objects it masked whose duplicate rules are active, and the rules' names. */
+  rules: Array<{ objectApiName: string; rules: string[] }>;
+  /** Duplicate record sets created during the run that hold an item naming a record it masked. */
+  sets: number;
+  /** Items created during the run in such a set: the masked records', and those they match. */
+  items: number;
+  /** More items were created during the run than one read takes: the counts are at least these. */
+  atLeast?: true;
+  /** Why it could not be read; the counts are then 0. */
+  unread?: string;
+}
+
+/**
  * Response when an anonymization run ends, whatever it masked; a run that
  * fails on an error ends on `dataops:error` instead, with the same counts.
  */
@@ -623,6 +657,8 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     snapshot?: { operationId: string; totalRecords: number };
     /** What the run's mute assigned, kept quiet and left running, when it was asked to mute. */
     mutedAutomation?: MutedAutomation;
+    /** What the duplicate rules wrote during it; absent when no object it masked has one. */
+    duplicates?: MaskingDuplicatesWritten;
   };
 }
 
@@ -798,7 +834,8 @@ export interface DataOpsCleanupDeleteRequest extends BaseMessage {
     objectApiName: string;
     recommendation: CleanupRecommendation;
     dryRun: boolean;
-  } & DataOpsWriteAccord;
+  } & DataOpsWriteAccord &
+    DataOpsAskedFrom;
 }
 
 /** Result of `dataops:cleanup:delete`. */
@@ -810,6 +847,12 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
     plan: RemovalPlanObject;
     /** More records are recommended than one delete reads. */
     truncated: boolean;
+    /**
+     * A dry run's: the records the delete takes, per object, what the org
+     * deletes along with them included — what its confirmation reads what
+     * fires on, as the delete reads it before its first write.
+     */
+    written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
     /** What the delete's mute assigned, kept quiet and left running, when it was asked to mute. */

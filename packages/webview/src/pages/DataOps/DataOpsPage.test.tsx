@@ -1209,6 +1209,8 @@ describe('DataOpsPage', () => {
         snapshot: true,
         // Confirmed once what the org runs as the records are masked was listed.
         acceptAutomation: true,
+        // The page's: what refuses it names its confirmation, not the command line's flags.
+        fromPage: true,
       });
     });
 
@@ -1289,6 +1291,7 @@ describe('DataOpsPage', () => {
         templateId: 'tpl-1',
         resumeFrom: 'run-1',
         acceptAutomation: true,
+        fromPage: true,
       });
       mockCoverageData = null;
     });
@@ -1492,6 +1495,7 @@ describe('DataOpsPage', () => {
         operationId: 'op-1',
         // Confirmed once what the org runs as the values go back was listed.
         acceptAutomation: true,
+        fromPage: true,
       });
     });
 
@@ -1516,6 +1520,7 @@ describe('DataOpsPage', () => {
         operationId: 'op-1',
         rewriteAll: true,
         acceptAutomation: true,
+        fromPage: true,
       });
     });
 
@@ -1541,6 +1546,7 @@ describe('DataOpsPage', () => {
           operationId: 'op-1',
           includeChanged: true,
           acceptAutomation: true,
+          fromPage: true,
         });
       });
 
@@ -1617,6 +1623,7 @@ describe('DataOpsPage', () => {
         orgId: 'org-1',
         operationId: 'op-failed',
         acceptAutomation: true,
+        fromPage: true,
       });
     });
   });

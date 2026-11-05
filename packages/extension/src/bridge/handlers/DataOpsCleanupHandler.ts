@@ -23,9 +23,12 @@ import {
   readRecordsById,
   workedObjects,
 } from '../../modules/dataops/RecordRemoval.js';
+import { erasureWrittenOf } from '../../modules/dataops/SubjectErasure.js';
 import {
+  alsoRefusedPayload,
   dataOpsAutomationOrgOf,
   dataOpsStop,
+  dataOpsVoiceOf,
   holdDataOpsMute,
   readDataOpsAct,
 } from '../../modules/dataops/dataOpsAutomation.js';
@@ -275,6 +278,8 @@ export class DataOpsCleanupHandler implements DomainHandler {
           dryRun,
           plan,
           truncated: resolved.truncated,
+          // What the confirmation reads what fires on, as the delete reads it.
+          written: erasureWrittenOf([plan]),
         });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} plan records=${ids.length}`);
@@ -288,13 +293,27 @@ export class DataOpsCleanupHandler implements DomainHandler {
       // trigger after it, the emails they send — read before the guard is
       // asked and before anything is deleted, and refused unless the page's
       // question answered it: a cleanup fired them with no question asked.
+      // Read on what the org deletes along with them too, counted again: its
+      // plan counted the contacts an account takes, and its read named none
+      // of what fires as they go, as an erasure's did not.
+      const along = await countRelated(session, object, ids, await workedObjects(session));
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
       const reader = this.targetAutomation;
+      // In the page's words when the page asked: it has no flags.
+      const voice = dataOpsVoiceOf(parsed);
       const gated = await readDataOpsAct({
         act: 'cleanup',
         target,
-        objects: [{ objectApiName: object.name, records: ids.length }],
+        objects: erasureWrittenOf([
+          {
+            objectApiName: object.name,
+            label: object.label,
+            records: ids.length,
+            related: along.related,
+            uncounted: along.uncounted,
+          },
+        ]),
         org: dataOpsAutomationOrgOf(
           conn,
           (names) =>
@@ -306,6 +325,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
         accord: parsed,
         mayMute: true,
         muteLeases: this.muteLeases,
+        ...(voice ? { voice } : {}),
       });
       const refused = dataOpsStop(gated.answer);
       if (refused) {
@@ -315,13 +335,13 @@ export class DataOpsCleanupHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(refused.message),
-          { code: refused.code },
+          { code: refused.code, ...alsoRefusedPayload(refused) },
         );
         return;
       }
       // The mute's lease, held from before the guard's question to the end
       // of the delete, given back however it ends.
-      const holding = await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true);
+      const holding = await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true, voice);
       if ('refused' in holding) {
         sendHandlerError(
           this.deps,
@@ -336,6 +356,12 @@ export class DataOpsCleanupHandler implements DomainHandler {
       const held = holding.held;
       /** What the mute took back, once its lease was given back: the answer says it. */
       const given: { back?: MutedAutomation } = {};
+      /** Give the lease back, once: before the delete is said ended, or when the guard stopped it. */
+      const giveBack = async (): Promise<void> => {
+        if (!held || given.back) return;
+        given.back = await held.release();
+        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
+      };
       const plan: RemovalPlanObject = {
         objectApiName: object.name,
         label: object.label,
@@ -356,13 +382,10 @@ export class DataOpsCleanupHandler implements DomainHandler {
             onObject(object.name, counts);
             return [{ objectApiName: object.name, counts }];
           },
+          beforeEnd: giveBack,
         },
         this.liveTracker,
-      ).finally(async () => {
-        if (!held) return;
-        given.back = await held.release();
-        for (const line of muteLines(given.back, target)) this.deps.log(`[INFO] ${line}`);
-      });
+      ).finally(giveBack);
       if (!result.ran) {
         sendHandlerError(
           this.deps,

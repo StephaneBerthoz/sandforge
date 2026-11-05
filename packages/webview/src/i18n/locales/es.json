@@ -2447,6 +2447,7 @@
       "emailsUnread_one": "Sale aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros; no se pudo leer lo que le queda hoy a {{org}}.",
       "emailsUnread_other": "Salen aproximadamente {{formatted}} de sus {{limit}} cuando se escriben estos registros; no se pudo leer lo que le queda hoy a {{org}}.",
       "acceptEmails": "Dejar que {{org}} envíe estos correos",
+      "duplicateRules": "Reglas de duplicados activas en {{object}}: {{rules}}. Un registro sobre el que una regla solo avisa se escribe, uno que una regla bloquea se rechaza, y lo que escribe una regla que informa, un conjunto de registros duplicados y sus elementos, queda en {{org}}.",
       "refused": "Se rechazaría: {{reason}}",
       "held": {
         "reading": "Esperando lo que {{org}} ejecuta cuando se escriben estos registros.",

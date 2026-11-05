@@ -2447,6 +2447,7 @@
       "emailsUnread_one": "Etwa {{formatted}} seiner {{limit}} geht beim Schreiben dieser Datensätze hinaus; was {{org}} heute übrig hat, konnte nicht gelesen werden.",
       "emailsUnread_other": "Etwa {{formatted}} seiner {{limit}} gehen beim Schreiben dieser Datensätze hinaus; was {{org}} heute übrig hat, konnte nicht gelesen werden.",
       "acceptEmails": "{{org}} diese E-Mails senden lassen",
+      "duplicateRules": "Aktive Duplikatsregeln für {{object}}: {{rules}}. Ein Datensatz, bei dem eine Regel nur warnt, wird geschrieben, einer, den eine Regel blockiert, wird abgelehnt, und was eine meldende Regel schreibt, ein Satz doppelter Datensätze und seine Elemente, bleibt in {{org}}.",
       "refused": "Dies würde abgelehnt: {{reason}}",
       "held": {
         "reading": "Es wird gewartet, was {{org}} beim Schreiben dieser Datensätze ausführt.",
