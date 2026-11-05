@@ -924,9 +924,9 @@ export class SyncRemovalHandler implements DomainHandler {
           details: { ...details, runId: run.runId },
         });
       },
-      keepMade: async (made, late) => {
+      keepMade: async (made, late, gone) => {
         await this.creations
-          ?.updateRemoval(run.runId, (state) => withSweepFinds(state, made, late))
+          ?.updateRemoval(run.runId, (state) => withSweepFinds(state, made, late, gone))
           .catch((err: unknown) => {
             this.deps.log(
               `[WARN] sync:remove ${context.operationId}: what the sweep found made for the run ` +

@@ -682,7 +682,8 @@ describe('a sweep asked with a removal', () => {
       deleted: 0,
       refused: 1,
     });
-    expect(await plans.madeOf('forge-1')).toEqual(expect.arrayContaining([ASSET, REVIEW, WELCOME]));
+    // Kept: the asset it left. The tasks it deleted, said gone, are kept no more.
+    expect(await plans.madeOf('forge-1')).toEqual([ASSET]);
 
     // Then the case goes by hand: nothing of the run names the asset now.
     const caseRow = org.row('Case', CASE);

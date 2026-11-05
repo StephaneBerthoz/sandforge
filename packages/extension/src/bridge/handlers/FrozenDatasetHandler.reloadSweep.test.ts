@@ -641,6 +641,20 @@ describe('a reload asked to sweep what the automation made for the loads it repl
       expect((await recordedLoads()).map((load) => load.endedAt)).not.toContain(LAST_WRITE);
     });
 
+    it('marks the load in the audit trail with the last write its mapping keeps, which another sas’s sweep dates it by', async () => {
+      // Run for real on the trap org: dated by when it ended, seconds after
+      // its last write, a load refused another sas's --sweep-untied.
+      await reload({ sweep: true });
+
+      const load = new AuditTrailStore(store)
+        .list()
+        .entries.find((entry) => entry.action === 'frozen_load');
+      expect(load?.details).toMatchObject({
+        sas: sasMarkOf(sasDir),
+        lastWriteAt: RELOAD_LAST,
+      });
+    });
+
     it('keeps the load a refused sweep left its task of, and the next reload’s sweep takes it', async () => {
       refusingTasks();
       await reload({ sweep: true });

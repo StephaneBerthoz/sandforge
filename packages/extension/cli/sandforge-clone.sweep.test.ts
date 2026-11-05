@@ -684,6 +684,60 @@ describe('sweepListingLines', () => {
     expect(sweepListingLines(TIED, 'TGT', {}).join('\n')).not.toContain('check the names');
   });
 
+  it('says, before a sweep, that a record changed by hand before the run’s last write reads as unchanged', () => {
+    expect(sweepListingLines(TIED, 'TGT').at(-1)).toBe(
+      "a record made by hand as the run's user under the run's records within a minute of " +
+        "them reads as the automation's, and one changed by hand before the run's last write " +
+        'as unchanged: check the names before a --sweep',
+    );
+  });
+
+  it('says, before a sweep asked what is tied to nothing, that hand work anywhere in the window reads as the automation’s', () => {
+    // Run for real on the trap org: a reload's list with --sweep-untied,
+    // thirty follow-up tasks tied to nothing, said nothing of what it cannot
+    // tell, and counted among them a task the load's user had edited.
+    const untiedOnly: ForgeSweepListing = {
+      ...TIED,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 30,
+          names: [],
+          classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+        },
+      ],
+      untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+      late: [],
+    };
+
+    expect(sweepListingLines(untiedOnly, 'TGT', { sweepUntied: true }, true).at(-1)).toBe(
+      "a record made by hand as the run's user anywhere in the run's window with " +
+        "--sweep-untied reads as the automation's, and one changed by hand before the run's " +
+        'last write as unchanged: check the names before a --sweep',
+    );
+    // Not taken, or refused, it is no part of what the sweep would delete.
+    expect(sweepListingLines(untiedOnly, 'TGT', {}, true).join('\n')).not.toContain(
+      'check the names',
+    );
+    expect(
+      sweepListingLines(
+        { ...untiedOnly, untied: { ...untiedOnly.untied!, refusal: 'Another run wrote.' } },
+        'TGT',
+        { sweepUntied: true },
+        true,
+      ).join('\n'),
+    ).not.toContain('check the names');
+    // With what is made for the run and what came late too, each where it is made.
+    expect(
+      sweepListingLines(TIED, 'TGT', { sweepLate: true, sweepUntied: true }, true).at(-1),
+    ).toBe(
+      "a record made by hand as the run's user under the run's records within a minute of " +
+        'them, or under them within a quarter of an hour with --sweep-late, or anywhere in ' +
+        "the run's window with --sweep-untied, reads as the automation's, and one changed by " +
+        "hand before the run's last write as unchanged: check the names before a --sweep",
+    );
+  });
+
   it('names a few of the objects it looked at: told the ties, every child of the run’s', () => {
     const looked = Array.from({ length: 12 }, (_, n) => `Obj${n}__c`);
 

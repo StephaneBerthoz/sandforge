@@ -283,6 +283,59 @@ describe('ForgeSweepListingView', () => {
     expect(screen.getByTestId('forge-sweep-classes-Asset').textContent).toBe('1 made for the run');
   });
 
+  it('counts out of what it takes with no more asked what changed since the run, which it keeps', () => {
+    // Run for real on the trap org: a list counted among what the sweep took a
+    // task changed since the run, which the sweep then kept.
+    const changedOne: ForgeSweepListing = {
+      ...TOLD,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 4,
+          names: [],
+          classes: { made: 3, madeOver: 1, late: 0, untied: 0, changed: 1, changedIn: { made: 1 } },
+        },
+        TOLD.found[1],
+      ],
+    };
+    render(<ForgeSweepListingView listing={changedOne} />);
+
+    expect(screen.getByTestId('forge-sweep-takes').textContent).toBe(
+      'With no more asked, the sweep takes 4 records it ties to the run.',
+    );
+  });
+
+  it('says it takes nothing when all it ties to the run changed since, and still has the names checked', () => {
+    render(
+      <ForgeSweepListingView
+        listing={{
+          ...TOLD,
+          found: [
+            {
+              objectApiName: 'Task',
+              count: 1,
+              names: ['Welcome call'],
+              classes: {
+                made: 1,
+                madeOver: 0,
+                late: 0,
+                untied: 0,
+                changed: 1,
+                changedIn: { made: 1 },
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-sweep-takes').textContent).toBe(
+      'With no more asked, the sweep takes nothing: what it ties to the run changed since, and ' +
+        'stays unless you include what changed.',
+    );
+    expect(screen.getByTestId('forge-sweep-own-work')).toBeTruthy();
+  });
+
   it('counts no record past the bound among what it takes', () => {
     render(
       <ForgeSweepListingView
@@ -438,7 +491,8 @@ describe('ForgeSweepListingView', () => {
         expect.stringContaining('What another user created'),
         expect.stringContaining('tied to nothing the run created or wrote over'),
         expect.stringContaining('more than 15 minutes after its record'),
-        expect.stringContaining('What someone else changed since'),
+        // The run's own user's change is kept as a colleague's is.
+        expect.stringContaining("What was changed after the run's last write, by anyone"),
         expect.stringContaining('cannot read or delete'),
         expect.stringContaining('What the org refuses'),
         expect.stringContaining('changed or deleted rather than created'),
@@ -577,6 +631,35 @@ describe('ForgeRunSweepResult', () => {
     );
     expect(screen.getByTestId('forge-sweep-left-untied').textContent).toBe(
       "7 records tied to nothing of the run stay (Task (5), Note (2)).A tick under the sweep's list takes them.",
+    );
+  });
+
+  it('says what it found and kept that went with the run’s records, no longer in the org', () => {
+    // Run for real on the trap org: 25 duplicate record items the sweep kept
+    // as made late went with their contacts, which the command line said and
+    // the page did not.
+    render(
+      <ForgeRunSweepResult
+        result={{
+          status: 'success',
+          objects: [],
+          unread: [],
+          handWork: [],
+          goneAlong: [
+            { class: 'late', objects: [{ objectApiName: 'DuplicateRecordItem', count: 25 }] },
+          ],
+        }}
+        org="DEV-SANDBOX"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-sweep-gone-along-late').textContent).toBe(
+      "25 records that came late went with the run's records: they are no longer in DEV-SANDBOX " +
+        '(DuplicateRecordItem (25)).',
+    );
+    expect(screen.queryByTestId('forge-sweep-left-late')).toBeNull();
+    expect(screen.getByRole('heading').textContent).toBe(
+      'Nothing the sweep found is left in DEV-SANDBOX.',
     );
   });
 

@@ -1133,6 +1133,23 @@ describe('SasReferenceIdMappingStore', () => {
       expect(await store.recorded()).not.toHaveProperty('madeEarlier');
     });
 
+    it('keeps no more what the sweep said gone, kept by an earlier sweep or found by this one', async () => {
+      // Run for real on the trap org: after a removal, the mapping kept as
+      // made late the ids of 25 duplicate record items the same removal said
+      // no longer in the org.
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await loaded(dir);
+      const ITEM = '0GLXX0000000001AAA';
+      await store.recordMade(ENDED, [TASK], [ITEM]);
+
+      await expect(store.recordMade(ENDED, [FEED], [ITEM], [ITEM, TASK])).resolves.toBe(true);
+
+      const recorded = await store.recorded();
+      expect(recorded?.madeEarlier).toEqual([FEED]);
+      expect(recorded).not.toHaveProperty('lateEarlier');
+    });
+
     it('keeps it through the removal that follows the sweep', async () => {
       const dir = makeTmpDir();
       const store = storeOf(dir);

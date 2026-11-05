@@ -46,6 +46,37 @@ export interface MarkedLoad {
   sas?: string;
   startedAt?: string;
   endedAt: string;
+  /**
+   * When the target dated its last write, read back from its records as it
+   * ended (`lastWriteOfLoad`). Absent from an entry recorded before loads left
+   * it, and for a load whose dates could not all be read: it is then dated by
+   * when it ended.
+   */
+  lastWriteAt?: string;
+}
+
+/**
+ * When a load the sas has just recorded wrote its last record, on the
+ * target's clock, for the mark it leaves (`MarkedLoad.lastWriteAt`): the last
+ * write the mapping keeps, when the mapping's last load is this one — recorded
+ * since this load began, on this machine's clock. Undefined otherwise, and
+ * when the mapping keeps no date of its writes.
+ *
+ * @param recorded - The last load the mapping records.
+ * @param startedAt - When this load began, on this machine's clock.
+ */
+export function lastWriteOfLoad(
+  recorded: { endedAt: string; writtenBetween?: { first: string; last: string } } | undefined,
+  startedAt: string,
+): string | undefined {
+  if (!recorded?.writtenBetween) return undefined;
+  const ended = Date.parse(recorded.endedAt);
+  const began = Date.parse(startedAt);
+  if (!Number.isFinite(ended) || !Number.isFinite(began) || ended < began) return undefined;
+  const first = Date.parse(recorded.writtenBetween.first);
+  const last = Date.parse(recorded.writtenBetween.last);
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return undefined;
+  return new Date(Math.max(first, last)).toISOString();
 }
 
 /** Whether a load with no mark is one the sas recorded: it ended within one of their spans. */
@@ -63,8 +94,15 @@ function isOwnUnmarked(endedAt: number, own: readonly OwnLoad[]): boolean {
 
 /**
  * The loads of `loads` another sas than `sasMark` wrote, each a run of its
- * span whose records are not named here. One the sas recorded itself is
- * left out: its mapping names it.
+ * span whose records are not named here, to its last write where that was
+ * recorded. One the sas recorded itself is left out: its mapping names it.
+ *
+ * Dated by when it ended, a load is a run of the window some seconds past its
+ * last write, its checks after it: run for real on the trap org, a load of
+ * another sas that ended 3 seconds after its last write was counted in the
+ * window of a load whose first write came 64 seconds after that last write,
+ * and refused --sweep-untied by 1.1 seconds. A load recorded with no date of
+ * its last write is still dated by when it ended.
  */
 export function otherSasRunsOf(
   loads: readonly MarkedLoad[],
@@ -72,13 +110,20 @@ export function otherSasRunsOf(
 ): LocalRun[] {
   const runs: LocalRun[] = [];
   for (const load of loads) {
-    const to = Date.parse(load.endedAt);
-    if (!Number.isFinite(to)) continue;
-    if (load.sas !== undefined ? load.sas === input.sasMark : isOwnUnmarked(to, input.own)) {
+    const ended = Date.parse(load.endedAt);
+    if (!Number.isFinite(ended)) continue;
+    if (load.sas !== undefined ? load.sas === input.sasMark : isOwnUnmarked(ended, input.own)) {
       continue;
     }
+    const wrote = Date.parse(load.lastWriteAt ?? '');
+    const to = Number.isFinite(wrote) ? wrote : ended;
     const from = Date.parse(load.startedAt ?? load.endedAt);
-    runs.push({ ids: [], idsUntold: true, from: Number.isFinite(from) ? from : to, to });
+    runs.push({
+      ids: [],
+      idsUntold: true,
+      from: Number.isFinite(from) ? Math.min(from, to) : to,
+      to,
+    });
   }
   return runs;
 }
@@ -131,6 +176,7 @@ export function indexedLoadsOf(journalDir: string, organizationId: string): Mark
       sas,
       startedAt,
       endedAt,
+      lastWriteAt,
     } = (parsed ?? {}) as Record<string, unknown>;
     if (typeof org !== 'string' || typeof endedAt !== 'string') continue;
     if (!sameOrg(org, organizationId)) continue;
@@ -138,6 +184,7 @@ export function indexedLoadsOf(journalDir: string, organizationId: string): Mark
       endedAt,
       ...(typeof sas === 'string' ? { sas } : {}),
       ...(typeof startedAt === 'string' ? { startedAt } : {}),
+      ...(typeof lastWriteAt === 'string' ? { lastWriteAt } : {}),
     });
   }
   return loads;
@@ -145,8 +192,8 @@ export function indexedLoadsOf(journalDir: string, organizationId: string): Mark
 
 /**
  * The loads the audit trail records into an org that wrote: Frozen loads
- * whose run went on past their checks, with the mark and the start they
- * left. A load stopped before it wrote is no run of any window.
+ * whose run went on past their checks, with the mark, the start and the last
+ * write they left. A load stopped before it wrote is no run of any window.
  */
 export function auditedLoadsOf(
   entries: ReadonlyArray<Pick<AuditLogEntry, 'action' | 'outcome' | 'timestamp' | 'details'>>,
@@ -156,10 +203,12 @@ export function auditedLoadsOf(
     .map((entry) => {
       const sas = entry.details?.sas;
       const startedAt = entry.details?.startedAt;
+      const lastWriteAt = entry.details?.lastWriteAt;
       return {
         endedAt: entry.timestamp,
         ...(typeof sas === 'string' ? { sas } : {}),
         ...(typeof startedAt === 'string' ? { startedAt } : {}),
+        ...(typeof lastWriteAt === 'string' ? { lastWriteAt } : {}),
       };
     });
 }

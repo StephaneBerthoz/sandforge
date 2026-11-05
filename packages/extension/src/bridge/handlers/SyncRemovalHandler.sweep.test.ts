@@ -890,8 +890,9 @@ describe('a sweep asked with the removal of a Sync run', () => {
 
       await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', sweep: true }));
       expect(tied.ids('Asset')).toEqual([]);
+      // Deleted, said gone, it is kept no more.
       const again = await nodeSyncRunCreations(storage).get('run-cases');
-      expect(again?.removal?.madeEarlier).toEqual([ASSET]);
+      expect(again?.removal?.madeEarlier).toBeUndefined();
     });
 
     it('keeps what it found made late and left, and takes it with what came late once the record that told the tie is gone', async () => {

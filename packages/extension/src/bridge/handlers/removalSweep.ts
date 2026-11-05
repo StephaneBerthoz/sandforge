@@ -165,9 +165,14 @@ export interface RemovalSweepRequest {
   /**
    * Keep what it found made for the run, for the next sweep
    * (`SweepTies.madeEarlier`), and what it found made late
-   * (`SweepTies.lateEarlier`).
+   * (`SweepTies.lateEarlier`), but what it said gone (`SweepParts.gone`),
+   * found now or kept before: no next sweep looks for it.
    */
-  keepMade?: (made: ReadonlySet<string>, late: ReadonlySet<string>) => Promise<void>;
+  keepMade?: (
+    made: ReadonlySet<string>,
+    late: ReadonlySet<string>,
+    gone: ReadonlySet<string>,
+  ) => Promise<void>;
 }
 
 /**
@@ -242,9 +247,10 @@ export async function removalSweepOf(request: RemovalSweepRequest): Promise<Remo
         // What it found made for the run, read before its first delete: once
         // a removal deleted the record one was tied to, the org may have
         // cleared the lookup that told it, and the next sweep listed it as
-        // tied to nothing — or, made late, found it in no class.
-        if (parts && (parts.made.size > 0 || parts.late.size > 0)) {
-          await request.keepMade?.(parts.made, parts.late).catch(() => undefined);
+        // tied to nothing — or, made late, found it in no class. What it
+        // said gone leaves what is kept.
+        if (parts && (parts.made.size > 0 || parts.late.size > 0 || parts.gone.size > 0)) {
+          await request.keepMade?.(parts.made, parts.late, parts.gone).catch(() => undefined);
         }
         return result;
       })();
@@ -434,17 +440,23 @@ export async function keptRunTies(
  * and made late kept beside what earlier sweeps found (`SweepTies.madeEarlier`,
  * `SweepTies.lateEarlier`), as a Frozen load keeps both: what came late and
  * was left, its tie gone with the run's record, was found in no class by the
- * next sweep, and `--sweep-late` took nothing of it.
+ * next sweep, and `--sweep-late` took nothing of it. What the sweep said gone
+ * is kept no more.
  */
 export function withSweepFinds(
   state: SyncRunRemovalState,
   made: Iterable<string>,
   late: Iterable<string>,
+  gone: Iterable<string> = [],
 ): SyncRunRemovalState {
-  const madeEarlier = madeKept(state.madeEarlier, made);
-  const lateEarlier = madeKept(state.lateEarlier, late);
+  const said = [...gone];
+  const madeEarlier = madeKept(state.madeEarlier, made, said);
+  const lateEarlier = madeKept(state.lateEarlier, late, said);
+  const rest = { ...state };
+  delete rest.madeEarlier;
+  delete rest.lateEarlier;
   return {
-    ...state,
+    ...rest,
     ...(madeEarlier.length > 0 ? { madeEarlier } : {}),
     ...(lateEarlier.length > 0 ? { lateEarlier } : {}),
   };

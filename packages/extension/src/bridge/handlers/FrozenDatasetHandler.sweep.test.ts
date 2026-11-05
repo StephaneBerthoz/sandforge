@@ -507,13 +507,43 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       expect(vi.mocked(removeRunRecords).mock.calls.at(-1)?.[2]).not.toHaveProperty('runUserId');
     });
 
-    it('keeps what the sweep found made for the load', async () => {
+    it('keeps what the sweep found made for the load and left, and nothing it said gone', async () => {
+      // A colleague edits the task after the load: the sweep keeps it. The
+      // feed items went with the load's records, said gone already.
+      Object.assign(org.rows.get('Task')?.[0] ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
       await remove({ sweep: true });
 
+      expect(answer()?.sweep?.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+        keptChanged: 1,
+      });
       const [load] = await mapping().recordedLoads();
-      expect(load?.madeEarlier).toEqual(
-        expect.arrayContaining([id('00T', 1), id('0D5', 1), id('0D5', 2)]),
-      );
+      expect(load?.madeEarlier).toEqual([id('00T', 1)]);
+    });
+
+    it('keeps no more what came late once the sweep said it gone', async () => {
+      // Run for real on the trap org: the mapping kept as made late the items
+      // the same removal said no longer in the org, for a later --sweep-late.
+      // Five minutes after the work order: what a scheduled path opens.
+      const LATE = '2026-09-20T10:10:00.000+0000';
+      org.rows
+        .get('Task')
+        ?.push(rec(id('00T', 3), 'Scheduled call', USER, LATE, { WhatId: WORK_ORDER }));
+      // Its records gone, the load tells the second sweep whom it wrote as.
+      await loadedAs(USER);
+
+      await remove({ sweep: true });
+      const [left] = await mapping().recordedLoads();
+      expect(left?.lateEarlier).toEqual([id('00T', 3)]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await remove({ sweep: true, sweepLate: true });
+
+      expect(ids('Task')).not.toContain(id('00T', 3));
+      const [load] = await mapping().recordedLoads();
+      expect(load?.lateEarlier).toBeUndefined();
     });
 
     it('takes as made for the load what a sweep found so, once nothing ties it any more', async () => {

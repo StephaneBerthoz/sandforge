@@ -67,9 +67,11 @@ function requestOf(
 ): RemovalSweepRequest & {
   recorded: Array<[ForgeSweepResult, string | undefined]>;
   kept: Array<ReadonlySet<string>>;
+  saidGone: Array<ReadonlySet<string>>;
 } {
   const recorded: Array<[ForgeSweepResult, string | undefined]> = [];
   const kept: Array<ReadonlySet<string>> = [];
+  const saidGone: Array<ReadonlySet<string>> = [];
   return {
     input: async () => INPUT,
     org: sweepOrgOf(org.conn as never, 'test'),
@@ -87,12 +89,14 @@ function requestOf(
     onGuardDecision: (result, guard) => {
       recorded.push([result, guard]);
     },
-    keepMade: async (made) => {
+    keepMade: async (made, _late, gone) => {
       kept.push(made);
+      saidGone.push(gone);
     },
     ...overrides,
     recorded,
     kept,
+    saidGone,
   };
 }
 
@@ -115,6 +119,8 @@ describe('removalSweepOf', () => {
     expect(request.recorded[0][1]).toBe('allowed');
     expect(request.kept).toHaveLength(1);
     expect([...request.kept[0]]).toEqual([TASK]);
+    // Deleted, said gone: what keeps it for the next sweep is told to drop it.
+    expect([...request.saidGone[0]]).toEqual([TASK]);
   });
 
   it('says what it did so far without recording it, and keeps what it found made though Production Guard refused it', async () => {

@@ -1084,14 +1084,21 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * still for the next sweep, which takes it only when asked to take what
    * came late.
    *
+   * What the sweep said gone — deleted, or no longer in the org once the
+   * load's records went — leaves both, kept before or found now: run for
+   * real on the trap org, the mapping kept as made late 25 duplicate record
+   * items the same removal said no longer in the org.
+   *
    * @param endedAt - When the load wrote its last record, as {@link recorded}
    *   named it.
+   * @param gone - What the sweep said gone (`SweepParts.gone`).
    * @returns Whether the file still recorded that load, and was written.
    */
   async recordMade(
     endedAt: string,
     made: Iterable<string>,
     late: Iterable<string> = [],
+    gone: Iterable<string> = [],
   ): Promise<boolean> {
     const { payload, journals } = await this.readWithJournals();
     const last = loadPartsOf(payload);
@@ -1099,11 +1106,15 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     const loads = [last, ...earlierOf(payload)];
     const swept = loads.findIndex((load) => endedAtOf(load) === endedAt);
     if (swept < 0) return false;
+    const said = [...gone];
     const withMade = (load: LoadPayload): LoadPayload => {
-      const madeEarlier = madeKept(load.madeEarlier, made);
-      const lateEarlier = madeKept(load.lateEarlier, late);
+      const madeEarlier = madeKept(load.madeEarlier, made, said);
+      const lateEarlier = madeKept(load.lateEarlier, late, said);
+      const rest = { ...load };
+      delete rest.madeEarlier;
+      delete rest.lateEarlier;
       return {
-        ...load,
+        ...rest,
         ...(madeEarlier.length > 0 ? { madeEarlier } : {}),
         ...(lateEarlier.length > 0 ? { lateEarlier } : {}),
       };
@@ -1193,10 +1204,17 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   }
 }
 
-/** What a load keeps of what sweeps found made for it: see {@link SasReferenceIdMappingStore.recordMade}. */
-function madeKept(before: readonly string[] | undefined, made: Iterable<string>): string[] {
+/**
+ * What a load keeps of what sweeps found made for it, what they said gone
+ * left out: see {@link SasReferenceIdMappingStore.recordMade}.
+ */
+function madeKept(
+  before: readonly string[] | undefined,
+  made: Iterable<string>,
+  gone: readonly string[] = [],
+): string[] {
   const perObject = new Map<string, number>();
-  const seen = new Set<string>();
+  const seen = new Set<string>(gone.map(recordKey));
   const kept: string[] = [];
   for (const id of [...(before ?? []), ...made]) {
     const key = recordKey(id);

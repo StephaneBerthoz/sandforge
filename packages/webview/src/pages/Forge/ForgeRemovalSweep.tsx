@@ -116,14 +116,30 @@ function classParts(t: TFunction, classes: ForgeSweepClasses): string[] {
   ].filter(Boolean);
 }
 
-/** The records a sweep takes with no more asked: what it ties to the run, nothing past the bound. */
+/**
+ * The records a sweep takes with no more asked: what it ties to the run, but
+ * what changed since the run, which it keeps unless what changed is included,
+ * and nothing past the bound. A list counted a task changed since among what
+ * the sweep took, which the sweep then kept.
+ */
 function takenWithNoMoreAsked(found: ForgeSweepListing['found']): number {
-  return found.reduce(
-    (sum, { classes, overBound }) =>
-      sum + (classes && !overBound ? classes.made + classes.madeOver : 0),
-    0,
-  );
+  return found.reduce((sum, { classes, overBound }) => {
+    if (!classes || overBound) return sum;
+    const changed = (classes.changedIn?.made ?? 0) + (classes.changedIn?.madeOver ?? 0);
+    return sum + Math.max(0, tiedOf(classes) - changed);
+  }, 0);
 }
+
+/** The records of one object a sweep ties to the run: made for it, or on a record it wrote over. */
+function tiedOf(classes: ForgeSweepClasses): number {
+  return classes.made + classes.madeOver;
+}
+
+/** What a sweep's result says of what went along with the run's records, by class. */
+const GONE_ALONG_KEYS: Record<ForgeSweepLeftClass['class'], string> = {
+  late: 'runRemoval.sweep.goneAlongLate',
+  untied: 'runRemoval.sweep.goneAlongUntied',
+};
 
 /**
  * The two ticks under a sweep's list. A sweep takes what it ties to the run;
@@ -334,6 +350,11 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
   // A sweep told the run's ties always says what it keeps, if only that it is nothing.
   const told = listing.untied !== undefined;
   const taken = takenWithNoMoreAsked(listing.found);
+  // What it ties to the run, changed since or not: what a person made by
+  // hand under the run's records reads as the automation's all the same.
+  const tied = listing.found.some(
+    ({ classes, overBound }) => classes !== undefined && !overBound && tiedOf(classes) > 0,
+  );
   return (
     <>
       {listing.window && (
@@ -349,7 +370,7 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
         <p data-testid="forge-sweep-takes">
           {taken > 0
             ? counted(t, 'runRemoval.sweep.takes', taken)
-            : t('runRemoval.sweep.takesNothing')}
+            : t(tied ? 'runRemoval.sweep.takesNothingChanged' : 'runRemoval.sweep.takesNothing')}
         </p>
       )}
       {listing.found.length > 0 ? (
@@ -392,7 +413,7 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({
           <p data-testid="forge-sweep-none">{t('runRemoval.sweep.none')}</p>
         )
       )}
-      {taken > 0 && (
+      {tied && (
         <p data-testid="forge-sweep-own-work" className="text-status-warning">
           {t('runRemoval.sweep.ownWork')}
         </p>
@@ -606,6 +627,18 @@ export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result
               : t('runRemoval.sweep.leftTick')}
           </p>
         </div>
+      ))}
+      {(result.goneAlong ?? []).map(({ class: went, objects }) => (
+        <p
+          key={went}
+          data-testid={`forge-sweep-gone-along-${went}`}
+          className="text-text-secondary wrap-break-word"
+        >
+          {counted(t, GONE_ALONG_KEYS[went], totalOf(objects), {
+            objects: perObject(objects),
+            org,
+          })}
+        </p>
       ))}
       <SweepNotes notes={result} />
     </section>

@@ -512,7 +512,17 @@ for (const theme of THEMES) {
           includeChanged: false,
           finishedAt: '2026-10-15T10:00:00.000Z',
           objects: [{ ...HELD_OBJECT, deleted: 2, keptDependents: 0, heldBy: [] }],
-          sweep: { status: 'success', objects: [], unread: [], handWork: [] },
+          // What it kept as made late went with the load's contacts, as the
+          // duplicate record items did on the trap org.
+          sweep: {
+            status: 'success',
+            objects: [],
+            unread: [],
+            handWork: [],
+            goneAlong: [
+              { class: 'late', objects: [{ objectApiName: 'DuplicateRecordItem', count: 25 }] },
+            ],
+          },
           otherLoadSweeps: [
             {
               loadedAt: EARLIER_LOAD,
@@ -536,6 +546,9 @@ for (const theme of THEMES) {
         operationId: 'removal-1',
       });
 
+      await expect(page.getByTestId('forge-sweep-gone-along-late')).toContainText(
+        "25 records that came late went with the run's records: they are no longer in",
+      );
       const swept = page.getByTestId('frozen-removal-other-sweeps');
       await expect(swept).toContainText('Swept for the load of 2026-10-14');
       await expect(swept.getByTestId('forge-sweep-left-untied')).toContainText(UNTIED_REFUSAL);

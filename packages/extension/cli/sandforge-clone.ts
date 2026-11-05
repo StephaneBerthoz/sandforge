@@ -4362,10 +4362,10 @@ function goingOfClass(
  * What a sweep lists and keeps, said with what it takes: what came late, what
  * is tied to nothing — and why taking it is refused, when it is —, the objects
  * past the most it looks at, what the run's mute kept quiet and what still ran,
- * and, to whoever reads the list before a sweep, the one case it cannot tell
- * from the automation's. A list read before a sweep asked to take what came
- * late or is tied to nothing (`--sweep-list --sweep-late`) says what each
- * would take.
+ * and, to whoever reads the list before a sweep, what it cannot tell from the
+ * automation's (`handWorkTakenLines`). A list read before a sweep asked to
+ * take what came late or is tied to nothing (`--sweep-list --sweep-late`)
+ * says what each would take.
  *
  * @param before - Whether the list is read before a sweep, not as one begins.
  */
@@ -4433,13 +4433,39 @@ function sweepClassLines(
           : 'nothing of what the run fired still ran'),
     );
   }
-  if (before && listing.found.some((object) => (object.classes?.made ?? 0) > 0)) {
-    lines.push(
-      "a record made by hand as the run's user under the run's records within a minute of " +
-        "them reads as the automation's: check the names before a --sweep",
-    );
-  }
+  if (before) lines.push(...handWorkTakenLines(listing, take));
   return lines;
+}
+
+/**
+ * What a sweep cannot tell from the automation's among what it would take,
+ * said to whoever reads its list before it: a record made by hand as the
+ * run's user where the automation makes them — under the run's records within
+ * a minute of them, within a quarter of an hour with `--sweep-late`, anywhere
+ * in the window with `--sweep-untied` — and one changed by hand before the
+ * run's last write, which reads as unchanged. Run for real on the trap org, a
+ * reload's list with --sweep-untied said none of it, and counted among what
+ * it deletes a task the load's user had edited. Nothing when it takes none of
+ * those classes.
+ */
+function handWorkTakenLines(listing: ForgeSweepListing, take: SweepClassArgs): string[] {
+  const holds = (name: 'made' | 'madeOver' | 'late' | 'untied'): boolean =>
+    listing.found.some((object) => (object.classes?.[name] ?? 0) > 0);
+  const where = [
+    holds('made') || holds('madeOver') ? "under the run's records within a minute of them" : '',
+    take.sweepLate === true && holds('late')
+      ? 'under them within a quarter of an hour with --sweep-late'
+      : '',
+    take.sweepUntied === true && listing.untied?.refusal === undefined && holds('untied')
+      ? "anywhere in the run's window with --sweep-untied"
+      : '',
+  ].filter(Boolean);
+  if (where.length === 0) return [];
+  return [
+    `a record made by hand as the run's user ${where.join(', or ')}${where.length > 1 ? ',' : ''} ` +
+      "reads as the automation's, and one changed by hand before the run's last write as " +
+      'unchanged: check the names before a --sweep',
+  ];
 }
 
 /**
@@ -5110,6 +5136,7 @@ export function readEarlierRemovals(
  * @param made - What this removal's sweep found made for the run, by id: kept
  *   with what earlier sweeps found ({@link madeKept}).
  * @param late - What it found made late for the run, kept the same way.
+ * @param sweptGone - What it said gone (`SweepParts.gone`): kept no more.
  */
 export function removalsAfter(
   run: string,
@@ -5119,18 +5146,21 @@ export function removalsAfter(
   sweep?: ForgeSweepMark,
   made: Iterable<string> = [],
   late: Iterable<string> = [],
+  sweptGone: Iterable<string> = [],
 ): RunRemovals | undefined {
   const gone = new Set(outcome.gone ?? []);
-  const kept = madeKept(earlier?.made, made);
-  const keptLate = madeKept(earlier?.late, late);
-  const newlyMade =
-    kept.length > (earlier?.made?.length ?? 0) || keptLate.length > (earlier?.late?.length ?? 0);
+  const said = [...sweptGone];
+  const kept = madeKept(earlier?.made, made, said);
+  const keptLate = madeKept(earlier?.late, late, said);
+  const findsChanged =
+    kept.join() !== (earlier?.made ?? []).join() ||
+    keptLate.join() !== (earlier?.late ?? []).join();
   if (
     Object.keys(outcome.stamps).length === 0 &&
     !outcome.span &&
     gone.size === 0 &&
     !sweep &&
-    !newlyMade
+    !findsChanged
   ) {
     return undefined;
   }
@@ -5754,6 +5784,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     swept,
     parts?.made ?? [],
     parts?.late ?? [],
+    parts?.gone ?? [],
   );
   const failure = removals ? writeWhole(removalsFile, removals) : undefined;
   if (failure) {

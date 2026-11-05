@@ -98,12 +98,19 @@ export const MADE_KEPT_PER_OBJECT = 10_000;
  * {@link MADE_KEPT_PER_OBJECT} per object at most — an object by the first
  * three characters of its ids. What does not read as an id is left out: every
  * id kept ends up in a delete.
+ *
+ * What the sweep said gone — deleted, gone at its delete, or no longer in the
+ * org once the run's records went (`SweepParts.gone`) — is kept no more, kept
+ * before or found now. Run for real on the trap org, a load's mapping kept as
+ * made late 25 duplicate record items its removal had said no longer in the
+ * org, for a later --sweep-late to look for.
  */
 export function madeKept(
   earlier: readonly string[] | undefined,
   found: Iterable<string>,
+  gone: Iterable<string> = [],
 ): string[] {
-  const seen = new Set<string>();
+  const seen = new Set<string>([...gone].map((id) => id.slice(0, 15)));
   const perObject = new Map<string, number>();
   const kept: string[] = [];
   for (const id of [...(earlier ?? []), ...found]) {

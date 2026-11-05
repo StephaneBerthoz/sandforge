@@ -244,17 +244,24 @@ export class ForgeRemovalPlanStore {
    * beside what earlier sweeps found: read before its first delete, it is the
    * only word left on a record whose tie the removal cleared. Each object's
    * at most {@link SWEEP_MADE_PER_OBJECT}, the newest
-   * {@link SWEEP_MADE_RUNS_KEPT} runs' at most.
+   * {@link SWEEP_MADE_RUNS_KEPT} runs' at most. What the sweep said gone
+   * (`gone`) is kept no more.
    */
-  keepMade(forgeId: string, ids: Iterable<string>, late: Iterable<string> = []): Promise<void> {
+  keepMade(
+    forgeId: string,
+    ids: Iterable<string>,
+    late: Iterable<string> = [],
+    gone: Iterable<string> = [],
+  ): Promise<void> {
     return this.enqueue(async () => {
       const runs = await this.readMade();
       const before = runs.find((run) => run.forgeId === forgeId);
-      const kept = madeKept(before?.ids, ids);
-      const keptLate = madeKept(before?.late, late);
+      const said = [...gone];
+      const kept = madeKept(before?.ids, ids, said);
+      const keptLate = madeKept(before?.late, late, said);
       if (
-        kept.length === (before?.ids.length ?? 0) &&
-        keptLate.length === (before?.late?.length ?? 0)
+        kept.join() === (before?.ids ?? []).join() &&
+        keptLate.join() === (before?.late ?? []).join()
       ) {
         return;
       }

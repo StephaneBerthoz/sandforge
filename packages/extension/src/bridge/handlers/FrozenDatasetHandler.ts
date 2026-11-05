@@ -249,6 +249,7 @@ import {
 } from '../../modules/frozendataset/FrozenSalt.js';
 import {
   auditedLoadsOf,
+  lastWriteOfLoad,
   otherSasRunsOf,
   sasMarkOf,
   type MarkedLoad,
@@ -2691,6 +2692,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     const startedAt = new Date().toISOString();
     /** The mark of the sas it writes to, once resolved (`sasMarkOf`). */
     let sasMark: string | undefined;
+    /** When the target dated its last write, once its mapping keeps it (`lastWriteOfLoad`). */
+    let lastWriteAt: string | undefined;
     /** What its gate made of the emails of what still runs, once judged. */
     let emailsJudged: LoadEmails | undefined;
     const recordLoad = (
@@ -2715,7 +2718,10 @@ export class FrozenDatasetHandler implements DomainHandler {
             ).emails,
           )
         : {};
-      const details = { ...(marked ? { sas: sasMark, startedAt } : {}), ...emailsSaid };
+      const details = {
+        ...(marked ? { sas: sasMark, startedAt, ...(lastWriteAt ? { lastWriteAt } : {}) } : {}),
+        ...emailsSaid,
+      };
       recordWriteRun(this.deps, {
         action: 'frozen_load',
         module: 'frozen',
@@ -2993,6 +2999,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       // Kept once the load wrote a record, whatever it came to; deleted when
       // it wrote none.
       if (taken) checkpoint = await this.settleCheckpoint(taken, recordsWritten(report) > 0);
+      lastWriteAt = lastWriteOfLoad(
+        await mappingStore.recorded().catch(() => undefined),
+        startedAt,
+      );
       recordLoad(
         frozenOutcome(report),
         frozenAuditObjects(report),
@@ -4891,8 +4901,8 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
       },
-      keepMade: async (made, late) => {
-        await context.store.recordMade(load.endedAt, made, late);
+      keepMade: async (made, late, gone) => {
+        await context.store.recordMade(load.endedAt, made, late, gone);
       },
     });
   }

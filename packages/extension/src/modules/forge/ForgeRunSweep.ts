@@ -453,6 +453,8 @@ interface SweepRow {
 interface SweepFindings {
   listing: ForgeSweepListing;
   window?: Window;
+  /** The run's last write on the org's clock, epoch milliseconds: what a change since is told by. */
+  lastWrite?: number;
   /** Per object, the records to sweep: an object past the bound is not among them. */
   rows: Map<string, SweepRow[]>;
   /** Whether a stop came before the reads were through. */
@@ -683,6 +685,10 @@ async function findSweep(
     return findings;
   }
   findings.window = window;
+  findings.lastWrite = Math.max(
+    epochOf(input.writtenBetween?.first),
+    epochOf(input.writtenBetween?.last),
+  );
   listing.window = { from: soqlDate(window.from), to: soqlDate(window.to) };
 
   // A user told goes into the sweep's queries: an id, or nothing.
@@ -1067,7 +1073,7 @@ function classify(
   tied: ReadonlyMap<string, SweepTie>,
   ties: SweepTies,
   findings: SweepFindings,
-  window: Window,
+  lastWrite: number,
   removalSpans: readonly ForgeRemovalSpan[],
 ): void {
   const { listing } = findings;
@@ -1107,7 +1113,7 @@ function classify(
     for (const row of kept) {
       classes[row.class]++;
       if (row.sameSave) sameSave++;
-      if (changedSince(row, window, removalSpans)) {
+      if (changedSince(row, lastWrite, removalSpans)) {
         changed++;
         changedIn[row.class] = (changedIn[row.class] ?? 0) + 1;
       }
@@ -1354,7 +1360,7 @@ async function findTied(
     madeEarlier: new Set((ties.madeEarlier ?? []).map(recordKey)),
     lateEarlier: new Set((ties.lateEarlier ?? []).map(recordKey)),
   });
-  classify(found, tied, ties, findings, window, removalSpans);
+  classify(found, tied, ties, findings, last, removalSpans);
   listing.found.push(...overBound);
   if (ties.muted) listing.muted = ties.muted;
   // The order of the deletes is read from the describes read already: once
@@ -1374,16 +1380,24 @@ async function findTied(
 
 /**
  * Whether a record was changed since the run by someone other than a
- * removal of it: last modified after the window, or, for one created late,
+ * removal of it: last modified after the save of the run's last write, and
  * after the save that created it — a date that cannot be read cannot show
- * it was left alone.
+ * it was left alone. As the removal reads the run's own records: modified
+ * after the run's end, changed since, whoever changed it.
+ *
+ * The minute the window reads after the last write is no proof: the run's
+ * automation runs as the run's user, and so may a person. Run for real on the
+ * trap org, a follow-up task the load's user edited 48 seconds after the
+ * load was listed among what --sweep-untied deletes, unchanged. What the
+ * automation writes after the last write's save reads as changed since too,
+ * and is kept unless the request includes what changed.
  */
 function changedSince(
   row: SweepRow,
-  window: Window,
+  lastWrite: number,
   removalSpans: readonly ForgeRemovalSpan[],
 ): boolean {
-  const since = Math.max(window.to, row.created + SAME_SAVE_MS);
+  const since = Math.max(lastWrite, row.created) + SAME_SAVE_MS;
   return !(row.modified <= since) && !byRemoval(row, removalSpans);
 }
 
@@ -1539,6 +1553,13 @@ export interface SweepParts {
    */
   readonly late: ReadonlySet<string>;
   /**
+   * The ids of what the sweep found and said gone, as the org wrote them:
+   * deleted, gone already at its delete, or no longer in the org once the
+   * run's records went (`goneAlong`). Filled as it goes; what the run keeps
+   * for the next sweep (`made`, `late`) loses them (`madeKept`).
+   */
+  readonly gone: ReadonlySet<string>;
+  /**
    * Once the run's records are deleted: delete what waited for them, what
    * should have gone with them still in the org, then send once more what
    * the org refused; it resolves to whether it deleted anything. Nothing,
@@ -1564,6 +1585,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
   const automationMade = new Set<string>();
   const made = new Set<string>();
   const late = new Set<string>();
+  const gone = new Set<string>();
   const sweeps: ObjectSweep[] = [];
   let state: 'new' | 'asked' | 'cancelled' | 'refused' | 'first' | 'done' = 'new';
   let refusal: string | undefined;
@@ -1588,6 +1610,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         return;
       }
       sweep.refused.delete(id);
+      gone.add(id);
       if (outcome.kind === 'deleted') sweep.result.deleted++;
       else sweep.result.alreadyGone++;
     });
@@ -1632,14 +1655,17 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         const ids = (rows.get(count.objectApiName) ?? [])
           .filter((row) => row.class === kept.class)
           .map((row) => row.id);
-        const { gone } = stopped()
-          ? { gone: [] }
-          : await takenAlong(
-              ids,
-              (asked) => readRecordsById(org, count.objectApiName, [], asked),
-              () => true,
-            );
-        const away = Math.min(gone.length, count.count);
+        const seenGone = stopped()
+          ? []
+          : (
+              await takenAlong(
+                ids,
+                (asked) => readRecordsById(org, count.objectApiName, [], asked),
+                () => true,
+              )
+            ).gone;
+        for (const id of seenGone) gone.add(id);
+        const away = Math.min(seenGone.length, count.count);
         if (count.count > away) stays.push({ ...count, count: count.count - away });
         if (away > 0) went.push({ objectApiName: count.objectApiName, count: away });
       }
@@ -1722,6 +1748,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
     automationMade,
     made,
     late,
+    gone,
 
     get listing() {
       return found && !found.stopped ? found.listing : undefined;
@@ -1738,7 +1765,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       if (state !== 'asked' || !found) return false;
       const findings = found;
       const rows = taking;
-      const window = findings.window!;
+      const lastWrite = findings.lastWrite ?? Number.NaN;
       const order = await removalOrder(
         findings.ordering ?? org,
         [...rows.keys()].map((objectApiName) => ({ objectApiName })),
@@ -1762,7 +1789,7 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
         sweeps.push(sweep);
         const before: string[] = [];
         for (const row of all) {
-          if (changedSince(row, window, options.removalSpans) && !options.includeChanged) {
+          if (changedSince(row, lastWrite, options.removalSpans) && !options.includeChanged) {
             sweep.result.keptChanged++;
             continue;
           }
@@ -1812,14 +1839,15 @@ export function sweepParts(org: SweepOrg, input: SweepInput, options: SweepOptio
       // them refused. Nothing is decided from it: what it deletes was shown.
       for (const sweep of sweeps) {
         if (stopped()) break;
-        const { gone } = await takenAlong(
+        const { gone: seen } = await takenAlong(
           [...sweep.refused.keys()],
           (ids) => readRecordsById(org, sweep.result.objectApiName, [], ids),
           () => true,
         );
-        for (const id of gone) {
+        for (const id of seen) {
           sweep.refused.delete(id);
           sweep.result.alreadyGone++;
+          gone.add(id);
         }
       }
       await settleLeft();

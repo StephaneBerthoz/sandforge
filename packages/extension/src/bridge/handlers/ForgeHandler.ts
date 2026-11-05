@@ -6201,8 +6201,8 @@ export class ForgeHandler implements DomainHandler {
           ...(muted ? { muted: auditMutedOf(muted) } : {}),
         });
       },
-      keepMade: async (made, late) => {
-        await this.removalPlans?.keepMade(entry.forgeId, made, late).catch((err: unknown) => {
+      keepMade: async (made, late, gone) => {
+        await this.removalPlans?.keepMade(entry.forgeId, made, late, gone).catch((err: unknown) => {
           logger.warn(`Forge sweep finds not kept: ${extractErrorMessage(err)}`);
         });
       },

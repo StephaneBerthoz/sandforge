@@ -66,6 +66,7 @@ function partsAnswering(
     automationMade: new Set<string>(),
     made: new Set<string>(),
     late: new Set<string>(),
+    gone: new Set<string>(),
     ask: vi.fn(async () => undefined),
     listing: undefined,
     takes: [],

@@ -156,10 +156,14 @@ import {
   loadPlanRecords,
   loadRecordsRefusal,
 } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
-import { referenceIdMappingFileName } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import {
+  referenceIdMappingFileName,
+  SasReferenceIdMappingStore,
+} from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import {
   indexLoad,
   indexedLoadsOf,
+  lastWriteOfLoad,
   otherSasRunsOf,
   sasMarkOf,
 } from '../src/modules/frozendataset/otherSasLoads.js';
@@ -1758,12 +1762,13 @@ export function messageLines(message: Posted, take: SweepClassArgs = {}): string
       ];
     }
     case 'frozen:remove:sweep:response': {
-      // A reload's: the sweep of each load it replaces, as its removal lists it.
+      // A reload's: the sweep of each load it replaces, as its removal lists
+      // it, read before the reload deletes anything, as a --sweep-list is.
       const loads = p.loads as FrozenReloadSweepListing[] | undefined;
       if (loads) {
         return loads.flatMap(({ loadedAt, listing }) => [
           `sweep of the load of ${loadedAt}:`,
-          ...sweepListingLines(listing, 'the target org', take),
+          ...sweepListingLines(listing, 'the target org', take, true),
         ]);
       }
       // A removal's: the load's, then each other load it sweeps with it.
@@ -2711,14 +2716,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           refusals.push(stepRefused);
         }
         // Kept where every load of this command is, whichever sas: the sweep
-        // of another sas's load into the org counts it a run of its window.
+        // of another sas's load into the org counts it a run of its window,
+        // to its last write as its mapping keeps it.
         if (targetOrgId && frozenLoadWrote(posted)) {
+          const lastWriteAt = lastWriteOfLoad(
+            await new SasReferenceIdMappingStore(sasDir, { orgId: targetOrgId })
+              .recorded()
+              .catch(() => undefined),
+            loadStartedAt,
+          );
           try {
             indexLoad(journalDirOf(), {
               organizationId: targetOrgId,
               sas: sasMarkOf(sasDir),
               startedAt: loadStartedAt,
               endedAt: new Date().toISOString(),
+              ...(lastWriteAt ? { lastWriteAt } : {}),
             });
           } catch (err: unknown) {
             log(

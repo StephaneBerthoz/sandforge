@@ -3612,9 +3612,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // What it found made late, kept the same way, is late still for the next.
     const made = parts?.made ?? new Set<string>();
     const late = parts?.late ?? new Set<string>();
-    if (made.size > 0 || late.size > 0) {
+    // What it said gone is kept no more.
+    const gone = parts?.gone ?? new Set<string>();
+    if (made.size > 0 || late.size > 0 || gone.size > 0) {
       await subject
-        .updateRemoval((earlierState) => withSweepFinds(earlierState, made, late))
+        .updateRemoval((earlierState) => withSweepFinds(earlierState, made, late, gone))
         .catch((err: unknown) => {
           process.stderr.write(
             `What the sweep found made for the run could not be kept (${err instanceof Error ? err.message : String(err)}): ` +

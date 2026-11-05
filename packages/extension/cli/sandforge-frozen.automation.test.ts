@@ -939,6 +939,33 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       ]);
     });
 
+    it('keeps with it the last write its mapping keeps, which another sas’s sweep dates it by', async () => {
+      // Run for real on the trap org: dated by when the step ended, 3 seconds
+      // after its last write, a load refused another sas's --sweep-untied by
+      // 1.1 seconds.
+      const lastWrite = '2026-11-04T12:11:50.000Z';
+      const load = vi.mocked(FrozenDatasetLoader.prototype.load);
+      const purging = load.getMockImplementation();
+      load.mockImplementation(async (options) => {
+        const report = await purging!.call(FrozenDatasetLoader.prototype, options);
+        await new SasReferenceIdMappingStore(dir, {
+          orgId: ORG_ID,
+          organizationId: ORG_ID,
+        }).persist(new Map([['Account-1', fakeId('001', 7)]]), {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-1'] }],
+          startedAt: new Date(),
+          writtenBetween: { first: '2026-11-04T12:11:49.000Z', last: lastWrite },
+        });
+        return report;
+      });
+
+      await reloadStep('--sweep', '--mute-automation', '--yes', '--json');
+
+      expect(indexedLoadsOf(join(dir, 'journal'), ORG_ID)).toEqual([
+        expect.objectContaining({ sas: sasMarkOf(dir), lastWriteAt: lastWrite }),
+      ]);
+    });
+
     describe('with nothing it wrote', () => {
       it('keeps nothing of a load refused before it wrote', async () => {
         expect(await reloadStep('--sweep', '--yes', '--json')).toBe(1);

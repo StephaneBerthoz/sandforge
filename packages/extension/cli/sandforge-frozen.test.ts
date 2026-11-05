@@ -1333,6 +1333,53 @@ describe('messageLines', () => {
     );
   });
 
+  it('says with a reload’s list, read before anything is deleted, what --sweep-untied takes and what it cannot tell from the automation’s', () => {
+    // Run for real on the trap org: the dry run of a reload with --sweep-untied
+    // counted thirty follow-up tasks among what it deletes, one of them edited
+    // by the load's user 48 seconds after the load, and said nothing of hand
+    // work, where a --sweep-list of the same load warns of it.
+    const lines = messageLines(
+      {
+        type: 'frozen:remove:sweep:response',
+        payload: {
+          loadedAt: '2026-11-04T12:01:33.704Z',
+          reload: true,
+          loads: [
+            {
+              loadedAt: '2026-11-04T12:01:33.704Z',
+              listing: {
+                window: { from: '2026-11-04T12:01:29Z', to: '2026-11-04T12:02:31Z' },
+                looked: ['Contact', 'Task', 'FeedItem'],
+                found: [
+                  {
+                    objectApiName: 'Task',
+                    count: 30,
+                    names: [],
+                    classes: { made: 0, madeOver: 0, late: 0, untied: 30 },
+                  },
+                ],
+                untied: { objects: [{ objectApiName: 'Task', count: 30 }] },
+                late: [],
+                unread: [],
+                handWork: [],
+              },
+            },
+          ],
+        },
+      },
+      { sweepUntied: true },
+    );
+
+    expect(lines).toContain(
+      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+    );
+    expect(lines.at(-1)).toBe(
+      "a record made by hand as the run's user anywhere in the run's window with " +
+        "--sweep-untied reads as the automation's, and one changed by hand before the run's " +
+        'last write as unchanged: check the names before a --sweep',
+    );
+  });
+
   it('says beside the error of a reload what its sweep had taken before the load ended', () => {
     // Said in the audit trail alone, under a message that nothing was purged.
     const lines = messageLines({

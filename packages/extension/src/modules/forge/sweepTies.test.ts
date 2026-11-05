@@ -256,6 +256,18 @@ describe('madeKept: what the sweeps of a run found made for it', () => {
     expect(madeKept(['not an id'], ["00T' OR Id != '", made('00T', 1)])).toEqual([made('00T', 1)]);
   });
 
+  it('keeps no more what the sweep said gone, kept before or found now, whichever length its id is in', () => {
+    // Run for real on the trap org: the items a removal said no longer in the
+    // org stayed kept as made late, for a later --sweep-late to look for.
+    expect(
+      madeKept(
+        [made('0GL', 1), made('0GL', 2)],
+        [made('0GL', 3), made('0GL', 4)],
+        [key('0GL', 2), made('0GL', 3)],
+      ),
+    ).toEqual([made('0GL', 1), made('0GL', 4)]);
+  });
+
   it('holds each object to its bound, an object by the first three characters of its ids', () => {
     const tasks = Array.from({ length: MADE_KEPT_PER_OBJECT + 5 }, (_, n) => made('00T', n));
 

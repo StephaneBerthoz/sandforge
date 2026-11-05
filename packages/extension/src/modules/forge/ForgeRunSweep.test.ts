@@ -1590,6 +1590,27 @@ describe('what a sweep takes', () => {
     expect(result.left?.find((kept) => kept.class === 'untied')).toBeDefined();
   });
 
+  it('names as gone what it deleted and what it said went along, never what it left', async () => {
+    // Run for real on the trap org: the mapping kept as made late the 25
+    // duplicate record items the same removal said no longer in the org.
+    const org = tiedOrg();
+    const parts = sweepParts(org, tiedInput(), NO_SPANS);
+    await parts.first();
+    await org.destroy('Case', [CASE]);
+    await parts.afterRemoval();
+
+    expect(parts.result().goneAlong).toEqual([
+      { class: 'late', objects: [{ objectApiName: 'Task', count: 1 }] },
+    ]);
+    // The Automated Process's task went with the case; the account review
+    // the sweep deleted; the call on the contact and the loose task stay.
+    expect(parts.gone.has(id('00T', 5))).toBe(true);
+    expect(parts.gone.has(id('00T', 2))).toBe(true);
+    expect(parts.gone.has(id('00T', 4))).toBe(false);
+    expect(parts.gone.has(id('00T', 3))).toBe(false);
+    for (const left of parts.gone) expect(org.ids('Task')).not.toContain(left);
+  });
+
   it('says nothing left of a class whose records all went along, and ends a success it was asked to take', async () => {
     const org = tiedOrg();
     const parts = sweepParts(org, tiedInput(), NO_SPANS);
@@ -1642,6 +1663,54 @@ describe('what a sweep takes', () => {
     const parts = sweepParts(org, tiedInput(), { ...NO_SPANS, sweepUntied: true });
     await parts.first();
     expect(parts.automationMade.has(id('00T', 3))).toBe(false);
+  });
+
+  it('counts as changed since a record the run’s user changed within the minute after the run’s last write, which no sweep takes unasked', async () => {
+    // Run for real on the trap org: a follow-up task the load's user edited
+    // 48 seconds after the load, inside the minute the window reads after its
+    // last write, was listed among what --sweep-untied would delete, unchanged.
+    const org = tiedOrg();
+    const task = org.row('Task', id('00T', 3));
+    const edited = new Date(Date.parse(LAST_WRITE) + 48_000).toISOString().replace('Z', '+0000');
+    if (task) Object.assign(task, { LastModifiedDate: edited, LastModifiedById: RUN_USER });
+
+    const listing = await listSweep(org, tiedInput());
+    const classes = listing.found.find((found) => found.objectApiName === 'Task')?.classes;
+    expect(classes?.changed).toBe(1);
+    expect(classes?.changedIn).toEqual({ untied: 1 });
+
+    const result = await sweepRunRecords(org, tiedInput(), { ...NO_SPANS, sweepUntied: true });
+    expect(deletedIds(org)).not.toContain(id('00T', 3));
+    expect(org.ids('Task')).toContain(id('00T', 3));
+    expect(result.objects.find((o) => o.objectApiName === 'Task')).toMatchObject({
+      keptChanged: 1,
+    });
+
+    // Asked, it goes.
+    await sweepRunRecords(org, tiedInput(), {
+      ...NO_SPANS,
+      sweepUntied: true,
+      includeChanged: true,
+    });
+    expect(org.ids('Task')).not.toContain(id('00T', 3));
+  });
+
+  it('reads no change in what the automation wrote in the save of the run’s last write, nor in the save that created a record', async () => {
+    const org = tiedOrg();
+    const sameSave = (seconds: number): string =>
+      new Date(Date.parse(LAST_WRITE) + seconds * 1000).toISOString().replace('Z', '+0000');
+    // The case's task, updated by a flow as the run's last record was saved.
+    const followUp = org.row('Task', id('00T', 1));
+    if (followUp) Object.assign(followUp, { LastModifiedDate: sameSave(1) });
+    // A task a queued job opened after the last write, set in the save that made it.
+    org.add('Task', recWith(id('00T', 8), 'Async check', RUN_USER, sameSave(20), { WhatId: CASE }));
+    const late = org.row('Task', id('00T', 8));
+    if (late) Object.assign(late, { LastModifiedDate: sameSave(21) });
+
+    const listing = await listSweep(org, tiedInput());
+    const classes = listing.found.find((found) => found.objectApiName === 'Task')?.classes;
+    expect(classes?.changed).toBeUndefined();
+    expect(classes).toMatchObject({ made: 2, late: 3 });
   });
 
   it('reads the ties before its first delete, and keeps for made what an earlier sweep found once a removal cleared the lookup that told it', async () => {

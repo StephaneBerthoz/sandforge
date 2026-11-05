@@ -231,6 +231,7 @@ function partsAnswering(
     automationMade: new Set(made),
     made: new Set(made),
     late: new Set<string>(),
+    gone: new Set<string>(),
     ask: vi.fn(async () => {
       if (listing && !takesNothing) await options.approve?.(listing);
     }),
@@ -2165,6 +2166,23 @@ describe('sandforge-clone removals file', () => {
         [{ objectApiName: 'Account', ids: [TGT('001', 1)] }],
       )?.removalLeft,
     ).toEqual([TGT('001', 1)]);
+  });
+
+  it('keeps no more what the sweep said gone, made for the run or made late, kept before or found now', () => {
+    const task = (n: number): string => TGT('00T', n);
+    const after = removalsAfter(
+      'run',
+      { removalStamps: {}, removalSpans: [], made: [task(1), task(2)], late: [task(5)] },
+      { stamps: {} },
+      [],
+      undefined,
+      [task(3)],
+      [task(6)],
+      [task(2), task(5), task(6)],
+    );
+
+    expect(after?.made).toEqual([task(1), task(3)]);
+    expect(after).not.toHaveProperty('late');
   });
 
   it("adds a removal's stamps over the earlier ones for a record both stamped, and its span after theirs", () => {
