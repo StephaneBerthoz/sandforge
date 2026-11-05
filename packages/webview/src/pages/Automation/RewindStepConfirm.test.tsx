@@ -320,8 +320,23 @@ describe('RewindStepConfirm', () => {
       code: 'TYPED_MISMATCH',
     });
     expect(screen.getByTestId('rewind-grant-refused').textContent).toBe(
-      "What was typed is not the org's alias: nothing was confirmed.",
+      "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed.",
     );
+  });
+
+  it('says to type the username of an org that has no alias, as the confirmation asks it, in every language', () => {
+    // The confirmation asks for the alias, or the username of an org without
+    // one; these said the alias alone.
+    for (const catalogue of [en, fr, de, es, ptBR, ja]) {
+      const username = catalogue.org.username.toLocaleLowerCase();
+      for (const said of [
+        catalogue.automation.runnability.rewindNotConfirmed,
+        catalogue.automation.rewindNotConfirmedNote,
+        catalogue.automation.rewindGrantRefused.TYPED_MISMATCH,
+      ]) {
+        expect(said.toLocaleLowerCase()).toContain(username);
+      }
+    }
   });
 });
 
@@ -475,7 +490,7 @@ describe('StepConfigPanel, a Rewind step', () => {
     renderPanel({ steps: [], blocker: 'rewindNotConfirmed', onPreview: vi.fn() });
     expect(screen.getByTestId('rewind-confirm').textContent).toBe('Preview and confirm…');
     expect(screen.getByTestId('rewind-confirmation-status').textContent).toBe(
-      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+      "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
     );
   });
 

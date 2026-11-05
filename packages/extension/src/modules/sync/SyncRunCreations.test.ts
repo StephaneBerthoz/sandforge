@@ -13,13 +13,16 @@ import {
   readRemovalState,
   createdCount,
   deletedCount,
+  earlierRunsOf,
   overwrittenCount,
   readRunFile,
   settled,
   syncRemovalPlan,
   syncRestorePlan,
   syncUndeletePlan,
+  writtenAgainBy,
   type SyncRunCreationsDeps,
+  type SyncRunKept,
 } from './SyncRunCreations';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -744,6 +747,64 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     await store.forget('run:1');
 
     expect([...files.keys()]).toEqual([]);
+  });
+});
+
+describe('earlierRunsOf and writtenAgainBy — the runs of the same target', () => {
+  /** The org both runs wrote to, by its Organization id, 18 and 15 characters. */
+  const ORG = fakeId('00D', 1);
+  const OTHER_ORG = fakeId('00D', 2);
+
+  /** Two runs that created the same account, the second a day after the first. */
+  async function twoRuns(
+    first: { targetOrgId: string; targetOrganizationId?: string },
+    second: { targetOrgId: string; targetOrganizationId?: string },
+  ) {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const older = store.recorder({ ...start('run-1', '2026-10-13T08:00:00.000Z'), ...first });
+    const newer = store.recorder({ ...start('run-2', '2026-10-14T08:00:00.000Z'), ...second });
+    older.note('Account', [fakeId('001', 1)]);
+    newer.note('Account', [fakeId('001', 1)]);
+    await Promise.all([older.end({ status: 'success' }), newer.end({ status: 'success' })]);
+    const runs = await store.list();
+    const byId = (runId: string) => runs.find((run) => run.runId === runId) as SyncRunKept;
+    return { runs, older: byId('run-1'), newer: byId('run-2') };
+  }
+
+  it('takes two command-line runs of one org under two aliases for runs of the same target', async () => {
+    // A run of the command line names the org by the alias it was given,
+    // and by its Organization id beside it: two aliases of one org were two
+    // targets, and the older run's removal read as changed since it what the
+    // newer one's had given back.
+    const { runs, older, newer } = await twoRuns(
+      { targetOrgId: 'dev-a', targetOrganizationId: ORG },
+      { targetOrgId: 'dev-b', targetOrganizationId: ORG.slice(0, 15) },
+    );
+
+    expect(earlierRunsOf(newer, runs).map((run) => run.runId)).toEqual(['run-1']);
+    expect(writtenAgainBy(older, runs).map((run) => run.runId)).toEqual(['run-2']);
+  });
+
+  it('takes two runs under one alias that named two orgs for runs of two targets', async () => {
+    const { runs, older, newer } = await twoRuns(
+      { targetOrgId: 'dev', targetOrganizationId: ORG },
+      { targetOrgId: 'dev', targetOrganizationId: OTHER_ORG },
+    );
+
+    expect(earlierRunsOf(newer, runs)).toEqual([]);
+    expect(writtenAgainBy(older, runs)).toEqual([]);
+  });
+
+  it('reads the target by the name the runs give it when one names no Organization id, as the panel’s do', async () => {
+    const same = await twoRuns({ targetOrgId: 'tgt-org' }, { targetOrgId: 'tgt-org' });
+    expect(earlierRunsOf(same.newer, same.runs).map((run) => run.runId)).toEqual(['run-1']);
+
+    const other = await twoRuns(
+      { targetOrgId: 'dev-a', targetOrganizationId: ORG },
+      { targetOrgId: 'dev-b' },
+    );
+    expect(earlierRunsOf(other.newer, other.runs)).toEqual([]);
   });
 });
 

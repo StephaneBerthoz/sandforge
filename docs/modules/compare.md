@@ -22,11 +22,11 @@ Compare metadata, permission names, and five Organization settings between two S
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
 4. Click **Run Comparison** to execute the comparison
-5. Browse results across five tabs: Diff, Permissions, Objects, Drift, and Deploy
+5. Browse results across five tabs: Diff Viewer, Permission Presence, Objects, Org Settings Drift, and Deploy from Diff
 
 ## Features
 
-### Metadata Diff
+### Diff Viewer
 
 The primary tab shows a side-by-side comparison of metadata between the two orgs.
 

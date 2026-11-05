@@ -171,6 +171,12 @@ const headSchema = z.object({
     configId: z.string().min(1).max(200),
     configName: z.string().max(500),
     sourceOrgId: z.string().min(1).max(200),
+    /**
+     * The org as its writer names it: the panel by the id it registers the
+     * org under, the command line by the alias it was given, which its
+     * `--remove` of a file that names no Organization id asks for again. Its
+     * Organization id, where known, is `targetOrganizationId`.
+     */
     targetOrgId: z.string().min(1).max(200),
     startedAt: dateSchema,
     /**
@@ -1060,9 +1066,22 @@ function namedLeft(run: SyncRunKept): Set<string> {
  */
 function sameTarget(run: SyncRunKept, runs: readonly SyncRunKept[]): SyncRunKept[] {
   return runs.filter(
-    (other) =>
-      other.runId !== run.runId && other.targetOrgId === run.targetOrgId && !settled(other),
+    (other) => other.runId !== run.runId && sameTargetOrg(run, other) && !settled(other),
   );
+}
+
+/**
+ * Whether two runs wrote to the same org: by its Organization id when both
+ * name it, as a run of the command line does beside the alias it was given;
+ * by the name they give the org otherwise, the panel's registered id. Two
+ * runs of the command line under two aliases of one org were taken for runs
+ * of two targets.
+ */
+function sameTargetOrg(a: SyncRunKept, b: SyncRunKept): boolean {
+  if (a.targetOrganizationId !== undefined && b.targetOrganizationId !== undefined) {
+    return a.targetOrganizationId.slice(0, 15) === b.targetOrganizationId.slice(0, 15);
+  }
+  return a.targetOrgId === b.targetOrgId;
 }
 
 /**

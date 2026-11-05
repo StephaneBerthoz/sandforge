@@ -2655,7 +2655,7 @@
       "rewindNeedsMaxRecords": "Legen Sie fest, wie viele Datensätze dieser Schritt höchstens zurücksetzen darf, alle Objekte zusammen (1 oder mehr).",
       "rewindConfigInvalid": "Dieser Zurücksetzen-Schritt ist nicht lesbar: Prüfen Sie die Objekte, die er nennt.",
       "rewindNotSaved": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen: Eine Bestätigung gilt für den Schritt, wie er gespeichert ist.",
-      "rewindNotConfirmed": "Nicht bestätigt: Klicken Sie auf Vorschau ansehen und bestätigen… und tippen Sie dann den Alias der Org.",
+      "rewindNotConfirmed": "Nicht bestätigt: Klicken Sie auf Vorschau ansehen und bestätigen… und tippen Sie dann den Alias der Org, oder ihren Benutzernamen, wenn sie keinen hat.",
       "rewindChangedSinceConfirmed": "Dieses Zurücksetzen wurde seit seiner Bestätigung geändert: Bestätigen Sie es erneut.",
       "rewindCheckpointMissing": "Der Prüfpunkt dieses Schritts wird auf diesem Rechner nicht aufbewahrt: Setzen Sie hier einen und wählen Sie ihn.",
       "rewindCheckpointOtherOrg": "Der Prüfpunkt dieses Schritts wurde von einer anderen Org gesetzt: Wählen Sie einen Prüfpunkt dieser Org.",
@@ -2775,7 +2775,7 @@
     },
     "rewindConfirmedOn": "Bestätigt am {{date}}: Dieser Schritt setzt {{org}} bei jeder Ausführung, geplante eingeschlossen, auf „{{name}}“ zurück, höchstens {{max}} Datensätze, und macht jede seither von irgendjemandem vorgenommene Änderung rückgängig oder löscht sie.",
     "rewindSaveFirst": "Speichern Sie die Pipeline und bestätigen Sie dann dieses Zurücksetzen.",
-    "rewindNotConfirmedNote": "Nicht bestätigt: Der Schritt läuft erst, wenn Sie auf Vorschau ansehen und bestätigen… geklickt und den Alias der Org getippt haben.",
+    "rewindNotConfirmedNote": "Nicht bestätigt: Der Schritt läuft erst, wenn Sie auf Vorschau ansehen und bestätigen… geklickt und den Alias der Org, oder ihren Benutzernamen, wenn sie keinen hat, getippt haben.",
     "rewindConfirm": "Vorschau ansehen und bestätigen…",
     "rewindRevoke": "Bestätigung widerrufen",
     "rewindGrantRefused": {
@@ -2783,7 +2783,7 @@
       "CONFIG_INVALID": "Der gespeicherte Schritt ist nicht lesbar: Korrigieren Sie ihn, speichern Sie und bestätigen Sie erneut.",
       "ORG_UNKNOWN": "Die Org dieses Schritts ist hier nicht verbunden.",
       "CHECKPOINT_INVALID": "Auf den Prüfpunkt dieses Schritts kann hier nicht zurückgesetzt werden: Wählen Sie einen anderen.",
-      "TYPED_MISMATCH": "Das Eingetippte ist nicht der Alias der Org: Nichts wurde bestätigt."
+      "TYPED_MISMATCH": "Das Eingetippte ist weder der Alias der Org noch, wenn sie keinen hat, ihr Benutzername: Nichts wurde bestätigt."
     },
     "rewindConfirmHeading": "Den Zurücksetzen-Schritt „{{step}}“ bestätigen",
     "rewindConfirmLead": "Was ein Zurücksetzen von {{org}} auf „{{name}}“ jetzt tun würde. Einmal bestätigt, setzt der Schritt die Org bei jeder Ausführung der Pipeline, auch geplant, zurück, höchstens {{max}} Datensätze, ohne dass jemand dies liest.",

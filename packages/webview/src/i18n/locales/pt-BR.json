@@ -2655,7 +2655,7 @@
       "rewindNeedsMaxRecords": "Defina o máximo de registros que esta etapa pode retroceder, todos os objetos juntos (1 ou mais).",
       "rewindConfigInvalid": "Esta etapa Retrocesso não pode ser lida: confira os objetos que ela nomeia.",
       "rewindNotSaved": "Salve o pipeline e depois confirme este retrocesso: uma confirmação vale para a etapa como está salva.",
-      "rewindNotConfirmed": "Não confirmado: clique em Ver prévia e confirmar… e depois digite o alias da org.",
+      "rewindNotConfirmed": "Não confirmado: clique em Ver prévia e confirmar… e depois digite o alias da org, ou o nome de usuário dela se ela não tiver alias.",
       "rewindChangedSinceConfirmed": "Este retrocesso mudou desde que foi confirmado: confirme-o de novo.",
       "rewindCheckpointMissing": "O ponto de verificação desta etapa não está guardado nesta máquina: crie um aqui e escolha-o.",
       "rewindCheckpointOtherOrg": "O ponto de verificação desta etapa foi criado de outra org: escolha um desta org.",
@@ -2775,7 +2775,7 @@
     },
     "rewindConfirmedOn": "Confirmado em {{date}}: esta etapa retrocede {{org}} para “{{name}}” a cada execução, incluindo as agendadas, no máximo {{max}} registros, revertendo ou excluindo toda alteração feita por qualquer pessoa desde então.",
     "rewindSaveFirst": "Salve o pipeline e depois confirme este retrocesso.",
-    "rewindNotConfirmedNote": "Não confirmado: a etapa não é executada até que você clique em Ver prévia e confirmar… e digite o alias da org.",
+    "rewindNotConfirmedNote": "Não confirmado: a etapa não é executada até que você clique em Ver prévia e confirmar… e digite o alias da org, ou o nome de usuário dela se ela não tiver alias.",
     "rewindConfirm": "Ver prévia e confirmar…",
     "rewindRevoke": "Revogar a confirmação",
     "rewindGrantRefused": {
@@ -2783,7 +2783,7 @@
       "CONFIG_INVALID": "A etapa salva não pode ser lida: corrija-a, salve e confirme de novo.",
       "ORG_UNKNOWN": "A org desta etapa não está conectada aqui.",
       "CHECKPOINT_INVALID": "Não é possível retroceder aqui ao ponto de verificação desta etapa: escolha outro.",
-      "TYPED_MISMATCH": "O que foi digitado não é o alias da org: nada foi confirmado."
+      "TYPED_MISMATCH": "O que foi digitado não é o alias da org nem, se ela não tiver alias, o nome de usuário dela: nada foi confirmado."
     },
     "rewindConfirmHeading": "Confirmar a etapa Retrocesso “{{step}}”",
     "rewindConfirmLead": "O que um retrocesso de {{org}} para “{{name}}” faria agora. Uma vez confirmada, a etapa retrocede a org sempre que o pipeline é executado, também por agendamento, no máximo {{max}} registros, sem ninguém para ler isto.",

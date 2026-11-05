@@ -2655,7 +2655,7 @@
       "rewindNeedsMaxRecords": "Set the most records this step may rewind, all objects together (1 or more).",
       "rewindConfigInvalid": "This Rewind step does not read: check the objects it names.",
       "rewindNotSaved": "Save the pipeline, then confirm this rewind: a confirmation holds for the step as saved.",
-      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias.",
+      "rewindNotConfirmed": "Not confirmed: click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
       "rewindChangedSinceConfirmed": "This rewind changed since it was confirmed: confirm it again.",
       "rewindCheckpointMissing": "The checkpoint this step rewinds to is not kept on this machine: take one here and choose it.",
       "rewindCheckpointOtherOrg": "The checkpoint this step rewinds to was taken of another org: choose one of this org.",
@@ -2775,7 +2775,7 @@
     },
     "rewindConfirmedOn": "Confirmed on {{date}}: this step rewinds {{org}} to “{{name}}” on each run, scheduled ones included, at most {{max}} records, reverting or deleting every change anyone made since.",
     "rewindSaveFirst": "Save the pipeline, then confirm this rewind.",
-    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias.",
+    "rewindNotConfirmedNote": "Not confirmed: the step does not run until you click Preview and confirm…, then type the org's alias, or its username for an org that has none.",
     "rewindConfirm": "Preview and confirm…",
     "rewindRevoke": "Revoke confirmation",
     "rewindGrantRefused": {
@@ -2783,7 +2783,7 @@
       "CONFIG_INVALID": "The step as saved does not read: fix it, save, then confirm again.",
       "ORG_UNKNOWN": "The org this step rewinds is not connected here.",
       "CHECKPOINT_INVALID": "The checkpoint this step rewinds to cannot be rewound to here: choose another.",
-      "TYPED_MISMATCH": "What was typed is not the org's alias: nothing was confirmed."
+      "TYPED_MISMATCH": "What was typed is not the org's alias, nor its username for an org that has none: nothing was confirmed."
     },
     "rewindConfirmHeading": "Confirm the Rewind step “{{step}}”",
     "rewindConfirmLead": "What a rewind of {{org}} to “{{name}}” would do now. Once confirmed, the step rewinds the org whenever the pipeline runs, by schedule too, at most {{max}} records, with nobody there to read this.",

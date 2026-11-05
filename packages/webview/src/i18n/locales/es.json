@@ -2655,7 +2655,7 @@
       "rewindNeedsMaxRecords": "Indique el máximo de registros que este paso puede retroceder, todos los objetos juntos (1 o más).",
       "rewindConfigInvalid": "Este paso Retroceso no se puede leer: revise los objetos que nombra.",
       "rewindNotSaved": "Guarde el pipeline y luego confirme este retroceso: una confirmación vale para el paso tal como está guardado.",
-      "rewindNotConfirmed": "Sin confirmar: haga clic en Ver vista previa y confirmar… y luego escriba el alias de la org.",
+      "rewindNotConfirmed": "Sin confirmar: haga clic en Ver vista previa y confirmar… y luego escriba el alias de la org, o su nombre de usuario si no tiene alias.",
       "rewindChangedSinceConfirmed": "Este retroceso cambió desde que se confirmó: confírmelo de nuevo.",
       "rewindCheckpointMissing": "El punto de control de este paso no se conserva en esta máquina: cree uno aquí y elíjalo.",
       "rewindCheckpointOtherOrg": "El punto de control de este paso se creó de otra org: elija uno de esta org.",
@@ -2775,7 +2775,7 @@
     },
     "rewindConfirmedOn": "Confirmado el {{date}}: este paso hace retroceder {{org}} a «{{name}}» en cada ejecución, incluidas las programadas, como máximo {{max}} registros, revirtiendo o eliminando todo cambio que cualquiera haya hecho desde entonces.",
     "rewindSaveFirst": "Guarde el pipeline y luego confirme este retroceso.",
-    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que haga clic en Ver vista previa y confirmar… y escriba el alias de la org.",
+    "rewindNotConfirmedNote": "Sin confirmar: el paso no se ejecuta hasta que haga clic en Ver vista previa y confirmar… y escriba el alias de la org, o su nombre de usuario si no tiene alias.",
     "rewindConfirm": "Ver vista previa y confirmar…",
     "rewindRevoke": "Revocar la confirmación",
     "rewindGrantRefused": {
@@ -2783,7 +2783,7 @@
       "CONFIG_INVALID": "El paso guardado no se puede leer: corríjalo, guarde y confirme de nuevo.",
       "ORG_UNKNOWN": "La org de este paso no está conectada aquí.",
       "CHECKPOINT_INVALID": "No se puede retroceder aquí al punto de control de este paso: elija otro.",
-      "TYPED_MISMATCH": "Lo escrito no es el alias de la org: no se confirmó nada."
+      "TYPED_MISMATCH": "Lo escrito no es el alias de la org ni, si no tiene alias, su nombre de usuario: no se confirmó nada."
     },
     "rewindConfirmHeading": "Confirmar el paso Retroceso «{{step}}»",
     "rewindConfirmLead": "Lo que haría ahora un retroceso de {{org}} a «{{name}}». Una vez confirmado, el paso hace retroceder la org cada vez que el pipeline se ejecuta, también de forma programada, como máximo {{max}} registros, sin nadie que lea esto.",

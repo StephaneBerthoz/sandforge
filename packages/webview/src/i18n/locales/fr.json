@@ -2655,7 +2655,7 @@
       "rewindNeedsMaxRecords": "Indiquez le nombre maximal d'enregistrements que cette étape peut remettre en état, tous objets confondus (1 ou plus).",
       "rewindConfigInvalid": "Cette étape Retour arrière n'est pas lisible : vérifiez les objets qu'elle nomme.",
       "rewindNotSaved": "Enregistrez le pipeline, puis confirmez ce retour arrière : une confirmation vaut pour l'étape telle qu'enregistrée.",
-      "rewindNotConfirmed": "Non confirmé : cliquez sur Prévisualiser et confirmer…, puis tapez l'alias de l'org.",
+      "rewindNotConfirmed": "Non confirmé : cliquez sur Prévisualiser et confirmer…, puis tapez l'alias de l'org, ou son nom d'utilisateur si elle n'en a pas.",
       "rewindChangedSinceConfirmed": "Ce retour arrière a changé depuis sa confirmation : confirmez-le à nouveau.",
       "rewindCheckpointMissing": "Le point de contrôle de cette étape n'est pas conservé sur cette machine : prenez-en un ici et choisissez-le.",
       "rewindCheckpointOtherOrg": "Le point de contrôle de cette étape a été pris d'une autre org : choisissez-en un de cette org.",
@@ -2775,7 +2775,7 @@
     },
     "rewindConfirmedOn": "Confirmé le {{date}} : cette étape fait revenir {{org}} à « {{name}} » à chaque exécution, planifiées comprises, au plus {{max}} enregistrements, en annulant ou supprimant toute modification faite depuis, par qui que ce soit.",
     "rewindSaveFirst": "Enregistrez le pipeline, puis confirmez ce retour arrière.",
-    "rewindNotConfirmedNote": "Non confirmé : l'étape ne s'exécute pas tant que vous n'avez pas cliqué sur Prévisualiser et confirmer…, puis tapé l'alias de l'org.",
+    "rewindNotConfirmedNote": "Non confirmé : l'étape ne s'exécute pas tant que vous n'avez pas cliqué sur Prévisualiser et confirmer…, puis tapé l'alias de l'org, ou son nom d'utilisateur si elle n'en a pas.",
     "rewindConfirm": "Prévisualiser et confirmer…",
     "rewindRevoke": "Révoquer la confirmation",
     "rewindGrantRefused": {
@@ -2783,7 +2783,7 @@
       "CONFIG_INVALID": "L'étape enregistrée n'est pas lisible : corrigez-la, enregistrez, puis confirmez à nouveau.",
       "ORG_UNKNOWN": "L'org de cette étape n'est pas connectée ici.",
       "CHECKPOINT_INVALID": "Le point de contrôle de cette étape ne permet pas de revenir en arrière ici : choisissez-en un autre.",
-      "TYPED_MISMATCH": "Le texte saisi n'est pas l'alias de l'org : rien n'a été confirmé."
+      "TYPED_MISMATCH": "Le texte saisi n'est ni l'alias de l'org ni, si elle n'en a pas, son nom d'utilisateur : rien n'a été confirmé."
     },
     "rewindConfirmHeading": "Confirmer l'étape Retour arrière « {{step}} »",
     "rewindConfirmLead": "Ce que ferait maintenant un retour arrière de {{org}} à « {{name}} ». Une fois confirmée, l'étape fait revenir l'org à chaque exécution du pipeline, planifiée aussi, au plus {{max}} enregistrements, sans personne pour lire ceci.",

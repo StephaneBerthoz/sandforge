@@ -129,4 +129,12 @@
   .react-flow__minimap {
     box-shadow: 0 0 0 1px var(--sf-border-subtle);
   }
+
+  /* An object the Autopilot run skipped: hollow, its outline dashed, as its
+     card draws it, and as wide on screen at any size the graph is drawn. React
+     Flow's own rule for a minimap node sets neither. */
+  .react-flow__minimap-node.autopilot-minimap-skipped {
+    stroke-dasharray: 4 3;
+    vector-effect: non-scaling-stroke;
+  }
 }

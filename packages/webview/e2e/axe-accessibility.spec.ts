@@ -1876,6 +1876,87 @@ async function backgroundDotsContrast(page: Page, graph: string): Promise<number
   });
 }
 
+/** One object of a graph's minimap, as Chromium paints it over the minimap's background. */
+interface MinimapNodeAsPainted {
+  /** How far its fill stands out from the minimap, as a contrast ratio; null when hollow. */
+  readonly fill: number | null;
+  /** How far its outline stands out from the minimap; null when it draws none. */
+  readonly outline: number | null;
+  /** How wide its outline is on screen, in pixels. */
+  readonly outlinePx: number;
+  /** Whether its outline is dashed. */
+  readonly dashed: boolean;
+}
+
+/**
+ * The objects the minimap of the pane `graph` draws, top to bottom, as
+ * Chromium paints them: each fill and outline composited over the minimap's
+ * background and everything under it. axe looks at none of them: no text.
+ */
+async function minimapNodesAsPainted(page: Page, graph: string): Promise<MinimapNodeAsPainted[]> {
+  return page.getByTestId(graph).evaluate((pane) => {
+    type Rgba = [number, number, number, number];
+    const probe = document.createElement('canvas').getContext('2d', {
+      willReadFrequently: true,
+    }) as CanvasRenderingContext2D;
+    // Any colour syntax Chromium computes, `color(srgb …)` and `color-mix`
+    // results included, read back through a canvas as 8-bit sRGB.
+    const parse = (text: string): Rgba | null => {
+      if (text === 'none' || text === '') return null;
+      probe.clearRect(0, 0, 1, 1);
+      probe.fillStyle = 'rgba(0, 0, 0, 0)';
+      probe.fillStyle = text;
+      probe.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+      return a === 0 ? null : [r, g, b, a / 255];
+    };
+    const over = (top: Rgba, under: Rgba): Rgba => [
+      top[0] * top[3] + under[0] * (1 - top[3]),
+      top[1] * top[3] + under[1] * (1 - top[3]),
+      top[2] * top[3] + under[2] * (1 - top[3]),
+      1,
+    ];
+    const luminance = ([r, g, b]: Rgba): number => {
+      const channel = (value: number): number => {
+        const s = value / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const ratio = (a: Rgba, b: Rgba): number => {
+      const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return Math.round(((light + 0.05) / (dark + 0.05)) * 100) / 100;
+    };
+    const svg = pane.querySelector('.react-flow__minimap-svg');
+    if (!svg) throw new Error('the pane draws no minimap');
+    // The backgrounds from the page down to the minimap's own.
+    const layers: Rgba[] = [];
+    for (let at: Element | null = svg; at; at = at.parentElement) {
+      const layer = parse(getComputedStyle(at).backgroundColor);
+      if (layer) layers.unshift(layer);
+    }
+    const under = layers.reduce<Rgba>((below, layer) => over(layer, below), [255, 255, 255, 1]);
+    return [...svg.querySelectorAll<SVGRectElement>('.react-flow__minimap-node')]
+      .sort((a, b) => a.y.baseVal.value - b.y.baseVal.value)
+      .map((rect) => {
+        const style = getComputedStyle(rect);
+        const fill = parse(style.fill);
+        const stroke = parse(style.stroke);
+        const width = parseFloat(style.strokeWidth) || 0;
+        // A stroke scales with the minimap, which draws the graph a fraction of
+        // its size, unless it is told not to.
+        const scale =
+          style.vectorEffect === 'non-scaling-stroke' ? 1 : (rect.getScreenCTM()?.a ?? 1);
+        return {
+          fill: fill ? ratio(over(fill, under), under) : null,
+          outline: stroke && width > 0 ? ratio(over(stroke, under), under) : null,
+          outlinePx: stroke ? Math.round(width * scale * 100) / 100 : 0,
+          dashed: stroke != null && style.strokeDasharray !== 'none',
+        };
+      });
+  });
+}
+
 /** What the Autopilot graph's pane draws over its graph: the minimap, the legend and the controls. */
 const AUTOPILOT_GRAPH_OVERLAYS = [
   MINIMAP,
@@ -12493,6 +12574,39 @@ for (const theme of STATE_THEMES) {
       expect(await autopilotNodesUnderItsOverlays(page)).toEqual(
         Object.fromEntries(AUTOPILOT_GRAPH_OVERLAYS.map((overlay) => [overlay, []])),
       );
+    });
+
+    test('Autopilot minimap drawing an object skipped hollow and dashed, apart from one waiting', async ({
+      page,
+    }) => {
+      // Both were filled in neighbouring greys, 1.46:1 apart on the
+      // fallbacks, in a minimap shown from the start that draws no word.
+      await startAutopilotRun(bridge, page, theme);
+      await bridge.stream([
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Contact',
+            objectName: 'Contact',
+            status: 'skipped',
+            wave: 1,
+            recordCount: 0,
+            notSent: 1200,
+          },
+        },
+      ]);
+      await page.getByTestId('node-skipped').waitFor({ state: 'visible', timeout: 10_000 });
+      await graphFitted(page, AUTOPILOT_GRAPH);
+
+      // Account waits, filled; Contact was skipped, hollow, its outline dashed.
+      const [waiting, skipped] = await minimapNodesAsPainted(page, AUTOPILOT_GRAPH);
+      expect(waiting).toMatchObject({ outline: null, dashed: false });
+      expect(waiting.fill).toBeGreaterThanOrEqual(3);
+      expect(skipped).toMatchObject({ fill: null, dashed: true });
+      expect(skipped.outline).toBeGreaterThanOrEqual(3);
+      expect(skipped.outlinePx).toBeGreaterThanOrEqual(1);
+
+      await expectReadable(page, theme);
     });
 
     test('Seed execute step of a run that skipped configure, with its rules and a relation', async ({
