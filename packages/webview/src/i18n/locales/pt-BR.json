@@ -7027,9 +7027,12 @@
         "accept": "Executar mesmo que triggers, fluxos ou regras de fluxo de trabalho disparem nos registros que ele grava"
       },
       "emails": {
-        "fits": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
-        "exceeds": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), mais que os {{remaining}} de {{max}} que restam hoje: o retrocesso é recusado, seja o que for marcado.",
-        "unread": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}). Não foi possível ler o que resta hoje ({{reason}}).",
+        "fits_one": "{{limit}}: cerca de {{emails}} enviado pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
+        "fits_other": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
+        "exceeds_one": "{{limit}}: cerca de {{emails}} enviado pela automação de {{org}} quando o retrocesso grava ({{senders}}), mais que os {{remaining}} de {{max}} que restam hoje: o retrocesso é recusado, seja o que for marcado.",
+        "exceeds_other": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), mais que os {{remaining}} de {{max}} que restam hoje: o retrocesso é recusado, seja o que for marcado.",
+        "unread_one": "{{limit}}: cerca de {{emails}} enviado pela automação de {{org}} quando o retrocesso grava ({{senders}}). Não foi possível ler o que resta hoje ({{reason}}).",
+        "unread_other": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}). Não foi possível ler o que resta hoje ({{reason}}).",
         "alertsCounted": "{{org}} conta seus alertas por e-mail entre seus e-mails individuais, como uma Developer Edition: eles estão entre eles.",
         "uncounted": "Não foi possível ler tudo o que {{org}} executa quando o retrocesso grava ({{reason}}): os e-mails enviados não foram contados em seus limites diários."
       },
@@ -7071,6 +7074,7 @@
         "newIds": "O retrocesso os recria a partir do ponto de verificação, com Ids novos, e os campos de pesquisa do ponto de verificação que os nomeavam nomeiam os Ids novos. O que fora do Salesforce nomeia os Ids antigos — uma integração, um link, um filtro de relatório — não os encontra mais. Desfazer os exclui de novo.",
         "ifEmptiedTitle": "Se a lixeira não os contém mais",
         "ifEmptied": "O Salesforce ainda mostra como excluído um registro esvaziado da lixeira, por minutos ou horas, e só diz que a lixeira não o contém mais quando o retrocesso pede para recuperá-lo. Marcado, o retrocesso então o recria a partir do ponto de verificação, com um Id novo, junto com os registros que deviam voltar com ele, executando o que a org executa ao criar um registro; desmarcado, ele os deixa e os nomeia.",
+        "asDraft": "O Salesforce recusa um pedido ou um contrato criado além de Rascunho: o retrocesso o recria como Rascunho ({{objects}}), depois os registros abaixo dele, e então lhe devolve o status — uma atualização, que executa o que {{org}} executa quando um deles é atualizado.",
         "accept": "Recriar, com Ids novos, os registros já esvaziados da lixeira"
       },
       "files": {
@@ -7282,7 +7286,7 @@
     "undo": {
       "open": "Desfazer este retrocesso",
       "title": "Desfazer o último retrocesso de {{org}}?",
-      "description": "Recupera da lixeira o que o retrocesso excluiu, devolve ao que ele sobrescreveu os seus valores de antes, envia de volta para a lixeira o que ele recuperou e exclui de novo o que ele recriou. O que qualquer pessoa alterou em {{org}} desde o retrocesso fica como está.",
+      "description": "Recupera da lixeira o que o retrocesso excluiu, devolve ao que ele sobrescreveu os seus valores de antes, envia de volta para a lixeira o que ele recuperou e exclui de novo o que ele recriou; um pedido além de Rascunho volta antes para Rascunho, a única forma de o Salesforce excluir um. O que qualquer pessoa alterou em {{org}} desde o retrocesso fica como está.",
       "acceptAutomation": "Desfazer mesmo que {{org}} execute automações quando registros são atualizados, excluídos ou recuperados",
       "acceptEmails": "Desfazer mesmo que {{org}} entregue todos os e-mails que suas automações enviam quando o desfazer grava, ou não diga se os entrega"
     },

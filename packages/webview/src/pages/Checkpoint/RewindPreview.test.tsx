@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import '@testing-library/jest-dom/vitest';
 import i18n from '../../i18n';
 import de from '../../i18n/locales/de.json';
+import fr from '../../i18n/locales/fr.json';
 import type {
   ForgeTargetAutomation,
   OrgCheckpoint,
@@ -805,6 +806,30 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('says an order or a contract it makes again is made as a draft, then given its status back, an update: the page did not, and the rewind did it (GC2)', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Order', { toRecreate: 1 }),
+          diffObject('Contract', {
+            toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          }),
+        ],
+      }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-recreate-as-draft').textContent).toBe(
+      'Salesforce refuses an order or a contract made past Draft: the rewind makes one again as a draft (Order and Contract), the records under it next, then gives it its status back — an update, which runs what DEV-SB runs as one is updated.',
+    );
+    cleanup();
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({ objects: [diffObject('Case', { toRecreate: 2 })] }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-recreate')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-preview-recreate-as-draft')).toBeNull();
+  });
+
   it('shows no number nor column for records to make again when there is none', () => {
     renderPreview();
     answerPreview();
@@ -1185,6 +1210,41 @@ describe('RewindPreview', () => {
     );
     fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+  });
+
+  it('says one email in the singular where the language agrees with it: "environ 1 envoyés" read wrong in French', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      renderPreview();
+      answerPreview({
+        automation: AUTOMATION,
+        emails: [
+          {
+            limit: 'SingleEmail',
+            emails: 1,
+            objects: [
+              {
+                objectApiName: 'Account',
+                write: 'update',
+                records: 1,
+                perRecord: 1,
+                sentBy: ['Account touch'],
+              },
+            ],
+            verdict: 'fits',
+            remaining: 10,
+            max: 15,
+          },
+        ],
+      });
+
+      expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail').textContent).toBe(
+        "E-mails individuels : environ 1 envoyé par l'automatisation de DEV-SB quand le retour arrière écrit (Account touch), 10 sur 15 restants aujourd'hui.",
+      );
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
   });
 
   it('says the emails of what it could not read were not counted, though nothing it read sends one, and asks for the automation to be accepted', () => {

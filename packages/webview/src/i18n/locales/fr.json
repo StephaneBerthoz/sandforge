@@ -7027,9 +7027,12 @@
         "accept": "Lancer même si des triggers, des Flows ou des règles de workflow se déclenchent sur les enregistrements qu'il écrit"
       },
       "emails": {
-        "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
-        "exceeds": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), plus que les {{remaining}} sur {{max}} restants aujourd'hui : le retour arrière est refusé, quoi qu'on coche.",
-        "unread": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}). Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
+        "fits_one": "{{limit}} : environ {{emails}} envoyé par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
+        "fits_other": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
+        "exceeds_one": "{{limit}} : environ {{emails}} envoyé par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), plus que les {{remaining}} sur {{max}} restants aujourd'hui : le retour arrière est refusé, quoi qu'on coche.",
+        "exceeds_other": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), plus que les {{remaining}} sur {{max}} restants aujourd'hui : le retour arrière est refusé, quoi qu'on coche.",
+        "unread_one": "{{limit}} : environ {{emails}} envoyé par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}). Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
+        "unread_other": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}). Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
         "alertsCounted": "{{org}} compte ses alertes par e-mail parmi ses e-mails individuels, comme une Developer Edition : elles en font partie.",
         "uncounted": "Ce que {{org}} exécute quand le retour arrière écrit n'a pas pu être lu en entier ({{reason}}) : les e-mails envoyés n'ont pas été comptés dans ses limites quotidiennes."
       },
@@ -7071,6 +7074,7 @@
         "newIds": "Le retour arrière les recrée à partir du point de contrôle, avec de nouveaux Id, et les champs de référence que le point de contrôle contient qui les désignaient désignent les nouveaux Id. Ce qui, hors de Salesforce, désigne leurs anciens Id — une intégration, un lien, un filtre de rapport — ne les trouve plus. L'annulation les supprime de nouveau.",
         "ifEmptiedTitle": "Si la corbeille ne les contient plus",
         "ifEmptied": "Salesforce indique encore comme supprimé un enregistrement vidé de la corbeille, pendant des minutes ou des heures, et ne dit que la corbeille ne le contient plus qu'au moment où le retour arrière le lui redemande. Coché, le retour arrière le recrée alors à partir du point de contrôle, avec un nouvel Id, ainsi que les enregistrements qui devaient revenir avec lui, en exécutant ce que l'org exécute à la création d'un enregistrement ; décoché, il les laisse et les nomme.",
+        "asDraft": "Salesforce refuse une commande ou un contrat créé au-delà du Brouillon : le retour arrière le recrée en Brouillon ({{objects}}), puis les enregistrements qui en dépendent, et lui rend ensuite son statut — une mise à jour, qui exécute ce que {{org}} exécute quand l'un d'eux est modifié.",
         "accept": "Recréer, avec de nouveaux Id, les enregistrements déjà vidés de la corbeille"
       },
       "files": {
@@ -7282,7 +7286,7 @@
     "undo": {
       "open": "Annuler ce retour arrière",
       "title": "Annuler le dernier retour arrière de {{org}} ?",
-      "description": "Rétablit depuis la corbeille ce que le retour arrière a supprimé, rend à ce qu'il a écrasé ses valeurs d'avant, renvoie à la corbeille ce qu'il a rétabli et supprime de nouveau ce qu'il a recréé. Ce que chacun a modifié dans {{org}} depuis le retour arrière reste tel quel.",
+      "description": "Rétablit depuis la corbeille ce que le retour arrière a supprimé, rend à ce qu'il a écrasé ses valeurs d'avant, renvoie à la corbeille ce qu'il a rétabli et supprime de nouveau ce qu'il a recréé, une commande au-delà du Brouillon remise d'abord en Brouillon, la seule façon dont Salesforce en supprime une. Ce que chacun a modifié dans {{org}} depuis le retour arrière reste tel quel.",
       "acceptAutomation": "Annuler même si {{org}} exécute des automatisations quand des enregistrements sont modifiés, supprimés ou rétablis",
       "acceptEmails": "Annuler même si {{org}} délivre tous les e-mails que ses automatisations envoient quand l'annulation écrit, ou ne dit pas s'ils partent"
     },

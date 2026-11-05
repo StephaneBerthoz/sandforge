@@ -48,6 +48,7 @@ import { previewCheckpoint } from './previewCheckpoint.js';
 import { rewindStepsOf } from './rewindBounds.js';
 import { readRewindJournal, undoPlansOf } from './rewindJournal.js';
 import { NOT_REMADE_WORDS, type RewindDeps } from './rewindOrg.js';
+import { undoCheckpoint } from './undoCheckpoint.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -842,6 +843,51 @@ describe('the journal and Undo (B3)', () => {
       expect(t.org.inBin('Order').map((row) => row.Id)).toEqual([order(7)]);
     });
 
+    it('is sent back to the bin with its account by the undo of a rewind that brought it back with it and gave it its status: the undo gives it its Draft from before first, and the org takes the account', async () => {
+      const t = await taken(
+        (org) => {
+          baseRecords(org);
+          org.add('OrderStatus', { Id: 'status-1', ApiName: 'Draft', StatusCode: 'Draft' });
+          org.add('OrderStatus', { Id: 'status-2', ApiName: 'Activated', StatusCode: 'Activated' });
+          org.add('Order', { Id: order(1), Status: 'Activated', AccountId: account(1) });
+        },
+        new RewindTestOrg({ fields: ORDER_FIELDS, children: ORDER_CHILDREN }),
+        ORDER_OBJECTS,
+      );
+      clock.now = SINCE;
+      // The one way the org deletes the account: its order a draft first.
+      t.org.edit('Order', order(1), { Status: 'Draft' }, COLLEAGUE);
+      clock.now = SINCE + 5_000;
+      t.org.trash('Account', account(1), COLLEAGUE);
+      const diff = await previewed(t);
+      expect(diff.objects.find((o) => o.objectApiName === 'Order')).toMatchObject({
+        toBringBack: { withParent: 1 },
+      });
+      const rewind = resultOf(await rewound(t, diff.previewId));
+      expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
+      const plans = await undoPlansOf(t.folder, rewind.rewindId, t.checkpoint.objects);
+      try {
+        expect(plans.goesWithParent.objects).toContainEqual({ objectApiName: 'Order', count: 1 });
+      } finally {
+        await plans.dispose();
+      }
+      const updatesBefore = t.org.updates.length;
+
+      const undo = await undone(t, rewind.rewindId);
+
+      expect(undo.status).toBe('success');
+      expect(t.org.inBin('Order').map((row) => [row.Id, row.Status])).toEqual([
+        [order(1), 'Draft'],
+      ]);
+      expect(t.org.inBin('Account').map((row) => row.Id)).toContain(account(1));
+      expect(
+        t.org.updates
+          .slice(updatesBefore)
+          .filter(({ objectApiName }) => objectApiName === 'Order')
+          .flatMap(({ records }) => records.map((record) => record.Status)),
+      ).toEqual(['Draft']);
+    });
+
     it('gives it its status back when the org refuses the account', async () => {
       const t = await activatedUnderAccount();
       t.org.refuse.set(account(7), 'Held by a rule of the org');
@@ -1153,6 +1199,26 @@ describe('an activated order a rewind makes again or keeps', () => {
   };
   const order = (n: number): string => id('801', n);
   const item = (n: number): string => id('802', n);
+  /** A flow that emails an order's owner as it is updated, and no other write. */
+  const ORDER_UPDATE_EMAIL = automationOf({
+    objects: [
+      {
+        objectApiName: 'Order',
+        flows: [
+          {
+            apiName: 'Order_touched',
+            label: 'Order touched',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+            messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+  });
 
   /**
    * An order activated at the checkpoint, with a product: set back to Draft
@@ -1364,6 +1430,116 @@ describe('an activated order a rewind makes again or keeps', () => {
     expect(result.residual).toContainEqual(
       expect.objectContaining({ objectApiName: 'Order', reason: 'kept', count: 1 }),
     );
+  });
+
+  it('is set back to Draft by the undo before it is deleted again, and the undo asks for and counts what a flow on an order’s update sends then: the org deletes no order past Draft (P8)', async () => {
+    const t = await purgedSince();
+    const diff = await previewed(t);
+    const made = resultOf(await rewound(t, diff.previewId, { request: { acceptRecreate: true } }));
+    const [remade] = t.org.all('Order');
+    const read = await t.store.read(t.checkpoint.checkpointId);
+    if (!read?.checkpoint || remade === undefined) throw new Error('nothing to undo');
+    const checkpoint = read.checkpoint;
+    clock.now += 60_000;
+    const undo = (asked: { acceptAutomation: boolean }) =>
+      undoCheckpoint(
+        {
+          org: t.org,
+          undelete: (ids) => t.org.undelete(ids),
+          store: t.store,
+          readAutomation: ORDER_UPDATE_EMAIL,
+        },
+        { ...request(t), checkpoint, rewindId: made.rewindId, ...asked },
+      );
+    const updatesBefore = t.org.updates.length;
+
+    expect(await undo({ acceptAutomation: false })).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'AUTOMATION',
+        message: expect.stringContaining(
+          '1 flow(s), trigger(s) or rule(s) of Order run as the undo brings records back, gives them their values back, sets an order back to Draft or sends them back to the recycle bin',
+        ) as unknown,
+      },
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    expect(await undo({ acceptAutomation: true })).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This undo would make DEV-ED send about 1 single email,/,
+        ) as unknown,
+      },
+    });
+    expect(t.org.updates).toHaveLength(updatesBefore);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const outcome = await undo({ acceptAutomation: true });
+
+    expect(outcome.undone).toBe(true);
+    expect(t.org.updates.slice(updatesBefore)).toEqual([
+      { objectApiName: 'Order', records: [{ Id: remade.Id, Status: 'Draft' }] },
+    ]);
+    expect(t.org.all('Order')).toEqual([]);
+    expect(t.org.all('OrderItem')).toEqual([]);
+  });
+
+  it('stopped once it was made as a draft and before its status went back, stays a draft in a rewind said stopped part way, and the rewind taken up again gives it its status', async () => {
+    const t = await purgedSince();
+    const diff = await previewed(t);
+    const controller = new AbortController();
+    // Stopped as the org answers the insert of the order's product: the
+    // order is made, a draft, and its status not given back yet.
+    const create = t.org.create.bind(t.org);
+    t.org.create = async (objectApiName, records) => {
+      const answer = await create(objectApiName, records);
+      if (objectApiName === 'OrderItem') controller.abort();
+      return answer;
+    };
+
+    const stopped = resultOf(
+      await rewound(t, diff.previewId, {
+        deps: { signal: controller.signal },
+        request: { acceptRecreate: true },
+      }),
+    );
+
+    // What the user reads: a rewind stopped part way, the order and its
+    // product made again, and nothing more of the order than that.
+    expect(stopped.status).toBe('cancelled');
+    expect(stopped.recreated).toEqual([
+      { objectApiName: 'Order', planned: 1, created: 1, refused: 0, reasons: [] },
+      { objectApiName: 'OrderItem', planned: 1, created: 1, refused: 0, reasons: [] },
+    ]);
+    expect(stopped.residual).toEqual([]);
+    expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Draft' })]);
+    expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Order')).toEqual([]);
+
+    t.org.create = create;
+    // Taken up as the command line and the page take it up: the org read
+    // again, the order made since a draft where the checkpoint holds it
+    // activated, its status given back.
+    clock.now += 60_000;
+    const read = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
+    if (!read.previewed) throw new Error(read.refusal.message);
+    expect(
+      read.diff.objects
+        .filter(({ objectApiName }) => objectApiName.startsWith('Order'))
+        .map(({ objectApiName, toGiveBack, toRecreate }) => [
+          objectApiName,
+          toGiveBack.records,
+          toRecreate ?? 0,
+        ]),
+    ).toEqual([
+      ['OrderItem', 0, 0],
+      ['Order', 1, 0],
+    ]);
+    const again = resultOf(await rewound(t, read.diff.previewId));
+
+    expect(again.status).toBe('success');
+    expect(t.org.all('Order')).toEqual([expect.objectContaining({ Status: 'Activated' })]);
+    expect(t.org.all('OrderItem')).toHaveLength(1);
   });
 
   it('is left a draft, named with the org’s words, when the org refuses its status back: its product made under it all the same', async () => {

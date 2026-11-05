@@ -15,6 +15,7 @@ import {
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import {
   MEMORY_ORG_USER,
+  type MemoryChild,
   type MemoryOrgRequest,
   type MemoryRow,
 } from '../src/test/memoryRemovalOrg.js';
@@ -100,8 +101,10 @@ class CliTestOrg extends MemoryRestoreOrg {
   /** Told of each update, once it is made. */
   afterUpdate?: (objectApiName: string) => void;
 
-  constructor(says: { sandbox?: boolean; edition?: string } = {}) {
-    super({}, { now: () => clock });
+  constructor(
+    says: { sandbox?: boolean; edition?: string; children?: Record<string, MemoryChild[]> } = {},
+  ) {
+    super(says.children ?? {}, { now: () => clock });
     clock = LONG_AGO;
     for (const [name, fields] of Object.entries(FIELDS)) this.changeSchema(name, fields);
     this.add('Organization', {
@@ -1328,6 +1331,122 @@ describe('sandforge-checkpoint rewind', () => {
       expect.objectContaining({ acceptOutside: false }),
       expect.objectContaining({ acceptOutside: true }),
     ]);
+  });
+
+  describe('a checkpoint of picked objects, records outside it made since under one it would delete', () => {
+    /** What a delete of an account runs: a flow, which a rewind that deletes one is asked about. */
+    const ON_ACCOUNT_DELETE: ForgeTargetAutomation = {
+      objectsRead: ['Account'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Gone',
+              label: 'Account gone',
+              timing: 'beforeSave',
+              startsOn: 'delete',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+
+    /** A checkpoint of accounts alone, then an account made since with a case under it, outside it. */
+    async function caseUnderNewAccount(
+      sending?: (request: PanelRequest) => PanelRequest,
+    ): Promise<Harness> {
+      const org = new CliTestOrg({
+        children: { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+      });
+      org.changeSchema('Case', [
+        ...STAMP_FIELDS,
+        writable('Subject'),
+        { ...writable('AccountId'), type: 'reference', referenceTo: ['Account'] },
+      ]);
+      const h = harness({ org, automation: ON_ACCOUNT_DELETE, ...(sending ? { sending } : {}) });
+      await taken(h, '--name', 'Accounts', '--object', 'Account');
+      clock = T0 + 60_000;
+      h.org.add('Account', { Id: id('001', 3), Name: 'Made since', LastModifiedById: COLLEAGUE });
+      h.org.add('Case', {
+        Id: id('500', 3),
+        Subject: 'Under it',
+        AccountId: id('001', 3),
+        LastModifiedById: COLLEAGUE,
+      });
+      clock = T0 + 120_000;
+      return h;
+    }
+
+    it('counts, without --accept-outside, what the rewind writes, and is refused for nothing it does not write: it keeps the account the case hangs from (GC2)', async () => {
+      const h = await caseUnderNewAccount();
+      const before = stateOf(h.org);
+
+      const kept = await h.run('rewind', '--org', 'DEV-SB', '--dry-run', '--json');
+
+      expect(kept.code, kept.stderr).toBe(0);
+      const answer = JSON.parse(kept.stdout) as Record<string, unknown>;
+      expect(answer).toMatchObject({ toDelete: 0, differs: true });
+      expect(answer).not.toHaveProperty('wouldBeRefusedCodes');
+      expect(answer).not.toHaveProperty('objects');
+      expect(answer.kept).toEqual([
+        { objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1 },
+      ]);
+      expect(kept.stderr).toContain('  0 to delete · 0 to give back · 0 to bring back');
+      expect(kept.stderr).toContain(
+        '  kept: 1 Account record(s) — records outside the checkpoint made since hang from them, which their deletion would take along: kept, unless --accept-outside',
+      );
+      expect(kept.stderr).not.toContain('nothing to rewind');
+      expect(kept.stderr).not.toContain('a rewind now would be refused');
+
+      // Told it may, it deletes the account and its case, and its flow is asked for.
+      const deletes = await h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--dry-run',
+        '--accept-outside',
+        '--json',
+      );
+      expect(JSON.parse(deletes.stdout)).toMatchObject({
+        toDelete: 1,
+        wouldBeRefusedCodes: ['AUTOMATION'],
+      });
+      expect(stateOf(h.org)).toEqual(before);
+    });
+
+    it('previews, with preview, the rewind its line runs, without --accept-outside: the emails and the numbers of what it writes, the org differing all the same', async () => {
+      const asked: unknown[] = [];
+      const h = await caseUnderNewAccount((request) => {
+        if (request.type === 'checkpoint:preview') asked.push(request.payload);
+        return request;
+      });
+
+      const previewed = await h.run('preview', '--org', 'DEV-SB', '--json');
+      const failing = await h.run('preview', '--org', 'DEV-SB', '--fail-on-change', '--json');
+
+      expect(asked).toEqual([
+        expect.objectContaining({ acceptOutside: false }),
+        expect.objectContaining({ acceptOutside: false }),
+      ]);
+      expect(previewed.code, previewed.stderr).toBe(0);
+      expect(JSON.parse(previewed.stdout)).toMatchObject({
+        toDelete: 0,
+        differs: true,
+        kept: [{ objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1 }],
+      });
+      expect(previewed.stderr).toContain(
+        '  kept: 1 Account record(s) — records outside the checkpoint',
+      );
+      expect(failing.code).toBe(3);
+    });
   });
 
   it('previews with --dry-run and stops: exit 0, nothing written, the preview’s JSON', async () => {

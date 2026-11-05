@@ -67,7 +67,7 @@ import { isMuteRefusedError } from '../forge/AutomationMuteLease.js';
 import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
 import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
+import { setBackToDraftOf, type RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
 import { OrgReadStopped, compositeReader } from './compositeQueries.js';
@@ -287,11 +287,13 @@ function automationRefusal(
 ): CheckpointRefusal {
   const fired = firedOnRemovalStepsOf(automation, steps);
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
+  // An order set back to Draft before it goes is said: that update fires too.
+  const drafts = (steps.setToDraft ?? []).length > 0 ? ', sets an order back to Draft' : '';
   const what =
     fired.length > 0
       ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
-        'undo brings records back, gives them their values back or sends them back to the ' +
-        'recycle bin'
+        `undo brings records back, gives them their values back${drafts} or sends them back ` +
+        'to the recycle bin'
       : 'what runs as the undo writes could not all be read, so automation may run';
   return {
     code: 'AUTOMATION',
@@ -430,9 +432,19 @@ export async function undoCheckpoint(
     // shared again an update: what a trigger on links runs on.
     const links = plans.links;
     const linked = (writes: number): string[] => (writes > 0 ? [FILE_LINK_OBJECT] : []);
+    // An order the rewind made again, past Draft, it sets back to Draft
+    // before it deletes it, the one way the platform deletes one: an update,
+    // which a flow on an order's update fires on. Not listed, an undo of a
+    // rewind that had made an activated order again sent it unasked. One the
+    // rewind brought back gets its Draft from before back with what the
+    // rewind wrote over, an update of the give-back's.
+    const drafted = plans.remade.objects.filter(
+      ({ objectApiName, count }) => count > 0 && setBackToDraftOf([objectApiName]).length > 0,
+    );
     const steps: ForgeRemovalSteps = {
       bringBack: namesOf(plans.bringBack.objects),
       giveBack: [...namesOf(plans.giveBack.objects), ...linked(links?.share.count ?? 0)],
+      ...(drafted.length > 0 ? { setToDraft: namesOf(drafted) } : {}),
       delete: [
         ...new Set([
           ...namesOf(along),
@@ -456,6 +468,7 @@ export async function undoCheckpoint(
       ...new Set([
         ...(steps.bringBack ?? []),
         ...(steps.giveBack ?? []),
+        ...(steps.setToDraft ?? []),
         ...(steps.delete ?? []),
         ...(steps.recreate ?? []),
       ]),
@@ -520,7 +533,7 @@ export async function undoCheckpoint(
         : undefined;
     // What sends emails and could not be read is not counted below: the
     // acceptance of the automation covers it, and its refusal says so.
-    const written = writtenByUndo(rewound, along);
+    const written = writtenByUndo(rewound, along, drafted);
     const uncounted = automation ? checkpointEmailsUncounted(written, automation) : undefined;
     if (
       automation &&

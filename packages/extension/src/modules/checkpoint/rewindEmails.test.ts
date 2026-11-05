@@ -403,6 +403,18 @@ describe('emailsRefusal', () => {
     );
     expect(emailsRefusal('rewind', fits, 'DEV-ED')).toBeUndefined();
   });
+
+  it('says one email in the singular, against an org with none left today', () => {
+    const one = checkpointEmails(
+      [{ objectApiName: 'Contact', write: 'update', records: 1 }],
+      automationOf({ Contact: [flow('Contact changed', 'update', ['SingleEmail'])] }),
+      { SingleEmail: { max: 15, remaining: 0 } },
+    );
+
+    expect(emailsRefusal('rewind', one, 'DEV-ED')?.message).toMatch(
+      /^This rewind would make DEV-ED send about 1 single email, 0 of 15 left today: past them/,
+    );
+  });
 });
 
 describe('checkpointEmailsUncounted', () => {

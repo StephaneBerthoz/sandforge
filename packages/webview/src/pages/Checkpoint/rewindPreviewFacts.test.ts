@@ -17,6 +17,7 @@ import {
   keptChangedSinceRewind,
   lastChangers,
   linkWrites,
+  madeAsDraftObjects,
   notRewound,
   outsideLines,
   pickedDiff,
@@ -399,6 +400,25 @@ describe('rewindPreviewFacts', () => {
         }),
       ),
     ).toEqual([{ objectApiName: 'Account', count: 2 }]);
+  });
+
+  it('names the orders and contracts it makes again, or brings back and may make again, as drafts first: nothing else', () => {
+    expect(
+      madeAsDraftObjects(
+        previewDiff({
+          objects: [
+            diffObject('Order', { toRecreate: 1 }),
+            diffObject('Contract', {
+              toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+            }),
+            diffObject('Account', { toRecreate: 2 }),
+            diffObject('Order', {
+              toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+        }),
+      ),
+    ).toEqual(['Order', 'Contract']);
   });
 });
 

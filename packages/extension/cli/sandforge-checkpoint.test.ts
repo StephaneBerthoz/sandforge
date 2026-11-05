@@ -29,6 +29,7 @@ import {
   scopeJson,
   scopeLines,
   takeLines,
+  undoLine,
   undoLines,
 } from './sandforge-checkpoint.js';
 
@@ -892,6 +893,64 @@ describe('previewLines', () => {
     );
   });
 
+  it('says an order or a contract it makes again is made as a draft, then given its status back, and what runs on that update: the dry run did not, the rewind did it (GC2)', () => {
+    const automation: ForgeTargetAutomation = {
+      objectsRead: ['Order'],
+      objects: [
+        {
+          objectApiName: 'Order',
+          flows: [
+            {
+              apiName: 'Order_Update_Email',
+              label: 'Order Update Email',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 2,
+    };
+    const remade = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({ objectApiName: 'OrderItem', toRecreate: 1 }),
+        object({ objectApiName: 'Order', toRecreate: 1 }),
+      ]),
+      estimate,
+      automation,
+    });
+    expect(remade).toContain(
+      "  made as drafts first: Order 1 — Salesforce refuses an order or a contract made past Draft, and an order takes its products only as a draft: one past Draft at the checkpoint is made at the org's Draft status, the records under it next, then given its status back, an update, on which runs Order: 'Order Update Email'",
+    );
+
+    // Listed in the bin, it may be gone from it: the rewind makes it again then, the same way.
+    const inBin = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({
+          objectApiName: 'Order',
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+        }),
+      ]),
+      estimate,
+    });
+    expect(inBin).toContain(
+      '  if Salesforce answers that an order or a contract to bring back is no longer in the recycle bin, --accept-recreate makes it again as a draft, then gives it its status back, an update: Order 1',
+    );
+    const accounts = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ objectApiName: 'Account', toRecreate: 1 })]),
+      estimate,
+      automation,
+    });
+    expect(accounts.join('\n')).not.toContain('Draft');
+  });
+
   it('says in how many objects nothing changed in it checked no field, and that a rewind writes nothing there; nothing when it checked every one', () => {
     const answer = (fieldsNotChecked?: number) =>
       previewLines('DEV-SB', checkpoint, {
@@ -1021,6 +1080,39 @@ describe('previewLines', () => {
     );
     expect(previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, answer).emails).toEqual(
       emails,
+    );
+  });
+
+  it('says one email of a daily limit in the singular: "about 1 single emails" was read live', () => {
+    const one = (limit: 'SingleEmail' | 'DailyWorkflowEmails') => ({
+      limit,
+      emails: 1,
+      objects: [
+        {
+          objectApiName: 'Order',
+          write: 'update' as const,
+          records: 1,
+          perRecord: 1,
+          sentBy: ['Order update email'],
+        },
+      ],
+      verdict: 'fits' as const,
+      remaining: 10,
+      max: 15,
+    });
+    const answer = {
+      diff: diffOf([object({ toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } })]),
+      estimate,
+      emails: [one('SingleEmail'), one('DailyWorkflowEmails')],
+    };
+
+    const lines = previewLines('DEV-SB', checkpoint, answer);
+
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 1 single email as the rewind writes (Order update email); 10 of 15 left today",
+    );
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 1 workflow email as the rewind writes (Order update email); 10 of 15 left today",
     );
   });
 
@@ -1593,6 +1685,25 @@ describe('rewindLines, undoLines and resultJson', () => {
     takenAt: '2026-10-20T14:05:31.000Z',
     ignoredFields: ['Case.Last_Touched__c'],
   };
+
+  it('says, before an undo asks, that the orders it sends back to the bin are set back to Draft first: an update, which a flow on an order’s update fires on', () => {
+    const counts = { bringBack: 0, giveBack: 0, remove: 2, along: 0, remade: 2, drafted: 1 };
+
+    expect(undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', counts)).toBe(
+      "undo the rewind rw-1 of DEV-SB to 'Before UAT' (open until 2026-11-06 17:00 UTC, sooner " +
+        'if the recycle bin fills): it brings back 0 record(s) the rewind deleted, gives 0 ' +
+        'record(s) back the values they had before it, and sends 0 record(s) it brought back to ' +
+        'the recycle bin, deleting again the 2 record(s) it made again — of them, 1 order(s) set ' +
+        'back to Draft first if past it, the one way Salesforce deletes one: an update, which ' +
+        "what runs on an order's update fires on; what anyone changed since the rewind stays",
+    );
+    expect(
+      undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', {
+        ...counts,
+        drafted: 0,
+      }),
+    ).not.toContain('Draft');
+  });
 
   it('says a rewind that went through, what it did, how long it can be undone and what it sent', () => {
     const lines = rewindLines(

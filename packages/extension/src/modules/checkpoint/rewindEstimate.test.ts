@@ -942,6 +942,31 @@ describe('rewindEstimate', () => {
     );
   });
 
+  it('reads the org’s statuses of an order or a contract it makes again, once, and gives each its status back, 200 an update: it makes them as drafts', () => {
+    const making = (objectApiName: string): number =>
+      rewindWritesCost({
+        objects: [held(objectApiName, 0, ['Status'])],
+        diff: { objects: [found(objectApiName, { toRecreate: 201 })], unread: [] },
+        automationRequests: 0,
+      }).apiRequests;
+
+    // OrderStatus or ContractStatus read once, and the status of the 201
+    // made again given back: two updates.
+    expect(making('Order') - making('Account')).toBe(1 + 2);
+    expect(making('Contract') - making('Account')).toBe(1 + 2);
+  });
+
+  it('reads the org’s order statuses and each order’s own, what holds them, and sets those past Draft back to Draft, 200 an update, before it deletes them; a contract it deletes as it stands', () => {
+    const deleting = (objectApiName: string): number =>
+      removalCost([{ objectApiName, records: 201, dependents: 2 }]).apiRequests;
+
+    // OrderStatus once; per batch of 200 its statuses read by id and what
+    // holds them read as the delete reads it (each relationship asked once
+    // past 200); then two updates.
+    expect(deleting('Order') - deleting('Account')).toBe(1 + 2 + (2 + 2 * 2) + 2);
+    expect(deleting('Contract')).toBe(deleting('Account'));
+  });
+
   it('reads no fresh diff when the command line rewinds from the preview it just read, and describes what it brings records back to, and what comes back with them, as it brings them back', () => {
     // The accounts it brings back, and the contacts that come back with them.
     expect(rewindEstimate({ ...input, reusesPreview: true }).apiRequests).toBe(

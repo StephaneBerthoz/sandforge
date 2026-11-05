@@ -7027,9 +7027,12 @@
         "accept": "Ejecutar aunque se activen triggers, flujos o reglas de flujo de trabajo en los registros que escribe"
       },
       "emails": {
-        "fits": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
-        "exceeds": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), más que los {{remaining}} de {{max}} que quedan hoy: el retroceso se rechaza, se marque lo que se marque.",
-        "unread": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}). No se pudo leer lo que queda hoy ({{reason}}).",
+        "fits_one": "{{limit}}: alrededor de {{emails}} enviado por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
+        "fits_other": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
+        "exceeds_one": "{{limit}}: alrededor de {{emails}} enviado por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), más que los {{remaining}} de {{max}} que quedan hoy: el retroceso se rechaza, se marque lo que se marque.",
+        "exceeds_other": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), más que los {{remaining}} de {{max}} que quedan hoy: el retroceso se rechaza, se marque lo que se marque.",
+        "unread_one": "{{limit}}: alrededor de {{emails}} enviado por la automatización de {{org}} cuando el retroceso escribe ({{senders}}). No se pudo leer lo que queda hoy ({{reason}}).",
+        "unread_other": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}). No se pudo leer lo que queda hoy ({{reason}}).",
         "alertsCounted": "{{org}} cuenta sus alertas por correo electrónico entre sus correos individuales, como una Developer Edition: están entre ellos.",
         "uncounted": "No se pudo leer todo lo que {{org}} ejecuta cuando el retroceso escribe ({{reason}}): los correos que envía no se contaron en sus límites diarios."
       },
@@ -7071,6 +7074,7 @@
         "newIds": "El retroceso los crea de nuevo a partir del punto de control, con Id nuevos, y los campos de búsqueda del punto de control que los nombraban nombran los Id nuevos. Lo que fuera de Salesforce nombra sus Id antiguos — una integración, un enlace, un filtro de informe — ya no los encuentra. Deshacer los elimina de nuevo.",
         "ifEmptiedTitle": "Si la papelera ya no los contiene",
         "ifEmptied": "Salesforce aún muestra como eliminado un registro vaciado de la papelera, durante minutos u horas, y solo dice que la papelera ya no lo contiene cuando el retroceso pide recuperarlo. Marcado, el retroceso lo crea entonces de nuevo a partir del punto de control, con un Id nuevo, junto con los registros que debían volver con él, y se ejecuta lo que la org ejecuta al crear un registro; sin marcar, los deja y los nombra.",
+        "asDraft": "Salesforce rechaza un pedido o un contrato creado más allá de Borrador: el retroceso lo vuelve a crear como Borrador ({{objects}}), luego los registros que cuelgan de él, y después le devuelve su estado — una actualización, que ejecuta lo que {{org}} ejecuta cuando se actualiza uno.",
         "accept": "Volver a crear, con Id nuevos, los registros ya vaciados de la papelera"
       },
       "files": {
@@ -7282,7 +7286,7 @@
     "undo": {
       "open": "Deshacer este retroceso",
       "title": "¿Deshacer el último retroceso de {{org}}?",
-      "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes, envía de nuevo a la papelera lo que recuperó y elimina de nuevo lo que creó de nuevo. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
+      "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes, envía de nuevo a la papelera lo que recuperó y elimina de nuevo lo que creó de nuevo; un pedido más allá de Borrador vuelve antes a Borrador, la única forma en que Salesforce elimina uno. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
       "acceptAutomation": "Deshacer aunque {{org}} ejecute automatizaciones cuando se actualizan, eliminan o recuperan registros",
       "acceptEmails": "Deshacer aunque {{org}} entregue todos los correos que envían sus automatizaciones cuando el deshacer escribe, o no diga si los entrega"
     },

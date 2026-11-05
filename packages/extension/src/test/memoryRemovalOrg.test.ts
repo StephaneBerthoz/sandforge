@@ -600,6 +600,46 @@ describe('MemoryRemovalOrg', () => {
       expect(org.all('Contact')).toEqual([]);
     });
 
+    it('refuses the delete of an activated order in the org’s words, and of the account it hangs from in its own, until the order is a draft (P8)', async () => {
+      const ORDER = fakeId('801', 1);
+      const { org } = orgAt(
+        {},
+        { Account: [{ childSObject: 'Order', field: 'AccountId', cascadeDelete: true }] },
+      );
+      org.add('Account', { Id: ACCOUNT });
+      org.add('Order', { Id: ORDER, AccountId: ACCOUNT, Status: 'Activated' });
+
+      expect(await org.destroy('Order', [ORDER])).toEqual([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DELETE_FAILED',
+              message:
+                'unable to modify activated order:  cannot delete order, or add or remove order products',
+            },
+          ],
+        },
+      ]);
+      expect(await org.destroy('Account', [ACCOUNT])).toEqual([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DELETE_FAILED',
+              message:
+                `Your attempt to delete ${ACCOUNT} could not be completed because it is associated ` +
+                `with the following active orders.: ${ORDER}`,
+            },
+          ],
+        },
+      ]);
+      org.edit('Order', ORDER, { Status: 'Draft' });
+      expect(await org.destroy('Order', [ORDER])).toEqual([
+        { id: ORDER, success: true, errors: [] },
+      ]);
+    });
+
     it('refuses to delete a parent a live child names through a restricted lookup, until the child goes', async () => {
       const { org } = orgAt(
         {},

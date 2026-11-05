@@ -670,7 +670,7 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
       refusal: {
         code: 'EMAILS',
         message: expect.stringMatching(
-          /^This undo would make DEV-ED send about 1 single emails, 0 of 15 left today: .*then undo the rewind again\. No record was written\.$/,
+          /^This undo would make DEV-ED send about 1 single email, 0 of 15 left today: .*then undo the rewind again\. No record was written\.$/,
         ) as unknown,
       },
     });

@@ -7027,9 +7027,12 @@
         "accept": "Ausführen, auch wenn Trigger, Flows oder Workflow-Regeln bei den Datensätzen auslösen, die es schreibt"
       },
       "emails": {
-        "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
-        "exceeds": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), mehr als die {{remaining}} von {{max}}, die heute übrig sind: Das Zurücksetzen wird abgelehnt, was auch immer angehakt ist.",
-        "unread": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}). Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
+        "fits_one": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
+        "fits_other": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
+        "exceeds_one": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), mehr als die {{remaining}} von {{max}}, die heute übrig sind: Das Zurücksetzen wird abgelehnt, was auch immer angehakt ist.",
+        "exceeds_other": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), mehr als die {{remaining}} von {{max}}, die heute übrig sind: Das Zurücksetzen wird abgelehnt, was auch immer angehakt ist.",
+        "unread_one": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}). Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
+        "unread_other": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}). Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
         "alertsCounted": "{{org}} zählt ihre E-Mail-Benachrichtigungen zu ihren Einzel-E-Mails, wie eine Developer Edition: Sie sind darunter.",
         "uncounted": "Was {{org}} ausführt, wenn das Zurücksetzen schreibt, konnte nicht vollständig gelesen werden ({{reason}}): Die E-Mails, die dabei gesendet werden, wurden nicht auf die Tageslimits angerechnet."
       },
@@ -7071,6 +7074,7 @@
         "newIds": "Das Zurücksetzen legt sie aus dem Prüfpunkt neu an, mit neuen Ids, und die Lookup-Felder des Prüfpunkts, die auf sie verwiesen, verweisen auf die neuen Ids. Was außerhalb von Salesforce ihre alten Ids nennt — eine Integration, ein Link, ein Berichtsfilter —, findet sie nicht mehr. Das Rückgängigmachen löscht sie wieder.",
         "ifEmptiedTitle": "Wenn der Papierkorb sie nicht mehr enthält",
         "ifEmptied": "Salesforce führt einen aus dem Papierkorb geleerten Datensatz noch Minuten bis Stunden als gelöscht und sagt erst, wenn das Zurücksetzen ihn zurückholen will, dass der Papierkorb ihn nicht mehr enthält. Angehakt legt das Zurücksetzen ihn dann aus dem Prüfpunkt neu an, mit neuer Id, ebenso die Datensätze, die mit ihm zurückkommen sollten, und es läuft, was die Org beim Anlegen eines Datensatzes ausführt; nicht angehakt lässt es sie und nennt sie.",
+        "asDraft": "Salesforce lehnt einen Auftrag oder einen Vertrag ab, der über den Entwurf hinaus angelegt wird: Das Zurücksetzen legt ihn als Entwurf neu an ({{objects}}), danach die Datensätze darunter, und gibt ihm dann seinen Status zurück — eine Aktualisierung, die ausführt, was {{org}} beim Aktualisieren eines solchen ausführt.",
         "accept": "Bereits aus dem Papierkorb geleerte Datensätze mit neuen Ids neu anlegen"
       },
       "files": {
@@ -7282,7 +7286,7 @@
     "undo": {
       "open": "Dieses Zurücksetzen rückgängig machen",
       "title": "Das letzte Zurücksetzen von {{org}} rückgängig machen?",
-      "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück, schickt das, was es zurückgeholt hat, wieder in den Papierkorb und löscht wieder, was es neu angelegt hat. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
+      "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück, schickt das, was es zurückgeholt hat, wieder in den Papierkorb und löscht wieder, was es neu angelegt hat; ein Auftrag über den Entwurf hinaus wird zuerst auf Entwurf zurückgesetzt, anders löscht Salesforce keinen. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
       "acceptAutomation": "Rückgängig machen, auch wenn {{org}} Automatisierungen ausführt, wenn Datensätze aktualisiert, gelöscht oder zurückgeholt werden",
       "acceptEmails": "Rückgängig machen, auch wenn {{org}} jede E-Mail zustellt, die ihre Automatisierungen beim Schreiben des Rückgängigmachens senden, oder nicht sagt, ob sie sie zustellt"
     },

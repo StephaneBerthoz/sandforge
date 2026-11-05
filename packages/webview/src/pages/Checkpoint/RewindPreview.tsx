@@ -63,6 +63,7 @@ import {
   heldAsItWas,
   lastChangers,
   linkWrites,
+  madeAsDraftObjects,
   outsideLines,
   pickedDiff,
   recreateLines,
@@ -510,6 +511,8 @@ const Emails: React.FC<{ emails: readonly CheckpointEmails[]; orgName: string }>
               ? 'common.emailLimit.single'
               : 'common.emailLimit.workflow',
           ),
+          // A language that agrees with one email says it in the singular.
+          count: check.emails,
           emails: formatNumber(check.emails),
           org: orgName,
           senders: listWords(senders, t),
@@ -697,6 +700,9 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const emailsAsked = emailsAsk.verdict === 'asks';
   const outside = outsideLines(counted);
   const remade = recreateLines(counted);
+  // An order or a contract past Draft is made again as a draft, then given
+  // its status: an update, which what runs on its update fires on.
+  const madeAsDrafts = madeAsDraftObjects(counted);
   // Read object by object: what the deletions take along out of the user's
   // sight, which no read counts.
   const unseen = counted.unseen ?? [];
@@ -969,6 +975,14 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           {bringsBack && (
             <p data-testid="checkpoint-preview-recreate-if-emptied">
               {t('checkpoint.preview.recreate.ifEmptied')}
+            </p>
+          )}
+          {madeAsDrafts.length > 0 && (
+            <p data-testid="checkpoint-preview-recreate-as-draft">
+              {t('checkpoint.preview.recreate.asDraft', {
+                objects: listWords(madeAsDrafts, t),
+                org: orgName,
+              })}
             </p>
           )}
           <p>{t('checkpoint.preview.recreate.newIds')}</p>

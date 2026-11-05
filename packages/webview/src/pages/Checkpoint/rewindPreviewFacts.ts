@@ -150,6 +150,28 @@ export function recreateLines(
     .filter((line) => line.count > 0);
 }
 
+/**
+ * The objects among those a rewind makes again, or brings back — which it
+ * makes again the same way once Salesforce answers the bin no longer holds
+ * them —, whose records past Draft it makes as drafts, then gives their status
+ * back: the platform refuses an order or a contract made past Draft, and an
+ * order takes its products only as a draft. Not said, the page left out the
+ * update a rewind then made of an activated order, live.
+ */
+export function madeAsDraftObjects(diff: Pick<RewindDiff, 'objects'>): string[] {
+  return diff.objects
+    .filter(
+      (object) =>
+        MADE_AS_DRAFT_OBJECTS.has(object.objectApiName) &&
+        (object.toRecreate ?? 0) +
+          object.toBringBack.inBin +
+          object.toBringBack.withParent +
+          object.toBringBack.deletedWhileTaken >
+          0,
+    )
+    .map((object) => object.objectApiName);
+}
+
 /** The fields of an object gone from what the org shows since: deleted, hidden, or either. */
 function fieldsGone(object: Pick<RewindDiff['objects'][number], 'schemaDrift'>): number {
   const drift = object.schemaDrift;

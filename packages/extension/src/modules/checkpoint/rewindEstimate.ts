@@ -57,6 +57,7 @@ import type {
 } from '@sandforge/shared';
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { DELETED_PAST_DRAFT, STATUS_LIFECYCLES } from '../../core/common/platformRecords.js';
 import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
 import { BULK_POLL_INTERVAL_MS } from '../../core/engine/BulkApiExecutor.js';
 import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
@@ -1025,7 +1026,8 @@ function deletesCost(records: number, objectApiName: string | undefined): Cost {
  * relationship asked once whether anything points through it when the object
  * has more than one batch, then read per batch — and the deletes, as REST
  * calls of 200 or, past 10,000 records of an object, as the Bulk API jobs the
- * removal sends them in (`deletesCost`).
+ * removal sends them in (`deletesCost`); before them, an order past Draft set
+ * back to Draft (`toDraftCost`).
  *
  * Which records a record that stays holds is known only once the rest has
  * gone: those it holds are checked again then, and what the removal leaves
@@ -1056,9 +1058,39 @@ export function removalCost(
         calls(1, SECONDS_PER_SMALL_CALL),
         calls(batchCount, SECONDS_PER_READ),
         calls(anyPointing + dependents * batchCount, SECONDS_PER_DEPENDENTS_READ),
+        toDraftCost(objectApiName, batchCount, anyPointing + dependents * batchCount),
         deletesCost(records, objectApiName),
       );
     }),
+  );
+}
+
+/**
+ * What a removal sends to set an object's records past Draft back to Draft
+ * before it deletes them, the one way the platform deletes an order
+ * (`backToDraft`): the org's statuses read once, which tell the Draft one;
+ * per batch, the records' own status read by id and what holds them read as
+ * their delete reads it; and an update of 200 a call, every record counted
+ * as past Draft, which only those are. Nothing for an object with no status
+ * lifecycle, nor for a contract, deleted as it stands.
+ */
+function toDraftCost(
+  objectApiName: string | undefined,
+  batchCount: number,
+  dependentsReads: number,
+): Cost {
+  if (
+    objectApiName === undefined ||
+    STATUS_LIFECYCLES[objectApiName] === undefined ||
+    DELETED_PAST_DRAFT.has(objectApiName)
+  ) {
+    return NOTHING;
+  }
+  return sum(
+    calls(1, SECONDS_PER_SMALL_CALL),
+    calls(batchCount, SECONDS_PER_READ),
+    calls(dependentsReads, SECONDS_PER_DEPENDENTS_READ),
+    calls(batchCount, SECONDS_PER_WRITE),
   );
 }
 
@@ -1507,6 +1539,29 @@ export function recreateCost(perObject: readonly number[]): Cost {
   );
 }
 
+/**
+ * What giving the orders and contracts a rewind makes again their status
+ * back costs: the platform refuses one made past Draft, so each is made at
+ * the org's Draft status, read once per object from its statuses
+ * (`OrderStatus`, `ContractStatus`), then given its own, 200 an update —
+ * every record counted as past Draft, which only those are. Nothing for an
+ * object with no status lifecycle.
+ */
+export function statusBackCost(
+  objects: ReadonlyArray<{ objectApiName: string; records: number }>,
+): Cost {
+  return sum(
+    ...objects
+      .filter(
+        ({ objectApiName, records }) =>
+          records > 0 && STATUS_LIFECYCLES[objectApiName] !== undefined,
+      )
+      .map(({ records }) =>
+        sum(calls(1, SECONDS_PER_SMALL_CALL), calls(batches(records), SECONDS_PER_WRITE)),
+      ),
+  );
+}
+
 /** Bytes, about, a rewind keeps in its journal for 15 days. */
 function journalBytes(given: number, ids: number): number {
   return given * JOURNAL_BYTES_PER_VALUES + ids * JOURNAL_BYTES_PER_ID;
@@ -1606,7 +1661,8 @@ function mayHangFrom(
  * - the user it writes as;
  * - pass 1: the bring back, parents first (`bringBackCost`), and the org's
  *   objects described for it unless the read before did; what it makes again
- *   (`recreateCost`); the give-back, before and after the deletes
+ *   (`recreateCost`), and the status of the orders and contracts it makes as
+ *   drafts (`statusBackCost`); the give-back, before and after the deletes
  *   (`givenBackCost`); the removal of what was created or brought back since
  *   (`removalCost`);
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
@@ -1724,6 +1780,12 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       });
     }),
     recreateCost(objects.map(toRecreate)),
+    statusBackCost(
+      objects.map((object) => ({
+        objectApiName: object.objectApiName,
+        records: toRecreate(object),
+      })),
+    ),
     removalCost(
       objects.map((object) => ({
         objectApiName: object.objectApiName,

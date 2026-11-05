@@ -92,11 +92,21 @@ export interface WrittenRecords {
 /** The writes of an act, in the order it makes them. */
 const WRITES: readonly CheckpointWrite[] = ['undelete', 'insert', 'update', 'delete'];
 
-/** How each daily email limit is said. */
-const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
+/** How each daily email limit is said, of one email and of more. */
+const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, { one: string; more: string }>> = {
+  SingleEmail: { one: 'single email', more: 'single emails' },
+  DailyWorkflowEmails: { one: 'workflow email', more: 'workflow emails' },
 };
+
+/**
+ * `emails` emails of a daily limit, as a line says them: "1 single email",
+ * "20 single emails". A preview that counted one said "about 1 single
+ * emails", live.
+ */
+export function emailsOfLimit(emails: number, limit: ForgeEmailLimit): string {
+  const words = LIMIT_WORDS[limit];
+  return `${emails} ${emails === 1 ? words.one : words.more}`;
+}
 
 /** What the act refused is called, and what it does not do. */
 const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string }>> = {
@@ -247,23 +257,38 @@ export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenReco
  * What an undo writes, per object and write, from what its rewind did: it
  * brings back what the rewind deleted, gives back what it wrote over, and
  * sends back to the bin what it brought back and what it made again — what
- * goes with a parent among it (`along`).
+ * goes with a parent among it (`along`) —, the orders it made again among
+ * them set back to Draft first (`drafted`), which the platform deletes no
+ * other way: each one, once. An order it brought back gets its Draft from
+ * before back with what it wrote over, and is a draft by its delete. Counted
+ * as nothing, the Draft update of an order a rewind had made again was sent
+ * unasked.
  */
 export function writtenByUndo(
   rewound: readonly RewoundObject[],
   along: ReadonlyArray<{ objectApiName: string; count: number }> = [],
+  drafted: ReadonlyArray<{ objectApiName: string; count: number }> = [],
 ): WrittenRecords[] {
-  const alongOf = new Map<string, number>();
-  for (const { objectApiName, count } of along) {
-    alongOf.set(objectApiName, (alongOf.get(objectApiName) ?? 0) + count);
-  }
-  const objects = [...new Set([...rewound.map((o) => o.objectApiName), ...alongOf.keys()])];
+  const sum = (
+    rows: ReadonlyArray<{ objectApiName: string; count: number }>,
+  ): Map<string, number> => {
+    const of = new Map<string, number>();
+    for (const { objectApiName, count } of rows) {
+      of.set(objectApiName, (of.get(objectApiName) ?? 0) + count);
+    }
+    return of;
+  };
+  const alongOf = sum(along);
+  const draftedOf = sum(drafted);
+  const objects = [
+    ...new Set([...rewound.map((o) => o.objectApiName), ...alongOf.keys(), ...draftedOf.keys()]),
+  ];
   return objects.flatMap((objectApiName) => {
     const object = rewound.find((o) => o.objectApiName === objectApiName);
     return written(objectApiName, {
       undelete: object?.deleted ?? 0,
       insert: 0,
-      update: object?.givenBack ?? 0,
+      update: (object?.givenBack ?? 0) + (draftedOf.get(objectApiName) ?? 0),
       delete: (object?.broughtBack ?? 0) + (alongOf.get(objectApiName) ?? 0),
     });
   });
@@ -401,7 +426,7 @@ export function emailsRefusal(
   const said = over
     .map(
       (check) =>
-        `about ${check.emails} ${LIMIT_WORDS[check.limit]}` +
+        `about ${emailsOfLimit(check.emails, check.limit)}` +
         (check.alertsCounted
           ? ' (its email alerts among them, as a Developer Edition counts them)'
           : '') +

@@ -39,7 +39,8 @@
  *   puts the lookup back and restamps the child again.
  * - A record an activated order goes with is refused its delete, the order
  *   with it, in the org's words (`DELETE_FAILED`): the order must be a draft
- *   first (seen live, an account of a clone a rewind deleted).
+ *   first (seen live, an account of a clone a rewind deleted). So is the
+ *   activated order itself, in words of its own (P8).
  * - An update that points a lookup at a record in the recycle bin is refused,
  *   `ENTITY_IS_DELETED` "entity is deleted", the record left as it was: a
  *   contact's account, a contact's `ReportsToId` and an account's parent,
@@ -364,6 +365,17 @@ interface ReadAnswer {
 
 /** The person account's flag, on its account and on its contact. */
 const PERSON_ACCOUNT = 'IsPersonAccount';
+
+/**
+ * The org's answer to the delete of an activated order itself, live (P8): it
+ * deletes one only once it is a draft again. The account it hangs from is
+ * refused in words of its own.
+ */
+const ACTIVATED_ORDER_REFUSAL = {
+  statusCode: 'DELETE_FAILED',
+  message:
+    'unable to modify activated order:  cannot delete order, or add or remove order products',
+};
 
 /** The org's answer when a person account's contact is created or deleted on its own. */
 const PERSON_CONTACT_REFUSAL = {
@@ -1066,6 +1078,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
     const active = taken.find(
       (held) => held.objectApiName === 'Order' && held.row.Status === 'Activated',
     );
+    if (active && keyOf(active.row.Id) === keyOf(id)) return ACTIVATED_ORDER_REFUSAL;
     if (active) {
       return {
         statusCode: 'DELETE_FAILED',

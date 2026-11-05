@@ -48,6 +48,7 @@ import { join, resolve } from 'node:path';
 import {
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
+  firedOnRemovalStepsOf,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
   type CheckpointEmails,
@@ -108,13 +109,19 @@ import {
   type BoundWords,
   type RewindAccepted,
 } from '../src/modules/checkpoint/rewindBounds.js';
-import { actEmailsGate, actSendersOf } from '../src/modules/checkpoint/rewindEmails.js';
+import {
+  actEmailsGate,
+  actSendersOf,
+  emailsOfLimit,
+} from '../src/modules/checkpoint/rewindEmails.js';
 import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
+import { setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
+import { STATUS_LIFECYCLES } from '../src/core/common/platformRecords.js';
 import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
 import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
@@ -380,7 +387,12 @@ JSON (--json), one value on stdout:
                      do and leave — reason needsUnpickedParent, heldByUnpicked,
                      outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
                      numbers, differs and estimate are then the rewind's of those objects,
-                     diff the whole diff
+                     diff the whole diff; of a checkpoint of picked objects whose records
+                     outside it were made since under records a rewind would delete, kept:
+                     [{objectApiName, reason, count}], what a rewind without --accept-outside
+                     keeps for them — reason outsideNotAccepted or holdsLeft —, the numbers
+                     then those of what it writes, differs the whole diff's (preview previews
+                     that rewind)
   rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] and
                      wouldBeRefusedCodes: ["CODE"], one for each refusal a rewind with these
                      flags would meet, in order; asked to mute, emails and deliverability are
@@ -1600,12 +1612,6 @@ function deliverabilityLines(
   return line !== undefined ? [`  ${line}`] : [];
 }
 
-/** How each daily email limit is said. */
-const EMAIL_LIMIT_WORDS: Readonly<Record<CheckpointEmails['limit'], string>> = {
-  SingleEmail: 'single emails',
-  DailyWorkflowEmails: 'workflow emails',
-};
-
 /**
  * One line per daily email limit the rewind's writes send against: about how
  * many, by what, and what the org has left of it today.
@@ -1614,8 +1620,8 @@ function emailLines(orgName: string, emails: readonly CheckpointEmails[]): strin
   return emails.map((check) => {
     const senders = [...new Set(check.objects.flatMap((object) => object.sentBy))];
     const sent =
-      `  emails: ${orgName}'s automation sends about ${check.emails} ` +
-      `${EMAIL_LIMIT_WORDS[check.limit]} as the rewind writes (${someOf(senders, 4)})` +
+      `  emails: ${orgName}'s automation sends about ${emailsOfLimit(check.emails, check.limit)} ` +
+      `as the rewind writes (${someOf(senders, 4)})` +
       (check.alertsCounted
         ? `, its email alerts among them: ${orgName} counts them against its single emails, ` +
           'as a Developer Edition does'
@@ -1631,6 +1637,61 @@ function emailLines(orgName: string, emails: readonly CheckpointEmails[]): strin
       'rewind is refused'
     );
   });
+}
+
+/**
+ * What runs on the status a rewind gives back to the orders and contracts of
+ * `objects` it makes as drafts — an update of each —, as "on which runs
+ * Order: 'Flow'", or nothing when nothing read runs then. What a bypass the
+ * user holds, or the mute would hold, keeps quiet does not run.
+ */
+function onStatusBack(
+  automation: ForgeTargetAutomation | undefined,
+  objects: readonly string[],
+): string {
+  if (!automation || objects.length === 0) return '';
+  const fired = firedOnRemovalStepsOf(automation, { giveBack: objects }).map(
+    (each) => `${each.objectApiName}: '${each.name}'`,
+  );
+  return fired.length > 0 ? `, on which runs ${someOf(fired, 4)}` : '';
+}
+
+/**
+ * The orders and contracts a rewind makes as drafts before it gives them their
+ * status back: those it counts to make again, and those to bring back, which
+ * it makes again the same way once Salesforce answers the bin no longer holds
+ * them. The platform refuses one made past Draft, and an order takes its
+ * products only as a draft. Not said, a dry run left out the update a rewind
+ * then made of an activated order, live.
+ */
+function madeAsDraftLines(
+  diff: Pick<RewindDiff, 'objects'>,
+  automation: ForgeTargetAutomation | undefined,
+): string[] {
+  const lifecycled = diff.objects.filter((o) => STATUS_LIFECYCLES[o.objectApiName] !== undefined);
+  const remade = lifecycled.filter((o) => toRecreateOf(o) > 0);
+  const inBin = lifecycled.filter((o) => toBringBackOf(o) > 0);
+  const lines: string[] = [];
+  if (remade.length > 0) {
+    lines.push(
+      `  made as drafts first: ${someOf(remade.map((o) => `${o.objectApiName} ${count(toRecreateOf(o))}`))} ` +
+        '— Salesforce refuses an order or a contract made past Draft, and an order takes its ' +
+        "products only as a draft: one past Draft at the checkpoint is made at the org's Draft " +
+        'status, the records under it next, then given its status back, an update' +
+        onStatusBack(
+          automation,
+          remade.map((o) => o.objectApiName),
+        ),
+    );
+  }
+  if (inBin.length > 0) {
+    lines.push(
+      '  if Salesforce answers that an order or a contract to bring back is no longer in the ' +
+        'recycle bin, --accept-recreate makes it again as a draft, then gives it its status ' +
+        `back, an update: ${someOf(inBin.map((o) => `${o.objectApiName} ${count(toBringBackOf(o))}`))}`,
+    );
+  }
+  return lines;
 }
 
 /** One line per object the org runs something on as a rewind writes. */
@@ -1683,7 +1744,9 @@ export function previewLines(
       `${count(totals.toBringBack)} to bring back` +
       (totals.toRecreate > 0 ? ` · ${count(totals.toRecreate)} to make again` : ''),
   ];
-  if (!orgDiffers(diff)) {
+  // What records outside the checkpoint hang from differs, though a rewind
+  // that keeps it writes nothing there.
+  if (!orgDiffers(diff) && !diff.objects.some((object) => object.outside.length > 0)) {
     lines.push(
       `  ${orgName} is as it was at '${checkpoint.name}' among the objects and fields it holds: ` +
         'nothing to rewind.',
@@ -1780,6 +1843,7 @@ export function previewLines(
         'names them',
     );
   }
+  lines.push(...madeAsDraftLines(diff, answer.automation));
   const unexplained = diff.objects.filter((o) => o.unexplained > 0);
   if (unexplained.length > 0) {
     lines.push(
@@ -1976,9 +2040,12 @@ export function previewJson(
   checkpoint: Pick<OrgCheckpoint, 'checkpointId' | 'name' | 'takenAt'>,
   answer: PreviewAnswer,
   selection?: Selection,
+  kept?: Selection,
 ): Record<string, unknown> {
-  // Of a rewind limited to some objects, its numbers; the diff whole.
-  const counted = selection?.diff ?? answer.diff;
+  // Of a rewind limited to some objects, its numbers; the diff whole. Of one
+  // that keeps what records outside the checkpoint hang from, what it
+  // writes, the org differing all the same.
+  const counted = selection?.diff ?? kept?.diff ?? answer.diff;
   return {
     checkpoint: {
       id: checkpoint.checkpointId,
@@ -1989,8 +2056,9 @@ export function previewJson(
     ...(selection ? { objects: [...selection.plan.objects] } : {}),
     ...previewTotals(counted),
     carriers: counted.objects.reduce((total, o) => total + carriersOf(o), 0),
-    differs: orgDiffers(counted),
+    differs: orgDiffers(selection?.diff ?? answer.diff),
     ...(selection ? { selection: selection.plan } : {}),
+    ...(kept ? { kept: kept.plan.left } : {}),
     diff: answer.diff,
     estimate: answer.estimate,
     ...(answer.automation ? { automation: answer.automation } : {}),
@@ -2077,6 +2145,58 @@ export function selectionLines(plan: RewindSelectionPlan): string[] {
     );
   }
   return lines;
+}
+
+/**
+ * Whether a rewind of every object of `checkpoint` keeps records it would
+ * otherwise delete: a checkpoint of picked objects, records outside it made
+ * since under records it deletes, and no `--accept-outside`. It then keeps
+ * those records, and what they hang from.
+ */
+export function keepsOutside(
+  checkpoint: Pick<OrgCheckpoint, 'scope'>,
+  diff: Pick<RewindDiff, 'objects'>,
+  acceptOutside: boolean,
+): boolean {
+  return (
+    !acceptOutside &&
+    checkpoint.scope.mode === 'picked' &&
+    diff.objects.some((object) => object.outside.length > 0)
+  );
+}
+
+/**
+ * What a rewind of every object keeps without `--accept-outside`, by its own
+ * plan: what records outside the checkpoint hang from, and what that holds.
+ * The table and the refusals count what it then writes: counted on the whole
+ * diff, a dry run said an order it kept would be deleted, and its flow on
+ * the order refused it, live.
+ */
+export function keptLines(plan: Pick<RewindSelectionPlan, 'left'>): string[] {
+  return plan.left.map(
+    (left) =>
+      `  kept: ${count(left.count)} ${left.objectApiName} record(s) — ` +
+      (left.reason === 'outsideNotAccepted'
+        ? 'records outside the checkpoint made since hang from them, which their deletion ' +
+          'would take along: kept, unless --accept-outside'
+        : SELECTION_LEFT_WORDS[left.reason]),
+  );
+}
+
+/**
+ * The plan of a rewind of every object that keeps what records outside the
+ * checkpoint hang from, asked of the host as a rewind of some objects is,
+ * every object picked; nothing when it keeps none.
+ */
+async function keptOf(
+  host: PanelHost,
+  checkpoint: OrgCheckpoint,
+  diff: RewindDiff,
+  acceptOutside: boolean,
+): Promise<Selection | undefined> {
+  if (!keepsOutside(checkpoint, diff, acceptOutside)) return undefined;
+  const every = checkpoint.objects.map(({ objectApiName }) => objectApiName);
+  return selectionOf(host, diff, every, false);
 }
 
 /**
@@ -2889,9 +3009,17 @@ export async function main(
           args.objects.length > 0 ? heldObjectsOrStop(checkpoint, args.objects) : undefined;
         const org = await connect(args.org);
         sameOrgOrStop(org, entry, checkpoint, args.org, 'preview');
+        // The preview of the rewind its line runs, which has no --accept-outside:
+        // its emails are those of what that rewind writes, as its plan of
+        // some objects already was. Counted on every record, the Draft update
+        // of an order the rewind keeps was among its emails, live.
         const answer = await host.request({
           type: 'checkpoint:preview',
-          payload: { checkpointId: entry.checkpointId, ...(objects ? { objects } : {}) },
+          payload: {
+            checkpointId: entry.checkpointId,
+            ...(objects ? { objects } : {}),
+            acceptOutside: false,
+          },
           timeoutMs: PREVIEW_TIMEOUT_MS,
         });
         if (answer.outcome !== 'answered') {
@@ -2901,11 +3029,15 @@ export async function main(
         const selection = objects
           ? await selectionOf(host, preview.diff, objects, false)
           : undefined;
-        const shown = selection ? { ...preview, diff: selection.diff } : preview;
+        const kept = objects ? undefined : await keptOf(host, checkpoint, preview.diff, false);
+        const counted = selection ?? kept;
+        const shown = counted ? { ...preview, diff: counted.diff } : preview;
         for (const line of previewLines(args.org, checkpoint, shown, org.username)) say(line);
         for (const line of selection ? selectionLines(selection.plan) : []) say(line);
-        answerJson(previewJson(args.org, checkpoint, preview, selection));
-        endWith(previewExitCode(shown.diff, args.failOnChange));
+        for (const line of kept ? keptLines(kept.plan) : []) say(line);
+        answerJson(previewJson(args.org, checkpoint, preview, selection, kept));
+        // Whether the org differs is the whole diff's, whatever the rewind keeps.
+        endWith(previewExitCode(selection?.diff ?? preview.diff, args.failOnChange));
         return;
       }
       case 'rewind':
@@ -3458,7 +3590,12 @@ async function rewind(
   const selection = objects
     ? await selectionOf(host, whole.diff, objects, args.acceptOutside)
     : undefined;
-  const shown = selection ? { ...whole, diff: selection.diff } : whole;
+  // Of a rewind of every object without --accept-outside, its own plan too:
+  // it keeps what records outside the checkpoint hang from, and writes
+  // nothing there, which the table and the gate count.
+  const kept = objects ? undefined : await keptOf(host, checkpoint, whole.diff, args.acceptOutside);
+  const counted = selection ?? kept;
+  const shown = counted ? { ...whole, diff: counted.diff } : whole;
   // Asked to mute, what it would assign and what still runs is said before
   // the question, and the lines and the gate read what still runs: a preview
   // that named the flows and emails its mute keeps quiet contradicted the
@@ -3471,6 +3608,7 @@ async function rewind(
   const preview = muted ? { ...shown, automation: muted.automation } : shown;
   for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
   for (const line of selection ? selectionLines(selection.plan) : []) say(line);
+  for (const line of kept ? keptLines(kept.plan) : []) say(line);
   for (const line of muted ? muteLines(muted.planned, args.org) : []) say(`  ${line}`);
   const writes = objectsWrittenBy(preview.diff).length > 0;
   // What stands in for reading the preview in a cron job or a CI step: the
@@ -3489,10 +3627,7 @@ async function rewind(
     user: org.username,
   });
   const [gate] = gates;
-  const outsideStays =
-    !args.acceptOutside &&
-    checkpoint.scope.mode === 'picked' &&
-    preview.diff.objects.some((object) => object.outside.length > 0);
+  const outsideStays = keepsOutside(checkpoint, preview.diff, args.acceptOutside);
   if (outsideStays) {
     say(
       '  without --accept-outside, the records they hang from stay, and so do they: each is said ' +
@@ -3514,7 +3649,7 @@ async function rewind(
     // What a rewind's mute would assign, silence, leave running and lift
     // beside, in the summary as in the lines.
     answerJson({
-      ...previewJson(args.org, checkpoint, whole, selection),
+      ...previewJson(args.org, checkpoint, whole, selection, kept),
       ...(muted ? { mutedAutomation: muted.planned, mutePlan: muted.plan } : {}),
       // Each code beside it too, under the key every dry run gives them.
       ...(refused.length > 0
@@ -3564,6 +3699,55 @@ async function rewind(
   endWith(resultExitCode(result.status, sent.stoppedBy));
 }
 
+/** What an undo takes back, read from its rewind's journal: see {@link undoCounts}. */
+export interface UndoCounts {
+  bringBack: number;
+  giveBack: number;
+  /** What it sends back to the bin on its own, what it made again among it. */
+  remove: number;
+  /** What goes back to the bin with a record of {@link remove}. */
+  along: number;
+  remade: number;
+  /**
+   * Of what it made again, the orders: set back to Draft first when past it,
+   * the one way Salesforce deletes one — an update.
+   */
+  drafted: number;
+}
+
+/**
+ * The line an undo says before its question: the rewind it takes back, until
+ * when, and what it does, as its journal counts it.
+ */
+export function undoLine(
+  orgName: string,
+  checkpoint: Pick<OrgCheckpoint, 'name'>,
+  rewindId: string,
+  until: string,
+  counts: UndoCounts | undefined,
+): string {
+  return (
+    `undo the rewind ${rewindId} of ${orgName} to '${checkpoint.name}' (open until ` +
+    `${when(until)}, sooner if the recycle bin fills)` +
+    (counts
+      ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
+        `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
+        `${count(counts.remove - counts.remade)} record(s) it brought back to the recycle bin` +
+        (counts.along > 0 ? ', with what came back with them' : '') +
+        (counts.remade > 0
+          ? `, deleting again the ${count(counts.remade)} record(s) it made again`
+          : '') +
+        // Said: an order the rewind made again activated is updated before it goes.
+        (counts.drafted > 0
+          ? ` — of them, ${count(counts.drafted)} order(s) set back to Draft first if past it, ` +
+            "the one way Salesforce deletes one: an update, which what runs on an order's " +
+            'update fires on'
+          : '') +
+        '; what anyone changed since the rewind stays'
+      : '')
+  );
+}
+
 /**
  * What an undo of the rewind `rewindId` takes back, read from its journal on
  * this machine, or nothing when the journal cannot be read: the handler then
@@ -3574,9 +3758,7 @@ async function undoCounts(
   entry: CheckpointListEntry,
   checkpoint: OrgCheckpoint,
   rewindId: string,
-): Promise<
-  { bringBack: number; giveBack: number; remove: number; along: number; remade: number } | undefined
-> {
+): Promise<UndoCounts | undefined> {
   try {
     const folder = store.folderOf(entry.organizationId, entry.checkpointId);
     const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
@@ -3589,6 +3771,9 @@ async function undoCounts(
         remove: plans.remove.spool.count,
         along: plans.goesWithParent.count,
         remade: plans.remade.keys.size,
+        drafted: plans.remade.objects
+          .filter(({ objectApiName }) => setBackToDraftOf([objectApiName]).length > 0)
+          .reduce((total, { count }) => total + count, 0),
       };
     } finally {
       await plans.dispose();
@@ -3635,20 +3820,7 @@ async function undo(
   }
   const { rewindId, until } = entry.undo;
   const counts = await undoCounts(context.store, entry, checkpoint, rewindId);
-  say(
-    `undo the rewind ${rewindId} of ${args.org} to '${checkpoint.name}' (open until ` +
-      `${when(until)}, sooner if the recycle bin fills)` +
-      (counts
-        ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
-          `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
-          `${count(counts.remove - counts.remade)} record(s) it brought back to the recycle bin` +
-          (counts.along > 0 ? ', with what came back with them' : '') +
-          (counts.remade > 0
-            ? `, deleting again the ${count(counts.remade)} record(s) it made again`
-            : '') +
-          '; what anyone changed since the rewind stays'
-        : ''),
-  );
+  say(undoLine(args.org, checkpoint, rewindId, until, counts));
   const org = await context.connect(args.org);
   sameOrgOrStop(org, entry, checkpoint, args.org, 'undo');
   if (!args.yes) {

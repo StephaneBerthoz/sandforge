@@ -530,7 +530,12 @@ JSON (--json), one value on stdout:
                      do and leave — reason needsUnpickedParent, heldByUnpicked,
                      outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
                      numbers, differs and estimate are then the rewind's of those objects,
-                     diff the whole diff
+                     diff the whole diff; of a checkpoint of picked objects whose records
+                     outside it were made since under records a rewind would delete, kept:
+                     [{objectApiName, reason, count}], what a rewind without --accept-outside
+                     keeps for them — reason outsideNotAccepted or holdsLeft —, the numbers
+                     then those of what it writes, differs the whole diff's (preview previews
+                     that rewind)
   rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] and
                      wouldBeRefusedCodes: ["CODE"], one for each refusal a rewind with these
                      flags would meet, in order; asked to mute, emails and deliverability are

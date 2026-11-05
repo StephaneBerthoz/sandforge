@@ -7027,9 +7027,12 @@
         "accept": "Run even if triggers, flows or workflow rules fire on the records it writes"
       },
       "emails": {
-        "fits": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
-        "exceeds": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
-        "unread": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
+        "fits_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
+        "fits_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
+        "exceeds_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
+        "exceeds_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
+        "unread_one": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
+        "unread_other": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
         "alertsCounted": "{{org}} counts its email alerts against its single emails, as a Developer Edition does: they are among them.",
         "uncounted": "What {{org}} runs as the rewind writes could not all be read ({{reason}}), so the emails it sends were not counted against its daily limits."
       },
@@ -7071,6 +7074,7 @@
         "newIds": "The rewind makes them again from the checkpoint, with new Ids, and the lookups the checkpoint holds that named them name the new Ids. Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them. Undo deletes them again.",
         "ifEmptiedTitle": "If the recycle bin no longer holds them",
         "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.",
+        "asDraft": "Salesforce refuses an order or a contract made past Draft: the rewind makes one again as a draft ({{objects}}), the records under it next, then gives it its status back — an update, which runs what {{org}} runs as one is updated.",
         "accept": "Recreate, with new Ids, records already emptied from the Recycle Bin"
       },
       "files": {
@@ -7282,7 +7286,7 @@
     "undo": {
       "open": "Undo this rewind",
       "title": "Undo the last rewind of {{org}}?",
-      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again. What anyone changed in {{org}} since the rewind stays as it is.",
+      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again, an order past Draft set back to Draft first, the one way Salesforce deletes one. What anyone changed in {{org}} since the rewind stays as it is.",
       "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back",
       "acceptEmails": "Undo even though {{org}} delivers every email its automation sends as the undo writes, or would not say whether it does"
     },
