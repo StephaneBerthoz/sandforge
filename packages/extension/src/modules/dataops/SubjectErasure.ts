@@ -1,5 +1,6 @@
 import type {
   DataOpsAnonymizationRule,
+  DataOpsAutomationObject,
   RemovalPlanObject,
   SubjectEraseMode,
 } from '@sandforge/shared';
@@ -131,6 +132,29 @@ export async function prepareErasure(
     });
   }
   return prepared;
+}
+
+/**
+ * The records an erasure writes, per object, as what the org runs is read on
+ * them: those it overwrites or deletes, and, for a delete, those the org
+ * deletes along with them (`related`) — a contact takes its tasks, its roles
+ * and its campaign memberships with it. Those were counted in the plan and
+ * read nowhere else: a flow before a task's delete was never named, nor
+ * asked about, though the task went with its contact. An object refused, or
+ * with nothing to erase, writes nothing; one both erased and taken along
+ * counts both.
+ */
+export function erasureWrittenOf(plan: readonly RemovalPlanObject[]): DataOpsAutomationObject[] {
+  const written = new Map<string, number>();
+  const add = (objectApiName: string, records: number): void => {
+    if (records > 0) written.set(objectApiName, (written.get(objectApiName) ?? 0) + records);
+  };
+  for (const object of plan) {
+    if (object.refused || object.records === 0) continue;
+    add(object.objectApiName, object.records);
+    for (const along of object.related ?? []) add(along.objectApiName, along.records);
+  }
+  return [...written].map(([objectApiName, records]) => ({ objectApiName, records }));
 }
 
 /**

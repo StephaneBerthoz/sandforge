@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
+  DataOpsAutomationRefusal,
   MutedAutomation,
   SubjectIdentifierKind,
   SubjectIdentifiers,
@@ -13,7 +14,6 @@ import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
 import {
   dataOpsAutomationOrgOf,
-  dataOpsStop,
   holdDataOpsMute,
   readDataOpsAct,
 } from '../../modules/dataops/dataOpsAutomation.js';
@@ -39,7 +39,11 @@ import { describedObjectSchema } from '../../modules/dataops/DataQualityScanner.
 import { inventoryPersonalData } from '../../modules/dataops/PersonalDataInventory.js';
 import type { OrgSession } from '../../modules/dataops/RecordRemoval.js';
 import { orgSession, readRecordsById } from '../../modules/dataops/RecordRemoval.js';
-import { prepareErasure, runErasure } from '../../modules/dataops/SubjectErasure.js';
+import {
+  erasureWrittenOf,
+  prepareErasure,
+  runErasure,
+} from '../../modules/dataops/SubjectErasure.js';
 import { SubjectRequestLog } from '../../modules/dataops/SubjectRequestLog.js';
 import { searchSubject } from '../../modules/dataops/SubjectSearch.js';
 
@@ -74,6 +78,39 @@ function simulated(msg: object): boolean {
   return typeof payload === 'object' && payload !== null && 'dryRun' in payload
     ? payload.dryRun === true
     : false;
+}
+
+/** The sentence a refusal says once nothing was written, or deleted, as it stopped. */
+const NOTHING_SAID = /\bnothing (?:was )?(?:written|deleted)\b/i;
+/** That sentence, said again by a refusal after another one said it. */
+const NOTHING_AGAIN = /\s*\bNothing was (?:written|deleted)\./g;
+
+/**
+ * How an erasure stops on the refusals its read met: the first under its own
+ * code, every other one under its own beside it (`alsoRefused`), as a run of
+ * Autopilot or a clone refused for several reasons gives them; and what the
+ * page says, each refusal in turn, the sentence that nothing was written said
+ * once. The two came under the first one's code alone — what fires, then its
+ * emails —, and the banner said "Nothing was written." twice.
+ */
+function erasureStopOf(
+  refusals: readonly DataOpsAutomationRefusal[],
+): { code: string; message: string; alsoRefused: DataOpsAutomationRefusal[] } | undefined {
+  const [first, ...rest] = refusals;
+  if (!first) return undefined;
+  let said = false;
+  const message = refusals
+    .map((refusal) => {
+      if (said) return refusal.message.replace(NOTHING_AGAIN, '').trim();
+      said = NOTHING_SAID.test(refusal.message);
+      return refusal.message;
+    })
+    .join(' ');
+  return {
+    code: first.code,
+    message,
+    alsoRefused: rest.map(({ code, message }) => ({ code, message })),
+  };
 }
 
 /** The kinds of identifier a search was given, never the identifiers. */
@@ -428,12 +465,16 @@ export class DataOpsComplianceHandler implements DomainHandler {
       const session = await this.session(orgId, 'dataops:dsr:erase');
       const prepared = await prepareErasure(session, this.detector, mode, parsed.records);
       const plan = prepared.map((p) => p.plan);
+      // What the erasure writes, what the org deletes along with it included:
+      // what fires is read on it, here and by the confirmation.
+      const written = erasureWrittenOf(plan);
       if (dryRun) {
         const response = buildResponse(this.deps, msg, 'dataops:dsr:erase:response', {
           requestId,
           mode,
           dryRun,
           plan,
+          written,
         });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} plan objects=${plan.length}`);
@@ -452,17 +493,18 @@ export class DataOpsComplianceHandler implements DomainHandler {
       }
 
       // What the org runs as the person's records are written over — as a
-      // masking writes — or deleted — as a cleanup deletes —, the emails it
-      // sends, and the mute asked for, read before the guard is asked and
-      // before anything is written, and refused unless the page's question
-      // answered it: an erasure fired the org's flows on them unasked.
+      // masking writes — or deleted — as a cleanup deletes, with what the org
+      // deletes along with them —, the emails it sends, and the mute asked
+      // for, read before the guard is asked and before anything is written,
+      // and refused unless the page's question answered it: an erasure fired
+      // the org's flows on them unasked.
       const target = this.deps.orgManager.getOrg(orgId)?.alias ?? orgId;
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const reader = this.targetAutomation;
       const gated = await readDataOpsAct({
         act: mode === 'delete' ? 'cleanup' : 'masking',
         target,
-        objects: acting.map((p) => ({ objectApiName: p.objectApiName, records: p.records })),
+        objects: written,
         org: dataOpsAutomationOrgOf(
           conn,
           (names) =>
@@ -478,7 +520,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
       });
       // The mute's lease, held from before the guard's question to the end of
       // the erasure, given back however it ends.
-      const stop = dataOpsStop(gated.answer);
+      const stop = erasureStopOf(gated.answer.refusals);
       const holding = stop
         ? { refused: stop }
         : await holdDataOpsMute(gated, msg.id, parsed.acceptEmails === true, 'erasure');
@@ -502,19 +544,31 @@ export class DataOpsComplianceHandler implements DomainHandler {
           operationId,
           objects: [],
         });
+        const also = stop?.alsoRefused ?? [];
         sendHandlerError(
           this.deps,
           'dataops:dsr:erase',
           'dataops:error',
           msg,
           new Error(holding.refused.message),
-          { code: holding.refused.code },
+          {
+            code: holding.refused.code,
+            ...(also.length > 0 ? { extraPayload: { alsoRefused: also } } : {}),
+          },
         );
         return;
       }
       const leased = holding.held;
       /** What the mute took back, once its lease was given back: the answer says it. */
       const given: { back?: MutedAutomation } = {};
+      /**
+       * What the mute did, said with however the erasure ends — answered,
+       * declined at the guard, or stopped half way — as the masking says it:
+       * a cancel said what had been written, and nothing of the set assigned
+       * to the user it wrote as, nor whether it had been taken back.
+       */
+      const muteSaid = (): { mutedAutomation?: MutedAutomation } =>
+        leased ? { mutedAutomation: given.back ?? leased.outcome } : {};
 
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const result = await runGuardedRemoval(
@@ -552,7 +606,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(result.message),
-          result.code ? { code: result.code } : undefined,
+          { ...(result.code ? { code: result.code } : {}), extraPayload: muteSaid() },
         );
         return;
       }
@@ -573,7 +627,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(result.error),
-          result.cancelled ? { code: RUN_CANCELLED } : undefined,
+          { ...(result.cancelled ? { code: RUN_CANCELLED } : {}), extraPayload: muteSaid() },
         );
         return;
       }
@@ -583,7 +637,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
         dryRun,
         plan,
         outcome: result.outcome,
-        ...(leased ? { mutedAutomation: given.back ?? leased.outcome } : {}),
+        ...muteSaid(),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(

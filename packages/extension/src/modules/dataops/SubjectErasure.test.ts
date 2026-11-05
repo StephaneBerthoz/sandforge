@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { AnonymizationEngine } from './AnonymizationEngine.js';
-import { prepareErasure, runErasure } from './SubjectErasure.js';
+import { erasureWrittenOf, prepareErasure, runErasure } from './SubjectErasure.js';
 
 /** A contact describe the connected user may edit and delete. */
 const contactDescribe = {
@@ -187,5 +187,55 @@ describe('runErasure', () => {
 
     expect(conn.destroy).not.toHaveBeenCalled();
     expect(done).toEqual([]);
+  });
+});
+
+describe('erasureWrittenOf', () => {
+  it('counts with a delete what the org deletes along with it, and nothing of what it leaves alone', () => {
+    expect(
+      erasureWrittenOf([
+        {
+          objectApiName: 'Contact',
+          label: 'Contact',
+          records: 2,
+          related: [
+            { objectApiName: 'Task', label: 'Task', records: 3 },
+            { objectApiName: 'CampaignMember', label: 'Campaign Member', records: 1 },
+          ],
+        },
+        // Erased itself, and taken along with the contacts: both are written.
+        {
+          objectApiName: 'Task',
+          label: 'Task',
+          records: 1,
+          related: [],
+        },
+        {
+          objectApiName: 'Lead',
+          label: 'Lead',
+          records: 0,
+          refused: 'The connected user may not delete Lead records.',
+        },
+        { objectApiName: 'Case', label: 'Case', records: 0 },
+      ]),
+    ).toEqual([
+      { objectApiName: 'Contact', records: 2 },
+      { objectApiName: 'Task', records: 4 },
+      { objectApiName: 'CampaignMember', records: 1 },
+    ]);
+  });
+
+  it('counts with an overwrite the records it writes over alone', () => {
+    expect(
+      erasureWrittenOf([
+        {
+          objectApiName: 'Contact',
+          label: 'Contact',
+          records: 2,
+          fields: [{ fieldApiName: 'Email', label: 'Email', method: 'fake' }],
+          kept: [],
+        },
+      ]),
+    ).toEqual([{ objectApiName: 'Contact', records: 2 }]);
   });
 });

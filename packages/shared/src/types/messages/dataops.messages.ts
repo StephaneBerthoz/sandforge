@@ -724,6 +724,12 @@ export interface DataOpsSubjectEraseResponse extends BaseMessage {
     mode: SubjectEraseMode;
     dryRun: boolean;
     plan: RemovalPlanObject[];
+    /**
+     * A dry run's: the records the erasure writes, per object, what the org
+     * deletes along with them included — what its confirmation reads what
+     * fires on, as the erasure reads it before its first write.
+     */
+    written?: DataOpsAutomationObject[];
     /** Absent on a dry run. */
     outcome?: RemovalOutcome;
     /** What the erasure's mute assigned, kept quiet and left running, when it was asked to mute. */
@@ -819,7 +825,15 @@ export interface DataOpsCleanupDeleteResponse extends BaseMessage {
  */
 export interface DataOpsErrorResponse extends BaseMessage {
   type: 'dataops:error';
-  payload: { message: string; code: string; retryable: boolean };
+  payload: {
+    message: string;
+    code: string;
+    retryable: boolean;
+    /** An erasure refused for several reasons: every one after the first, each under its code. */
+    alsoRefused?: DataOpsAutomationRefusal[];
+    /** A write that muted and stopped: what its mute assigned, kept quiet and took back. */
+    mutedAutomation?: MutedAutomation;
+  };
 }
 
 // ─── Governance messages ─────────────────────────────────────────────────────

@@ -14410,9 +14410,37 @@ for (const theme of STATE_THEMES) {
             objects: [{ objectApiName: 'Contact', done: 1, failed: 0 }],
             errors: [],
           },
+          // What its mute assigned, kept quiet and took back, read with the rest.
+          mutedAutomation: {
+            state: 'muted',
+            assigned: ['Flow_Bypass'],
+            held: [],
+            permissions: ['Skip_Flows'],
+            silenced: [
+              {
+                objectApiName: 'Contact',
+                kind: 'flow',
+                name: 'Notify Owner',
+                permission: 'Skip_Flows',
+              },
+            ],
+            stillRan: [
+              {
+                objectApiName: 'Contact',
+                kind: 'trigger',
+                name: 'ContactTrigger',
+                why: 'noBypass',
+              },
+            ],
+            released: true,
+            takenBack: ['Flow_Bypass'],
+          },
         },
       });
       await expect(page.getByTestId('removal-outcome')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('dsr-erase-muted-released')).toHaveText(
+        'Taken back as the run ended: Flow_Bypass.',
+      );
       await expect
         .poll(async () => (await bridge.getMessages('backup:list')).length)
         .toBeGreaterThan(1);
