@@ -57,6 +57,17 @@ import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
+import {
+  idsOf,
+  laterPartsOf,
+  machineSpanOf,
+  mergedPreviewObjects,
+  mergedUndoObjects,
+  runPartsOf,
+  spansOf,
+  stillLeft,
+  type RunPart,
+} from './cloneRunParts.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { runExitCode } from './exitCodes.js';
@@ -181,9 +192,11 @@ import {
 import {
   objectsRemovedOf,
   removalOrg,
+  NOTHING_REMOVED,
   removeRunRecords,
   setBackToDraftOf,
   type RemovalPreviewObject,
+  type RunPartAlongside,
   type RunRemovalOptions,
   type RunRemovalOutcome,
   type UndeletableObject,
@@ -849,6 +862,13 @@ Remove what a run created:
                          since the run. Keep that file with the summary.
                          A summary of a run past 50 000 records keeps their ids
                          in its journal, which the removal reads them from.
+                         Of a run stopped and taken up with --resume, one
+                         summary per part, it is kept beside the journal too:
+                         the removal of any part, or of the journal, reads what
+                         the others wrote, and once a part's own records are
+                         gone, takes what an earlier removal of another part
+                         left. What the run wrote to a record of another part
+                         is no change since the run.
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
   --accept-automation    delete although the target runs flows, Apex triggers,
@@ -4109,6 +4129,22 @@ export function removalPlanLines(
 }
 
 /**
+ * What a removal of one part of a run cut and taken up takes after its own
+ * records, said with its plan: what an earlier removal of another part left,
+ * per part and object. Nothing when there is none. Exported so it can be
+ * tested.
+ */
+export function partsLeftLines(
+  left: ReadonlyArray<{ part: Pick<RunPart, 'part'>; plan: readonly ForgeRunObjectRecords[] }>,
+): string[] {
+  return left.flatMap(({ part, plan }) => [
+    `then the ${idsOf(plan).length} record(s) of the run's part ${part.part} (its summary's ` +
+      '"part") an earlier --remove of that part left, once these are gone:',
+    ...plan.map((object) => `  ${object.objectApiName}: ${object.ids.length}`),
+  ]);
+}
+
+/**
  * What a plan says, before anything is read, of the lines the platform copies
  * when a run creates a quote and lines under it, or under its opportunity:
  * set as the quote its opportunity syncs, the quote gets a copy of each line
@@ -5078,6 +5114,13 @@ const runRemovalsSchema = z.object({
     .array(summaryIdSchema)
     .max(MADE_KEPT_PER_OBJECT * 100)
     .optional(),
+  /**
+   * Of a run cut and taken up, kept beside its journal: the parts a removal
+   * was asked for, by their place in the journal — the journal's own removal
+   * asks for every one. What such a removal left, the removal of another
+   * part takes once that part's own records are gone.
+   */
+  partsRemoved: z.array(z.number().int().nonnegative()).max(10_000).optional(),
 });
 
 /** What a removal keeps beside the summary for the next one. */
@@ -5086,7 +5129,7 @@ export type RunRemovals = z.infer<typeof runRemovalsSchema>;
 /** What earlier removals of a run left on its records, for the next removal to be told. */
 export type EarlierRemovals = Pick<
   RunRemovals,
-  'removalStamps' | 'removalSpans' | 'removalLeft' | 'sweep' | 'made' | 'late'
+  'removalStamps' | 'removalSpans' | 'removalLeft' | 'sweep' | 'made' | 'late' | 'partsRemoved'
 >;
 
 /**
@@ -5128,7 +5171,7 @@ export function readEarlierRemovals(
       .map((issue) => `${issue.path.map(String).join('.') || 'the file'}: ${issue.message}`);
     return { refusal: `is not a record of removals a removal can read: ${issues.join('; ')}.` };
   }
-  const { removalStamps, removalSpans, removalLeft, sweep, made, late } = parsed.data;
+  const { removalStamps, removalSpans, removalLeft, sweep, made, late, partsRemoved } = parsed.data;
   return {
     earlier: {
       removalStamps,
@@ -5137,6 +5180,7 @@ export function readEarlierRemovals(
       ...(sweep ? { sweep } : {}),
       ...(made ? { made } : {}),
       ...(late ? { late } : {}),
+      ...(partsRemoved ? { partsRemoved } : {}),
     },
   };
 }
@@ -5203,6 +5247,179 @@ export function removalsAfter(
     ...(swept ? { sweep: swept } : {}),
     ...(kept.length > 0 ? { made: kept } : {}),
     ...(keptLate.length > 0 ? { late: keptLate } : {}),
+    ...(earlier?.partsRemoved ? { partsRemoved: earlier.partsRemoved } : {}),
+  };
+}
+
+/** A run cut and taken up, as a removal of one of its summaries, or of its journal, reads it. */
+export interface RunInParts {
+  /** Its parts, as its journal says them. */
+  parts: RunPart[];
+  /** The part the summary is of; undefined for the journal itself, every part. */
+  part?: number;
+  /** What the removals of the run keep beside its journal, read by each. */
+  file: string;
+  /** The {@link runKey} of every record the run created, its parts together. */
+  key: string;
+  /** Those records, per object. */
+  created: ForgeRunObjectRecords[];
+  /** What that file says the removals of the run left. */
+  earlier?: EarlierRemovals;
+}
+
+/**
+ * The run a summary is one part of, when the run was cut and taken up and
+ * its journal is there: its parts, and what its removals keep beside its
+ * journal — the file the journal's own removal keeps, which a removal of any
+ * of its summaries reads and adds to as well. Undefined for a run of one
+ * part, or whose journal is gone; why that file cannot be read, said after
+ * its name, refuses the removal as its own file does. Exported so it can be
+ * tested.
+ */
+export async function runInPartsOf(
+  summary: Pick<RunSummary, 'journal' | 'part'>,
+  journals: ForgeRunJournal = nodeRunJournal(journalDirOf()),
+): Promise<RunInParts | { refusal: string } | undefined> {
+  const journal = summary.journal;
+  if (journal === undefined || !existsSync(journal)) return undefined;
+  const parts = await runPartsOf(journal, journals);
+  const whole = parts.length > 1 ? await journals.readAt(journal, 'all') : undefined;
+  if (!whole) return undefined;
+  const file = removalsPath(journal);
+  let text: string | undefined;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+      return {
+        refusal: `${file} cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+  const key = runKey(whole.created);
+  const read = readEarlierRemovals(text, key);
+  if ('refusal' in read) return { refusal: `${file} ${read.refusal}` };
+  return {
+    parts,
+    ...(summary.part !== undefined ? { part: summary.part } : {}),
+    file,
+    key,
+    created: whole.created,
+    ...(read.earlier ? { earlier: read.earlier } : {}),
+  };
+}
+
+/**
+ * Of a run cut and taken up, the parts other than the summary's that an
+ * earlier removal was asked for and left records of, each with those
+ * records: held, most often, by the records of the summary's own part, which
+ * the removal of that part takes first. Exported so it can be tested.
+ */
+export function partsLeft(
+  run: Pick<RunInParts, 'parts' | 'part' | 'earlier'>,
+): Array<{ part: RunPart; plan: ForgeRunObjectRecords[] }> {
+  const asked = new Set(run.earlier?.partsRemoved ?? []);
+  return run.parts.flatMap((part) => {
+    if (part.part === run.part || !asked.has(part.part)) return [];
+    const plan = stillLeft(part.created, run.earlier?.removalLeft);
+    return plan.length > 0 ? [{ part, plan }] : [];
+  });
+}
+
+/**
+ * The run's other parts, as a removal of `part` hands them over to be read
+ * before its first write (`RunRemovalOptions.otherParts`): those with records
+ * left, each dated as its journal dates it, with what the run's removals
+ * stamped and what its later parts wrote. Exported so it can be tested.
+ */
+export function otherPartsOf(
+  run: Pick<RunInParts, 'parts' | 'earlier'>,
+  part: number,
+  stamps: Readonly<Record<string, string>>,
+): Array<{ part: number; alongside: RunPartAlongside }> {
+  return run.parts.flatMap((other) => {
+    if (other.part === part) return [];
+    const plan = stillLeft(other.created, run.earlier?.removalLeft);
+    const span = machineSpanOf(other);
+    if (plan.length === 0 || !span) return [];
+    const laterParts = laterPartsOf(run.parts, other.part);
+    return [
+      {
+        part: other.part,
+        alongside: {
+          plan,
+          span,
+          ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
+          ...(laterParts.length > 0 ? { laterParts } : {}),
+        },
+      },
+    ];
+  });
+}
+
+/**
+ * What the file beside a run's journal holds once a removal of one of its
+ * summaries has run: what the run's removals left on its records, this one's
+ * stamps over them — those it left on the records of every part —, when
+ * each of its calls ran, the run's records still to take, and the parts it
+ * was asked for. Nothing when it stamped nothing, took nothing, did not say
+ * when it ran and was asked for no part not asked for before. Exported so it
+ * can be tested.
+ */
+export function runRemovalsAfter(
+  run: Pick<RunInParts, 'key' | 'created' | 'earlier'>,
+  taken: {
+    stamps: Readonly<Record<string, string>>;
+    spans: readonly ForgeRemovalSpan[];
+    gone: readonly string[];
+    parts: readonly number[];
+  },
+): RunRemovals | undefined {
+  const earlier = run.earlier;
+  const asked = [...new Set([...(earlier?.partsRemoved ?? []), ...taken.parts])].sort(
+    (a, b) => a - b,
+  );
+  if (
+    Object.keys(taken.stamps).length === 0 &&
+    taken.spans.length === 0 &&
+    taken.gone.length === 0 &&
+    asked.length === (earlier?.partsRemoved?.length ?? 0)
+  ) {
+    return undefined;
+  }
+  const gone = new Set(taken.gone.map((id) => id.slice(0, 15)));
+  const left = (earlier?.removalLeft ?? idsOf(run.created)).filter(
+    (id) => !gone.has(id.slice(0, 15)),
+  );
+  return {
+    tool: 'sandforge-clone',
+    version: 1,
+    run: run.key,
+    removalStamps: { ...earlier?.removalStamps, ...taken.stamps },
+    removalSpans: spansOf(earlier?.removalSpans, taken.spans),
+    removalLeft: left,
+    ...(earlier?.sweep ? { sweep: earlier.sweep } : {}),
+    ...(earlier?.made ? { made: earlier.made } : {}),
+    ...(earlier?.late ? { late: earlier.late } : {}),
+    partsRemoved: asked,
+  };
+}
+
+/**
+ * What a removal of one part of a run is told of the earlier removals of the
+ * run, its own and those of the run's other parts and of its journal: their
+ * stamps over its own, when each ran, and what its own left. Exported so it
+ * can be tested.
+ */
+export function earlierOfTheRun(
+  own: EarlierRemovals | undefined,
+  run: EarlierRemovals | undefined,
+): EarlierRemovals | undefined {
+  if (!run) return own;
+  return {
+    ...own,
+    removalStamps: { ...own?.removalStamps, ...run.removalStamps },
+    removalSpans: spansOf(own?.removalSpans, run.removalSpans),
   };
 }
 
@@ -5424,23 +5641,45 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`${removalsFile} ${before.refusal}\n`);
     process.exit(2);
   }
-  const { earlier, otherRun } = before;
+  const { otherRun, earlier: ownEarlier } = before;
+  // A run cut and taken up: what the removals of its other parts, and of its
+  // journal, left on its records is read too, kept beside its journal.
+  const inParts = await runInPartsOf(summary);
+  if (inParts && 'refusal' in inParts) {
+    process.stderr.write(`${inParts.refusal}\n`);
+    process.exit(2);
+  }
+  const ofTheRun =
+    inParts && resolvePath(removalsFile) !== resolvePath(inParts.file) ? inParts : undefined;
+  const earlier = earlierOfTheRun(ownEarlier, ofTheRun?.earlier);
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
   // What earlier removals took is not planned again, as the panel plans only
   // what a run's history entry says is left (`forgeRemovalPlanLeft`).
-  const plan = forgeRemovalPlanLeft({
+  const ownPlan = forgeRemovalPlanLeft({
     objects: created,
-    removalLeft: earlier?.removalLeft,
+    removalLeft: ownEarlier?.removalLeft,
   });
+  const plan = stillLeft(ownPlan, ofTheRun?.earlier?.removalLeft);
   const count = (objects: readonly ForgeRunObjectRecords[]): number =>
     objects.reduce((sum, object) => sum + object.ids.length, 0);
   removedEarlier = count(created) - count(plan);
-  if (removedEarlier > 0) {
-    say(`${removedEarlier} record(s) removed by an earlier --remove of this summary`);
+  if (count(created) > count(ownPlan)) {
+    say(
+      `${count(created) - count(ownPlan)} record(s) removed by an earlier --remove of this summary`,
+    );
   }
+  if (count(ownPlan) > count(plan)) {
+    say(
+      `${count(ownPlan) - count(plan)} record(s) removed by an earlier --remove of the run's ` +
+        'other part or of its journal',
+    );
+  }
+  // What an earlier removal of another part of the run was asked for and
+  // left, its records held by this part's: taken once this part's are gone.
+  const leftByOtherParts = ofTheRun ? partsLeft(ofTheRun) : [];
   // A sweep, or its listing, still has the run's window to look in.
-  if (plan.length === 0 && !args.sweep && !args.sweepList) {
+  if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep && !args.sweepList) {
     say('nothing left of the run to remove');
     output('success', []);
     return;
@@ -5481,6 +5720,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       await cliSweepInput(conn, args.target, summary, created, await sweepTies()),
       earlier?.removalSpans ?? [],
     );
+    // Read before a sweep, with what --sweep-late and --sweep-untied would
+    // take: on stderr with --json, stdout carrying the listing alone. Said
+    // only without it, a list read before a sweep lost the warning that what
+    // a person made by hand as the run's user reads as the automation's.
+    for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
     if (args.json) {
       process.stdout.write(
         JSON.stringify(
@@ -5499,8 +5743,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         ) + '\n',
       );
     } else {
-      // Read before a sweep, with what --sweep-late and --sweep-untied would take.
-      for (const line of sweepListingLines(listing, args.target, args, true)) console.log(line);
       console.log(`\ndone in ${Date.now() - t0}ms`);
     }
     return;
@@ -5515,7 +5757,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const interrupt = (): void => stop.abort();
   // The removal is said first; what the target runs as its records go is
   // asked about once the sweep has read what it takes, below.
-  if (plan.length > 0) {
+  /** Whether the removal takes records of the run: this part's, or what another's left. */
+  const takesRecords = plan.length > 0 || leftByOtherParts.length > 0;
+  if (takesRecords) {
     sayThePlan();
   } else {
     say('nothing left of the run to remove');
@@ -5575,14 +5819,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // sweep's delete after the removal had said that nothing fired. A sweep that
   // goes alone asks too; a Ctrl-C during its read asks nothing.
   const sweptObjects = parts?.takes ?? [];
-  if ((plan.length > 0 || sweptObjects.length > 0) && !stop.signal.aborted) {
+  if ((takesRecords || sweptObjects.length > 0) && !stop.signal.aborted) {
     await checkTheAutomation(sweptObjects);
   }
 
   // A Ctrl-C during the sweep stops the removal too; with nothing of the run
   // left, the sweep goes alone, under the lease as the removal's would.
   let outcome: RunRemovalOutcome | undefined;
-  if (plan.length > 0) {
+  /** What the removals of what the run's other parts left took, after this part's. */
+  const afterOwn: RunRemovalOutcome[] = [];
+  if (takesRecords) {
     outcome = await removeThePlan();
     // Stopped before its first delete, for objects the user may not delete:
     // nothing was removed.
@@ -5616,14 +5862,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       objects: sweepAuditObjects(sweep),
       details: sweepAuditDetails(sweep, run),
       // A sweep alone has no entry of the removal's to name its mute.
-      ...(plan.length === 0 && mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+      ...(!takesRecords && mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
     });
   }
 
   /** What the run would remove said, and what earlier removals left that it does not read as a change. */
   function sayThePlan(): void {
     for (const line of removalPlanLines(summary, plan, args)) say(line);
-    if (earlier) {
+    for (const line of partsLeftLines(leftByOtherParts)) say(line);
+    if (ownEarlier) {
       say(
         `what earlier removals of this summary left on the run's records, read from ` +
           `${removalsFile}, is not a change since the run`,
@@ -5632,6 +5879,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       say(
         `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
           'the records, if anything, takes its place',
+      );
+    }
+    if (ofTheRun?.earlier) {
+      say(
+        `what the removals of the run's other part or of its journal left on its records, read ` +
+          `from ${ofTheRun.file}, is no change since the run`,
       );
     }
   }
@@ -5693,9 +5946,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
 
   async function checkTheAutomation(swept: readonly string[]): Promise<void> {
-    const ofTheRun = plan.map((object) => object.objectApiName);
-    const removed = [...new Set([...objectsRemovedOf(ofTheRun), ...swept])];
-    const drafted = setBackToDraftOf(ofTheRun);
+    const runObjects = [
+      ...new Set(
+        [...plan, ...leftByOtherParts.flatMap((left) => left.plan)].map(
+          (object) => object.objectApiName,
+        ),
+      ),
+    ];
+    const removed = [...new Set([...objectsRemovedOf(runObjects), ...swept])];
+    const drafted = setBackToDraftOf(runObjects);
     const read = await targetAutomationReader(conn).read(args.target, removed);
     say('');
     for (const line of removalAutomationLines(read, args.target, removed.length, drafted)) {
@@ -5760,35 +6019,80 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     let held: HeldMute | undefined;
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
-    let removal: RunRemovalOutcome;
+    let removal: RunRemovalOutcome = NOTHING_REMOVED;
+    const onUndeletable = undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
+      undeletableRefused = refused;
+    });
+    // Of a run cut and taken up, its other parts, read before the first write:
+    // what this part's deletes restamp of their records is the run's doing.
+    const alongside =
+      ofTheRun?.part !== undefined
+        ? otherPartsOf(ofTheRun, ofTheRun.part, earlier?.removalStamps ?? {})
+        : [];
+    const laterParts =
+      ofTheRun?.part !== undefined ? laterPartsOf(ofTheRun.parts, ofTheRun.part) : [];
     try {
       // The run's span as the target dated it, as the wizard passes a history
       // entry's. A run the target did not date is dated by its records and by
       // when it ended, read on the org's clock as the removal starts.
-      removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
-        ...(span
-          ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-          : {
-              runDurationMs: summary.elapsedMs,
-              ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
-            }),
-        ...(earlier
-          ? {
-              removalStamps: earlier.removalStamps,
-              removalSpans: earlier.removalSpans,
-            }
-          : {}),
-        ...sweepPartsOptions(parts),
-        ...(runUserId ? { runUserId } : {}),
-        includeChanged: args.includeChanged,
-        onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
-          undeletableRefused = refused;
-        }),
-        beforeFirstWrite: async () => {
-          held = await takeTheLease();
-        },
-        signal: stop.signal,
-      });
+      if (plan.length > 0) {
+        removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
+          ...(span
+            ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+            : {
+                runDurationMs: summary.elapsedMs,
+                ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+              }),
+          ...(earlier
+            ? {
+                removalStamps: earlier.removalStamps,
+                removalSpans: earlier.removalSpans,
+              }
+            : {}),
+          ...sweepPartsOptions(parts),
+          ...(runUserId ? { runUserId } : {}),
+          ...(laterParts.length > 0 ? { laterParts } : {}),
+          ...(alongside.length > 0
+            ? { otherParts: alongside.map((other) => other.alongside) }
+            : {}),
+          includeChanged: args.includeChanged,
+          onUndeletable,
+          beforeFirstWrite: async () => {
+            held = await takeTheLease();
+          },
+          signal: stop.signal,
+        });
+      } else {
+        held = await takeTheLease();
+      }
+      // Then what earlier removals of the run's other parts left, each part
+      // read against its own span, as its own removal reads it, and told what
+      // this one wrote: with this part's records gone, nothing of the run
+      // holds them any more.
+      const stamped: Record<string, string> = { ...earlier?.removalStamps, ...removal.stamps };
+      for (const stamps of removal.otherPartStamps ?? []) Object.assign(stamped, stamps);
+      for (const { part, plan: left } of leftByOtherParts) {
+        if (removal.stoppedForUndeletable || removal.cancelled || stop.signal.aborted) break;
+        const partSpan = machineSpanOf(part);
+        if (!partSpan) continue;
+        const spans = spansOf(
+          earlier?.removalSpans,
+          [removal, ...afterOwn].flatMap((done) => (done.span ? [done.span] : [])),
+        );
+        const later = laterPartsOf(ofTheRun?.parts ?? [], part.part);
+        const taken = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), left, {
+          ...partSpan,
+          removalStamps: stamped,
+          removalSpans: spans,
+          ...(runUserId ? { runUserId } : {}),
+          ...(later.length > 0 ? { laterParts: later } : {}),
+          includeChanged: args.includeChanged,
+          onUndeletable,
+          signal: stop.signal,
+        });
+        Object.assign(stamped, taken.stamps);
+        afterOwn.push(taken);
+      }
     } finally {
       releaseStop();
       if (held) {
@@ -5800,9 +6104,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // A removal after an earlier one of the summary takes what that one left,
     // as the panel records it: with when that one ended, by the org's clock.
     const leftBy = earlier?.removalSpans.at(-1)?.last;
+    const objects = mergedUndoObjects(removal.objects, ...afterOwn.map((done) => done.objects));
+    const cancelled = removal.cancelled || afterOwn.some((done) => done.cancelled);
     recordRemoval({
-      outcome: removalAuditOutcome({ status: removalStatus(removal.objects, removal.cancelled) }),
-      objects: removalAuditObjects(removal.objects),
+      outcome: removalAuditOutcome({ status: removalStatus(objects, cancelled) }),
+      objects: removalAuditObjects(objects),
       ...(leftBy ? { leftBy } : {}),
     });
     return removal;
@@ -5823,6 +6129,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     parts?.late ?? [],
     parts?.gone ?? [],
   );
+  // The journal's own removal asks for every part of the run, as one.
+  if (removals && inParts && !ofTheRun) {
+    removals.partsRemoved = inParts.parts.map((part) => part.part);
+  }
   const failure = removals ? writeWhole(removalsFile, removals) : undefined;
   if (failure) {
     process.stderr.write(
@@ -5831,17 +6141,42 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         'to as changed since the run, which --include-changed then takes.\n',
     );
   }
-  const status = removalStatusWithSweep(
-    outcome ? removalStatus(outcome.objects, outcome.cancelled) : 'success',
-    sweep,
-  );
-  output(
-    status,
+  // Of a run cut and taken up, what this removal took and left is kept beside
+  // the run's journal too, for the removals of its other parts and of the
+  // journal: what this part's deletes restamped of another part's records is
+  // what the removal of that part reads as no change since the run.
+  if (ofTheRun?.part !== undefined && outcome && !outcome.stoppedForUndeletable) {
+    const done = [outcome, ...afterOwn];
+    const stamps: Record<string, string> = {};
+    for (const one of done) {
+      for (const each of [one.stamps, ...(one.otherPartStamps ?? [])]) Object.assign(stamps, each);
+    }
+    const ofTheRunNow = runRemovalsAfter(ofTheRun, {
+      stamps,
+      spans: done.flatMap((one) => (one.span ? [one.span] : [])),
+      gone: done.flatMap((one) => one.gone),
+      parts: [ofTheRun.part, ...leftByOtherParts.map((left) => left.part.part)],
+    });
+    const notKept = ofTheRunNow ? writeWhole(ofTheRun.file, ofTheRunNow) : undefined;
+    if (notKept) {
+      process.stderr.write(
+        `What this removal left on the run's records could not be kept in ${ofTheRun.file} ` +
+          `(${notKept}): a later --remove of the run's other part or of its journal may keep a ` +
+          'record this removal wrote to as changed since the run, which --include-changed then ' +
+          'takes.\n',
+      );
+    }
+  }
+  const objects = mergedUndoObjects(
     outcome?.objects ?? [],
-    org.id,
-    removals && !failure ? removalsFile : undefined,
+    ...afterOwn.map((done) => done.objects),
+  );
+  const cancelled = outcome?.cancelled === true || afterOwn.some((done) => done.cancelled);
+  const status = removalStatusWithSweep(
+    outcome ? removalStatus(objects, cancelled) : 'success',
     sweep,
   );
+  output(status, objects, org.id, removals && !failure ? removalsFile : undefined, sweep);
   if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
@@ -6055,16 +6390,43 @@ async function previewRemoval(
     process.stderr.write(`${removalsFile} ${before.refusal}\n`);
     process.exit(2);
   }
-  const { earlier } = before;
-  const plan = forgeRemovalPlanLeft({ objects: created, removalLeft: earlier?.removalLeft });
+  // A run cut and taken up: what the removals of its other parts, and of its
+  // journal, left is read as the removal reads it.
+  const inParts = await runInPartsOf(summary);
+  if (inParts && 'refusal' in inParts) {
+    process.stderr.write(`${inParts.refusal}\n`);
+    process.exit(2);
+  }
+  const ofTheRun =
+    inParts && resolvePath(removalsFile) !== resolvePath(inParts.file) ? inParts : undefined;
+  const earlier = earlierOfTheRun(before.earlier, ofTheRun?.earlier);
+  const ownPlan = forgeRemovalPlanLeft({
+    objects: created,
+    removalLeft: before.earlier?.removalLeft,
+  });
+  const plan = stillLeft(ownPlan, ofTheRun?.earlier?.removalLeft);
+  const leftByOtherParts = ofTheRun ? partsLeft(ofTheRun) : [];
   const count = (objects: readonly ForgeRunObjectRecords[]): number =>
     objects.reduce((sum, object) => sum + object.ids.length, 0);
-  const removedEarlier = count(created) - count(plan);
-  if (removedEarlier > 0) {
-    notes.push(`${removedEarlier} record(s) removed by an earlier --remove of this summary`);
+  if (count(created) > count(ownPlan)) {
+    notes.push(
+      `${count(created) - count(ownPlan)} record(s) removed by an earlier --remove of this summary`,
+    );
+  }
+  if (count(ownPlan) > count(plan)) {
+    notes.push(
+      `${count(ownPlan) - count(plan)} record(s) removed by an earlier --remove of the run's ` +
+        'other part or of its journal',
+    );
+  }
+  for (const { part, plan: left } of leftByOtherParts) {
+    notes.push(
+      `with them, ${count(left)} record(s) of the run's part ${part.part} an earlier --remove ` +
+        'of that part left, read against that part, once these are gone',
+    );
   }
   // A sweep still has the run's window to look in.
-  if (plan.length === 0 && !args.sweep) {
+  if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep) {
     notes.push('nothing left of the run to remove');
     answer({ planned: 0, objects: [], userNames: {} }, []);
     return;
@@ -6120,10 +6482,16 @@ async function previewRemoval(
   }
   // What the target runs as a removal takes the run back, and as its sweep
   // deletes, read and said as the removal says it before its first delete.
-  const ofTheRun = plan.map((object) => object.objectApiName);
+  const runObjects = [
+    ...new Set(
+      [...plan, ...leftByOtherParts.flatMap((left) => left.plan)].map(
+        (object) => object.objectApiName,
+      ),
+    ),
+  ];
   const swept = sweepListing ? sweepTakenObjects(sweepListing, args) : [];
-  const removed = [...new Set([...objectsRemovedOf(ofTheRun), ...swept])];
-  const drafted = setBackToDraftOf(ofTheRun);
+  const removed = [...new Set([...objectsRemovedOf(runObjects), ...swept])];
+  const drafted = setBackToDraftOf(runObjects);
   const automation = await targetAutomationReader(conn).read(args.target, removed);
   say('');
   for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
@@ -6138,7 +6506,7 @@ async function previewRemoval(
     refusals.push({ code: 'AUTOMATION_NOT_ACCEPTED', message: automationStop });
   }
   // Nothing of the run left, the sweep goes alone.
-  if (plan.length === 0) {
+  if (plan.length === 0 && leftByOtherParts.length === 0) {
     notes.push('nothing left of the run to remove');
     answer({ planned: 0, objects: [], userNames: {} }, refusals, org.id);
     return;
@@ -6154,6 +6522,10 @@ async function previewRemoval(
   });
   const span = summary.result.writtenBetween;
   let outcome: RunRemovalOutcome;
+  /** What the previews of what the run's other parts left say, after this part's. */
+  const afterOwn: RunRemovalOutcome[] = [];
+  const laterParts =
+    ofTheRun?.part !== undefined ? laterPartsOf(ofTheRun.parts, ofTheRun.part) : [];
   try {
     outcome = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), plan, {
       ...(span
@@ -6165,21 +6537,52 @@ async function previewRemoval(
       ...(earlier
         ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
         : {}),
+      ...(laterParts.length > 0 ? { laterParts } : {}),
       includeChanged: args.includeChanged,
       previewOnly: true,
       signal: stop.signal,
     });
+    for (const { part, plan: left } of leftByOtherParts) {
+      const partSpan = machineSpanOf(part);
+      if (!partSpan || !outcome.preview || stop.signal.aborted) continue;
+      const later = laterPartsOf(ofTheRun?.parts ?? [], part.part);
+      afterOwn.push(
+        await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), left, {
+          ...partSpan,
+          ...(earlier
+            ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
+            : {}),
+          ...(later.length > 0 ? { laterParts: later } : {}),
+          includeChanged: args.includeChanged,
+          previewOnly: true,
+          signal: stop.signal,
+        }),
+      );
+    }
   } finally {
     releaseStop();
   }
-  const preview = outcome.preview;
+  const preview =
+    outcome.preview && afterOwn.every((done) => done.preview)
+      ? {
+          objects: mergedPreviewObjects(
+            outcome.preview.objects,
+            ...afterOwn.map((done) => done.preview?.objects ?? []),
+          ),
+          userNames: Object.assign(
+            {},
+            outcome.preview.userNames,
+            ...afterOwn.map((done) => done.preview?.userNames ?? {}),
+          ) as Record<string, string>,
+        }
+      : undefined;
   if (!preview) {
     process.stderr.write(
       'interrupted: the preview stopped before it was through, and wrote nothing\n',
     );
     process.exit(stopExitCode(stoppedBy ?? 'SIGINT'));
   }
-  const undeletable = outcome.undeletable ?? [];
+  const undeletable = [outcome, ...afterOwn].flatMap((done) => done.undeletable ?? []);
   if (undeletable.length > 0 && !args.leaveUndeletable) {
     const named = undeletable.map((o) => `${o.objectApiName} (${o.records} records)`).join(', ');
     refusals.push({
@@ -6192,7 +6595,7 @@ async function previewRemoval(
   }
   answer(
     {
-      planned: count(plan),
+      planned: count(plan) + leftByOtherParts.reduce((sum, left) => sum + count(left.plan), 0),
       objects: preview.objects,
       ...(undeletable.length > 0 ? { undeletable } : {}),
       userNames: preview.userNames,

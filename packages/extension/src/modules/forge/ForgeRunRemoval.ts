@@ -640,6 +640,12 @@ export interface RunRemovalOptions {
    */
   otherParts?: readonly RunPartAlongside[];
   /**
+   * The run's parts after the one removed, each with what it wrote beyond its
+   * own records: see {@link RunLaterPart}. Absent, the plan's records are read
+   * against the run's own end alone.
+   */
+  laterParts?: readonly RunLaterPart[];
+  /**
    * Whether a record outside the plan, read hanging from one of its records
    * through a relationship the org deletes along, goes with that record
    * whatever its dates: read with them, against `runEnd`, the run's end on
@@ -752,6 +758,66 @@ export interface RunPartAlongside {
   span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
   /** What its earlier removals stamped: see {@link RunRemovalOptions.removalStamps}. */
   removalStamps?: Readonly<Record<string, string>>;
+  /** The run's parts after it: see {@link RunRemovalOptions.laterParts}. */
+  laterParts?: readonly RunLaterPart[];
+}
+
+/**
+ * A later part of the run — the part a resume took the run up with — as a
+ * removal of an earlier part reads what it wrote beyond the records it
+ * created: the lookups the earlier part's records owed, filled in, a status
+ * given back (`wrote`), and the records it linked to (`linked`).
+ *
+ * Cut right after its opportunity and taken up, a clone was removed part by
+ * part, live: the resume had filled in the opportunity's synced quote, and
+ * given the contact role the platform wrote with it the source's fields. The
+ * cut part's removal, read against its own end, kept the opportunity as
+ * changed since the run, and the contact for a role it took for the target's
+ * automation's. What the run wrote is no change since it, and a record it
+ * linked to that the org made as the run wrote goes with the record it hangs
+ * from: last modified no later than the end of the part that wrote it, as
+ * that part's own records are read. Changed after it, by anyone, it stays.
+ */
+export interface RunLaterPart {
+  /** Its span, as {@link RunRemovalOptions} takes a run's. */
+  span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
+  /** Records of earlier parts it wrote to, by id. */
+  wrote?: readonly string[];
+  /**
+   * Records it linked to, by id: one created once the run began, which hangs
+   * from a record of the plan, goes with it.
+   */
+  linked?: readonly string[];
+}
+
+/**
+ * The span of the latest of `parts` that names each record in `which`, by
+ * record key, on the org's clock: a part whose end cannot be read on it
+ * names none.
+ */
+function laterSpansOf(
+  parts: readonly RunLaterPart[] | undefined,
+  which: 'wrote' | 'linked',
+  orgAheadMs: number,
+): Map<string, { start: number; end: number }> {
+  const spans = new Map<string, { start: number; end: number }>();
+  for (const part of parts ?? []) {
+    const span = runSpan(part.span, [], orgAheadMs);
+    if (!Number.isFinite(span.end)) continue;
+    for (const id of part[which] ?? []) {
+      const key = recordKey(id);
+      if (!(span.end <= (spans.get(key)?.end ?? Number.NEGATIVE_INFINITY))) spans.set(key, span);
+    }
+  }
+  return spans;
+}
+
+/** {@link laterSpansOf}, each record's end alone. */
+function laterEndsOf(
+  parts: readonly RunLaterPart[] | undefined,
+  orgAheadMs: number,
+): Map<string, number> {
+  return new Map([...laterSpansOf(parts, 'wrote', orgAheadMs)].map(([key, { end }]) => [key, end]));
 }
 
 /** An object of a run whose records the user a removal runs as may not delete, and how many it holds. */
@@ -1392,6 +1458,8 @@ export async function removeRunRecords(
   const stampedBefore = new Map(
     Object.entries(options.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
   );
+  // What a later part of the run wrote to a record of this one is the run's doing.
+  const writtenLater = laterEndsOf(options.laterParts, clock.aheadMs);
   const changed = new Set<string>();
   for (const { objectApiName } of records.objects) {
     const snapshot = snapshots.get(objectApiName);
@@ -1403,7 +1471,10 @@ export async function removeRunRecords(
         const key = recordKey(id);
         if (snapshot.missing.has(key)) continue;
         // A date that cannot be read cannot show the record was left alone.
-        const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+        const unchanged =
+          modified <= runEnd ||
+          modified <= (stampedBefore.get(key) ?? Number.NaN) ||
+          modified <= (writtenLater.get(key) ?? Number.NaN);
         if (!unchanged) changed.add(key);
       }
     }
@@ -1467,6 +1538,9 @@ export async function removeRunRecords(
     ...(options.alongToDraft ? { alongToDraft: options.alongToDraft } : {}),
     ...(options.runUserId ? { runUser: recordKey(options.runUserId) } : {}),
     ...(options.automationMade ? { automationMade: keysAsAsked(options.automationMade) } : {}),
+    ...(options.laterParts
+      ? { linkedLater: laterSpansOf(options.laterParts, 'linked', clock.aheadMs) }
+      : {}),
   });
 
   if (stopped()) return untouched();
@@ -2411,6 +2485,7 @@ async function unchangedOfOtherParts(
     const stamped = new Map(
       Object.entries(part.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
     );
+    const writtenLater = laterEndsOf(part.laterParts, orgAheadMs);
     const marks = new Map<string, PlaceMarks>();
     if (Number.isFinite(end)) {
       for (const { objectApiName } of records.objects) {
@@ -2445,7 +2520,11 @@ async function unchangedOfOtherParts(
             const key = recordKey(id);
             const modified = modifiedOf.get(key);
             if (modified === undefined) return;
-            if (modified <= end || modified <= (stamped.get(key) ?? Number.NaN)) {
+            if (
+              modified <= end ||
+              modified <= (stamped.get(key) ?? Number.NaN) ||
+              modified <= (writtenLater.get(key) ?? Number.NaN)
+            ) {
               unchanged.add(place + offset);
             }
           });
@@ -3124,6 +3203,11 @@ interface DependentsContext {
   runUser?: string;
   /** Keys of what a granted sweep found made for the run: see {@link RunRemovalOptions.automationMade}. */
   automationMade?: Pick<ReadonlySet<string>, 'has'>;
+  /**
+   * By key, the records a later part of the run linked to, with that part's
+   * span on the org's clock: see {@link RunLaterPart.linked}.
+   */
+  linkedLater?: ReadonlyMap<string, { start: number; end: number }>;
 }
 
 /**
@@ -3901,6 +3985,13 @@ class DependentsCheck {
     const modified = epochOf(dated === 'CreatedDate' ? row.LastModifiedDate : row.SystemModstamp);
     // A date that cannot be read cannot show the record came with the run.
     if (!(created >= runStart)) return true;
+    // Made as the run wrote — as this part went, or the later part that
+    // linked to it — and last written then: the run's, as the record it hangs
+    // from. One made between the parts is someone's, the run's user's too.
+    const linked = this.context.linkedLater?.get(key);
+    if (linked && (created <= runEnd || created >= linked.start) && modified <= linked.end) {
+      return false;
+    }
     // Created once this removal was under way, by the user it runs as: the
     // org answering what the removal did. Deleting an opportunity's line
     // items changes its amount, and feed tracking records the change on the

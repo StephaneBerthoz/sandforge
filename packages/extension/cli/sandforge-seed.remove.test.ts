@@ -293,6 +293,33 @@ describe('sandforge-seed --remove', () => {
     vi.unstubAllEnvs();
   });
 
+  it('says the list of a --sweep-list on stderr under --json, the warning about hand work among it', async () => {
+    vi.mocked(listSweep).mockResolvedValue({
+      looked: ['Account', 'Contact', 'Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Follow up'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+    });
+    const { stderr } = stubExit();
+
+    await main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json'));
+
+    expect(JSON.parse(stdout)).toMatchObject({ action: 'sweep-list', listing: { handWork: [] } });
+    expect(stderr()).toContain('  Task: 1 — 1 made for the run (Follow up)');
+    expect(stderr()).toContain(
+      "a record made by hand as the run's user under the run's records within a minute of " +
+        "them reads as the automation's, and one changed by hand before the run's last write " +
+        'as unchanged: check the names before a --sweep',
+    );
+  });
+
   it('removes what the run created, children first, and keeps what it did beside the summary', async () => {
     await main(argv('--remove', file, '--target', 'TGT', '--json'));
 

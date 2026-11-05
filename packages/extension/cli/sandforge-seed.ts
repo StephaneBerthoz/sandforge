@@ -3469,6 +3469,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       await sweepInput(),
       earlier?.removalSpans ?? [],
     );
+    // Read before a sweep, with what --sweep-late and --sweep-untied would
+    // take: on stderr with --json, stdout carrying the listing alone.
+    for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -3485,8 +3488,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         )}\n`,
       );
     } else {
-      // Read before a sweep, with what --sweep-late and --sweep-untied would take.
-      for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
       say(`\ndone in ${Date.now() - t0}ms`);
     }
     return;

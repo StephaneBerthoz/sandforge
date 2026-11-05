@@ -1440,6 +1440,25 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
+    it('says the list on stderr under --json, as every other line, the warning about hand work among it', async () => {
+      // Run for real on the trap org, the list said nothing on either stream
+      // but its JSON, and the warning was lost.
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep-list', '--json']),
+      ).toBeUndefined();
+
+      expect(printed).toEqual([]);
+      expect(stderr).toContain('  Task: 1 — 1 made for the run (Welcome call)');
+      expect(stderr).toContain(
+        "a record made by hand as the run's user under the run's records within a minute of " +
+          "them reads as the automation's, and one changed by hand before the run's last write " +
+          'as unchanged: check the names before a --sweep',
+      );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({ action: 'sweep-list' });
+    });
+
     it('hands the removal the sweep, with the run’s window, records and id map, for it to make before its first delete', async () => {
       // Swept after it, a task the target's automation opened under a cloned
       // contact after the run's last write kept the contact back as a record

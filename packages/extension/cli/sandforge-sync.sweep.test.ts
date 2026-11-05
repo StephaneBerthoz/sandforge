@@ -283,6 +283,38 @@ describe('sandforge-sync --remove with a sweep', () => {
     expect(existsSync(join(dir, 'run.removals.json'))).toBe(false);
   });
 
+  it('says the list on stderr under --json, the warning about hand work among it, and the listing alone on stdout', async () => {
+    vi.mocked(listSweep).mockResolvedValue({
+      looked: ['Account', 'Contact', 'Task'],
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 1,
+          names: ['Follow up'],
+          classes: { made: 1, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      unread: [],
+      handWork: [],
+      window: { from: '2026-10-18T09:00:00Z', to: '2026-10-18T09:01:00Z' },
+    });
+    let said = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      said += chunk;
+      return true;
+    }) as never);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json'));
+
+    expect(JSON.parse(stdout)).toMatchObject({ action: 'sweep-list', listing: { handWork: [] } });
+    expect(said).toContain('  Task: 1 — 1 made for the run (Follow up)');
+    expect(said).toContain(
+      "a record made by hand as the run's user under the run's records within a minute of " +
+        "them reads as the automation's, and one changed by hand before the run's last write " +
+        'as unchanged: check the names before a --sweep',
+    );
+  });
+
   it('looks from the run’s first write its summary dates, an update before its first creation', async () => {
     const created = '2026-10-18T09:02:00.000Z';
     const firstWrite = '2026-10-18T09:00:10.000Z';

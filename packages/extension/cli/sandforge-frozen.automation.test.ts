@@ -517,6 +517,13 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(stdout).not.toContain('--sweep-untied is refused');
       expect(org.ids('Task')).toEqual([FIRST_LOOSE, SECOND_LOOSE]);
     });
+
+    it('says that list on stderr under --json, as every other line', async () => {
+      expect(await remove('--sweep-list', '--json')).toBe(0);
+
+      expect(stderr).toContain(`sweep of the load of ${WRITTEN_OVER}:`);
+      expect(stderr).toContain('sweep of the load of 2026-10-01T10:02:06.000Z:');
+    });
   });
 
   it('mutes what fires on what the sweep deletes, under a lease taken after the question, and says it under --json', async () => {
