@@ -181,8 +181,11 @@ describe('adminChangesOf', () => {
         gap('unique_value_collision', 'Account', { field: 'Code__c', detail: { colliding: 2 } }),
         gap('api_budget', 'Account', { severity: 'warning' }),
         gap('rehearsal_refusal', 'Case', { value: 'CANNOT_EXECUTE_FLOW_TRIGGER' }),
-        // No grant opens an object the platform alone writes.
+        // No grant opens an object the platform alone writes, nor setup.
         gap('object_platform_only', 'Calendar', { severity: 'info' }),
+        gap('object_setup_only', 'Report', { severity: 'info' }),
+        // Nor anything named that would open a child no permission set covers.
+        gap('object_through_parent', 'Task'),
         gap('required_field_missing', 'Case', {
           source: 'metadata',
           field: 'Region__c',
@@ -199,6 +202,44 @@ describe('adminChangesOf', () => {
       gap('object_not_createable', 'Invoice__c'),
     ]);
     expect(kept?.changes.map((c) => c.change)).toEqual(['make_field_optional']);
+  });
+
+  it('asks Edit on each record an object no permission set covers hangs from, never a Create no Object Settings page holds', () => {
+    const contactRole = gap('object_through_parent', 'OpportunityContactRole', {
+      source: 'metadata',
+      rows: 0,
+      detail: { editOn: ['Opportunity', 'Contact'] },
+    });
+
+    const [group] = adminChangesOf([contactRole]);
+
+    expect(group?.objectApiName).toBe('OpportunityContactRole');
+    expect(group?.changes.map(({ change, value, gapId }) => ({ change, value, gapId }))).toEqual([
+      { change: 'grant_edit', value: 'Contact', gapId: contactRole.id },
+      { change: 'grant_edit', value: 'Opportunity', gapId: contactRole.id },
+    ]);
+    expect(group?.changes[1]?.setup).toBe(
+      'Setup > Users > the profile or a permission set of the user SandForge writes as > ' +
+        'Object Settings > Opportunity > Edit: tick Read and Edit',
+    );
+  });
+
+  it('asks the feature an object comes with turned on, then Create on it, when Modify All Data does not open it', () => {
+    const [group] = adminChangesOf([
+      gap('object_feature_off', 'Invoice', { source: 'metadata', rows: 0 }),
+    ]);
+
+    expect(group?.changes).toEqual([
+      expect.objectContaining({
+        change: 'enable_feature',
+        objectApiName: 'Invoice',
+        setup:
+          'Turn on in the target the feature Invoice comes with, or assign the user SandForge ' +
+          'writes as the permission set licence that includes it; then Setup > Users > the ' +
+          'profile or a permission set of the user SandForge writes as > Object Settings > ' +
+          'Invoice > Edit: tick Create',
+      }),
+    ]);
   });
 
   it('asks a text field be made longer, to no number, when no read measured its longest value', () => {

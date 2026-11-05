@@ -4397,6 +4397,16 @@ for (const theme of SCANNED_THEMES) {
             details:
               'Contact is in the target org, but the user the clone writes as may not create its records there: Execute skips it',
           },
+          // One no user can create, said an info, with no grant to ask.
+          {
+            objectApiName: 'Report',
+            fieldApiName: '',
+            issue: 'object_not_createable',
+            severity: 'info',
+            details:
+              'Report is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it',
+            notCreatableBy: 'setup',
+          },
         ],
       });
       await answerGapsRead(bridge, page, [
@@ -4409,9 +4419,29 @@ for (const theme of SCANNED_THEMES) {
           rows: 0,
           decisions: ['exclude_object'],
         },
+        {
+          id: 'object_through_parent|OpportunityLineItem|||',
+          kind: 'object_through_parent',
+          severity: 'blocking',
+          source: 'metadata',
+          objectApiName: 'OpportunityLineItem',
+          rows: 0,
+          detail: { editOn: ['Opportunity'] },
+          decisions: ['exclude_object'],
+        },
+        {
+          id: 'object_setup_only|Report|||',
+          kind: 'object_setup_only',
+          severity: 'info',
+          source: 'metadata',
+          objectApiName: 'Report',
+          rows: 0,
+          decisions: ['exclude_object'],
+        },
       ]);
       await page.getByTestId('tab-metadata').click();
       await expect(page.getByTestId('diff-0')).toContainText('Execute skips it');
+      await expect(page.getByTestId('diff-1')).toContainText('no grant would open it');
       await expectReadable(page, theme);
 
       // A gap that refuses rows opened its row by itself.

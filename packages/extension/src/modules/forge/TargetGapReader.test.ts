@@ -6,7 +6,7 @@ import type {
   ForgeGraphNode,
   ForgeTargetGaps,
 } from '@sandforge/shared';
-import { forgeGapId } from '@sandforge/shared';
+import { adminChangesOf, forgeGapId } from '@sandforge/shared';
 import {
   ACTIVE_DUPLICATE_RULES_SOQL,
   FORMULAS_BOUND,
@@ -29,6 +29,7 @@ import {
   type GapRunScope,
   type TargetGapDeps,
 } from './TargetGapReader.js';
+import { MODIFY_ALL_DATA_SOQL } from './targetCreators.js';
 import {
   TOOLING_RETRIEVES_PER_REQUEST,
   USER_PERMISSIONS_SOQL,
@@ -136,6 +137,17 @@ interface FakeOrgs {
    * not answered for.
    */
   everCreatable?: Record<string, unknown>;
+  /**
+   * The objects a permission set can give Create on in the target, as the
+   * `SobjectType` picklist of its `ObjectPermissions` describe lists them; a
+   * describe without that picklist when left out.
+   */
+  coverable?: readonly string[];
+  /**
+   * Whether the user the read runs as holds Modify All Data, as the target's
+   * `UserPermissionAccess` answers it; no row when left out.
+   */
+  modifyAllData?: boolean;
   limits?: unknown;
   held?: Array<Record<string, unknown>>;
   /** The custom permissions of the target, as `CustomPermission` lists them. */
@@ -161,7 +173,8 @@ interface FakeOrgs {
       | 'limits'
       | 'held'
       | 'permissionSets'
-      | 'entities',
+      | 'entities'
+      | 'modifyAllData',
       Error
     >
   > & { describe?: ReadonlySet<string> };
@@ -195,6 +208,14 @@ function fakeDeps(orgs: FakeOrgs = {}) {
         if (soql === USER_PERMISSIONS_SOQL) {
           if (refuse.held) throw refuse.held;
           return page(orgs.held ?? []);
+        }
+        if (soql === MODIFY_ALL_DATA_SOQL) {
+          if (refuse.modifyAllData) throw refuse.modifyAllData;
+          return page(
+            orgs.modifyAllData === undefined
+              ? []
+              : [{ PermissionsModifyAllData: orgs.modifyAllData }],
+          );
         }
         if (/FROM (CustomPermission|SetupEntityAccess|ObjectPermissions) /.test(soql)) {
           if (refuse.permissionSets) throw refuse.permissionSets;
@@ -256,6 +277,15 @@ function fakeDeps(orgs: FakeOrgs = {}) {
       const sent = !(orgs.held_describes ?? new Set()).has(key);
       const run = () => {
         if (refuse.describe?.has(key)) throw new Error(`INVALID_TYPE: ${objectApiName}`);
+        if (orgId === TARGET && objectApiName === 'ObjectPermissions' && orgs.coverable) {
+          return {
+            fields: [
+              field('ParentId', { type: 'reference', referenceTo: ['PermissionSet'] }),
+              field('SobjectType', { type: 'picklist', picklistValues: [...orgs.coverable] }),
+            ],
+            sent,
+          };
+        }
         const fields = (orgId === TARGET ? orgs.targetFields : orgs.sourceFields)?.[objectApiName];
         const closed = orgId === TARGET && orgs.closedInTarget?.has(objectApiName) === true;
         return {
@@ -1115,6 +1145,230 @@ describe('TargetGapReader — an object the target user may not create', () => {
     });
 
     expect(read.asked.some((asked) => asked.includes(' FROM EntityDefinition '))).toBe(false);
+    expect(read.asked.some((asked) => asked.includes('::ObjectPermissions'))).toBe(false);
+    expect(read.asked.some((asked) => asked.includes(MODIFY_ALL_DATA_SOQL))).toBe(false);
+  });
+});
+
+describe('TargetGapReader — who may create an object the target user may not', () => {
+  /**
+   * Some of the 3 210 objects a scratch org's `ObjectPermissions` describe
+   * lists in its `SobjectType` picklist: what a permission set can give Create
+   * on. Neither a report, a dashboard nor a tab is among them, nor an
+   * opportunity's products, its contact roles or a task, whose access comes
+   * from elsewhere.
+   */
+  const COVERABLE = [
+    'Account',
+    'ApprovalWorkItem',
+    'Campaign',
+    'Case',
+    'Contact',
+    'CreditMemo',
+    'FinanceBalanceSnapshot',
+    'Invoice',
+    'Opportunity',
+    'Order',
+    'Pricebook2',
+    'Product2',
+    'Quote',
+    'Thing__c',
+  ];
+
+  it('says a report no user can create, not even with Modify All Data, left out without holding Execute, and asks no grant', async () => {
+    // The clone of an opportunity reached the source's six reports through
+    // its feed item. Its dry run said Report BLOCKING and asked the target's
+    // administrator, who holds Modify All Data, to tick Create on it, while
+    // the target's EntityDefinition answers IsEverCreatable true for it.
+    const read = await readGaps([node('Account'), node('Report', { recordCount: 6 })], {
+      closedInTarget: new Set(['Report']),
+      everCreatable: { Report: true },
+      coverable: COVERABLE,
+      modifyAllData: true,
+    });
+
+    expect(read.gaps.filter((gap) => gap.objectApiName === 'Report')).toEqual([
+      {
+        id: forgeGapId('object_setup_only', 'Report'),
+        kind: 'object_setup_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Report',
+        rows: 0,
+        decisions: ['exclude_object'],
+      },
+    ]);
+    expect(adminChangesOf(read.gaps)).toEqual([]);
+    const lines = gapLines(read, 'TGT').join('\n');
+    expect(lines).toContain(
+      'info: no user can create its records in the target, not even one with Modify All Data, ' +
+        'and no permission set gives Create on it: setup the org keeps as records, or the ' +
+        "platform's own; the run skips every row of it",
+    );
+    expect(lines).not.toMatch(/BLOCKING/);
+  });
+
+  it('keeps blocking a custom object a user without Modify All Data may not create, with the grant that opens it', async () => {
+    const read = await readGaps([node('Thing__c')], {
+      closedInTarget: new Set(['Thing__c']),
+      everCreatable: { Thing__c: true },
+      coverable: COVERABLE,
+      modifyAllData: false,
+    });
+
+    expect(read.gaps.find((gap) => gap.objectApiName === 'Thing__c')).toMatchObject({
+      kind: 'object_not_createable',
+      severity: 'blocking',
+    });
+    expect(adminChangesOf(read.gaps)).toEqual([
+      {
+        objectApiName: 'Thing__c',
+        changes: [
+          expect.objectContaining({
+            change: 'grant_create',
+            setup:
+              'Setup > Users > the profile or a permission set of the user SandForge writes as > ' +
+              'Object Settings > Thing__c > Edit: tick Create',
+          }),
+        ],
+      },
+    ]);
+  });
+
+  it('keeps blocking the products of an opportunity a user without Modify All Data may not create, and asks Edit on the opportunity, never a Create no permission set gives', async () => {
+    // No permission set lists an opportunity's products: a user adds them to
+    // an opportunity they may edit. The dry run asked to tick Create on
+    // OpportunityLineItem, which no Object Settings page shows.
+    const read = await readGaps([node('Opportunity'), node('OpportunityLineItem')], {
+      closedInTarget: new Set(['OpportunityLineItem']),
+      everCreatable: { OpportunityLineItem: true },
+      coverable: COVERABLE,
+      modifyAllData: false,
+      targetFields: {
+        OpportunityLineItem: [
+          field('OpportunityId', {
+            type: 'reference',
+            nillable: false,
+            referenceTo: ['Opportunity'],
+          }),
+          field('PricebookEntryId', {
+            type: 'reference',
+            nillable: false,
+            referenceTo: ['PricebookEntry'],
+          }),
+          field('Product2Id', { type: 'reference', referenceTo: ['Product2'] }),
+          field('Quantity', { type: 'double', nillable: false }),
+        ],
+      },
+    });
+
+    expect(read.gaps.filter((gap) => gap.objectApiName === 'OpportunityLineItem')).toEqual([
+      {
+        id: forgeGapId('object_through_parent', 'OpportunityLineItem'),
+        kind: 'object_through_parent',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'OpportunityLineItem',
+        rows: 0,
+        detail: { editOn: ['Opportunity'] },
+        decisions: ['exclude_object'],
+      },
+    ]);
+    const changes = adminChangesOf(read.gaps).flatMap((group) => group.changes);
+    expect(
+      changes.map(({ change, objectApiName, value }) => ({ change, objectApiName, value })),
+    ).toEqual([
+      { change: 'grant_edit', objectApiName: 'OpportunityLineItem', value: 'Opportunity' },
+    ]);
+    expect(changes[0].setup).toBe(
+      'Setup > Users > the profile or a permission set of the user SandForge writes as > ' +
+        'Object Settings > Opportunity > Edit: tick Read and Edit',
+    );
+    const lines = gapLines(read, 'TGT').join('\n');
+    expect(lines).toContain(
+      'BLOCKING: no permission set gives Create on it: the user the run writes as creates its ' +
+        'records with Edit on Opportunity, which they hang from, or no user can; every row is ' +
+        'skipped, after the objects written before it, unless the object is left out',
+    );
+    expect(lines).not.toContain('OpportunityLineItem > Edit: tick Create');
+  });
+
+  it('says blocking an object of a feature the target has not turned on, with what to turn on, and never calls it setup', async () => {
+    // An administrator holding Modify All Data may not create a balance
+    // snapshot, though a permission set can give Create on it: of the objects
+    // such an administrator queries and may not create, 17 are so.
+    const read = await readGaps([node('Account'), node('FinanceBalanceSnapshot')], {
+      closedInTarget: new Set(['FinanceBalanceSnapshot']),
+      everCreatable: { FinanceBalanceSnapshot: true },
+      coverable: COVERABLE,
+      modifyAllData: true,
+    });
+
+    expect(read.gaps.find((gap) => gap.objectApiName === 'FinanceBalanceSnapshot')).toEqual({
+      id: forgeGapId('object_feature_off', 'FinanceBalanceSnapshot'),
+      kind: 'object_feature_off',
+      severity: 'blocking',
+      source: 'metadata',
+      objectApiName: 'FinanceBalanceSnapshot',
+      rows: 0,
+      decisions: ['exclude_object'],
+    });
+    expect(adminChangesOf(read.gaps).flatMap((group) => group.changes)).toEqual([
+      expect.objectContaining({
+        change: 'enable_feature',
+        objectApiName: 'FinanceBalanceSnapshot',
+        setup:
+          'Turn on in the target the feature FinanceBalanceSnapshot comes with, or assign the ' +
+          'user SandForge writes as the permission set licence that includes it; then Setup > ' +
+          'Users > the profile or a permission set of the user SandForge writes as > Object ' +
+          'Settings > FinanceBalanceSnapshot > Edit: tick Create',
+      }),
+    ]);
+    const lines = gapLines(read, 'TGT').join('\n');
+    expect(lines).toContain(
+      'BLOCKING: even a user with Modify All Data may not create its records in the target, ' +
+        'though a permission set can give Create on it: a feature or licence the target has ' +
+        'not turned on for that user keeps it closed; turn it on, or every row is skipped, after ' +
+        'the objects written before it, unless the object is left out',
+    );
+    expect(lines).not.toMatch(/setup/i);
+  });
+
+  it('reads who may create once a read, whatever the number of objects the user may not create', async () => {
+    const closed = ['Report', 'Dashboard', 'TabDefinition', 'AppDefinition', 'DeleteEvent'];
+    const read = await readGaps([node('Account'), ...closed.map((name) => node(name))], {
+      closedInTarget: new Set(closed),
+      everCreatable: Object.fromEntries(closed.map((name) => [name, true])),
+      coverable: COVERABLE,
+      modifyAllData: true,
+    });
+
+    expect(ofKind(read, 'object_setup_only').map((gap) => gap.objectApiName)).toEqual(
+      [...closed].sort(),
+    );
+    expect(read.asked.filter((asked) => asked.includes('::ObjectPermissions'))).toEqual([
+      `describe ${TARGET}::ObjectPermissions`,
+    ]);
+    expect(read.asked.filter((asked) => asked.includes(MODIFY_ALL_DATA_SOQL))).toEqual([
+      `query ${TARGET} ${MODIFY_ALL_DATA_SOQL}`,
+    ]);
+    expect(read.asked.filter((asked) => asked.includes(' FROM EntityDefinition '))).toHaveLength(1);
+  });
+
+  it('keeps an object blocking with its grant when the target says neither what a permission set covers nor whether the user holds Modify All Data', async () => {
+    const read = await readGaps([node('Report')], {
+      closedInTarget: new Set(['Report']),
+      everCreatable: { Report: true },
+      refuse: {
+        describe: new Set([`${TARGET}::ObjectPermissions`]),
+        modifyAllData: new Error('INVALID_FIELD: PermissionsModifyAllData'),
+      },
+    });
+
+    expect(read.gaps.find((gap) => gap.objectApiName === 'Report')).toMatchObject({
+      kind: 'object_not_createable',
+      severity: 'blocking',
+    });
   });
 });
 

@@ -53,6 +53,7 @@ const DETAIL_KEYS: Readonly<Record<string, string>> = {
   allowed: 'forgeRun.gaps.detail.allowedValues',
   targetRecordTypes: 'forgeRun.gaps.detail.targetRecordTypes',
   mapTo: 'forgeRun.gaps.detail.targetRecordTypes',
+  editOn: 'forgeRun.gaps.detail.editOn',
 };
 
 /**
@@ -185,6 +186,9 @@ const KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
   'api_budget',
   'object_not_createable',
   'object_platform_only',
+  'object_setup_only',
+  'object_feature_off',
+  'object_through_parent',
   'rehearsal_refusal',
   'rehearsal_update_refusal',
 ]);
@@ -241,6 +245,10 @@ function adminStep(t: TFunction, change: ForgeAdminChange, recordType: string | 
       return t('forgeRun.gaps.admin.step.deactivateDuplicateRule', named);
     case 'grant_create':
       return t('forgeRun.gaps.admin.step.grantCreate', named);
+    case 'grant_edit':
+      return t('forgeRun.gaps.admin.step.grantEdit', named);
+    case 'enable_feature':
+      return t('forgeRun.gaps.admin.step.enableFeature', named);
   }
 }
 

@@ -1446,6 +1446,7 @@ describe('GraphDiscoveryService', () => {
         'BackgroundOperation',
         'ContentTaxonomyTermRelationshipType',
         'Dashboard',
+        'DashboardComponent',
         'DeleteEvent',
         'ManagedContentChannel',
         'ManagedContentSpace',

@@ -716,7 +716,10 @@ export function forgeTargetRefusal(
             ? []
             : [`${name}, which the org requires and the clone does not write`];
         case 'object_not_createable':
+        case 'object_through_parent':
           return [`${name}, which the user it writes as may not create`];
+        case 'object_feature_off':
+          return [`${name}, which a feature or licence the org has not turned on keeps closed`];
         case 'api_budget':
           return ['more API requests than the org has left today'];
         default:

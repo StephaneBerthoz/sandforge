@@ -4369,6 +4369,9 @@
       "diffsFound_one": "{{count}} diferencia encontrada entre origen y destino.",
       "diffsFound_other": "{{count}} diferencias encontradas entre origen y destino.",
       "objectNotCreateable": "{{object}} está en la org de destino, pero el usuario con el que escribe la clonación no puede crear sus registros allí: Ejecutar lo omite, después de los objetos escritos antes. Déjelo fuera en Discrepancias, o dé a ese usuario permiso de creación sobre él.",
+      "objectNoUserCreates": "{{object}} está en la org de destino, pero ningún usuario puede crear sus registros allí, ni siquiera con Modify All Data: Ejecutar lo omite, y ningún permiso lo abriría.",
+      "objectFeatureOff": "{{object}} está en la org de destino, pero ni siquiera un usuario con Modify All Data puede crear sus registros allí: una función o licencia que el destino no ha activado lo mantiene cerrado. Ejecutar lo omite, después de los objetos escritos antes. Actívela, o déjelo fuera en Discrepancias.",
+      "objectThroughParent": "{{object}} está en la org de destino, pero el usuario con el que escribe la clonación no puede crear sus registros allí, y ningún conjunto de permisos da permiso de creación sobre él: la edición de los registros de los que depende puede abrirlo, o ningún usuario puede. Ejecutar lo omite, después de los objetos escritos antes. Discrepancias dice qué dar a ese usuario; o déjelo fuera allí.",
       "planLoading": "Generando el plan de ejecución...",
       "wave": "Oleada",
       "cycles": "Resoluciones de ciclos",
@@ -4649,6 +4652,9 @@
         "api_budget": "Cuota diaria de solicitudes de API",
         "object_not_createable": "Objeto que el usuario con el que escribe la clonación no puede crear en el destino",
         "object_platform_only": "Objeto que ningún usuario puede crear en el destino: la plataforma escribe sus registros, Ejecutar lo omite",
+        "object_setup_only": "Objeto que ningún usuario puede crear en el destino, ni siquiera con Modify All Data: configuración o registros de la plataforma, Ejecutar lo omite",
+        "object_feature_off": "Objeto de una función o licencia que el destino no ha activado para el usuario con el que escribe la clonación",
+        "object_through_parent": "Objeto sobre el que ningún conjunto de permisos da permiso de creación: el usuario con el que escribe la clonación lo crea a través de los registros de los que depende, o ningún usuario puede",
         "rehearsal_refusal": "Rechazado en el ensayo",
         "rehearsal_update_refusal": "Actualización rechazada en el ensayo"
       },
@@ -4661,7 +4667,8 @@
       "sourceRecordType": "tipo de registro de origen {{name}}",
       "detail": {
         "allowedValues": "Valores permitidos",
-        "targetRecordTypes": "Tipos de registro del destino"
+        "targetRecordTypes": "Tipos de registro del destino",
+        "editOn": "Edición necesaria sobre"
       },
       "byDefault": "Si no se decide nada: {{decision}}.",
       "lifted": "El silenciamiento la levanta ({{permission}}, en {{set}}).",
@@ -4744,6 +4751,8 @@
           "deactivateValidationRule": "Desactivar la regla de validación {{value}}, o dar al usuario con el que escribe SandForge el permiso personalizado que la omite (Configuración > Gestor de objetos > {{object}} > Reglas de validación).",
           "deactivateDuplicateRule": "Desactivar la regla de duplicados {{value}}, o hacer que permita el registro al crearlo (Configuración > Reglas de duplicados).",
           "grantCreate": "Dar al usuario con el que escribe SandForge el permiso de creación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+          "grantEdit": "Dar al usuario con el que escribe SandForge los permisos de lectura y edición sobre {{value}}, del que depende {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{value}}).",
+          "enableFeature": "Activar en el destino la función a la que pertenece {{object}}, o asignar al usuario con el que escribe SandForge la licencia de conjunto de permisos que lo incluye, y luego darle permiso de creación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
           "installPackage": "Instale o actualice en el destino el paquete con el espacio de nombres {{namespace}}: el tipo de registro {{value}} viene con él, y Configuración no puede crearlo."
         }
       }

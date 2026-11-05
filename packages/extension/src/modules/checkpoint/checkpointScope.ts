@@ -153,7 +153,10 @@ const HISTORY_OBJECTS: ReadonlySet<string> = new Set(['casehistory2']);
  * createable, though some are editable and an approval's submission is
  * deletable. Every copy leaves them out by name, and a checkpoint said them
  * setup, as users and permissions are; before, that the user it connects as
- * may not write them, a permission no user can be granted.
+ * may not write them, a permission no user can be granted. So it still said,
+ * picked, of an approval process's instances, nodes, steps and work items,
+ * the rest of Einstein's insight records and a credit memo applied to an
+ * invoice, and setup of the instance.
  */
 const PLATFORM_CREATED_OBJECTS: ReadonlySet<string> = new Set(
   [
@@ -163,13 +166,21 @@ const PLATFORM_CREATED_OBJECTS: ReadonlySet<string> = new Set(
     'ApprovalSubmission',
     'ApprovalSubmissionDetail',
     'ApprovalWorkItem',
+    'ProcessInstance',
+    'ProcessInstanceNode',
+    'ProcessInstanceStep',
+    'ProcessInstanceWorkitem',
     'AIRecordInsight',
     'AIInsightValue',
+    'AIInsightAction',
+    'AIInsightFeedback',
+    'AIInsightReason',
     'MatchingInformation',
     'Invoice',
     'InvoiceLine',
     'CreditMemo',
     'CreditMemoLine',
+    'CreditMemoInvApplication',
   ].map((name) => name.toLowerCase()),
 );
 

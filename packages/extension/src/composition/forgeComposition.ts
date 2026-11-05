@@ -189,6 +189,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
     import('../modules/forge/TargetGapReader.js'),
     import('../modules/forge/ForgeRemovalPlanStore.js'),
     import('../modules/forge/ForgeRunJournal.js'),
+    import('../modules/forge/targetCreators.js'),
   ])
     .then(
       ([
@@ -207,6 +208,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         { TargetGapReader, readActiveValidationRules },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
+        { createFactsOnce, readCreateFacts, whyNotCreatableOver },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -598,7 +600,35 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         const planGenerator = new ForgePlanGenerator();
         const complianceService = new ForgeComplianceService();
 
+        // Review's read of the target's queries, which the metadata diff
+        // shares with the gaps: what a permission set can give Create on and
+        // whether the user holds Modify All Data, read once for both while
+        // the describes are kept.
+        const targetQueries = targetAutomationQueries((orgId) =>
+          getJsforceConnection(orgId, orgRegistry, orgManager),
+        );
+        const createFacts = createFactsOnce(
+          async (orgId) =>
+            (
+              await readCreateFacts(
+                {
+                  describeFields: async (factsOrgId, objectApiName) => {
+                    let sent = false;
+                    const described = await describeOnce(factsOrgId, objectApiName, [], () => {
+                      sent = true;
+                    });
+                    return { sent, fields: described.fields };
+                  },
+                  query: targetQueries.query,
+                },
+                orgId,
+              )
+            ).facts,
+          5 * 60_000,
+        );
+
         const metadataDiff = new ForgeMetadataDiff({
+          whyNotCreatable: whyNotCreatableOver(targetQueries.toolingQuery, createFacts),
           describeObject: async (orgId, objectApiName) => {
             const described = await describeOnce(orgId, objectApiName);
             return {
@@ -614,9 +644,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
 
         // Review's read of the target's flows and triggers: the regular API for
         // the flows, the Tooling API for the triggers and the start conditions.
-        const targetQueries = targetAutomationQueries((orgId) =>
-          getJsforceConnection(orgId, orgRegistry, orgManager),
-        );
         const targetAutomation = new TargetAutomationReader(targetQueries);
 
         // Review's read of what the target holds against the rows: its rules
@@ -625,6 +652,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         // actions from the Metadata API.
         const targetGaps = new TargetGapReader({
           ...targetQueries,
+          createFacts,
           describeFields: async (orgId, objectApiName) => {
             let sent = false;
             const described = await describeOnce(orgId, objectApiName, [], () => {

@@ -4369,6 +4369,9 @@
       "diffsFound_one": "{{count}} Unterschied zwischen Quelle und Ziel gefunden.",
       "diffsFound_other": "{{count}} Unterschiede zwischen Quelle und Ziel gefunden.",
       "objectNotCreateable": "{{object}} ist in der Ziel-Org, aber der Benutzer, mit dem der Klon schreibt, darf dort keine Datensätze davon erstellen: Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Lassen Sie es unter Abweichungen aus, oder geben Sie diesem Benutzer das Erstellrecht dafür.",
+      "objectNoUserCreates": "{{object}} ist in der Ziel-Org, aber kein Benutzer kann dort Datensätze davon erstellen, auch nicht mit Modify All Data: Ausführen überspringt es, und keine Berechtigung würde es öffnen.",
+      "objectFeatureOff": "{{object}} ist in der Ziel-Org, aber selbst ein Benutzer mit Modify All Data darf dort keine Datensätze davon erstellen: Eine Funktion oder Lizenz, die das Ziel nicht aktiviert hat, hält es geschlossen. Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Aktivieren Sie sie, oder lassen Sie es unter Abweichungen aus.",
+      "objectThroughParent": "{{object}} ist in der Ziel-Org, aber der Benutzer, mit dem der Klon schreibt, darf dort keine Datensätze davon erstellen, und kein Berechtigungssatz gibt das Erstellrecht dafür: Das Bearbeitungsrecht für die Datensätze, an denen es hängt, kann es öffnen, oder kein Benutzer kann es. Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Abweichungen sagt, was dieser Benutzer braucht; oder lassen Sie es dort aus.",
       "planLoading": "Ausführungsplan wird erstellt...",
       "wave": "Welle",
       "cycles": "Zyklusauflösungen",
@@ -4649,6 +4652,9 @@
         "api_budget": "Tägliches API-Anfragekontingent",
         "object_not_createable": "Objekt, das der Benutzer, mit dem der Klon schreibt, im Ziel nicht erstellen darf",
         "object_platform_only": "Objekt, das im Ziel kein Benutzer erstellen kann: Die Plattform schreibt seine Datensätze, Ausführen überspringt es",
+        "object_setup_only": "Objekt, das im Ziel kein Benutzer erstellen kann, auch nicht mit Modify All Data: Setup oder Datensätze der Plattform, Ausführen überspringt es",
+        "object_feature_off": "Objekt einer Funktion oder Lizenz, die das Ziel für den Benutzer, mit dem der Klon schreibt, nicht aktiviert hat",
+        "object_through_parent": "Objekt, für das kein Berechtigungssatz das Erstellrecht gibt: Der Benutzer, mit dem der Klon schreibt, erstellt es über die Datensätze, an denen es hängt, oder kein Benutzer kann es",
         "rehearsal_refusal": "Im Probelauf abgelehnt",
         "rehearsal_update_refusal": "Im Probelauf abgelehnte Aktualisierung"
       },
@@ -4661,7 +4667,8 @@
       "sourceRecordType": "Quell-Datensatztyp {{name}}",
       "detail": {
         "allowedValues": "Zulässige Werte",
-        "targetRecordTypes": "Datensatztypen des Ziels"
+        "targetRecordTypes": "Datensatztypen des Ziels",
+        "editOn": "Bearbeitungsrecht nötig für"
       },
       "byDefault": "Ohne Entscheidung: {{decision}}.",
       "lifted": "Das Stummschalten hebt sie auf ({{permission}}, im Satz {{set}}).",
@@ -4744,6 +4751,8 @@
           "deactivateValidationRule": "Die Validierungsregel {{value}} deaktivieren oder dem Benutzer, mit dem SandForge schreibt, die benutzerdefinierte Berechtigung geben, die sie umgeht (Setup > Objekt-Manager > {{object}} > Validierungsregeln).",
           "deactivateDuplicateRule": "Die Duplikatregel {{value}} deaktivieren oder den Datensatz beim Erstellen zulassen (Setup > Duplikatregeln).",
           "grantCreate": "Dem Benutzer, mit dem SandForge schreibt, das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+          "grantEdit": "Dem Benutzer, mit dem SandForge schreibt, Lese- und Bearbeitungsrecht für {{value}} geben, an dem {{object}} hängt (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{value}}).",
+          "enableFeature": "Im Ziel die Funktion aktivieren, zu der {{object}} gehört, oder dem Benutzer, mit dem SandForge schreibt, die Berechtigungssatzlizenz zuweisen, die es enthält, und ihm dann das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
           "installPackage": "Installieren oder aktualisieren Sie im Ziel das Paket mit dem Namespace {{namespace}}: Der Datensatztyp {{value}} gehört dazu, und das Setup kann ihn nicht anlegen."
         }
       }

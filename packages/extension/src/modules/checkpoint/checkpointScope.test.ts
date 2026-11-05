@@ -252,6 +252,42 @@ describe('scopeCandidates', () => {
     for (const { name } of created) expect(isNeverCopiedWhenPicked(name), name).toBe(true);
   });
 
+  it('says the records of an approval process, Einstein’s insight records and a credit memo’s application to an invoice left out as what only Salesforce creates, picked or not', () => {
+    // As a scratch org's administrator reads them in its global describe,
+    // Modify All Data held: none createable, a work item editable and
+    // deletable. Picked, a checkpoint said the user it connects as may not
+    // write them, and an approval process's instance setup.
+    const platform = (name: string, flags: Partial<GlobalObject>): GlobalObject => ({
+      name,
+      queryable: true,
+      createable: false,
+      updateable: false,
+      deletable: false,
+      layoutable: false,
+      ...flags,
+    });
+    const created = [
+      platform('ProcessInstance', {}),
+      platform('ProcessInstanceNode', {}),
+      platform('ProcessInstanceStep', {}),
+      platform('ProcessInstanceWorkitem', { updateable: true, deletable: true }),
+      platform('CreditMemoInvApplication', { updateable: true, layoutable: true }),
+      platform('AIInsightAction', {}),
+      platform('AIInsightFeedback', {}),
+      platform('AIInsightReason', {}),
+    ];
+    const globalObjects = [data('Account'), ...created];
+    const expected = Object.fromEntries(created.map(({ name }) => [name, 'platformCreated']));
+
+    for (const mode of ['everything', 'picked'] as const) {
+      const scope = scopeCandidates(globalObjects, {
+        mode,
+        objects: globalObjects.map(({ name }) => name),
+      });
+      expect(reasons(scope.leftOut), mode).toEqual(expected);
+    }
+  });
+
   it('leaves out as setup the objects the org gives no page layout, permissions among them, but keeps the related-list objects people work in, and holds one picked by name', () => {
     const globalObjects = [
       data('Account', { layoutable: true }),

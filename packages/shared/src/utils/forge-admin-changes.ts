@@ -24,7 +24,11 @@ import { forgeGapParts } from './forge-gaps.js';
  * - `loosen_lookup_filter`: a lookup filter made optional, or widened;
  * - `deactivate_validation_rule`, `deactivate_duplicate_rule`: a rule turned
  *   off, or kept quiet for the user the run writes as;
- * - `grant_create`: Create on the object given to the user the run writes as.
+ * - `grant_create`: Create on the object given to the user the run writes as;
+ * - `grant_edit`: Edit given to that user on a record an object hangs from,
+ *   which opens an object no permission set gives Create on;
+ * - `enable_feature`: the feature or licence an object comes with turned on
+ *   for that user, which Modify All Data does not open.
  */
 export type ForgeAdminChangeKind =
   | 'add_picklist_value'
@@ -40,7 +44,9 @@ export type ForgeAdminChangeKind =
   | 'loosen_lookup_filter'
   | 'deactivate_validation_rule'
   | 'deactivate_duplicate_rule'
-  | 'grant_create';
+  | 'grant_create'
+  | 'grant_edit'
+  | 'enable_feature';
 
 /** One change to make in the target's metadata, and the gap it answers. */
 export interface ForgeAdminChange {
@@ -51,7 +57,7 @@ export interface ForgeAdminChange {
   field?: string;
   /**
    * What the change is about: a picklist value, a currency code, the source
-   * record type's name, a rule's name.
+   * record type's name, a rule's name, the object Edit is given on.
    */
   value?: string;
   /** Of a dependent value, the field whose value decides. */
@@ -145,6 +151,46 @@ function setupOf(change: Omit<ForgeAdminChange, 'setup'>, recordType: string | u
       return `Setup > Duplicate Rules > ${change.value ?? ''}: deactivate it, or set it to Allow on create`;
     case 'grant_create':
       return `${user} > Edit: tick Create`;
+    case 'grant_edit':
+      return `Setup > Users > the profile or a permission set of the user SandForge writes as > Object Settings > ${change.value ?? ''} > Edit: tick Read and Edit`;
+    case 'enable_feature':
+      return `Turn on in the target the feature ${change.objectApiName} comes with, or assign the user SandForge writes as the permission set licence that includes it; then ${user} > Edit: tick Create`;
+  }
+}
+
+/** The texts a gap's detail holds under `key`, when it holds a list of them. */
+function detailTexts(gap: ForgeGap, key: string): string[] {
+  const value = gap.detail?.[key];
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string' && v !== '')
+    : [];
+}
+
+/**
+ * What a gap asks of the target's metadata: one change, several — Edit on
+ * each record an object hangs from — or none when no metadata change cures it.
+ */
+function changesOf(gap: ForgeGap): Array<Omit<ForgeAdminChange, 'setup'>> {
+  const base = {
+    gapId: gap.id,
+    objectApiName: gap.objectApiName,
+    rows: gap.rows,
+  };
+  switch (gap.kind) {
+    case 'object_through_parent':
+      // No Object Settings page holds the object: asked to tick Create on an
+      // opportunity's products, the admin found none to tick.
+      return detailTexts(gap, 'editOn').map((parent) => ({
+        ...base,
+        value: parent,
+        change: 'grant_edit' as const,
+      }));
+    case 'object_feature_off':
+      return [{ ...base, change: 'enable_feature' }];
+    default: {
+      const change = changeOf(gap);
+      return change ? [change] : [];
+    }
   }
 }
 
@@ -239,8 +285,8 @@ export function adminChangesOf(gaps: readonly ForgeGap[]): ForgeAdminChangeGroup
   const groups = new Map<string, ForgeAdminChangeGroup>();
   for (const gap of gaps) {
     if (gap.severity === 'info') continue;
-    const change = changeOf(gap);
-    if (!change) continue;
+    const changes = changesOf(gap);
+    if (changes.length === 0) continue;
     const recordType = gap.recordType;
     const key = `${gap.objectApiName}|${recordType ?? ''}`;
     const group = groups.get(key) ?? {
@@ -248,7 +294,8 @@ export function adminChangesOf(gaps: readonly ForgeGap[]): ForgeAdminChangeGroup
       ...(recordType !== undefined ? { recordType } : {}),
       changes: [],
     };
-    group.changes.push({ ...change, setup: setupOf(change, recordType) });
+    for (const change of changes)
+      group.changes.push({ ...change, setup: setupOf(change, recordType) });
     groups.set(key, group);
   }
   return [...groups.values()]

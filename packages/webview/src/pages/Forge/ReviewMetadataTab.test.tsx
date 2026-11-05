@@ -60,6 +60,53 @@ describe('ReviewMetadataTab', () => {
     );
   });
 
+  it('says of an object no user can create that none can, and never to give the user Create on it', () => {
+    // The tab said of a report, which a scratch org's administrator holding
+    // Modify All Data may not create either, to give that user Create on it.
+    mockDiffs = [
+      {
+        objectApiName: 'Report',
+        fieldApiName: '',
+        issue: 'object_not_createable',
+        severity: 'info',
+        details: 'Report is in the target org, but no user can create its records there',
+        notCreatableBy: 'setup',
+      },
+      {
+        objectApiName: 'Invoice',
+        fieldApiName: '',
+        issue: 'object_not_createable',
+        severity: 'error',
+        details: 'Invoice is in the target org',
+        notCreatableBy: 'feature',
+      },
+      {
+        objectApiName: 'OpportunityLineItem',
+        fieldApiName: '',
+        issue: 'object_not_createable',
+        severity: 'error',
+        details: 'OpportunityLineItem is in the target org',
+        notCreatableBy: 'parent',
+      },
+    ];
+    render(<ReviewMetadataTab />);
+
+    expect(screen.getByTestId('diff-0').textContent).toContain(
+      'Report is in the target org, but no user can create its records there, not even one with ' +
+        'Modify All Data: Execute skips it, and no grant would open it.',
+    );
+    expect(screen.getByTestId('diff-0').textContent).toContain('INFO');
+    expect(screen.getByTestId('diff-1').textContent).toContain(
+      'a feature or licence the target has not turned on keeps it closed',
+    );
+    expect(screen.getByTestId('diff-2').textContent).toContain(
+      'no permission set gives Create on it: Edit on the records it hangs from may open it',
+    );
+    for (const at of [0, 1, 2]) {
+      expect(screen.getByTestId(`diff-${at}`).textContent).not.toContain('give that user Create');
+    }
+  });
+
   it('should render diff entries with severity badges when diffs exist', () => {
     mockDiffs = [
       {

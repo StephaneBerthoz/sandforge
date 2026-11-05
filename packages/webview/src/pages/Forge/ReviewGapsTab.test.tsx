@@ -473,6 +473,54 @@ describe('ReviewGapsTab', () => {
       expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(0);
     });
 
+    it('says a report no user can create left out without asking anything, and asks Edit on the opportunity for its products', () => {
+      // The dry run of a clone said Report BLOCKING and asked to tick Create
+      // on it, and on an opportunity's products, which no Object Settings
+      // page holds.
+      const setup: ForgeGap = {
+        id: forgeGapId('object_setup_only', 'Report'),
+        kind: 'object_setup_only',
+        severity: 'info',
+        source: 'metadata',
+        objectApiName: 'Report',
+        rows: 0,
+        decisions: ['exclude_object'],
+      };
+      const products: ForgeGap = {
+        id: forgeGapId('object_through_parent', 'OpportunityLineItem'),
+        kind: 'object_through_parent',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'OpportunityLineItem',
+        rows: 0,
+        detail: { editOn: ['Opportunity'] },
+        decisions: ['exclude_object'],
+      };
+      act(() => {
+        useForgeStore.getState().setGaps('metadata', [setup, products]);
+        useForgeStore.getState().setGaps('simulation', []);
+      });
+      render(<ReviewGapsTab />);
+
+      expect(
+        within(item(setup)).getByText(
+          "Object no user can create in the target, not even with Modify All Data: setup or the platform's own, Execute skips it",
+        ),
+      ).toBeTruthy();
+      expect(within(item(products)).getByTestId('gap-detail').textContent).toBe(
+        'Edit needed onOpportunity',
+      );
+      const admin = screen.getByTestId('gaps-admin-text').textContent ?? '';
+      expect(admin).toContain(
+        'Give the user SandForge writes as Read and Edit on Opportunity, which ' +
+          'OpportunityLineItem hangs from (Setup > their profile or a permission set > Object ' +
+          'Settings > Opportunity).',
+      );
+      expect(admin).not.toContain('Create on');
+      expect(admin).not.toContain('Report');
+      expect(renderHook(() => useUndecidedBlockingGaps()).result.current).toBe(1);
+    });
+
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
       render(<ReviewGapsTab />);
       fireEvent.change(within(item(REFUSED)).getByTestId('gap-map-value'), {

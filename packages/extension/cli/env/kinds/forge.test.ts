@@ -851,4 +851,18 @@ describe('what the org to fill would refuse every row of a forge resource for', 
     expect(forgeTargetRefusal(answer([warning]), run.template)).toBeUndefined();
     expect(forgeTargetRefusal(answer([]), run.template)).toBeUndefined();
   });
+
+  it('names an object no permission set opens, and one a feature closes, in words rather than by kind', () => {
+    const run = converted(tables);
+    const throughParent = { ...required, kind: 'object_through_parent', field: undefined };
+    const featureOff = { ...required, kind: 'object_feature_off', field: undefined };
+
+    const said = forgeTargetRefusal(answer([throughParent, featureOff]), run.template) ?? '';
+
+    expect(said).toContain('Account, which the user it writes as may not create');
+    expect(said).toContain(
+      'Account, which a feature or licence the org has not turned on keeps closed',
+    );
+    expect(said).not.toMatch(/object_through_parent|object_feature_off/);
+  });
 });

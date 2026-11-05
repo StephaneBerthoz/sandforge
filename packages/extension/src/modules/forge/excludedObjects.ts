@@ -23,6 +23,20 @@
  * metadata: the Tooling API serves them, and the data API will not create
  * the rest. {@link excludedByDescribe} reads both; the list below keeps what
  * no describe singles out.
+ *
+ * What no user can create in the target is told by the target itself
+ * (`targetCreators.ts`): read once a run, the objects a permission set can
+ * give Create on and whether the user holds Modify All Data say the setup and
+ * the platform's own records from data the user lacks Create on, and the gap
+ * reader leaves those out of a run with that said. Most of the setup and the
+ * logs below are what it tells — reports, dashboards, apps, tabs, delete
+ * events, calendars, entitlement processes, clean info, the event stores —
+ * and so are the objects of a feature the target has not turned on —
+ * invoices, approvals' submissions and work items, Einstein's insights —
+ * which it says blocking with the feature to turn on. They stay named here
+ * all the same: discovery reads the source alone and would otherwise count
+ * them and walk through them, and Sync's picker, Autopilot and a checkpoint
+ * read no such facts of the target.
  */
 
 import { isFileBodiedObject, isUncopyableObject } from '@sandforge/shared';
@@ -136,11 +150,14 @@ const EXCLUDED_OBJECT_NAMES: readonly string[] = [
   // each — as it does for a calendar or an entitlement process — so no gap
   // reader can tell them from data the user lacks Create on. The clone of an
   // opportunity reached its six reports through its feed item, and its dry run
-  // said Report BLOCKING, asking the target's admin to tick Create on it.
+  // said Report BLOCKING, asking the target's admin to tick Create on it. A
+  // dashboard's components go with it: a feed item's parent names them too,
+  // and the same clone listed them as an object of its graph, empty.
   'AppDefinition',
   'BackgroundOperation',
   'ContentTaxonomyTermRelationshipType',
   'Dashboard',
+  'DashboardComponent',
   'DeleteEvent',
   'ManagedContentChannel',
   'ManagedContentSpace',

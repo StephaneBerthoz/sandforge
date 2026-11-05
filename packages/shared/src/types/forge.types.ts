@@ -252,6 +252,27 @@ export type ForgeGapKind =
    * gap any grant closes: Execute skips the object whole, and asks nothing.
    */
   | 'object_platform_only'
+  /**
+   * No user can create the object's records in the target, not even one
+   * with Modify All Data, and no permission set gives Create on it: setup
+   * the org keeps as records — a report, an app, a tab — or what the
+   * platform writes itself. Execute skips it whole, and asks nothing.
+   */
+  | 'object_setup_only'
+  /**
+   * A permission set can give Create on the object, yet the user the run
+   * writes as holds Modify All Data and still may not create its records: a
+   * feature or licence the target has not turned on for them keeps it
+   * closed. Execute skips it whole, after the objects before it.
+   */
+  | 'object_feature_off'
+  /**
+   * No permission set gives Create on the object, and the user the run
+   * writes as lacks Modify All Data: what opens it is Edit on the records it
+   * hangs from (`detail.editOn`), or nothing does. Execute skips it whole,
+   * after the objects before it.
+   */
+  | 'object_through_parent'
   | 'rehearsal_refusal'
   /**
    * The platform refused, in a rehearsal, an update the run makes after its

@@ -118,6 +118,7 @@ describe('isExcludedFromCopy', () => {
       'BackgroundOperation',
       'ContentTaxonomyTermRelationshipType',
       'Dashboard',
+      'DashboardComponent',
       'DeleteEvent',
       'ManagedContentChannel',
       'ManagedContentSpace',

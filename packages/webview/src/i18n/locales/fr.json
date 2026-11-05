@@ -4369,6 +4369,9 @@
       "diffsFound_one": "{{count}} différence trouvée entre la source et la cible.",
       "diffsFound_other": "{{count}} différences trouvées entre la source et la cible.",
       "objectNotCreateable": "{{object}} existe dans l'org cible, mais l'utilisateur avec lequel le clonage écrit ne peut pas y créer ses enregistrements : Exécuter le saute, après les objets écrits avant lui. Laissez-le de côté dans Écarts, ou donnez à cet utilisateur le droit de création sur cet objet.",
+      "objectNoUserCreates": "{{object}} existe dans l'org cible, mais aucun utilisateur ne peut y créer ses enregistrements, même avec Modify All Data : Exécuter le saute, et aucun droit ne l'ouvrirait.",
+      "objectFeatureOff": "{{object}} existe dans l'org cible, mais même un utilisateur avec Modify All Data ne peut pas y créer ses enregistrements : une fonctionnalité ou une licence que la cible n'a pas activée le ferme. Exécuter le saute, après les objets écrits avant lui. Activez-la, ou laissez-le de côté dans Écarts.",
+      "objectThroughParent": "{{object}} existe dans l'org cible, mais l'utilisateur avec lequel le clonage écrit ne peut pas y créer ses enregistrements, et aucun ensemble d'autorisations ne donne le droit de création sur cet objet : le droit de modification sur les enregistrements dont il dépend peut l'ouvrir, ou aucun utilisateur ne le peut. Exécuter le saute, après les objets écrits avant lui. Écarts dit quoi donner à cet utilisateur ; ou laissez-le de côté là.",
       "planLoading": "Génération du plan d'exécution...",
       "wave": "Vague",
       "cycles": "Résolutions de cycles",
@@ -4649,6 +4652,9 @@
         "api_budget": "Quota quotidien de requêtes API",
         "object_not_createable": "Objet que l'utilisateur avec lequel le clonage écrit ne peut pas créer dans la cible",
         "object_platform_only": "Objet qu'aucun utilisateur ne peut créer dans la cible : la plateforme écrit ses enregistrements, Exécuter le saute",
+        "object_setup_only": "Objet qu'aucun utilisateur ne peut créer dans la cible, même avec Modify All Data : du paramétrage ou les enregistrements de la plateforme, Exécuter le saute",
+        "object_feature_off": "Objet d'une fonctionnalité ou d'une licence que la cible n'a pas activée pour l'utilisateur avec lequel le clonage écrit",
+        "object_through_parent": "Objet sur lequel aucun ensemble d'autorisations ne donne le droit de création : l'utilisateur avec lequel le clonage écrit le crée par les enregistrements dont il dépend, ou aucun utilisateur ne le peut",
         "rehearsal_refusal": "Refusé lors de l'essai à blanc",
         "rehearsal_update_refusal": "Mise à jour refusée lors de l'essai à blanc"
       },
@@ -4661,7 +4667,8 @@
       "sourceRecordType": "type d'enregistrement source {{name}}",
       "detail": {
         "allowedValues": "Valeurs autorisées",
-        "targetRecordTypes": "Types d'enregistrement de la cible"
+        "targetRecordTypes": "Types d'enregistrement de la cible",
+        "editOn": "Modification requise sur"
       },
       "byDefault": "Sans décision : {{decision}}.",
       "lifted": "Levée quand les automatisations sont rendues muettes ({{permission}}, dans {{set}}).",
@@ -4744,6 +4751,8 @@
           "deactivateValidationRule": "Désactiver la règle de validation {{value}}, ou donner à l'utilisateur sous lequel SandForge écrit l'autorisation personnalisée qui la contourne (Configuration > Gestionnaire d'objets > {{object}} > Règles de validation).",
           "deactivateDuplicateRule": "Désactiver la règle de doublons {{value}}, ou lui faire autoriser l'enregistrement à la création (Configuration > Règles de doublons).",
           "grantCreate": "Donner à l'utilisateur sous lequel SandForge écrit le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+          "grantEdit": "Donner à l'utilisateur sous lequel SandForge écrit les droits de lecture et de modification sur {{value}}, dont dépend {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{value}}).",
+          "enableFeature": "Activer dans la cible la fonctionnalité dont {{object}} fait partie, ou attribuer à l'utilisateur sous lequel SandForge écrit la licence d'ensemble d'autorisations qui l'inclut, puis lui donner le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
           "installPackage": "Installez ou mettez à jour dans la cible le package d'espace de noms {{namespace}} : le type d'enregistrement {{value}} vient avec lui, et la Configuration ne peut pas le créer."
         }
       }

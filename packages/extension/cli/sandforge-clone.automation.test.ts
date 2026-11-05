@@ -719,11 +719,14 @@ describe('sandforge-clone target automation', () => {
         '      Load_Data: no permission set of TGT holds it: an admin creates one that includes it',
         '  info: API budget: the run takes at most about 4 call(s) (2 write(s) of 200 rows, 2 read(s)), ' +
           'counted on whole tables; 14000 of 15000 daily requests left',
-        // The rules, the duplicate rules, the limits, the two objects described
-        // in the target, the formula, the duplicate rule's action, the
+        // The rules, the duplicate rules, the limits, the contact described in
+        // the target, the formula, the duplicate rule's action, the
         // permissions of the user, the custom permission it does not hold and
-        // the permission sets holding it: the source's describes were discovery's.
-        '  read in 10 request(s) to TGT',
+        // the permission sets holding it: the source's describes were
+        // discovery's, and the target's describe of the account, the object
+        // the record is of, was read before discovery, for whether any user
+        // can create it.
+        '  read in 9 request(s) to TGT',
       ]);
       // The formula retrieved by id in a Tooling composite, as the flows are.
       expect(orgs.TGT.retrieved).toEqual(['ValidationRule/03d000000000001AAA']);
@@ -780,7 +783,7 @@ describe('sandforge-clone target automation', () => {
       const summary = JSON.parse(stdout) as {
         targetGaps: { gaps: Array<Record<string, unknown>>; unread: unknown[]; requests: number };
       };
-      expect(summary.targetGaps.requests).toBe(10);
+      expect(summary.targetGaps.requests).toBe(9);
       expect(summary.targetGaps.unread).toEqual([]);
       expect(summary.targetGaps.gaps.map((gap) => [gap.kind, gap.severity, gap.id])).toEqual([
         ['duplicate_rule', 'warning', 'duplicate_rule|Contact|||Contact_Rule'],

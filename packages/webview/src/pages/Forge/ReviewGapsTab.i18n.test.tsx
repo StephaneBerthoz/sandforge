@@ -33,6 +33,9 @@ const KINDS: ForgeGapKind[] = [
   'api_budget',
   'object_not_createable',
   'object_platform_only',
+  'object_setup_only',
+  'object_feature_off',
+  'object_through_parent',
   'rehearsal_refusal',
 ];
 

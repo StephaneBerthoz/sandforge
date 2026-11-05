@@ -4369,6 +4369,9 @@
       "diffsFound_one": "{{count}} difference found between source and target.",
       "diffsFound_other": "{{count}} differences found between source and target.",
       "objectNotCreateable": "{{object}} is in the target org, but the user the clone writes as may not create its records there: Execute skips it, after the objects written before it. Leave it out in Gaps, or give that user Create on it.",
+      "objectNoUserCreates": "{{object}} is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it, and no grant would open it.",
+      "objectFeatureOff": "{{object}} is in the target org, but even a user with Modify All Data may not create its records there: a feature or licence the target has not turned on keeps it closed. Execute skips it, after the objects written before it. Turn it on, or leave it out in Gaps.",
+      "objectThroughParent": "{{object}} is in the target org, but the user the clone writes as may not create its records there, and no permission set gives Create on it: Edit on the records it hangs from may open it, or no user can. Execute skips it, after the objects written before it. Gaps says what to give that user; or leave it out there.",
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions",
@@ -4649,6 +4652,9 @@
         "api_budget": "Daily API request budget",
         "object_not_createable": "Object the user the clone writes as may not create in the target",
         "object_platform_only": "Object no user can create in the target: the platform writes its records, Execute skips it",
+        "object_setup_only": "Object no user can create in the target, not even with Modify All Data: setup or the platform's own, Execute skips it",
+        "object_feature_off": "Object of a feature or licence the target has not turned on for the user the clone writes as",
+        "object_through_parent": "Object no permission set gives Create on: the user the clone writes as creates it through the records it hangs from, or no user can",
         "rehearsal_refusal": "Refused in the rehearsal",
         "rehearsal_update_refusal": "Update refused in the rehearsal"
       },
@@ -4661,7 +4667,8 @@
       "sourceRecordType": "source record type {{name}}",
       "detail": {
         "allowedValues": "Allowed values",
-        "targetRecordTypes": "Target record types"
+        "targetRecordTypes": "Target record types",
+        "editOn": "Edit needed on"
       },
       "byDefault": "If nothing is decided: {{decision}}.",
       "lifted": "The mute lifts it ({{permission}}, in {{set}}).",
@@ -4744,6 +4751,8 @@
           "deactivateValidationRule": "Turn off validation rule {{value}}, or give the user SandForge writes as the custom permission that bypasses it (Setup > Object Manager > {{object}} > Validation Rules).",
           "deactivateDuplicateRule": "Turn off duplicate rule {{value}}, or set it to allow the record on create (Setup > Duplicate Rules).",
           "grantCreate": "Give the user SandForge writes as Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+          "grantEdit": "Give the user SandForge writes as Read and Edit on {{value}}, which {{object}} hangs from (Setup > their profile or a permission set > Object Settings > {{value}}).",
+          "enableFeature": "Turn on in the target the feature {{object}} comes with, or assign the user SandForge writes as the permission set licence that includes it, then give them Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
           "installPackage": "Install or upgrade the package with namespace {{namespace}} in the target: record type {{value}} comes with it, and Setup cannot create it."
         }
       }

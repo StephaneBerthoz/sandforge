@@ -75,6 +75,13 @@ export interface MetadataDiffEntry {
   severity: 'info' | 'warning' | 'error';
   /** Human-readable description. */
   details: string;
+  /**
+   * Of `object_not_createable`, who may create its records, as the target
+   * said: no user (`platform`, `setup`), one the feature it comes with is
+   * turned on for (`feature`), one who may edit the records it hangs from
+   * (`parent`), or one given Create on it (`user`).
+   */
+  notCreatableBy?: 'platform' | 'setup' | 'feature' | 'parent' | 'user';
 }
 
 /** Log entry persisted in the forge store. */

@@ -83,6 +83,15 @@ import {
   type ToolingAnswer,
   type ToolingRetrieve,
 } from './TargetAutomationReader.js';
+import {
+  noUserCreates,
+  notCreatableBy,
+  parentsToEdit,
+  readCreateFacts,
+  readEverCreatable,
+  type CreateFacts,
+  type NotCreatableBy,
+} from './targetCreators.js';
 import { holdsOnlyOnChange } from './validationRuleFormula.js';
 
 /**
@@ -230,6 +239,13 @@ export interface TargetGapDeps {
    * formulas are read with beside `toolingQueries`.
    */
   toolingRetrieves?: (orgId: string, reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
+  /**
+   * What the target says of who may be given Create (`readCreateFacts`), read
+   * once for the read and the metadata comparison Review runs beside it.
+   * Without it, the read asks the target itself, through `describeFields` and
+   * `query`.
+   */
+  createFacts?: (orgId: string) => Promise<CreateFacts>;
 }
 
 /** What of a run's config tells what it writes, and how much. */
@@ -252,24 +268,6 @@ export function validationRulesSoql(objectApiNames: readonly string[]): string {
     'SELECT Id, ValidationName, NamespacePrefix, ErrorDisplayField, ErrorMessage, ' +
     'EntityDefinition.QualifiedApiName FROM ValidationRule WHERE Active = true ' +
     `AND EntityDefinition.QualifiedApiName IN (${names})`
-  );
-}
-
-/**
- * Whether any user can ever create the records of the objects named, over the
- * Tooling API: `IsEverCreatable` is false where the platform writes them
- * itself and no user can create one, whatever they are granted — a flow's
- * records, a case's milestones. A describe's `createable` speaks for the user
- * who asks alone. True says nothing either way: a scratch org answers it for
- * calendars, entitlement processes, approvals' work items and reports, which
- * no user creates as data, and every copy leaves those out by name
- * (`excludedObjects.ts`).
- */
-export function everCreatableSoql(objectApiNames: readonly string[]): string {
-  const names = objectApiNames.map((name) => `'${name}'`).join(', ');
-  return (
-    'SELECT QualifiedApiName, IsEverCreatable FROM EntityDefinition ' +
-    `WHERE QualifiedApiName IN (${names})`
   );
 }
 
@@ -1026,24 +1024,34 @@ export class TargetGapReader {
       requests += sent;
     };
     /**
-     * The objects of the run the target's user may not create that no user
-     * ever can: the platform writes their records itself. One request, sent
-     * only when the user may not create one. Unanswered, an object stays
-     * blocking: the user may not create it either way, and another one might.
+     * Who may create the objects of the run the target's user may not
+     * (`notCreatableBy`): whether any user ever can, as the target's
+     * EntityDefinition says, and what a permission set can give Create on
+     * and whether the user holds Modify All Data. Three requests at most,
+     * whatever the number of objects, sent only when the user may not create
+     * one. A fact unanswered leaves the object blocking with the grant that
+     * opens it: the user may not create it either way, and another one might.
      */
-    const noUserCreates = new Set<string>();
+    const everCreatable = new Map<string, boolean>();
+    let createFacts: CreateFacts = {};
     const closed = [...closedInTarget].filter((name) => API_NAME_RE.test(name));
     const whoCreates = async (): Promise<void> => {
-      try {
-        const answer = await this.deps.toolingQuery(targetOrgId, everCreatableSoql(closed));
-        requests += answer.requests;
-        for (const row of answer.records) {
-          const objectApiName = ofTheRun(text(row.QualifiedApiName));
-          if (objectApiName && row.IsEverCreatable === false) noUserCreates.add(objectApiName);
-        }
-      } catch {
-        requests++;
-      }
+      const [ever, facts] = await Promise.all([
+        readEverCreatable(
+          (orgId, soql) => this.deps.toolingQuery(orgId, soql),
+          targetOrgId,
+          closed,
+        ),
+        this.deps.createFacts
+          ? this.deps
+              .createFacts(targetOrgId)
+              .then((read) => ({ facts: read, requests: 0 }))
+              .catch(() => ({ facts: {}, requests: 0 }))
+          : readCreateFacts(this.deps, targetOrgId),
+      ]);
+      requests += ever.requests + facts.requests;
+      for (const [name, answer] of ever.answered) everCreatable.set(name, answer);
+      createFacts = facts.facts;
     };
     await inFlight(
       [
@@ -1138,19 +1146,16 @@ export class TargetGapReader {
         // ever create is said so, and holds nothing: no grant would open it.
         if (closedInTarget.has(objectApiName)) {
           return [
-            noUserCreates.has(objectApiName)
-              ? gapOf({
-                  kind: 'object_platform_only',
-                  severity: 'info',
-                  objectApiName,
-                  decisions: ['exclude_object'],
-                })
-              : gapOf({
-                  kind: 'object_not_createable',
-                  severity: 'blocking',
-                  objectApiName,
-                  decisions: ['exclude_object'],
-                }),
+            notCreatableGap(
+              objectApiName,
+              notCreatableBy(
+                objectApiName,
+                createFacts,
+                everCreatable.get(objectApiName.toLowerCase()),
+              ),
+              targetFields.get(objectApiName) ?? [],
+              createFacts,
+            ),
           ];
         }
         const target = targetFields.get(objectApiName);
@@ -1168,6 +1173,40 @@ export class TargetGapReader {
     gaps.push(budgetGap(graph, scope, objects[0], budget));
     return { gaps: mergeGaps(gaps), unread, requests };
   }
+}
+
+/** The gap of each answer to who may create an object the user may not. */
+const NOT_CREATABLE_KINDS = {
+  platform: 'object_platform_only',
+  setup: 'object_setup_only',
+  feature: 'object_feature_off',
+  parent: 'object_through_parent',
+  user: 'object_not_createable',
+} as const satisfies Record<NotCreatableBy, ForgeGapKind>;
+
+/**
+ * An object the user the run writes as may not create, as a gap: info, and
+ * holding nothing, when no user can; blocking otherwise, until the user
+ * leaves it out, with what would open it — Create on it, Edit on the records
+ * it hangs from, the feature it comes with.
+ *
+ * @param fields - The object's fields in the target: its required lookups
+ *   name what Edit would open it.
+ */
+function notCreatableGap(
+  objectApiName: string,
+  by: NotCreatableBy,
+  fields: readonly GapField[],
+  facts: CreateFacts,
+): ForgeGap {
+  const editOn = by === 'parent' ? parentsToEdit(fields, facts) : [];
+  return gapOf({
+    kind: NOT_CREATABLE_KINDS[by],
+    severity: noUserCreates(by) ? 'info' : 'blocking',
+    objectApiName,
+    ...(editOn.length > 0 ? { detail: { editOn } } : {}),
+    decisions: ['exclude_object'],
+  });
 }
 
 /**
@@ -1609,6 +1648,30 @@ function gapWords(gap: ForgeGap, lifted = false): string {
         'no user can create its records in the target, the platform writes them itself: ' +
         'the run skips every row of it'
       );
+    case 'object_setup_only':
+      return (
+        'no user can create its records in the target, not even one with Modify All Data, and ' +
+        "no permission set gives Create on it: setup the org keeps as records, or the platform's " +
+        'own; the run skips every row of it'
+      );
+    case 'object_feature_off':
+      return (
+        'even a user with Modify All Data may not create its records in the target, though a ' +
+        'permission set can give Create on it: a feature or licence the target has not turned ' +
+        'on for that user keeps it closed; turn it on, or every row is skipped, after the ' +
+        'objects written before it, unless the object is left out'
+      );
+    case 'object_through_parent': {
+      const editOn = textsOf(detail.editOn);
+      const through =
+        editOn.length > 0
+          ? `the user the run writes as creates its records with Edit on ${editOn.join(' and ')}, which they hang from, or no user can`
+          : 'the records they hang from may open it to the user the run writes as, or no user can: read as a user with Modify All Data, the target would tell';
+      return (
+        `no permission set gives Create on it: ${through}; every row is skipped, after the ` +
+        'objects written before it, unless the object is left out'
+      );
+    }
     case 'api_budget': {
       const calls = `about ${count(detail.calls)} call(s) (${count(detail.writes)} write(s) of 200 rows, ${count(detail.reads)} read(s))`;
       const bound =

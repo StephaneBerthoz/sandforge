@@ -753,5 +753,167 @@ describe('sandforge-clone of whole tables', () => {
       );
       expect(orgs.TGT.creates).toEqual([]);
     });
+
+    describe('of an object no user can create', () => {
+      /** Objects added to both orgs' describes for one test, taken out after it. */
+      const added: string[] = [];
+      const addObject = (described: DescribeSObjectResult): void => {
+        DESCRIBES[described.name] = described;
+        added.push(described.name);
+      };
+      afterEach(() => {
+        for (const name of added.splice(0)) delete DESCRIBES[name];
+        delete ROWS['UserPermissionAccess'];
+        delete ROWS['Thing__c'];
+      });
+
+      it('refuses with its code a report to clone from, which every copy leaves out, before a row of either org is read', async () => {
+        // As an administrator's describe gives it, in either org: no user
+        // creates a report as data. The dry run said Report BLOCKING and
+        // asked the target's administrator to tick Create on it.
+        addObject({ ...object('Report', '00O', [{ name: 'Name' }]), createable: false });
+        const orgs = withFakeOrgs();
+        const reportArgv = [
+          'node',
+          'sandforge-clone.ts',
+          '--object',
+          'Report',
+          '--source',
+          'SRC',
+          '--target',
+          'TGT',
+          '--skip-preflight',
+        ];
+
+        expect(await run([...reportArgv, '--dry-run', '--json'])).toBe(1);
+
+        expect(stderr.join('')).toContain(
+          'refused (ROOT_NEVER_CREATED): --object Report: SandForge never copies Report records, ' +
+            "setup or the platform's own, and TGT's user may not create them: a clone has " +
+            'nothing to write of what it starts from. No record was read or written.',
+        );
+        expect(JSON.parse(stdout.join(''))).toMatchObject({
+          tool: 'sandforge-clone',
+          dryRun: true,
+          refused: { code: 'ROOT_NEVER_CREATED' },
+        });
+        expect(orgs.SRC.asked).toEqual([]);
+        expect(orgs.SRC.read).toEqual([]);
+        expect(orgs.TGT.read).toEqual([]);
+        expect(orgs.TGT.creates).toEqual([]);
+      });
+
+      it('refuses with its code a record of a report, told by its key prefix, before a row is read', async () => {
+        addObject({ ...object('Report', '00O', [{ name: 'Name' }]), createable: false });
+        const orgs = withFakeOrgs();
+
+        expect(
+          await run([
+            'node',
+            'sandforge-clone.ts',
+            '--record',
+            '00O000000000001AAA',
+            '--source',
+            'SRC',
+            '--target',
+            'TGT',
+            '--skip-preflight',
+          ]),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(
+          'refused (ROOT_NEVER_CREATED): --record 00O000000000001AAA (a Report): SandForge never ' +
+            'copies Report records',
+        );
+        expect(orgs.SRC.asked).toEqual([]);
+        expect(orgs.SRC.read).toEqual([]);
+        expect(orgs.TGT.creates).toEqual([]);
+      });
+
+      it('refuses with its code an object the target says no user creates, not even with Modify All Data, which no list names', async () => {
+        // A case's statuses: the administrator's describe says them not
+        // createable, and no permission set can give Create on them.
+        addObject({ ...object('CaseStatus', '01J', [{ name: 'MasterLabel' }]), createable: false });
+        addObject(
+          object('ObjectPermissions', '110', [
+            {
+              name: 'SobjectType',
+              type: 'picklist',
+              picklistValues: ['Account', 'Contact', 'Case'].map((value) => ({
+                value,
+                active: true,
+              })),
+            },
+          ]),
+        );
+        (ROWS as Record<string, unknown[]>)['UserPermissionAccess'] = [
+          { PermissionsModifyAllData: true },
+        ];
+        const orgs = withFakeOrgs();
+
+        expect(
+          await run([
+            'node',
+            'sandforge-clone.ts',
+            '--object',
+            'CaseStatus',
+            '--source',
+            'SRC',
+            '--target',
+            'TGT',
+            '--skip-preflight',
+          ]),
+        ).toBe(1);
+
+        expect(stderr.join('')).toContain(
+          'refused (ROOT_NEVER_CREATED): --object CaseStatus: no user can create CaseStatus ' +
+            'records in TGT, not even one with Modify All Data: they are setup the org keeps as ' +
+            "records, or the platform's own, and a clone has nothing to write of what it starts " +
+            'from. No record was read or written.',
+        );
+        expect(orgs.SRC.asked).toEqual([]);
+        expect(orgs.SRC.read).toEqual([]);
+        expect(orgs.TGT.read).toEqual([
+          'SELECT PermissionsModifyAllData FROM UserPermissionAccess',
+        ]);
+        expect(orgs.TGT.creates).toEqual([]);
+      });
+
+      it('goes on with an object the target user may not create that another user could, its gap said blocking', async () => {
+        addObject({ ...object('Thing__c', 'a00', [{ name: 'Name' }]), createable: false });
+        addObject(
+          object('ObjectPermissions', '110', [
+            {
+              name: 'SobjectType',
+              type: 'picklist',
+              picklistValues: [{ value: 'Thing__c', active: true }],
+            },
+          ]),
+        );
+        (ROWS as Record<string, unknown[]>)['UserPermissionAccess'] = [
+          { PermissionsModifyAllData: false },
+        ];
+        ROWS['Thing__c'] = [{ Id: 'a00000000000001AAA', Name: 'One' }];
+        withFakeOrgs();
+
+        await run([
+          'node',
+          'sandforge-clone.ts',
+          '--object',
+          'Thing__c',
+          '--source',
+          'SRC',
+          '--target',
+          'TGT',
+          '--skip-preflight',
+          '--dry-run',
+        ]);
+
+        expect(stderr.join('')).not.toContain('ROOT_NEVER_CREATED');
+        expect(printed.join('\n')).toMatch(
+          /Thing__c\s+BLOCKING: the user the run writes as may not create/,
+        );
+      });
+    });
   });
 });

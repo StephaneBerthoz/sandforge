@@ -237,6 +237,7 @@ import {
   toolingAnswersOf,
   toolingCompositeBody,
   toolingRetrievesOver,
+  type QueryAnswer,
 } from '../src/modules/forge/TargetAutomationReader.js';
 import {
   TargetGapReader,
@@ -282,6 +283,14 @@ import {
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { writtenWithWords } from '../src/core/common/platformRecords.js';
+import { isNeverCopied } from '../src/modules/forge/excludedObjects.js';
+import {
+  noUserCreates,
+  readCreateFacts,
+  whyNotCreatableOver,
+  type CreateFactsDeps,
+  type NotCreatableBy,
+} from '../src/modules/forge/targetCreators.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import {
   CHECKPOINT_FIRST_FLAGS,
@@ -6597,6 +6606,162 @@ export function interruptedLine(summaryPath: string | undefined): string {
         'created, and --remove takes it back from that summary saved to a file (--json)';
 }
 
+/** An object a clone starts from, and how its command line named it. */
+export interface CloneRoot {
+  objectApiName: string;
+  /** `--object Report`, or `--record <id>`. */
+  named: string;
+}
+
+/** The code of a clone refused for an object to start from that no user can create. */
+export const ROOT_NEVER_CREATED = 'ROOT_NEVER_CREATED';
+
+/** What a refusal for a root says it did not do: the target's metadata alone was read. */
+const NO_RECORD_READ = 'No record was read or written.';
+
+/**
+ * Why a clone may not start from `roots`: one of them no user can create in
+ * the target, so nothing of what the clone starts from could be written, and
+ * nothing hung from it either. Nothing when each may be created, or the target
+ * did not say. Read before a row of either org, from the target's describe of
+ * each root, and only for one its user may not create, from what the target
+ * says of who may (`whyNotCreatableOver`) — unless every copy leaves it out by
+ * name already.
+ *
+ * Run from a report, a clone read the source's reports and its dry run said
+ * Report BLOCKING, asking the target's administrator to tick Create on it.
+ * Exported so it can be tested.
+ */
+export async function rootNeverCreatedRefusal(
+  roots: readonly CloneRoot[],
+  target: string,
+  read: {
+    /** Whether the target's user may create the object's records; throws when it would not describe it. */
+    createable: (objectApiName: string) => Promise<boolean>;
+    whyNot: (objectApiNames: readonly string[]) => Promise<ReadonlyMap<string, NotCreatableBy>>;
+  },
+): Promise<RunRefusal | undefined> {
+  const closed: CloneRoot[] = [];
+  for (const root of roots) {
+    try {
+      if ((await read.createable(root.objectApiName)) === false) closed.push(root);
+    } catch {
+      // A target that would not describe it says so at the run's own describe.
+    }
+  }
+  if (closed.length === 0) return undefined;
+  const leftOut = closed.find((root) => isNeverCopied(root.objectApiName));
+  if (leftOut) {
+    const object = leftOut.objectApiName;
+    return {
+      code: ROOT_NEVER_CREATED,
+      message:
+        `${leftOut.named}: SandForge never copies ${object} records, setup or the platform's own, ` +
+        `and ${target}'s user may not create them: a clone has nothing to write of what it ` +
+        `starts from. ${NO_RECORD_READ}`,
+    };
+  }
+  let answered: ReadonlyMap<string, NotCreatableBy>;
+  try {
+    answered = await read.whyNot(closed.map((root) => root.objectApiName));
+  } catch {
+    return undefined;
+  }
+  for (const root of closed) {
+    const by = answered.get(root.objectApiName);
+    if (by === undefined || !noUserCreates(by)) continue;
+    const object = root.objectApiName;
+    const who =
+      by === 'platform'
+        ? 'the platform writes them itself'
+        : "not even one with Modify All Data: they are setup the org keeps as records, or the platform's own";
+    return {
+      code: ROOT_NEVER_CREATED,
+      message:
+        `${root.named}: no user can create ${object} records in ${target}, ${who}, and a clone ` +
+        `has nothing to write of what it starts from. ${NO_RECORD_READ}`,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The objects a clone starts from: each table named, or the object the record
+ * is of, as the source's global describe tells it by the record's key prefix.
+ * None when the source names no object of that prefix, or would not list its
+ * objects: discovery says so.
+ */
+async function cloneRootsOf(
+  args: Pick<CliArgs, 'record' | 'tables' | 'source'>,
+  describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix: string | null }>>,
+): Promise<CloneRoot[]> {
+  if (args.tables) {
+    return args.tables.map(({ objectApiName }) => ({
+      objectApiName,
+      named: `--object ${objectApiName}`,
+    }));
+  }
+  const record = args.record ?? '';
+  if (record === '') return [];
+  const prefix = record.slice(0, 3);
+  let listed: Array<{ name: string; keyPrefix: string | null }>;
+  try {
+    listed = await describeGlobal(args.source);
+  } catch {
+    return [];
+  }
+  const object = listed.find((entry) => entry.keyPrefix === prefix)?.name;
+  return object ? [{ objectApiName: object, named: `--record ${record} (a ${object})` }] : [];
+}
+
+/**
+ * What reads who may be given Create in an org (`readCreateFacts`) through
+ * the command's connections and describes, which the run keeps: the describe
+ * of `ObjectPermissions` costs the read of the gaps nothing after it.
+ */
+function createFactsDepsOf(
+  conns: ReadonlyMap<string, Connection>,
+  describe: (orgId: string, objectName: string) => Promise<DescribeSObjectResult>,
+  described: ReadonlySet<string>,
+): CreateFactsDeps {
+  const conn = (orgId: string): Connection => {
+    const c = conns.get(orgId);
+    if (!c) throw new Error(`No connection for ${orgId}`);
+    return c;
+  };
+  return {
+    describeFields: async (orgId, objectName) => {
+      const sent = !described.has(`${orgId}::${objectName}`);
+      return { fields: (await describe(orgId, objectName)).fields.map(gapFieldOf), sent };
+    },
+    query: async (orgId, soql) =>
+      answerOf(
+        {
+          query: async (q) => conn(orgId).query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn(orgId).queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      ),
+  };
+}
+
+/** A query on the Tooling API of one of the command's orgs, every page of it. */
+async function toolingAnswerOf(
+  conns: ReadonlyMap<string, Connection>,
+  orgId: string,
+  soql: string,
+): Promise<QueryAnswer> {
+  const c = conns.get(orgId);
+  if (!c) throw new Error(`No connection for ${orgId}`);
+  return answerOf(
+    {
+      query: async (q) => c.tooling.query<Record<string, unknown>>(q),
+      queryMore: async (url) => c.tooling.queryMore<Record<string, unknown>>(url),
+    },
+    soql,
+  );
+}
+
 /**
  * Run one clone from the given command line, or one removal under `--remove`;
  * exported so its flag checks can be tested.
@@ -6762,6 +6927,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (!c) throw new Error(`No connection for ${orgId}`);
     return c.sobject(name).describe();
   });
+  /** The source's global describe, read once by org. */
+  const globalDescribes = new Map<
+    string,
+    Promise<Array<{ name: string; keyPrefix: string | null }>>
+  >();
   const discoveryDeps: GraphDiscoveryDeps = {
     describeObject: async (orgId, name) => adaptDescribe(await describe(orgId, name)),
     queryCount: async (orgId, soql) => {
@@ -6773,13 +6943,56 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // As the extension's discovery reads them: no label, and a text field
     // named for an email address or a phone number read from its API name.
     detectPII: (fields) => personalFieldsByApiName(piiDetector, fields),
-    describeGlobal: async (orgId) => {
-      const c = conns.get(orgId);
-      if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.describeGlobal();
-      return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+    describeGlobal: (orgId) => {
+      // Read once: what the record to clone is an object of is asked before
+      // discovery, which asks it again.
+      let listed = globalDescribes.get(orgId);
+      if (!listed) {
+        const c = conns.get(orgId);
+        if (!c) throw new Error(`No connection for ${orgId}`);
+        listed = c
+          .describeGlobal()
+          .then((r) => r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null })));
+        globalDescribes.set(orgId, listed);
+      }
+      return listed;
     },
   };
+
+  // An object no user can create is none to start a clone from: refused with
+  // its code before a row of either org is read, never said BLOCKING after
+  // discovery read the source's reports.
+  const roots = await cloneRootsOf(args, discoveryDeps.describeGlobal);
+  const rootRefused = await rootNeverCreatedRefusal(roots, args.target, {
+    createable: async (name) => (await describe(args.target, name)).createable !== false,
+    whyNot: (names) =>
+      whyNotCreatableOver(
+        (orgId, soql) => toolingAnswerOf(conns, orgId, soql),
+        async (orgId) =>
+          (await readCreateFacts(createFactsDepsOf(conns, describe, described), orgId)).facts,
+      )(args.target, names),
+  });
+  if (rootRefused) {
+    recordClone({ outcome: 'stopped', code: rootRefused.code, context: runAudit().context() });
+    process.stderr.write(`${refusedLine(rootRefused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            refused: rootRefused,
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
+    process.exit(1);
+  }
 
   say('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);

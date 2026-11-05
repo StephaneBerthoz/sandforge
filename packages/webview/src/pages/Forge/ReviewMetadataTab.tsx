@@ -1,6 +1,21 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useForgeStore } from '../../stores/useForgeStore';
+import { useForgeStore, type MetadataDiffEntry } from '../../stores/useForgeStore';
+
+/**
+ * What the tab says of an object the user the clone writes as may not create,
+ * by who may, as the target said: of a report, which no user creates, it said
+ * to give that user Create on it.
+ */
+const NOT_CREATABLE_KEYS: Readonly<
+  Record<NonNullable<MetadataDiffEntry['notCreatableBy']>, string>
+> = {
+  platform: 'forgeRun.review.objectNoUserCreates',
+  setup: 'forgeRun.review.objectNoUserCreates',
+  feature: 'forgeRun.review.objectFeatureOff',
+  parent: 'forgeRun.review.objectThroughParent',
+  user: 'forgeRun.review.objectNotCreateable',
+};
 
 /** CSS classes for severity badge variants. */
 const SEVERITY_STYLES: Record<string, string> = {
@@ -95,7 +110,9 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
           <p className="text-text-secondary text-[10px]">
             {/* Said in the interface language, with what Execute does about it. */}
             {diff.issue === 'object_not_createable'
-              ? t('forgeRun.review.objectNotCreateable', { object: diff.objectApiName })
+              ? t(NOT_CREATABLE_KEYS[diff.notCreatableBy ?? 'user'], {
+                  object: diff.objectApiName,
+                })
               : diff.details}
           </p>
         </div>
