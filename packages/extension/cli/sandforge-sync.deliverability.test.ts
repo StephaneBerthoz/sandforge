@@ -421,12 +421,21 @@ describe('sandforge-sync --accept-emails', () => {
     const dry = JSON.parse(out.join('')) as { wouldBeRefusedCodes?: string[] };
 
     out.length = 0;
+    err.length = 0;
     orgs(events, 'all', false, DESCRIBED, 1);
     expect(await exitOf(argv('--json'))).toBe(1);
     const real = JSON.parse(out.join('')) as {
       refused: { code: string };
       alsoRefused?: Array<{ code: string; message: string }>;
     };
+    // Said on stderr too with --json, as a refused Seed run says them: a CI
+    // log that keeps stderr alone showed no reason.
+    expect(err.join('')).toMatch(
+      /refused \(SYNC_EMAILS_EXCEEDED\): [^\n]*\nrefused \(EMAILS_NOT_ACCEPTED\): TGT delivers every email/,
+    );
+    // Refused before its first write, it names no run file: none was begun,
+    // and the --remove it offered could not read it.
+    expect(err.join('')).not.toContain('run file:');
 
     expect(real.refused.code).toBe('SYNC_EMAILS_EXCEEDED');
     expect(real.alsoRefused).toEqual([
@@ -447,6 +456,7 @@ describe('sandforge-sync --accept-emails', () => {
     expect(out.join('')).toMatch(
       /refused \(SYNC_EMAILS_EXCEEDED\): [^\n]*\nrefused \(EMAILS_NOT_ACCEPTED\): TGT delivers every email/,
     );
+    expect(out.join('')).not.toContain('run file:');
     expect(events).not.toContain('write');
   });
 

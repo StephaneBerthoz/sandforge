@@ -1878,7 +1878,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // whenever the target says, and nothing waits for it, not even the end of
   // the process, which goes as `main` returns.
   keepRunUser(runFile, () => targetConn.identity(), 'sandforge-sync');
-  const recorder = bothRecorders(kept, runFile);
+  // Where what the run creates is kept as it writes it, however the run
+  // ends: said once, as its gate lets it write and before its first write,
+  // on stderr with --json. A run refused at its gate begins no file, and
+  // names none for --remove to fail to read.
+  let runFileSaid = false;
+  const sayRunFile = (): void => {
+    const filePath = runs?.pathOf(runId);
+    if (runFileSaid || filePath === undefined) return;
+    runFileSaid = true;
+    say(`run file: ${filePath} (--remove ${filePath} takes back what the run creates)`);
+  };
+  const both = bothRecorders(kept, runFile);
+  // Said too as the first call or creation is kept, whatever wrote it.
+  const recorder: SyncCreationRecorder = runFile
+    ? {
+        ...both,
+        note: (objectApiName, ids, at) => {
+          sayRunFile();
+          both.note(objectApiName, ids, at);
+        },
+        sending: (objectApiName, rows, call) => {
+          sayRunFile();
+          both.sending?.(objectApiName, rows, call);
+        },
+      }
+    : both;
   // The checkpoint the run takes of what it writes before its first write:
   // scoped at the write gate once its records are counted, taken once the
   // gate lets them through and before the mute's lease, kept or deleted as
@@ -1988,6 +2013,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     externalIdField?: string,
   ): Promise<OperationOutcome[]> => {
     if (args.dryRun) throw new Error(`A dry run writes nothing: ${kind} ${objectName} refused.`);
+    sayRunFile();
     if (records.length > 0) wrote = true;
     if (kind === 'delete') return writer.delete(objectName, records as string[], batchSize);
     if (kind === 'upsert') {
@@ -2196,9 +2222,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ? automationOf(view, objects)
       : measures.readAutomation(objects);
   };
-  const writeGate: SyncWriteGate =
+  const heldGate: SyncWriteGate =
     muting?.gate ??
     gateOver(args.dryRun && args.muteAutomation ? readingTheDryRunMute : measures.readAutomation);
+  // The run's file named as its gate lets it write, never before.
+  const writeGate: SyncWriteGate = {
+    measure: (counted) => heldGate.measure(counted),
+    hold: async (counted) => {
+      const held = await heldGate.hold(counted);
+      if (held.answer.go) sayRunFile();
+      return held;
+    },
+  };
   /** What the run muted of the target's automation, once it ended. */
   let mutedAutomation: MutedAutomation | undefined;
 
@@ -2413,12 +2448,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   log('\nexecuting… (REAL)');
-  // Where what the run creates is kept as it writes it, however the run
-  // ends: said before its first write, on stderr with --json.
+  // Named on stderr as the gate lets the run write (`sayRunFile`).
   const runFilePath = runs?.pathOf(runId);
-  if (runFilePath !== undefined) {
-    say(`run file: ${runFilePath} (--remove ${runFilePath} takes back what the run creates)`);
-  }
   // Ctrl-C stops the run before its next call, as Cancel does in the panel:
   // what it wrote is kept, its file ended. Again, it ends the command at once,
   // and the file, without its end, reads as a run stopped part way. A SIGTERM
@@ -2479,6 +2510,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const stopped = err.code === RUN_CANCELLED;
     const also = stopped ? [] : alsoRefusedAtGate;
     if (args.json) {
+      // Each reason on its line on stderr too, as a refused Seed run says
+      // them: a log that keeps stderr alone shows why nothing was written.
+      if (!stopped) process.stderr.write(`${[err, ...also].map(refusedLine).join('\n')}\n`);
       process.stdout.write(
         `${JSON.stringify(
           {
