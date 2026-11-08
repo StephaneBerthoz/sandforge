@@ -5308,7 +5308,8 @@
         "heldUnread": "Was das Aufräumen nehmen würde, konnte nicht gelesen werden, und damit auch nicht, was {{org}} beim Löschen ausführt: Ein Neuladen mit diesem Aufräumen lässt sich nicht bestätigen.",
         "includeChanged": "Auch mitnehmen, was das Aufräumen seit dem aufgeräumten Ladevorgang geändert findet, samt dem, was seitdem hinzugefügt wurde"
       },
-      "acceptEmails": "Laden, auch wenn {{org}} die E-Mails zustellt, die ihre Automatisierungen beim Schreiben des Ladevorgangs senden, oder nicht sagt, ob sie sie zustellt"
+      "acceptEmails": "Laden, auch wenn {{org}} die E-Mails zustellt, die ihre Automatisierungen beim Schreiben des Ladevorgangs senden, oder nicht sagt, ob sie sie zustellt",
+      "acceptAutomation": "Laden, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt"
     },
     "preview": {
       "title": "Was ein Ladevorgang in {{org}} tun würde",
@@ -5326,6 +5327,7 @@
       "toDeactivate": "Zu deaktivieren",
       "heldForExcludedParents": "Würden ausgelassen, nicht gesendet — ein Lookup, ohne den diese Datensätze nicht geladen werden können, verweist auf ein Objekt, das excludedObjects auslässt, oder sie hängen von solchen Datensätzen ab; dafür wird kein Platzhalter verlangt: {{objects}}",
       "quotesLeftUnsynced": "Würden ohne synchronisiertes Angebot belassen, ihre Produkte behalten — das Laden würde weniger Angebotspositionen als Produkte der Opportunity schreiben, und das Synchronisieren eines Angebots ersetzt die Produkte einer Opportunity durch seine Positionen: {{objects}}",
+      "writtenByThePlatform": "Von der Plattform mit ihrer Opportunity geschrieben und verknüpft, sobald diese angelegt ist — nicht als einzufügen gezählt: {{objects}}",
       "placeholders": "Anzulegende Platzhalter und die Datensätze, die jeder füllt: {{fields}}",
       "defaults": "Deklarierte Standardwerte und die Datensätze, die jeder füllt: {{fields}}",
       "defaultsPerRecord": "Jeder Datensatz erhält einen eigenen Wert — seinen Rang an den deklarierten Wert angehängt, da das Feld im Ziel eindeutig oder der Name des Datensatzes ist, oder das Token, das der Wert trägt ({n}, {referenceId}), ersetzt: {{fields}}",
@@ -5350,7 +5352,17 @@
         "countUnread": "{{limit}}: etwa {{emails}}; was der Org heute bleibt, ließ sich nicht lesen.",
         "exceeded": "Über das hinaus, was {{org}} heute bleibt, wird jeder Datensatz abgelehnt, dessen Flow beim Speichern scheitert: Der Ladevorgang würde abgelehnt, nichts geschrieben, was auch immer das Kästchen sagt. Schalten Sie stumm, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails.",
         "uncounted": "Nicht alle wurden gezählt: {{why}} ließ sich nicht lesen."
-      }
+      },
+      "automation": {
+        "title": "Was {{org}} ausführt, wenn der Ladevorgang seine Datensätze einfügt und aktualisiert:",
+        "onInsert": "{{object}} — {{what}}, beim Einfügen seiner Datensätze",
+        "onUpdate": "{{object}} — {{what}}, beim Aktualisieren seiner Datensätze",
+        "onInsertAndUpdate": "{{object}} — {{what}}, beim Einfügen und Aktualisieren seiner Datensätze",
+        "unread": "Was {{org}} ausführt, konnte nicht gelesen werden ({{reason}}): Der Ladevorgang fragt, als ob etwas liefe.",
+        "refused": "Der Ladevorgang würde abgelehnt, nichts geschrieben, außer Sie haken „Laden, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an oder schalten sie stumm.",
+        "accepted": "Mit angehaktem Kästchen schreibt der Ladevorgang trotzdem, und diese Automatisierungen laufen."
+      },
+      "lookupFilters": "{{object}}: Lookup-Filter des Ziels, die eine Vorschau nicht prüfen kann — ein Datensatz, dessen Lookup ein Filter ablehnt, wird abgelehnt, mit allem, was an ihm hängt: {{fields}}"
     },
     "verify": {
       "run": "Erneut prüfen",
@@ -5633,6 +5645,11 @@
       "emailsExceeded": {
         "explanation": "Der Ladevorgang ließe {{org}} mehr E-Mails senden, als ihr heute bleiben ({{limit}}: etwa {{emails}}, {{remaining}} von {{max}} verbleibend), und nichts wurde geschrieben.",
         "action": "Haken Sie das Stummschalten der Automatisierung an, um still zu halten, was sie sendet, oder laden Sie in eine Org mit mehr verbleibenden E-Mails."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} führt Automatisierungen aus, wenn der Ladevorgang seine Datensätze schreibt ({{named}}), und nichts wurde geschrieben.",
+        "explanationUnread": "Was {{org}} beim Schreiben des Ladevorgangs ausführt, konnte nicht gelesen werden, und nichts wurde geschrieben.",
+        "action": "Haken Sie „Laden, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an, um trotzdem zu laden, haken Sie das Stummschalten der Automatisierung an, um still zu halten, was die Umgehung der Org prüft, oder deaktivieren Sie diese Automatisierungen in {{org}}."
       }
     }
   },

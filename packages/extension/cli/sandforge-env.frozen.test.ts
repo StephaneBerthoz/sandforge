@@ -801,14 +801,42 @@ describe('plan and apply a frozen resource', () => {
       expect(named('Account', 'claim')).toHaveLength(3);
     });
 
-    it('asks nothing of a first load, which deletes nothing, and hands it no acceptance', async () => {
+    it('lets a first load by what fires only as records go, and hands it the acceptance it was given', async () => {
       world.automation = FIRING;
 
       const applied = await apply('--accept-automation');
 
       expect(applied.code, applied.said).toBe(0);
-      const load = linesOf('sandforge-frozen').find((args) => args[0] === 'load');
-      expect(load).not.toContain('--accept-automation');
+      const loads = linesOf('sandforge-frozen').filter((args) => args[0] === 'load');
+      expect(loads.length).toBeGreaterThan(0);
+      for (const load of loads) expect(load).toContain('--accept-automation');
+    });
+
+    it('blocks a first load while a trigger runs as its accounts go in, unless accepted', async () => {
+      // A load ran what fires on its inserts unasked: only its verification
+      // saw a flow that deleted each record the second it went in.
+      world.automation = {
+        ...FIRING,
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [],
+            triggers: [{ name: 'AccountStamp', events: ['beforeInsert'] }],
+          },
+        ],
+      } as unknown as ForgeTargetAutomation;
+
+      const { plan: planned } = await plan();
+      const claims = planned.actions.find((each) => each.resource === 'claims');
+      expect(claims?.action).toBe('blocked');
+      expect(claims?.refusal).toContain('AccountStamp');
+      expect(claims?.refusal).toContain('--accept-automation');
+      expect((await apply()).code).toBe(1);
+      expect(named('Account', 'claim')).toEqual([]);
+
+      const applied = await apply('--accept-automation');
+      expect(applied.code, applied.said).toBe(0);
+      expect(named('Account', 'claim')).toHaveLength(2);
     });
   });
 });

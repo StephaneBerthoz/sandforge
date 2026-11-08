@@ -77,6 +77,40 @@ export interface FrozenLoadEmailsInfo {
   refused?: { code: string; message: string };
 }
 
+/** A flow, an Apex trigger, a process or a workflow rule the target runs as a load writes. */
+export interface FrozenLoadAutomationEntry {
+  objectApiName: string;
+  kind: 'flow' | 'trigger' | 'process' | 'workflowRule';
+  name: string;
+  /** The writes of the load it runs on: as it inserts the records, as it updates them, or both. */
+  writes: Array<'insert' | 'update'>;
+}
+
+/**
+ * What the target runs as a load inserts its records and updates them —
+ * what the mute keeps quiet held quiet, what a bypass the user holds keeps
+ * quiet left out —, as the load's gate read it before its first write, and
+ * whether the load was told to write all the same. Said by a preview, a dry
+ * run, the report, and a load refused for it.
+ */
+export interface FrozenLoadAutomationInfo {
+  /** What runs, object by object, in the order the platform runs it. */
+  firing: FrozenLoadAutomationEntry[];
+  /**
+   * What could not be read of it, which may hide what runs: a part of the
+   * read (`flows`, `triggers`, `processes`, `workflowRules`), or the whole
+   * read (`automation`). Absent when everything was read.
+   */
+  unread?: Array<{
+    part: 'flows' | 'triggers' | 'processes' | 'workflowRules' | 'automation';
+    reason: string;
+  }>;
+  /** Whether the load came with the accord (`acceptAutomation`, `--accept-automation`). */
+  accepted: boolean;
+  /** Why a load would be refused for it, nothing written; absent when it would not be. */
+  refused?: { code: 'AUTOMATION_NOT_ACCEPTED'; message: string };
+}
+
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
   /** Stable axis name (used in combination keys). */
@@ -701,6 +735,11 @@ export interface FrozenLoadReportInfo {
   sweeps?: FrozenReloadSweep[];
   /** The emails of what still ran as it wrote, as its gate judged them; absent when nothing sent one. */
   emails?: FrozenLoadEmailsInfo;
+  /**
+   * What the target ran as it wrote, which the load was told to write
+   * through; absent when nothing ran and everything was read.
+   */
+  automation?: FrozenLoadAutomationInfo;
   mappingPath: string;
   contractPath: string;
 }
@@ -731,7 +770,8 @@ export interface FrozenLoadPlanObject {
    * Records the load would send to be inserted. The target may still refuse
    * some, or skip one as a duplicate; and a contact's direct relation or an
    * email's task counted here is linked instead to the one the platform
-   * writes, once its contact or email is in.
+   * writes, once its contact or email is in. The contact role the platform
+   * writes with an opportunity is not counted here: see `writtenByThePlatform`.
    */
   toInsert: number;
   /** Records a reload would find in the target by their identity keys, and link. */
@@ -741,6 +781,12 @@ export interface FrozenLoadPlanObject {
    * price book, a selling model or option by its natural key — and linked.
    */
   reusedFromCatalog: number;
+  /**
+   * Records the platform writes itself with their parent, which the load
+   * links once that parent is in, given the fields it lacks: the role of the
+   * contact an opportunity the load inserts goes in with. Absent when none.
+   */
+  writtenByThePlatform?: number;
   /** Fields of its records the target lacks or takes no value of: dropped from them. */
   fieldsDropped: number;
   /** Picklist values of its records the target refuses: cleared, or replaced as the rules declare. */
@@ -773,6 +819,15 @@ export interface FrozenLoadPlanObject {
    * which an insert never is. Absent when none is.
    */
   validationRulesOnChange?: string[];
+  /**
+   * The lookups of the records it would insert that the target filters
+   * (`filteredLookupInfo` in its describe), which a preview cannot check: a
+   * record whose lookup the filter refuses is refused
+   * (`FIELD_FILTER_VALIDATION_EXCEPTION`), and what hangs from it with it.
+   * Each with the objects it looks up and how many of those records hold it.
+   * Absent when none of them holds one.
+   */
+  lookupFilters?: Array<{ field: string; referenceTo: string[]; records: number }>;
 }
 
 /**
@@ -872,6 +927,13 @@ export interface FrozenLoadPlanInfo {
    * be judged, which the log says.
    */
   emails?: FrozenLoadEmailsInfo;
+  /**
+   * What the target runs as the load would insert its records and update
+   * them, the mute planned when asked, nothing assigned, and the refusal a
+   * load would meet without the accord. Absent when nothing runs and
+   * everything was read, or when it could not be judged, which the log says.
+   */
+  automation?: FrozenLoadAutomationInfo;
   /**
    * Per object, the records the load would create without a record type, and
    * the type the describe of the user it writes as says the target gives

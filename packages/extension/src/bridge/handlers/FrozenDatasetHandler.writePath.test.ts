@@ -396,7 +396,9 @@ describe('frozen:load, its write path through the real loader', () => {
         id: 'wv-load-1',
         type: 'frozen:load',
         timestamp: Date.now(),
-        payload: { targetOrgId: 'org-2', ...payload },
+        // What runs as it writes accepted, as the panel's box sends it: what
+        // these judge stands after that question.
+        payload: { targetOrgId: 'org-2', acceptAutomation: true, ...payload },
       } as BaseMessage) as InboundRequest,
     );
   }

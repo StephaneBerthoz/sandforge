@@ -232,6 +232,21 @@ describe('a frozen resource’s lines', () => {
     });
   });
 
+  it('hands a first load and its dry run the acceptance of automation it was given, as a reload', () => {
+    // A load asks what fires as it inserts and updates, as a reload asks
+    // what fires as its purge deletes: given to a reload alone, the
+    // acceptance left a first load refused for the flow on its contacts.
+    expect(
+      parsed(frozenDryRunLine({ ...line, reload: false, acceptAutomation: true })),
+    ).toMatchObject({ step: 'load', reload: false, dryRun: true, acceptAutomation: true });
+    expect(
+      parsed(frozenApplyLine({ ...line, reload: false, maxTotal: 4, acceptAutomation: true })),
+    ).toMatchObject({ step: 'load', reload: false, acceptAutomation: true, yes: true });
+    expect(parsed(frozenApplyLine({ ...line, reload: false, maxTotal: 4 }))).toMatchObject({
+      acceptAutomation: false,
+    });
+  });
+
   it('runs a load held to its dry run’s count, asked nothing, a reload for a replace', () => {
     expect(parsed(frozenApplyLine({ ...line, reload: true, maxTotal: 4 }))).toMatchObject({
       step: 'load',

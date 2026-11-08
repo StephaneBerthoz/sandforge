@@ -20,6 +20,7 @@ import { AuditTrailStore, recordWriteRun } from '../../modules/audit/auditTrail.
 import { sasMarkOf } from '../../modules/frozendataset/otherSasLoads.js';
 import {
   buildFrozenManifest,
+  FrozenLoadCancelledError,
   SasReferenceIdMappingStore,
   type FrozenLoadOptions,
   type FrozenDatasetLoaderDeps,
@@ -429,6 +430,58 @@ describe('a reload asked to sweep what the automation made for the loads it repl
         assigned: ['Data_Load'],
         released: true,
         silenced: [expect.objectContaining({ objectApiName: 'Task' })],
+      });
+      expect(permissions.assignments()).toEqual([]);
+    } finally {
+      fs.rmSync(leases, { recursive: true, force: true });
+    }
+  });
+
+  it('says what its mute assigned and took back when stopped in its sweep, as a load that ran through says it', async () => {
+    // Run on the trap org, a reload stopped in the first part of its sweep
+    // said nothing of its mute: the org had assigned the bypass set, then
+    // taken it back, and neither the error nor the command line named it.
+    const leases = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-reload-leases-'));
+    try {
+      handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+      const permissions = memoryPermissionOrg({
+        userId: USER,
+        organizationId: ORGANIZATION,
+        sets: [{ id: '0PS000000000001AAA', name: 'Data_Load' }],
+      });
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...tied.conn,
+        identity: permissions.connection.identity,
+        query: (soql: string, options?: { scanAll?: boolean }) =>
+          soql.startsWith('SELECT Id, IsSandbox')
+            ? Promise.resolve({ records: [{ Id: ORGANIZATION, IsSandbox: true }] })
+            : PERMISSION_OBJECTS.test(soql)
+              ? permissions.connection.query(soql)
+              : tied.conn.query(soql, options),
+        sobject: (name: string) =>
+          name === 'PermissionSetAssignment'
+            ? permissions.connection.sobject(name)
+            : tied.conn.sobject(name),
+      } as never);
+      // Stopped once the sweep's first part went, before the purge.
+      loaderLoad.mockImplementation(async (options: FrozenLoadOptions) => {
+        await options.purgeSweep?.first();
+        throw new FrozenLoadCancelledError(
+          {
+            perObject: [],
+            placeholders: [],
+            purge: { deleted: {}, deactivated: {}, failures: [] },
+          },
+          false,
+        );
+      });
+
+      await reload({ sweep: true, muteAutomation: true });
+
+      expect(errors()[0]?.payload).toMatchObject({
+        code: 'LOAD_CANCELLED',
+        written: 0,
+        mutedAutomation: { state: 'muted', assigned: ['Data_Load'], released: true },
       });
       expect(permissions.assignments()).toEqual([]);
     } finally {

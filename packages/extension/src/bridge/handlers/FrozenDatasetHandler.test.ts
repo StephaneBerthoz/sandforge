@@ -2163,6 +2163,53 @@ describe('FrozenDatasetHandler', () => {
           ['Rating__c', false, false],
         ]);
       });
+
+      it('says which lookups the target filters, as its describe answers them', async () => {
+        // What a preview names and cannot check: the trap org's filter on the
+        // contacts' preferred account refused six records a dry run counted.
+        // A field with no filter is answered `filteredLookupInfo: null`.
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: async (name: string) => ({
+            name,
+            createable: true,
+            fields: [
+              {
+                name: 'Preferred_Account__c',
+                type: 'reference',
+                createable: true,
+                referenceTo: ['Account'],
+                filteredLookupInfo: {
+                  controllingFields: ['Type'],
+                  dependent: false,
+                  optionalFilter: false,
+                },
+              },
+              {
+                name: 'AccountId',
+                type: 'reference',
+                createable: true,
+                referenceTo: ['Account'],
+                filteredLookupInfo: null,
+              },
+            ],
+            recordTypeInfos: [],
+          }),
+        } as never);
+        loaderLoad.mockImplementation(async () => report());
+
+        await handler.handle(
+          buildMsg('frozen:load', { targetOrgId: 'org-2', acceptAutomation: true }),
+        );
+
+        const [{ orgAccess }] = vi.mocked(FrozenDatasetLoader).mock.calls[0];
+        const described = await orgAccess.describe('org-2', 'Contact');
+        expect(described.fields.map((f) => [f.name, f.lookupFilter])).toEqual([
+          ['Preferred_Account__c', { optional: false }],
+          ['AccountId', undefined],
+        ]);
+      });
     });
 
     describe('what a reload gives back as it stops', () => {

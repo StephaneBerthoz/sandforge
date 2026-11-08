@@ -5308,7 +5308,8 @@
         "heldUnread": "Não foi possível ler o que a varredura levaria, nem o que {{org}} executa quando ela o exclui: uma recarga com esta varredura não pode ser confirmada.",
         "includeChanged": "Levar também o que a varredura encontra alterado desde a carga que ela varre, e o que foi adicionado a isso desde então"
       },
-      "acceptEmails": "Carregar mesmo que {{org}} entregue os e-mails que suas automações enviam quando a carga grava, ou não diga se os entrega"
+      "acceptEmails": "Carregar mesmo que {{org}} entregue os e-mails que suas automações enviam quando a carga grava, ou não diga se os entrega",
+      "acceptAutomation": "Carregar mesmo que {{org}} execute automações na entrada dos registros"
     },
     "preview": {
       "title": "O que uma carga em {{org}} faria",
@@ -5326,6 +5327,7 @@
       "toDeactivate": "A desativar",
       "heldForExcludedParents": "Seriam deixados de fora, sem envio — um lookup sem o qual estes registros não podem entrar aponta para um objeto que excludedObjects deixa de fora, ou eles dependem de tais registros; nenhum marcador é pedido para ele: {{objects}}",
       "quotesLeftUnsynced": "Seriam deixadas sem cotação sincronizada, com seus produtos mantidos — o carregamento gravaria menos linhas da cotação do que produtos da oportunidade, e sincronizar uma cotação substitui os produtos de uma oportunidade pelas linhas dela: {{objects}}",
+      "writtenByThePlatform": "Gravados pela plataforma com sua oportunidade e vinculados assim que ela existe — não contados para inserir: {{objects}}",
       "placeholders": "Marcadores a criar, e os registros que cada um preenche: {{fields}}",
       "defaults": "Valores padrão declarados, e os registros que cada um preenche: {{fields}}",
       "defaultsPerRecord": "Cada registro recebe um valor próprio — sua posição acrescentada ao valor declarado, sendo o campo único no destino ou o nome do registro, ou o token que o valor contém ({n}, {referenceId}) substituído: {{fields}}",
@@ -5350,7 +5352,17 @@
         "countUnread": "{{limit}}: cerca de {{emails}}; o que resta hoje à org não pôde ser lido.",
         "exceeded": "Além do que resta hoje a {{org}}, cada registro cujo fluxo falha ao salvar é recusado: a carga seria recusada, nada gravado, seja o que for que a caixa diga. Silencie o que os envia, ou carregue numa org com mais e-mails restantes hoje.",
         "uncounted": "Nem todos foram contados: {{why}} não pôde ser lido."
-      }
+      },
+      "automation": {
+        "title": "O que {{org}} executa quando a carga insere seus registros e os atualiza:",
+        "onInsert": "{{object}} — {{what}}, ao inserir seus registros",
+        "onUpdate": "{{object}} — {{what}}, ao atualizar seus registros",
+        "onInsertAndUpdate": "{{object}} — {{what}}, ao inserir e atualizar seus registros",
+        "unread": "Não foi possível ler o que {{org}} executa ({{reason}}): a carga pergunta como se algo rodasse.",
+        "refused": "A carga seria recusada, nada gravado, a menos que você marque “Carregar mesmo que {{org}} execute automações na entrada dos registros”, ou a silencie.",
+        "accepted": "Com a caixa marcada, a carga grava assim mesmo, e essas automações rodam."
+      },
+      "lookupFilters": "{{object}}: filtros de pesquisa do destino, que uma prévia não consegue verificar — um registro cuja pesquisa um filtro recusa é recusado, com o que depende dele: {{fields}}"
     },
     "verify": {
       "run": "Verificar novamente",
@@ -5633,6 +5645,11 @@
       "emailsExceeded": {
         "explanation": "A carga faria {{org}} enviar mais e-mails do que lhe restam hoje ({{limit}}: cerca de {{emails}}, {{remaining}} de {{max}} restantes), e nada foi gravado.",
         "action": "Marque o silêncio da automação para calar o que os envia, ou carregue numa org com mais e-mails restantes hoje."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} executa automações quando a carga grava seus registros ({{named}}), e nada foi gravado.",
+        "explanationUnread": "Não foi possível ler o que {{org}} executa quando a carga grava, e nada foi gravado.",
+        "action": "Marque “Carregar mesmo que {{org}} execute automações na entrada dos registros” para carregar assim mesmo, marque o silêncio da automação para calar o que testa o bypass da org, ou desative essas automações em {{org}}."
       }
     }
   },

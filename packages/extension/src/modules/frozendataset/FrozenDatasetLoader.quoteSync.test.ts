@@ -43,17 +43,27 @@ type Row = Record<string, unknown>;
  * with (`QuoteLineItem.OpportunityLineItemId`) is deleted — the two products
  * of a load that left the quote's lines out were read back `IsDeleted true`,
  * the opportunity's amount 0, while the same load with the lines kept both.
+ * And what a scratch org did as a clone wrote products under an opportunity
+ * already synced: it copied each onto the quote as a line paired with it.
+ * `held` gives it records it holds before the load.
  */
-function quoteSyncOrg() {
-  const held = new Map<string, Row[]>();
+function quoteSyncOrg(held: Record<string, Row[]> = {}) {
+  const rows = new Map<string, Row[]>(
+    Object.entries(held).map(([objectApiName, list]) => [objectApiName, [...list]]),
+  );
   const deleted: Row[] = [];
   let counter = 0;
   const idFor = (objectApiName: string): string =>
     `${PREFIX[objectApiName] ?? '0XX'}xx${String(++counter).padStart(10, '0')}AAA`;
   const rowsOf = (objectApiName: string): Row[] => {
-    const rows = held.get(objectApiName) ?? [];
-    held.set(objectApiName, rows);
-    return rows;
+    const list = rows.get(objectApiName) ?? [];
+    rows.set(objectApiName, list);
+    return list;
+  };
+  /** The quote an opportunity syncs with, by the opportunity's id. */
+  const syncedQuoteOf = (opportunity: unknown): string | undefined => {
+    const quote = rowsOf('Opportunity').find((row) => row.Id === opportunity)?.SyncedQuoteId;
+    return typeof quote === 'string' ? quote : undefined;
   };
   const sync = (opportunity: string, quote: string): void => {
     const paired = new Set(
@@ -73,6 +83,18 @@ function quoteSyncOrg() {
       records.map((record) => {
         const id = idFor(objectApiName);
         rowsOf(objectApiName).push({ ...record, Id: id });
+        // A product written under an opportunity already synced: the
+        // platform copies it onto the quote as a line paired with it.
+        const synced = objectApiName === PRODUCT ? syncedQuoteOf(record.OpportunityId) : undefined;
+        if (synced) {
+          rowsOf(LINE).push({
+            Id: idFor(LINE),
+            QuoteId: synced,
+            OpportunityLineItemId: id,
+            Quantity: record.Quantity,
+            UnitPrice: record.UnitPrice,
+          });
+        }
         return { id, success: true, errors: [] };
       }),
     ),
@@ -224,12 +246,13 @@ function dossier(lines: boolean): FrozenDataset {
 function depsOf(
   org: ReturnType<typeof quoteSyncOrg>,
   config: FrozenLoadConfig,
+  query: (orgId: string, soql: string) => Promise<Row[]> = async () => [],
 ): FrozenDatasetLoaderDeps & { sasDir: string } {
   const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-quote-sync-'));
   tmpDirs.push(sasDir);
   return {
     orgAccess: {
-      query: vi.fn(async () => []),
+      query: vi.fn(query),
       describe: vi.fn(async (_org: string, objectApiName: string) => {
         const describe = DESCRIBES[objectApiName];
         if (!describe) throw new Error(`sObject ${objectApiName} not found`);
@@ -354,5 +377,62 @@ describe('a Frozen load of an opportunity that syncs with its quote', () => {
       }),
     ]);
     expect(vi.mocked(org.writer.insert)).not.toHaveBeenCalled();
+  });
+});
+
+describe('a Frozen reload of an opportunity whose synced quote the target already holds', () => {
+  /** The quote a load before wrote, which the reload finds again by its name. */
+  const HELD_QUOTE = '0Q0xx0000000900AAA';
+
+  async function reload(dataset: FrozenDataset, config: FrozenLoadConfig) {
+    const org = quoteSyncOrg({ Quote: [{ Id: HELD_QUOTE, Name: 'Quote' }] });
+    const deps = depsOf(
+      org,
+      { ...config, identityKeys: { Quote: ['Name'] } },
+      async (_org, soql) =>
+        soql.startsWith('SELECT Id, Name FROM Quote') ? [{ Id: HELD_QUOTE, Name: 'Quote' }] : [],
+    );
+    const report = await new FrozenDatasetLoader(deps).load({
+      orgId: '00D-target',
+      orgTier: 'development',
+      dataset,
+      sasDir: deps.sasDir,
+      reload: true,
+    });
+    const sentWith = vi
+      .mocked(org.writer.insert)
+      .mock.calls.filter(([, objectApiName]) => objectApiName === 'Opportunity')
+      .flatMap(([, , records]) => records as Row[]);
+    return { org, report, sentWith };
+  }
+
+  it('leaves the quote unsynced, as it said, when it writes none of its lines: never at the opportunity’s insert', async () => {
+    // Found in the target, the quote had its id when the opportunity went
+    // in: SyncedQuoteId went with the insert, past the second pass that
+    // leaves it empty, while the report said it was left empty.
+    const { org, report, sentWith } = await reload(dossier(false), {
+      excludedObjects: [LINE],
+    });
+
+    expect(sentWith).toHaveLength(1);
+    expect(sentWith[0]).not.toHaveProperty('SyncedQuoteId');
+    expect(org.rowsOf('Opportunity')[0].SyncedQuoteId).toBeUndefined();
+    expect(org.rowsOf(PRODUCT)).toHaveLength(2);
+    expect(org.rowsOf(LINE)).toEqual([]);
+    expect(report.quotesLeftUnsynced?.[0]?.note).toContain('SyncedQuoteId left empty');
+  });
+
+  it('syncs the quote once its lines are in, leaving it the dataset’s two lines, not four', async () => {
+    // Synced as the opportunity went in, before its products, the quote took
+    // a copy of each product the platform wrote, then the dataset's two
+    // lines: four lines for two products, as a clone met on a scratch org.
+    const { org, report, sentWith } = await reload(dossier(true), {});
+
+    expect(sentWith[0]).not.toHaveProperty('SyncedQuoteId');
+    expect(org.rowsOf('Opportunity')[0].SyncedQuoteId).toBe(HELD_QUOTE);
+    expect(org.rowsOf(LINE)).toHaveLength(2);
+    expect(org.rowsOf(PRODUCT)).toHaveLength(2);
+    expect(org.deleted).toEqual([]);
+    expect(report.pass2).toEqual({ resolved: 1, unresolved: [] });
   });
 });

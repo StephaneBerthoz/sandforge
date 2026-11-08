@@ -342,6 +342,54 @@ describe('frozenErrorWords', () => {
       );
     });
 
+    it('says a load refused for what the org runs as it writes, naming it, and the box that lets it through', () => {
+      // The host's sentence names --accept-automation, which no page has.
+      const words = frozenErrorWords(
+        {
+          code: 'AUTOMATION_NOT_ACCEPTED',
+          orgId: 'org-uat',
+          message: '… Nothing was written. Add --accept-automation to load all the same, …',
+          automation: {
+            firing: [
+              {
+                objectApiName: 'OpportunityLineItem',
+                kind: 'flow',
+                name: 'GC Gate OLI Delete',
+                writes: ['insert'],
+              },
+            ],
+            accepted: false,
+          },
+        },
+        t,
+        aliasOf,
+      );
+
+      expect(words).toBe(
+        'UAT runs automation as the load writes its records (OpportunityLineItem — Flow: GC Gate ' +
+          'OLI Delete), and nothing was written. Tick “Load although UAT runs automation as the ' +
+          'records go in” to load all the same, tick Mute automation to keep quiet what tests the ' +
+          "org's bypass, or turn that automation off in UAT.",
+      );
+      expect(words).not.toContain('--');
+      // What could not be read, nothing named.
+      expect(
+        frozenErrorWords(
+          {
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            orgId: 'org-uat',
+            automation: { firing: [], unread: [{ part: 'automation', reason: 'x' }] },
+          },
+          t,
+          aliasOf,
+        ),
+      ).toMatch(/^What UAT runs as the load writes could not be read, and nothing was written\. /);
+      // A removal's refusal of the same code names no load's question: the host's words stay.
+      expect(
+        frozenErrorWords({ code: 'AUTOMATION_NOT_ACCEPTED', orgId: 'org-uat' }, t, aliasOf),
+      ).toBeUndefined();
+    });
+
     it('says a load refused past the emails the org has left today, with its figures', () => {
       expect(
         frozenErrorWords(

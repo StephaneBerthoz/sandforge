@@ -352,6 +352,61 @@ describe('FrozenLoadTab', () => {
       ]);
     });
 
+    it('offers the box that accepts what the target runs as the records go in, never ticked, and asks the load and its preview with it', () => {
+      // A load asked nothing of what runs as it inserts: a flow that deleted
+      // each record the second it went in ran unasked.
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      const box = screen.getByTestId('frozen-load-accept-automation') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(box.closest('label')?.textContent).toBe(
+        'Load although DEV-SANDBOX runs automation as the records go in',
+      );
+
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      fireEvent.click(box);
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev' }],
+        ['frozen:load:preview', { targetOrgId: 'org-dev', acceptAutomation: true }],
+        ['frozen:load', { targetOrgId: 'org-dev', acceptAutomation: true }],
+      ]);
+    });
+
+    it('says in the preview what the target runs as the load writes, and that a load would be refused for it', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            automation: {
+              firing: [
+                {
+                  objectApiName: 'OpportunityLineItem',
+                  kind: 'flow',
+                  name: 'GC Gate OLI Delete',
+                  writes: ['insert'],
+                },
+              ],
+              accepted: false,
+              refused: { code: 'AUTOMATION_NOT_ACCEPTED', message: 'DEV-SANDBOX runs…' },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-automation-firing').textContent).toBe(
+        'OpportunityLineItem — Flow: GC Gate OLI Delete, as its records are inserted',
+      );
+      expect(screen.getByTestId('frozen-preview-automation-verdict').textContent).toBe(
+        'A load would be refused, nothing written, unless you tick “Load although DEV-SANDBOX ' +
+          'runs automation as the records go in”, or mute it.',
+      );
+    });
+
     it('says in the preview what the emails come to, and that a load would be refused for them', () => {
       answers['frozen:load:preview'] = {
         data: {
@@ -659,6 +714,71 @@ describe('FrozenLoadTab', () => {
       expect(screen.getByTestId('frozen-report-quotes-left-unsynced').textContent).toBe(
         "Left unsynced with their quote, their products kept — the load wrote fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: Opportunity (1)",
       );
+    });
+
+    it('names in the preview the lookup filters of what the load inserts, which it cannot check', () => {
+      // On the trap org, a filter on the contacts' preferred account refused
+      // six records the preview had counted to insert, and nothing named it.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: [
+              {
+                ...PLAN.perObject[0],
+                lookupFilters: [
+                  { field: 'Preferred_Account__c', referenceTo: ['Account'], records: 72 },
+                ],
+              },
+              PLAN.perObject[1],
+            ],
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-lookup-filters-Account').textContent).toBe(
+        'Account: lookup filters of the target, which a preview cannot check — a record whose ' +
+          'lookup a filter refuses is refused, and what hangs from it: Preferred_Account__c → ' +
+          'Account (72)',
+      );
+      expect(screen.queryByTestId('frozen-preview-lookup-filters-Pricebook2')).toBeNull();
+    });
+
+    it('says in the preview the contact roles the platform writes with their opportunity, counted to insert nowhere', () => {
+      // Counted to insert, the role of the contact an opportunity goes in
+      // with made the preview say one record more than the load then wrote.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: [
+              ...PLAN.perObject,
+              {
+                objectApiName: 'OpportunityContactRole',
+                fromFiles: 1,
+                toInsert: 0,
+                reusedByKeys: 0,
+                reusedFromCatalog: 0,
+                writtenByThePlatform: 1,
+                fieldsDropped: 0,
+                picklistsRewritten: 0,
+                notSent: 0,
+                toPurge: 0,
+                toDeactivate: 0,
+              },
+            ],
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-written-by-platform').textContent).toBe(
+        'Written by the platform with their opportunity, and linked once it is in — not counted to insert: OpportunityContactRole (1)',
+      );
+      expect(previewRows().find((row) => row[0] === 'OpportunityContactRole')?.[2]).toBe('0');
     });
 
     it('calls a load its verification did not pass partial for the verification, and a sweep’s for the sweep', () => {

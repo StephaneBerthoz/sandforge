@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { RecordTypeGiven } from '@sandforge/shared';
 import {
   discoveryLine,
+  frozenInterruptedLine,
   frozenRecordTypeLines,
   FROZEN_PREVIEW_UNREAD,
   messageLines,
@@ -795,6 +796,128 @@ describe('messageLines', () => {
       '  ErrorLog__c: not loaded — Not createable in target org',
       'placeholder for Contact.Owner__c: 2 record(s)',
       '1 person account contact(s) go in with their account, not counted above',
+    ]);
+  });
+
+  it('says what the mute of a load stopped under its lease assigned and took back', () => {
+    // Run on the trap org, a reload stopped in its sweep said nothing of its
+    // mute, while the org had assigned the bypass set and taken it back.
+    const lines = messageLines({
+      type: 'frozen:load:error',
+      payload: {
+        code: 'LOAD_CANCELLED',
+        message:
+          'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+        written: 0,
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Trap_Bypass'],
+          held: [],
+          permissions: ['Trap_Bypass_Flow'],
+          silenced: [],
+          stillRan: [],
+          released: true,
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'mute: assigned Trap_Bypass to the user the run writes as in the target, for the run alone',
+    );
+    expect(lines).toContain('  taken back: Trap_Bypass, as the run ended');
+  });
+
+  it('ends a load stopped before it wrote on a line that says its sas is as it was', () => {
+    expect(frozenInterruptedLine('load', false)).toBe(
+      'interrupted: the load stopped before it created or purged a record: the sas is as it ' +
+        'was, and `remove` has nothing of this load to take back',
+    );
+    expect(frozenInterruptedLine('load')).toContain('`remove` takes it back');
+  });
+
+  it('names in a dry run the lookup filters of what the load inserts, which it cannot check', () => {
+    // Run on the trap org, a dry run said 76 to insert, and the filter of the
+    // contacts' preferred account refused six: nothing named it.
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [
+            {
+              objectApiName: 'Contact',
+              fromFiles: 72,
+              toInsert: 72,
+              reusedByKeys: 0,
+              reusedFromCatalog: 0,
+              fieldsDropped: 0,
+              picklistsRewritten: 0,
+              notSent: 0,
+              toPurge: 0,
+              toDeactivate: 0,
+              lookupFilters: [
+                { field: 'Preferred_Account__c', referenceTo: ['Account'], records: 72 },
+              ],
+            },
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'Contact: 1 lookup filter(s) of the target, which a preview cannot check — a record whose ' +
+        'lookup it refuses is refused, and what hangs from it: Preferred_Account__c (Account, ' +
+        '72 record(s))',
+    );
+  });
+
+  it('counts the contact role the platform writes with its opportunity among what a dry run links, never to insert', () => {
+    // The plan of a scratch org's load, the role counted as its load then
+    // took it: linked to the one the platform wrote, given its role.
+    const object = (objectApiName: string, counts: Record<string, number>) => ({
+      objectApiName,
+      fromFiles: 1,
+      toInsert: 1,
+      reusedByKeys: 0,
+      reusedFromCatalog: 0,
+      fieldsDropped: 0,
+      picklistsRewritten: 0,
+      notSent: 0,
+      toPurge: 0,
+      toDeactivate: 0,
+      ...counts,
+    });
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [
+            object('Contact', {}),
+            object('Opportunity', {}),
+            object('OpportunityContactRole', { toInsert: 0, writtenByThePlatform: 1 }),
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+
+    expect(lines.slice(0, 4)).toEqual([
+      'dry run: 2 record(s) to insert, 1 to link, 0 not sent — nothing written',
+      '  Contact: 1 to insert of 1',
+      '  Opportunity: 1 to insert of 1',
+      '  OpportunityContactRole: 0 to insert, 1 to link (written by the platform with their opportunity, for its contact) of 1',
     ]);
   });
 
@@ -2063,6 +2186,22 @@ describe('refusedFirstOf', () => {
     ]) {
       expect(refusedFirstOf(error('frozen:remove:error', code))?.code).toBe(code);
     }
+  });
+
+  it('takes the code the handler sends a load or a removal with no Production Guard, and says it as a refusal', () => {
+    // The handler sends NOT_INITIALIZED (`PRODUCTION_GUARD_MISSING.code`):
+    // looked up by the constant's name, the code was never met, and the step
+    // ended on a bare error line with no "refused" for a pipeline to read.
+    const load = error('frozen:load:error', 'NOT_INITIALIZED');
+    expect(refusedFirstOf(load)).toEqual({
+      code: 'NOT_INITIALIZED',
+      message: 'NOT_INITIALIZED words',
+    });
+    expect(refusedFirstOf(error('frozen:remove:error', 'NOT_INITIALIZED'))?.code).toBe(
+      'NOT_INITIALIZED',
+    );
+    expect(messageLines(load)).toEqual(['refused (NOT_INITIALIZED): NOT_INITIALIZED words']);
+    expect(refusedFirstOf(error('frozen:load:error', 'PRODUCTION_GUARD_MISSING'))).toBeUndefined();
   });
 
   it('takes none that may come once records were written or deleted, nor one with nothing to do', () => {

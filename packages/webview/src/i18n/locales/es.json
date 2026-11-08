@@ -5308,7 +5308,8 @@
         "heldUnread": "No se pudo leer lo que tomaría el barrido, ni lo que {{org}} ejecuta cuando lo elimina: no se puede confirmar una recarga con este barrido.",
         "includeChanged": "Tomar también lo que el barrido encuentra modificado desde la carga que barre, y lo que se le añadió desde entonces"
       },
-      "acceptEmails": "Cargar aunque {{org}} entregue los correos que envían sus automatizaciones cuando la carga escribe, o no diga si los entrega"
+      "acceptEmails": "Cargar aunque {{org}} entregue los correos que envían sus automatizaciones cuando la carga escribe, o no diga si los entrega",
+      "acceptAutomation": "Cargar aunque {{org}} ejecute automatizaciones al entrar los registros"
     },
     "preview": {
       "title": "Lo que haría una carga en {{org}}",
@@ -5326,6 +5327,7 @@
       "toDeactivate": "Por desactivar",
       "heldForExcludedParents": "Se dejarían fuera, sin enviar — un lookup sin el cual estos registros no pueden entrar apunta a un objeto que excludedObjects deja fuera, o dependen de tales registros; no se pide ningún marcador para él: {{objects}}",
       "quotesLeftUnsynced": "Quedarían sin presupuesto sincronizado, conservando sus productos — la carga escribiría menos líneas del presupuesto que productos de la oportunidad, y sincronizar un presupuesto reemplaza los productos de una oportunidad por sus líneas: {{objects}}",
+      "writtenByThePlatform": "Escritos por la plataforma con su oportunidad, y vinculados en cuanto esta existe — no se cuentan para insertar: {{objects}}",
       "placeholders": "Marcadores por crear, y los registros que llena cada uno: {{fields}}",
       "defaults": "Valores predeterminados declarados, y los registros que llena cada uno: {{fields}}",
       "defaultsPerRecord": "Cada registro recibe un valor propio — su rango añadido al valor declarado, al ser el campo único en el destino o el nombre del registro, o el token que lleva el valor ({n}, {referenceId}) reemplazado: {{fields}}",
@@ -5350,7 +5352,17 @@
         "countUnread": "{{limit}}: unos {{emails}}; no se pudo leer lo que le queda hoy a la org.",
         "exceeded": "Más allá de lo que le queda hoy a {{org}}, cada registro cuyo flujo falla al guardar se rechaza: la carga se rechazaría, sin escribir nada, diga lo que diga la casilla. Silencie lo que los envía, o cargue en una org a la que le queden más correos hoy.",
         "uncounted": "No se contaron todos: no se pudo leer {{why}}."
-      }
+      },
+      "automation": {
+        "title": "Lo que {{org}} ejecuta cuando la carga inserta sus registros y los actualiza:",
+        "onInsert": "{{object}} — {{what}}, al insertar sus registros",
+        "onUpdate": "{{object}} — {{what}}, al actualizar sus registros",
+        "onInsertAndUpdate": "{{object}} — {{what}}, al insertar y actualizar sus registros",
+        "unread": "No se pudo leer lo que {{org}} ejecuta ({{reason}}): la carga pregunta como si algo se ejecutara.",
+        "refused": "La carga se rechazaría, sin escribir nada, salvo que marque «Cargar aunque {{org}} ejecute automatizaciones al entrar los registros», o la silencie.",
+        "accepted": "Con la casilla marcada, la carga escribe de todos modos, y estas automatizaciones se ejecutan."
+      },
+      "lookupFilters": "{{object}}: filtros de búsqueda del destino, que una vista previa no puede comprobar — un registro cuya búsqueda rechaza un filtro se rechaza, con lo que depende de él: {{fields}}"
     },
     "verify": {
       "run": "Volver a verificar",
@@ -5633,6 +5645,11 @@
       "emailsExceeded": {
         "explanation": "La carga haría que {{org}} enviara más correos de los que le quedan hoy ({{limit}}: unos {{emails}}, {{remaining}} de {{max}} restantes), y no se escribió nada.",
         "action": "Marque el silencio de la automatización para callar lo que los envía, o cargue en una org a la que le queden más correos hoy."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} ejecuta automatizaciones cuando la carga escribe sus registros ({{named}}), y no se escribió nada.",
+        "explanationUnread": "No se pudo leer lo que {{org}} ejecuta cuando la carga escribe, y no se escribió nada.",
+        "action": "Marque «Cargar aunque {{org}} ejecute automatizaciones al entrar los registros» para cargar de todos modos, marque el silencio de la automatización para callar lo que prueba la omisión de la org, o desactive esas automatizaciones en {{org}}."
       }
     }
   },

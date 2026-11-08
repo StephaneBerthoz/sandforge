@@ -1045,8 +1045,17 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       });
 
       it('writes nothing without --accept-emails, and says why under its code', async () => {
-        // A load counted no email and took no accord: the flow emailed each account.
-        expect(await reloadStep('--sweep', '--mute-automation', '--yes', '--json')).toBe(1);
+        // A load counted no email and took no accord: the flow emailed each
+        // account. What runs is accepted: the emails are asked apart.
+        expect(
+          await reloadStep(
+            '--sweep',
+            '--mute-automation',
+            '--accept-automation',
+            '--yes',
+            '--json',
+          ),
+        ).toBe(1);
 
         expect(FrozenDatasetLoader.prototype.load).not.toHaveBeenCalled();
         expect(answered().refused?.code).toBe('EMAILS_NOT_ACCEPTED');
@@ -1077,7 +1086,14 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       });
 
       it('loads with --accept-emails', async () => {
-        await reloadStep('--sweep', '--mute-automation', '--accept-emails', '--yes', '--json');
+        await reloadStep(
+          '--sweep',
+          '--mute-automation',
+          '--accept-automation',
+          '--accept-emails',
+          '--yes',
+          '--json',
+        );
 
         expect(FrozenDatasetLoader.prototype.load).toHaveBeenCalledTimes(1);
         expect(answered().refused).toBeUndefined();
@@ -1493,19 +1509,21 @@ describe('the command line of a removal', () => {
     });
   });
 
-  it('reads --accept-automation with remove and with a reload, and only there', () => {
+  it('reads --accept-automation with remove and with load, a first load as a reload, and only there', () => {
     expect(parseArgs(argv('remove', '--accept-automation')).acceptAutomation).toBe(true);
     expect(parseArgs(argv('remove')).acceptAutomation).toBe(false);
     expect(parseArgs(argv('load', '--reload', '--accept-automation')).acceptAutomation).toBe(true);
+    // A first load asks what runs as it inserts and updates, as a reload asks.
+    expect(parseArgs(argv('load', '--accept-automation')).acceptAutomation).toBe(true);
 
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new ExitCalled(code);
     }) as never);
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
-      expect(() => parseArgs(argv('load', '--accept-automation'))).toThrow('process.exit(2)');
+      expect(() => parseArgs(argv('verify', '--accept-automation'))).toThrow('process.exit(2)');
       expect(stderr).toHaveBeenCalledWith(
-        '--accept-automation goes with remove or load --reload. Run with --help.\n',
+        '--accept-automation goes with load or remove. Run with --help.\n',
       );
       expect(() => parseArgs(argv('verify', '--mute-automation'))).toThrow('process.exit(2)');
       expect(stderr).toHaveBeenCalledWith(

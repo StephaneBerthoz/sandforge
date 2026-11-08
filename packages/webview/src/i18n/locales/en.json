@@ -5308,7 +5308,8 @@
         "heldUnread": "What the sweep would take could not be read, nor what {{org}} runs as it deletes it: a reload with this sweep cannot be confirmed.",
         "includeChanged": "Also take what the sweep finds changed since the load it sweeps, and what was added to it since"
       },
-      "acceptEmails": "Load even though {{org}} delivers the emails its automation sends as the load writes, or would not say whether it does"
+      "acceptEmails": "Load even though {{org}} delivers the emails its automation sends as the load writes, or would not say whether it does",
+      "acceptAutomation": "Load although {{org}} runs automation as the records go in"
     },
     "preview": {
       "title": "What a load into {{org}} would do",
@@ -5326,6 +5327,7 @@
       "toDeactivate": "To deactivate",
       "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
       "quotesLeftUnsynced": "Would be left unsynced with their quote, their products kept — the load would write fewer of the quote's lines than of the opportunity's products, and syncing a quote replaces an opportunity's products with its lines: {{objects}}",
+      "writtenByThePlatform": "Written by the platform with their opportunity, and linked once it is in — not counted to insert: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
       "defaultsPerRecord": "Each record gets a value of its own — its rank appended to the declared value, the field being unique in the target or the record's name, or the token the value carries ({n}, {referenceId}) replaced: {{fields}}",
@@ -5350,7 +5352,17 @@
         "countUnread": "{{limit}}: about {{emails}}; what the org has left today could not be read.",
         "exceeded": "Past what {{org}} has left today, each record whose flow fails in the save is refused: the load would be refused, nothing written, whatever the box says. Mute what sends them, or load into an org with more emails left today.",
         "uncounted": "Not all of them were counted: {{why}} could not be read."
-      }
+      },
+      "automation": {
+        "title": "What {{org}} runs as the load inserts its records and updates them:",
+        "onInsert": "{{object}} — {{what}}, as its records are inserted",
+        "onUpdate": "{{object}} — {{what}}, as its records are updated",
+        "onInsertAndUpdate": "{{object}} — {{what}}, as its records are inserted and updated",
+        "unread": "What {{org}} runs could not be read ({{reason}}): the load asks as though something runs.",
+        "refused": "A load would be refused, nothing written, unless you tick “Load although {{org}} runs automation as the records go in”, or mute it.",
+        "accepted": "With the box ticked, the load writes all the same, and this automation runs."
+      },
+      "lookupFilters": "{{object}}: lookup filters of the target, which a preview cannot check — a record whose lookup a filter refuses is refused, and what hangs from it: {{fields}}"
     },
     "verify": {
       "run": "Re-verify",
@@ -5633,6 +5645,11 @@
       "emailsExceeded": {
         "explanation": "The load would make {{org}} send more emails than it has left today ({{limit}}: about {{emails}}, {{remaining}} of {{max}} left), and nothing was written.",
         "action": "Tick Mute automation to keep quiet what sends them, or load into an org with more emails left today."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} runs automation as the load writes its records ({{named}}), and nothing was written.",
+        "explanationUnread": "What {{org}} runs as the load writes could not be read, and nothing was written.",
+        "action": "Tick “Load although {{org}} runs automation as the records go in” to load all the same, tick Mute automation to keep quiet what tests the org's bypass, or turn that automation off in {{org}}."
       }
     }
   },

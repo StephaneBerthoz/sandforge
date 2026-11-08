@@ -46,6 +46,12 @@ export interface TargetFieldDescribe {
   unique?: boolean;
   /** Whether the field is the object's name, as its describe says. */
   nameField?: boolean;
+  /**
+   * The lookup filter of a reference field, as its describe gives it
+   * (`filteredLookupInfo`), `optional` when the filter itself is: read as
+   * Forge's pre-flight reads it. Absent for a field with none.
+   */
+  lookupFilter?: { optional: boolean };
 }
 
 /** Minimal target-org object describe consumed by the load phase. */
@@ -347,6 +353,13 @@ export interface MissingRequiredField {
    * the object is required to hold.
    */
   accountKind?: 'business' | 'person';
+  /**
+   * The field's type as the target's describe gives it (`date`, `currency`,
+   * `picklist`…), and of a picklist its active values: what a default
+   * declared for it must hold. Absent where the describe names none.
+   */
+  fieldType?: string;
+  activeValues?: string[];
 }
 
 /** Per-object alignment outcome. */

@@ -294,7 +294,9 @@ describe('frozen:load, the checkpoint taken first', () => {
         id,
         type: 'frozen:load',
         timestamp: Date.now(),
-        payload: { targetOrgId: 'org-2', ...payload },
+        // What runs as it writes accepted, as the panel's box sends it: what
+        // these judge stands after that question.
+        payload: { targetOrgId: 'org-2', acceptAutomation: true, ...payload },
       } as BaseMessage) as InboundRequest,
     );
   }
@@ -508,8 +510,9 @@ describe('frozen:load, the checkpoint taken first', () => {
     );
 
     expect(port.scope).not.toHaveBeenCalled();
-    expect(posted('frozen:load:preview:response')[0]?.payload).toEqual({
-      plan: { orgId: 'org-2', perObject: [] },
-    });
+    // What runs as the load writes is said beside it; no checkpoint is.
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan;
+    expect(plan).toMatchObject({ orgId: 'org-2', perObject: [] });
+    expect(plan).not.toHaveProperty('checkpoint');
   });
 });

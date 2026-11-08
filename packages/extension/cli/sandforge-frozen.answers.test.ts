@@ -333,6 +333,28 @@ describe('the --json answer of each step, as an environment reads it', () => {
     expect(await frozenAnswer('load', [], context())).not.toHaveProperty('mutePlan');
   });
 
+  it('says a stopped load ended cancelled, and the mapping a removal reads', async () => {
+    // Run on the trap org, a reload stopped in its sweep answered neither,
+    // its code in `posted` alone.
+    const stopped = {
+      type: 'frozen:load:error',
+      payload: { code: 'LOAD_CANCELLED', message: 'The load was cancelled …', written: 0 },
+    };
+
+    const answer = await frozenAnswer('load', [stopped], context());
+
+    expect(answer.status).toBe('cancelled');
+    expect(answer.mapping).toBe(join(sasDir, `referenceid-mapping.${ORG_ID}.json`));
+    // Refused before it wrote, a load says no status of its own.
+    expect(
+      await frozenAnswer(
+        'load',
+        [{ type: 'frozen:load:error', payload: { code: 'AUTOMATION_NOT_ACCEPTED', written: 0 } }],
+        context(),
+      ),
+    ).not.toHaveProperty('status');
+  });
+
   it('gives a load what the target gave, as read back, and a dry run what the describe says', async () => {
     const predicted = {
       objectApiName: 'Opportunity',
@@ -945,6 +967,8 @@ describe('sandforge-frozen load --dry-run --max-total', () => {
           'TGT',
           '--dry-run',
           '--mute-automation',
+          // What still runs accepted: the mute's refusal is said alone.
+          '--accept-automation',
           '--json',
         ),
       );
@@ -1050,7 +1074,19 @@ describe('sandforge-frozen load, refused for its emails before it writes', () =>
       return true;
     }) as never);
 
-    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+    // What runs as it writes accepted: what refuses it is its emails.
+    await main(
+      argv(
+        'load',
+        '--config',
+        configPath,
+        '--target',
+        'TGT',
+        '--accept-automation',
+        '--yes',
+        '--json',
+      ),
+    );
 
     expect(writes).toEqual([]);
     expect(process.exitCode).toBe(1);
@@ -1070,5 +1106,207 @@ describe('sandforge-frozen load, refused for its emails before it writes', () =>
     expect(lines.at(-1)).toBe(`refused (FROZEN_EMAILS_EXCEEDED): ${answer.refused?.message}`);
     expect(lines.at(-2)).toMatch(/^ {2}(emails|deliverability): /);
     expect(said.join('')).not.toContain('! frozen:load:error');
+  });
+});
+
+describe('sandforge-frozen load, and what the target runs as it inserts', () => {
+  /*
+   * A flow after save on the creation of a contact that sends nothing, as the
+   * one a scratch org ran on opportunity products, which deleted each the
+   * second it went in: the load asked nothing of it, and only its
+   * verification saw it.
+   */
+  const FOLLOWING_UP = {
+    objectsRead: ['Account', 'Contact'],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Contact_Follow_Up',
+            label: 'Contact follow-up',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [],
+            messages: [],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+  } as unknown as ForgeTargetAutomation;
+
+  /** The stderr lines of the run, split. */
+  const stderrLines = (): string[] =>
+    vi
+      .mocked(process.stderr.write)
+      .mock.calls.map(([chunk]) => String(chunk))
+      .join('')
+      .trimEnd()
+      .split('\n');
+
+  beforeEach(() => {
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(FOLLOWING_UP);
+  });
+
+  it('writes nothing without --accept-automation, names what runs, and ends on its refused line: exit 1', async () => {
+    const { writes } = targetOrg();
+    const load = vi.spyOn(FrozenDatasetLoader.prototype, 'load');
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+
+    expect(writes).toEqual([]);
+    expect(load).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    const answer = JSON.parse(printed.join('')) as {
+      refused?: { code: string; message: string };
+      refusalCodes?: string[];
+    };
+    expect(answer.refused?.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(answer.refused?.message).toContain(
+      'TGT runs automation as this load inserts its records and updates them: Contact: flow ' +
+        '"Contact follow-up" (insert).',
+    );
+    expect(answer.refused?.message).toContain('Add --accept-automation to load all the same');
+    expect(answer.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    const lines = stderrLines();
+    expect(lines).toContain(
+      'target automation: what the target runs as the load inserts its records and updates them',
+    );
+    expect(lines).toContain('  Contact: flow "Contact follow-up" (insert)');
+    expect(lines.at(-1)).toBe(`refused (AUTOMATION_NOT_ACCEPTED): ${answer.refused?.message}`);
+  });
+
+  it('says with --dry-run that a load would be refused for it, and not once accepted', async () => {
+    targetOrg();
+    vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      plannedAt: '2026-10-21T10:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    } as unknown as FrozenLoadPlanInfo);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--dry-run', '--json'));
+
+    expect(process.exitCode).toBe(1);
+    const refused = JSON.parse(printed.join('')) as {
+      refusalCodes?: string[];
+      posted: Array<{ type: string; payload: { plan?: FrozenLoadPlanInfo } }>;
+    };
+    expect(refused.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    expect(stderrLines()).toContainEqual(
+      expect.stringMatching(
+        /^a load would be refused \(AUTOMATION_NOT_ACCEPTED\): TGT runs automation/,
+      ),
+    );
+
+    printed.length = 0;
+    vi.mocked(process.stderr.write).mockClear();
+    process.exitCode = undefined;
+    await main(
+      argv(
+        'load',
+        '--config',
+        configPath,
+        '--target',
+        'TGT',
+        '--dry-run',
+        '--accept-automation',
+        '--json',
+      ),
+    );
+
+    // Done: no code set, which exits 0.
+    expect(process.exitCode).toBeUndefined();
+    const accepted = JSON.parse(printed.join('')) as {
+      refusalCodes?: string[];
+      posted: Array<{ type: string; payload: { plan?: FrozenLoadPlanInfo } }>;
+    };
+    expect(accepted).not.toHaveProperty('refusalCodes');
+    const plan = accepted.posted.find((m) => m.type === 'frozen:load:preview:response')?.payload
+      .plan;
+    expect(plan?.automation).toEqual({
+      firing: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact follow-up', writes: ['insert'] },
+      ],
+      accepted: true,
+    });
+    expect(stderrLines()).toContain(
+      '  accepted (--accept-automation): the load writes all the same',
+    );
+  });
+
+  it('names the set --mute-automation would assign, but not to an environment that relays it and mutes nothing', async () => {
+    const quietFor = {
+      ...FOLLOWING_UP,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              ...(FOLLOWING_UP.objects[0].flows[0] as object),
+              permissions: [{ name: 'Load_Data', bypass: true }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      bypassGrants: [
+        {
+          permission: 'Load_Data',
+          permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+        },
+      ],
+    } as unknown as ForgeTargetAutomation;
+    vi.mocked(TargetAutomationReader.prototype.read).mockResolvedValue(quietFor);
+    const refusal = async (): Promise<string | undefined> => {
+      printed.length = 0;
+      targetOrg();
+      await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+      return (JSON.parse(printed.join('')) as { refused?: { message: string } }).refused?.message;
+    };
+
+    expect(await refusal()).toContain('With --mute-automation, the load assigns Data_Load');
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env');
+    try {
+      const relayed = await refusal();
+      expect(relayed).toContain('Add --accept-automation to load all the same');
+      expect(relayed).not.toContain('--mute-automation');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('goes on to the load with --accept-automation', async () => {
+    targetOrg();
+    const load = vi
+      .spyOn(FrozenDatasetLoader.prototype, 'load')
+      .mockRejectedValue(new Error('stopped here: the load was reached'));
+
+    await main(
+      argv(
+        'load',
+        '--config',
+        configPath,
+        '--target',
+        'TGT',
+        '--accept-automation',
+        '--yes',
+        '--json',
+      ),
+    );
+
+    expect(load).toHaveBeenCalledTimes(1);
+    const answer = JSON.parse(printed.join('')) as { refused?: unknown };
+    expect(answer).not.toHaveProperty('refused');
   });
 });

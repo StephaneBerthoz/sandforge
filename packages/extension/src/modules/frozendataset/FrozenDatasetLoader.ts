@@ -625,6 +625,8 @@ interface PreparedLoad {
   requiredLookups: Map<string, Set<string>>;
   /** Fields no update can set, per object. */
   fixedAtInsert: Map<string, Set<string>>;
+  /** The lookups the target filters, per object, with the objects each looks up — from its describe. */
+  filteredLookups: Map<string, Array<{ field: string; referenceTo: string[] }>>;
   /** The objects the load sends nothing of, counted as their insert would have counted them. */
   lostObjects: Map<string, PerObjectLoadResult>;
   /** Whether the target has person accounts; unknown when the dataset holds no account. */
@@ -1791,6 +1793,8 @@ export class FrozenDatasetLoader {
     const requiredLookups = new Map<string, Set<string>>();
     /** Fields no update can set, per object — from its describe. */
     const fixedAtInsert = new Map<string, Set<string>>();
+    /** The lookups the target filters, per object — from its describe. */
+    const filteredLookups = new Map<string, Array<{ field: string; referenceTo: string[] }>>();
     /**
      * Objects the load sends nothing of — the target lacks them, or takes no
      * insert of them — counted as the insert would have counted them: the
@@ -1895,6 +1899,12 @@ export class FrozenDatasetLoader {
         objectApiName,
         new Set(describe.fields.filter((f) => f.updateable === false).map((f) => f.name)),
       );
+      const filters = describe.fields
+        .filter(
+          (f) => f.lookupFilter !== undefined && f.createable && (f.referenceTo?.length ?? 0) > 0,
+        )
+        .map((f) => ({ field: f.name, referenceTo: [...(f.referenceTo ?? [])] }));
+      if (filters.length > 0) filteredLookups.set(objectApiName, filters);
       const types = parseRecordTypeInfos(describe.recordTypeInfos);
       if (types.some((type) => !type.master)) {
         const predicted = predictedRecordTypeOf(recordTypeGivenOf(types));
@@ -2029,6 +2039,7 @@ export class FrozenDatasetLoader {
       alignedByObject,
       requiredLookups,
       fixedAtInsert,
+      filteredLookups,
       lostObjects,
       targetHasPersonAccounts,
       accountKindOf,
@@ -4565,7 +4576,9 @@ export class FrozenDatasetLoader {
         if (!missing.isLookup) {
           if (this.config.requiredFieldDefaults?.[key] === undefined) {
             const of = missing.accountKind ? ` of a ${missing.accountKind} account` : '';
-            gaps.push(`requiredFieldDefaults["${key}"]: a value for this required field${of}`);
+            gaps.push(
+              `requiredFieldDefaults["${key}"]: ${defaultValueWords(missing)} for this required field${of}`,
+            );
           } else {
             plans.push({ kind: 'default', missing });
           }
@@ -4819,7 +4832,14 @@ export class FrozenDatasetLoader {
         if (value === '' || value === null || value === undefined) continue;
         if (typeof value === 'string' && refIndex.has(value)) {
           const realId = mapping.get(value);
-          if (realId) {
+          // An opportunity's synced quote waits for pass 2 even when the
+          // target holds the quote already — a reload found it by its keys:
+          // set with the insert, before the products, it syncs the quote
+          // past the rule that leaves it unsynced when the load writes fewer
+          // of its lines than of the products, and the platform copies each
+          // product written after it onto the quote as a line, beside the
+          // dataset's own. See `syncedQuotes.ts`.
+          if (realId && !(objectApiName === OPPORTUNITY_OBJECT && field === SYNCED_QUOTE_FIELD)) {
             payload[field] = realId;
           } else {
             // Cycle (target inserted later) or a parent skipped/failed:
@@ -5931,6 +5951,63 @@ function ranksOf(dataset: FrozenDataset): Map<string, number> {
 }
 
 /**
+ * The contact roles of `alignedByObject`, by referenceId, that a load links
+ * to the one the platform writes as it takes their opportunity with its
+ * contact, as the load picks them once the opportunity is in
+ * (`matchContactRolesWrittenWithOpportunities`): of an opportunity the load
+ * inserts, not one it links, sent with a contact the load writes or links,
+ * the role of that contact, the primary one first.
+ *
+ * Read before anything is written, the records are named by their
+ * referenceIds, each given a key of its own for {@link rolesThePlatformWrites},
+ * which pairs ids on their first fifteen characters — two referenceIds of one
+ * object share them (`Opportunity-000001`, `Opportunity-000002`).
+ */
+function rolesThePlatformWritesOf(
+  alignedByObject: ReadonlyMap<
+    string,
+    ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+  >,
+  reused: ReadonlySet<string>,
+): Set<string> {
+  const roles = (alignedByObject.get(OPPORTUNITY_CONTACT_ROLE) ?? []).filter(
+    (r) => !reused.has(r.referenceId),
+  );
+  if (roles.length === 0) return new Set();
+  const keys = new Map<string, string>();
+  const keyOf = (value: unknown): string | undefined => {
+    if (typeof value !== 'string' || value === '') return undefined;
+    let key = keys.get(value);
+    if (key === undefined) {
+      key = String(keys.size + 1).padStart(15, '0');
+      keys.set(value, key);
+    }
+    return key;
+  };
+  const contacts = new Set(
+    (alignedByObject.get(CONTACT) ?? []).map((contact) => contact.referenceId),
+  );
+  const sentWith = new Map<string, string>();
+  for (const opportunity of alignedByObject.get(OPPORTUNITY) ?? []) {
+    if (reused.has(opportunity.referenceId)) continue;
+    const contact = opportunity.fields[CONTACT_FIELD];
+    if (typeof contact !== 'string' || !contacts.has(contact)) continue;
+    sentWith.set(keyOf(opportunity.referenceId)!, keyOf(contact)!);
+  }
+  if (sentWith.size === 0) return new Set();
+  const rows = roles.map((role) => ({
+    OpportunityId: keyOf(role.fields.OpportunityId),
+    [CONTACT_FIELD]: keyOf(role.fields[CONTACT_FIELD]),
+    IsPrimary: role.fields.IsPrimary,
+  }));
+  return new Set(
+    rolesThePlatformWrites(rows, (opportunity) => sentWith.get(opportunity)).map(
+      (index) => roles[index].referenceId,
+    ),
+  );
+}
+
+/**
  * What a load would do, from what it read before its first write and what
  * its purge would take: see {@link FrozenDatasetLoader.planLoad}. Counted as
  * the load counts: the records it writes are the aligned ones it does not
@@ -5965,6 +6042,10 @@ function loadPlanOf(
     ]),
   ];
   let personContacts = 0;
+  // The contact roles the platform writes with the opportunities the load
+  // inserts with their contact, which the load links once each opportunity
+  // is in: counted apart, never to insert.
+  const rolesOfThePlatform = rolesThePlatformWritesOf(alignedByObject, reused);
   const perObject: FrozenLoadPlanObject[] = [];
   for (const objectApiName of order) {
     const fromFiles =
@@ -5981,19 +6062,30 @@ function loadPlanOf(
     const toWrite = aligned ? written(objectApiName) : [];
     const ofTheirAccount = toWrite.filter((r) => withTheirAccount.has(r.referenceId)).length;
     personContacts += ofTheirAccount;
+    const ofThePlatform = toWrite.filter((r) => rolesOfThePlatform.has(r.referenceId)).length;
+    // What only the write tells: the lookups the target filters that the
+    // records it inserts hold, as the insert would send them.
+    const lookupFilters = (prepared.filteredLookups.get(objectApiName) ?? []).flatMap(
+      ({ field, referenceTo }) => {
+        const records = toWrite.filter((r) => !leftEmpty(r.fields[field])).length;
+        return records > 0 ? [{ field, referenceTo, records }] : [];
+      },
+    );
     const deactivates = context.undeletableObjects[objectApiName] !== undefined;
     perObject.push({
       objectApiName,
       fromFiles,
-      toInsert: toWrite.length - ofTheirAccount,
+      toInsert: toWrite.length - ofTheirAccount - ofThePlatform,
       reusedByKeys: byKeys,
       reusedFromCatalog: linked.length - byKeys,
+      ...(ofThePlatform > 0 ? { writtenByThePlatform: ofThePlatform } : {}),
       fieldsDropped: alignment.removals.filter((r) => r.objectApiName === objectApiName).length,
       picklistsRewritten: alignment.adjustments.filter((a) => a.objectApiName === objectApiName)
         .length,
       notSent: fromFiles - (aligned ? aligned.length : linked.length),
       toPurge: deactivates ? 0 : purged,
       toDeactivate: deactivates ? purged : 0,
+      ...(lookupFilters.length > 0 ? { lookupFilters } : {}),
     });
   }
   const filledIn = (objectApiName: string, field: string) =>
@@ -6082,6 +6174,56 @@ function loadPlanOf(
     ),
     ...(recordTypesGiven.length > 0 ? { recordTypesGiven } : {}),
   };
+}
+
+/** The most active values of a picklist a gap names. */
+const VALUES_NAMED = 5;
+
+/**
+ * What a default declared for a required field must hold, as its gap says
+ * it, from the type the target's describe gives the field: a date for an
+ * opportunity's close date, a number for a price, one of its values for a
+ * picklist. Said "a value", a configuration took a text for a date, which
+ * the target refuses.
+ */
+function defaultValueWords(
+  missing: Pick<MissingRequiredField, 'fieldType' | 'activeValues'>,
+): string {
+  switch (missing.fieldType) {
+    case 'date':
+      return 'a date, as "2026-12-31",';
+    case 'datetime':
+      return 'a date and time, as "2026-12-31T09:00:00Z",';
+    case 'time':
+      return 'a time, as "09:00:00.000Z",';
+    case 'double':
+    case 'currency':
+    case 'percent':
+      return 'a number';
+    case 'int':
+    case 'long':
+      return 'a whole number';
+    case 'boolean':
+      return 'true or false';
+    case 'picklist':
+    case 'multipicklist': {
+      const values = missing.activeValues ?? [];
+      if (values.length === 0) return 'one of its values';
+      const named = values.slice(0, VALUES_NAMED).join(', ');
+      return `one of its active values (${named}${values.length > VALUES_NAMED ? ', …' : ''})`;
+    }
+    case 'email':
+      return 'an email address';
+    case 'string':
+    case 'textarea':
+    case 'phone':
+    case 'url':
+    case 'encryptedstring':
+    case 'combobox':
+      return 'a string';
+    default:
+      return 'a value';
+  }
 }
 
 /**

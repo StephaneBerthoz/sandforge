@@ -40,6 +40,7 @@ vi.mock('../src/bridge/handlers/FrozenDatasetHandler.js', () => ({
       this.registry = registry;
     }
     setTargetAutomation(): void {}
+    setMuteOffered(): void {}
     setSaltKeeper(): void {}
     setOtherModuleRuns(): void {}
     async handle(msg: { id: string; type: string }): Promise<boolean> {

@@ -36,6 +36,8 @@ export interface FrozenErrorPayload {
   recordTypesUntold?: unknown;
   /** What a load's gate found of the emails, with `EMAILS_NOT_ACCEPTED` and `FROZEN_EMAILS_EXCEEDED`. */
   emails?: unknown;
+  /** What a load's question found the target runs as it writes, with `AUTOMATION_NOT_ACCEPTED`. */
+  automation?: unknown;
 }
 
 /** Whether a value is a list of words the host sent. */
@@ -141,9 +143,58 @@ export function frozenErrorWords(
     case 'EMAILS_NOT_ACCEPTED':
     case 'FROZEN_EMAILS_EXCEEDED':
       return emailsWords(payload, t, aliasOf);
+    case 'AUTOMATION_NOT_ACCEPTED':
+      return automationWords(payload, t, aliasOf);
     default:
       return undefined;
   }
+}
+
+/** How each kind of automation is named, with its name. */
+const AUTOMATION_KIND_KEYS: Readonly<Record<string, string>> = {
+  flow: 'orgAutomation.flow',
+  trigger: 'orgAutomation.trigger',
+  process: 'orgAutomation.process',
+  workflowRule: 'orgAutomation.workflowRule',
+};
+
+/**
+ * A load refused for what the target runs as it writes, nothing written:
+ * the box not ticked. The host's sentence names `--accept-automation`, which
+ * no page has. A refusal of a load whose question names nothing — a removal's
+ * of the same code — keeps the host's words.
+ */
+function automationWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  aliasOf: (orgId: string) => string,
+): string | undefined {
+  if (typeof payload.orgId !== 'string') return undefined;
+  const automation = payload.automation as { firing?: unknown; unread?: unknown } | undefined;
+  if (typeof automation !== 'object' || automation === null) return undefined;
+  const org = aliasOf(payload.orgId);
+  const firing = Array.isArray(automation.firing)
+    ? (automation.firing as Array<Record<string, unknown>>).filter(
+        (entry) =>
+          typeof entry.objectApiName === 'string' &&
+          typeof entry.name === 'string' &&
+          typeof entry.kind === 'string' &&
+          AUTOMATION_KIND_KEYS[entry.kind] !== undefined,
+      )
+    : [];
+  const named = firing
+    .map(
+      (entry) =>
+        `${String(entry.objectApiName)} — ${t(AUTOMATION_KIND_KEYS[String(entry.kind)], {
+          name: entry.name,
+        })}`,
+    )
+    .join('; ');
+  const explanation =
+    named !== ''
+      ? t('frozen.refusal.automationNotAccepted.explanation', { org, named })
+      : t('frozen.refusal.automationNotAccepted.explanationUnread', { org });
+  return `${explanation} ${t('frozen.refusal.automationNotAccepted.action', { org })}`;
 }
 
 /**

@@ -5,7 +5,11 @@ import * as path from 'node:path';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
-import { FrozenDatasetLoader, type FrozenDatasetLoaderDeps } from './FrozenDatasetLoader.js';
+import {
+  FrozenDatasetLoader,
+  loadPlanRecords,
+  type FrozenDatasetLoaderDeps,
+} from './FrozenDatasetLoader.js';
 import type { FrozenDataset } from './types.js';
 import type { FrozenDmlWriter, TargetFieldDescribe, TargetObjectDescribe } from './loadTypes.js';
 
@@ -319,6 +323,65 @@ describe('a Frozen load of an opportunity with its contact and the contact’s r
     const roles = report.perObject.find((o) => o.objectApiName === ROLE);
     expect(roles).toMatchObject({ inserted: 1, reused: 0 });
     expect(roles).not.toHaveProperty('writtenByThePlatform');
+  });
+
+  it('counts in its preview the role the platform writes with the opportunity as linked, never to insert', async () => {
+    // Run on a scratch org, the dry run said "OpportunityContactRole: 1 to
+    // insert" and 14 records in all; the load inserted 13, the role linked to
+    // the one the platform wrote with the opportunity.
+    const org = contactRoleOrg();
+    const deps = depsOf(org);
+    const dataset = dossier();
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad({
+      orgId: '00D-target',
+      orgTier: 'development',
+      dataset,
+      sasDir: deps.sasDir,
+    });
+
+    expect(plan.perObject.find((o) => o.objectApiName === ROLE)).toMatchObject({
+      fromFiles: 1,
+      toInsert: 0,
+      writtenByThePlatform: 1,
+    });
+    expect(loadPlanRecords(plan)).toBe(3);
+    expect(vi.mocked(org.writer.insert)).not.toHaveBeenCalled();
+
+    // What the load then does, as its preview said.
+    const { report } = await load(dataset);
+    const inserted = report.perObject.reduce((sum, o) => sum + o.inserted, 0);
+    expect(inserted).toBe(loadPlanRecords(plan));
+  });
+
+  it('counts to insert in its preview the role of another contact, and that of an opportunity sent without one', async () => {
+    const deps = depsOf(contactRoleOrg());
+    const plan = (dataset: FrozenDataset) =>
+      new FrozenDatasetLoader(deps).planLoad({
+        orgId: '00D-target',
+        orgTier: 'development',
+        dataset,
+        sasDir: deps.sasDir,
+      });
+    const another = dossier();
+    another.objects[1].records.push({
+      referenceId: 'C2',
+      fields: { LastName: 'Roe', AccountId: 'A1' },
+    });
+    another.objects[3].records.push({
+      referenceId: 'R2',
+      fields: { OpportunityId: 'O1', ContactId: 'C2', IsPrimary: false, Role: 'Influencer' },
+    });
+    const withoutContact = dossier();
+    delete withoutContact.objects[2].records[0].fields.ContactId;
+
+    expect((await plan(another)).perObject.find((o) => o.objectApiName === ROLE)).toMatchObject({
+      toInsert: 1,
+      writtenByThePlatform: 1,
+    });
+    const alone = (await plan(withoutContact)).perObject.find((o) => o.objectApiName === ROLE);
+    expect(alone).toMatchObject({ toInsert: 1 });
+    expect(alone).not.toHaveProperty('writtenByThePlatform');
   });
 
   it('keeps the platform’s role linked when the target refuses its role, and says so', async () => {

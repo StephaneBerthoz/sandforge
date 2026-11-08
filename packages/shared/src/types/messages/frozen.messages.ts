@@ -130,6 +130,15 @@ export interface FrozenLoadOptionsPayload {
    * written. Asked of a preview, it says whether a load would be refused.
    */
   acceptEmails?: boolean;
+  /**
+   * Write although the target runs flows, Apex triggers, processes or
+   * workflow rules as the load inserts its records and updates them — what
+   * the mute keeps quiet aside —, or could not say what it runs
+   * (`--accept-automation`). Without it such a load is refused,
+   * `AUTOMATION_NOT_ACCEPTED`, nothing written. Asked of a preview, it says
+   * whether a load would be refused.
+   */
+  acceptAutomation?: boolean;
 }
 
 /**

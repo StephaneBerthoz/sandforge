@@ -753,3 +753,88 @@ describe('FrozenDatasetLoader — the records a load may insert', () => {
     expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(4);
   });
 });
+
+describe('FrozenDatasetLoader — the lookup filters a preview cannot check', () => {
+  /*
+   * Run on the trap org, a dry run said 76 records to insert and the load
+   * wrote 70: the lookup filter of the contacts' preferred account ("The
+   * preferred account must be a Customer") refused six, whose root account
+   * was not one. The dry run named the validation rules it cannot evaluate,
+   * and nothing of that filter, which the target's describe gives.
+   */
+  function filtered(): ReturnType<typeof scenario> {
+    const contact = (n: number, preferred?: string) => ({
+      referenceId: `Contact-00000${n}`,
+      fields: {
+        LastName: `C${n}`,
+        AccountId: 'Account-000001',
+        ...(preferred ? { Preferred_Account__c: preferred } : {}),
+      },
+    });
+    return {
+      dataset: {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Account',
+            records: [{ referenceId: 'Account-000001', fields: { Name: 'Prospect' } }],
+          },
+          {
+            objectApiName: 'Contact',
+            records: [contact(1, 'Account-000001'), contact(2, 'Account-000001'), contact(3)],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      },
+      describes: {
+        Account: { name: 'Account', fields: [field({ name: 'Name', nillable: false })] },
+        Contact: {
+          name: 'Contact',
+          fields: [
+            field({ name: 'LastName', nillable: false }),
+            field({ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }),
+            field({
+              name: 'Preferred_Account__c',
+              type: 'reference',
+              referenceTo: ['Account'],
+              lookupFilter: { optional: false },
+            }),
+          ],
+        },
+      },
+      config: {},
+      query: async () => [],
+    };
+  }
+
+  it('names each filtered lookup the records it would insert hold, with how many hold it', async () => {
+    const s = filtered();
+    const sasDir = makeTmpDir();
+
+    const plan = await new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, s)).planLoad(
+      options(s.dataset, sasDir),
+    );
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'Contact')?.lookupFilters).toEqual([
+      { field: 'Preferred_Account__c', referenceTo: ['Account'], records: 2 },
+    ]);
+    expect(plan.perObject.find((o) => o.objectApiName === 'Account')).not.toHaveProperty(
+      'lookupFilters',
+    );
+  });
+
+  it('names none when no record it would insert holds the lookup', async () => {
+    const s = filtered();
+    for (const record of s.dataset.objects[1].records) delete record.fields.Preferred_Account__c;
+    const sasDir = makeTmpDir();
+
+    const plan = await new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, s)).planLoad(
+      options(s.dataset, sasDir),
+    );
+
+    expect(plan.perObject.find((o) => o.objectApiName === 'Contact')).not.toHaveProperty(
+      'lookupFilters',
+    );
+  });
+});

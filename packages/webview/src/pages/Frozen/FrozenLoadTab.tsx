@@ -13,6 +13,7 @@ import type {
   FrozenReloadSweep as FrozenReloadSwept,
   FrozenReloadSweepListing,
   FrozenVerifyVerdict,
+  MutedAutomation,
   RunCheckpointInfo,
 } from '@sandforge/shared';
 import { sweepTakenObjects, translateError } from '@sandforge/shared';
@@ -46,6 +47,7 @@ import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { FrozenLoadEmails } from './FrozenLoadEmails';
+import { FrozenLoadAutomation } from './FrozenLoadAutomation';
 import {
   CheckpointFirstEstimate,
   CheckpointFirstOption,
@@ -87,6 +89,19 @@ function reloadSweepsOf(value: unknown): FrozenReloadSwept[] {
       Array.isArray(handWork)
     );
   });
+}
+
+/**
+ * What the mute of a load did, as the error that ended it carries it once
+ * its lease was taken (`mutedAutomation`), or nothing: read from the host's
+ * message, kept only when it reads as one.
+ */
+function mutedAfterErrorOf(value: unknown): MutedAutomation | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { state, assigned, held } = value as Record<string, unknown>;
+  return typeof state === 'string' && Array.isArray(assigned) && Array.isArray(held)
+    ? (value as MutedAutomation)
+    : undefined;
 }
 
 /** Props for the load tab. */
@@ -225,6 +240,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
    * unticked, such a load is refused before it writes, as a seed is.
    */
   const [acceptEmails, setAcceptEmails] = useState(false);
+  /**
+   * The box beside it: the load writes although the target runs flows, Apex
+   * triggers, processes or workflow rules as the records go in, or would not
+   * say what it runs. Never ticked unasked: unticked, such a load is refused
+   * before it writes, as a clone is; Preview names what runs.
+   */
+  const [acceptAutomation, setAcceptAutomation] = useState(false);
   /** The option beside it: the load takes a checkpoint of what it writes first. */
   const [checkpointFirst, setCheckpointFirst] = useState(false);
   /** What became of the checkpoint of a load its error ended, as the error says. */
@@ -237,6 +259,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
    * under a message that the load had purged nothing.
    */
   const [sweepsAfterError, setSweepsAfterError] = useState<FrozenReloadSwept[]>([]);
+  /**
+   * What the mute of a load a cancel or a failure ended assigned and took
+   * back, as the error says: a reload stopped in its sweep, run on the trap
+   * org, named nothing of the set the org had assigned and taken back.
+   */
+  const [mutedAfterError, setMutedAfterError] = useState<MutedAutomation | undefined>(undefined);
   const [writeEncrypted, setWriteEncrypted] = useState(false);
   // A dataset whose manifest does not say its extraction left out the
   // encrypted fields it read masked may hold their masks: its load leaves out
@@ -266,15 +294,17 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   useEffect(() => {
     if (loadRequestId !== null) lastLoadId.current = loadRequestId;
   }, [loadRequestId]);
-  useMessageListener<BaseMessage & { payload?: { checkpoint?: unknown; sweeps?: unknown } }>(
-    'frozen:load:error',
-    (msg) => {
-      if (msg.correlationId === lastLoadId.current) {
-        setCheckpointAfterError(runCheckpointOf(msg.payload?.checkpoint));
-        setSweepsAfterError(reloadSweepsOf(msg.payload?.sweeps));
-      }
-    },
-  );
+  useMessageListener<
+    BaseMessage & {
+      payload?: { checkpoint?: unknown; sweeps?: unknown; mutedAutomation?: unknown };
+    }
+  >('frozen:load:error', (msg) => {
+    if (msg.correlationId === lastLoadId.current) {
+      setCheckpointAfterError(runCheckpointOf(msg.payload?.checkpoint));
+      setSweepsAfterError(reloadSweepsOf(msg.payload?.sweeps));
+      setMutedAfterError(mutedAfterErrorOf(msg.payload?.mutedAutomation));
+    }
+  });
   const { requested: cancelRequested, cancel: cancelLoad } = useOperationCancel(loadRequestId, {
     title: t('frozen.load.cancelRefused'),
     message: t('frozen.load.cancelRefusedDetail'),
@@ -352,6 +382,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     // nothing, and says whether a load would be refused for them.
     ...(muteAutomation ? { muteAutomation: true } : {}),
     ...(acceptEmails ? { acceptEmails: true } : {}),
+    // And whether a load would be refused for what runs as it writes.
+    ...(acceptAutomation ? { acceptAutomation: true } : {}),
   });
 
   /** Send the load; `sweepAsked`, the sweep its reload's confirmation ticked. */
@@ -364,6 +396,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     setVerdict(null);
     setCheckpointAfterError(undefined);
     setSweepsAfterError([]);
+    setMutedAfterError(undefined);
     previewMutation.reset();
     loadMutation.mutate({ ...loadOptions(), ...sweepAsked });
   };
@@ -787,6 +820,22 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               <span>{t('frozen.load.acceptEmails', { org: targetName })}</span>
             </label>
           )}
+          {/* What the target runs as the load inserts and updates, flows that
+              send nothing among it: unticked, a load where something runs is
+              refused before it writes, nothing written; Preview names it. A
+              load asked nothing of it, and a flow that deleted each record
+              the second it went in ran unasked. */}
+          {effectiveTarget !== '' && (
+            <label className="flex items-start gap-2 text-[11px] text-text-primary">
+              <input
+                type="checkbox"
+                checked={acceptAutomation}
+                onChange={(event) => setAcceptAutomation(event.target.checked)}
+                data-testid="frozen-load-accept-automation"
+              />
+              <span>{t('frozen.load.acceptAutomation', { org: targetName })}</span>
+            </label>
+          )}
           {/* A load asks nothing of its own: the preview says the cost. */}
           <CheckpointFirstOption
             checked={checkpointFirst}
@@ -964,6 +1013,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             compact
             testId="frozen-load-error-checkpoint"
           />
+          {!loadReport && (
+            <MutedAutomationResult
+              muted={mutedAfterError}
+              org={targetName}
+              testId="frozen-load-error-muted"
+            />
+          )}
           {!loadReport && sweepsAfterError.length > 0 && (
             <div className="flex flex-col gap-1" data-testid="frozen-load-error-sweeps">
               <span className="text-xs font-medium text-text-primary">
@@ -1001,6 +1057,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   lead={t('runResults.checkpoint.estimate.preview')}
                   testId="frozen-preview-checkpoint"
                   className="text-[11px] text-text-primary"
+                />
+              )}
+              {plan.automation && (
+                <FrozenLoadAutomation
+                  automation={plan.automation}
+                  org={planOrg}
+                  testId="frozen-preview-automation"
                 />
               )}
               {plan.emails && (
@@ -1062,6 +1125,23 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.preview.quotesLeftUnsynced', {
                     objects: (plan.quotesLeftUnsynced ?? [])
                       .map((left) => `${left.objectApiName} (${left.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* The role of the contact an opportunity goes in with: the
+                  platform writes it, and the load links it once the
+                  opportunity is in. Counted to insert, the preview said one
+                  record more than the load wrote. */}
+              {plan.perObject.some((o) => (o.writtenByThePlatform ?? 0) > 0) && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-written-by-platform"
+                >
+                  {t('frozen.preview.writtenByThePlatform', {
+                    objects: plan.perObject
+                      .filter((o) => (o.writtenByThePlatform ?? 0) > 0)
+                      .map((o) => `${o.objectApiName} (${o.writtenByThePlatform ?? 0})`)
                       .join(', '),
                   })}
                 </p>
@@ -1205,6 +1285,25 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       rules: (o.validationRulesOnChange ?? []).join(', '),
                       // The formula's own words, the same in every language.
                       functions: 'ISCHANGED, PRIORVALUE, NOT(ISNEW())',
+                    })}
+                  </p>
+                ))}
+              {/* The lookup filters of what it inserts, which only the write
+                  meets: on the trap org, one refused six contacts a preview
+                  had counted to insert, and nothing named it. */}
+              {plan.perObject
+                .filter((o) => (o.lookupFilters?.length ?? 0) > 0)
+                .map((o) => (
+                  <p
+                    key={o.objectApiName}
+                    className="text-[11px] text-status-warning"
+                    data-testid={`frozen-preview-lookup-filters-${o.objectApiName}`}
+                  >
+                    {t('frozen.preview.lookupFilters', {
+                      object: o.objectApiName,
+                      fields: (o.lookupFilters ?? [])
+                        .map((f) => `${f.field} → ${f.referenceTo.join(', ')} (${f.records})`)
+                        .join(', '),
                     })}
                   </p>
                 ))}

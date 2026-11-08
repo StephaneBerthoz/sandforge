@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import type {
   BaseMessage,
   ForgeTargetAutomation,
+  FrozenLoadAutomationInfo,
   FrozenLoadEmailsInfo,
   FrozenLoadPlanInfo,
   FrozenLoadReportInfo,
@@ -134,7 +135,7 @@ function buildMsg(type: string, payload?: unknown): InboundRequest {
   } as BaseMessage);
 }
 
-describe('a Frozen load and the emails of what still runs as it writes', () => {
+describe('a Frozen load, what still runs as it writes, and the emails it sends', () => {
   let sasDir: string;
   let deps: HandlerDeps;
   let store: ConfigStore;
@@ -154,11 +155,23 @@ describe('a Frozen load and the emails of what still runs as it writes', () => {
   const errorOf = () =>
     posted<
       BaseMessage & {
-        payload: { code: string; message: string; emails?: FrozenLoadEmailsInfo; orgId?: string };
+        payload: {
+          code: string;
+          message: string;
+          emails?: FrozenLoadEmailsInfo;
+          automation?: FrozenLoadAutomationInfo;
+          orgId?: string;
+        };
       }
     >('frozen:load:error')[0]?.payload;
+  /**
+   * A load, the flow that runs on the contacts it inserts accepted unless
+   * told otherwise: what most of these judge is the emails it sends.
+   */
   const load = (payload: Record<string, unknown> = {}) =>
-    handler.handle(buildMsg('frozen:load', { targetOrgId: TARGET_ORG, ...payload }));
+    handler.handle(
+      buildMsg('frozen:load', { targetOrgId: TARGET_ORG, acceptAutomation: true, ...payload }),
+    );
 
   /** The dataset: three contacts. */
   function writeDataset(): void {
@@ -329,6 +342,96 @@ describe('a Frozen load and the emails of what still runs as it writes', () => {
 
     expect(loaderLoad).toHaveBeenCalledTimes(1);
     expect(asked).toEqual([]);
+  });
+
+  it('refuses a load while the target runs automation on what it inserts, unaccepted, naming it, and asks the org nothing more', async () => {
+    // Read only for its emails, a load into an org whose flow after save
+    // deleted each opportunity product it inserted ran it unasked, and only
+    // its verification saw it. The org here delivers no email: what the
+    // load meets is the question on what runs.
+    level = 'withheld';
+
+    await load({ acceptAutomation: false });
+
+    expect(loaderLoad).not.toHaveBeenCalled();
+    const error = errorOf();
+    expect(error?.code).toBe('AUTOMATION_NOT_ACCEPTED');
+    expect(error?.message).toBe(
+      'DEV runs automation as this load inserts its records and updates them: Contact: flow ' +
+        '"Contact welcome" (insert). With --mute-automation, the load assigns Data_Load to the ' +
+        'user it writes as for the load alone, under a lease, and what it keeps quiet does not ' +
+        'fire. Nothing was written. Add --accept-automation to load all the same, or turn that ' +
+        'automation off in DEV first.',
+    );
+    expect(error?.automation).toMatchObject({
+      firing: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome', writes: ['insert'] },
+      ],
+      accepted: false,
+      refused: { code: 'AUTOMATION_NOT_ACCEPTED' },
+    });
+    expect(error?.orgId).toBe(TARGET_ORG);
+    // Refused before the emails are judged: no limit read, no Apex run.
+    expect(asked).toEqual([]);
+    expect(new AuditTrailStore(store).list().entries).toEqual([
+      expect.objectContaining({
+        action: 'frozen_load',
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'AUTOMATION_NOT_ACCEPTED' }),
+      }),
+    ]);
+  });
+
+  it('loads with the accord, saying in its report what ran', async () => {
+    level = 'withheld';
+
+    await load({ acceptAutomation: true });
+
+    expect(loaderLoad).toHaveBeenCalledTimes(1);
+    const report = posted<BaseMessage & { payload: { report: FrozenLoadReportInfo } }>(
+      'frozen:load:response',
+    )[0]?.payload.report;
+    expect(report?.automation).toEqual({
+      firing: [
+        { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome', writes: ['insert'] },
+      ],
+      accepted: true,
+    });
+  });
+
+  it('says in its preview what runs and that a load would be refused for it, then not once accepted', async () => {
+    loaderPlan.mockResolvedValue({
+      orgId: TARGET_ORG,
+      mode: { pilot: false, reload: false },
+      plannedAt: '2026-11-04T09:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    });
+    const planOf = async (payload: Record<string, unknown>) => {
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(
+        buildMsg('frozen:load:preview', { targetOrgId: TARGET_ORG, ...payload }),
+      );
+      return posted<BaseMessage & { payload: { plan: FrozenLoadPlanInfo } }>(
+        'frozen:load:preview:response',
+      )[0]?.payload.plan;
+    };
+
+    expect((await planOf({}))?.automation).toMatchObject({
+      firing: [{ objectApiName: 'Contact', name: 'Contact welcome' }],
+      accepted: false,
+      refused: { code: 'AUTOMATION_NOT_ACCEPTED' },
+    });
+    const accepted = (await planOf({ acceptAutomation: true }))?.automation;
+    expect(accepted?.accepted).toBe(true);
+    expect(accepted).not.toHaveProperty('refused');
+    expect(loaderLoad).not.toHaveBeenCalled();
   });
 
   it('says in its preview what a load would meet, nothing written', async () => {

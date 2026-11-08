@@ -271,8 +271,9 @@ function frozenSwitches(step: string, input: FrozenLine): string[] {
 /**
  * The line of a frozen resource's dry run: what a load would insert, link and
  * purge, nothing written. A replace's is a reload's. Its own store, when the
- * sas is one loads keep: a dry run writes nothing there. A reload's purge
- * deletes, and what fires as it does refuses it unless accepted.
+ * sas is one loads keep: a dry run writes nothing there. What fires as a load
+ * inserts and updates, and as a reload's purge deletes, refuses it unless
+ * accepted.
  */
 export function frozenDryRunLine(
   input: FrozenLine & { reload: boolean; store?: string; acceptAutomation?: boolean },
@@ -280,7 +281,7 @@ export function frozenDryRunLine(
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
-    ...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     ...(input.store !== undefined ? ['--store', valueOf('--store', input.store)] : []),
     '--dry-run',
     '--json',
@@ -290,8 +291,8 @@ export function frozenDryRunLine(
 /**
  * The line of a frozen resource's run: held to the records its dry run
  * counted to insert; a replace's is a reload, refused when it would leave
- * records of the loads before it, or while what fires as they go is not
- * accepted.
+ * records of the loads before it. Either is refused while what fires as it
+ * writes, or as the records of those loads go, is not accepted.
  */
 export function frozenApplyLine(
   input: FrozenLine & { reload: boolean; maxTotal: number; acceptAutomation?: boolean },
@@ -299,7 +300,7 @@ export function frozenApplyLine(
   return [
     ...frozenSwitches('load', input),
     ...(input.reload ? ['--reload'] : []),
-    ...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
     '--max-total',
     String(input.maxTotal),
     '--yes',

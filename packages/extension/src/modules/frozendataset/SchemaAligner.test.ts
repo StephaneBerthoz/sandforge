@@ -392,7 +392,13 @@ describe('SchemaAligner — required fields', () => {
       );
 
       expect(result.missingRequired).toEqual([
-        { objectApiName: 'Contact', field: 'Name', isLookup: false, referenceTo: [] },
+        {
+          objectApiName: 'Contact',
+          field: 'Name',
+          isLookup: false,
+          referenceTo: [],
+          fieldType: 'string',
+        },
       ]);
     });
   });
@@ -406,7 +412,10 @@ describe('SchemaAligner — required fields', () => {
     /** The real describe: both prices createable, neither required. */
     const line: TargetObjectDescribe = {
       name: 'OpportunityLineItem',
-      fields: [field({ name: 'UnitPrice' }), field({ name: 'TotalPrice' })],
+      fields: [
+        field({ name: 'UnitPrice', type: 'currency' }),
+        field({ name: 'TotalPrice', type: 'currency' }),
+      ],
     };
     const alignLine = (fields: Record<string, unknown>, describe = line) =>
       aligner.alignObject(
@@ -426,6 +435,7 @@ describe('SchemaAligner — required fields', () => {
           field: 'UnitPrice',
           isLookup: false,
           referenceTo: [],
+          fieldType: 'currency',
         },
       ]);
     });

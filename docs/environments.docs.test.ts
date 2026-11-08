@@ -1539,12 +1539,14 @@ describe('the frozen resource and the references between resources, on the page'
 
   it('says in its help that a frozen replace is blocked by what fires as its purge deletes, as the reload hands it the acceptance', () => {
     // Positive control: the reload's purge is refused unaccepted, with its
-    // code, and the frozen kind hands the reload the file's acceptance.
+    // code, and the frozen kind hands the reload the file's acceptance — and
+    // a first load too, which asks what fires as it inserts and updates.
     expect(FROZEN).toContain(
       "stepRefused = { code: purge.code ?? 'AUTOMATION_NOT_ACCEPTED', message: purge.refusal };",
     );
     expect(FROZEN_KIND).toContain(
-      "...(input.reload && input.acceptAutomation === true ? ['--accept-automation'] : []),",
+      "    ...(input.reload ? ['--reload'] : []),\n" +
+        "    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
     );
 
     // The help said a replace is refused when it would leave records, and

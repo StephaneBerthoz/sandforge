@@ -5308,7 +5308,8 @@
         "heldUnread": "Ce que prendrait le balayage n'a pas pu être lu, ni ce que {{org}} exécute quand il le supprime : un rechargement avec ce balayage ne peut pas être confirmé.",
         "includeChanged": "Prendre aussi ce que le balayage trouve modifié depuis le chargement qu'il balaie, et ce qui y a été ajouté depuis"
       },
-      "acceptEmails": "Charger même si {{org}} délivre les e-mails que ses automatisations envoient quand le chargement écrit, ou ne dit pas s'ils partent"
+      "acceptEmails": "Charger même si {{org}} délivre les e-mails que ses automatisations envoient quand le chargement écrit, ou ne dit pas s'ils partent",
+      "acceptAutomation": "Charger même si {{org}} exécute des automatisations à l'entrée des enregistrements"
     },
     "preview": {
       "title": "Ce que ferait un chargement dans {{org}}",
@@ -5326,6 +5327,7 @@
       "toDeactivate": "À désactiver",
       "heldForExcludedParents": "Seraient laissés de côté, non envoyés — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; aucun enregistrement technique n'est demandé pour lui : {{objects}}",
       "quotesLeftUnsynced": "Seraient laissées sans devis synchronisé, leurs produits gardés — le chargement écrirait moins de lignes du devis que de produits de l'opportunité, et synchroniser un devis remplace les produits d'une opportunité par ses lignes : {{objects}}",
+      "writtenByThePlatform": "Écrits par la plateforme avec leur opportunité, et liés une fois celle-ci créée — non comptés à insérer : {{objects}}",
       "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
       "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
       "defaultsPerRecord": "Chaque enregistrement reçoit une valeur à lui — son rang ajouté à la valeur déclarée, le champ étant unique dans la cible ou le nom de l'enregistrement, ou le jeton que porte la valeur ({n}, {referenceId}) remplacé : {{fields}}",
@@ -5350,7 +5352,17 @@
         "countUnread": "{{limit}} : environ {{emails}} ; ce qu'il reste aujourd'hui à l'org n'a pas pu être lu.",
         "exceeded": "Au-delà de ce qu'il reste aujourd'hui à {{org}}, chaque enregistrement dont le Flow échoue à l'enregistrement est refusé : le chargement serait refusé, rien d'écrit, quelle que soit la case. Coupez ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui.",
         "uncounted": "Tous n'ont pas été comptés : {{why}} n'a pas pu être lu."
-      }
+      },
+      "automation": {
+        "title": "Ce que {{org}} exécute quand le chargement insère ses enregistrements et les met à jour :",
+        "onInsert": "{{object}} — {{what}}, à l'insertion de ses enregistrements",
+        "onUpdate": "{{object}} — {{what}}, à la mise à jour de ses enregistrements",
+        "onInsertAndUpdate": "{{object}} — {{what}}, à l'insertion et à la mise à jour de ses enregistrements",
+        "unread": "Ce que {{org}} exécute n'a pas pu être lu ({{reason}}) : le chargement demande comme si quelque chose tournait.",
+        "refused": "Le chargement serait refusé, rien d'écrit, sauf si vous cochez « Charger même si {{org}} exécute des automatisations à l'entrée des enregistrements », ou si vous la coupez.",
+        "accepted": "La case cochée, le chargement écrit malgré tout, et ces automatisations tournent."
+      },
+      "lookupFilters": "{{object}} : filtres de recherche de la cible, qu'un aperçu ne peut pas vérifier — un enregistrement dont un filtre refuse la recherche est refusé, avec ce qui en dépend : {{fields}}"
     },
     "verify": {
       "run": "Re-vérifier",
@@ -5633,6 +5645,11 @@
       "emailsExceeded": {
         "explanation": "Le chargement ferait envoyer à {{org}} plus d'e-mails qu'il ne lui en reste aujourd'hui ({{limit}} : environ {{emails}}, {{remaining}} sur {{max}} restants), et rien n'a été écrit.",
         "action": "Cochez la coupure de l'automatisation pour faire taire ce qui les envoie, ou chargez dans une org à qui il reste plus d'e-mails aujourd'hui."
+      },
+      "automationNotAccepted": {
+        "explanation": "{{org}} exécute des automatisations quand le chargement écrit ses enregistrements ({{named}}), et rien n'a été écrit.",
+        "explanationUnread": "Ce que {{org}} exécute quand le chargement écrit n'a pas pu être lu, et rien n'a été écrit.",
+        "action": "Cochez « Charger même si {{org}} exécute des automatisations à l'entrée des enregistrements » pour charger malgré tout, cochez la coupure de l'automatisation pour faire taire ce qui teste le contournement de l'org, ou désactivez ces automatisations dans {{org}}."
       }
     }
   },

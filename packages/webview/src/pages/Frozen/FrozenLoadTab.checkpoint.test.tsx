@@ -336,6 +336,46 @@ describe('FrozenLoadTab, Take a checkpoint now', () => {
       expect(within(swept).getAllByTestId('forge-sweep-result')).toHaveLength(1);
     });
 
+    it('says what the mute of a load it stopped assigned and took back, beside its error', () => {
+      // Run on the trap org, a reload stopped in its sweep said nothing of
+      // the bypass set the org had assigned, then taken back.
+      render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      const load = lastSent('frozen:load');
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'err-4',
+              type: 'frozen:load:error',
+              timestamp: Date.now(),
+              correlationId: load?.id,
+              payload: {
+                message:
+                  'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+                code: 'LOAD_CANCELLED',
+                written: 0,
+                mutedAutomation: {
+                  state: 'muted',
+                  assigned: ['Trap_Bypass'],
+                  held: [],
+                  permissions: ['Trap_Bypass_Flow'],
+                  silenced: [],
+                  stillRan: [],
+                  released: true,
+                },
+              },
+            },
+          }),
+        );
+      });
+      const muted = screen.getByTestId('frozen-load-error-muted');
+      expect(muted).toHaveTextContent(
+        'Trap_Bypass was assigned to the user the run wrote as in UAT-SANDBOX, for the run alone.',
+      );
+      expect(muted).toHaveTextContent('Taken back as the run ended');
+    });
+
     it('says what the preview found it would hold and cost', () => {
       render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
       fireEvent.click(screen.getByTestId('frozen-load-checkpoint-first-toggle'));

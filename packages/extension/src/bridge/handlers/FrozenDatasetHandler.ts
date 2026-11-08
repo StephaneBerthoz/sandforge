@@ -14,6 +14,7 @@ import type {
   FrozenDiscoveryOrigin,
   FrozenGraphCoverage,
   FrozenLastVerifyInfo,
+  FrozenLoadAutomationInfo,
   FrozenLoadEmailsInfo,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
@@ -256,6 +257,7 @@ import {
   type MarkedLoad,
 } from '../../modules/frozendataset/otherSasLoads.js';
 import { loadEmailsOf, type LoadEmails } from '../../modules/frozendataset/loadEmails.js';
+import { loadAutomationOf } from '../../modules/frozendataset/loadAutomation.js';
 
 /**
  * The writer of a preview: it writes nothing, and says so if a write ever
@@ -354,6 +356,26 @@ class LoadEmailsStop extends Error {
   ) {
     super(message);
     this.name = 'LoadEmailsStop';
+  }
+}
+
+/**
+ * A load its question on the target's automation stopped before its first
+ * write: the target runs automation as it inserts or updates, or would not
+ * say what it runs, and the load came without the accord
+ * (`AUTOMATION_NOT_ACCEPTED`), with what the question found, for the panel
+ * to say it.
+ */
+class LoadAutomationStop extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly automation: FrozenLoadAutomationInfo,
+    /** The org the load was refused into, by its registered id. */
+    readonly orgId: string,
+  ) {
+    super(message);
+    this.name = 'LoadAutomationStop';
   }
 }
 
@@ -1183,6 +1205,18 @@ export class FrozenDatasetHandler implements DomainHandler {
   private muteLeases: MuteLeaseOptions = {};
 
   /**
+   * Whether whoever reads a load's refusals can ask it to mute: not when an
+   * environment relays the command's lines, which mutes nothing. Told so, a
+   * refusal for what runs, or for its emails, names no `--mute-automation`.
+   */
+  setMuteOffered(offered: boolean): void {
+    this.muteOffered = offered;
+  }
+
+  /** See {@link setMuteOffered}. */
+  private muteOffered = true;
+
+  /**
    * What a removal is asked before its first delete, in place of the panel's
    * confirmation, which listed what it fires before the org's name was typed:
    * see {@link FrozenRemovalAsker}. None in the panel.
@@ -1774,6 +1808,17 @@ export class FrozenDatasetHandler implements DomainHandler {
             // What tells a default to give each record a value of its own.
             unique: f.unique === true,
             nameField: f.nameField === true,
+            // What a preview names and cannot check: the lookup's filter, read
+            // as Forge's pre-flight reads it (`TargetGapReader.lookupFilterOf`).
+            ...(typeof f.filteredLookupInfo === 'object' && f.filteredLookupInfo !== null
+              ? {
+                  lookupFilter: {
+                    optional:
+                      (f.filteredLookupInfo as { optionalFilter?: unknown }).optionalFilter ===
+                      true,
+                  },
+                }
+              : {}),
           })),
           // The REST describe carries each record type's developerName and
           // whether it is active; jsforce's type for it leaves both out. The
@@ -1921,6 +1966,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       return { recordTypesUntold: err.recordTypesUntold };
     }
     if (err instanceof LoadEmailsStop) return { emails: err.emails, orgId: err.orgId };
+    if (err instanceof LoadAutomationStop) {
+      return { automation: err.automation, orgId: err.orgId };
+    }
     return undefined;
   }
 
@@ -1942,7 +1990,6 @@ export class FrozenDatasetHandler implements DomainHandler {
     accepted: boolean;
     mayMute: boolean;
   }): Promise<LoadEmails> {
-    const org = this.deps.orgManager.getOrg(input.orgId);
     return loadEmailsOf({
       read: input.read,
       ...(input.plan ? { plan: input.plan } : {}),
@@ -1958,9 +2005,15 @@ export class FrozenDatasetHandler implements DomainHandler {
           ? Promise.resolve(NO_APEX_IN_PRODUCTION)
           : readEmailDeliverability(input.conn),
       accepted: input.accepted,
-      target: org?.alias || org?.username || input.orgId,
+      target: this.orgNameOf(input.orgId),
       mayMute: input.mayMute,
     });
+  }
+
+  /** An org as the command line names it in a refusal: its alias, else its user, else its id. */
+  private orgNameOf(orgId: string): string {
+    const org = this.deps.orgManager.getOrg(orgId);
+    return org?.alias || org?.username || orgId;
   }
 
   /** Load the saved config or emit the actionable CONFIG_MISSING error. */
@@ -2700,6 +2753,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     let lastWriteAt: string | undefined;
     /** What its gate made of the emails of what still runs, once judged. */
     let emailsJudged: LoadEmails | undefined;
+    /** What the target runs as it writes, which it was told to write through, once asked. */
+    let automationJudged: FrozenLoadAutomationInfo | undefined;
     const recordLoad = (
       outcome: AuditOutcome,
       objects?: AuditObjectCounts[],
@@ -2896,6 +2951,29 @@ export class FrozenDatasetHandler implements DomainHandler {
           guardDecision = strongerDecision(guardDecision, decision);
         },
       });
+      // What the target runs as the load inserts its records and updates
+      // them, once its guards let it through and before anything is taken
+      // for it: named, and without the accord the load is refused, nothing
+      // written, as a clone is. Read only for the emails, a flow after save
+      // that deleted each opportunity product the load inserted ran unasked,
+      // and only the verification saw it.
+      const automation = loadAutomationOf({
+        read,
+        ...(mute?.plan ? { plan: mute.plan } : {}),
+        written,
+        accepted: parsed.acceptAutomation === true,
+        target: this.orgNameOf(parsed.targetOrgId),
+        mayMute: parsed.muteAutomation !== true && this.muteOffered,
+      });
+      automationJudged = automation.info;
+      if (automation.stop && automation.info) {
+        throw new LoadAutomationStop(
+          automation.stop.code,
+          automation.stop.message,
+          automation.info,
+          parsed.targetOrgId,
+        );
+      }
       // The emails of what still runs as the load writes, once its guards
       // let it through and before anything is taken for it: past what the
       // target has left today, or delivered without the accord, the load is
@@ -2910,7 +2988,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         writes: loadWrites,
         dataset,
         accepted,
-        mayMute: parsed.muteAutomation !== true,
+        mayMute: parsed.muteAutomation !== true && this.muteOffered,
       });
       emailsJudged = emails;
       if (emails.stop)
@@ -3064,6 +3142,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(emailsJudged && saysSomething(emailsJudged.info)
             ? { emails: emailsJudged.info }
             : {}),
+          ...(automationJudged ? { automation: automationJudged } : {}),
         },
       });
       this.deps.broker.postToWebview(response);
@@ -3098,6 +3177,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
       }
       const withCheckpoint = checkpoint ? { checkpoint } : {};
+      // What the mute did, once its lease was taken: assigned, then taken
+      // back as the load ended. Said nowhere, a load refused for its
+      // configuration under the lease left the trail an assignment no line
+      // named; so did a reload stopped in its sweep, run on the trap org.
+      const withMute = leaseTaken && mutedAutomation ? { mutedAutomation } : {};
       if (err instanceof CheckpointFirstStop) {
         // Stopped for the checkpoint asked first, before the lease and the
         // first write: refused or failed, recorded as a load a check of its
@@ -3144,7 +3228,12 @@ export class FrozenDatasetHandler implements DomainHandler {
         // in its words: the host's name them object by object, in English.
         sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
           code: 'LOAD_CANCELLED',
-          extraPayload: { written: recordsWritten(err.written), ...withCheckpoint, ...withSweeps },
+          extraPayload: {
+            written: recordsWritten(err.written),
+            ...withCheckpoint,
+            ...withSweeps,
+            ...withMute,
+          },
         });
         settle();
         return;
@@ -3157,7 +3246,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       // the command line's question on what a reload's sweep deletes stopped,
       // and the gate on the emails.
       const refusedFirst =
-        isMuteRefusedError(err) || err instanceof RemovalStopped || err instanceof LoadEmailsStop
+        isMuteRefusedError(err) ||
+        err instanceof RemovalStopped ||
+        err instanceof LoadEmailsStop ||
+        err instanceof LoadAutomationStop
           ? err
           : undefined;
       const stopped =
@@ -3187,10 +3279,6 @@ export class FrozenDatasetHandler implements DomainHandler {
         failed && cause instanceof LoadGuardError
           ? { guard: cause.code }
           : this.errorDetailOf(cause);
-      // What the mute did, once its lease was taken: assigned, then taken
-      // back as the load ended. Said nowhere, a load refused for its
-      // configuration under the lease left the trail an assignment no line named.
-      const withMute = leaseTaken && mutedAutomation ? { mutedAutomation } : {};
       const extra = {
         ...detail,
         ...withCheckpoint,
@@ -3577,11 +3665,12 @@ export class FrozenDatasetHandler implements DomainHandler {
               conn,
             })
           : undefined;
-      // What the load's gate would make of the emails of what still runs,
-      // read as it reads them — the mute planned when asked, nothing
-      // assigned — and the refusal it would meet: a dry run that let by what
-      // its load then refused would have a plan apply what it cannot.
-      const emails = await this.previewEmails({
+      // What the load's question would make of what the target runs as it
+      // writes, and its gate of the emails of what still runs, read as it
+      // reads them — the mute planned when asked, nothing assigned — and the
+      // refusal it would meet: a dry run that let by what its load then
+      // refused would have a plan apply what it cannot.
+      const { emails, automation } = await this.previewWhatRuns({
         conn,
         orgId: parsed.targetOrgId,
         dataset,
@@ -3595,6 +3684,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ...plan,
             ...(checkpoint ? { checkpoint } : {}),
             ...(emails ? { emails } : {}),
+            ...(automation ? { automation } : {}),
           },
         }),
       );
@@ -3608,19 +3698,26 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * The emails of a load's preview, judged as the load judges them before its
+   * What the target runs as a load of the preview would write, and the
+   * emails of what still runs, judged as the load judges them before its
    * first write: what the target runs on what it would insert, and on what a
    * reload's purge would delete; the mute planned when it is asked, nothing
-   * assigned. Undefined, said in the log, when they could not be judged.
+   * assigned. Neither, said in the log, when they could not be judged.
    */
-  private async previewEmails(input: {
+  private async previewWhatRuns(input: {
     conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
     orgId: string;
     dataset: FrozenDataset;
     store: SasReferenceIdMappingStore;
     config: FrozenProjectConfig;
-    parsed: { reload?: boolean; pilot?: boolean; muteAutomation?: boolean; acceptEmails?: boolean };
-  }): Promise<FrozenLoadEmailsInfo | undefined> {
+    parsed: {
+      reload?: boolean;
+      pilot?: boolean;
+      muteAutomation?: boolean;
+      acceptEmails?: boolean;
+      acceptAutomation?: boolean;
+    };
+  }): Promise<{ emails?: FrozenLoadEmailsInfo; automation?: FrozenLoadAutomationInfo }> {
     const { parsed } = input;
     try {
       const purge =
@@ -3645,6 +3742,14 @@ export class FrozenDatasetHandler implements DomainHandler {
               writes,
             }).catch(() => undefined)
           : undefined;
+      const { info: automation } = loadAutomationOf({
+        read,
+        ...(mute?.plan ? { plan: mute.plan } : {}),
+        written: input.dataset.objects.map((object) => object.objectApiName),
+        accepted: parsed.acceptAutomation === true,
+        target: this.orgNameOf(input.orgId),
+        mayMute: parsed.muteAutomation !== true && this.muteOffered,
+      });
       const emails = await this.loadEmailsFor({
         conn: input.conn,
         orgId: input.orgId,
@@ -3654,12 +3759,20 @@ export class FrozenDatasetHandler implements DomainHandler {
         writes,
         dataset: input.dataset,
         accepted: parsed.acceptEmails === true,
-        mayMute: parsed.muteAutomation !== true,
+        mayMute: parsed.muteAutomation !== true && this.muteOffered,
+      }).catch((err: unknown) => {
+        logger.warn(`Frozen preview: the emails could not be judged (${extractErrorMessage(err)})`);
+        return undefined;
       });
-      return saysSomething(emails.info) ? emails.info : undefined;
+      return {
+        ...(emails && saysSomething(emails.info) ? { emails: emails.info } : {}),
+        ...(automation ? { automation } : {}),
+      };
     } catch (err: unknown) {
-      logger.warn(`Frozen preview: the emails could not be judged (${extractErrorMessage(err)})`);
-      return undefined;
+      logger.warn(
+        `Frozen preview: what the target runs could not be judged (${extractErrorMessage(err)})`,
+      );
+      return {};
     }
   }
 

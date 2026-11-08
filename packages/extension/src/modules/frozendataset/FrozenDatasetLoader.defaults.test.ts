@@ -346,7 +346,7 @@ describe('FrozenDatasetLoader — the prices of a line, which the describe does 
     ).rejects.toMatchObject({
       message: expect.stringContaining('requiredFieldDefaults["OpportunityLineItem.UnitPrice"]'),
       gaps: [
-        'requiredFieldDefaults["OpportunityLineItem.UnitPrice"]: a value for this required field',
+        'requiredFieldDefaults["OpportunityLineItem.UnitPrice"]: a number for this required field',
       ],
     });
   });
@@ -634,5 +634,59 @@ describe('FrozenDatasetLoader — business hours, which the platform never delet
     expect(query.mock.calls.map(([, soql]) => soql)).not.toContainEqual(
       expect.stringContaining('SELECT Id, Name FROM BusinessHours'),
     );
+  });
+});
+
+describe('FrozenDatasetLoader — what a default asked for is to hold', () => {
+  // Run on a scratch org, a load of an opportunity refused for ten required
+  // fields said of each "a value for this required field", its close date
+  // among them, which the target takes as a date and nothing else. Each gap
+  // now says what the field takes, as the target's describe types it.
+  const describes: Record<string, TargetObjectDescribe> = {
+    Opportunity: {
+      name: 'Opportunity',
+      fields: [
+        field({ name: 'Name', nillable: false, nameField: true }),
+        field({ name: 'CloseDate', type: 'date', nillable: false }),
+        field({
+          name: 'StageName',
+          type: 'picklist',
+          nillable: false,
+          picklistValues: [
+            { value: 'Prospecting', active: true },
+            { value: 'Retired Stage', active: false },
+            { value: 'Closed Won', active: true },
+          ],
+        }),
+        field({ name: 'Probability', type: 'percent', nillable: false }),
+        field({ name: 'TotalOpportunityQuantity', type: 'int', nillable: false }),
+        field({ name: 'Signed_At__c', type: 'datetime', nillable: false }),
+      ],
+    },
+  };
+  const deal = dataset([
+    {
+      objectApiName: 'Opportunity',
+      records: [{ referenceId: 'Opportunity-000001', fields: { Name: '', CloseDate: '' } }],
+    },
+  ]);
+
+  it('names in each gap the kind of value the field takes, and the active values of a picklist', async () => {
+    const sasDir = makeTmpDir();
+
+    await expect(
+      new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, describes, {})).planLoad(
+        options(deal, sasDir),
+      ),
+    ).rejects.toMatchObject({
+      gaps: [
+        'requiredFieldDefaults["Opportunity.Name"]: a string for this required field',
+        'requiredFieldDefaults["Opportunity.CloseDate"]: a date, as "2026-12-31", for this required field',
+        'requiredFieldDefaults["Opportunity.StageName"]: one of its active values (Prospecting, Closed Won) for this required field',
+        'requiredFieldDefaults["Opportunity.Probability"]: a number for this required field',
+        'requiredFieldDefaults["Opportunity.TotalOpportunityQuantity"]: a whole number for this required field',
+        'requiredFieldDefaults["Opportunity.Signed_At__c"]: a date and time, as "2026-12-31T09:00:00Z", for this required field',
+      ],
+    });
   });
 });
