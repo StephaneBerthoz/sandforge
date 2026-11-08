@@ -45,6 +45,19 @@ const COLLEAGUE = '005000000000003AAA';
 
 /** T0 on the org's clock. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
 let clock = T0;
 

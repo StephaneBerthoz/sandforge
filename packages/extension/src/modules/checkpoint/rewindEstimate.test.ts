@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RewindDiff, RewindDiffObject } from '@sandforge/shared';
 
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
@@ -61,6 +61,18 @@ const ids = (prefix: string, count: number): string[] =>
 
 /** T0 on the org's clock, with its milliseconds. */
 const T0 = Date.parse('2026-10-22T14:05:12.731Z');
+
+// This machine's clock pinned a minute after T0, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0 + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /** Everything the memory org answered: its REST requests, a composite one, and its SOAP calls. */
 function spent(org: MemoryRemovalOrg): number {

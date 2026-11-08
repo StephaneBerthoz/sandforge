@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { paced } from '../../test/runnerPace.js';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -56,6 +56,19 @@ const SNAPSHOT = 'op-1792700000000';
 
 /** T0, with milliseconds, as the org's clock gives it. */
 const T0_MS = Date.parse('2026-10-22T10:00:00.400Z');
+
+// This machine's clock pinned a minute after T0_MS, going on: what the store
+// and the handler date by it — an undo's fifteen days, a checkpoint's expiry —
+// reads as the tests' org does, whatever day they run. Left to the real one,
+// every undo these tests offer was refused fifteen days after they were written.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: T0_MS + 60_000, shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const T0 = new Date(T0_MS).toISOString();
 const DAY_MS = 24 * 60 * 60_000;
 /** A day before the checkpoint, when its records were made. */
