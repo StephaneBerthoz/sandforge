@@ -5500,6 +5500,8 @@
     "resultNotVisible_other": "{{formatted}} 件はこのユーザーには表示されません(見つからず、ごみ箱にもありません)",
     "resultHeld_other": "{{formatted}} 件は残る {{objects}} レコードが依存しているため残しました",
     "resultHeldUnread_other": "{{formatted}} 件は依存するレコードを読み取れなかったため残しました",
+    "resultHeldByOtherParts": "この実行は停止され、止まったところから再開されました。もう一方の部分が書き込んだ {{objects}} のレコードが、残されたものを保持しています。先にその部分を削除し、続けてこの部分をもう一度削除してください。変更されたものを含める必要はありません。",
+    "resultOtherPartsLeft_other": "この実行は停止され、止まったところから再開されました。もう一方の部分の以前の削除で {{formatted}} 件のレコードが {{org}} に残りました。この部分のレコードがそれらを保持していた可能性があります。その部分をもう一度削除すると取り除かれます。",
     "resultRefused_other": "{{formatted}} 件は拒否されました",
     "resultLeftBy": "{{date}} の削除で残ったレコードを対象に再開しました。",
     "resultUnchecked": "未確認: {{objects}} のレコードは依存先のレコードから読み取れないため、そのレコードと一緒に削除されます。",

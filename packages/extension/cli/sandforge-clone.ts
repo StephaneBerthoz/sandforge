@@ -868,7 +868,10 @@ Remove what a run created:
                          the others wrote, and once a part's own records are
                          gone, takes what an earlier removal of another part
                          left. What the run wrote to a record of another part
-                         is no change since the run.
+                         is no change since the run. The journal's removal
+                         takes the parts the last first, each read against
+                         its own span: what someone changed, or made, between
+                         two parts stays.
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
   --accept-automation    delete although the target runs flows, Apex triggers,
@@ -4526,12 +4529,16 @@ function sweepClassLines(
  * those classes.
  */
 function handWorkTakenLines(listing: ForgeSweepListing, take: SweepClassArgs): string[] {
+  // An object past the most a sweep counts is not swept: the page says
+  // nothing of it either.
   const holds = (name: 'made' | 'madeOver' | 'late' | 'untied'): boolean =>
-    listing.found.some((object) => (object.classes?.[name] ?? 0) > 0);
+    listing.found.some((object) => !object.overBound && (object.classes?.[name] ?? 0) > 0);
+  const made = holds('made') || holds('madeOver');
   const where = [
-    holds('made') || holds('madeOver') ? "under the run's records within a minute of them" : '',
+    made ? "under the run's records within a minute of them" : '',
+    // Said alone, what came late names the records it is made under.
     take.sweepLate === true && holds('late')
-      ? 'under them within a quarter of an hour with --sweep-late'
+      ? `under ${made ? 'them' : "the run's records"} within a quarter of an hour with --sweep-late`
       : '',
     take.sweepUntied === true && listing.untied?.refusal === undefined && holds('untied')
       ? "anywhere in the run's window with --sweep-untied"
@@ -5344,6 +5351,31 @@ export function partsLeft(
 }
 
 /**
+ * Of the journal of a run cut and taken up, removed whole, `plan` as the
+ * removal takes it: the records of the run's last part first, then those of
+ * each part before it, the latest first — a part's records hang from those
+ * of the parts before it — each part read against its own span, with what
+ * the parts after it wrote, as the removals of its summaries read it. Read
+ * over the run's whole window, the gap between its parts included, a contact
+ * a colleague changed between the parts was taken for the run's own write
+ * and went, and so did a contact role someone made then. A part with no
+ * record left in `plan` is passed over. Undefined for a run of one part.
+ * Exported so it can be tested.
+ */
+export function journalPartsOf(
+  run: Pick<RunInParts, 'parts'>,
+  plan: readonly ForgeRunObjectRecords[],
+): Array<{ part: RunPart; plan: ForgeRunObjectRecords[] }> | undefined {
+  if (run.parts.length < 2) return undefined;
+  return [...run.parts]
+    .sort((a, b) => b.part - a.part)
+    .flatMap((part) => {
+      const ofPart = stillLeft(plan, idsOf(part.created));
+      return ofPart.length > 0 ? [{ part, plan: ofPart }] : [];
+    });
+}
+
+/**
  * Of a run cut and taken up, the parts other than the summary's that no
  * removal was asked for yet and whose records are of objects among those
  * holding what this removal kept for records that stay, each with those
@@ -5458,6 +5490,35 @@ export function runRemovalsAfter(
     ...(earlier?.late ? { late: earlier.late } : {}),
     partsRemoved: asked,
   };
+}
+
+/**
+ * What the removals of the parts of a journal, made one after the other by
+ * one command, leave beside it, as one removal leaves it: the stamps of each
+ * — those on the records of the parts it did not take too —, when the first
+ * began to when the last ended, and every record they took. Exported so it
+ * can be tested.
+ */
+export function removalsOfParts(
+  done: ReadonlyArray<Pick<RunRemovalOutcome, 'stamps' | 'otherPartStamps' | 'span' | 'gone'>>,
+): Pick<RunRemovalOutcome, 'stamps' | 'span' | 'gone'> {
+  const stamps: Record<string, string> = {};
+  for (const one of done) {
+    for (const each of [...(one.otherPartStamps ?? []), one.stamps]) Object.assign(stamps, each);
+  }
+  const spans = done.flatMap((one) => (one.span ? [one.span] : []));
+  const span = spans.reduce<ForgeRemovalSpan | undefined>(
+    (all, one) =>
+      all
+        ? {
+            ...all,
+            first: Date.parse(one.first) < Date.parse(all.first) ? one.first : all.first,
+            last: Date.parse(one.last) > Date.parse(all.last) ? one.last : all.last,
+          }
+        : one,
+    undefined,
+  );
+  return { stamps, ...(span ? { span } : {}), gone: done.flatMap((one) => one.gone) };
 }
 
 /**
@@ -5738,6 +5799,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // What an earlier removal of another part of the run was asked for and
   // left, its records held by this part's: taken once this part's are gone.
   const leftByOtherParts = ofTheRun ? partsLeft(ofTheRun) : [];
+  // The journal of a run cut and taken up, removed whole: each part read
+  // against its own span, the last first.
+  const wholeRun = inParts && !('refusal' in inParts) && !ofTheRun ? inParts : undefined;
+  const byParts = wholeRun ? journalPartsOf(wholeRun, plan) : undefined;
   // A sweep, or its listing, still has the run's window to look in.
   if (plan.length === 0 && leftByOtherParts.length === 0 && !args.sweep && !args.sweepList) {
     say('nothing left of the run to remove');
@@ -6079,30 +6144,37 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     let held: HeldMute | undefined;
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
+    // The run's span as the target dated it, as the wizard passes a history
+    // entry's. A run the target did not date is dated by its records and by
+    // when it ended, read on the org's clock as the removal starts.
+    const runSpan = span
+      ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+      : {
+          runDurationMs: summary.elapsedMs,
+          ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+        };
     let removal: RunRemovalOutcome = NOTHING_REMOVED;
     const onUndeletable = undeletableAnswer(args.leaveUndeletable, args.target, (refused) => {
       undeletableRefused = refused;
     });
+    // Of the journal of a run in parts, its last part first, against its own
+    // span; the parts before it then, each against its own.
+    const [first, ...partsBefore] = byParts ?? [];
+    const runParts = ofTheRun ?? (first ? wholeRun : undefined);
+    const firstPart = ofTheRun?.part ?? first?.part.part;
     // Of a run cut and taken up, its other parts, read before the first write:
     // what this part's deletes restamp of their records is the run's doing.
     const alongside =
-      ofTheRun?.part !== undefined
-        ? otherPartsOf(ofTheRun, ofTheRun.part, earlier?.removalStamps ?? {})
+      runParts && firstPart !== undefined
+        ? otherPartsOf(runParts, firstPart, earlier?.removalStamps ?? {})
         : [];
     const laterParts =
-      ofTheRun?.part !== undefined ? laterPartsOf(ofTheRun.parts, ofTheRun.part) : [];
+      runParts && firstPart !== undefined ? laterPartsOf(runParts.parts, firstPart) : [];
     try {
-      // The run's span as the target dated it, as the wizard passes a history
-      // entry's. A run the target did not date is dated by its records and by
-      // when it ended, read on the org's clock as the removal starts.
       if (plan.length > 0) {
-        removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
-          ...(span
-            ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-            : {
-                runDurationMs: summary.elapsedMs,
-                ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
-              }),
+        const firstPlan = first ? first.plan : plan;
+        removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), firstPlan, {
+          ...((first && machineSpanOf(first.part)) ?? runSpan),
           ...(earlier
             ? {
                 removalStamps: earlier.removalStamps,
@@ -6131,15 +6203,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // holds them any more.
       const stamped: Record<string, string> = { ...earlier?.removalStamps, ...removal.stamps };
       for (const stamps of removal.otherPartStamps ?? []) Object.assign(stamped, stamps);
-      for (const { part, plan: left } of leftByOtherParts) {
+      for (const { part, plan: left } of [...partsBefore, ...leftByOtherParts]) {
         if (removal.stoppedForUndeletable || removal.cancelled || stop.signal.aborted) break;
-        const partSpan = machineSpanOf(part);
+        // A part of the journal whose lines say no end is read over the run's
+        // whole window, as the journal was before it was read part by part.
+        const partSpan = machineSpanOf(part) ?? (first ? runSpan : undefined);
         if (!partSpan) continue;
         const spans = spansOf(
           earlier?.removalSpans,
           [removal, ...afterOwn].flatMap((done) => (done.span ? [done.span] : [])),
         );
-        const later = laterPartsOf(ofTheRun?.parts ?? [], part.part);
+        const later = laterPartsOf(runParts?.parts ?? [], part.part);
         const taken = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), left, {
           ...partSpan,
           removalStamps: stamped,
@@ -6182,7 +6256,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const removals = removalsAfter(
     run,
     earlier,
-    outcome ?? { stamps: {} },
+    outcome && byParts ? removalsOfParts([outcome, ...afterOwn]) : (outcome ?? { stamps: {} }),
     plan,
     swept,
     parts?.made ?? [],
@@ -6582,31 +6656,41 @@ async function previewRemoval(
     stop.abort();
   });
   const span = summary.result.writtenBetween;
+  const runSpan = span
+    ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+    : {
+        runDurationMs: summary.elapsedMs,
+        ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+      };
   let outcome: RunRemovalOutcome;
   /** What the previews of what the run's other parts left say, after this part's. */
   const afterOwn: RunRemovalOutcome[] = [];
+  // The journal of a run cut and taken up, read whole: each part against its
+  // own span, the last first, as its removal reads it.
+  const [first, ...partsBefore] = (inParts && !ofTheRun ? journalPartsOf(inParts, plan) : []) ?? [];
+  const runParts = ofTheRun ?? (first ? inParts : undefined);
+  const firstPart = ofTheRun?.part ?? first?.part.part;
   const laterParts =
-    ofTheRun?.part !== undefined ? laterPartsOf(ofTheRun.parts, ofTheRun.part) : [];
+    runParts && firstPart !== undefined ? laterPartsOf(runParts.parts, firstPart) : [];
   try {
-    outcome = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), plan, {
-      ...(span
-        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-        : {
-            runDurationMs: summary.elapsedMs,
-            ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
-          }),
-      ...(earlier
-        ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
-        : {}),
-      ...(laterParts.length > 0 ? { laterParts } : {}),
-      includeChanged: args.includeChanged,
-      previewOnly: true,
-      signal: stop.signal,
-    });
-    for (const { part, plan: left } of leftByOtherParts) {
-      const partSpan = machineSpanOf(part);
+    outcome = await removeRunRecords(
+      removalOrg(conn, 'sandforge-clone --remove --preview'),
+      first ? first.plan : plan,
+      {
+        ...((first && machineSpanOf(first.part)) ?? runSpan),
+        ...(earlier
+          ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
+          : {}),
+        ...(laterParts.length > 0 ? { laterParts } : {}),
+        includeChanged: args.includeChanged,
+        previewOnly: true,
+        signal: stop.signal,
+      },
+    );
+    for (const { part, plan: left } of [...partsBefore, ...leftByOtherParts]) {
+      const partSpan = machineSpanOf(part) ?? (first ? runSpan : undefined);
       if (!partSpan || !outcome.preview || stop.signal.aborted) continue;
-      const later = laterPartsOf(ofTheRun?.parts ?? [], part.part);
+      const later = laterPartsOf(runParts?.parts ?? [], part.part);
       afterOwn.push(
         await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), left, {
           ...partSpan,

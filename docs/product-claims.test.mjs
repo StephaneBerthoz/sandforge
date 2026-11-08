@@ -5276,3 +5276,74 @@ test('the Forge guide sends the rows a lookup filter refuses to the rehearsal', 
     'the metadata read of lookup filters does not say a rehearsal names the rows they refuse',
   );
 });
+
+/*
+ * Removed part by part, live, a clone cut and taken up kept the cut part's
+ * opportunity as changed since the run for the synced quote the resume had
+ * given it, and its contact for the contact role the resume linked to; the
+ * advice was then to include what changed, which takes a colleague's work
+ * too. The removal of one part names what another part holds, and the
+ * journal's removal reads each part against its own span.
+ */
+test('anchor: the removal of a resumed clone reads each part with what the others wrote, and names what another part holds', () => {
+  const clone = read(...EXT, 'cli', 'sandforge-clone.ts');
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
+  assert.match(
+    clone,
+    /heldByOtherParts: keptForParts/,
+    'the clone command no longer names under its JSON what another part holds — re-point this gate',
+  );
+  assert.match(
+    clone,
+    /export function journalPartsOf\(/,
+    'the journal removal no longer splits the run by its parts — re-point this gate',
+  );
+  assert.match(
+    handler,
+    /heldByOtherParts\.length > 0 \? \{ heldByOtherParts \}/,
+    'the panel removal no longer says what another part holds — re-point this gate',
+  );
+  assert.match(
+    handler,
+    /wroteToEarlierPartsOf\(/,
+    'a resumed part no longer keeps what it wrote to the parts before it — re-point this gate',
+  );
+});
+
+test('the Forge reference says how each part of a resumed clone is removed, from the panel and the command line', () => {
+  const reference = read('docs', 'forge-reference.md');
+  const start = reference.indexOf('## Resume a run that stopped');
+  const end = reference.indexOf('\n## ', start + 1);
+  assert.ok(
+    start !== -1 && end !== -1,
+    'docs/forge-reference.md has no "## Resume a run that stopped"',
+  );
+  const resume = reference.slice(start, end).replace(/\s+/g, ' ');
+  assert.match(
+    resume,
+    /resumed part wrote to the records of the parts before it[^.]*a lookup they owed/,
+    'the resume section no longer says what a resumed part wrote to the parts before it is the run’s doing',
+  );
+  assert.match(
+    resume,
+    /remove that part first, then this one again, without including what changed/,
+    'the resume section no longer says how a part held by another part’s records is removed',
+  );
+  const commandLine = reference
+    .split('\n')
+    .find((line) => line.includes('`--remove <journal>` takes the parts one after the other'));
+  assert.ok(
+    commandLine,
+    'docs/forge-reference.md no longer says the journal removal takes each part apart',
+  );
+  assert.match(
+    commandLine,
+    /each read against its own span[^.]*between two parts stays/,
+    'the journal removal no longer says a record changed between two parts stays',
+  );
+  assert.match(
+    commandLine,
+    /`result\.heldByOtherParts`/,
+    'the command line paragraph no longer names result.heldByOtherParts',
+  );
+});

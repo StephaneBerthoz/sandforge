@@ -11,6 +11,8 @@ import type {
   ForgeRemovalPlan,
   ForgeRemovalSpan,
   ForgeTemplate,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
   ForgeUndoResult,
   ForgeRunObjectRecords,
   ForgeTargetAutomation,
@@ -203,6 +205,7 @@ import {
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
+  type RunLaterPart,
   type RunPartAlongside,
   type RunRecords,
   type RunRemovalOutcome,
@@ -235,6 +238,7 @@ import {
   removalMark,
   removalStatus,
   removalStatusWithSweep,
+  spansOf,
 } from '../../modules/forge/removalOutcome.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import {
@@ -894,12 +898,28 @@ interface OtherPart {
   forgeId: string;
   /** The part of the journal its ids are in, when its entry keeps none. */
   inJournal?: { journalId: string; part: number };
+  /** Its records, its span, its stamps, and its later parts, as its own removal reads them. */
   alongside: RunPartAlongside;
+  /** What its earlier removals took, when one ran. */
+  undo?: ForgeUndoMark;
+  /** The objects of its records left. */
+  objects: string[];
+  /** How many of its records are left. */
+  records: number;
 }
 
 /** The run's other parts, and what lets their journals go once the removal is through. */
 interface OtherParts {
   parts: OtherPart[];
+  /**
+   * When the removals of every part of the run on its org ran, each once, as
+   * each removal reads its own: what one part's removal had the org create —
+   * the tracked change its deletes wrote on another part's opportunity — is
+   * that removal's doing for the next one too.
+   */
+  spans: ForgeRemovalSpan[];
+  /** The parts that took up the run removed: see {@link laterPartsOfRun}. */
+  laterParts: RunLaterPart[];
   close: () => void;
 }
 
@@ -953,6 +973,93 @@ function runsInItsLine(
     }
   }
   return { inLine, journals };
+}
+
+/**
+ * The parts that took the run `forgeId` up where it stopped, and those that
+ * took them up in turn, as a removal of it, or of what another removal left
+ * of it, reads what they wrote beyond their own records
+ * (`RunRemovalOptions.laterParts`): each history entry of a resume on the
+ * same org whose `retryOf` leads back to it, through the plans kept of runs
+ * the history dropped too, with its span, the records of the parts before it
+ * it wrote to (`wroteToEarlierParts`) and those it linked to. Removed part by
+ * part, the cut part's removal kept its opportunity as changed since the run
+ * for the quote the resume had synced it to, and its contact for the contact
+ * role the resume linked to, which it took for the target's automation's. A
+ * resume is newer than the part it took up, and the history drops the oldest
+ * runs first: one it dropped took up a part it dropped too. A part whose ids
+ * are in its journal, or whose entry names neither, is left out: what it
+ * wrote then reads as a change since, as before.
+ */
+function laterPartsOfRun(
+  forgeId: string,
+  history: readonly ForgeExecutionResult[],
+  plans: ReadonlyArray<Pick<ForgeRemovalPlan, 'forgeId' | 'retryOf'>>,
+  targetOrgId: string,
+): RunLaterPart[] {
+  const resumedFrom = new Map<string, string>();
+  for (const run of [...history, ...plans]) {
+    if (run.retryOf !== undefined && !resumedFrom.has(run.forgeId)) {
+      resumedFrom.set(run.forgeId, run.retryOf);
+    }
+  }
+  const takesUp = (later: string): boolean => {
+    const seen = new Set<string>();
+    for (let at = resumedFrom.get(later); at !== undefined; at = resumedFrom.get(at)) {
+      if (at === forgeId) return true;
+      if (seen.has(at)) return false;
+      seen.add(at);
+    }
+    return false;
+  };
+  return history.flatMap((entry): RunLaterPart[] => {
+    if (!entry.resumed || entry.remapInJournal || entry.targetOrgId !== targetOrgId) return [];
+    if (!takesUp(entry.forgeId)) return [];
+    const table = entry.idRemapTable ?? {};
+    const linked = (entry.idRemapExisting ?? []).flatMap((sourceId) => {
+      const target = table[sourceId];
+      return target !== undefined ? [target] : [];
+    });
+    const wrote = entry.wroteToEarlierParts ?? [];
+    if (wrote.length === 0 && linked.length === 0) return [];
+    return [
+      {
+        span: runSpanOf(entry.writtenBetween, entry),
+        ...(wrote.length > 0 ? { wrote } : {}),
+        ...(linked.length > 0 ? { linked } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * A run's span as a removal takes it: as the target dated its writes, or,
+ * for a run it did not date, how long it took and when it was recorded.
+ */
+function runSpanOf(
+  span: ForgeWrittenBetween | undefined,
+  run: Pick<ForgeRemovalPlan, 'duration' | 'timestamp'>,
+): RunPartAlongside['span'] {
+  return span
+    ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+    : { runDurationMs: run.duration, runRecordedAt: new Date(run.timestamp) };
+}
+
+/**
+ * Of what a removal kept for records that stay, what the run's other parts no
+ * removal was asked for yet hold: each such part whose records left are of
+ * objects among the holders, with those objects (`heldByOtherParts`).
+ */
+function heldByOtherPartsOf(
+  objects: readonly ForgeUndoObjectResult[],
+  parts: readonly OtherPart[],
+): NonNullable<ForgeUndoResult['heldByOtherParts']> {
+  const holders = [...new Set(objects.flatMap((o) => (o.keptDependents > 0 ? o.heldBy : [])))];
+  return parts.flatMap((part) => {
+    if (part.undo) return [];
+    const held = holders.filter((object) => part.objects.includes(object));
+    return held.length > 0 ? [{ forgeId: part.forgeId, objects: held }] : [];
+  });
 }
 
 /** The rows of a run a call may have written before its answer was lost. */
@@ -2797,6 +2904,12 @@ export class ForgeHandler implements DomainHandler {
             )
           : lineCheckpoint;
       const checkpoint = checkpointInfo ? { checkpoint: checkpointInfo } : {};
+      // What a part taking the run up wrote to the parts before it, read from
+      // its journal before the journal goes with the run's end.
+      const wroteEarlier =
+        resume && !dryRun && store && journalId
+          ? await this.wroteToEarlierPartsOf(counted, journalId, store.partCount - 1)
+          : {};
       const result =
         retryOf !== undefined
           ? {
@@ -2806,6 +2919,7 @@ export class ForgeHandler implements DomainHandler {
               ...checkpoint,
               retryOf,
               ...(resume ? { resumed: true as const } : {}),
+              ...wroteEarlier,
             }
           : { ...counted, ...inJournal, ...muted, ...checkpoint };
       if ('journalId' in inJournal && !dryRun) {
@@ -2967,6 +3081,17 @@ export class ForgeHandler implements DomainHandler {
                 : {}),
               ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
               ...(runUserId ? { runUserId } : {}),
+              ...(resume && store && journalId
+                ? await this.wroteToEarlierPartsOf(
+                    {
+                      idRemapTable: partial.remapTable,
+                      idRemapCreated: partial.createdByObject,
+                      ...(partial.remapInJournal ? { remapInJournal: true as const } : {}),
+                    },
+                    journalId,
+                    store.partCount - 1,
+                  )
+                : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -3129,6 +3254,8 @@ export class ForgeHandler implements DomainHandler {
       checkpoint?: RunCheckpointInfo;
       /** The user it wrote as, as the run read it before its first write. */
       runUserId?: string;
+      /** Of a part that took the run up, what it wrote to the parts before it. */
+      wroteToEarlierParts?: string[];
     },
   ): ForgeExecutionResult | undefined {
     // Past the bound the summary holds no id, and counts what the run created.
@@ -3152,9 +3279,47 @@ export class ForgeHandler implements DomainHandler {
       ...(run.journalId && run.journalPart !== undefined ? { journalPart: run.journalPart } : {}),
       ...(run.checkpoint ? { checkpoint: run.checkpoint } : {}),
       ...(run.runUserId ? { runUserId: run.runUserId } : {}),
+      ...(run.wroteToEarlierParts ? { wroteToEarlierParts: run.wroteToEarlierParts } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
+  }
+
+  /**
+   * Of a part that took a run up where it stopped, the records of the parts
+   * before it that it wrote to (`ForgeExecutionResult.wroteToEarlierParts`),
+   * read from its journal before the journal goes: what the lines of its part
+   * say it filled in and gave back, less what it created. A removal of those
+   * parts reads them as the run's doing. None of a run whose ids stay in its
+   * journal, which keeps them, of one past the bound of ids a history entry
+   * keeps, or when the journal cannot be read.
+   */
+  private async wroteToEarlierPartsOf(
+    run: Pick<
+      ForgeExecutionResult,
+      'idRemapTable' | 'idRemapExisting' | 'idRemapCreated' | 'remapInJournal'
+    >,
+    journalId: string,
+    part: number,
+  ): Promise<{ wroteToEarlierParts?: string[] }> {
+    const journal = this.runJournal;
+    if (!journal || run.remapInJournal || part < 1) return {};
+    const own = new Set(
+      forgeRunCreatedRecords(run).flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))),
+    );
+    try {
+      const wrote = (await journal.wroteIn(journalId, part)).filter(
+        (id) => !own.has(id.slice(0, 15)),
+      );
+      return wrote.length > 0 && wrote.length <= HISTORY_IDS_BOUND
+        ? { wroteToEarlierParts: wrote }
+        : {};
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge run journal not read for what the part wrote: ${extractErrorMessage(err)}`,
+      );
+      return {};
+    }
   }
 
   /**
@@ -5619,6 +5784,11 @@ export class ForgeHandler implements DomainHandler {
       // back (`automationMade`). After them, what one of them points at by a
       // lookup the org refuses the delete for — the asset a case of the run
       // names (`afterRemoval`). A cancel during the sweep stops the removal too.
+      // The run's other parts, removed apart from this one: what this
+      // removal's deletes restamp of their records is kept on each, and what
+      // the removals of each had the org create is read as theirs.
+      if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
+      const removalSpans = spansOf(entry.removalSpans, parts?.spans);
       if (sweepOf) {
         sweeping = await this.sweepOfRemoval({
           conn,
@@ -5626,7 +5796,7 @@ export class ForgeHandler implements DomainHandler {
           includeChanged,
           sweepLate: asked.sweepLate === true,
           sweepUntied: asked.sweepUntied === true,
-          removalSpans: entry.removalSpans ?? [],
+          removalSpans,
           signal: stop.signal,
           guard,
           orgTier,
@@ -5635,9 +5805,6 @@ export class ForgeHandler implements DomainHandler {
         });
       }
       const sweepParts = sweeping;
-      // The run's other parts, removed apart from this one: what this
-      // removal's deletes restamp of their records is kept on each.
-      if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
       // The sweep reads what it takes and asks Production Guard here, before
       // the lease: a person answering holds no permission set assigned. It
       // deletes at its turn, once the removal has read the run's records.
@@ -5682,7 +5849,8 @@ export class ForgeHandler implements DomainHandler {
                 ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
-              ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
+              ...(removalSpans.length > 0 ? { removalSpans } : {}),
+              ...(parts && parts.laterParts.length > 0 ? { laterParts: parts.laterParts } : {}),
               ...(sweepParts
                 ? {
                     sweep: () => sweepParts.first(),
@@ -5723,6 +5891,16 @@ export class ForgeHandler implements DomainHandler {
       // What a call of the run may have written before its answer was lost:
       // in the org maybe, under ids no one knows, and out of this removal's reach.
       const unreachable = entry.unreachable;
+      // Of a run cut and taken up, what one part's removal leaves to another:
+      // what it kept for the records of a part no removal was asked for yet,
+      // which that part's removal takes first, and what an earlier removal
+      // of another part left, which records of this one may have held. Each
+      // part is removed from its own entry, after its own confirmation: one
+      // removal takes no record another part's question counted.
+      const heldByOtherParts = parts ? heldByOtherPartsOf(outcome.objects, parts.parts) : [];
+      const otherPartsLeft = (parts?.parts ?? []).flatMap((part) =>
+        part.undo && part.records > 0 ? [{ forgeId: part.forgeId, records: part.records }] : [],
+      );
       const removed: ForgeUndoResult = {
         forgeId,
         status: removalStatus(outcome.objects, outcome.cancelled),
@@ -5733,6 +5911,8 @@ export class ForgeHandler implements DomainHandler {
         ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
         ...(entry.notLookedFor ? { notLookedFor: entry.notLookedFor } : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
+        ...(heldByOtherParts.length > 0 ? { heldByOtherParts } : {}),
+        ...(otherPartsLeft.length > 0 ? { otherPartsLeft } : {}),
       };
 
       // A sweep alone removed none of the run's records: its own entry says what it did.
@@ -5903,8 +6083,10 @@ export class ForgeHandler implements DomainHandler {
    * its removal kept as changed since the run the parent the other part's
    * removal had restamped. Each with its records, read from its journal a
    * page at a time when its entry keeps no ids, its span as its own removal
-   * dates it, and what its earlier removals stamped. A part whose journal
-   * cannot be read is left out: its own removal says so.
+   * dates it, what its earlier removals stamped, and what the parts that took
+   * it up wrote to it. A part whose journal cannot be read is left out: its
+   * own removal says so. With them, when the removals of every part of the
+   * run on that org ran, and the parts that took up the one removed.
    */
   private async otherPartsOf(
     forgeId: string,
@@ -5916,20 +6098,28 @@ export class ForgeHandler implements DomainHandler {
     const history = this.loadHistory();
     const listed = new Set(history.map((entry) => entry.forgeId));
     const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    const laterOf = (run: string): RunLaterPart[] =>
+      laterPartsOfRun(run, history, plans, targetOrgId);
+    const spans: ForgeRemovalSpan[][] = [];
     for (const other of await this.runLineOf(forgeId, history, plans)) {
       const entry = history.find((e) => e.forgeId === other);
+      const plan = entry ? undefined : plans.find((kept) => kept.forgeId === other);
+      // Whatever it has left, a part's removals ran in the org this one reads.
+      if ((entry ?? plan)?.targetOrgId === targetOrgId)
+        spans.push((entry ?? plan)?.removalSpans ?? []);
       const part = entry
-        ? await this.otherPartFromEntry(entry, targetOrgId, conn)
-        : await this.otherPartFromPlan(
-            plans.find((plan) => plan.forgeId === other),
-            targetOrgId,
-            conn,
-          );
+        ? await this.otherPartFromEntry(entry, targetOrgId, conn, laterOf(other))
+        : await this.otherPartFromPlan(plan, targetOrgId, conn, laterOf(other));
       if (!part) continue;
       if (part.close) closes.push(part.close);
       parts.push(part.part);
     }
-    return { parts, close: () => closes.forEach((close) => close()) };
+    return {
+      parts,
+      spans: spansOf(...spans),
+      laterParts: laterOf(forgeId),
+      close: () => closes.forEach((close) => close()),
+    };
   }
 
   /**
@@ -5990,6 +6180,7 @@ export class ForgeHandler implements DomainHandler {
     other: ForgeExecutionResult,
     targetOrgId: string,
     conn: JournalDatesTarget,
+    laterParts: readonly RunLaterPart[],
   ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
     if (other.targetOrgId !== targetOrgId || !other.idRemapCreated) return undefined;
     if (this.removing.has(other.forgeId) || forgeRunCountsLeft(other).length === 0) {
@@ -6016,7 +6207,17 @@ export class ForgeHandler implements DomainHandler {
       part: {
         forgeId: other.forgeId,
         ...(inJournal ? { inJournal } : {}),
-        alongside: await this.alongside(plan, span, other, other.removalStamps, inJournal),
+        alongside: await this.alongside(
+          plan,
+          span,
+          other,
+          other.removalStamps,
+          inJournal,
+          laterParts,
+        ),
+        ...(other.undo ? { undo: other.undo } : {}),
+        objects: forgeRunCountsLeft(other).map((object) => object.objectApiName),
+        records: forgeRunCountsLeft(other).reduce((sum, object) => sum + object.count, 0),
       },
       ...(close ? { close } : {}),
     };
@@ -6030,6 +6231,7 @@ export class ForgeHandler implements DomainHandler {
     kept: ForgeRemovalPlan | undefined,
     targetOrgId: string,
     conn: JournalDatesTarget,
+    laterParts: readonly RunLaterPart[],
   ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
     if (!kept || kept.targetOrgId !== targetOrgId) return undefined;
     if (this.removing.has(kept.forgeId) || forgeRemovalPlanCountsLeft(kept).length === 0) {
@@ -6058,7 +6260,17 @@ export class ForgeHandler implements DomainHandler {
       part: {
         forgeId: kept.forgeId,
         ...(inJournal ? { inJournal } : {}),
-        alongside: await this.alongside(plan, span, kept, kept.removalStamps, inJournal),
+        alongside: await this.alongside(
+          plan,
+          span,
+          kept,
+          kept.removalStamps,
+          inJournal,
+          laterParts,
+        ),
+        ...(kept.undo ? { undo: kept.undo } : {}),
+        objects: forgeRemovalPlanCountsLeft(kept).map((object) => object.objectApiName),
+        records: forgeRemovalPlanCountsLeft(kept).reduce((sum, object) => sum + object.count, 0),
       },
       ...(close ? { close } : {}),
     };
@@ -6067,8 +6279,8 @@ export class ForgeHandler implements DomainHandler {
   /**
    * What a removal of one part reads of another: its records, its span — or,
    * for a part its target did not date, how long it took and when it was
-   * recorded — and what its earlier removals stamped, on it and beside its
-   * journal.
+   * recorded — what its earlier removals stamped, on it and beside its
+   * journal, and what the parts that took it up wrote to it.
    */
   private async alongside(
     plan: ForgeRunObjectRecords[] | RunRecords,
@@ -6076,6 +6288,7 @@ export class ForgeHandler implements DomainHandler {
     run: Pick<ForgeRemovalPlan, 'duration' | 'timestamp'>,
     stamped: Record<string, string> | undefined,
     inJournal: { journalId: string; part: number } | undefined,
+    laterParts: readonly RunLaterPart[],
   ): Promise<RunPartAlongside> {
     const removalStamps = {
       ...stamped,
@@ -6085,10 +6298,9 @@ export class ForgeHandler implements DomainHandler {
     };
     return {
       plan,
-      span: span
-        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-        : { runDurationMs: run.duration, runRecordedAt: new Date(run.timestamp) },
+      span: runSpanOf(span, run),
       ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
+      ...(laterParts.length > 0 ? { laterParts } : {}),
     };
   }
 

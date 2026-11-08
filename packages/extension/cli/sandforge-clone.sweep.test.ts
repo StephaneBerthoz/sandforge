@@ -749,6 +749,47 @@ describe('sweepListingLines', () => {
     );
   });
 
+  it('says where what came late is made, the run’s records named, when nothing is made for the run within a minute', () => {
+    const lateOnly: ForgeSweepListing = {
+      ...TIED,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 2,
+          names: [],
+          classes: { made: 0, madeOver: 0, late: 2, untied: 0 },
+        },
+      ],
+      late: [{ objectApiName: 'Task', count: 2 }],
+      untied: { objects: [] },
+    };
+
+    expect(sweepListingLines(lateOnly, 'TGT', { sweepLate: true }, true).at(-1)).toBe(
+      "a record made by hand as the run's user under the run's records within a quarter of an " +
+        "hour with --sweep-late reads as the automation's, and one changed by hand before the " +
+        "run's last write as unchanged: check the names before a --sweep",
+    );
+  });
+
+  it('says nothing of hand work in an object past the most a sweep counts, which it does not sweep, as the page does not', () => {
+    const pastTheBound: ForgeSweepListing = {
+      ...TIED,
+      found: [
+        {
+          objectApiName: 'Task',
+          count: 10_000,
+          names: [],
+          overBound: true,
+          classes: { made: 10_000, madeOver: 0, late: 0, untied: 0 },
+        },
+      ],
+      late: [],
+      untied: { objects: [] },
+    };
+
+    expect(sweepListingLines(pastTheBound, 'TGT').join('\n')).not.toContain('check the names');
+  });
+
   it('names a few of the objects it looked at: told the ties, every child of the run’s', () => {
     const looked = Array.from({ length: 12 }, (_, n) => `Obj${n}__c`);
 

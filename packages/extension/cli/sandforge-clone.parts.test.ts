@@ -517,6 +517,62 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toMatchObject({ OpportunityContactRole: 1, Opportunity: 1 });
   });
 
+  it('the journal alone keeps a contact a colleague changed between the parts, and the account it holds', async () => {
+    theRun();
+    setClock(at('10:01:00'));
+    org.edit('Contact', CONTACT.target, { Title: 'Buyer' }, COLLEAGUE);
+
+    const whole = await remove(journal, at('10:05:00'));
+
+    // Dated over the run's whole window, the gap between its parts included,
+    // the colleague's change read as the run's own write, and went.
+    expect(whole.exit).toBe(3);
+    expect(kept(whole.result.objects)).toEqual([
+      ['Contact', 1, 0],
+      ['Account', 0, 1],
+    ]);
+    expect(left()).toEqual({ Account: 1, Contact: 1 });
+  });
+
+  it('the journal alone keeps a contact role made between the parts, as the run’s user even, and what it hangs from', async () => {
+    theRun(at('10:01:00'));
+
+    const whole = await remove(journal, at('10:05:00'));
+
+    expect(whole.exit).toBe(3);
+    expect(kept(whole.result.objects)).toEqual([
+      ['Opportunity', 0, 1],
+      ['Contact', 0, 1],
+      ['Account', 0, 1],
+    ]);
+    expect(left()).toMatchObject({ OpportunityContactRole: 1, Opportunity: 1 });
+  });
+
+  it('the preview of the journal alone says the contact a colleague changed between the parts stays', async () => {
+    theRun();
+    setClock(at('10:01:00'));
+    org.edit('Contact', CONTACT.target, { Title: 'Buyer' }, COLLEAGUE);
+
+    expect(await previewOf(journal, at('10:05:00'))).toEqual([
+      ['OpportunityLineItem', 1, 0],
+      ['Quote', 1, 0],
+      ['Opportunity', 1, 0],
+      ['Contact', 0, 1],
+      ['Account', 1, 0],
+    ]);
+  });
+
+  it('the journal alone takes the whole run, its contact role included', async () => {
+    theRun();
+
+    const whole = await remove(journal, at('10:05:00'));
+
+    expect(whole.exit).toBeUndefined();
+    expect(whole.result.status).toBe('success');
+    expect(kept(whole.result.objects)).toEqual([]);
+    expect(left()).toEqual({});
+  });
+
   it('keeps the contact role a colleague changed after the resume, and what it hangs from', async () => {
     const { s1, s2 } = theRun();
     setClock(at('10:03:00'));

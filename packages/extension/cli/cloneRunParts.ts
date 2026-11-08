@@ -14,17 +14,16 @@
  */
 import { createReadStream, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import type {
-  ForgeRemovalSpan,
-  ForgeRunObjectRecords,
-  ForgeUndoObjectResult,
-} from '@sandforge/shared';
+import type { ForgeRunObjectRecords } from '@sandforge/shared';
 import type { ForgeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
-import type {
-  RemovalPreviewObject,
-  RunLaterPart,
-  RunPartAlongside,
-} from '../src/modules/forge/ForgeRunRemoval.js';
+import type { RunLaterPart, RunPartAlongside } from '../src/modules/forge/ForgeRunRemoval.js';
+
+// Read by the panel's removals of a run's parts as by these: kept with them.
+export {
+  mergedPreviewObjects,
+  mergedUndoObjects,
+  spansOf,
+} from '../src/modules/forge/removalOutcome.js';
 
 /** A Salesforce id, as a journal writes one. */
 const ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -189,115 +188,4 @@ export function stillLeft(
     const ids = object.ids.filter((id) => keys.has(id.slice(0, 15)));
     return ids.length > 0 ? [{ objectApiName: object.objectApiName, ids }] : [];
   });
-}
-
-/** The removal spans of every list, each once, in the order they ran. */
-export function spansOf(
-  ...lists: ReadonlyArray<readonly ForgeRemovalSpan[] | undefined>
-): ForgeRemovalSpan[] {
-  const seen = new Set<string>();
-  const spans: ForgeRemovalSpan[] = [];
-  for (const span of lists.flatMap((list) => list ?? [])) {
-    const key = `${span.first}|${span.last}|${span.userId.slice(0, 15)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    spans.push(span);
-  }
-  return spans.sort((a, b) => Date.parse(a.first) - Date.parse(b.first));
-}
-
-/** How many reasons an object's result says at most, as a removal says them. */
-const REASONS_KEPT = 5;
-
-/** `a` and `b` as one list, each once, `limit` at most. */
-function bothOf(a: readonly string[], b: readonly string[], limit = Infinity): string[] {
-  return [...new Set([...a, ...b])].slice(0, limit);
-}
-
-/** `a` plus `b`, absent when both are. */
-function sumOf(a: number | undefined, b: number | undefined): number | undefined {
-  return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
-}
-
-/**
- * The results of removals of several parts of a run made one after the
- * other, object by object, as one removal says them: an object two of them
- * took records of is counted once, with both counts, in the order the
- * removals first named it.
- */
-export function mergedUndoObjects(
-  ...lists: ReadonlyArray<readonly ForgeUndoObjectResult[]>
-): ForgeUndoObjectResult[] {
-  const merged = new Map<string, ForgeUndoObjectResult>();
-  for (const object of lists.flat()) {
-    const was = merged.get(object.objectApiName);
-    if (!was) {
-      merged.set(object.objectApiName, { ...object });
-      continue;
-    }
-    const optional = {
-      notVisible: sumOf(was.notVisible, object.notVisible),
-      notReached: sumOf(was.notReached, object.notReached),
-      heldByAutomation: sumOf(was.heldByAutomation, object.heldByAutomation),
-      platformCopies: sumOf(was.platformCopies, object.platformCopies),
-    };
-    const holders = bothOf(was.automationHolders ?? [], object.automationHolders ?? []);
-    const files =
-      was.filesLeft || object.filesLeft
-        ? {
-            count: (was.filesLeft?.count ?? 0) + (object.filesLeft?.count ?? 0),
-            names: bothOf(was.filesLeft?.names ?? [], object.filesLeft?.names ?? [], REASONS_KEPT),
-          }
-        : undefined;
-    merged.set(object.objectApiName, {
-      objectApiName: object.objectApiName,
-      planned: was.planned + object.planned,
-      deleted: was.deleted + object.deleted,
-      alreadyGone: was.alreadyGone + object.alreadyGone,
-      keptChanged: was.keptChanged + object.keptChanged,
-      keptDependents: was.keptDependents + object.keptDependents,
-      refused: was.refused + object.refused,
-      ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined)),
-      heldBy: bothOf(was.heldBy, object.heldBy),
-      ...(holders.length > 0 ? { automationHolders: holders } : {}),
-      unchecked: bothOf(was.unchecked, object.unchecked),
-      reasons: bothOf(was.reasons, object.reasons, REASONS_KEPT),
-      ...(files ? { filesLeft: files } : {}),
-    });
-  }
-  return [...merged.values()];
-}
-
-/** What the previews of several parts of a run say, object by object, as one preview says it. */
-export function mergedPreviewObjects(
-  ...lists: ReadonlyArray<readonly RemovalPreviewObject[]>
-): RemovalPreviewObject[] {
-  const merged = new Map<string, RemovalPreviewObject>();
-  for (const object of lists.flat()) {
-    const was = merged.get(object.objectApiName);
-    if (!was) {
-      merged.set(object.objectApiName, { ...object, changedBy: { ...object.changedBy } });
-      continue;
-    }
-    const changedBy = { ...was.changedBy };
-    for (const [user, count] of Object.entries(object.changedBy)) {
-      changedBy[user] = (changedBy[user] ?? 0) + count;
-    }
-    const copies = sumOf(was.platformCopies, object.platformCopies);
-    merged.set(object.objectApiName, {
-      objectApiName: object.objectApiName,
-      planned: was.planned + object.planned,
-      toDelete: was.toDelete + object.toDelete,
-      alreadyGone: was.alreadyGone + object.alreadyGone,
-      changedSince: was.changedSince + object.changedSince,
-      keptChanged: was.keptChanged + object.keptChanged,
-      changedBy,
-      undeletable: was.undeletable + object.undeletable,
-      notVisible: was.notVisible + object.notVisible,
-      unread: was.unread + object.unread,
-      ...(copies !== undefined ? { platformCopies: copies } : {}),
-      reasons: bothOf(was.reasons, object.reasons, REASONS_KEPT),
-    });
-  }
-  return [...merged.values()];
 }

@@ -577,6 +577,8 @@ export interface ForgeRunRemovalResultProps {
     | 'notLookedFor'
     | 'sweep'
     | 'mutedAutomation'
+    | 'heldByOtherParts'
+    | 'otherPartsLeft'
   >;
   /** The org it removed from, as the user knows it. */
   org: string;
@@ -631,6 +633,10 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   const automationHolders = [
     ...new Set(result.objects.flatMap((object) => object.automationHolders ?? [])),
   ];
+  const heldByOtherParts = [
+    ...new Set((result.heldByOtherParts ?? []).flatMap((part) => part.objects)),
+  ];
+  const otherPartsLeft = (result.otherPartsLeft ?? []).reduce((sum, part) => sum + part.records, 0);
   // Of a rewind, what was created since the checkpoint is what it takes.
   const automationKeys = AUTOMATION_HELD_KEYS[subject];
   if (result.sweep && result.objects.length === 0) {
@@ -697,6 +703,22 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           </li>
         ))}
       </ul>
+      {/* Of a run stopped and taken up, what one part's removal leaves to the
+          other: its own advice was to include what changed, which takes what
+          others added since too; removing the other part takes the holders. */}
+      {heldByOtherParts.length > 0 && (
+        <p
+          data-testid="forge-removal-held-by-other-parts"
+          className="text-text-secondary wrap-break-word"
+        >
+          {t('runRemoval.resultHeldByOtherParts', { objects: heldByOtherParts.join(', ') })}
+        </p>
+      )}
+      {otherPartsLeft > 0 && (
+        <p data-testid="forge-removal-other-parts-left" className="text-text-secondary">
+          {counted(t, 'runRemoval.resultOtherPartsLeft', otherPartsLeft, { org })}
+        </p>
+      )}
       {unchecked.length > 0 && (
         <p data-testid="forge-removal-unchecked" className="text-text-secondary">
           {t('runRemoval.resultUnchecked', { objects: unchecked.join(', ') })}

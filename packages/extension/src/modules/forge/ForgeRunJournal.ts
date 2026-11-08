@@ -737,6 +737,51 @@ export class ForgeRunJournal {
     return [...named];
   }
 
+  /**
+   * The records the part `part` of the journal `journalId` wrote to beyond
+   * those it created, by target id, each once: those whose lookups its second
+   * pass filled in (`["p", id, field]`) and those it gave a status back
+   * (`["g", object, id]`). A part taking a run up fills in what the parts
+   * before it owed: the history keeps it on the part's entry
+   * (`ForgeExecutionResult.wroteToEarlierParts`), for the removals of those
+   * parts to read as the run's doing once the journal is dropped. None when
+   * the journal is gone, or is not that run's.
+   */
+  async wroteIn(journalId: string, part: number): Promise<string[]> {
+    const wrote = new Set<string>();
+    let head = false;
+    /** The part the lines read belong to: -1 before the first begins. */
+    let current = -1;
+    for await (const line of this.deps.readLines(this.filePath(journalId))) {
+      if (line.trim() === '') continue;
+      if (!head) {
+        try {
+          const parsed = headSchema.safeParse(JSON.parse(line));
+          if (!parsed.success || parsed.data.run.journalId !== journalId) return [];
+        } catch {
+          return [];
+        }
+        head = true;
+        continue;
+      }
+      if (line.startsWith('{"part":')) {
+        current++;
+        if (current > part) break;
+        continue;
+      }
+      if (current !== part || !(line.startsWith('["p"') || line.startsWith('["g"'))) continue;
+      try {
+        const value: unknown = JSON.parse(line);
+        if (!Array.isArray(value)) continue;
+        const id: unknown = value[0] === 'p' ? value[1] : value[2];
+        if (idSchema.safeParse(id).success) wrote.add(String(id));
+      } catch {
+        // The last line of a window that closed mid-write: the others stand.
+      }
+    }
+    return [...wrote];
+  }
+
   /** Drop the journal of a run that ended: the run history holds what it created. */
   async end(journalId: string): Promise<void> {
     const filePath = this.filePath(journalId);

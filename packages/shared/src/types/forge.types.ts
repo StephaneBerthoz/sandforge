@@ -828,6 +828,24 @@ export interface ForgeUndoResult {
    * Absent when no sweep was asked.
    */
   sweep?: ForgeSweepResult;
+  /**
+   * Of a run cut and taken up, the other parts no removal was asked for yet
+   * whose records are of objects among those holding what this removal kept
+   * for records that stay, each with those objects: most often the part that
+   * took the run up, whose quote and lines hang from the opportunity the cut
+   * part wrote. Removing that part takes them; this one's removal, asked
+   * again, then takes what it kept, without including what changed since.
+   * Absent when nothing was so kept.
+   */
+  heldByOtherParts?: Array<{ forgeId: string; objects: string[] }>;
+  /**
+   * Of a run cut and taken up, the other parts an earlier removal left
+   * records of, with how many: records of this part may have been what held
+   * them, and that part's removal, asked again, takes them. Each part is
+   * removed after its own confirmation, which counts its records alone.
+   * Absent when no other part has records an earlier removal left.
+   */
+  otherPartsLeft?: Array<{ forgeId: string; records: number }>;
 }
 
 /**
@@ -1737,6 +1755,16 @@ export interface ForgeExecutionResult {
    * it, the lookups and statuses it owed given with this run's own.
    */
   resumed?: true;
+  /**
+   * Of a run that took up another where it stopped (`resumed`), the records
+   * the parts before it created that it wrote to, by target id: a lookup one
+   * owed, filled in; a status given back. A removal of those parts reads what
+   * it wrote then as the run's doing, not as a change since: removed part by
+   * part, the cut part's removal kept its opportunity as changed since the
+   * run for the synced quote the resume had given it. Absent when it wrote to
+   * none, from a run whose ids are in its journal, and from runs recorded before.
+   */
+  wroteToEarlierParts?: string[];
   /**
    * The journal the extension keeps of the run while it can be taken up
    * where it stopped — a run stopped by a cancel, a failure or a closed

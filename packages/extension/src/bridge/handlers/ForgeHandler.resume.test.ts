@@ -705,6 +705,82 @@ describe('a run taken up where it stopped', () => {
     expect(answer?.payload.result).toMatchObject({ retryOf: stopped.forgeId, resumed: true });
   });
 
+  describe('what the part taking the run up wrote to the part it took up', () => {
+    const NEW_ACCOUNT = '001000000000901AAA';
+    const ACCOUNT = '001000000000001AAA';
+
+    /**
+     * The resume: it creates the account, fills in the contact's lookup to it
+     * — the contact the first part wrote, which owed it — and its own
+     * account's, then ends as `end` says.
+     */
+    function resumeWriting(end: 'done' | 'cancelled'): Execute {
+      return async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        store?.setMapping('created', ACCOUNT, NEW_ACCOUNT, 'Account');
+        store?.patched(NEW_CONTACT, 'AccountId');
+        store?.patched(NEW_ACCOUNT, 'ParentId');
+        const created = {
+          remapTable: { [CONTACT]: NEW_CONTACT, [ACCOUNT]: NEW_ACCOUNT },
+          createdByObject: [{ objectApiName: 'Account', sourceIds: [ACCOUNT] }],
+        };
+        if (end === 'cancelled') {
+          const error = new ForgeAbortedError('Forge execution was aborted by user request.');
+          keepPartialSummary(error, {
+            ...stoppedSummary(),
+            ...created,
+            existingSourceIds: [CONTACT],
+          });
+          throw error;
+        }
+        return {
+          ...DONE,
+          idRemapTable: created.remapTable,
+          idRemapExisting: [CONTACT],
+          idRemapCreated: [{ objectApiName: 'Account', sourceIds: [ACCOUNT] }],
+        };
+      };
+    }
+
+    it('keeps it on the entry of a part that ended, once its journal goes', async () => {
+      const { stopped } = await cancelledRun();
+      const { handler } = windowRunning(resumeWriting('done'));
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+      // The contact the first part wrote, not the account the resume created.
+      const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
+      expect(answer?.payload.result).toMatchObject({ wroteToEarlierParts: [NEW_CONTACT] });
+      expect(files.size).toBe(0);
+      const kept = (await history(handler)).find((entry) => entry.resumed);
+      expect(kept?.wroteToEarlierParts).toEqual([NEW_CONTACT]);
+    });
+
+    it('keeps it on the entry of a part that stopped too', async () => {
+      const { stopped } = await cancelledRun();
+      const { handler } = windowRunning(resumeWriting('cancelled'));
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+      const kept = (await history(handler)).find((entry) => entry.resumed);
+      expect(kept).toMatchObject({ cancelled: true, wroteToEarlierParts: [NEW_CONTACT] });
+    });
+
+    it('keeps nothing of a run that took up no other', async () => {
+      const { handler } = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        store?.patched(NEW_CONTACT, 'AccountId');
+        return DONE;
+      });
+
+      await send(handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      expect((await history(handler))[0]).not.toHaveProperty('wroteToEarlierParts');
+    });
+  });
+
   it('leaves the part it resumed the one to take up when the resumed part stops before writing', async () => {
     const { stopped } = await cancelledRun();
     const { handler } = windowRunning(async (_graph, _config, options) => {

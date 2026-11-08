@@ -430,6 +430,53 @@ describe('ForgeRunRemovalResult', () => {
     );
   });
 
+  it('says, of a run stopped and taken up, that the other part holds what was kept, and how it goes', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'partial',
+          objects: [
+            outcome({
+              objectApiName: 'Opportunity',
+              planned: 1,
+              keptDependents: 1,
+              heldBy: ['OpportunityLineItem', 'Quote'],
+            }),
+          ],
+          heldByOtherParts: [
+            { forgeId: 'forge-resumed', objects: ['OpportunityLineItem', 'Quote'] },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-held-by-other-parts').textContent).toBe(
+      'This run was stopped and taken up where it left off: records of OpportunityLineItem, Quote ' +
+        'the other part wrote hold what was kept. Remove that part first, then this one again; ' +
+        'there is no need to include what changed.',
+    );
+    expect(screen.queryByTestId('forge-removal-other-parts-left')).toBeNull();
+  });
+
+  it('says what an earlier removal of the other part left, which that part takes asked again', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({ otherPartsLeft: [{ forgeId: 'forge-cut', records: 2 }] })}
+      />,
+    );
+    expect(screen.getByTestId('forge-removal-other-parts-left').textContent).toBe(
+      'This run was stopped and taken up where it left off: an earlier removal of the other part ' +
+        'left 2 records in DEV-SANDBOX, which records of this one may have held. Remove that part ' +
+        'again to take them.',
+    );
+    expect(screen.queryByTestId('forge-removal-held-by-other-parts')).toBeNull();
+
+    rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" result={result({})} />);
+    expect(screen.queryByTestId('forge-removal-other-parts-left')).toBeNull();
+  });
+
   it('says a removal of what an earlier one left picked up where that one left off', () => {
     const { rerender } = render(
       <ForgeRunRemovalResult org="DEV-SANDBOX" result={result({ status: 'success' })} />,
