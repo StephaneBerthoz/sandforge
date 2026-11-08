@@ -1076,7 +1076,9 @@
       "running": "Running",
       "done": "Done",
       "error": "Failed",
-      "skipped": "Skipped"
+      "skipped": "Skipped",
+      "linked_one": "{{count}} linked",
+      "linked_other": "{{count}} linked"
     },
     "removal": {
       "created_one": "{{formatted}} record created in {{org}}",

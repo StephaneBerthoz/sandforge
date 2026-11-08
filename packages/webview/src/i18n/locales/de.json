@@ -1076,7 +1076,9 @@
       "running": "Läuft",
       "done": "Fertig",
       "error": "Fehlgeschlagen",
-      "skipped": "Übersprungen"
+      "skipped": "Übersprungen",
+      "linked_one": "{{count}} verknüpft",
+      "linked_other": "{{count}} verknüpft"
     },
     "removal": {
       "created_one": "{{formatted}} Datensatz in {{org}} erstellt",

@@ -490,12 +490,82 @@ describe('SeedResultsStep', () => {
     expect(sent.suggestedName).toMatch(/^sandforge-seed-results-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(sent.extensions).toEqual(['csv']);
     expect(sent.content.split('\n')).toEqual([
-      '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+      '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed","Linked to a record the platform wrote"',
       // Only the first ids of a long list reach the step; the rest are counted.
-      '"Contact","10","8","2","003000000000001AAA 003000000000002AAA","6"',
-      '"Account","5","5","0","001000000000001AAA 001000000000002AAA 001000000000003AAA 001000000000004AAA 001000000000005AAA","0"',
+      '"Contact","10","8","2","003000000000001AAA 003000000000002AAA","6","0"',
+      '"Account","5","5","0","001000000000001AAA 001000000000002AAA 001000000000003AAA 001000000000004AAA 001000000000005AAA","0","0"',
     ]);
     expect(saveTemplateMutate).not.toHaveBeenCalled();
+  });
+
+  it('exports the contact roles linked to the ones the platform wrote in a last column, apart from those created', () => {
+    // The file had no column for them: a role object whose roles were all
+    // linked read as one that wrote nothing, 0 created and 0 failed. The
+    // column goes last, so the columns before it stay where a reader finds them.
+    const template = seedTemplate();
+    template.objects = [
+      { ...template.objects[0], objectApiName: 'Opportunity', recordCount: 3 },
+      { ...template.objects[0], objectApiName: 'OpportunityContactRole', recordCount: 3 },
+    ];
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            objectApiName: 'Opportunity',
+            recordsCreated: 3,
+            createdIds: [1, 2, 3].map((n) => `00600000000000${n}AAA`),
+          }),
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 3, given: 3 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={template}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('btn-export-csv'));
+
+    const { content } = fileSaveMutate.mock.calls[0][0] as { content: string };
+    const [header, opportunities, roles] = content
+      .split('\n')
+      .map((line) => line.slice(1, -1).split('","'));
+    expect(header.slice(0, 6)).toEqual([
+      'Object',
+      'Requested',
+      'Created',
+      'Failed',
+      'Created IDs',
+      'Created IDs not listed',
+    ]);
+    expect(header[6]).toBe('Linked to a record the platform wrote');
+    expect(opportunities[6]).toBe('0');
+    expect(roles).toEqual(['OpportunityContactRole', '3', '0', '0', '', '0', '3']);
+  });
+
+  it('says on the card of a role object whose roles were all linked that they were linked, not 0/0', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({ objectApiName: 'Opportunity', recordsCreated: 2 }),
+          objectResult({
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            writtenByThePlatform: { records: 2, given: 2 },
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByText('2/2')).toBeTruthy();
+    expect(screen.getByText('2 linked')).toBeTruthy();
+    expect(screen.queryByText('0/0')).toBeNull();
   });
 
   it('leaves the requested count empty when the step has no template', () => {
@@ -511,7 +581,7 @@ describe('SeedResultsStep', () => {
     fireEvent.click(screen.getByTestId('btn-export-csv'));
 
     const { content } = fileSaveMutate.mock.calls[0][0] as { content: string };
-    expect(content.split('\n')[1]).toBe('"Contact","","10","0","","10"');
+    expect(content.split('\n')[1]).toBe('"Contact","","10","0","","10","0"');
   });
 
   it('cannot export twice while the host’s save dialog is open', () => {

@@ -189,7 +189,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 ### Templates and Export
 
 - **Save as template** on the results step stores the configuration the run just used -- its objects, record counts, field rules and relations -- under the objects and the date. It is added to the gallery, next to the pre-built templates, and never overwrites one already there. A save the host refuses shows its reason next to the button
-- **Export CSV** on the results step saves, per object, the records requested, created and failed, with the ids of the records created -- the first 1,000 of an object that created more, and a count of the ones not listed
+- **Export CSV** on the results step saves, per object, the records requested, created and failed, with the ids of the records created -- the first 1,000 of an object that created more, and a count of the ones not listed --, then, in a last column, the records linked to one the platform wrote itself rather than created: the contact roles linked to the one Salesforce writes with each opportunity that goes in with its contact
 - Template Engine supports JSON/CSV with variable interpolation
 
 ## Tips

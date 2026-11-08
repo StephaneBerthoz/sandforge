@@ -1076,7 +1076,9 @@
       "running": "En cours",
       "done": "Terminé",
       "error": "Échoué",
-      "skipped": "Ignoré"
+      "skipped": "Ignoré",
+      "linked_one": "{{count}} rattaché",
+      "linked_other": "{{count}} rattachés"
     },
     "removal": {
       "created_one": "{{formatted}} enregistrement créé dans {{org}}",

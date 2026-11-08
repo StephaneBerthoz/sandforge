@@ -37,6 +37,12 @@ const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
  * list is not read as the whole run. "Requested" is the count the run's
  * template asked for, which a relation sets for its child object; it is empty
  * when the step has no template.
+ *
+ * The last column counts the records linked to one the platform wrote itself
+ * rather than created: the contact roles linked to the one written with each
+ * opportunity, which a role object whose roles were all linked showed as
+ * nothing written, 0 created and 0 failed. It comes after the others, so a
+ * reader of the columns before it finds them where they were.
  */
 export function buildSeedResultsCsv(
   result: SeedExecutionResult,
@@ -46,7 +52,15 @@ export function buildSeedResultsCsv(
     (template?.objects ?? []).map((object) => [object.objectApiName, object.recordCount]),
   );
   const rows = [
-    ['Object', 'Requested', 'Created', 'Failed', 'Created IDs', 'Created IDs not listed'],
+    [
+      'Object',
+      'Requested',
+      'Created',
+      'Failed',
+      'Created IDs',
+      'Created IDs not listed',
+      'Linked to a record the platform wrote',
+    ],
     ...result.objectResults.map((object) => [
       object.objectApiName,
       String(requested.get(object.objectApiName) ?? ''),
@@ -54,6 +68,7 @@ export function buildSeedResultsCsv(
       String(object.recordsFailed),
       object.createdIds.join(' '),
       String(Math.max(0, object.recordsCreated - object.createdIds.length)),
+      String(object.writtenByThePlatform?.records ?? 0),
     ]),
   ];
   return rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');

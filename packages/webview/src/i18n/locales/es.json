@@ -1076,7 +1076,9 @@
       "running": "En ejecución",
       "done": "Hecho",
       "error": "Fallido",
-      "skipped": "Omitido"
+      "skipped": "Omitido",
+      "linked_one": "{{count}} vinculado",
+      "linked_other": "{{count}} vinculados"
     },
     "removal": {
       "created_one": "{{formatted}} registro creado en {{org}}",

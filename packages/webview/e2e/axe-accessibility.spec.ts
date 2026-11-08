@@ -9090,6 +9090,16 @@ const SEED_RUN_RESULT = {
       createdIds: [],
       errors: ['REQUIRED_FIELD_MISSING: LastName'],
     },
+    {
+      // Every role linked to the one the platform wrote with its opportunity:
+      // none created, none refused.
+      objectApiName: 'OpportunityContactRole',
+      recordsCreated: 0,
+      recordsFailed: 0,
+      createdIds: [],
+      errors: [],
+      writtenByThePlatform: { records: 50, given: 50 },
+    },
   ],
   totalRecordsCreated: 390,
   totalRecordsFailed: 10,
@@ -13015,11 +13025,15 @@ for (const theme of STATE_THEMES) {
       const saved = await bridge.waitForMessage('file:save', { timeout: 10_000 });
       const lines = (saved.payload as { content: string }).content.split('\n');
       expect(lines[0]).toBe(
-        '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed"',
+        '"Object","Requested","Created","Failed","Created IDs","Created IDs not listed","Linked to a record the platform wrote"',
       );
       expect(lines[1]).toBe(
-        '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98"',
+        '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98","0"',
       );
+      expect(lines[3]).toBe('"OpportunityContactRole","","0","0","","0","50"');
+      // The role object whose roles were all linked read a green 0/0.
+      await expect(page.getByText('50 linked', { exact: true })).toBeVisible();
+      await expect(page.getByText('0/0', { exact: true })).toHaveCount(0);
       await expect(page.getByTestId('seed-checkpoint-now')).toBeVisible();
 
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');

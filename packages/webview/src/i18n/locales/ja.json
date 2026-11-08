@@ -1009,7 +1009,8 @@
       "running": "実行中",
       "done": "完了",
       "error": "失敗",
-      "skipped": "スキップ"
+      "skipped": "スキップ",
+      "linked_other": "リンク済み {{count}} 件"
     },
     "removal": {
       "created_other": "{{org}} に作成したレコード: {{formatted}} 件",
