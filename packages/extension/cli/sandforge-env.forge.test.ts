@@ -339,10 +339,19 @@ describe('plan and apply a forge resource', () => {
       if (args.includes('--dry-run')) seedTheSource(3);
       return ran;
     };
+    // As the apply's own runner tells each script it runs (`envStepRunner`),
+    // which the world's in-process runner does not: told nothing, the clone
+    // said "raise --max-total", a flag the apply sets itself.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
 
-    const applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
-      runner: growing,
-    });
+    let applied: Awaited<ReturnType<typeof run>>;
+    try {
+      applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
+        runner: growing,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
 
     expect(applied.code).toBe(1);
     const result = envRunResultSchema.parse(applied.answer);
@@ -355,9 +364,9 @@ describe('plan and apply a forge resource', () => {
         exitCode: 1,
         status: 'failed',
         refusal:
-          'refused (MAX_TOTAL_EXCEEDED): The run would write 12 records, more than --max-total 4: ' +
-          'narrow the clone (--max, --exclude-object, --filter), or raise --max-total. Nothing ' +
-          'was written.',
+          'refused (MAX_TOTAL_EXCEEDED): The run would write 12 records, more than the 4 its ' +
+          'plan counted: the source holds more records than when it was planned. Plan again. ' +
+          'Nothing was written.',
       }),
     ]);
     const runLine = world.calls.find((call) => call.args.includes('--summary'));

@@ -1331,6 +1331,26 @@ describe('the words of what a removal runs into', () => {
     expect(refusal).not.toContain('--on-behalf-of');
   });
 
+  it('offers no mute to the reader of an environment, whose destroy and apply mute nothing', () => {
+    // Relayed by sandforge-env, the removal said "With --mute-automation, …",
+    // a flag neither the destroy nor an apply's replace takes, as Forge's,
+    // Sync's and Seed's removals no longer do.
+    for (const relay of ['sandforge-env', 'sandforge-env apply']) {
+      vi.stubEnv('SANDFORGE_RELAYED_BY', relay);
+      try {
+        const { refusal } = removalAutomation(
+          { read: automationOn(['Asset'], false), steps: { delete: ['Asset'] } },
+          'TGT',
+        );
+
+        expect(refusal).toContain('Nothing was written or deleted. Add --accept-automation');
+        expect(refusal).not.toContain('--mute-automation');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  });
+
   it('offers no mute to a removal that mutes already, nor for what no bypass keeps quiet', () => {
     const asked = removalAutomation(
       {

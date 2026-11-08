@@ -449,6 +449,25 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
   });
 
+  it('names the bypass to assign without the mute to the reader of an environment, whose apply mutes nothing', async () => {
+    // Relayed by an apply, the line went on "--mute-automation assigns them",
+    // a flag no environment takes: its runs never mute.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+    try {
+      withOrgs();
+
+      expect(await run(argv('--dry-run', '--skip-preflight'))).toBeUndefined();
+
+      expect(printed).toContain(
+        '  bypass: assign Load_Data to the user the run writes as, and the flows whose start ' +
+          'condition excludes them stay quiet',
+      );
+      expect(printed.join('\n')).not.toContain('--mute-automation');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('reads it from the target alone: its flows and rules over the regular API, its triggers, workflow rules and start conditions over the Tooling API', async () => {
     withOrgs();
 
@@ -941,6 +960,38 @@ describe('sandforge-clone target automation', () => {
             "own --max-total holds it to: narrow the clone with this script's own --max, " +
             '--exclude-object or --filter, or raise its --max-total. Nothing was written.\n',
         );
+        expect(orgs.TGT.written).toEqual([]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('says to the reader of an environment what its file and its plan hold the run to, which no --max-total of its own raises', async () => {
+      // Relayed by an apply, "raise its --max-total" sent the reader to a flag
+      // the environment sets itself: the plan's count for the run, the
+      // resource's maxTotal for its dry run.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        withOrgs(fakeOrg({ noFlows: true, limits: STORAGE }));
+
+        expect(await run(argv('--skip-preflight', '--max-total', '1'))).toBe(1);
+        expect(stderr).toBe(
+          'refused (MAX_TOTAL_EXCEEDED): The run would write 2 records, more than the 1 its ' +
+            'plan counted: the source holds more records than when it was planned. Plan again. ' +
+            'Nothing was written.\n',
+        );
+
+        stdout = '';
+        expect(
+          await run(argv('--skip-preflight', '--max-total', '1', '--dry-run', '--json')),
+        ).toBeUndefined();
+        expect(JSON.parse(stdout)).toMatchObject({
+          wouldBeRefused: [
+            "The run would write 2 records, more than the 1 the resource's maxTotal holds it " +
+              'to: narrow the resource in the file, or raise its maxTotal.',
+          ],
+          wouldBeRefusedCodes: ['MAX_TOTAL_EXCEEDED'],
+        });
         expect(orgs.TGT.written).toEqual([]);
       } finally {
         vi.unstubAllEnvs();

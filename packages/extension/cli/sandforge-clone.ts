@@ -987,7 +987,10 @@ Verify what a run created:
                          A lookup the clone left out with --exclude reads as
                          one left empty.
   --json                 print the verification as JSON on stdout, every other
-                         line on stderr
+                         line on stderr; refused for an org that is not the
+                         one the run wrote to, exit 1, "refused": {"code",
+                         "message"}, the code its line names: refused
+                         (OTHER_ORG): ...
   --audit <file>         record the verification in the audit trail kept in
                          <file>
 
@@ -4288,14 +4291,28 @@ const OBJECTS_NAMED = 10;
  * this script's line. Relayed by a command that takes none of them — the MCP
  * server's `clone_record`, an environment's apply, which gives each clone its
  * dry run's count — they are this script's own: told "raise --max-total", an
- * agent had no parameter to raise it with. Exported so it can be tested.
+ * agent had no parameter to raise it with. Relayed by an environment, which
+ * sets the ceiling itself, it is said as the environment holds it: the
+ * resource's `maxTotal` for a dry run, the count its plan gave for a run,
+ * past which a source that grew since is refused. Told "raise its
+ * --max-total", the reader of an apply had nothing to raise. Exported so it
+ * can be tested.
+ *
+ * @param dryRun - Whether the run is a dry run, which an environment holds to its file's ceiling.
  */
-export function maxTotalRefusal(rows: number, max: number): string {
+export function maxTotalRefusal(rows: number, max: number, dryRun = false): string {
   if (relayTakes('--max-total')) {
     return (
       `The run would write ${rows} records, more than --max-total ${max}: narrow the clone ` +
       '(--max, --exclude-object, --filter), or raise --max-total.'
     );
+  }
+  if (relayedBy()?.startsWith('sandforge-env') === true) {
+    return dryRun
+      ? `The run would write ${rows} records, more than the ${max} the resource's maxTotal ` +
+          'holds it to: narrow the resource in the file, or raise its maxTotal.'
+      : `The run would write ${rows} records, more than the ${max} its plan counted: the ` +
+          'source holds more records than when it was planned. Plan again.';
   }
   return (
     `The run would write ${rows} records, more than the ${max} ` +
@@ -6992,10 +7009,29 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   const conn = makeConn(session);
   const org = await typeOrg(conn);
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
-    process.stderr.write(
-      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its records ` +
-        'are verified in that org only.\n',
-    );
+    // Under its code, as the removal of the same summary is refused: it said
+    // a sentence with no code on stderr and left stdout empty.
+    const refused = {
+      code: OTHER_ORG,
+      message:
+        `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and its ` +
+        'records are verified in that org only. Nothing of the run was read.',
+    };
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedRemovalSummary(
+          {
+            tool: 'sandforge-clone',
+            action: 'verify',
+            summary: args.summaryPath,
+            target: args.target,
+            elapsedMs: Date.now() - t0,
+          },
+          refused,
+        ),
+      );
+    }
     process.exit(1);
   }
   summary = await datedFromItsJournal(conn, summary);
@@ -7686,6 +7722,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   say('');
   for (const line of automationLines(targetAutomation, args.target, {
     applyAssignmentRules: args.applyAssignmentRules,
+    // Relayed by an environment, which mutes nothing, the flag is not named.
+    mayMute: relayTakes('--mute-automation'),
   })) {
     say(line);
   }
@@ -8365,7 +8403,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
     const overTotal =
-      plan.totalRows > args.maxTotal ? maxTotalRefusal(plan.totalRows, args.maxTotal) : undefined;
+      plan.totalRows > args.maxTotal
+        ? maxTotalRefusal(plan.totalRows, args.maxTotal, args.dryRun)
+        : undefined;
     const overStorage = storageRefusal(check, args.target);
     // The checkpoint's refusal in the command's words, and the requests past
     // what the target has left, each said whatever else refuses the run.

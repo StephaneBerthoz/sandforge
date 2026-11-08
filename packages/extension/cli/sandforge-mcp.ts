@@ -353,6 +353,20 @@ const muteFor = (run: string) =>
   );
 
 /**
+ * A rewind's or an undo's `muteAutomation`, as the script's `--mute-automation`
+ * takes it: their refusal for the emails said "--mute-automation keeps quiet
+ * …", and neither tool took it.
+ */
+const muteActFor = (act: string) =>
+  acceptance(
+    `Keep quiet what the org runs as ${act} writes, through its own bypass: the permission ` +
+      `sets holding it are assigned to the user it writes as, for ${act} alone, under a lease, ` +
+      'and taken back as it ends; what no bypass keeps quiet still needs acceptAutomation. ' +
+      'Refused on a production org and for a user who cannot assign permission sets. Only ' +
+      'once the person using you has agreed to it.',
+  );
+
+/**
  * What stands for `--accept-automation` for an environment tool: the file's
  * accept, per resource, where the repository's reviewers read it, which the
  * tool hands the resource's script; no parameter of the tool.
@@ -866,6 +880,7 @@ export const TOOLS: readonly ServedTool[] = [
           'the rewind writes sends some. acceptAutomation never stands for it. Only once the ' +
           'person using you has accepted that these emails go out.',
       ),
+      muteAutomation: muteActFor('the rewind'),
       acceptNoUndo: acceptance(
         'Rewind although Undo could not bring back some records it deletes (objects Salesforce ' +
           'undeletes only with their parent).',
@@ -893,6 +908,7 @@ export const TOOLS: readonly ServedTool[] = [
     flags: {
       '--accept-automation': 'acceptAutomation',
       '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
       '--accept-no-undo': 'acceptNoUndo',
       '--accept-recreate': 'acceptRecreate',
       '--accept-outside': 'acceptOutside',
@@ -910,6 +926,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.objects ?? []).flatMap((object) => ['--object', object]),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
         ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
         ...(args.acceptRecreate === true ? ['--accept-recreate'] : []),
         ...(args.acceptOutside === true ? ['--accept-outside'] : []),
@@ -942,6 +959,7 @@ export const TOOLS: readonly ServedTool[] = [
           'the undo writes sends some. acceptAutomation never stands for it. Only once the ' +
           'person using you has accepted that these emails go out.',
       ),
+      muteAutomation: muteActFor('the undo'),
     }),
     writesTo: (args) => args.org,
     writes:
@@ -951,6 +969,7 @@ export const TOOLS: readonly ServedTool[] = [
     flags: {
       '--accept-automation': 'acceptAutomation',
       '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
     },
     run: (args) => ({
       script: 'sandforge-checkpoint',
@@ -963,6 +982,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--yes',
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
         '--json',
       ],
     }),

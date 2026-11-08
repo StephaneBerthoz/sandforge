@@ -96,6 +96,7 @@ import {
   targetAutomationReader,
   type SweepClassArgs,
 } from './sandforge-clone.js';
+import { relayTakes } from './relayWords.js';
 import type { OtherModuleRuns } from '../src/bridge/handlers/removalSweep.js';
 import { PRODUCTION_GUARD_MISSING } from '../src/bridge/handlers/HandlerTypes.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
@@ -879,7 +880,8 @@ export function removalAutomation(
     steps,
     ...(sweep ? { sweep } : {}),
     assign: bypassesToAssign(automation, removalStepsBypassesOf(automation, written)),
-    mayMute: mute === undefined,
+    // Relayed by an environment, which mutes nothing, the mute is not offered.
+    mayMute: mute === undefined && relayTakes('--mute-automation'),
     subject,
   });
   return {

@@ -966,6 +966,50 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('hands muteAutomation to a rewind and an undo as --mute-automation, and names it where their refusal names the flag', async () => {
+    // The rewind's refusal for the emails said "--mute-automation keeps quiet
+    // ..." to a reader whose checkpoint_rewind and checkpoint_undo took no
+    // such parameter, though the script's rewind and undo take the flag.
+    const refusal =
+      'DEV delivers every email its automation sends (Setup > Deliverability: All email), and ' +
+      'flow "Welcome Email" on Contact sends some as the rewind writes. Nothing was written. ' +
+      "Add --accept-emails to rewind all the same, set the org's deliverability to System " +
+      'email only, or turn off what sends them. --mute-automation keeps quiet flow "Welcome ' +
+      'Email" on Contact, which tests a bypass a permission set of DEV holds.';
+    const { run, ran } = scripts((_script, args) =>
+      args.includes('--mute-automation')
+        ? { code: 0, stdout: '{}' }
+        : {
+            code: 1,
+            stdout: JSON.stringify({ refusal: { code: 'EMAILS_DELIVERED', message: refusal } }),
+            stderr: `${refusal}\n`,
+          },
+    );
+    const c = client(run);
+    await c.initialized();
+    const asked = { org: 'DEV', checkpoint: 'baseline', confirm: 'DEV' };
+
+    const rewound = await c.call('checkpoint_rewind', asked);
+    const undone = await c.call('checkpoint_undo', asked);
+    const muted = await c.call('checkpoint_rewind', { ...asked, muteAutomation: true });
+    const undoMuted = await c.call('checkpoint_undo', { ...asked, muteAutomation: true });
+
+    for (const answered of [rewound, undone]) {
+      expect(textOf(answered)).toContain(
+        "--mute-automation, named above, is this tool's muteAutomation: true. Give it only once " +
+          'the person using you has accepted what it lets through.',
+      );
+    }
+    for (const answered of [muted, undoMuted]) expect(answered.isError).toBe(false);
+    expect(ran.map(({ args }) => args.includes('--mute-automation'))).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ]);
+    await c.close();
+  });
+
   it('hands acceptEmails to a seed and a clone as --accept-emails, never from acceptAutomation, and names it where they are refused for the emails', async () => {
     const refusal =
       'DEV delivers every email its automation sends (Setup > Deliverability: All email). ' +
@@ -1161,22 +1205,32 @@ describe("sandforge-mcp: a script's answer", () => {
 
   it('hands muteAutomation to a seed and a clone as --mute-automation, a dry run as a write, and names it where their lines name the flag', async () => {
     // seed_run and clone_record relayed "--mute-automation keeps quiet ..."
-    // and took no such parameter.
+    // and took no such parameter. A script asked to mute names the flag no
+    // more, as a seed under it did not on the trap org: its lines say the
+    // mute it plans, and the refusal it would have met without it is gone.
     const sends =
       'refused (EMAILS_NOT_ACCEPTED): DEV delivers every email its automation sends. ' +
       'Nothing was written. --mute-automation keeps quiet flow "Welcome Email" on Contact, ' +
       'which tests a bypass a permission set of DEV holds.\n';
-    const { ran, run } = scripts(() => ({ code: 1, stderr: sends }));
+    const muted =
+      'mute: planned, the permission set(s) holding Welcome_Bypass for the user it writes as ' +
+      'in DEV, for the run alone; nothing is assigned yet\n' +
+      '  silenced: flow "Welcome Email" on Contact (bypass Welcome_Bypass)\n';
+    const { ran, run } = scripts((_script, args) =>
+      args.includes('--mute-automation')
+        ? { code: 0, stdout: '{}', stderr: muted }
+        : { code: 1, stderr: sends },
+    );
     const c = client(run);
     await c.initialized();
 
-    const seeded = await c.call('seed_run', {
+    const seededMuted = await c.call('seed_run', {
       org: 'DEV',
       template: 'prebuilt-crm-starter',
       dryRun: true,
       muteAutomation: true,
     });
-    const cloned = await c.call('clone_record', {
+    const clonedMuted = await c.call('clone_record', {
       source: 'SRC',
       target: 'SB',
       recordId: '001000000000001AAA',
@@ -1184,11 +1238,29 @@ describe("sandforge-mcp: a script's answer", () => {
       confirm: 'SB',
       muteAutomation: true,
     });
-    await c.call('seed_run', { org: 'DEV', template: 'prebuilt-crm-starter', dryRun: true });
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: true,
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+    });
 
-    expect(ran[0]?.args).toContain('--mute-automation');
-    expect(ran[1]?.args).toContain('--mute-automation');
-    expect(ran[2]?.args).not.toContain('--mute-automation');
+    expect(ran.map(({ args }) => args.includes('--mute-automation'))).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    for (const answered of [seededMuted, clonedMuted]) {
+      expect(textOf(answered)).toContain('mute: planned, the permission set(s) holding');
+      expect(textOf(answered)).not.toContain('named above');
+    }
     for (const answered of [seeded, cloned]) {
       expect(textOf(answered)).toContain(
         "--mute-automation, named above, is this tool's muteAutomation: true.",

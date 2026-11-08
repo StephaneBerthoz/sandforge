@@ -265,6 +265,28 @@ describe('sandforge-clone --verify', () => {
       expect(stderr.join('')).toContain('is not the org the run wrote to');
       expect(verifierCalls).toEqual([]);
     });
+
+    it('refuses another org under its code, its line and, with --json, stdout naming it, as a removal refuses it', async () => {
+      // Refused so, it said a sentence with no code on stderr and left stdout
+      // empty, where the removal of the same summary names OTHER_ORG.
+      organization = { Id: '00D000000000009AAA', IsSandbox: true };
+      const path = file(runSummary());
+
+      expect(await run(['--verify', path, '--target', 'TGT', '--json'])).toBe(1);
+
+      expect(stderr.join('')).toContain(
+        `refused (OTHER_ORG): TGT is not the org the run wrote to (${TARGET_ORG}), and its ` +
+          'records are verified in that org only. Nothing of the run was read.\n',
+      );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        tool: 'sandforge-clone',
+        action: 'verify',
+        summary: path,
+        target: 'TGT',
+        refused: { code: 'OTHER_ORG' },
+      });
+      expect(verifierCalls).toEqual([]);
+    });
   });
 
   describe('the verification', () => {

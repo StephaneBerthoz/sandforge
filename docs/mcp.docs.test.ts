@@ -196,15 +196,19 @@ describe('docs/mcp.md', () => {
     // parameter.
     const rule = section('The confirm rule');
 
+    // checkpoint_rewind and checkpoint_undo relayed "--mute-automation keeps
+    // quiet …" of their refusal for the emails, and took no such parameter.
     expect(rule).toContain(
-      '`muteAutomation` is `--mute-automation` for `seed_run` and `clone_record` too',
+      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, ' +
+        '`checkpoint_rewind` and `checkpoint_undo` too',
     );
     expect(SERVER).toContain(
       "flags: { '--accept-emails': 'acceptEmails', '--mute-automation': 'muteAutomation' },",
     );
+    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(5);
     expect(
       SERVER.split("...(args.muteAutomation === true ? ['--mute-automation'] : []),"),
-    ).toHaveLength(4);
+    ).toHaveLength(6);
     expect(rule).toContain("the script's line calls this script's own");
     expect(rule).toContain('No environment mutes, and none of its runs offers it.');
     expect(SERVER).toContain(

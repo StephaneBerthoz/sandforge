@@ -2407,13 +2407,15 @@ function firedNotes(fired: ForgeAutomationFired, write: ForgeRunWrite): string[]
  * read could not read or left unread, and what it cost.
  *
  * @param target - The alias of the target, as the command names it.
- * @param options - Whether the run applies the target's assignment rules, and
- *   the user the run writes as, whom a bypass's command assigns it to.
+ * @param options - Whether the run applies the target's assignment rules,
+ *   the user the run writes as, whom a bypass's command assigns it to, and
+ *   whether the command's reader can mute (`--mute-automation`): relayed by
+ *   an environment, which mutes nothing, the bypass line named the flag.
  */
 export function automationLines(
   automation: ForgeTargetAutomation,
   target: string,
-  options: { applyAssignmentRules?: boolean; username?: string } = {},
+  options: { applyAssignmentRules?: boolean; username?: string; mayMute?: boolean } = {},
 ): string[] {
   const lines = [
     `target automation: what ${target} runs on the ${automation.objectsRead.length} object(s) the run writes`,
@@ -2453,8 +2455,10 @@ export function automationLines(
   if (toAssign.length > 0) {
     lines.push(
       `  bypass: assign ${toAssign.join(', ')} to the user the run writes as, and the flows ` +
-        'whose start condition excludes them stay quiet; --mute-automation assigns them for ' +
-        'the run alone, and takes them back as it ends',
+        'whose start condition excludes them stay quiet' +
+        (options.mayMute !== false
+          ? '; --mute-automation assigns them for the run alone, and takes them back as it ends'
+          : ''),
     );
     // What would assign each, as the read found it: shown, never run.
     for (const { permission, permissionSet, others } of bypassAssignmentsOf(automation, toAssign)) {

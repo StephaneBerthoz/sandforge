@@ -1034,6 +1034,13 @@ describe('docs/environments.md', () => {
         '`--fail-on-change` exits `3` when `apply` would write or delete anything',
       ],
       [help(), 'records deleted or changed since', 'a record deleted or changed since'],
+      // The question asks for what --org names, a username for an org with no
+      // alias: the help said "the org's alias" alone, as the Rewind step did.
+      [
+        help(),
+        "after asking you to type the org's alias, or its username for an\n            org that has none",
+        "asks for the org's alias, or its username for an org that has none, to be typed",
+      ],
       [
         GUARDS,
         'it is warned of, not refused',
@@ -2015,7 +2022,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
     );
     // Positive control: the promises both make are the help's.
     expect(help()).toContain('A production org is refused before anything is read, exit 1.');
-    expect(help()).toContain('applied again, it writes\n            nothing');
+    expect(help()).toContain('applied again, it writes nothing');
 
     expect(readme).toContain('](docs/environments.md)');
     expect(readme).toContain('A production org is refused before anything is read.');

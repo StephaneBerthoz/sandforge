@@ -20,6 +20,7 @@ vi.mock('./sandforge-clone.js', async (original) => ({
 
 import { makeConn } from './sfSession.js';
 import { main } from './sandforge-seed.js';
+import { readSeedDryRun, seedDryRunCount } from './env/kinds/seed.js';
 import { contactRolesOfSoql } from '../src/core/common/platformRecords.js';
 
 /*
@@ -300,5 +301,29 @@ describe('sandforge-seed and the contact role the platform writes with an opport
     // The storage the gate holds the run to counts the role as a record it
     // writes: too high by the roles the platform writes, never too low.
     expect(out).toMatch(/data storage: about [\d.]+ MB to write/);
+  });
+
+  it('is read by an environment with the roles it links, which its plan says beside the records to write', async () => {
+    // An environment read the dry run through a schema without the field:
+    // its plan said "OpportunityContactRole 0 to write" of a resource that
+    // asks one role, and no word of the one the platform writes.
+    roleWritingSandbox();
+    await main(line('--seed', '7', '--dry-run', '--json'));
+
+    const answer = readSeedDryRun(stdout.join(''));
+    expect(answer.result.objectResults).toContainEqual(
+      expect.objectContaining({
+        objectApiName: 'OpportunityContactRole',
+        recordsCreated: 0,
+        writtenByThePlatform: { records: 1, given: 1 },
+      }),
+    );
+    const count = seedDryRunCount(answer);
+    expect(count.objects).toContainEqual({ object: 'OpportunityContactRole', wouldCreate: 0 });
+    expect(count.notes).toEqual([
+      'OpportunityContactRole: 1 record(s) linked to the contact role the platform writes with ' +
+        'their opportunity, for its contact, not written: given the fields the seed generates ' +
+        'for it',
+    ]);
   });
 });

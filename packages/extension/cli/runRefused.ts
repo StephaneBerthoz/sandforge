@@ -100,10 +100,11 @@ export function refusedSummary(
 export interface RefusedRemoval {
   tool: string;
   /**
-   * The removal itself, or its preview (`--remove --preview`), refused before
-   * it read a record of the run: another org than the one the run wrote to.
+   * The removal itself, its preview (`--remove --preview`), or the
+   * verification of the same run (`--verify`), refused before it read a
+   * record of the run: another org than the one the run wrote to.
    */
-  action?: 'remove' | 'remove-preview';
+  action?: 'remove' | 'remove-preview' | 'verify';
   /** What the removal was asked to take back: the summary, or the run's file. */
   summary: string;
   target: string;

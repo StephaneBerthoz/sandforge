@@ -611,7 +611,7 @@ contacts: run 1 (create)
 apply: success; state serial 4
 ```
 
-It plans first, then, on a terminal, asks for the org's alias to be typed -- `Type pool-1 to apply case-flow to it as planned:` --; with no terminal and no `--yes`, as in a CI step, it stops at the question, exit `2`, having written nothing. Before each run starts, the state names it; once it ends, the state says how. With `--json`, each step of the answer carries its script's exit code and its own `--json` answer, and, for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr -- a clone its count gate refuses before its first write says it there alone. Applied again, it writes nothing:
+It plans first, then, on a terminal, asks for the org's alias, or its username for an org that has none, to be typed -- `Type pool-1 to apply case-flow to it as planned:` --; with no terminal and no `--yes`, as in a CI step, it stops at the question, exit `2`, having written nothing. Before each run starts, the state names it; once it ends, the state says how. With `--json`, each step of the answer carries its script's exit code and its own `--json` answer, and, for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr -- a clone its count gate refuses before its first write says it there alone. Applied again, it writes nothing:
 
 <!-- replay: then -->
 
@@ -1101,13 +1101,15 @@ Commands:
   plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
             it is blocked; what an earlier apply left there and what changed since; per object the
             records it would write; the API requests, storage and emails it takes; writes nothing
-  apply     do what plan says, after asking you to type the org's alias; applied again, it writes
-            nothing; stopped, run it again and it takes up
+  apply     do what plan says, after asking you to type the org's alias, or its username for an
+            org that has none; applied again, it writes nothing; stopped, run it again and it
+            takes up
   destroy   take back what apply created, the last resource first, into the recycle bin; name what
             it cannot take back
   reset     rewind the org to the checkpoint taken after the last apply: what anyone created,
             changed or deleted since is taken back, the environment's records back as applied;
-            between two test suites, after asking you to type the org's alias
+            between two test suites, after asking you to type the org's alias, or its username
+            for an org that has none
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
   state recover

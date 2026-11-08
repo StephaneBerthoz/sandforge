@@ -562,6 +562,18 @@ const emailsSchema = z.object({
   unknown: z.array(z.string()).optional(),
 });
 
+/**
+ * The contact roles of an object linked to the one the platform writes with
+ * an opportunity the run creates, for its contact, rather than written: not
+ * among `recordsCreated`. Read without it, a plan counted fewer roles to
+ * write than the resource asks, and said nothing of the others.
+ */
+const writtenByThePlatformSchema = z.object({
+  records: countSchema,
+  given: countSchema,
+  refusal: z.string().optional(),
+});
+
 /** One object of a seed's result. */
 const seedObjectResultSchema = (ids: z.ZodType<string>) =>
   z.object({
@@ -571,6 +583,7 @@ const seedObjectResultSchema = (ids: z.ZodType<string>) =>
     createdIds: z.array(ids),
     errors: z.array(z.string()),
     truncated: z.boolean().optional(),
+    writtenByThePlatform: writtenByThePlatformSchema.optional(),
   });
 
 /** A seed's result: the orchestrator's, as the summary carries it. */
@@ -772,6 +785,11 @@ export function seedDryRunCount(
       : { object: result.objectApiName, wouldCreate: result.recordsCreated };
   });
   const refusal = answer.storage.refusal ?? answer.apiRequests.refusal ?? answer.emails.refusal;
+  const notes = answer.result.objectResults.flatMap((result) =>
+    result.writtenByThePlatform !== undefined
+      ? [linkedToThePlatformNote(result.objectApiName, result.writtenByThePlatform.records)]
+      : [],
+  );
   return {
     objects,
     total: answer.result.totalRecordsCreated,
@@ -780,7 +798,21 @@ export function seedDryRunCount(
     storageBytes: answer.storage.bytes,
     emails: answer.emails.checks.map((check) => ({ limit: check.limit, emails: check.emails })),
     ...(refusal !== undefined ? { refusal } : {}),
+    ...(notes.length > 0 ? { notes } : {}),
   };
+}
+
+/**
+ * What a plan says of the roles a seed's dry run links to those the platform
+ * writes with their opportunity, beside the records it counts to write: they
+ * are among none of them, and the run writes them through the platform's.
+ */
+function linkedToThePlatformNote(objectApiName: string, records: number): string {
+  return (
+    `${objectApiName}: ${records} record(s) linked to the contact role the platform writes ` +
+    'with their opportunity, for its contact, not written: given the fields the seed ' +
+    `generates for ${records === 1 ? 'it' : 'them'}`
+  );
 }
 
 /**

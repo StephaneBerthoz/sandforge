@@ -207,13 +207,15 @@ Commands:
   plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
             it is blocked; what an earlier apply left there and what changed since; per object the
             records it would write; the API requests, storage and emails it takes; writes nothing
-  apply     do what plan says, after asking you to type the org's alias; applied again, it writes
-            nothing; stopped, run it again and it takes up
+  apply     do what plan says, after asking you to type the org's alias, or its username for an
+            org that has none; applied again, it writes nothing; stopped, run it again and it
+            takes up
   destroy   take back what apply created, the last resource first, into the recycle bin; name what
             it cannot take back
   reset     rewind the org to the checkpoint taken after the last apply: what anyone created,
             changed or deleted since is taken back, the environment's records back as applied;
-            between two test suites, after asking you to type the org's alias
+            between two test suites, after asking you to type the org's alias, or its username
+            for an org that has none
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
   state recover
