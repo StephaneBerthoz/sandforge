@@ -5,6 +5,32 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.76.0] - 2026-11-08
+
+A Frozen load asks before the target's automation fires, the panel removes a resumed Forge clone whole, and dry runs count what a run links.
+
+### Added
+
+- **Command line and MCP**: `checkpoint_rewind` and `checkpoint_undo` take `muteAutomation`; a refused `sandforge-env destroy` gives `refusalCodes`.
+
+### Changed
+
+- **Frozen Dataset, command line**: a load refuses while the target runs automation as it inserts: add `--accept-automation`, or tick the Load tab's box.
+- **Sync, command line**: in `--json`, `alreadyCopied` no longer counts records linked to ones the target held, now `alreadyLinked`, and a dry run with nothing to write says `verdict` `nothing`.
+
+### Fixed
+
+- **Forge**: the panel removes a cut and resumed clone whole, part by part, and `--remove <journal>` keeps what someone changed between its parts.
+- **Forge**: a dry run counts what the target already holds as linked and the contact roles the platform may write, and names no sender of nothing written.
+- **Sync**: a duplicate or a contact role linked counts as linked, and a dry run says what the run writes without a lookup the target lacks.
+- **Frozen Dataset**: Preview names what runs, its lookup filters and the contact role it links; a found synced quote waits for its products.
+- **Frozen Dataset**: a default asked for says the value it takes, and a load stopped under the mute says what the mute did.
+- **Checkpoints**: a rewind or an undo counts each flow once and, stopped before writing, says so and keeps the Undo before it; estimates count a second pass.
+- **DataOps**: a restore and an erasure say what duplicate rules wrote, a masking waits only when one may have, and cascades run no delete automation.
+- **Seed**: contact roles the platform wrote read as linked on the results and the Quick Seed and Scenario cards, with their own Export CSV column.
+- **Environments**: no flag or mute is offered that the environment cannot take, a clone past its ceiling says to plan again, and a plan names linked roles.
+- **Command line**: a `--verify` refused for another org says `OTHER_ORG`, `rewind` names `--accept-automation`, and no removal offers a sweep it refuses.
+
 ## [1.75.0] - 2026-11-06
 
 Forge tells setup no user can create from a missing permission, every module keeps one contact role, and a sweep keeps what anyone changed.
