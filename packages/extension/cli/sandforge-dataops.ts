@@ -71,6 +71,7 @@ import {
   wouldBeRefusedLines,
 } from './dataOpsAutomationCli.js';
 import { refusedLine } from './runRefused.js';
+import { relayTakes } from './relayWords.js';
 
 const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
 
@@ -770,6 +771,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The Sync runs the command line kept: a restore of a run's snapshot reads
   // when the run last wrote, and leaves what changed since as it is.
   handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
+  // Relayed by an environment, whose mask resources never mute, a refusal
+  // names no --mute-automation.
+  handler.setMuteOffered(relayTakes('--mute-automation'));
 
   /**
    * Send a request as the panel does, and take what answers it as the

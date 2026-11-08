@@ -707,6 +707,13 @@ export interface SyncObjectResult {
    */
   alreadyCopied?: number;
   /**
+   * Of the records an insert of a saved configuration read, those an earlier
+   * run of it linked to a record the target held, which no run created: left
+   * as they are, counted among `skipped`, apart from `alreadyCopied`. Absent
+   * when none.
+   */
+  alreadyLinked?: number;
+  /**
    * The records the target refused as a duplicate of one it holds, naming
    * it, and that the run linked to that record rather than writing: counted
    * among `skipped`, neither written nor failed. Said apart from `errors`,
@@ -883,6 +890,11 @@ export interface SyncWriteCheck {
   total: number;
   /** Of the records read, those an earlier run of the configuration copied, left as they are. */
   alreadyCopied: number;
+  /**
+   * Of the records read, those an earlier run of the configuration linked to
+   * a record the target held, left as they are. Absent when none.
+   */
+  alreadyLinked?: number;
   /**
    * Of `total`, the records an update or an upsert writes, which may each
    * write over a record the target holds — every one an update writes, at
@@ -1073,6 +1085,13 @@ export interface SyncObjectSimulation {
    * leaves as they are: counted among `skipped`. Absent when none.
    */
   alreadyCopied?: number;
+  /**
+   * Of the records an insert of a saved configuration would read, those an
+   * earlier run of it linked to a record the target held, which a run leaves
+   * as they are: counted among `skipped`, apart from `alreadyCopied`. Absent
+   * when none.
+   */
+  alreadyLinked?: number;
   /**
    * The contact roles a run would link to the one the platform writes itself
    * as it takes an opportunity the run creates, for the contact it goes in

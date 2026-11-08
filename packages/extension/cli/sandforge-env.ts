@@ -252,7 +252,8 @@ apply:
   --replace <resource>       replace a resource kept or drifted; repeat for more
   --replace-drifted          replace every drifted resource
   --accept-automation        take back the runs a replace or a delete takes back although the org
-                             runs automation as records go
+                             runs automation as records go, and let a frozen resource load
+                             although it runs some as the load's records go in
   --accept-emails            let the seed, clone and frozen resources write although the org
                              delivers every email its automation sends (Setup > Deliverability:
                              All email), or would not say whether it does, and what still runs
@@ -315,8 +316,9 @@ A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge-fr
 configuration committed beside the file, its dataset named by its path from the root or in a
 { env: NAME } variable, and pinned by its version and its digest — a dataset whose digest is not
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
-the verification it chains; a replace is a reload, refused when it would leave records, and
-blocked while the org runs automation as its purge deletes, unless --accept-automation or the
+the verification it chains; a replace is a reload, refused when it would leave records. A load,
+the first one too, is blocked while the org runs automation as it inserts or updates its records,
+and a reload while it runs any as its purge deletes, unless --accept-automation or the
 resource's accept: { automation: true } takes it.
 
 A mask resource masks records the org already holds, a sandbox copied from production, with
@@ -533,6 +535,28 @@ export function envStepRunner(
 ): CommandRunner {
   const outer = process.env[RELAYED_BY_VARIABLE]?.trim();
   return spawnRunner({ ...options, relayedBy: envRelayOf(command, outer) });
+}
+
+/**
+ * A runner given in place of the spawned one — a test's, which runs each
+ * script's `main` in this process — told what a spawned script is told: the
+ * command that relays its lines ({@link envRelayOf}), set in this process's
+ * environment while the script runs and put back after. Steps run one at a
+ * time. Told nothing, the scripts an environment's tests run said what they
+ * say unrelayed, and those tests read words its reader never reads.
+ * Exported so it can be tested.
+ */
+export function relayedRunner(runner: CommandRunner, relayedBy: string): CommandRunner {
+  return async (script, args, signal) => {
+    const before = process.env[RELAYED_BY_VARIABLE];
+    process.env[RELAYED_BY_VARIABLE] = relayedBy;
+    try {
+      return await runner(script, args, signal);
+    } finally {
+      if (before === undefined) delete process.env[RELAYED_BY_VARIABLE];
+      else process.env[RELAYED_BY_VARIABLE] = before;
+    }
+  };
 }
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
@@ -954,7 +978,13 @@ async function prepare(
     state,
     warnings,
     ...(noState !== undefined ? { noState } : {}),
-    runner: deps.runner ?? envStepRunner({}, args.command),
+    runner:
+      deps.runner !== undefined
+        ? relayedRunner(
+            deps.runner,
+            envRelayOf(args.command, process.env[RELAYED_BY_VARIABLE]?.trim()),
+          )
+        : envStepRunner({}, args.command),
   };
 }
 

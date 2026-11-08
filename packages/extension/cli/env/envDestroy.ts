@@ -71,7 +71,13 @@ import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, worstExit } from '../exitCodes.js
 import { onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
 import { checkpointsOfState, deleteEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
 import type { EnvFileResolved } from './envFile.js';
-import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
+import {
+  checkpointActRefusal,
+  lockRefusal,
+  STATE_MOVED,
+  stateRefusal,
+  type EnvTarget,
+} from './envGuards.js';
 import { acquireEnvLock, checkpointLockRefusal } from './envLock.js';
 import { liveResources, removalOrder } from './envPlan.js';
 import {
@@ -118,12 +124,14 @@ export async function destroyEnvironment(
 ): Promise<EnvRunOutcome> {
   const { plan, target, resolved } = input;
   const env = resolved.checked.file.name;
-  const refused = (refusal: string): EnvRunOutcome => ({
+  /** Refused before its first step, under the codes of what refused it where they are known. */
+  const refused = (refusal: string, codes: readonly string[] = []): EnvRunOutcome => ({
     result: {
       plan,
       steps: [],
       status: 'failure',
       refusal,
+      ...(codes.length > 0 ? { refusalCodes: [...codes] } : {}),
       state: { serial: input.state?.serial ?? 0 },
     },
     exitCode: FAILED_EXIT,
@@ -137,7 +145,7 @@ export async function destroyEnvironment(
       exitCode: DONE_EXIT,
     };
   }
-  if (plan.refusal !== undefined) return refused(plan.refusal);
+  if (plan.refusal !== undefined) return refused(plan.refusal, plan.refusalCodes);
   const order = destroyOrder(input.state);
 
   const taken = acquireEnvLock(
@@ -146,7 +154,10 @@ export async function destroyEnvironment(
     { operation: 'destroy', env, alias: target.alias },
     deps.lockOptions,
   );
-  if ('busy' in taken) return refused(lockRefusal(taken.busy).message);
+  if ('busy' in taken) {
+    const busy = lockRefusal(taken.busy);
+    return refused(busy.message, [busy.code]);
+  }
   const stop = new AbortController();
   let stoppedBy: StopSignal | undefined;
   const release = (deps.onStop ?? onStopSignal)((signal) => {
@@ -170,11 +181,12 @@ export async function destroyEnvironment(
           `The state of ${env} on ${target.alias} changed since the plan of the destruction ` +
             '(another apply or destroy ran, or a cache put back another state). Nothing was ' +
             'deleted: run destroy again.',
+          [STATE_MOVED],
         );
       }
       current = read;
     } catch (err: unknown) {
-      if (err instanceof EnvStateError) return refused(err.message);
+      if (err instanceof EnvStateError) return refused(err.message, [stateRefusal(err).code]);
       throw err;
     }
 

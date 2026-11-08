@@ -499,6 +499,11 @@ export interface EnvAction {
   draws?: EnvActionDraw[];
   gates?: EnvActionGates;
   refusal?: string;
+  /**
+   * The codes of what `refusal` says, each as its script names it
+   * (`AUTOMATION_NOT_ACCEPTED`), where its scripts give them: a destroy's.
+   */
+  refusalCodes?: string[];
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
   notes?: string[];
 }
@@ -583,6 +588,8 @@ export interface EnvPlan {
   drift?: EnvPlanDrift;
   /** What a real apply would meet now. */
   refusal?: string;
+  /** The codes of what `refusal` says, where its scripts give them: a destroy's. */
+  refusalCodes?: string[];
   /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
   quick?: true;
   /** What the plan says without refusing: an apply under way, a scratch org with no state. */
@@ -657,6 +664,12 @@ export interface EnvRunResult {
   status: 'success' | 'partial' | 'failure' | 'cancelled';
   /** Why nothing was done, when it was refused before its first step. */
   refusal?: string;
+  /**
+   * The codes of what `refusal` says, where they are known: its plan's, each
+   * as the script whose preview refused names it, or this command's own
+   * (`LOCKED`, `STATE_MOVED`). A pipeline read them on stderr alone.
+   */
+  refusalCodes?: string[];
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
   state: { serial: number };
 }

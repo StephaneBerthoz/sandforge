@@ -1202,6 +1202,7 @@ describe('what a run says before its first write', () => {
             conflictFields: [],
             notes: [],
             alreadyCopied: 2,
+            alreadyLinked: 1,
           },
         ],
         duration: 5,
@@ -1215,6 +1216,7 @@ describe('what a run says before its first write', () => {
           objects: [{ objectApiName: 'Account', rows: 3_000 }],
           total: 3_000,
           alreadyCopied: 2,
+          alreadyLinked: 1,
           storage: { verdict: 'exceeds', estimateMB: 5.86, maxMB: 5, remainingMB: 4 },
           emails: [],
           verdict: 'refused',
@@ -1231,6 +1233,16 @@ describe('what a run says before its first write', () => {
     );
     expect(lines).toContain(
       '      2 already copied by an earlier run of this configuration, left as they are',
+    );
+    // A record the earlier run linked to one the target held is said linked:
+    // live, a second run said "already copied" of an account the first linked.
+    expect(lines).toContain(
+      '      1 already linked by an earlier run of this configuration to records the target ' +
+        'held, left as they are',
+    );
+    expect(lines).toContain(
+      '    not counted: 1 record(s) an earlier run of this configuration linked to records the ' +
+        'target held, left as they are',
     );
   });
 

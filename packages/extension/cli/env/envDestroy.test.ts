@@ -469,6 +469,8 @@ describe('destroy', () => {
 
       expect(outcome.exitCode).toBe(1);
       expect(outcome.result.refusal).toContain('an apply of case-flow is under way');
+      // Under the code the command's own refusal of a held org gives.
+      expect(outcome.result.refusalCodes).toEqual(['LOCKED']);
       expect(world.records('Account')).toHaveLength(2);
     } finally {
       held.lock.release();

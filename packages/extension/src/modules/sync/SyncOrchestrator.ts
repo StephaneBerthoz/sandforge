@@ -374,6 +374,13 @@ const NOT_WRITTEN: unique symbol = Symbol('not written');
  */
 interface RunContext {
   links: SyncRunLinks;
+  /**
+   * The source records earlier runs of the configuration linked to a record
+   * the target held, which no run created, by the first fifteen characters
+   * of their id: of those an insert leaves as they are, the ones it says
+   * linked rather than copied.
+   */
+  earlierLinked?: ReadonlySet<string>;
   recordTypes: () => Promise<SyncRecordTypes | undefined>;
   /** Both orgs' currencies, read the first time an object's records carry one. */
   currencies: () => Promise<RunCurrencies | undefined>;
@@ -597,8 +604,13 @@ interface PreparedObject {
   unsettled: Record<string, unknown>[];
   /** The field the conflicts were matched on. */
   matchField: string;
-  /** Rows read that an earlier run of the configuration copied, left out as they are. */
+  /**
+   * Rows read that an earlier run of the configuration copied or linked to a
+   * record the target held, left out as they are.
+   */
   alreadyCopied: number;
+  /** Of `alreadyCopied`, those an earlier run linked rather than copied. */
+  alreadyLinked: number;
   /** The encrypted fields the source's user reads masked, taken out of every record read. */
   encryptedLeftOut?: string[];
 }
@@ -793,9 +805,33 @@ function rolesLinkedNote(linked: number): string {
   );
 }
 
-function withAlreadyCopied(result: SyncObjectResult, alreadyCopied: number): SyncObjectResult {
-  if (alreadyCopied === 0) return result;
-  return { ...result, skipped: result.skipped + alreadyCopied, alreadyCopied };
+/**
+ * What an object's result says of the rows an earlier run left as they are:
+ * those it copied, and apart from them those it linked to a record the
+ * target held, which no run copied. Told "already copied", the reader of a
+ * second run took a record the first had linked for one it created.
+ */
+function alreadyFieldsOf(
+  prepared: Pick<PreparedObject, 'alreadyCopied' | 'alreadyLinked'>,
+): Pick<SyncObjectResult, 'alreadyCopied' | 'alreadyLinked'> {
+  const linked = prepared.alreadyLinked;
+  const copied = prepared.alreadyCopied - linked;
+  return {
+    ...(copied > 0 ? { alreadyCopied: copied } : {}),
+    ...(linked > 0 ? { alreadyLinked: linked } : {}),
+  };
+}
+
+function withAlreadyCopied(
+  result: SyncObjectResult,
+  prepared: Pick<PreparedObject, 'alreadyCopied' | 'alreadyLinked'>,
+): SyncObjectResult {
+  if (prepared.alreadyCopied === 0) return result;
+  return {
+    ...result,
+    skipped: result.skipped + prepared.alreadyCopied,
+    ...alreadyFieldsOf(prepared),
+  };
 }
 
 /**
@@ -869,13 +905,20 @@ function countedWriteOf(
   readBack: ReadonlySet<string> = new Set(),
   heldBack: ReadonlyMap<string, SyncHeldBackObject> = new Map(),
   matched: ReadonlyMap<string, number> = new Map(),
+  linked: ReadonlySet<string> = new Set(),
 ): GateInput {
   let alreadyCopied = 0;
+  let alreadyLinked = 0;
   const measured = objects.map((objectConfig): SyncCountedObject => {
     const name = objectConfig.objectApiName;
     const count = counted.get(name) ?? { rows: 0 };
-    const left = copied.get(name)?.size ?? 0;
-    alreadyCopied += Math.min(left, count.rows);
+    const kept = copied.get(name) ?? new Set<string>();
+    const left = kept.size;
+    // Of them, those an earlier run linked rather than copied, said apart.
+    const asLeft = Math.min(left, count.rows);
+    const linkedLeft = Math.min([...kept].filter((key) => linked.has(key)).length, asLeft);
+    alreadyLinked += linkedLeft;
+    alreadyCopied += asLeft - linkedLeft;
     const held = refused.has(name) ? 0 : (heldBack.get(name)?.rows ?? 0);
     const apart = held + (matched.get(name) ?? 0);
     return {
@@ -903,6 +946,7 @@ function countedWriteOf(
   return {
     objects: written,
     alreadyCopied,
+    ...(alreadyLinked > 0 ? { alreadyLinked } : {}),
     ...(unwritable.length > 0 ? { unwritable } : {}),
     ...(held.length > 0 ? { heldBack: held } : {}),
     ...(reads > 0 ? { readBack: reads } : {}),
@@ -1236,6 +1280,7 @@ export class SyncOrchestrator {
         readsBack,
         apart.heldBack,
         apart.matched,
+        earlier.linked,
       );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
@@ -1298,12 +1343,19 @@ export class SyncOrchestrator {
     ): void => {
       if (!idMap) return;
       const pairs = linkPairs(objectConfig.operation, outcomes, sourceIds);
-      if (pairs.length === 0) return;
-      linksKept = linksKept.then(() =>
-        idMap.record(config.id, orgs, objectConfig.objectApiName, pairs).catch((err: unknown) => {
-          linksUnkept ??= err instanceof Error ? err.message : String(err);
-        }),
-      );
+      for (const [kept, linked] of [
+        [pairs.written, false],
+        [pairs.linked, true],
+      ] as const) {
+        if (kept.length === 0) continue;
+        linksKept = linksKept.then(() =>
+          idMap
+            .record(config.id, orgs, objectConfig.objectApiName, kept, linked)
+            .catch((err: unknown) => {
+              linksUnkept ??= err instanceof Error ? err.message : String(err);
+            }),
+        );
+      }
     };
 
     // A record of the target a delta run deletes, as the source had deleted
@@ -1592,6 +1644,7 @@ export class SyncOrchestrator {
             deltaLoad,
             {
               links,
+              ...(earlier.linked ? { earlierLinked: earlier.linked } : {}),
               recordTypes,
               currencies,
               currencyChangesById,
@@ -1640,6 +1693,7 @@ export class SyncOrchestrator {
           leftOut,
           {
             links,
+            ...(earlier.linked ? { earlierLinked: earlier.linked } : {}),
             recordTypes,
             currencies,
             currencyChangesById,
@@ -1941,17 +1995,20 @@ export class SyncOrchestrator {
    * (`idMap`): nothing for a configuration that keeps none, or a run given
    * nowhere to read it; nothing too, with why, when it could not be read.
    */
-  private async earlierLinks(
-    config: SyncConfig,
-  ): Promise<{ links?: ReadonlyMap<string, string>; unread?: string }> {
+  private async earlierLinks(config: SyncConfig): Promise<{
+    links?: ReadonlyMap<string, string>;
+    /** Of them, the source records linked to a record the target held: see `RunContext.earlierLinked`. */
+    linked?: ReadonlySet<string>;
+    unread?: string;
+  }> {
     const idMap = this.deps.idMap;
     if (!idMap) return {};
     try {
-      const links = await idMap.load(config.id, {
-        sourceOrgId: config.sourceOrgId,
-        targetOrgId: config.targetOrgId,
-      });
-      return links ? { links } : {};
+      const orgs = { sourceOrgId: config.sourceOrgId, targetOrgId: config.targetOrgId };
+      const links = await idMap.load(config.id, orgs);
+      if (!links) return {};
+      const linked = await idMap.linked?.(config.id, orgs);
+      return { links, ...(linked !== undefined && linked.size > 0 ? { linked } : {}) };
     } catch (err: unknown) {
       return { unread: err instanceof Error ? err.message : String(err) };
     }
@@ -2530,6 +2587,7 @@ export class SyncOrchestrator {
             this.deps.queryTargetRows ? typed : new Set<string>(),
             apart.heldBack,
             apart.matched,
+            earlier.linked,
           ),
         );
       } catch (err: unknown) {
@@ -2538,6 +2596,7 @@ export class SyncOrchestrator {
     }
     const run: RunContext = {
       links: new SyncRunLinks(earlier.links),
+      ...(earlier.linked ? { earlierLinked: earlier.linked } : {}),
       recordTypes: this.recordTypesOnce(),
       currencies,
       currencyChangesById: new Map<string, CurrencyChange>(),
@@ -2688,6 +2747,7 @@ export class SyncOrchestrator {
       plan ? read : undefined,
       copied,
       run.gateReads,
+      run.earlierLinked,
     );
     // The price books and prices as the run writes them: see `pricesSettled`.
     const settled =
@@ -2711,7 +2771,7 @@ export class SyncOrchestrator {
           update: 0,
           delete: 0,
           skipped: priced.alreadyCopied,
-          ...(priced.alreadyCopied > 0 ? { alreadyCopied: priced.alreadyCopied } : {}),
+          ...alreadyFieldsOf(priced),
           refused: priced.records.length + heldWith.length,
           conflicts: 0,
           conflictFields: [],
@@ -2903,7 +2963,7 @@ export class SyncOrchestrator {
     const withHeld: SyncObjectSimulation = {
       ...outcome,
       skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied + roles.linked,
-      ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
+      ...alreadyFieldsOf(prepared),
       ...(roles.linked > 0 ? { writtenByThePlatform: roles.linked } : {}),
       ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
       ...(recordTypeGiven ? { recordTypeGiven } : {}),
@@ -3060,6 +3120,7 @@ export class SyncOrchestrator {
       plan ? read : undefined,
       copied,
       run.gateReads,
+      run.earlierLinked,
     );
     if (asRead.records.length === 0) return;
     const settled = await this.pricesSettled(objectConfig, asRead, run);
@@ -3099,14 +3160,22 @@ export class SyncOrchestrator {
     copied?: ReadonlySet<string>,
     onLookupsToSet?: (pending: PendingLookup[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const asRead = await this.prepare(config, objectConfig, leftOut, read, copied, run.gateReads);
+    const asRead = await this.prepare(
+      config,
+      objectConfig,
+      leftOut,
+      read,
+      copied,
+      run.gateReads,
+      run.earlierLinked,
+    );
     // The roles the platform wrote with the run's opportunities are linked,
     // and out of what the write sends.
     const roles = await this.rolesWrittenWithTheirOpportunity(objectConfig, asRead, run, onWritten);
     const prepared = roles.prepared;
     const asCopied = (result: SyncObjectResult): SyncObjectResult =>
       withRolesOfTheirOpportunity(
-        withEncryptedLeftOut(withAlreadyCopied(result, prepared.alreadyCopied), prepared),
+        withEncryptedLeftOut(withAlreadyCopied(result, prepared), prepared),
         roles.said,
       );
     if (prepared.records.length === 0) {
@@ -3350,6 +3419,8 @@ export class SyncOrchestrator {
    *   leaves as they are, by the first fifteen characters of their id.
    * @param gateReads - What the gate read of the objects, which the read of
    *   this one takes rather than reading it again ({@link GateReads}).
+   * @param linked - Of the source records earlier runs wrote, those they
+   *   linked to a record the target held ({@link RunContext.earlierLinked}).
    */
   private async prepare(
     config: SyncConfig,
@@ -3358,6 +3429,7 @@ export class SyncOrchestrator {
     asked?: ObjectRead,
     copied?: ReadonlySet<string>,
     gateReads?: GateReads,
+    linked?: ReadonlySet<string>,
   ): Promise<PreparedObject> {
     // What the gate read of the object, taken once: see `GateReads`.
     const atTheGate = asked ? undefined : gateReads?.get(objectConfig.objectApiName);
@@ -3404,6 +3476,16 @@ export class SyncOrchestrator {
           )
         : kept;
     const alreadyCopied = kept.length - sourceRecords.length;
+    // Of them, those an earlier run linked to a record the target held.
+    const alreadyLinked =
+      alreadyCopied > 0 && linked && linked.size > 0
+        ? kept.filter(
+            (record) =>
+              typeof record.Id === 'string' &&
+              copied?.has(idKeyOf(record.Id)) === true &&
+              linked.has(idKeyOf(record.Id)),
+          ).length
+        : 0;
 
     if (sourceRecords.length === 0) {
       return {
@@ -3415,6 +3497,7 @@ export class SyncOrchestrator {
         unsettled: [],
         matchField,
         alreadyCopied,
+        alreadyLinked,
         ...leftOutNamed,
       };
     }
@@ -3491,6 +3574,7 @@ export class SyncOrchestrator {
       unsettled: recordsWithAddOns,
       matchField,
       alreadyCopied,
+      alreadyLinked,
       ...leftOutNamed,
     };
   }
@@ -3603,17 +3687,21 @@ function linkPairs(
   operation: SyncObjectConfig['operation'],
   outcomes: readonly OperationOutcome[],
   sourceIds: ReadonlyArray<string | undefined>,
-): SyncLinkPair[] {
-  if (operation !== 'insert' && operation !== 'upsert') return [];
-  return outcomes.flatMap((outcome, at): SyncLinkPair[] => {
+): { written: SyncLinkPair[]; linked: SyncLinkPair[] } {
+  const written: SyncLinkPair[] = [];
+  const linked: SyncLinkPair[] = [];
+  if (operation !== 'insert' && operation !== 'upsert') return { written, linked };
+  outcomes.forEach((outcome, at) => {
     const sourceId = sourceIds[at];
-    if (sourceId === undefined) return [];
-    const target =
-      outcome.success && typeof outcome.id === 'string' && outcome.id !== ''
-        ? outcome.id
-        : linkedRecordOf(operation, outcome);
-    return target === undefined ? [] : [[sourceId, target]];
+    if (sourceId === undefined) return;
+    if (outcome.success && typeof outcome.id === 'string' && outcome.id !== '') {
+      written.push([sourceId, outcome.id]);
+      return;
+    }
+    const target = linkedRecordOf(operation, outcome);
+    if (target !== undefined) linked.push([sourceId, target]);
   });
+  return { written, linked };
 }
 
 /** A record to create, without the lookups the platform fills in itself. */

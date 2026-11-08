@@ -208,6 +208,43 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     expect(sent('seed:scenario:agents')[0]?.payload).toEqual({ orgId: 'org-dev' });
   });
 
+  it('says on the card of a role object what it linked to the roles the platform wrote, as the Seed results do', () => {
+    // The card said it in its badge alone.
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', { preparation: PREPARATION });
+    fireEvent.click(screen.getByTestId('btn-scenario-start'));
+    const base = result({ kind: 'kept' });
+    answer('seed:scenario:execute', 'seed:execute:response', {
+      ...base,
+      objectResults: [
+        ...base.objectResults,
+        {
+          objectApiName: 'OpportunityContactRole',
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+          writtenByThePlatform: { records: 1, given: 1 },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByTestId('scenario-result-written-by-the-platform-OpportunityContactRole')
+        .textContent,
+    ).toBe(
+      '1 contact role linked to the one the platform wrote with its opportunity, for the contact ' +
+        'it went in with, not written; given the fields generated for it: 1.',
+    );
+  });
+
   it('says before the run that the bodies go to Summary and the articles are published and linked, then what was, and the article left a draft in the org’s words', () => {
     render(
       <ScenarioFlow

@@ -223,6 +223,16 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
                   />
                 </div>
               )}
+              {/* Nor those it linked to records the target held: no run copied them. */}
+              {obj.alreadyLinked !== undefined && obj.alreadyLinked > 0 && (
+                <div className="mt-1">
+                  <SyncAlreadyCopiedLine
+                    count={obj.alreadyLinked}
+                    linked
+                    testId={`history-linked-${obj.objectApiName}`}
+                  />
+                </div>
+              )}
               {obj.files && (
                 <div className="mt-1">
                   <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />

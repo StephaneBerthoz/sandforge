@@ -1406,6 +1406,8 @@
     "dataFlow": "Datenfluss",
     "alreadyCopied_one": "{{count}} Datensatz, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieb, wie er war.",
     "alreadyCopied_other": "{{count}} Datensätze, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieben, wie sie waren.",
+    "alreadyLinked_one": "{{count}} Datensatz, bereits von einem früheren Lauf dieser Konfiguration mit einem Datensatz verknüpft, den das Ziel enthielt, blieb, wie er war.",
+    "alreadyLinked_other": "{{count}} Datensätze, bereits von einem früheren Lauf dieser Konfiguration mit Datensätzen verknüpft, die das Ziel enthielt, blieben, wie sie waren.",
     "running": "Synchronisierung läuft...",
     "addMapping": "Zuordnung hinzufügen",
     "autoMap": "Auto-Zuordnung",
@@ -1614,7 +1616,9 @@
       "stoppedAt": "Die Simulation hat bei {{object}} angehalten: {{error}}. Ein Lauf würde dort ebenfalls anhalten.",
       "runNow": "Synchronisierung jetzt starten",
       "alreadyCopied_one": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleibt, wie er ist.",
-      "alreadyCopied_other": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleiben, wie sie sind."
+      "alreadyCopied_other": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleiben, wie sie sind.",
+      "alreadyLinked_one": "{{count}} bereits von einem früheren Lauf dieser Konfiguration mit einem Datensatz verknüpft, den das Ziel enthält, bleibt, wie er ist.",
+      "alreadyLinked_other": "{{count}} bereits von einem früheren Lauf dieser Konfiguration mit Datensätzen verknüpft, die das Ziel enthält, bleiben, wie sie sind."
     },
     "writeCheck": {
       "title": "Bevor der Lauf schreibt",
@@ -1623,6 +1627,8 @@
       "records_other": "{{count}} Datensätze zu schreiben",
       "alreadyCopied_one": "Nicht gezählt: {{count}} Datensatz, den ein früherer Lauf dieser Konfiguration kopiert hat, noch im Ziel, bleibt, wie er ist.",
       "alreadyCopied_other": "Nicht gezählt: {{count}} Datensätze, die ein früherer Lauf dieser Konfiguration kopiert hat, noch im Ziel, bleiben, wie sie sind.",
+      "alreadyLinked_one": "Nicht gezählt: {{count}} Datensatz, den ein früherer Lauf dieser Konfiguration mit einem Datensatz verknüpft hat, den das Ziel enthielt, bleibt, wie er ist.",
+      "alreadyLinked_other": "Nicht gezählt: {{count}} Datensätze, die ein früherer Lauf dieser Konfiguration mit Datensätzen verknüpft hat, die das Ziel enthielt, bleiben, wie sie sind.",
       "storage": {
         "fits": "Datenspeicher: etwa {{estimate}} MB, von den {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
         "near": "Datenspeicher: etwa {{estimate}} MB, mehr als 80 % der {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",

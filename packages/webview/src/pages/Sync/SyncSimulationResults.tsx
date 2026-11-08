@@ -214,6 +214,16 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 />
               </div>
             )}
+            {o.alreadyLinked !== undefined && o.alreadyLinked > 0 && (
+              <div className="mt-2">
+                <SyncAlreadyCopiedLine
+                  count={o.alreadyLinked}
+                  simulated
+                  linked
+                  testId={`sync-simulation-linked-${o.objectApiName}`}
+                />
+              </div>
+            )}
             {o.files && (
               <div className="mt-2">
                 <SyncFilesLine

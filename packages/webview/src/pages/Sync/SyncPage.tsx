@@ -1280,6 +1280,7 @@ export const SyncPage: React.FC = () => {
                           obj.delta ||
                           obj.files ||
                           (obj.alreadyCopied ?? 0) > 0 ||
+                          (obj.alreadyLinked ?? 0) > 0 ||
                           obj.standardPricebookMatched ||
                           hasWrittenLines(obj) ||
                           (obj.currenciesReplaced?.length ?? 0) > 0 ||
@@ -1302,6 +1303,14 @@ export const SyncPage: React.FC = () => {
                               <SyncAlreadyCopiedLine
                                 count={obj.alreadyCopied}
                                 testId={`sync-result-copied-${obj.objectApiName}`}
+                              />
+                            )}
+                            {/* Nor those it linked to records the target held: no run copied them. */}
+                            {obj.alreadyLinked !== undefined && obj.alreadyLinked > 0 && (
+                              <SyncAlreadyCopiedLine
+                                count={obj.alreadyLinked}
+                                linked
+                                testId={`sync-result-linked-${obj.objectApiName}`}
                               />
                             )}
                             {obj.files && (

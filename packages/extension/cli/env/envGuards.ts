@@ -40,8 +40,15 @@ import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore
 import type { EnvStateError } from './envState.js';
 import { envLockRefusal, type EnvLockHolder } from './envLock.js';
 
+/**
+ * The code an apply or a destroy is refused with when the state changed
+ * since its plan: another apply or destroy ran, or a cache put back another.
+ */
+export const STATE_MOVED = 'STATE_MOVED';
+
 /** What refused, in a word a pipeline reads. */
 export type EnvRefusalCode =
+  | typeof STATE_MOVED
   | 'PRODUCTION'
   | 'PROTECTED'
   | 'KIND'

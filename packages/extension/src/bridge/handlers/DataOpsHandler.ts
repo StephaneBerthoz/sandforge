@@ -1395,6 +1395,18 @@ export class DataOpsHandler implements DomainHandler {
     this.muteLeases = options;
   }
 
+  /**
+   * Whether whoever reads a masking's or a restore's refusals can ask it to
+   * mute: not when an environment relays the command's lines, which mutes
+   * nothing. Told so, a refusal names no `--mute-automation`.
+   */
+  setMuteOffered(offered: boolean): void {
+    this.muteOffered = offered;
+  }
+
+  /** See {@link setMuteOffered}. */
+  private muteOffered = true;
+
   /** How long after a masking's last write what its duplicate rules wrote is read. */
   private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
 
@@ -1469,7 +1481,7 @@ export class DataOpsHandler implements DomainHandler {
         guardTierOf(this.deps.orgManager.getOrg(orgId)) === 'production',
       ),
       accord,
-      mayMute: true,
+      mayMute: this.muteOffered,
       muteLeases: this.muteLeases,
       ...(voice ? { voice } : {}),
     });

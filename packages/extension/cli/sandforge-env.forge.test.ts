@@ -339,19 +339,12 @@ describe('plan and apply a forge resource', () => {
       if (args.includes('--dry-run')) seedTheSource(3);
       return ran;
     };
-    // As the apply's own runner tells each script it runs (`envStepRunner`),
-    // which the world's in-process runner does not: told nothing, the clone
-    // said "raise --max-total", a flag the apply sets itself.
-    vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
-
-    let applied: Awaited<ReturnType<typeof run>>;
-    try {
-      applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
-        runner: growing,
-      });
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    // The apply tells the world's in-process runner what it tells a script it
+    // spawns (`envStepRunner`): told nothing, the clone said "raise
+    // --max-total", a flag the apply sets itself.
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state'], {
+      runner: growing,
+    });
 
     expect(applied.code).toBe(1);
     const result = envRunResultSchema.parse(applied.answer);

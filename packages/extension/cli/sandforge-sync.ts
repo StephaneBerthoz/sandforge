@@ -1106,6 +1106,12 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
         'copied, still in the target, left as they are',
     );
   }
+  if ((check.alreadyLinked ?? 0) > 0) {
+    lines.push(
+      `  not counted: ${check.alreadyLinked} record(s) an earlier run of this configuration ` +
+        'linked to records the target held, left as they are',
+    );
+  }
   if ((check.overwrites ?? 0) > 0) {
     lines.push(
       `  of them, up to ${check.overwrites} written by an update or an upsert over records ` +
@@ -1239,6 +1245,18 @@ export function recordTypeGivenOfObjectsLines(
 }
 
 /**
+ * The records of an object an earlier run of the configuration linked to a
+ * record the target held, which a run leaves as they are: a second run said
+ * of them "already copied by an earlier run", which no run had done.
+ */
+export function alreadyLinkedWords(count: number): string {
+  return (
+    `${count} already linked by an earlier run of this configuration to records the target ` +
+    'held, left as they are'
+  );
+}
+
+/**
  * What a simulation found, as the lines the command prints.
  *
  * @param muteAssigns - Whether a real run's mute would assign permission sets
@@ -1334,6 +1352,9 @@ export function simulationLines(
         `      ${o.alreadyCopied} already copied by an earlier run of this configuration, ` +
           'left as they are',
       );
+    }
+    if (o.alreadyLinked !== undefined) {
+      lines.push(`      ${alreadyLinkedWords(o.alreadyLinked)}`);
     }
     if ((o.encryptedLeftOut ?? []).length > 0) {
       lines.push(`      ${encryptedLeftOutLine(o.encryptedLeftOut ?? [])}`);
@@ -2636,6 +2657,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         `      ${entry.alreadyCopied} already copied by an earlier run of this configuration, ` +
           'left as they are',
       );
+    }
+    // Nor those an earlier run linked to records the target held: no run copied them.
+    if (typeof entry.alreadyLinked === 'number') {
+      log(`      ${alreadyLinkedWords(entry.alreadyLinked)}`);
     }
     // `errors` is a list of strings on SyncObjectResult, not of objects: the
     // first refusals, and every line on what the run held back or wrote

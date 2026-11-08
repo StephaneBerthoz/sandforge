@@ -920,6 +920,7 @@ describe('refused before its first step', () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.result.refusal).toContain('changed since the plan');
+    expect(outcome.result.refusalCodes).toEqual(['STATE_MOVED']);
   });
 
   it('starts no step while a checkpoint act of the org runs', async () => {

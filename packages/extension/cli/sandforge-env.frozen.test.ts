@@ -690,6 +690,25 @@ describe('plan and apply a frozen resource', () => {
       expect(named('Account', 'claim')).toHaveLength(2);
     });
 
+    it('gives its refusal, with --json, the code the removal is refused with, beside its words', async () => {
+      // Live, the refusal of a destroy was a sentence alone: its code,
+      // AUTOMATION_NOT_ACCEPTED, was only in the removal's line on stderr.
+      await apply();
+      world.automation = FIRING;
+
+      const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+      expect(destroyed.code).toBe(1);
+      const result = envRunResultSchema.parse(destroyed.answer);
+      expect(result.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+      expect(result.plan.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+      expect(result.plan.actions.find((each) => each.resource === 'claims')).toMatchObject({
+        action: 'blocked',
+        refusalCodes: ['AUTOMATION_NOT_ACCEPTED'],
+      });
+      expect(typeof result.refusal).toBe('string');
+    });
+
     it('takes it back once the line accepts it, handing the acceptance to the load’s removal', async () => {
       await apply();
       world.automation = FIRING;

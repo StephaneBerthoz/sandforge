@@ -99,7 +99,7 @@ import {
 import { loadOrg, makeConn } from './sfSession.js';
 import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
-import { relayTakes } from './relayWords.js';
+import { ownOptionWords, relayTakes, relayedBy } from './relayWords.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
 import {
@@ -1567,7 +1567,10 @@ export function recordTypeRule(
 /**
  * What a run says of an object whose records take the running user's default
  * record type while others are open to them: which, and how to choose. Nothing
- * for an object with one record type, or none.
+ * for an object with one record type, or none. Relayed by a command that
+ * takes no `--record-type`, what chooses is said in its words: the file's
+ * `recordTypes` for an environment, this script's own option for the MCP
+ * server's `seed_run`, which has no parameter for it.
  */
 export function recordTypeChoiceLine(
   objectApiName: string,
@@ -1578,11 +1581,14 @@ export function recordTypeChoiceLine(
   );
   if (open.length < 2) return undefined;
   const fallback = open.find((info) => info.defaultRecordTypeMapping);
+  const chooses =
+    relayedBy()?.startsWith('sandforge-env') === true
+      ? `the resource's recordTypes for ${objectApiName}, in the file, chooses`
+      : `${ownOptionWords('--record-type')} ${objectApiName}=<Name> chooses`;
   return (
     `  ${objectApiName}: ${open.length} record types open to you (` +
     `${open.map((info) => info.developerName).join(', ')}); the records take ` +
-    `${fallback ? `your default, ${fallback.developerName}` : 'your default'}: ` +
-    `--record-type ${objectApiName}=<Name> chooses`
+    `${fallback ? `your default, ${fallback.developerName}` : 'your default'}: ${chooses}`
   );
 }
 

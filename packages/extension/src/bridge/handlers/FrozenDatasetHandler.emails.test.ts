@@ -297,6 +297,23 @@ describe('a Frozen load, what still runs as it writes, and the emails it sends',
     ]);
   });
 
+  it('names the mute in its refusal for the emails only to a reader who can ask it', async () => {
+    // Relayed by sandforge-env, which mutes nothing, the refusal said
+    // "--mute-automation keeps quiet …", a flag the environment does not take.
+    await load();
+    expect(errorOf()?.message).toContain('--mute-automation keeps quiet');
+
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    handler.setMuteOffered(false);
+    await load();
+
+    const error = errorOf();
+    expect(error?.code).toBe('EMAILS_NOT_ACCEPTED');
+    expect(error?.message).toContain('Add --accept-emails to load all the same');
+    expect(error?.message).not.toContain('--mute-automation');
+    expect(loaderLoad).not.toHaveBeenCalled();
+  });
+
   it('loads with the accord, says what it read in the report, and records it went with it', async () => {
     await load({ acceptEmails: true });
 

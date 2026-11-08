@@ -1634,6 +1634,24 @@ describe('sandforge-clone object outcomes', () => {
       ]);
     });
 
+    it('names no --list-objects to the reader of a command that relays the run and lists nothing', () => {
+      // Relayed by sandforge-env plan, the dry run said "--list-objects names
+      // them": a flag of this script the environment does not take.
+      for (const relay of ['sandforge-env plan', 'sandforge-mcp']) {
+        vi.stubEnv('SANDFORGE_RELAYED_BY', relay);
+        try {
+          expect(
+            printed(graph(['Lead', 'Asset']), [
+              of('Lead', 'skipped', 'Skipped Lead (excluded)'),
+              of('Asset', 'skipped', 'Skipped Asset (excluded)'),
+            ]),
+          ).toEqual(['  Skipped 2 objects (excluded: empty tables)']);
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      }
+    });
+
     it('names an empty table when it is the only one left out', () => {
       expect(
         printed(graph(['Lead']), [

@@ -3125,4 +3125,27 @@ describe('automationLines', () => {
       '    assignment rule "Lead routing": applied (--apply-assignment-rules): it can give the records it routes another owner, and mail that owner',
     );
   });
+
+  it('names no --apply-assignment-rules to a reader who cannot give it', () => {
+    // Relayed by sandforge-env plan, the clone's dry run said "(--apply-assignment-rules
+    // applies it)" of the trap org's case and lead rules: a flag the environment
+    // does not take.
+    const ruled: ForgeTargetAutomation = {
+      ...automation,
+      unread: [],
+      conditionsNotRead: 0,
+      objects: [readObject('Lead', { assignmentRules: [{ name: 'Lead routing' }] })],
+    };
+    expect(automationLines(ruled, 'TGT', { mayApplyAssignmentRules: false })[2]).toBe(
+      '    assignment rule "Lead routing": not applied: the run sends Sforce-Auto-Assign: FALSE and keeps the owner it sets',
+    );
+    expect(
+      automationLines(ruled, 'TGT', {
+        applyAssignmentRules: true,
+        mayApplyAssignmentRules: false,
+      })[2],
+    ).toBe(
+      '    assignment rule "Lead routing": applied: it can give the records it routes another owner, and mail that owner',
+    );
+  });
 });

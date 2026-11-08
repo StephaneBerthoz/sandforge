@@ -692,12 +692,14 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       module: 'sync',
       counted: true,
       alreadyCopied: 40,
+      alreadyLinked: 2,
     };
     expect(runQuestionDetail(sync).split('\n')).toEqual([
       'This sync is about to write 2401 records to DEV:',
       '• Contact: 2400',
       '• Account: 1',
       'Not counted: 40 records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
+      'Not counted: 2 records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.',
       'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
       'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
       'The records have been counted, and nothing has been read or written yet.',

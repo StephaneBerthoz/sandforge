@@ -706,6 +706,22 @@ describe('sandforge-clone --remove', () => {
       );
     });
 
+    it("names --include-changed as this script's own to the reader of an apply, whose replace does not take it", async () => {
+      // Relayed by sandforge-env apply, the plan of a replace's removal said
+      // "(--include-changed takes them)": a flag no apply takes.
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        expect(await run(['--remove', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      expect(printed).toContain(
+        'records changed since the run stay, as do those records added since depend on ' +
+          "(this script's own removal with --include-changed takes them)",
+      );
+    });
+
     it('dates a run the target did not date by when it ended, as the wizard dates a history entry', async () => {
       const path = file(runSummary({}, { writtenBetween: undefined }));
 
@@ -1958,6 +1974,103 @@ describe('sandforge-clone --remove', () => {
         expect(printed).toContain(
           "1 record(s) of the run kept for records created under them during the run, as its user, likely by the target's automation (Task): --sweep takes them first (--sweep-list shows them)",
         );
+      });
+
+      it('offers no --sweep after a removal of a run the target never dated, whose sweep is refused', async () => {
+        // A sweep of a run whose window cannot be told is refused ("cannot
+        // tell the window the run wrote in"): told "--sweep takes them
+        // first", the reader ran a removal that took nothing more.
+        const path = file(runSummary({}, { writtenBetween: undefined }));
+        vi.mocked(removeRunRecords).mockImplementation(
+          removalAnswering({
+            ...TOOK_ALL,
+            objects: [
+              objectResult('Contact', 2),
+              objectResult('Account', 1, {
+                deleted: 0,
+                keptDependents: 1,
+                heldBy: ['OpportunityContactRole'],
+                heldByAutomation: 1,
+                automationHolders: ['OpportunityContactRole'],
+              }),
+            ],
+          }),
+        );
+
+        expect(await run(['--remove', path, '--target', 'TGT'])).toBe(3);
+
+        const said = printed.find((line) => line.startsWith('1 record(s) of the run kept'));
+        expect(said).toContain(
+          'a sweep cannot take them, as it cannot tell the window the run wrote in now',
+        );
+        expect(said).not.toContain('--sweep');
+      });
+
+      it('offers --sweep after a removal by its journal while the target still dates the run, and none once the records that dated it are gone', async () => {
+        // Live, the removal of a run's journal said "--sweep takes them first";
+        // --sweep-list of the same journal then answered "cannot tell the
+        // window the run wrote in": the records its journal dated it by had
+        // gone with that removal.
+        const journal = file(
+          [
+            {
+              run: {
+                journalId: 'j',
+                targetOrgId: TARGET_ORG,
+                startedAt: '2026-10-01T10:00:00.000Z',
+              },
+            },
+            { part: { n: 0, startedAt: '2026-10-01T10:00:00.000Z' } },
+            ['c', ACCOUNT, TGT('001', 1), 'Account'],
+            ['c', CONTACTS[0], TGT('003', 1), 'Contact'],
+          ]
+            .map((line) => JSON.stringify(line))
+            .join('\n') + '\n',
+          'journal.ndjson',
+        );
+        let gone = false;
+        // The target's own query, the dates of the records the journal names
+        // answered while they are there.
+        const query = vi.mocked(targetConn.query);
+        const base = query.getMockImplementation();
+        query.mockImplementation(((soql: string) =>
+          !gone && /^SELECT CreatedDate FROM \w+ WHERE Id = /.test(soql)
+            ? Promise.resolve(page([{ CreatedDate: '2026-10-01T10:00:01.000Z' }]))
+            : base!(soql)) as never);
+        const kept = () =>
+          removalAnswering({
+            ...TOOK_ALL,
+            objects: [
+              objectResult('Contact', 1),
+              objectResult('Account', 1, {
+                deleted: 0,
+                keptDependents: 1,
+                heldBy: ['OpportunityContactRole'],
+                heldByAutomation: 1,
+                automationHolders: ['OpportunityContactRole'],
+              }),
+            ],
+          });
+        const heldLine = () =>
+          printed.find((line) => line.startsWith('1 record(s) of the run kept'));
+        try {
+          vi.mocked(removeRunRecords).mockImplementation(kept());
+          expect(await run(['--remove', journal, '--target', 'TGT'])).toBe(3);
+          expect(heldLine()).toContain(': --sweep takes them first (--sweep-list shows them)');
+
+          printed.length = 0;
+          const taking = kept();
+          vi.mocked(removeRunRecords).mockImplementation(async (...args) => {
+            const outcome = await taking(...args);
+            gone = true;
+            return outcome;
+          });
+          expect(await run(['--remove', journal, '--target', 'TGT'])).toBe(3);
+          expect(heldLine()).toContain('a sweep cannot take them');
+          expect(heldLine()).not.toContain('--sweep');
+        } finally {
+          query.mockImplementation(base!);
+        }
       });
 
       it('holds the mute’s lease from the sweep’s first delete to its last part, then gives it back', async () => {

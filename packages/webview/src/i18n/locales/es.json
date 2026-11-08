@@ -1406,6 +1406,8 @@
     "dataFlow": "Flujo de datos",
     "alreadyCopied_one": "{{count}} registro ya copiado por una ejecución anterior de esta configuración, se dejó como estaba.",
     "alreadyCopied_other": "{{count}} registros ya copiados por una ejecución anterior de esta configuración, se dejaron como estaban.",
+    "alreadyLinked_one": "{{count}} registro ya vinculado por una ejecución anterior de esta configuración a un registro que el destino tenía, se dejó como estaba.",
+    "alreadyLinked_other": "{{count}} registros ya vinculados por una ejecución anterior de esta configuración a registros que el destino tenía, se dejaron como estaban.",
     "running": "Sincronizando datos...",
     "addMapping": "Agregar mapeo",
     "autoMap": "Mapeo automático",
@@ -1614,7 +1616,9 @@
       "stoppedAt": "La simulación se detuvo en {{object}}: {{error}}. Una ejecución también se detendría ahí.",
       "runNow": "Ejecutar la sincronización ahora",
       "alreadyCopied_one": "{{count}} ya copiado por una ejecución anterior de esta configuración, se deja como está.",
-      "alreadyCopied_other": "{{count}} ya copiados por una ejecución anterior de esta configuración, se dejan como están."
+      "alreadyCopied_other": "{{count}} ya copiados por una ejecución anterior de esta configuración, se dejan como están.",
+      "alreadyLinked_one": "{{count}} ya vinculado por una ejecución anterior de esta configuración a un registro que el destino tiene, se deja como está.",
+      "alreadyLinked_other": "{{count}} ya vinculados por una ejecución anterior de esta configuración a registros que el destino tiene, se dejan como están."
     },
     "writeCheck": {
       "title": "Antes de que la ejecución escriba",
@@ -1623,6 +1627,8 @@
       "records_other": "{{count}} registros por escribir",
       "alreadyCopied_one": "No contado: {{count}} registro que copió una ejecución anterior de esta configuración, todavía en el destino, se deja como está.",
       "alreadyCopied_other": "No contados: {{count}} registros que copió una ejecución anterior de esta configuración, todavía en el destino, se dejan como están.",
+      "alreadyLinked_one": "No contado: {{count}} registro que una ejecución anterior de esta configuración vinculó a un registro que el destino tenía, se deja como está.",
+      "alreadyLinked_other": "No contados: {{count}} registros que una ejecución anterior de esta configuración vinculó a registros que el destino tenía, se dejan como están.",
       "storage": {
         "fits": "Almacenamiento de datos: unos {{estimate}} MB, de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
         "near": "Almacenamiento de datos: unos {{estimate}} MB, más del 80 % de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",

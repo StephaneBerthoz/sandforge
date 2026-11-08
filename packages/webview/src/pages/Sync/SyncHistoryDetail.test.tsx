@@ -157,12 +157,20 @@ describe('SyncHistoryDetail', () => {
 
   it('says what an object left as an earlier run of the configuration copied it', () => {
     const entry = makeMockEntry();
-    entry.result.objectResults[0] = { ...entry.result.objectResults[0], alreadyCopied: 2 };
+    entry.result.objectResults[0] = {
+      ...entry.result.objectResults[0],
+      alreadyCopied: 2,
+      alreadyLinked: 1,
+    };
     useSyncHistoryStore.setState({ selectedEntry: entry });
     render(<SyncHistoryDetail />);
 
     expect(screen.getByTestId('history-copied-Account').textContent).toBe(
       '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
+    // Linked by it to a record the target held: no run copied it.
+    expect(screen.getByTestId('history-linked-Account').textContent).toBe(
+      '1 record already linked by an earlier run of this configuration to a record the target held, left as it was.',
     );
   });
 

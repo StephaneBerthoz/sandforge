@@ -1528,7 +1528,12 @@ describe('the frozen resource and the references between resources, on the page'
       [
         PLAN,
         'What a removal would be refused for that a frozen resource',
-        'A reload is held to it, as its purge deletes',
+        "or as a reload's purge deletes, the dry run blocks the resource",
+      ],
+      [
+        FROZEN_KIND,
+        "...(input.acceptAutomation === true ? ['--accept-automation'] : []),",
+        'the acceptance is handed to `load` as to `load --reload`',
       ],
     ];
     for (const [code, said, page] of pins) {
@@ -1550,11 +1555,16 @@ describe('the frozen resource and the references between resources, on the page'
     );
 
     // The help said a replace is refused when it would leave records, and
-    // nothing of the automation that blocked one on a real org.
+    // nothing of the automation that blocked one on a real org; then that a
+    // reload alone was, once a first load asked too.
     expect(help()).toContain(
-      'a replace is a reload, refused when it would leave records, and\n' +
-        'blocked while the org runs automation as its purge deletes, unless --accept-automation or the\n' +
+      'a replace is a reload, refused when it would leave records. A load,\n' +
+        'the first one too, is blocked while the org runs automation as it inserts or updates its records,\n' +
+        'and a reload while it runs any as its purge deletes, unless --accept-automation or the\n' +
         "resource's accept: { automation: true } takes it.",
+    );
+    expect(section(DOC, '### A frozen resource')).not.toContain(
+      'A first load takes no such acceptance',
     );
   });
 

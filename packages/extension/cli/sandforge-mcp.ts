@@ -379,6 +379,30 @@ function fileAcceptsAutomation(tool: string): string {
   );
 }
 
+/** The flags a rewind's refusals name, and the parameters of checkpoint_rewind each stands for. */
+const REWIND_FLAGS: Readonly<Record<string, string>> = {
+  '--accept-automation': 'acceptAutomation',
+  '--accept-emails': 'acceptEmails',
+  '--mute-automation': 'muteAutomation',
+  '--accept-no-undo': 'acceptNoUndo',
+  '--accept-recreate': 'acceptRecreate',
+  '--accept-outside': 'acceptOutside',
+  '--accept-unseen': 'acceptUnseen',
+};
+
+/**
+ * What stands, under checkpoint_preview, for each flag of the rewind it
+ * previews: a parameter of checkpoint_rewind. Relayed bare, "give
+ * --accept-recreate to rewind all the same" named a flag of no tool.
+ */
+const REWIND_FLAGS_OF_ITS_PREVIEW: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(REWIND_FLAGS).map(([flag, param]) => [
+    flag,
+    `is checkpoint_rewind's ${param}: true, on the rewind this preview is of. Give it only ` +
+      'once the person using you has accepted what it lets through.',
+  ]),
+);
+
 /** The objects of a checkpoint a rewind, or its preview, is limited to. */
 const rewindObjects = () =>
   z
@@ -785,6 +809,7 @@ export const TOOLS: readonly ServedTool[] = [
       ).optional(),
       objects: rewindObjects(),
     }),
+    named: REWIND_FLAGS_OF_ITS_PREVIEW,
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [
@@ -905,15 +930,7 @@ export const TOOLS: readonly ServedTool[] = [
       'deletes the records created since the checkpoint, gives the records changed since ' +
       'their values back and brings back the records deleted since, whoever made those changes',
     readFirst: 'checkpoint_preview says what it would do, writing nothing',
-    flags: {
-      '--accept-automation': 'acceptAutomation',
-      '--accept-emails': 'acceptEmails',
-      '--mute-automation': 'muteAutomation',
-      '--accept-no-undo': 'acceptNoUndo',
-      '--accept-recreate': 'acceptRecreate',
-      '--accept-outside': 'acceptOutside',
-      '--accept-unseen': 'acceptUnseen',
-    },
+    flags: REWIND_FLAGS,
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: [

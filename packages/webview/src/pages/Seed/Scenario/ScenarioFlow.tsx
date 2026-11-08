@@ -17,7 +17,7 @@ import { TakeCheckpointNow } from '../../../components/ui/TakeCheckpointNow';
 import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { SeedAutomationNotice } from '../SeedAutomationNotice';
-import { SeedObjectBadge } from '../SeedObjectBadge';
+import { SeedObjectBadge, SeedWrittenByThePlatformLine } from '../SeedObjectBadge';
 import { SeedOpenRecord } from '../SeedOpenRecord';
 import { SeedRunRemoval } from '../SeedRunRemoval';
 import { Step7Execute } from '../Step7_Execute';
@@ -406,15 +406,23 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                 title={object.objectApiName}
                 action={<SeedObjectBadge result={object} />}
               />
-              {object.errors.length > 0 && (
+              {(object.errors.length > 0 || object.writtenByThePlatform) && (
                 <CardBody>
-                  <RecordErrorGroups
-                    objectApiName={object.objectApiName}
-                    errors={object.errors}
-                    recordsFailed={object.recordsFailed}
-                    module="seed"
-                    testIdPrefix="scenario-result"
+                  {/* The contact roles linked to the one the platform wrote
+                      with their opportunity, which the badge alone said. */}
+                  <SeedWrittenByThePlatformLine
+                    result={object}
+                    testId={`scenario-result-written-by-the-platform-${object.objectApiName}`}
                   />
+                  {object.errors.length > 0 && (
+                    <RecordErrorGroups
+                      objectApiName={object.objectApiName}
+                      errors={object.errors}
+                      recordsFailed={object.recordsFailed}
+                      module="seed"
+                      testIdPrefix="scenario-result"
+                    />
+                  )}
                 </CardBody>
               )}
             </Card>

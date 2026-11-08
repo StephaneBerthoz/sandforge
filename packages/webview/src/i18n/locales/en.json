@@ -1406,6 +1406,8 @@
     "dataFlow": "Data Flow",
     "alreadyCopied_one": "{{count}} record already copied by an earlier run of this configuration, left as it was.",
     "alreadyCopied_other": "{{count}} records already copied by an earlier run of this configuration, left as they were.",
+    "alreadyLinked_one": "{{count}} record already linked by an earlier run of this configuration to a record the target held, left as it was.",
+    "alreadyLinked_other": "{{count}} records already linked by an earlier run of this configuration to records the target held, left as they were.",
     "running": "Syncing data...",
     "addMapping": "Add Mapping",
     "autoMap": "Auto Map",
@@ -1614,7 +1616,9 @@
       "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
       "runNow": "Run the sync now",
       "alreadyCopied_one": "{{count}} already copied by an earlier run of this configuration, left as it is.",
-      "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are."
+      "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are.",
+      "alreadyLinked_one": "{{count}} already linked by an earlier run of this configuration to a record the target holds, left as it is.",
+      "alreadyLinked_other": "{{count}} already linked by an earlier run of this configuration to records the target holds, left as they are."
     },
     "writeCheck": {
       "title": "Before the run writes",
@@ -1623,6 +1627,8 @@
       "records_other": "{{count}} records to write",
       "alreadyCopied_one": "Not counted: {{count}} record an earlier run of this configuration copied, still in the target, left as it is.",
       "alreadyCopied_other": "Not counted: {{count}} records an earlier run of this configuration copied, still in the target, left as they are.",
+      "alreadyLinked_one": "Not counted: {{count}} record an earlier run of this configuration linked to a record the target held, left as it is.",
+      "alreadyLinked_other": "Not counted: {{count}} records an earlier run of this configuration linked to records the target held, left as they are.",
       "storage": {
         "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB the target org has left out of {{max}} MB.",
         "near": "Data storage: about {{estimate}} MB, more than 80% of the {{remaining}} MB the target org has left out of {{max}} MB.",

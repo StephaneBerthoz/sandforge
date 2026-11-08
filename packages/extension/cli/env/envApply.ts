@@ -82,7 +82,13 @@ import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
 import { deleteEnvCheckpoint, takeEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
 import type { EnvFileResolved, EnvFileResource } from './envFile.js';
-import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
+import {
+  checkpointActRefusal,
+  lockRefusal,
+  STATE_MOVED,
+  stateRefusal,
+  type EnvTarget,
+} from './envGuards.js';
 import {
   applyLineOf,
   dryRunCountOf,
@@ -1096,17 +1102,23 @@ export function statusOf(exitCode: number): EnvRunResult['status'] {
 export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promise<EnvRunOutcome> {
   const { plan, target, resolved } = input;
   const env = resolved.checked.file.name;
-  const refused = (refusal: string, state = input.state): EnvRunOutcome => ({
+  /** Refused before its first step, under the codes of what refused it where they are known. */
+  const refused = (
+    refusal: string,
+    state = input.state,
+    codes: readonly string[] = [],
+  ): EnvRunOutcome => ({
     result: {
       plan,
       steps: [],
       status: 'failure',
       refusal,
+      ...(codes.length > 0 ? { refusalCodes: [...codes] } : {}),
       state: { serial: state?.serial ?? 0 },
     },
     exitCode: FAILED_EXIT,
   });
-  if (plan.refusal !== undefined) return refused(plan.refusal);
+  if (plan.refusal !== undefined) return refused(plan.refusal, input.state, plan.refusalCodes);
   const steps = applySteps(plan, input.state);
   const beforeTake = plan.checkpoints?.find((c) => c.step === 'before');
   const afterTake = plan.checkpoints?.find((c) => c.step === 'after');
@@ -1124,7 +1136,10 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
     { operation: 'apply' satisfies EnvLockOperation, env, alias: target.alias },
     deps.lockOptions,
   );
-  if ('busy' in taken) return refused(lockRefusal(taken.busy).message);
+  if ('busy' in taken) {
+    const busy = lockRefusal(taken.busy);
+    return refused(busy.message, input.state, [busy.code]);
+  }
   const stop = new AbortController();
   let stoppedBy: StopSignal | undefined;
   const release = (deps.onStop ?? onStopSignal)((signal) => {
@@ -1150,6 +1165,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           `The state of ${env} on ${target.alias} changed since the plan (another apply or ` +
             'destroy ran, or a cache put back another state). Nothing was written: plan again.',
           read,
+          [STATE_MOVED],
         );
       }
       current =
@@ -1166,7 +1182,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           sandforgeVersion: deps.sandforgeVersion,
         });
     } catch (err: unknown) {
-      if (err instanceof EnvStateError) return refused(err.message);
+      if (err instanceof EnvStateError) {
+        return refused(err.message, input.state, [stateRefusal(err).code]);
+      }
       throw err;
     }
     current = {

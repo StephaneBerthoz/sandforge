@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 /** What the org runs on the objects a test's run writes: nothing, unless the test says. */
-const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[] }));
+const orgRuns = vi.hoisted(() => ({ objects: [] as unknown[], bypassGrants: [] as unknown[] }));
 
 // What the org runs as a masking or a restore writes its records: nothing,
 // as an org without flows or triggers on them answers, unless a test gives
@@ -16,6 +16,7 @@ vi.mock('../src/modules/forge/TargetAutomationReader.js', async (importOriginal)
       return Promise.resolve({
         objectsRead: [...objects],
         objects: orgRuns.objects,
+        ...(orgRuns.bypassGrants.length > 0 ? { bypassGrants: orgRuns.bypassGrants } : {}),
         unread: [],
         conditionsNotRead: 0,
         conditionsBound: 0,
@@ -282,6 +283,7 @@ describe('sandforge-dataops', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     orgRuns.objects = [];
+    orgRuns.bypassGrants = [];
     stdout = '';
     stderr = '';
     store = mkdtempSync(join(tmpdir(), 'sandforge-dataops-test-'));
@@ -1372,6 +1374,41 @@ describe('sandforge-dataops', () => {
       expect(accepted).toBeUndefined();
       expect(update).toHaveBeenCalledTimes(1);
       expect(stdout).toContain('Anonymization completed: 3 records processed.');
+    });
+
+    it('names no --mute-automation in its refusal to the reader of an environment, whose mask resources never mute', async () => {
+      // Relayed by sandforge-env, the refusal said "With --mute-automation,
+      // the masking assigns …", a flag the environment does not take.
+      orgIs('Developer Edition');
+      orgRuns.objects = [
+        {
+          ...notifyOwner,
+          flows: [{ ...notifyOwner.flows[0], permissions: [{ name: 'Skip_Flows', bypass: true }] }],
+        },
+      ];
+      orgRuns.bypassGrants = [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+        },
+      ];
+      const { update } = orgOf(contactsOf(3, 3));
+
+      expect(await run(...masking, '--yes')).toBe(1);
+      expect(stderr).toContain('With --mute-automation, the masking assigns Flow_Bypass');
+
+      stderr = '';
+      process.exitCode = undefined;
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env apply');
+      try {
+        expect(await run(...masking, '--yes')).toBe(1);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      expect(stderr).toContain('Add --accept-automation to mask all the same');
+      expect(stderr).not.toContain('--mute-automation');
+      expect(update).not.toHaveBeenCalled();
     });
 
     it('refuses a --restore whose update flow fires as it puts the values back, without --accept-automation', async () => {

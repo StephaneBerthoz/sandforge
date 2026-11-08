@@ -486,6 +486,26 @@ describe('record types', () => {
     expect(recordTypeChoiceLine('Contact', [INFOS[0], INFOS[3]])).toBeUndefined();
   });
 
+  it('says what chooses them in the words of the command that relays the seed, which takes no --record-type', () => {
+    // Relayed by sandforge-env, whose file gives a seed resource's record
+    // types, and by the MCP server's seed_run, which has no parameter for
+    // them, the line said "--record-type Account=<Name> chooses".
+    try {
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-env plan');
+      expect(recordTypeChoiceLine('Account', INFOS)).toBe(
+        '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
+          "default, Customer: the resource's recordTypes for Account, in the file, chooses",
+      );
+      vi.stubEnv('SANDFORGE_RELAYED_BY', 'sandforge-mcp');
+      expect(recordTypeChoiceLine('Account', INFOS)).toBe(
+        '  Account: 2 record types open to you (Customer, Partner); the records take your ' +
+          "default, Customer: this script's own --record-type Account=<Name> chooses",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('takes the record types of an object of the line', () => {
     expect(
       parseArgs(

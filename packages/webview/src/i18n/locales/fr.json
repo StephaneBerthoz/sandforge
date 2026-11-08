@@ -1406,6 +1406,8 @@
     "dataFlow": "Flux de données",
     "alreadyCopied_one": "{{count}} enregistrement déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
     "alreadyCopied_other": "{{count}} enregistrements déjà copiés par une exécution précédente de cette configuration, laissés tels quels.",
+    "alreadyLinked_one": "{{count}} enregistrement déjà lié par une exécution précédente de cette configuration à un enregistrement que la cible détenait, laissé tel quel.",
+    "alreadyLinked_other": "{{count}} enregistrements déjà liés par une exécution précédente de cette configuration à des enregistrements que la cible détenait, laissés tels quels.",
     "running": "Synchronisation en cours...",
     "addMapping": "Ajouter un mapping",
     "autoMap": "Mapping auto",
@@ -1614,7 +1616,9 @@
       "stoppedAt": "La simulation s'est arrêtée sur {{object}} : {{error}}. Une exécution s'y arrêterait aussi.",
       "runNow": "Lancer la synchronisation maintenant",
       "alreadyCopied_one": "{{count}} déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
-      "alreadyCopied_other": "{{count}} déjà copiés par une exécution précédente de cette configuration, laissés tels quels."
+      "alreadyCopied_other": "{{count}} déjà copiés par une exécution précédente de cette configuration, laissés tels quels.",
+      "alreadyLinked_one": "{{count}} déjà lié par une exécution précédente de cette configuration à un enregistrement que la cible détient, laissé tel quel.",
+      "alreadyLinked_other": "{{count}} déjà liés par une exécution précédente de cette configuration à des enregistrements que la cible détient, laissés tels quels."
     },
     "writeCheck": {
       "title": "Avant que l'exécution n'écrive",
@@ -1623,6 +1627,8 @@
       "records_other": "{{count}} enregistrements à écrire",
       "alreadyCopied_one": "Non compté : {{count}} enregistrement qu'une exécution précédente de cette configuration a copié, toujours dans la cible, laissé tel quel.",
       "alreadyCopied_other": "Non comptés : {{count}} enregistrements qu'une exécution précédente de cette configuration a copiés, toujours dans la cible, laissés tels quels.",
+      "alreadyLinked_one": "Non compté : {{count}} enregistrement qu'une exécution précédente de cette configuration a lié à un enregistrement que la cible détenait, laissé tel quel.",
+      "alreadyLinked_other": "Non comptés : {{count}} enregistrements qu'une exécution précédente de cette configuration a liés à des enregistrements que la cible détenait, laissés tels quels.",
       "storage": {
         "fits": "Stockage de données : environ {{estimate}} Mo, sur les {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
         "near": "Stockage de données : environ {{estimate}} Mo, plus de 80 % des {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",

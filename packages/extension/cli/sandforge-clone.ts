@@ -3147,7 +3147,9 @@ export function objectOutcomePrinter(
     if (event.status === 'skipped' && emptyTables.size > 1 && emptyTables.has(event.objectName)) {
       if (folded) return undefined;
       folded = true;
-      return `  Skipped ${emptyTables.size} objects (excluded: empty tables; --list-objects names them)`;
+      // Relayed by a command that lists no objects, the flag is not named.
+      const names = relayTakes('--list-objects') ? '; --list-objects names them' : '';
+      return `  Skipped ${emptyTables.size} objects (excluded: empty tables${names})`;
     }
     return objectOutcomeLine(event);
   };
@@ -4137,7 +4139,7 @@ export function removalPlanLines(
     args.includeChanged
       ? 'records changed since the run go too, and what was added to them since'
       : 'records changed since the run stay, as do those records added since depend on ' +
-        '(--include-changed takes them)',
+        `(${ownOptionWords('--include-changed', 'removal')} takes them)`,
   ];
 }
 
@@ -4640,24 +4642,42 @@ export function sweepUnsaid(
  * colleague's work too. Nothing when no record was so kept. Exported so it
  * can be tested.
  *
+ * A removal whose run the target can no longer date — its summary built from
+ * its journal, whose records that dated it this removal deleted, or one that
+ * never said when it wrote — offers no sweep: a sweep of it is refused, for
+ * want of the window to look in. Live, the removal of a run's journal said
+ * "--sweep takes them first" of a contact role made by hand between its two
+ * parts, and `--sweep-list` of the same journal was refused.
+ *
  * @param asked - Whether the removal had a sweep: what it left of them, it
- *   left for a reason its listing says.
+ *   left for a reason its listing says; and whether a sweep could not tell
+ *   the window the run wrote in now (`windowUntold`).
  */
 export function automationHeldLines(
   objects: ReadonlyArray<Pick<ForgeUndoObjectResult, 'heldByAutomation' | 'automationHolders'>>,
-  asked: { sweep?: boolean },
+  asked: { sweep?: boolean; windowUntold?: boolean },
 ): string[] {
   const held = objects.reduce((sum, object) => sum + (object.heldByAutomation ?? 0), 0);
   if (held === 0) return [];
   const holders = [...new Set(objects.flatMap((object) => object.automationHolders ?? []))];
+  const by = `likely by the target's automation${holders.length > 0 ? ` (${someOf(holders)})` : ''}`;
+  if (asked.sweep !== true && asked.windowUntold === true) {
+    return [
+      `${held} record(s) of the run kept for records created under them as its user, within a ` +
+        `minute of them, ${by}: a sweep cannot take them, as it cannot tell the window the run ` +
+        'wrote in now — delete them by hand, then remove the run again; ' +
+        `${ownOptionWords('--preview', 'removal')} says what of it their delete leaves changed ` +
+        `since, which ${ownOptionWords('--include-changed', 'removal')} takes`,
+    ];
+  }
   const what =
     `${held} record(s) of the run kept for records created under them during the run, as its ` +
-    `user, likely by the target's automation${holders.length > 0 ? ` (${someOf(holders)})` : ''}`;
+    `user, ${by}`;
   return [
     asked.sweep === true
       ? `${what}: the sweep left them — ${sweepOptionWords('--sweep-list')} says why; ` +
-        `${sweepOptionWords('--sweep-late')} takes those it lists as late, --include-changed ` +
-        "those changed after the run's last write"
+        `${sweepOptionWords('--sweep-late')} takes those it lists as late, ` +
+        `${ownOptionWords('--include-changed', 'removal')} those changed after the run's last write`
       : `${what}: ${sweepOptionWords('--sweep')} takes them first ` +
         `(${sweepOptionWords('--sweep-list')} shows them)`,
   ];
@@ -5678,6 +5698,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /** Of a run cut and taken up, its parts not removed yet whose records may hold what it kept. */
   let keptForParts: Array<{ part: number; objects: string[] }> = [];
   /**
+   * Whether a sweep of the run could not tell the window it wrote in once
+   * this removal ended: a sweep is then refused, and none is offered.
+   */
+  let windowUntold = false;
+  /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
    * @param sweep - What the sweep did, when one ran.
@@ -5718,7 +5743,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           2,
         ) + '\n',
       );
-      for (const line of automationHeldLines(objects, args)) console.error(line);
+      for (const line of automationHeldLines(objects, { ...args, windowUntold })) {
+        console.error(line);
+      }
       for (const line of heldByOtherPartsLines(keptForParts)) console.error(line);
       return;
     }
@@ -5727,7 +5754,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       for (const line of removalLines(status, objects, unreachable)) console.log(line);
     }
     if (sweep) for (const line of sweepLines(sweep)) console.log(line);
-    for (const line of automationHeldLines(objects, args)) console.log(line);
+    for (const line of automationHeldLines(objects, { ...args, windowUntold })) console.log(line);
     for (const line of heldByOtherPartsLines(keptForParts)) console.log(line);
     if (removalsFile) {
       console.log(
@@ -5838,6 +5865,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
     refuseBeforeAnyRead(otherOrgRefusal(summary.targetOrgId));
   }
+  /** The summary as given, when it said no window of its own: dated from its journal, if at all. */
+  const undated = summary.result.writtenBetween === undefined ? summary : undefined;
   summary = await datedFromItsJournal(conn, summary);
 
   // Read only for a sweep, or its listing.
@@ -6318,6 +6347,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     sweep,
   );
   if (ofTheRun?.part !== undefined) keptForParts = heldByOtherParts(ofTheRun, objects);
+  // A run the target dated only by the records its journal names, or never:
+  // read again once they went, a sweep of it may have no window to look in.
+  if (undated && !args.sweep && objects.some((object) => (object.heldByAutomation ?? 0) > 0)) {
+    windowUntold = (await datedFromItsJournal(conn, undated)).result.writtenBetween === undefined;
+  }
   output(status, objects, org.id, removals && !failure ? removalsFile : undefined, sweep);
   if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
@@ -7813,8 +7847,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   say('');
   for (const line of automationLines(targetAutomation, args.target, {
     applyAssignmentRules: args.applyAssignmentRules,
-    // Relayed by an environment, which mutes nothing, the flag is not named.
+    // Relayed by an environment, which mutes nothing, the flag is not named;
+    // nor the rules' flag, which neither it nor the MCP server takes.
     mayMute: relayTakes('--mute-automation'),
+    mayApplyAssignmentRules: relayTakes('--apply-assignment-rules'),
   })) {
     say(line);
   }

@@ -26,7 +26,14 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { loadOrg } from './sfSession.js';
 import { acquireEnvLock } from './env/envLock.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
-import { envRelayOf, envStepRunner, main, parseArgs, type EnvCliDeps } from './sandforge-env.js';
+import {
+  envRelayOf,
+  envStepRunner,
+  main,
+  parseArgs,
+  relayedRunner,
+  type EnvCliDeps,
+} from './sandforge-env.js';
 
 /*
  * The command line, on the memory org: each verb run as a terminal or a CI
@@ -434,6 +441,33 @@ describe('destroy --sweep', () => {
     expect(world.records('Contact')).toHaveLength(2);
   });
 
+  it('gives a destroy its seed removal refused, with --json, the code of that refusal beside its words', async () => {
+    worldOf({ sandbox: true, scratch: true });
+    expect((await run(['apply', '--org', 'TGT', '--yes'])).code).toBe(0);
+    world.automation = {
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 1,
+    } as unknown as typeof world.automation;
+
+    const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+
+    expect(destroyed.code).toBe(1);
+    const result = envRunResultSchema.parse(destroyed.answer);
+    expect(result.refusal).toContain('AccountGuard');
+    expect(result.refusalCodes).toEqual(['AUTOMATION_NOT_ACCEPTED']);
+    expect(world.records('Account')).toHaveLength(2);
+  });
+
   it('tells each script it runs that its lines are relayed, so that what a removal says takes what it kept is what this reader can run', async () => {
     // A removal said "(--sweep-untied takes them)", relayed as it was: a
     // flag this command refuses, exit 2.
@@ -473,6 +507,36 @@ describe('destroy --sweep', () => {
       vi.unstubAllEnvs();
     }
   }, 120_000);
+
+  it('tells a runner it is given in place of its own, as it tells a script it spawns, the command that relays the script’s lines, and puts the variable back after', async () => {
+    // The tests' runner runs each script in this process: told nothing, the
+    // scripts said what they say unrelayed, words this command's reader
+    // never reads.
+    vi.stubEnv('SANDFORGE_RELAYED_BY', 'before');
+    const seen: Array<string | undefined> = [];
+    try {
+      const run = relayedRunner(async () => {
+        seen.push(process.env['SANDFORGE_RELAYED_BY']);
+        return { code: 0, stdout: '', stderr: '' };
+      }, 'sandforge-env apply');
+
+      await run('sandforge-seed', [], new AbortController().signal);
+
+      expect(seen).toEqual(['sandforge-env apply']);
+      expect(process.env['SANDFORGE_RELAYED_BY']).toBe('before');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const runs: string[] = [];
+    worldOf({ sandbox: true, scratch: true });
+    const told: EnvCliDeps['runner'] = async (script, args, signal) => {
+      runs.push(process.env['SANDFORGE_RELAYED_BY'] ?? '');
+      return world.runner(script, args, signal);
+    };
+    expect((await run(['apply', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
+    expect((await run(['destroy', '--org', 'TGT', '--yes'], { runner: told })).code).toBe(0);
+    expect(new Set(runs)).toEqual(new Set(['sandforge-env apply', 'sandforge-env']));
+  });
 
   it('names to the scripts it runs the command they run under: a destroy takes their sweep, an apply and a plan do not', () => {
     // An apply's replace told the same as a destroy, its removal said

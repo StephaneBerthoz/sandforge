@@ -110,6 +110,11 @@ export interface SyncCountedWrite {
   /** Records an earlier run of the configuration copied, left as they are and not counted. */
   alreadyCopied: number;
   /**
+   * Records an earlier run of the configuration linked to a record the
+   * target held, left as they are and not counted. Absent when none.
+   */
+  alreadyLinked?: number;
+  /**
    * The objects the target will take none of — it has not the object, or the
    * user the run writes as may not see, create or edit it — counted apart
    * from `objects`. Absent when none.
@@ -452,6 +457,7 @@ export async function measureSyncWrite(
     objects,
     total,
     alreadyCopied: counted.alreadyCopied,
+    ...((counted.alreadyLinked ?? 0) > 0 ? { alreadyLinked: counted.alreadyLinked } : {}),
     ...(overwrites > 0 ? { overwrites } : {}),
     ...((counted.rolesByThePlatform ?? 0) > 0
       ? { rolesByThePlatform: counted.rolesByThePlatform }
@@ -689,6 +695,7 @@ export async function gateSyncWrite(
         ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
         ...(check.emailsUnread !== undefined ? { emailsUncounted: check.emailsUnread } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
+        ...((check.alreadyLinked ?? 0) > 0 ? { alreadyLinked: check.alreadyLinked } : {}),
         ...(unwritable.length > 0 ? { unwritable } : {}),
         // Left out of `objects`, and written none of: the question that
         // leaves their parent out says them, as its refusal does.

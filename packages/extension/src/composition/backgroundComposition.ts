@@ -959,6 +959,14 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  if (question.alreadyLinked !== undefined && question.alreadyLinked > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} records an earlier run of this configuration linked to records the target held, which the sync leaves as they are.',
+        question.alreadyLinked,
+      ),
+    );
+  }
   if (question.overwrites !== undefined && question.overwrites > 0) {
     lines.push(
       vscode.l10n.t(

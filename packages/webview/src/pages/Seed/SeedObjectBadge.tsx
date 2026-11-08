@@ -30,6 +30,33 @@ export function wasSkipped(result: SeedObjectResult): boolean {
 }
 
 /**
+ * The contact roles of an object the run linked to the one the platform wrote
+ * with their opportunity, which its counts leave out, with what the target
+ * refused of the fields generated for them: the line of its card. Quick Seed's
+ * and a scenario's cards said it in their badge alone. Nothing for an object
+ * whose records the platform wrote none of.
+ */
+export const SeedWrittenByThePlatformLine: React.FC<{
+  result: SeedObjectResult;
+  testId: string;
+}> = ({ result, testId }) => {
+  const { t } = useTranslation();
+  const written = result.writtenByThePlatform;
+  if (!written) return null;
+  return (
+    <p className="text-[10px] text-(--sf-text-secondary)" data-testid={testId}>
+      {t('seed.results.writtenByThePlatform', { count: written.records, given: written.given })}
+      {written.refusal !== undefined && (
+        <>
+          {` ${t('seed.results.writtenByThePlatformRefused')} `}
+          <span className="font-mono wrap-break-word">{written.refusal}</span>
+        </>
+      )}
+    </p>
+  );
+};
+
+/**
  * An object's count in a seed's results: created of sent, "Skipped" for an
  * object the run wrote nothing of, whose card says why, or how many it linked
  * to the records the platform wrote.

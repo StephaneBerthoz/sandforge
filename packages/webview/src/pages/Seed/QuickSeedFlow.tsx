@@ -17,7 +17,7 @@ import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
-import { SeedObjectBadge } from './SeedObjectBadge';
+import { SeedObjectBadge, SeedWrittenByThePlatformLine } from './SeedObjectBadge';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import { SeedLocalePicker } from './SeedLocalePicker';
@@ -357,15 +357,23 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               {quickSeed.executionResult.objectResults.map((obj) => (
                 <Card key={obj.objectApiName}>
                   <CardHeader title={obj.objectApiName} action={<SeedObjectBadge result={obj} />} />
-                  {obj.errors.length > 0 && (
+                  {(obj.errors.length > 0 || obj.writtenByThePlatform) && (
                     <CardBody>
-                      <RecordErrorGroups
-                        objectApiName={obj.objectApiName}
-                        errors={obj.errors}
-                        recordsFailed={obj.recordsFailed}
-                        module="seed"
-                        testIdPrefix="seed-result"
+                      {/* The contact roles linked to the one the platform wrote
+                          with their opportunity, which the badge alone said. */}
+                      <SeedWrittenByThePlatformLine
+                        result={obj}
+                        testId={`quick-seed-result-written-by-the-platform-${obj.objectApiName}`}
                       />
+                      {obj.errors.length > 0 && (
+                        <RecordErrorGroups
+                          objectApiName={obj.objectApiName}
+                          errors={obj.errors}
+                          recordsFailed={obj.recordsFailed}
+                          module="seed"
+                          testIdPrefix="seed-result"
+                        />
+                      )}
                     </CardBody>
                   )}
                 </Card>

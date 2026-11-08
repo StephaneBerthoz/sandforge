@@ -1388,6 +1388,7 @@ describe('SyncPage', () => {
           conflictCount: 0,
           errors: [],
           alreadyCopied: 2,
+          alreadyLinked: 1,
         },
       ],
       totalProcessed: 1,
@@ -1402,6 +1403,9 @@ describe('SyncPage', () => {
 
     expect(screen.getByTestId('sync-result-copied-Account').textContent).toBe(
       '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
+    expect(screen.getByTestId('sync-result-linked-Account').textContent).toBe(
+      '1 record already linked by an earlier run of this configuration to a record the target held, left as it was.',
     );
     mockExecuteMutationState.data = null;
   });

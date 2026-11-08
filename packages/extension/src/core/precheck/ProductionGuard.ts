@@ -225,6 +225,12 @@ export interface WriteConfirmation {
    */
   alreadyCopied?: number;
   /**
+   * Of a Sync run of a saved configuration: the records an earlier run of it
+   * linked to a record the target held, which this one leaves as they are
+   * and does not count. Absent when none.
+   */
+  alreadyLinked?: number;
+  /**
    * Of a Sync run: of `total`, the records an update or an upsert writes,
    * which may write over records the target holds — their values are kept
    * first, and removing the run puts them back. Absent when none.

@@ -878,6 +878,40 @@ describe('QuickSeedFlow', () => {
       expect(within(errors).queryAllByText(/Required fields are missing/)).toHaveLength(1);
     });
 
+    it('says on the card of a role object what it linked to the roles the platform wrote, as the Seed results do', () => {
+      // The card said it in its badge alone: "1 linked", nothing of what was
+      // given to the role the platform wrote, nor of what the org refused.
+      const linked: SeedExecutionResult = {
+        ...mockExecutionResult,
+        objectResults: [
+          {
+            objectApiName: 'OpportunityContactRole',
+            recordsCreated: 0,
+            recordsFailed: 0,
+            createdIds: [],
+            errors: [],
+            writtenByThePlatform: {
+              records: 2,
+              given: 1,
+              refusal: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Role: bad value',
+            },
+          },
+        ],
+      };
+
+      render(<QuickSeedFlow quickSeed={{ ...results, executionResult: linked }} orgs={mockOrgs} />);
+
+      expect(
+        screen.getByTestId('quick-seed-result-written-by-the-platform-OpportunityContactRole')
+          .textContent,
+      ).toBe(
+        '2 contact roles linked to the ones the platform wrote with their opportunity, for the ' +
+          'contact each went in with, not written; given the fields generated for them: 1. ' +
+          "The others stay as the platform wrote them. The target's words: " +
+          'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: Role: bad value',
+      );
+    });
+
     it('calls a quick seed a cancel stopped cancelled, not partially complete', () => {
       render(
         <QuickSeedFlow

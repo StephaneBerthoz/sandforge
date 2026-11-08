@@ -115,6 +115,29 @@ describe('SyncSimulationResults', () => {
     );
   });
 
+  it('says linked, apart from what an earlier run copied, what it linked to records the target held', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={{
+          ...base,
+          objects: [
+            { ...base.objects[1], read: 5, skipped: 3, alreadyCopied: 2, alreadyLinked: 1 },
+          ],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-copied-Contact').textContent).toBe(
+      '2 already copied by an earlier run of this configuration, left as they are.',
+    );
+    expect(screen.getByTestId('sync-simulation-linked-Contact').textContent).toBe(
+      '1 already linked by an earlier run of this configuration to a record the target holds, left as it is.',
+    );
+  });
+
   it('names beside an object the encrypted fields a run would leave out, read masked from the source', () => {
     const base = simulation();
     render(

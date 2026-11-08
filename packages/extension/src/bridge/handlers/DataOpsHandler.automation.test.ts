@@ -525,6 +525,42 @@ describe('DataOpsHandler — the automation a masking and a restore fire, asked 
     expect(requests.slice(before).filter((url) => url !== '/limits')).toEqual([]);
   });
 
+  it('offers the mute in none of its refusals to the reader of a command that mutes nothing', async () => {
+    // A mask resource of sandforge-env, whose runs never mute, relayed
+    // "With --mute-automation, the masking assigns …": a flag the
+    // environment does not take.
+    const bypassed: ForgeTargetFlow = {
+      ...onUpdate('Notify Owner', 1),
+      permissions: [{ name: 'Skip_Flows', bypass: true }],
+    };
+    read.mockResolvedValue({
+      ...runs([bypassed]),
+      bypassGrants: [
+        {
+          permission: 'Skip_Flows',
+          permissionSets: [{ name: 'Flow_Bypass', label: 'Flow Bypass', grants: 1 }],
+        },
+      ],
+    });
+    orgOf(contactsOf(3));
+    handler.setMuteOffered(false);
+
+    await send('dataops:automation', {
+      orgId: 'org-1',
+      act: 'masking',
+      objects: [{ objectApiName: 'Contact', records: 3 }],
+    });
+
+    const said = (
+      last('dataops:automation:response')?.payload.refusals as Array<{ message: string }>
+    )
+      .map((r) => r.message)
+      .join(' ');
+    expect(said).toContain('ORG runs automation as this masking writes over its records');
+    expect(said).toContain('Add --accept-automation');
+    expect(said).not.toContain('--mute-automation');
+  });
+
   describe('the duplicate rules of what a masking writes over', () => {
     /** What the trap org runs on Contact: nothing fires, its standard duplicate rule is active. */
     const ruled: ForgeTargetAutomation = {

@@ -251,6 +251,61 @@ describe('SyncOrchestrator — before the first write', () => {
     expect(names).toEqual(['Acme', 'Doe', 'Globex', 'Initech', 'Roe']);
   });
 
+  it('says, on the second run, that a record the first linked to one the target held was linked, not copied', async () => {
+    // Live, the first run linked an account the target held under the same
+    // unique value, and the second said "1 already copied by an earlier run".
+    // The skip was right: the pair stands. The word was not.
+    const target = targetOrg();
+    const theirs = fakeId('001', 800);
+    target.held.set(theirs, { Name: 'Acme', object: 'Account' });
+    const insert = target.insert.getMockImplementation();
+    target.insert.mockImplementation(async (object, records) => {
+      if (object !== 'Account') return insert!(object, records);
+      const outcomes = await insert!(
+        object,
+        records.filter((record) => record.Name !== 'Acme'),
+      );
+      return records.map((record) =>
+        record.Name === 'Acme'
+          ? {
+              success: false,
+              errors: [
+                `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${theirs}`,
+              ],
+              existingId: theirs,
+            }
+          : outcomes.shift()!,
+      );
+    });
+    const source = sourceOrg();
+    const first = await orchestrator(target, source).execute(config());
+    expect(first.objectResults.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      success: 1,
+      linkedToExisting: { records: 1 },
+    });
+    const { writeGate, held } = gate();
+
+    const second = await orchestrator(target, source, { writeGate }).execute(config());
+    const simulated = await orchestrator(target, source).simulate(config());
+
+    const accounts = second.objectResults.find((o) => o.objectApiName === 'Account');
+    expect(accounts).toMatchObject({ skipped: 2, alreadyCopied: 1, alreadyLinked: 1 });
+    expect(second.objectResults.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      skipped: 2,
+      alreadyCopied: 2,
+    });
+    expect(second.objectResults.find((o) => o.objectApiName === 'Contact')).not.toHaveProperty(
+      'alreadyLinked',
+    );
+    expect(held[0]).toMatchObject({ alreadyCopied: 3, alreadyLinked: 1 });
+    expect(simulated.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      skipped: 2,
+      alreadyCopied: 1,
+      alreadyLinked: 1,
+    });
+    expect(target.held.size).toBe(4);
+  });
+
   it('inserts again a record whose earlier copy is no longer in the target', async () => {
     const target = targetOrg();
     const source = sourceOrg();

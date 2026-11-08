@@ -14,7 +14,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
-import { SeedObjectBadge } from './SeedObjectBadge';
+import { SeedObjectBadge, SeedWrittenByThePlatformLine } from './SeedObjectBadge';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import type { ObjectLabels } from '../../utils/objectLabels';
@@ -210,25 +210,10 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                   <div className="flex flex-col gap-1">
                     {/* The contact roles linked to the one the platform wrote
                         with their opportunity, which the counts above leave out. */}
-                    {obj.writtenByThePlatform && (
-                      <p
-                        className="text-[10px] text-(--sf-text-secondary)"
-                        data-testid="seed-result-written-by-the-platform"
-                      >
-                        {t('seed.results.writtenByThePlatform', {
-                          count: obj.writtenByThePlatform.records,
-                          given: obj.writtenByThePlatform.given,
-                        })}
-                        {obj.writtenByThePlatform.refusal !== undefined && (
-                          <>
-                            {` ${t('seed.results.writtenByThePlatformRefused')} `}
-                            <span className="font-mono wrap-break-word">
-                              {obj.writtenByThePlatform.refusal}
-                            </span>
-                          </>
-                        )}
-                      </p>
-                    )}
+                    <SeedWrittenByThePlatformLine
+                      result={obj}
+                      testId="seed-result-written-by-the-platform"
+                    />
                     {obj.aiFallback && (
                       <p
                         className="text-[10px] text-status-warning"

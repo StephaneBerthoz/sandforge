@@ -17,15 +17,18 @@ export function relayedBy(): string | undefined {
 
 /**
  * The options of a script a command that relays its lines takes itself, and
- * hands it: `sandforge-env destroy --sweep`; the MCP server's `seed_run`,
- * `clone_record` and `run_remove` take `muteAutomation`, `run_remove` its
- * `leaveUndeletable` and, for a Sync run, its `store`. Any other relay — an
- * apply or a plan of `sandforge-env`, an environment the MCP server runs —
- * takes none of them.
+ * hands it: `sandforge-env destroy --sweep --include-changed`; the MCP
+ * server's `seed_run`, `clone_record` and `run_remove` take
+ * `muteAutomation`, `run_remove` its `leaveUndeletable`, its
+ * `includeChanged` and, for a Sync run, its `store`; `env_destroy` its
+ * `includeChanged`. Any other relay — an apply or a plan of `sandforge-env`
+ * — takes none of them: a removal an apply's replace ran said
+ * "(--include-changed takes them)", which no apply takes.
  */
 const TAKEN_BY_THE_RELAY: ReadonlyMap<string, readonly string[]> = new Map([
-  ['sandforge-env', ['--sweep']],
-  ['sandforge-mcp', ['--mute-automation', '--leave-undeletable', '--store']],
+  ['sandforge-env', ['--sweep', '--include-changed']],
+  ['sandforge-env, relayed by sandforge-mcp', ['--include-changed']],
+  ['sandforge-mcp', ['--mute-automation', '--leave-undeletable', '--store', '--include-changed']],
 ]);
 
 /** Whether the reader of this script's lines can give it `option`: unrelayed, or relayed by a command that takes it. */

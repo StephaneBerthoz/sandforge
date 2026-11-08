@@ -116,6 +116,11 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.alreadyCopied', { count: check.alreadyCopied })}
                 </p>
               )}
+              {(check.alreadyLinked ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-linked">
+                  {t('sync.writeCheck.alreadyLinked', { count: check.alreadyLinked ?? 0 })}
+                </p>
+              )}
               {(check.overwrites ?? 0) > 0 && (
                 <p className="text-text-secondary" data-testid="sync-write-check-overwrites">
                   {t('sync.writeCheck.overwrites', { count: check.overwrites ?? 0 })}
@@ -279,6 +284,12 @@ export interface SyncAlreadyCopiedLineProps {
   count: number;
   /** Whether it is a simulation's: what a run would leave, not what it left. */
   simulated?: boolean;
+  /**
+   * Whether an earlier run linked them to records the target held rather
+   * than copied them: a second run said "already copied" of an account the
+   * first had linked.
+   */
+  linked?: boolean;
   testId?: string;
 }
 
@@ -290,14 +301,19 @@ export interface SyncAlreadyCopiedLineProps {
 export const SyncAlreadyCopiedLine: React.FC<SyncAlreadyCopiedLineProps> = ({
   count,
   simulated = false,
+  linked = false,
   testId,
 }) => {
   const { t } = useTranslation();
   return (
     <p className="text-xs text-text-secondary" data-testid={testId}>
-      {simulated
-        ? t('sync.simulation.alreadyCopied', { count })
-        : t('sync.alreadyCopied', { count })}
+      {linked
+        ? simulated
+          ? t('sync.simulation.alreadyLinked', { count })
+          : t('sync.alreadyLinked', { count })
+        : simulated
+          ? t('sync.simulation.alreadyCopied', { count })
+          : t('sync.alreadyCopied', { count })}
     </p>
   );
 };

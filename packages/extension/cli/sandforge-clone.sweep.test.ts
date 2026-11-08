@@ -1162,6 +1162,23 @@ describe('automationHeldLines', () => {
     );
   });
 
+  it('offers no sweep a removal could not run, for want of the window the run wrote in', () => {
+    // Live, the removal of a run's journal said "--sweep takes them first" of
+    // a role made by hand between its two parts, and --sweep-list of the same
+    // journal answered "cannot tell the window the run wrote in".
+    const [line] = automationHeldLines(held, { windowUntold: true });
+
+    expect(line).toBe(
+      '6 record(s) of the run kept for records created under them as its user, within a minute ' +
+        "of them, likely by the target's automation (QuoteLineItem, Task): a sweep cannot take " +
+        'them, as it cannot tell the window the run wrote in now — delete them by hand, then ' +
+        'remove the run again; --preview says what of it their delete leaves changed since, ' +
+        'which --include-changed takes',
+    );
+    expect(line).not.toContain('--sweep');
+    expect(line).not.toContain('during the run');
+  });
+
   it('says nothing when no record was so kept: what holds then is no one’s to guess', () => {
     expect(
       automationHeldLines(

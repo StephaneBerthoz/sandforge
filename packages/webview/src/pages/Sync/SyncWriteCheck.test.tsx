@@ -371,4 +371,23 @@ describe('SyncAlreadyCopiedLine', () => {
       '1 already copied by an earlier run of this configuration, left as it is.',
     );
   });
+
+  it('says linked, not copied, what an earlier run linked to records the target held', () => {
+    // A second run said "already copied" of an account the first had linked
+    // to one the target held: no run copied it.
+    const { rerender } = render(<SyncAlreadyCopiedLine count={1} linked testId="linked" />);
+    expect(screen.getByTestId('linked').textContent).toBe(
+      '1 record already linked by an earlier run of this configuration to a record the target held, left as it was.',
+    );
+
+    rerender(<SyncAlreadyCopiedLine count={2} simulated linked testId="linked" />);
+    expect(screen.getByTestId('linked').textContent).toBe(
+      '2 already linked by an earlier run of this configuration to records the target holds, left as they are.',
+    );
+
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, alreadyLinked: 3 }} />);
+    expect(screen.getByTestId('sync-write-check-linked').textContent).toBe(
+      'Not counted: 3 records an earlier run of this configuration linked to records the target held, left as they are.',
+    );
+  });
 });

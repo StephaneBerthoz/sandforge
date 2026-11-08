@@ -39,4 +39,28 @@ describe('relayWords', () => {
       expect(relayTakes('--mute-automation')).toBe(false);
     }
   });
+
+  it('takes --include-changed where the removal it hands it to does: a destroy, env_destroy and run_remove, never an apply', () => {
+    // A removal an apply's replace ran said "(--include-changed takes them)",
+    // which no apply takes; the destroy, which takes it, was told it did not.
+    for (const relay of [
+      'sandforge-env',
+      'sandforge-env, relayed by sandforge-mcp',
+      'sandforge-mcp',
+    ]) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayTakes('--include-changed'), relay).toBe(true);
+    }
+    for (const relay of [
+      'sandforge-env apply',
+      'sandforge-env plan',
+      'sandforge-env apply, relayed by sandforge-mcp',
+    ]) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayTakes('--include-changed'), relay).toBe(false);
+      expect(ownOptionWords('--include-changed', 'removal')).toBe(
+        "this script's own removal with --include-changed",
+      );
+    }
+  });
 });

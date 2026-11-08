@@ -245,6 +245,8 @@ interface Held {
    * of every load it replaces.
    */
   removalAlone: string[];
+  /** The code of each refusal and of each of `removalAlone`, where its script gave one. */
+  codes: Map<string, string>;
   failed: string[];
   /** What its verification FAILED, each object named. */
   verified: string[];
@@ -256,6 +258,7 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     changedBy: new Map(),
     refusals: [],
     removalAlone: [],
+    codes: new Map(),
     failed: [],
     verified: [],
   };
@@ -292,14 +295,38 @@ function heldOf(previews: readonly EnvRunPreview[]): Held {
     for (const refusal of run.preview.refusals) {
       if (!held.refusals.includes(refusal)) held.refusals.push(refusal);
     }
-    if ('removalAlone' in run.preview) held.removalAlone.push(...run.preview.removalAlone);
+    codesOf(held.codes, run.preview.refusals, run.preview.refusalCodes);
+    if ('removalAlone' in run.preview) {
+      held.removalAlone.push(...run.preview.removalAlone);
+      const aloneCodes =
+        'removalAloneCodes' in run.preview ? run.preview.removalAloneCodes : undefined;
+      codesOf(held.codes, run.preview.removalAlone, aloneCodes);
+    }
   }
   return held;
+}
+
+/** Keep the code of each refusal, where the script gave one for each. */
+function codesOf(
+  codes: Map<string, string>,
+  refusals: readonly string[],
+  given: readonly string[] | undefined,
+): void {
+  if (given?.length !== refusals.length) return;
+  refusals.forEach((refusal, at) => codes.set(refusal, given[at] ?? ''));
 }
 
 /** What a removal of a resource's runs would be refused for now, whatever else its replace is. */
 function removalRefusalsOf(held: Held): string[] {
   return [...held.refusals, ...held.removalAlone];
+}
+
+/**
+ * The codes of what a removal of a resource's runs would be refused for, each
+ * once, as its scripts name them; none for a refusal whose script gave none.
+ */
+function removalRefusalCodesOf(held: Held): string[] {
+  return [...new Set(removalRefusalsOf(held).flatMap((refusal) => held.codes.get(refusal) || []))];
 }
 
 function heldObjects(held: Held): EnvPlanObject[] {
@@ -1018,6 +1045,7 @@ export function destructionPlan(
         : held.failed.length > 0
           ? `what the org holds of it could not be read (${held.failed.join('; ')}): run destroy again`
           : undefined;
+    const codes = refused.length > 0 ? removalRefusalCodesOf(held) : [];
     return {
       resource: name,
       kind: kept?.kind ?? 'seed',
@@ -1025,9 +1053,11 @@ export function destructionPlan(
       why: 'taken back by destroy, into the recycle bin',
       objects: heldObjects(held),
       ...(refusal !== undefined ? { refusal } : {}),
+      ...(codes.length > 0 ? { refusalCodes: codes } : {}),
     };
   });
   const blocked = actions.filter((action) => action.action === 'blocked');
+  const blockedCodes = [...new Set(blocked.flatMap((action) => action.refusalCodes ?? []))];
   const removals = actions
     .filter((action) => action.kind !== 'mask')
     .map((action) => `the removal of the runs of ${action.resource}`);
@@ -1059,6 +1089,7 @@ export function destructionPlan(
           refusal:
             `${blocked.map((action) => `${action.resource}: ${action.refusal ?? ''}`).join(' ')} ` +
             'Nothing was deleted.',
+          ...(blockedCodes.length > 0 ? { refusalCodes: blockedCodes } : {}),
         }
       : {}),
     ...(input.previews === undefined ? { quick: true as const } : {}),

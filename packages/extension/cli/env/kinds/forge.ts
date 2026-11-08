@@ -651,6 +651,8 @@ export const forgePreviewAnswerSchema = z.object({
   includeChanged: z.boolean(),
   preview: removalPreviewSchema,
   refusals: z.array(z.string()),
+  /** The code of each refusal, in their order. */
+  refusalCodes: z.array(z.string()).optional(),
   notes: z.array(z.string()),
   elapsedMs: countSchema,
 });

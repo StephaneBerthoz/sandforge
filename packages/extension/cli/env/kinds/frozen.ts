@@ -364,6 +364,8 @@ const answerBase = {
     .optional(),
   mapping: z.string().min(1).optional(),
   refusals: z.array(z.string()).optional(),
+  /** The code of each of `refusals`, in their order, given only when each has one. */
+  refusalCodes: z.array(z.string()).optional(),
   ended: z.literal(true).optional(),
 };
 
@@ -472,23 +474,46 @@ export const frozenPreviewAnswerSchema = z
     );
     const empty: z.infer<typeof removalPreviewSchema> = { planned: 0, objects: [], userNames: {} };
     if (error !== undefined && !NOTHING_TO_REMOVE.has(error.code ?? '')) {
-      return { tool: answer.tool, preview: empty, refusals: [error.message], removalAlone: [] };
+      return {
+        tool: answer.tool,
+        preview: empty,
+        refusals: [error.message],
+        ...(error.code !== undefined ? { refusalCodes: [error.code] } : {}),
+        removalAlone: [],
+      };
     }
     const raw = postedOf(answer.posted, 'frozen:remove:preview:response')?.['preview'];
     if (raw === undefined) {
       return { tool: answer.tool, preview: empty, refusals: [], removalAlone: [] };
     }
     const read = removalPreviewSchema
-      .extend({ refusals: z.array(z.string()) })
+      .extend({ refusals: z.array(z.string()), refusalCodes: z.array(z.string()).optional() })
       .loose()
       .safeParse(raw);
     if (!read.success) {
       ctx.addIssue({ code: 'custom', message: `its preview: ${read.error.issues[0]?.message}` });
       return z.NEVER;
     }
-    const { refusals, ...preview } = read.data;
-    const removalAlone = (answer.refusals ?? []).filter((refusal) => !refusals.includes(refusal));
-    return { tool: answer.tool, preview, refusals, removalAlone };
+    const { refusals, refusalCodes, ...preview } = read.data;
+    // The code of each refusal the script said, as its answer gives them.
+    const said = answer.refusals ?? [];
+    const codeOf = new Map<string, string>(
+      answer.refusalCodes?.length === said.length
+        ? said.map((refusal, at) => [refusal, answer.refusalCodes?.[at] ?? ''])
+        : [],
+    );
+    const removalAlone = said.filter((refusal) => !refusals.includes(refusal));
+    const aloneCodes = removalAlone.flatMap((refusal) => codeOf.get(refusal) ?? []);
+    return {
+      tool: answer.tool,
+      preview,
+      refusals,
+      ...(refusalCodes?.length === refusals.length ? { refusalCodes } : {}),
+      removalAlone,
+      ...(aloneCodes.length === removalAlone.length && aloneCodes.length > 0
+        ? { removalAloneCodes: aloneCodes }
+        : {}),
+    };
   });
 
 /**

@@ -107,6 +107,15 @@ describe('measureSyncWrite', () => {
     );
 
     expect(check).toMatchObject({ total: 0, alreadyCopied: 40, verdict: 'writes', emails: [] });
+    expect(check).not.toHaveProperty('alreadyLinked');
+    const linked = await measureSyncWrite(
+      {
+        ...counted([{ objectApiName: 'Account', operation: 'insert', rows: 0 }], 40),
+        alreadyLinked: 2,
+      },
+      measures({ readStorage, readApiBudget, readAutomation }),
+    );
+    expect(linked.check).toMatchObject({ alreadyCopied: 40, alreadyLinked: 2 });
     expect(readStorage).not.toHaveBeenCalled();
     expect(readApiBudget).not.toHaveBeenCalled();
     expect(readAutomation).not.toHaveBeenCalled();
