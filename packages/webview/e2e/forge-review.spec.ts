@@ -766,11 +766,21 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     // The clone's lines said the mute lifts the rule; the Gaps tab said it may
     // refuse the contacts, the field left empty, under the command that
     // assigns the set the mute assigns itself.
+    // A second field to fill, of the trap org's: on the two gaps alone the
+    // row's folded groups came to 205 pixels, one short of its room in the
+    // CI's Liberation Sans, where Plan's line does not wrap. Opening a group
+    // took the row to its room and moved every row under it down a pixel.
     await openReview(page, {
-      gaps: [REFUSING_GAP, LIFTED_RULE_GAP],
+      gaps: [REFUSING_GAP, ELEVEN_GAPS[0]!, LIFTED_RULE_GAP],
       automation: LIFTING_AUTOMATION,
     });
     const rule = page.getByTestId(`gap-${LIFTED_RULE_GAP.id}`);
+    // The row holds its room and scrolls within: what opens in it moves no row.
+    expect(
+      await page
+        .getByTestId('review-gaps-scroll')
+        .evaluate((body) => body.scrollHeight > body.clientHeight),
+    ).toBe(true);
     const rows = ['gaps', 'plan', 'anonymization', 'compliance', 'metadata', 'automation'];
     /** Where each row stands. */
     const layout = async (): Promise<number[]> => {

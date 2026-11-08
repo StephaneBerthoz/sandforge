@@ -585,9 +585,13 @@ describe('SfdxBridge', () => {
     it('says the second run could not be made when the temp folder holds a quote', async () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
       const quotedTemp = mkdtempSync(join(tmpdir(), "it's-"));
-      const savedTmp = process.env.TMPDIR;
-      process.env.TMPDIR = quotedTemp;
+      // os.tmpdir() reads TMPDIR, TMP then TEMP on POSIX but TEMP then TMP on
+      // Windows, whatever process.platform says: on the Windows runner, with
+      // TMPDIR alone naming this folder, the second run was made in the
+      // runner's own temp folder and nothing was refused.
+      for (const name of ['TMPDIR', 'TMP', 'TEMP']) vi.stubEnv(name, quotedTemp);
       try {
+        expect(tmpdir()).toBe(quotedTemp);
         const seen = scriptSf({ pipe: { stdout: '', stderr: '' } });
 
         await expect(bridge.listOrgs()).rejects.toThrow(
@@ -596,8 +600,7 @@ describe('SfdxBridge', () => {
         expect(seen.every((call) => !call.command.includes(' > '))).toBe(true);
         expect(readdirSync(quotedTemp)).toEqual([]);
       } finally {
-        if (savedTmp === undefined) delete process.env.TMPDIR;
-        else process.env.TMPDIR = savedTmp;
+        vi.unstubAllEnvs();
         rmSync(quotedTemp, { recursive: true, force: true });
       }
     });
