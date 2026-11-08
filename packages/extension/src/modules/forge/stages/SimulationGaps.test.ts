@@ -213,7 +213,10 @@ describe('SimulationGaps', () => {
     const ignored = forgeGapId('unique_value_collision', 'Case', 'Code__c');
 
     expect(gaps.list(new Set([ignored]))).toEqual([
-      expect.objectContaining({ id: ignored, detail: { colliding: 1, ignored: true } }),
+      expect.objectContaining({
+        id: ignored,
+        detail: { colliding: 1, linkedToTheRecordItNames: true, ignored: true },
+      }),
     ]);
   });
 

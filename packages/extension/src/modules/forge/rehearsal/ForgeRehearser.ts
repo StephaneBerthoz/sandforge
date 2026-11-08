@@ -14,6 +14,15 @@ import { rehearsalExecutorDeps } from './RehearsalWriter.js';
 import { RehearsalCancelledError, rehearse, type RehearsalPlan } from './rehearse.js';
 import type { CompositeRequestBody } from './compositeCalls.js';
 import type { TargetValidationRule } from './rehearsalGaps.js';
+import {
+  withRecordTypeNames,
+  type RecordTypeAvailability,
+} from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  RECORD_TYPE_NAMES_SOQL,
+  parseNamespacedRecordTypes,
+  type NamespacedRecordType,
+} from '../../../core/metadata/recordTypeNames.js';
 
 /** What the extension's rehearsals are wired to. */
 export interface ForgeRehearserDeps {
@@ -65,6 +74,28 @@ export interface RehearseOptions {
 }
 
 /**
+ * What a rehearsal reads of the target's record types of an object
+ * (`RehearsalDeps.targetRecordTypes`): its describe's, each named by the
+ * `RecordType` row of its id — `ns__Retail` for a package's — those rows read
+ * once, as a run names them. Read only when a refusal names a package's
+ * record type.
+ */
+export function targetRecordTypesOf(
+  reads: Pick<ForgeExecutorDeps, 'describeObject' | 'queryRecords'>,
+  targetOrgId: string,
+): (objectApiName: string) => Promise<RecordTypeAvailability[] | undefined> {
+  let names: Promise<NamespacedRecordType[]> | undefined;
+  return async (objectApiName) => {
+    const info = await reads.describeObject?.(targetOrgId, objectApiName);
+    if (!info || !info.recordTypes.some((type) => !type.master)) return info?.recordTypes;
+    names ??= reads
+      .queryRecords(targetOrgId, RECORD_TYPE_NAMES_SOQL)
+      .then(parseNamespacedRecordTypes, () => []);
+    return withRecordTypeNames(info.recordTypes, await names);
+  };
+}
+
+/**
  * Rehearses the runs Review asks about: each one with an executor and an
  * orchestrator of its own, built on the run's reads and on a writer that
  * keeps the rows instead of writing them, so that the rows a rehearsal judges
@@ -83,6 +114,7 @@ export class ForgeRehearser {
     const recordTypeNames = new Map(
       (options.recordTypeMappings ?? []).map((m) => [m.targetId.slice(0, 15), m.developerName]),
     );
+    const targetRecordTypes = targetRecordTypesOf(this.deps.reads, targetOrgId);
     return rehearse({
       prepare: async (writer) => {
         const orchestrator = new ForgeOrchestrator({
@@ -130,6 +162,7 @@ export class ForgeRehearser {
         applyAssignmentRules: config.applyAssignmentRules === true,
       }),
       recordTypeNames,
+      targetRecordTypes,
       targetFields: (objectApiName) => this.deps.reads.describeFields(targetOrgId, objectApiName),
       ...(validationRules
         ? { validationRules: (objects) => validationRules(targetOrgId, objects) }

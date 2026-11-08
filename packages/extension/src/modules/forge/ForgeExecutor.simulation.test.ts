@@ -282,8 +282,10 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     expect(deps.upsertRecords).not.toHaveBeenCalled();
     expect(summary.dryRun).toBe(true);
     // The account and its three orders, none held back for want of the
-    // account it would have written first.
-    expect(summary.wouldInsertCount).toBe(4);
+    // account it would have written first: two orders inserted, the one
+    // holding a code the target holds linked to its record.
+    expect(summary.wouldInsertCount).toBe(3);
+    expect(summary.linkedCount).toBe(1);
     expect(summary.successCount).toBe(0);
     expect(summary.remapTable).toEqual({});
     expect(summary.remapCount).toBe(0);
@@ -319,7 +321,9 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
 
     const last = events.filter((e) => e.objectName === 'Order__c').at(-1);
     expect(last?.status).toBe('done');
-    expect(last?.message).toMatch(/^Simulated Order__c: 3 would be inserted, 0 failed/);
+    expect(last?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
   });
 
   it('ends an object whose every row leaves a field the target requires empty on its refusal', async () => {
@@ -400,6 +404,62 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     const gap = gapOf(summary, forgeGapId('unique_value_collision', 'Order__c', 'Code__c'));
     expect(gap).toMatchObject({ rows: 1, detail: { colliding: 1 } });
     expect(JSON.stringify(summary.gaps)).not.toContain('TAKEN');
+  });
+
+  it('counts a row whose unique value the target holds as linked, as the run that links it to the record its refusal names', async () => {
+    // A real target refuses the row "DUPLICATE_VALUE: duplicate value found:
+    // Code__c duplicates value on record with id: <its id>", and the run
+    // links it. Run on a Developer Edition, the dry run of a contact's clone
+    // said 3 to insert and 0 linked, and the run inserted 2 and linked 1.
+    const held = id('a01', 500);
+    const { deps } = fakeOrgs();
+    const real = fakeOrgs();
+    const inserting = real.deps.insertRecords.getMockImplementation();
+    real.deps.insertRecords.mockImplementation(async (org, object, rows) => {
+      const answers = (await inserting?.(org, object, rows)) ?? [];
+      return answers.map((answer, at) =>
+        rows[at]?.['Code__c'] === 'TAKEN'
+          ? {
+              id: '',
+              success: false,
+              errors: [
+                `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${held}`,
+              ],
+            }
+          : answer,
+      );
+    });
+
+    const { summary, events } = await run(deps, {
+      ...OPTIONS,
+      dryRun: true,
+      decisions: REGION_GIVEN,
+    });
+    const { summary: written } = await run(real.deps, { ...OPTIONS, decisions: REGION_GIVEN });
+
+    expect(written).toMatchObject({ successCount: 3, linkedCount: 1 });
+    expect(written.existingRecords).toEqual([
+      { objectApiName: 'Order__c', linked: 1, unidentified: 0 },
+    ]);
+    expect(summary).toMatchObject({ wouldInsertCount: 3, linkedCount: 1, failedCount: 0 });
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Order__c', linked: 1, unidentified: 0 },
+    ]);
+    expect(events.filter((e) => e.objectName === 'Order__c').at(-1)?.message).toMatch(
+      /^Simulated Order__c: 2 would be inserted, 1 linked to records already in the target, 0 failed/,
+    );
+    // Said as the rehearsal says the target's refusal of it: the run links it.
+    expect(
+      gapOf(summary, forgeGapId('unique_value_collision', 'Order__c', 'Code__c')),
+    ).toMatchObject({
+      severity: 'warning',
+      rows: 1,
+      detail: { colliding: 1, linkedToTheRecordItNames: true },
+      defaultDecision: 'ignore',
+    });
+    // Its id is the simulation's own, never given back.
+    expect(summary.remapTable).toEqual({});
+    expect(summary.existingSourceIds).toEqual([]);
   });
 
   it('says a currency the target does not hold active, read once, with the currency its rows go in and the amounts converted', async () => {
@@ -709,7 +769,10 @@ describe('ForgeExecutor, the rows the user chose to hold back', () => {
       decisions: { ...REGION_GIVEN, skippedRows: [{ object: 'Order__c', gapId: RETAIL_OLD }] },
     });
 
-    expect(summary.wouldInsertCount).toBe(3);
+    // The account and one order: the order holding a code the target holds is
+    // linked to its record.
+    expect(summary.wouldInsertCount).toBe(2);
+    expect(summary.linkedCount).toBe(1);
     expect(gapOf(summary, RETAIL_OLD)).toBeUndefined();
   });
 

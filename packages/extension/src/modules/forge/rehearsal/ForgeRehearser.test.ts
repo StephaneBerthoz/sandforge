@@ -8,7 +8,7 @@ import type {
 import { gapLiftedBy } from '@sandforge/shared';
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { GraphDiscoveryService } from '../GraphDiscoveryService.js';
-import { ForgeRehearser, type ForgeRehearserDeps } from './ForgeRehearser.js';
+import { ForgeRehearser, targetRecordTypesOf, type ForgeRehearserDeps } from './ForgeRehearser.js';
 import { RehearsalCancelledError } from './rehearse.js';
 import { selectRows, type FakeRow } from '../../../test/fakeSoql.js';
 import { TeamSellingOrg } from '../../../test/teamSellingOrg.js';
@@ -519,5 +519,44 @@ describe('a rehearsal of an opportunity under Team Selling and Splits', () => {
     });
     // Rehearsed, never written.
     expect(target.tables['Opportunity']).toEqual([]);
+  });
+});
+
+describe("what a rehearsal reads of the target's record types", () => {
+  it('names each by its RecordType row, read once, as a run names them', async () => {
+    // The describe names a package's record type by its DeveloperName alone,
+    // as it names the org's own of the same name.
+    const OWN = id('012', 1);
+    const PACKAGED = id('012', 2);
+    const queryRecords = vi.fn(async () => [
+      { Id: OWN, DeveloperName: 'Retail', NamespacePrefix: null },
+      { Id: PACKAGED, DeveloperName: 'Retail', NamespacePrefix: 'ns' },
+    ]);
+    const typed = (recordTypeId: string, master = false) => ({
+      recordTypeId,
+      developerName: master ? 'Master' : 'Retail',
+      name: 'Retail',
+      available: true,
+      active: true,
+      master,
+      defaultRecordTypeMapping: false,
+    });
+    const describeObject = vi.fn(async (_org: string, object: string) => ({
+      keyPrefix: '001',
+      recordTypes:
+        object === 'Account' ? [typed(OWN), typed(PACKAGED)] : [typed(id('012', 3), true)],
+    }));
+    const read = targetRecordTypesOf({ describeObject, queryRecords }, 'tgt');
+
+    const types = await read('Account');
+    await read('Account');
+    await read('Case');
+
+    expect(types?.map((type) => [type.developerName, type.namespacePrefix])).toEqual([
+      ['Retail', null],
+      ['ns__Retail', 'ns'],
+    ]);
+    // Once a rehearsal, and never for an object with no record type of its own.
+    expect(queryRecords).toHaveBeenCalledTimes(1);
   });
 });

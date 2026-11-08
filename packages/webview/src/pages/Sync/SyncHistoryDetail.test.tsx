@@ -350,6 +350,33 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('sync-history-errors-Contact')).toBeNull();
   });
 
+  it('counts the records linked to one the target holds and the contact roles the platform wrote as linked, not skipped', () => {
+    // The result keeps them among its skipped: the counts read "Skipped: 2"
+    // over "2 records linked to records the target org already holds".
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      objectApiName: 'OpportunityContactRole',
+      processed: 3,
+      success: 2,
+      skipped: 3,
+      errors: [],
+      alreadyCopied: 1,
+      linkedToExisting: { records: 1 },
+      writtenByThePlatform: { records: 1, given: 1 },
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-counts-OpportunityContactRole').textContent).toBe(
+      'Processed: 3Succeeded: 2Failed: 0Skipped: 1Linked: 2',
+    );
+    // Nothing linked, and no linked count.
+    expect(screen.getByTestId('history-counts-Account').textContent).toBe(
+      'Processed: 100Succeeded: 90Failed: 8Skipped: 2',
+    );
+  });
+
   it('says what its runs did with a record the target held, not a direction no run took', () => {
     // "Bidirectional" read as a run writing both ways: every run writes to
     // the target, and on any other direction the strategy was never read.

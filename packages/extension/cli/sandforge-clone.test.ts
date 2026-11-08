@@ -583,6 +583,29 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({}))).not.toHaveProperty('gaps');
   });
 
+  it('says a unique value the target holds is linked by a real run, as the dry run counts it', () => {
+    expect(
+      simulationGapLines([
+        {
+          id: 'unique_value_collision|Account|Ext_Id__c||',
+          kind: 'unique_value_collision',
+          severity: 'warning',
+          source: 'simulation',
+          objectApiName: 'Account',
+          field: 'Ext_Id__c',
+          rows: 1,
+          detail: { colliding: 1, linkedToTheRecordItNames: true },
+          decisions: ['exclude_object', 'ignore'],
+          defaultDecision: 'ignore',
+        },
+      ]),
+    ).toEqual([
+      'gaps the target holds against the rows (1, dry run):',
+      '  [warning] Account.Ext_Id__c  unique_value_collision: 1 record(s) (1 value(s) already ' +
+        'in the target; a real run links each row to the record the target holds)',
+    ]);
+  });
+
   it("gives a dry run's --json the changes for the target's admin, from its metadata and its rows", () => {
     const simulated: ForgeGap[] = [
       {

@@ -1575,6 +1575,7 @@
       "successCount": "Concluídos",
       "failedCount": "Falharam",
       "skippedCount": "Ignorados",
+      "linkedCount": "Vinculados",
       "configSnapshot": "Configuração utilizada",
       "runAgain": "Executar novamente",
       "emptyTitle": "Nenhuma execução ainda",
@@ -1645,6 +1646,8 @@
       "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados.",
       "overwrites_one": "Deles, {{count}} pode sobrescrever um registro que a org de destino contém: o que ele contém é lido e guardado antes, e remover a execução o restaura.",
       "overwrites_other": "Deles, até {{count}} podem sobrescrever registros que a org de destino contém: o que eles contêm é lido e guardado antes, e remover a execução o restaura.",
+      "rolesByThePlatform_one": "Deles, {{count}} pode ser um papel de contato que a plataforma grava sozinha com uma oportunidade que a execução cria, para o seu contato: a execução o vincula e não o envia.",
+      "rolesByThePlatform_other": "Deles, até {{count}} podem ser papéis de contato que a plataforma grava sozinha com as oportunidades que a execução cria, para o seu contato: a execução vincula cada um e não o envia.",
       "notWritten_one": "Dos {{total}} que uma execução conta na origem, {{count}} não seria gravado: retido ou recusado, como cada objeto diz. O que segue é medido sobre todos.",
       "notWritten_other": "Dos {{total}} que uma execução conta na origem, {{count}} não seriam gravados: retidos ou recusados, como cada objeto diz. O que segue é medido sobre todos.",
       "unwritable": {

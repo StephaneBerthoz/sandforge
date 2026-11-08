@@ -1575,6 +1575,7 @@
       "successCount": "Correctos",
       "failedCount": "Fallidos",
       "skippedCount": "Omitidos",
+      "linkedCount": "Vinculados",
       "configSnapshot": "Configuración utilizada",
       "runAgain": "Ejecutar de nuevo",
       "emptyTitle": "Aún no hay ejecuciones",
@@ -1645,6 +1646,8 @@
       "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar.",
       "overwrites_one": "De ellos, {{count}} puede sobrescribir un registro que la org de destino contiene: lo que contiene se lee y se conserva antes, y eliminar la ejecución lo restablece.",
       "overwrites_other": "De ellos, hasta {{count}} pueden sobrescribir registros que la org de destino contiene: lo que contienen se lee y se conserva antes, y eliminar la ejecución lo restablece.",
+      "rolesByThePlatform_one": "De ellos, {{count}} puede ser un rol de contacto que la plataforma escribe por sí misma con una oportunidad que la ejecución crea, para su contacto: la ejecución lo vincula y no lo envía.",
+      "rolesByThePlatform_other": "De ellos, hasta {{count}} pueden ser roles de contacto que la plataforma escribe por sí misma con las oportunidades que la ejecución crea, para su contacto: la ejecución vincula cada uno y no lo envía.",
       "notWritten_one": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribiría: retenido o rechazado, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "notWritten_other": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribirían: retenidos o rechazados, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "unwritable": {

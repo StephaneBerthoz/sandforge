@@ -1575,6 +1575,7 @@
       "successCount": "Réussis",
       "failedCount": "Échecs",
       "skippedCount": "Ignorés",
+      "linkedCount": "Liés",
       "configSnapshot": "Configuration utilisée",
       "runAgain": "Relancer",
       "emptyTitle": "Aucune exécution",
@@ -1645,6 +1646,8 @@
       "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être.",
       "overwrites_one": "Parmi eux, {{count}} peut écraser un enregistrement que l'org cible détient : ce qu'il contient est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
       "overwrites_other": "Parmi eux, jusqu'à {{count}} peuvent écraser des enregistrements que l'org cible détient : ce qu'ils contiennent est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
+      "rolesByThePlatform_one": "Parmi eux, {{count}} peut être un rôle de contact que la plateforme écrit elle-même avec une opportunité que l'exécution crée, pour son contact : l'exécution le rattache et ne l'envoie pas.",
+      "rolesByThePlatform_other": "Parmi eux, jusqu'à {{count}} peuvent être des rôles de contact que la plateforme écrit elle-même avec les opportunités que l'exécution crée, pour leur contact : l'exécution rattache chacun et ne l'envoie pas.",
       "notWritten_one": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne serait pas écrit : retenu ou refusé, comme chaque objet le dit. La suite est mesurée sur tous.",
       "notWritten_other": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne seraient pas écrits : retenus ou refusés, comme chaque objet le dit. La suite est mesurée sur tous.",
       "unwritable": {

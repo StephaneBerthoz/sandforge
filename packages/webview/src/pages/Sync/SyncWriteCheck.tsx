@@ -117,6 +117,15 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.overwrites', { count: check.overwrites ?? 0 })}
                 </p>
               )}
+              {/* Counted among the records to write: the role the platform
+                  writes with an opportunity, which the run links and sends not. */}
+              {(check.rolesByThePlatform ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-platform-roles">
+                  {t('sync.writeCheck.rolesByThePlatform', {
+                    count: check.rolesByThePlatform ?? 0,
+                  })}
+                </p>
+              )}
               {check.total > 0 && (
                 <p
                   className={check.storage.verdict === 'fits' ? undefined : 'text-status-warning'}

@@ -1,8 +1,15 @@
 import type {
+  ForgeGap,
   ForgeRehearsal,
   ForgeRehearsalNotJudgedReason,
   ForgeRehearsalProgress,
 } from '@sandforge/shared';
+import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  partsOfRecordTypeName,
+  type RecordTypeNameParts,
+} from '../../../core/metadata/recordTypeNames.js';
+import { recordTypesNamed, withSameDeveloperName } from '../stages/SimulationGaps.js';
 import {
   NO_KEY_PREFIX,
   RehearsalWriter,
@@ -97,6 +104,15 @@ export interface RehearsalDeps {
   /** The target's record types, by the first 15 characters of their id, to their DeveloperName. */
   recordTypeNames?: ReadonlyMap<string, string>;
   /**
+   * The target's record types of an object, from the describe the run holds:
+   * what a refusal of a package's record type says of the target's others
+   * that carry its DeveloperName (`withSameDeveloperName`). Asked only of an
+   * object such a refusal names. Optional: without it, the gap says none.
+   */
+  targetRecordTypes?: (
+    objectApiName: string,
+  ) => Promise<readonly RecordTypeAvailability[] | undefined>;
+  /**
    * The target's fields of an object, from the describe the run holds: what
    * says why a restricted picklist refused a value — the field does not hold
    * it, or the record type does not select it. Optional: without it, the
@@ -125,6 +141,38 @@ export interface RehearsalDeps {
    * rolled back whole, so stopping between two leaves nothing in the target.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * `gaps`, each of a package's record type saying the target's other record
+ * types that carry its DeveloperName (`withSameDeveloperName`), as a
+ * simulation's gaps say them: each object such a gap names described once.
+ * A bare name names one of those, as the run reads it, and a decision kept
+ * under it before namespaces is not the gap's. Said by none, a rehearsal's
+ * gap of a package's Retail, the target's own Retail refusing nothing, read
+ * a decision on the bare name as its own, which the run applies to the
+ * org's own rows alone. An object the target will not describe says none.
+ */
+async function withTheirRecordTypesNamed(
+  gaps: ForgeGap[],
+  deps: Pick<RehearsalDeps, 'targetRecordTypes'>,
+): Promise<ForgeGap[]> {
+  const read = deps.targetRecordTypes;
+  if (!read) return gaps;
+  const objects = new Set(
+    gaps.flatMap((gap) =>
+      gap.recordType !== undefined && partsOfRecordTypeName(gap.recordType).namespacePrefix
+        ? [gap.objectApiName]
+        : [],
+    ),
+  );
+  if (objects.size === 0) return gaps;
+  const typesOf = new Map<string, readonly RecordTypeNameParts[] | undefined>();
+  for (const object of objects) {
+    const types = await read(object).catch(() => undefined);
+    typesOf.set(object, types ? recordTypesNamed(types) : undefined);
+  }
+  return gaps.map((gap) => withSameDeveloperName(gap, typesOf.get(gap.objectApiName)));
 }
 
 /**
@@ -679,11 +727,14 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     why.set(key, (why.get(key) ?? 0) + 1);
   }
   return {
-    gaps: rehearsalGaps(
-      refused,
-      deps.recordTypeNames,
-      await picklistsRefused(refused, deps),
-      await rulesRefusing(refused, deps),
+    gaps: await withTheirRecordTypesNamed(
+      rehearsalGaps(
+        refused,
+        deps.recordTypeNames,
+        await picklistsRefused(refused, deps),
+        await rulesRefusing(refused, deps),
+      ),
+      deps,
     ),
     rows: rows.length,
     sampled: toJudge.length,

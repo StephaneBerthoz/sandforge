@@ -15,6 +15,8 @@ import {
   confirmationApiOf,
   runRequestsEstimate,
   runRequestsTotal,
+  sendersOfNothingWritten,
+  sendersOfNothingWrittenLine,
   type RunRequestParts,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   DEFAULT_MAX_TOTAL,
@@ -2101,5 +2103,39 @@ describe('the named parts of a run’s API requests', () => {
       unread: 'refused',
       parts: { run: 1, checkpoint: 68 },
     });
+  });
+});
+
+describe('the senders of an object a dry run writes nothing of', () => {
+  // A lead's clone into a Developer Edition: its dry run, refused for the
+  // emails before a row was read, named the senders of the contacts too, a
+  // node of the graph the run wrote no record of, while its gate counted one
+  // email per lead.
+  const senders = [
+    { objectApiName: 'Lead', kind: 'flow', name: 'Lead Create Email', why: 'email' },
+    { objectApiName: 'Contact', kind: 'workflowRule', name: 'Contact_Welcome', why: 'email' },
+    { objectApiName: 'Contact', kind: 'flow', name: 'Contact Welcome Email', why: 'email' },
+  ] as const;
+
+  it('names those of an object the gate writes no record of, nor the platform with one', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'Lead', rows: rows(1) },
+      { objectApiName: 'Contact', rows: [] },
+    ]);
+
+    expect(sendersOfNothingWritten(senders, plan)).toEqual([senders[1], senders[2]]);
+    expect(sendersOfNothingWrittenLine(sendersOfNothingWritten(senders, plan))).toBe(
+      '  emails: workflow rule "Contact_Welcome" and flow "Contact Welcome Email" on Contact ' +
+        'send nothing: the run writes no Contact record. A real run is refused all the same, ' +
+        'and names them: it asks before it reads which records it writes',
+    );
+    // Written by the platform with a record the run creates, a contact's
+    // insert fires its automation as the run's would.
+    const withTheirAccount = writePlanOf([
+      { objectApiName: 'Lead', rows: rows(1) },
+      { objectApiName: 'Contact', rows: [], leftOut: { byThePlatform: 1 } },
+    ]);
+    expect(sendersOfNothingWritten(senders, withTheirAccount)).toEqual([]);
+    expect(sendersOfNothingWrittenLine([])).toBeUndefined();
   });
 });

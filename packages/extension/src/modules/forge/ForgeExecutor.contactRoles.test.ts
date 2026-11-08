@@ -8,7 +8,7 @@ import type {
   ForgeProgressEvent,
   ForgeWriteBoundary,
 } from './ForgeExecutor.js';
-import { leftOutLines, writePlanOf } from './ForgeRunGate.js';
+import { leftOutLines, storageCheckOf, writePlanLines, writePlanOf } from './ForgeRunGate.js';
 import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { RehearsalWriter, rehearsalExecutorDeps } from './rehearsal/RehearsalWriter.js';
@@ -526,6 +526,40 @@ describe('ForgeExecutor, an opportunity sent with its primary contact', () => {
     );
   });
 
+  it('says at the gate of a run read page by page the role the platform may write with the opportunity, which its count holds', async () => {
+    // A count reads no row: which role the platform writes is known once the
+    // pages are read, and the gate counted it as one the run writes.
+    const { deps } = pagedOrgs();
+    let shown: ForgeWriteBoundary | undefined;
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      stream: { pageSize: 1 },
+      beforeWrite: async (boundary) => {
+        shown = boundary;
+      },
+    });
+
+    const plan = writePlanOf(shown?.objects ?? []);
+    expect(plan.totalRows).toBe(4);
+    expect(
+      writePlanLines(plan, storageCheckOf(plan, { maxMB: 5, remainingMB: 5 }), 'TGT'),
+    ).toContain(
+      '  counted in: up to 1 OpportunityContactRole record(s) the platform may write itself with ' +
+        'their opportunity, for its contact, which the run then links to and does not send',
+    );
+    // Sent without its contact, the opportunity gets no role of the platform's.
+    const without = pagedOrgs();
+    let alone: ForgeWriteBoundary | undefined;
+    await new ForgeExecutor(without.deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      stream: { pageSize: 1 },
+      fieldExclusions: { Opportunity: ['ContactId'] },
+      beforeWrite: async (boundary) => {
+        alone = boundary;
+      },
+    });
+    expect(writePlanOf(alone?.objects ?? []).objects.some((o) => o.mayBeByThePlatform)).toBe(false);
+  });
+
   it('links it all the same when the target refuses the update, and says the fields it went without', async () => {
     const { deps, target } = orgs();
     deps.updateRecords.mockImplementation(async (_org, _object, rows) =>
@@ -686,6 +720,43 @@ describe('ForgeExecutor, a run that writes the roles of an opportunity a run bef
     expect(resumed.writtenByThePlatform).toEqual([
       { objectApiName: 'OpportunityContactRole', rows: 1 },
     ]);
+  });
+
+  it('says at the gate of the run taken up the role the platform may have written with the opportunity before, which it counts', async () => {
+    // On a scratch org the resume's gate read "write gate: 6 record(s) …
+    // OpportunityContactRole 1" and the resume linked the role, sending none:
+    // whether the platform wrote it is the target's to say, read as the role
+    // is written.
+    const { deps, target, stopped, disk } = await stoppedAfterTheOpportunity(true);
+    expect(stopped).toBeInstanceOf(ForgeAbortedError);
+    const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+    let shown: ForgeWriteBoundary | undefined;
+
+    await new ForgeExecutor(deps).execute(dealGraph(), 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_DEAL,
+      stream: { store },
+      beforeWrite: async (boundary) => {
+        shown = boundary;
+      },
+    });
+    store.close();
+
+    const plan = writePlanOf(shown?.objects ?? []);
+    expect(plan.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'OpportunityContactRole',
+        rows: 1,
+        mayBeByThePlatform: { rows: 1, before: true },
+      }),
+    ]);
+    expect(
+      writePlanLines(plan, storageCheckOf(plan, { maxMB: 5, remainingMB: 5 }), 'TGT'),
+    ).toContain(
+      '  counted in: up to 1 OpportunityContactRole record(s) the platform may have written with ' +
+        'their opportunity, for its contact, in the run this one takes up, which the run then ' +
+        'links to and does not send',
+    );
+    expect(target.sent['OpportunityContactRole']).toBeUndefined();
   });
 
   it('writes the role of another contact as read beside it, on a retry as in a run', async () => {

@@ -16,7 +16,7 @@ import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
-import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
+import { SyncWrittenLines, hasWrittenLines, linkedOf } from './SyncWrittenLines';
 import { stillRanOf } from '../shared/RecordTypeGivenLine';
 import { heldRecordChoiceOf } from './heldRecordChoice';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
@@ -179,7 +179,10 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
               subtitle={`${t(`syncParts.operations.${obj.operation}`)} - ${obj.success}/${obj.processed}`}
             />
             <CardBody>
-              <div className="flex gap-(--sf-space-3) text-[10px]">
+              <div
+                className="flex gap-(--sf-space-3) text-[10px]"
+                data-testid={`history-counts-${obj.objectApiName}`}
+              >
                 <span>
                   {t('sync.history.processed')}: {obj.processed}
                 </span>
@@ -189,9 +192,16 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
                 <span className="text-status-error">
                   {t('sync.history.failedCount')}: {obj.failed}
                 </span>
+                {/* What the run linked rather than wrote is kept among the
+                    result's skipped: counted linked, as the lines under it say. */}
                 <span>
-                  {t('sync.history.skippedCount')}: {obj.skipped}
+                  {t('sync.history.skippedCount')}: {Math.max(0, obj.skipped - linkedOf(obj))}
                 </span>
+                {linkedOf(obj) > 0 && (
+                  <span>
+                    {t('sync.history.linkedCount')}: {linkedOf(obj)}
+                  </span>
+                )}
               </div>
               {/* The standard price book matched: no refusal either. */}
               {obj.standardPricebookMatched && (

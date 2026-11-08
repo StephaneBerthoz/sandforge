@@ -123,6 +123,14 @@ export interface SyncCountedWrite {
    */
   heldBack?: SyncHeldBackObject[];
   /**
+   * Of the contact roles counted in `objects`, those the platform may write
+   * itself with the opportunities the run creates, at most — one an
+   * opportunity, of the contact it goes in with — which the run links to
+   * and does not send: counted in all the same, and said
+   * ({@link SyncWriteCheck.rolesByThePlatform}). Absent when none.
+   */
+  rolesByThePlatform?: number;
+  /**
    * The requests the run sends once its writes are through to read back the
    * record type the target gave the records it created without one: the
    * `readBack` part of its API requests, at most. Absent when there is none
@@ -445,6 +453,9 @@ export async function measureSyncWrite(
     total,
     alreadyCopied: counted.alreadyCopied,
     ...(overwrites > 0 ? { overwrites } : {}),
+    ...((counted.rolesByThePlatform ?? 0) > 0
+      ? { rolesByThePlatform: counted.rolesByThePlatform }
+      : {}),
     ...(aboveRecords !== undefined ? { aboveRecords } : {}),
     storage:
       storage.verdict === 'unread'

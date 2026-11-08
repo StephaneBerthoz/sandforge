@@ -99,11 +99,11 @@ export class SimulationGaps {
     org: RecordTypesOf,
     types: readonly RecordTypeAvailability[],
   ): void {
-    const named = types.filter((type) => !type.master);
-    if (named.some((type) => type.namespacePrefix === undefined)) return;
+    const named = recordTypesNamed(types);
+    if (named === undefined) return;
     this.recordTypes.set(objectApiName, {
       ...this.recordTypes.get(objectApiName),
-      [org]: named.map(partsOfRecordType),
+      [org]: named,
     });
   }
 
@@ -171,28 +171,61 @@ export class SimulationGaps {
    */
   private withSameDeveloperName(gap: ForgeGap): ForgeGap {
     const unmapped = gap.kind === 'record_type_unmapped';
-    const name = unmapped ? gap.value : gap.recordType;
-    const types = this.recordTypes.get(gap.objectApiName)?.[unmapped ? 'source' : 'target'];
-    if (name === undefined || types === undefined) return gap;
-    const parts = partsOfRecordTypeName(name);
-    if (!parts.namespacePrefix) return gap;
-    const others = types
-      .filter(
-        (type) =>
-          type.developerName === parts.developerName &&
-          type.namespacePrefix !== parts.namespacePrefix,
-      )
-      .map((type) => qualifiedRecordTypeName(type.namespacePrefix, type.developerName));
-    if (others.length === 0) return gap;
-    return {
-      ...gap,
-      detail: { ...(gap.detail ?? {}), sameDeveloperName: [...new Set(others)].sort() },
-    };
+    return withSameDeveloperName(
+      gap,
+      this.recordTypes.get(gap.objectApiName)?.[unmapped ? 'source' : 'target'],
+    );
   }
 }
 
 /** The org whose record types a gap names: see {@link SimulationGaps.knowRecordTypes}. */
 type RecordTypesOf = 'source' | 'target';
+
+/**
+ * An org's record types of an object by namespace and DeveloperName, its
+ * master left out — or undefined when one of them was not named by its
+ * `RecordType` row, as the run then tells the org's own from a package's by
+ * nothing either.
+ */
+export function recordTypesNamed(
+  types: readonly RecordTypeAvailability[],
+): RecordTypeNameParts[] | undefined {
+  const named = types.filter((type) => !type.master);
+  if (named.some((type) => type.namespacePrefix === undefined)) return undefined;
+  return named.map(partsOfRecordType);
+}
+
+/**
+ * `gap`, of a package's record type, with the names of the other record
+ * types of its org that carry its DeveloperName in its detail
+ * (`sameDeveloperName`), from `types` ({@link recordTypesNamed}): the
+ * target's for the record type its rows go in with, the source's for one
+ * unmapped. A bare name names one of those, as the run reads it, and never
+ * the package's: a decision kept before namespaces under the bare name is not
+ * the gap's ({@link ignoredGapEntry}). `gap` as it is without them, or for
+ * the org's own record type.
+ */
+export function withSameDeveloperName(
+  gap: ForgeGap,
+  types: readonly RecordTypeNameParts[] | undefined,
+): ForgeGap {
+  const name = gap.kind === 'record_type_unmapped' ? gap.value : gap.recordType;
+  if (name === undefined || types === undefined) return gap;
+  const parts = partsOfRecordTypeName(name);
+  if (!parts.namespacePrefix) return gap;
+  const others = types
+    .filter(
+      (type) =>
+        type.developerName === parts.developerName &&
+        type.namespacePrefix !== parts.namespacePrefix,
+    )
+    .map((type) => qualifiedRecordTypeName(type.namespacePrefix, type.developerName));
+  if (others.length === 0) return gap;
+  return {
+    ...gap,
+    detail: { ...(gap.detail ?? {}), sameDeveloperName: [...new Set(others)].sort() },
+  };
+}
 
 /** A list of values as a gap's detail lists them: sorted, at most {@link LISTED_VALUES}. */
 function listed(values: Iterable<string>): string[] {
@@ -553,7 +586,11 @@ export function currencyGapOf(
 
 /**
  * The gap of a unique field whose values the target already holds, on as many
- * rows: it refuses each of them as a duplicate.
+ * rows: it refuses each of them as a duplicate of the record holding the
+ * value, which it names, and the write links the row to that record — a
+ * warning, as the rehearsal says the same refusal (`linkedGapOf`). Said
+ * blocking, it stood beside a run that linked the row and lost nothing
+ * under it.
  *
  * @param colliding - How many distinct values the target already holds.
  */
@@ -565,12 +602,13 @@ export function uniqueCollisionGapOf(
 ): FoundGap {
   return {
     kind: 'unique_value_collision',
-    severity: 'blocking',
+    severity: 'warning',
     objectApiName,
     field,
     rows,
-    detail: { colliding },
+    detail: { colliding, linkedToTheRecordItNames: true },
     decisions: decisionsOf('unique_value_collision'),
+    defaultDecision: 'ignore',
   };
 }
 

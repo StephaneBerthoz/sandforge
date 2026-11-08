@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, SyncWriteCheck } from '@sandforge/shared';
 import { SyncOrchestrator } from './SyncOrchestrator.js';
 import { DataSync, type OperationOutcome } from './DataSync.js';
+import type { SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields.js';
 import { FieldMappingService } from './FieldMapping.js';
 import { TransformPipeline } from './TransformPipeline.js';
@@ -228,5 +229,126 @@ describe('SyncOrchestrator — an opportunity written with its primary contact, 
     expect(target.rolesOf(target.deal()).map((role) => role['Role'])).toEqual(['Decision Maker']);
     const roles = result.objectResults.find((r) => r.objectApiName === 'OpportunityContactRole');
     expect(roles?.writtenByThePlatform).toBeUndefined();
+  });
+});
+
+/**
+ * An orchestrator that simulates, and counts and measures as a run's gate
+ * does: each object's rows as the source counts them, the gate handed what
+ * was counted, and its check written back as a measure of it.
+ */
+function gatedOrchestrator(target: ReturnType<typeof targetOrg>, rows = sourceRows()) {
+  const counted: SyncCountedWrite[] = [];
+  const check = (write: SyncCountedWrite): SyncWriteCheck => {
+    const objects = write.objects
+      .filter((object) => object.rows > 0)
+      .map(({ objectApiName, rows: n }) => ({ objectApiName, rows: n }));
+    return {
+      objects,
+      total: objects.reduce((sum, object) => sum + object.rows, 0),
+      alreadyCopied: write.alreadyCopied,
+      ...(write.rolesByThePlatform !== undefined
+        ? { rolesByThePlatform: write.rolesByThePlatform }
+        : {}),
+      storage: { verdict: 'fits', estimateMB: 0 },
+      emails: [],
+      verdict: 'writes',
+    };
+  };
+  const gate: SyncWriteGate = {
+    measure: async (write) => {
+      counted.push(write);
+      return check(write);
+    },
+    hold: async (write) => {
+      counted.push(write);
+      return { check: check(write), answer: { go: true, asked: false } };
+    },
+  };
+  const unused = async (): Promise<OperationOutcome[]> => [];
+  const describeTargetFields = async (object: string) => DESCRIBES[object];
+  return {
+    counted,
+    sync: new SyncOrchestrator({
+      dataSync: new DataSync({
+        insert: (object, records) => target.insert(object, records),
+        update: (object, records) => target.update(object, records),
+        upsert: unused,
+        delete: unused,
+        describeTargetFields,
+      }),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: async (_org, config) => rows[config.objectApiName],
+      queryTarget: async () => [],
+      queryTargetRows: (soql) => target.query(soql),
+      describeTargetFields,
+      countSource: async (_org, config) => rows[config.objectApiName]?.length ?? 0,
+      findInTarget: async () => new Map(),
+      writeGate: gate,
+    }),
+  };
+}
+
+describe('SyncOrchestrator — what its gate and its simulation count of the role the platform writes', () => {
+  it('has its gate say the role the platform may write with the opportunity, which it counts from the source alone', async () => {
+    // On a scratch org, the gate read "write gate: 4 record(s) …
+    // OpportunityContactRole 1", and the run linked that role and wrote none.
+    const target = targetOrg();
+    const { sync, counted } = gatedOrchestrator(target);
+
+    await sync.execute(CONFIG);
+
+    expect(counted[0]?.rolesByThePlatform).toBe(1);
+    // An opportunity sent without its contact gets none of the platform's.
+    const without = gatedOrchestrator(targetOrg());
+    await without.sync.execute({
+      ...CONFIG,
+      objects: CONFIG.objects.map((o) =>
+        o.objectApiName === 'Opportunity' ? { ...o, excludedFields: ['ContactId'] } : o,
+      ),
+    });
+    expect(without.counted[0]?.rolesByThePlatform).toBeUndefined();
+  });
+
+  it('simulates the role linked to the one the platform writes with the opportunity, not inserted, as the run links it', async () => {
+    // The same scratch org: "OpportunityContactRole (insert): 1 read, would
+    // insert 1", and the run wrote none.
+    const { sync } = gatedOrchestrator(targetOrg());
+
+    const simulation = await sync.simulate(CONFIG);
+
+    const roles = simulation.objects.find((o) => o.objectApiName === 'OpportunityContactRole');
+    expect(roles).toMatchObject({ read: 1, insert: 0, skipped: 1, writtenByThePlatform: 1 });
+    expect(roles?.notes).toContain(
+      '1 record(s) would be linked to the contact role the platform writes with their ' +
+        'opportunity, for its contact, not written.',
+    );
+    // Said by the gate as the reading found it, and not among what it would
+    // hold back or refuse.
+    expect(simulation.writeCheck).toMatchObject({ total: 3, rolesByThePlatform: 1 });
+    expect(simulation.writeCheck?.notWritten).toBeUndefined();
+  });
+
+  it('simulates the role of another contact inserted beside it, and a role of an opportunity sent without its contact inserted', async () => {
+    const { sync } = gatedOrchestrator(targetOrg(), sourceRows(true));
+
+    const simulation = await sync.simulate(CONFIG);
+
+    expect(
+      simulation.objects.find((o) => o.objectApiName === 'OpportunityContactRole'),
+    ).toMatchObject({ read: 2, insert: 1, skipped: 1, writtenByThePlatform: 1 });
+
+    const without = gatedOrchestrator(targetOrg());
+    const alone = await without.sync.simulate({
+      ...CONFIG,
+      objects: CONFIG.objects.map((o) =>
+        o.objectApiName === 'Opportunity' ? { ...o, excludedFields: ['ContactId'] } : o,
+      ),
+    });
+    const role = alone.objects.find((o) => o.objectApiName === 'OpportunityContactRole');
+    expect(role).toMatchObject({ insert: 1, skipped: 0 });
+    expect(role?.writtenByThePlatform).toBeUndefined();
   });
 });

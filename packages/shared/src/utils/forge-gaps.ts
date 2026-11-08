@@ -70,7 +70,7 @@ function idOf(gap: GapLookedUp): string {
 /**
  * The other record types that carry the DeveloperName of the package's record
  * type a gap is of, in its org, by their names — `Retail`, the org's own,
- * beside `ns__Retail` — as the simulation that found the gap read them
+ * beside `ns__Retail` — as the simulation or the rehearsal that found the gap read them
  * (`detail.sameDeveloperName`): the target's for the record type rows go in
  * with, the source's for one unmapped. None when the read did not say.
  *

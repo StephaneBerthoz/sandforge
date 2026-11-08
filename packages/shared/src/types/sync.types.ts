@@ -885,6 +885,14 @@ export interface SyncWriteCheck {
    * kept first, and removing the run puts them back. Absent when none.
    */
   overwrites?: number;
+  /**
+   * Of `total`, the contact roles the platform may write itself as it takes
+   * the opportunities the run creates, for the contact each goes in with,
+   * which the run links to and does not send: at most, as a count of the
+   * source says them, before a row is read; of a simulation, those its
+   * reading found. Counted in all the same. Absent when none.
+   */
+  rolesByThePlatform?: number;
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
   /**
@@ -1056,6 +1064,13 @@ export interface SyncObjectSimulation {
    * leaves as they are: counted among `skipped`. Absent when none.
    */
   alreadyCopied?: number;
+  /**
+   * The contact roles a run would link to the one the platform writes itself
+   * as it takes an opportunity the run creates, for the contact it goes in
+   * with, rather than insert: counted among `skipped`, as a run counts them
+   * ({@link SyncObjectResult.writtenByThePlatform}). Absent when none.
+   */
+  writtenByThePlatform?: number;
   /** See {@link SyncObjectResult.encryptedLeftOut}: what a run would leave out. */
   encryptedLeftOut?: ApiName[];
   /**

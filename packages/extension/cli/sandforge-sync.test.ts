@@ -72,6 +72,35 @@ describe('what a run prints of an object', () => {
     ).toBe('Account: 1 processed, 1 succeeded, 0 failed, 0 skipped');
   });
 
+  it('counts the records linked to one the target holds as a duplicate as linked, not skipped, as its line under it says', () => {
+    // The target refused the account "DUPLICATE_VALUE: duplicate value found:
+    // Ext_Id__c duplicates value on record with id: <its id>", and the run
+    // linked it: the line read "1 processed, 0 succeeded, 0 failed, 1
+    // skipped" over "1 record(s) linked to a record the target holds".
+    expect(
+      objectCountsLine({
+        objectApiName: 'Account',
+        processed: 3,
+        success: 2,
+        failed: 0,
+        skipped: 1,
+        linkedToExisting: { records: 1, refusal: 'DUPLICATE_VALUE: duplicate value found' },
+      }),
+    ).toBe('Account: 3 processed, 2 succeeded, 0 failed, 0 skipped, 1 linked');
+    // Beside the contact roles the platform wrote, and what an earlier run copied.
+    expect(
+      objectCountsLine({
+        objectApiName: 'OpportunityContactRole',
+        processed: 2,
+        success: 1,
+        failed: 0,
+        skipped: 4,
+        linkedToExisting: { records: 1 },
+        writtenByThePlatform: { records: 2, given: 2 },
+      }),
+    ).toBe('OpportunityContactRole: 2 processed, 1 succeeded, 0 failed, 1 skipped, 3 linked');
+  });
+
   it('prints the contact roles linked to the ones the platform wrote with their opportunity, and what an update gave them', () => {
     expect(objectWrittenLines({ writtenByThePlatform: { records: 2, given: 2 } })).toEqual([
       '2 record(s) linked to the contact role the platform wrote with their opportunity, for ' +
@@ -922,6 +951,34 @@ describe('what a run says before its first write', () => {
     expect(lines).toContain(
       '  of the 4 a run counts from the source, 2 would not be written: held back or refused, as ' +
         'each object says; what follows is measured on all of them',
+    );
+  });
+
+  it('says the contact roles the platform may write with the opportunities, counted among the records to write', () => {
+    // On a scratch org: "write gate: 4 record(s) … OpportunityContactRole 1",
+    // and the run linked that role to the platform's and wrote none.
+    const lines = writeCheckLines(
+      {
+        objects: [
+          { objectApiName: 'Account', rows: 1 },
+          { objectApiName: 'Contact', rows: 1 },
+          { objectApiName: 'Opportunity', rows: 1 },
+          { objectApiName: 'OpportunityContactRole', rows: 1 },
+        ],
+        total: 4,
+        alreadyCopied: 0,
+        rolesByThePlatform: 1,
+        storage: { verdict: 'fits', estimateMB: 0.01 },
+        emails: [],
+        verdict: 'writes',
+      },
+      'TGT',
+    );
+
+    expect(lines[0]).toMatch(/^write gate: 4 record\(s\) to write to TGT/);
+    expect(lines).toContain(
+      '  of them, up to 1 OpportunityContactRole record(s) the platform writes itself with the ' +
+        'opportunities the run creates, for their contact: the run links each and does not send it',
     );
   });
 

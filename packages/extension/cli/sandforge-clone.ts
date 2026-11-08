@@ -74,6 +74,7 @@ import { runExitCode } from './exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 import type {
+  EmailSender,
   ForgeAdminChangeGroup,
   ForgeAutomationWrite,
   ForgeConfig,
@@ -280,6 +281,8 @@ import {
   readDataStorage,
   readEmailLimits,
   removalRiskLines,
+  sendersOfNothingWritten,
+  sendersOfNothingWrittenLine,
   storageCheckOf,
   storageRefusal,
   writePlanLines,
@@ -377,6 +380,7 @@ import {
 } from './runRefused.js';
 import { UNDELETABLE_NOT_LEFT, undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
+import { targetRecordTypesOf } from '../src/modules/forge/rehearsal/ForgeRehearser.js';
 import { validationRulesOf } from '../src/modules/forge/rehearsal/rehearsalGaps.js';
 import {
   RehearsalNotRolledBackError,
@@ -2723,6 +2727,9 @@ function gapDetail(gap: ForgeGap): string {
     parts.push('amounts written as read, no rate converts them');
   if (typeof detail['colliding'] === 'number') {
     parts.push(`${detail['colliding']} value(s) already in the target`);
+  }
+  if (detail['linkedToTheRecordItNames'] === true) {
+    parts.push('a real run links each row to the record the target holds');
   }
   const mapTo = detail['mapTo'];
   if (Array.isArray(mapTo) && mapTo.length > 0) parts.push(`may map to ${mapTo.join(', ')}`);
@@ -8276,6 +8283,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         recordTypeNames: new Map(
           recordTypeMappings.map((m) => [m.targetId.slice(0, 15), m.developerName]),
         ),
+        // What a refusal of a package's record type says of the target's own of its name.
+        targetRecordTypes: targetRecordTypesOf(executorDeps, args.target),
         // Why a restricted picklist refused a value, as the target's describe says it.
         targetFields: (name) => executorDeps.describeFields(args.target, name),
         // The rule a validation refusal is of, from the rules the read of the
@@ -8392,6 +8401,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         leftOut?: WritePlan['leftOut'];
         emails?: Array<{ limit: string; emails: number }>;
         emailsUncounted?: string;
+        emailSendersOfNothingWritten?: EmailSender[];
       }
     | undefined;
   /**
@@ -8515,6 +8525,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (boundary.dryRun) {
       for (const refusal of refusals) say(`  ${wouldBeRefusedLine(refusal)}`);
       dryRunRefusals.push(...refusals);
+      // What the refusal for the emails named before a row was read, of an
+      // object the run writes nothing of: said here, where the rows are known.
+      const idleSenders =
+        emailsStop && emails ? sendersOfNothingWritten(emails.ofRun.senders, plan) : [];
+      const idleLine = sendersOfNothingWrittenLine(idleSenders);
+      if (idleLine !== undefined) say(idleLine);
       dryRunWritePlan = {
         totalRows: plan.totalRows,
         storageBytes: plan.storageBytes,
@@ -8522,6 +8538,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
         ...(emailCounts !== undefined ? { emails: emailCounts } : {}),
         ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
+        ...(idleSenders.length > 0 ? { emailSendersOfNothingWritten: idleSenders } : {}),
       };
       return;
     }

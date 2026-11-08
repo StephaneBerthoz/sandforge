@@ -1575,6 +1575,7 @@
       "successCount": "Succeeded",
       "failedCount": "Failed",
       "skippedCount": "Skipped",
+      "linkedCount": "Linked",
       "configSnapshot": "Configuration used",
       "runAgain": "Run again",
       "emptyTitle": "No runs yet",
@@ -1645,6 +1646,8 @@
       "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
       "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",
       "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back.",
+      "rolesByThePlatform_one": "Of them, {{count}} may be a contact role the platform writes itself with an opportunity the run creates, for its contact: the run links it and does not send it.",
+      "rolesByThePlatform_other": "Of them, up to {{count}} may be contact roles the platform writes itself with the opportunities the run creates, for their contact: the run links each and does not send it.",
       "notWritten_one": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "notWritten_other": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "unwritable": {

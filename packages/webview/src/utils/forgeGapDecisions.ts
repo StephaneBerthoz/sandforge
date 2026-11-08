@@ -197,7 +197,7 @@ function sameField(a: ForgeFieldRef, b: ForgeFieldRef): boolean {
  *   package's ns__Support, the decision taken on the first answered the
  *   second, which read "left as it is" while nobody had decided it, and a
  *   decision taken on the second took the first one's away. Nor when the
- *   gap's simulation says the org's own carries the name too, with no gap
+ *   gap's simulation or rehearsal says the org's own carries the name too, with no gap
  *   of its own (`detail.sameDeveloperName`): the run applies the entry to
  *   the org's own rows alone.
  */

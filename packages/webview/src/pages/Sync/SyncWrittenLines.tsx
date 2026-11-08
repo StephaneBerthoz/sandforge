@@ -56,6 +56,18 @@ export function hasWrittenLines(result: WrittenResult): boolean {
 }
 
 /**
+ * Of an object's records its result counts skipped, those the run linked
+ * rather than wrote: refused as a duplicate of a record the target holds, or
+ * the contact roles the platform wrote with their opportunity. Counted apart
+ * from what it skipped, as the lines under the counts say them.
+ */
+export function linkedOf(
+  result: Pick<SyncObjectResult, 'linkedToExisting' | 'writtenByThePlatform'>,
+): number {
+  return (result.linkedToExisting?.records ?? 0) + (result.writtenByThePlatform?.records ?? 0);
+}
+
+/**
  * What an object's write did that no refusal says, beside its other lines on
  * the results step, the Quick Sync results and the history detail: the
  * records linked to one the target already holds rather than written, those

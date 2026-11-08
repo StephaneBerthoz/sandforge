@@ -79,7 +79,7 @@ import type {
   WriteConfirmation,
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
-import type { ForgeWriteBoundary } from './ForgeExecutor.js';
+import type { ForgeMayBeByThePlatform, ForgeWriteBoundary } from './ForgeExecutor.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
@@ -223,6 +223,8 @@ export interface WritePlanObject {
   storageBytes: number;
   /** Of `rows`, the prices the write may read besides those in hand, at most: see `ForgeWriteBoundary`. */
   mayAdd?: number;
+  /** Of `rows`, those the platform may write itself, at most: see `ForgeWriteBoundary`. */
+  mayBeByThePlatform?: ForgeMayBeByThePlatform;
 }
 
 /** What a run is about to write: per object, the most first, and in all. */
@@ -278,11 +280,12 @@ export function countedStorageBytes(
  */
 export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const measured = objects
-    .map(({ objectApiName, rows, counted, mayAdd = 0 }): WritePlanObject => {
+    .map(({ objectApiName, rows, counted, mayAdd = 0, mayBeByThePlatform }): WritePlanObject => {
       const more = {
         rows: mayAdd,
         storageBytes: mayAdd * rowStorageBytes(objectApiName, {}),
         ...(mayAdd > 0 ? { mayAdd } : {}),
+        ...(mayBeByThePlatform && mayBeByThePlatform.rows > 0 ? { mayBeByThePlatform } : {}),
       };
       return counted
         ? {
@@ -1817,6 +1820,39 @@ export function deliverabilityGate(input: DeliverabilityGateInput): Deliverabili
 }
 
 /**
+ * Of the senders a run's question on its emails names before a row is read
+ * (`deliverabilityGate`), those of an object its gate then writes no record
+ * of — nor the platform with a record the run creates ({@link insertedOf}):
+ * nothing of theirs fires as the run writes. The question is put on every
+ * object of the graph, as no row is read yet: a lead's clone named the
+ * senders of the contacts, a node of its graph it wrote no record of, while
+ * its gate counted one email per lead.
+ */
+export function sendersOfNothingWritten(
+  senders: readonly EmailSender[],
+  plan: PlanOfInserts,
+): EmailSender[] {
+  const inserted = objectsInsertedOf(plan);
+  return senders.filter((sender) => !inserted.has(sender.objectApiName));
+}
+
+/**
+ * What a dry run's gate says of the senders its refusal for the emails named
+ * on an object it writes no record of ({@link sendersOfNothingWritten}): they
+ * send nothing, and a real run, refused before it reads a row, names them
+ * all the same. Undefined when there are none.
+ */
+export function sendersOfNothingWrittenLine(senders: readonly EmailSender[]): string | undefined {
+  if (senders.length === 0) return undefined;
+  const objects = [...new Set(senders.map((sender) => sender.objectApiName))];
+  return (
+    `  emails: ${sendersWords(senders)} send nothing: the run writes no ` +
+    `${inWords(objects)} record. A real run is refused all the same, and names them: it asks ` +
+    'before it reads which records it writes'
+  );
+}
+
+/**
  * The check of a run's emails once the mute's lease is taken and read back,
  * before its first write: a set the lease did not hold leaves running what
  * it was to keep quiet, and a sender among them was asked about by no one.
@@ -2250,6 +2286,16 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
       `  counted in: up to ${mayAdd} ${objectApiName} record(s) the run may read as it writes ` +
         "them, a price in the currency of the record its lines belong to, the source's own " +
         'beside the one read',
+    );
+  }
+  for (const { objectApiName, mayBeByThePlatform } of plan.objects) {
+    if (mayBeByThePlatform === undefined) continue;
+    lines.push(
+      `  counted in: up to ${mayBeByThePlatform.rows} ${objectApiName} record(s) the platform ` +
+        (mayBeByThePlatform.before === true
+          ? `may have written with ${writtenWithWords(objectApiName)}, in the run this one takes up`
+          : `may write itself with ${writtenWithWords(objectApiName)}`) +
+        ', which the run then links to and does not send',
     );
   }
   lines.push(...leftOutLines(plan.leftOut));

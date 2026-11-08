@@ -1575,6 +1575,7 @@
       "successCount": "Erfolgreich",
       "failedCount": "Fehlgeschlagen",
       "skippedCount": "Übersprungen",
+      "linkedCount": "Verknüpft",
       "configSnapshot": "Verwendete Konfiguration",
       "runAgain": "Erneut ausführen",
       "emptyTitle": "Noch keine Ausführungen",
@@ -1645,6 +1646,8 @@
       "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können.",
       "overwrites_one": "Davon kann {{count}} einen Datensatz überschreiben, den die Ziel-Org enthält: Sein Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
       "overwrites_other": "Davon können bis zu {{count}} Datensätze überschreiben, die die Ziel-Org enthält: Ihr Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
+      "rolesByThePlatform_one": "Davon kann {{count}} eine Kontaktrolle sein, die die Plattform selbst mit einer Opportunity schreibt, die der Lauf anlegt, für deren Kontakt: Der Lauf verknüpft sie und sendet sie nicht.",
+      "rolesByThePlatform_other": "Davon können bis zu {{count}} Kontaktrollen sein, die die Plattform selbst mit den Opportunities schreibt, die der Lauf anlegt, für deren Kontakt: Der Lauf verknüpft jede und sendet sie nicht.",
       "notWritten_one": "Von den {{total}}, die ein Lauf in der Quelle zählt, würde {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
       "notWritten_other": "Von den {{total}}, die ein Lauf in der Quelle zählt, würden {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
       "unwritable": {

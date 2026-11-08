@@ -770,6 +770,13 @@ export interface ForgeWriteBoundary {
      * written. Counted in, and said; the write reads none besides.
      */
     mayAdd?: number;
+    /**
+     * Of the rows, those the platform may write itself, at most, which the
+     * write links to and does not send: counted in, as the gate cannot tell
+     * them without a read it does not make, and said. See
+     * {@link ForgeMayBeByThePlatform}.
+     */
+    mayBeByThePlatform?: ForgeMayBeByThePlatform;
   }>;
   /**
    * The objects whose rows stop at the cap on each object with more left in
@@ -818,6 +825,21 @@ export interface ForgeCountedObject {
   rows: number;
   /** Of them, person accounts (`Account`) or the contacts of person accounts (`Contact`). */
   personAccounts?: number;
+}
+
+/**
+ * The contact roles a gate counts that the platform may write itself as it
+ * takes an opportunity of the run, for the contact it goes in with, at most:
+ * of a run read page by page, which counts its tables and reads no row
+ * before its gate (`before` unset); of an opportunity the run it retries or
+ * takes up wrote, whose role the platform wrote then, as the target says
+ * once the role's turn comes (`before`). The write links each it finds and
+ * sends it not; counted from the rows alone, the gate of a resumed clone
+ * said a role to write that the resume linked.
+ */
+export interface ForgeMayBeByThePlatform {
+  rows: number;
+  before?: true;
 }
 
 /** What a run will not write of an object it read or counted: see {@link ForgeWriteBoundary.objects}. */
@@ -5057,6 +5079,7 @@ export class ForgeExecutor {
       rows: Record<string, unknown>[];
       counted: ForgeCountedObject;
       leftOut?: ForgeRowsLeftOut;
+      mayBeByThePlatform?: ForgeMayBeByThePlatform;
     }> = [];
     /** The objects whose count is past the cap on each object: the gate says so. */
     const pastTheCap: string[] = [];
@@ -5074,6 +5097,17 @@ export class ForgeExecutor {
       if (capped) pastTheCap.push(object);
       objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
+    // The contact roles the platform may write with the opportunities the run
+    // creates, which no count tells from the others: said, and counted in.
+    const roles = objects.find((o) => o.objectApiName === OPPORTUNITY_CONTACT_ROLE);
+    const mayBe = roles
+      ? this.rolesThePlatformMayWriteOfTheCounts(
+          state,
+          roles.counted.rows,
+          objects.find((o) => o.objectApiName === OPPORTUNITY_OBJECT)?.counted.rows ?? 0,
+        )
+      : 0;
+    if (roles && mayBe > 0) roles.mayBeByThePlatform = { rows: mayBe };
     if (this.isAborted) {
       throw new ForgeAbortedError(
         'Forge execution was aborted by user request. Remaining objects were not processed.',
@@ -11392,15 +11426,77 @@ export class ForgeExecutor {
       rowsOf(OPPORTUNITY_CONTACT_ROLE),
     );
     if (roles.size > 0) platform.set(OPPORTUNITY_CONTACT_ROLE, roles);
+    const writtenBefore = this.rolesOfOpportunitiesWrittenBefore(
+      state,
+      rowsOf(OPPORTUNITY_CONTACT_ROLE).filter((row) => !roles.has(row)),
+    );
     return objects.map((object) => {
       const itsOwn = platform.get(object.objectApiName);
-      if (!itsOwn || itsOwn.size === 0) return object;
+      const before =
+        object.objectApiName === OPPORTUNITY_CONTACT_ROLE && writtenBefore > 0
+          ? { mayBeByThePlatform: { rows: writtenBefore, before: true as const } }
+          : {};
+      if (!itsOwn || itsOwn.size === 0) return { ...object, ...before };
       return {
         ...object,
         rows: object.rows.filter((row) => !itsOwn.has(row)),
         leftOut: { ...object.leftOut, byThePlatform: itsOwn.size },
+        ...before,
       };
     });
+  }
+
+  /**
+   * Of the contact roles a gate counts, those the platform may have written
+   * with an opportunity the run it retries or takes up wrote, at most: the
+   * primary role, with a contact, of each such opportunity, which the write
+   * looks up in the target and links (`linkTheRolesThePlatformWrote`).
+   * Whether the platform wrote it — the opportunity went in with its contact
+   * — is the target's to say, read as the roles are written: counted in, and
+   * said. Counted from the rows alone, a resumed clone's gate said a role to
+   * write that the resume linked.
+   */
+  private rolesOfOpportunitiesWrittenBefore(
+    state: ExecutionState,
+    roles: readonly Record<string, unknown>[],
+  ): number {
+    const { config } = state;
+    if (config.writtenBefore.size === 0) return 0;
+    const opportunities = new Set<string>();
+    for (const role of roles) {
+      const opportunity = role['OpportunityId'];
+      const contact = role[CONTACT_FIELD];
+      if (typeof opportunity !== 'string' || typeof contact !== 'string' || contact === '') {
+        continue;
+      }
+      if (isPrimaryRole(role) && config.writtenBefore.has(opportunity)) {
+        opportunities.add(opportunity.slice(0, 15));
+      }
+    }
+    return opportunities.size;
+  }
+
+  /**
+   * Of the contact roles a run read page by page counts, those the platform
+   * may write itself as it takes the opportunities the run creates, at most:
+   * one an opportunity, where the run writes its `ContactId`. Which they are
+   * is known once the pages are read, which the gate is shown before: the
+   * write links each it finds (`linkTheRolesThePlatformWrote`), and the gate
+   * says how many may be.
+   */
+  private rolesThePlatformMayWriteOfTheCounts(
+    state: ExecutionState,
+    roles: number,
+    opportunities: number,
+  ): number {
+    const { config } = state;
+    if (
+      (config.fieldExclusions[OPPORTUNITY_OBJECT] ?? []).includes(CONTACT_FIELD) ||
+      config.fieldMappings[OPPORTUNITY_OBJECT]?.[CONTACT_FIELD] !== undefined
+    ) {
+      return 0;
+    }
+    return Math.min(roles, opportunities);
   }
 
   /**
@@ -12047,8 +12143,15 @@ export class ForgeExecutor {
    * [UserId]`, and its dry run had said it would be inserted, nothing
    * refused, the gap it found beside it.
    *
+   * A row holding a unique value the target holds is counted linked, as the
+   * write links it to the record the target's refusal names, given an id of
+   * the simulation's own, its lookups owed to none: the write sends that
+   * record nothing.
+   *
    * @param targetFields - The target's describe of the object; none, and no
    *   row is held to it.
+   * @param linkedByTheirValue - The payloads holding a unique value the target
+   *   holds (`uniqueValueGaps`).
    */
   private simulateWrite(
     state: ExecutionState,
@@ -12059,6 +12162,7 @@ export class ForgeExecutor {
     onProgress: (event: ForgeProgressEvent) => void,
     createdWithoutType?: (built: CleanedRecord) => void,
     targetFields?: readonly FieldInfo[],
+    linkedByTheirValue: ReadonlySet<Record<string, unknown>> = new Set(),
   ): void {
     const { simulated } = state;
     if (!simulated) return;
@@ -12090,12 +12194,17 @@ export class ForgeExecutor {
         continue;
       }
       const id = simulated.idFor(keyPrefix);
+      const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+      if (linkedByTheirValue.has(payload)) {
+        tally.linkedExistingCount++;
+        if (sourceId !== undefined) state.remapper.addExisting(sourceId, id, objectApiName);
+        continue;
+      }
       tally.successCount++;
       // Created without a record type, as a real run would send it.
       if (createdWithoutType && !carriesRecordTypeId(round.records[index] ?? {})) {
         createdWithoutType(built);
       }
-      const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
       if (sourceId !== undefined) state.remapper.add(sourceId, id, objectApiName);
       for (const nf of built.nullifiedFks) {
         tally.pendingFkUpdates.push({
@@ -12169,6 +12278,10 @@ export class ForgeExecutor {
    * types or its fields refuse, the record types it has no counterpart of,
    * what its describe holds against each row (`rowGapsOf`), the currencies it
    * does not hold active, and the unique values it holds already.
+   *
+   * @returns The rows of `recordsToInsert` whose unique value the target
+   *   holds, which the write links to the record its refusal names
+   *   (`uniqueValueGaps`).
    */
   private async findGaps(
     state: ExecutionState,
@@ -12183,9 +12296,9 @@ export class ForgeExecutor {
       recordTypes: ReadonlyMap<string, RecordTypeValues> | undefined;
       unmapped: ReadonlyMap<string, number>;
     },
-  ): Promise<void> {
+  ): Promise<ReadonlySet<Record<string, unknown>>> {
     const { gaps } = state;
-    if (!gaps) return;
+    if (!gaps) return new Set();
     const objectApiName = node.objectApiName;
     const typedByName = new Map(
       [...(rows.recordTypes?.values() ?? [])].map((typed) => [typed.recordType, typed]),
@@ -12219,7 +12332,7 @@ export class ForgeExecutor {
       }
     }
     const targetFields = rows.targetFields;
-    if (!targetFields) return;
+    if (!targetFields) return new Set();
     rowGapsOf(
       {
         objectApiName,
@@ -12238,7 +12351,7 @@ export class ForgeExecutor {
       gaps,
     );
     await this.currencyGaps(state, objectApiName, targetFields, rows.cleanedRecords);
-    await this.uniqueValueGaps(state, objectApiName, targetFields, rows.recordsToInsert);
+    return this.uniqueValueGaps(state, objectApiName, targetFields, rows.recordsToInsert);
   }
 
   /**
@@ -12390,17 +12503,25 @@ export class ForgeExecutor {
   /**
    * In a simulation, the values of the target's unique fields the rows hold
    * that the target holds already, asked 200 values a request: it refuses each
-   * such row as a duplicate, or links it to its record when the refusal names
-   * it. The values are asked and never kept: the gap counts them. A field an
-   * upsert matches rows by is no collision, and one whose values could not be
-   * asked is left unsaid.
+   * such row as a duplicate, naming the record that holds the value, which
+   * the query found and the user the run writes as therefore sees, and the
+   * write links the row to it. The values are asked and never kept: the gap
+   * counts them. A field an upsert matches rows by is no collision, and one
+   * whose values could not be asked is left unsaid.
+   *
+   * @returns The rows holding a value the target holds, which the simulation
+   *   counts linked as the write links them (`simulateWrite`). Counted to be
+   *   inserted, the dry run of a contact's clone said 3 records to insert and
+   *   0 linked, where the run inserted 2 and linked the account the target
+   *   held under the same external id.
    */
   private async uniqueValueGaps(
     state: ExecutionState,
     objectApiName: string,
     targetFields: readonly FieldInfo[],
     payloads: readonly Record<string, unknown>[],
-  ): Promise<void> {
+  ): Promise<ReadonlySet<Record<string, unknown>>> {
+    const linked = new Set<Record<string, unknown>>();
     const unique = targetFields.filter(
       (f) =>
         f.unique === true &&
@@ -12448,7 +12569,12 @@ export class ForgeExecutor {
       if (rows > 0) {
         state.gaps?.add(uniqueCollisionGapOf(objectApiName, field.name, rows, colliding));
       }
+      for (const payload of payloads) {
+        const value = payload[field.name];
+        if (typeof value === 'string' && held.has(value.toLowerCase())) linked.add(payload);
+      }
     }
+    return linked;
   }
 
   /**
@@ -13132,9 +13258,11 @@ export class ForgeExecutor {
       }
 
       // What a simulation finds the target would refuse or change in these
-      // rows, as a real run would send them.
+      // rows, as a real run would send them, and the rows it would link to a
+      // record it holds under a unique value of theirs.
+      let linkedByTheirValue: ReadonlySet<Record<string, unknown>> = new Set();
       if (state.gaps) {
-        await this.findGaps(state, node, {
+        linkedByTheirValue = await this.findGaps(state, node, {
           cleanedRecords,
           recordsToInsert,
           targetFields,
@@ -13256,6 +13384,7 @@ export class ForgeExecutor {
               onProgress,
               createdWithoutType,
               targetFields,
+              linkedByTheirValue,
             );
             continue;
           }

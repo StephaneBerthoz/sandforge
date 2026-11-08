@@ -1109,6 +1109,15 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
         `${target} holds: their values are kept first, and --remove puts them back`,
     );
   }
+  // Counted from the source, the role the platform writes with an opportunity
+  // read as one the run writes: on a scratch org the run linked it.
+  if ((check.rolesByThePlatform ?? 0) > 0) {
+    lines.push(
+      `  of them, up to ${check.rolesByThePlatform} OpportunityContactRole record(s) the ` +
+        'platform writes itself with the opportunities the run creates, for their contact: the ' +
+        'run links each and does not send it',
+    );
+  }
   const { storage } = check;
   if (storage.verdict === 'unread') {
     lines.push(
@@ -1398,28 +1407,36 @@ const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
 
 /**
  * The line the command prints of an object's counts. The contact roles linked
- * to the ones the platform wrote with their opportunity are counted linked,
- * as the line under it says them, not among the records skipped: on a
- * scratch org it read "0 processed, 0 succeeded, 0 failed, 1 skipped" over
- * "1 record(s) linked to the contact role the platform wrote". The result
- * keeps them among its `skipped`.
+ * to the ones the platform wrote with their opportunity, and the records the
+ * target refused as a duplicate of one it holds and the run linked to it, are
+ * counted linked, as the lines under it say them, not among the records
+ * skipped: on a scratch org it read "0 processed, 0 succeeded, 0 failed, 1
+ * skipped" over "1 record(s) linked to the contact role the platform wrote".
+ * The result keeps them among its `skipped`.
  */
 export function objectCountsLine(
   result: Pick<SyncObjectResult, 'objectApiName'> &
     Partial<
       Pick<
         SyncObjectResult,
-        'processed' | 'success' | 'failed' | 'skipped' | 'writtenByThePlatform'
+        'processed' | 'success' | 'failed' | 'skipped' | 'writtenByThePlatform' | 'linkedToExisting'
       >
     >,
 ): string {
-  const linked = result.writtenByThePlatform?.records ?? 0;
+  const linked = linkedOfTheResult(result);
   const skipped = Math.max(0, (result.skipped ?? 0) - linked);
   return (
     `${result.objectApiName}: ${result.processed ?? 0} processed, ${result.success ?? 0} ` +
     `succeeded, ${result.failed ?? 0} failed, ${skipped} skipped` +
     (linked > 0 ? `, ${linked} linked` : '')
   );
+}
+
+/** Of an object's records counted skipped, those the run linked rather than wrote. */
+function linkedOfTheResult(
+  result: Partial<Pick<SyncObjectResult, 'writtenByThePlatform' | 'linkedToExisting'>>,
+): number {
+  return (result.writtenByThePlatform?.records ?? 0) + (result.linkedToExisting?.records ?? 0);
 }
 
 /**

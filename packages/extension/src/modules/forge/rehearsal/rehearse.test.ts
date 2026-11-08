@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeRehearsalProgress } from '@sandforge/shared';
-import { forgeGapId } from '@sandforge/shared';
+import { forgeGapId, ignoredGapEntry } from '@sandforge/shared';
 import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
 import type { RehearsalWriter } from './RehearsalWriter.js';
 import type { CompositeRequestBody } from './compositeCalls.js';
@@ -842,5 +842,84 @@ describe('a rehearsal', () => {
         'rollback',
       ]);
     });
+  });
+});
+
+describe("a rehearsal's refusal of a package's record type", () => {
+  // The target holds its own Retail and a package's ns__Retail: a bare
+  // `Retail` names its own, as the run reads a bare name, and the run applies
+  // a decision kept under it to its own rows alone. Told by the gaps of the
+  // rehearsal alone, which found none of its own Retail, Review read such a
+  // decision as the package's gap's, and Execute no longer asked.
+  const PACKAGED = idOf('012000000000201');
+  const OWN = idOf('012000000000202');
+  const refusing: Rule = (type, record) =>
+    type === 'Account' && record['Industry'] === 'Old'
+      ? {
+          statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+          message: 'bad value for restricted picklist field: Old',
+          fields: ['Industry'],
+        }
+      : undefined;
+  const typeOf = (recordTypeId: string, developerName: string, namespacePrefix: string | null) => ({
+    recordTypeId,
+    developerName,
+    namespacePrefix,
+    name: developerName,
+    available: true,
+    active: true,
+    master: false,
+    defaultRecordTypeMapping: false,
+  });
+  const run = (over: Partial<RehearsalDeps> = {}) =>
+    rehearse(
+      deps({
+        prepare: preparing([
+          { object: 'Account', rows: [{ Name: 'A', Industry: 'Old', RecordTypeId: PACKAGED }] },
+        ]),
+        composite: fakeTarget(refusing).composite,
+        recordTypeNames: new Map([
+          [PACKAGED.slice(0, 15), 'ns__Retail'],
+          [OWN.slice(0, 15), 'Retail'],
+        ]),
+        ...over,
+      }),
+    );
+  const gapId = forgeGapId('picklist_value_refused', 'Account', 'Industry', 'ns__Retail', 'Old');
+  const bare = forgeGapId('picklist_value_refused', 'Account', 'Industry', 'Retail', 'Old');
+
+  it('says the other record type of the target that carries its DeveloperName, so a bare decision is not its', async () => {
+    const result = await run({
+      targetRecordTypes: async () => [
+        typeOf(OWN, 'Retail', null),
+        typeOf(PACKAGED, 'ns__Retail', 'ns'),
+      ],
+    });
+
+    const gap = result.gaps.find((one) => one.id === gapId);
+    expect(gap?.detail).toMatchObject({ sameDeveloperName: ['Retail'] });
+    expect(
+      ignoredGapEntry(
+        [bare],
+        gap ?? gapId,
+        result.gaps.map((one) => one.id),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('says none when the target holds the package’s alone, and a bare decision is its, as the run applies it', async () => {
+    const result = await run({
+      targetRecordTypes: async () => [typeOf(PACKAGED, 'ns__Retail', 'ns')],
+    });
+
+    const gap = result.gaps.find((one) => one.id === gapId);
+    expect(gap?.detail).not.toHaveProperty('sameDeveloperName');
+    expect(
+      ignoredGapEntry(
+        [bare],
+        gap ?? gapId,
+        result.gaps.map((one) => one.id),
+      ),
+    ).toBe(bare);
   });
 });

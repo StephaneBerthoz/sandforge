@@ -118,6 +118,7 @@ import {
   leftToThePlatformNote,
   lookupsThePlatformFills,
   rolesThePlatformWrote,
+  rolesThePlatformWrites,
 } from '../../core/common/platformRecords.js';
 import {
   copyPlannedFiles,
@@ -668,6 +669,130 @@ function withRolesOfTheirOpportunity(
   };
 }
 
+/**
+ * Of the contact roles a simulated insert or upsert would write, those a run
+ * links to the one the platform writes itself as it takes an opportunity the
+ * run creates, for the contact it goes in with (`rolesThePlatformWrites`):
+ * found from what the simulation read and noted of the opportunities
+ * (`SyncRunLinks.contactSentWith`), as a run finds them in the target
+ * (`rolesWrittenWithTheirOpportunity`), and taken out of the records it
+ * counts, each standing for that record. Simulated as read, a dry run on a
+ * scratch org said a role would be inserted that the run linked.
+ */
+function rolesSimulatedWithTheirOpportunity(
+  objectConfig: SyncObjectConfig,
+  prepared: PreparedObject,
+  links: SyncRunLinks,
+): { prepared: PreparedObject; linked: number } {
+  if (
+    objectConfig.objectApiName !== OPPORTUNITY_CONTACT_ROLE ||
+    !createsRecords(objectConfig.operation) ||
+    !links.sentWithAContact ||
+    prepared.records.length === 0
+  ) {
+    return { prepared, linked: 0 };
+  }
+  const inTheTarget = (value: unknown): string | undefined =>
+    typeof value === 'string' && value !== '' ? links.targetOf(value) : undefined;
+  const rows = prepared.records.map((record, at) => ({
+    OpportunityId: inTheTarget(record['OpportunityId']),
+    [CONTACT_FIELD]: inTheTarget(record[CONTACT_FIELD]),
+    IsPrimary: prepared.sources[at]?.['IsPrimary'] ?? record['IsPrimary'],
+  }));
+  const chosen = new Set(
+    rolesThePlatformWrites(rows, (opportunity) => links.contactSentWith(opportunity)),
+  );
+  if (chosen.size === 0) return { prepared, linked: 0 };
+  for (const at of chosen) {
+    links.roleLinkedFor(String(rows[at].OpportunityId));
+    const sourceId = prepared.sourceIds[at];
+    // Nothing is written: the role stands for the platform's.
+    if (sourceId !== undefined) links.noteWritten(sourceId, sourceId);
+  }
+  const sent = (_: unknown, at: number): boolean => !chosen.has(at);
+  return {
+    prepared: {
+      ...prepared,
+      records: prepared.records.filter(sent),
+      sourceIds: prepared.sourceIds.filter(sent),
+      sources: prepared.sources.filter(sent),
+      unsettled:
+        prepared.unsettled.length === prepared.records.length
+          ? prepared.unsettled.filter(sent)
+          : prepared.unsettled,
+    },
+    linked: chosen.size,
+  };
+}
+
+/** An id a lookup holds: 15 or 18 characters. */
+const LOOKUP_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/** The ids one statement asks the target about, as `SyncOrchestrator.lookupsTheTargetLacks` asks them. */
+const LOOKUP_IDS_PER_STATEMENT = 200;
+
+/**
+ * What a simulation makes of the records a run would send again without the
+ * lookups it did not settle (`lookupsTheTargetLacks`), as `DataSync.retryRefused`
+ * sends them: written without them, or, for a record it creates, refused
+ * again when one of them is a field the target requires and gives no value
+ * of its own (`REQUIRED_FIELD_MISSING`) — a price whose product and book
+ * name nothing the target holds. An update leaves out a lookup without
+ * emptying it. Said each once, with how many records.
+ *
+ * @returns The places of the records refused, and the notes.
+ */
+function sentAgainWithoutLookups(
+  lacking: ReadonlyMap<number, readonly string[]>,
+  simulated: readonly SimulatedRecord[],
+  target: TargetWriteFields | null,
+): { refused: number[]; notes: string[] } {
+  const required = (name: string): boolean => {
+    const field = target?.fields?.find((f) => f.name === name);
+    return field?.nillable === false && field.defaultedOnCreate !== true;
+  };
+  const refused: number[] = [];
+  const lacked = new Set<string>();
+  const without = new Set<string>();
+  let written = 0;
+  for (const [k, fields] of lacking) {
+    const lost = simulated[k] === 'insert' ? fields.filter(required) : [];
+    if (lost.length > 0) {
+      refused.push(k);
+      for (const field of lost) lacked.add(field);
+      continue;
+    }
+    written++;
+    for (const field of fields) without.add(field);
+  }
+  const notes: string[] = [];
+  if (written > 0) {
+    notes.push(
+      `${written} record(s) would be written without ${[...without].sort().join(', ')}: a ` +
+        'lookup held an id from the source org that the target does not have, which the run ' +
+        'learns from its first refusal and sends the record again without the lookups it did ' +
+        'not settle.',
+    );
+  }
+  if (refused.length > 0) {
+    notes.push(
+      `${refused.length} record(s) would be refused: a lookup held an id from the source org ` +
+        'that the target does not have, and sent again without the lookups the run did not ' +
+        `settle, the record lacks ${[...lacked].sort().join(', ')}, which the target requires ` +
+        '(REQUIRED_FIELD_MISSING).',
+    );
+  }
+  return { refused, notes };
+}
+
+/** What a simulation says of the contact roles it found a run would link: see `rolesSimulatedWithTheirOpportunity`. */
+function rolesLinkedNote(linked: number): string {
+  return (
+    `${linked} record(s) would be linked to the contact role the platform writes with their ` +
+    'opportunity, for its contact, not written.'
+  );
+}
+
 function withAlreadyCopied(result: SyncObjectResult, alreadyCopied: number): SyncObjectResult {
   if (alreadyCopied === 0) return result;
   return { ...result, skipped: result.skipped + alreadyCopied, alreadyCopied };
@@ -774,13 +899,42 @@ function countedWriteOf(
       object.rows > 0 && createsRecords(object.operation) && readBack.has(object.objectApiName),
   ).length;
   const held = [...heldBack.values()].filter(({ objectApiName }) => !refused.has(objectApiName));
+  const roles = rolesThePlatformMayWrite(objects, written);
   return {
     objects: written,
     alreadyCopied,
     ...(unwritable.length > 0 ? { unwritable } : {}),
     ...(held.length > 0 ? { heldBack: held } : {}),
     ...(reads > 0 ? { readBack: reads } : {}),
+    ...(roles > 0 ? { rolesByThePlatform: roles } : {}),
   };
+}
+
+/** The object whose insert with a `ContactId` makes the platform write a contact role. */
+const OPPORTUNITY = 'Opportunity';
+
+/**
+ * Of the contact roles a run's gate counts, those the platform may write
+ * itself as it takes the opportunities the run creates, at most: one an
+ * opportunity, of the contact it goes in with, where the run writes the
+ * opportunity's `ContactId`. The run links each it finds to the platform's
+ * and sends it not (`rolesWrittenWithTheirOpportunity`); which roles they
+ * are is known once the rows are read, which a count is not. Counted from
+ * the source alone, a gate on a scratch org said a role to write the run
+ * then linked.
+ */
+function rolesThePlatformMayWrite(
+  objects: readonly SyncObjectConfig[],
+  written: readonly SyncCountedObject[],
+): number {
+  const creating = (name: string): SyncCountedObject | undefined =>
+    written.find((object) => object.objectApiName === name && createsRecords(object.operation));
+  const opportunities = creating(OPPORTUNITY);
+  const roles = creating(OPPORTUNITY_CONTACT_ROLE);
+  if (!opportunities || !roles) return 0;
+  const opportunity = objects.find((object) => object.objectApiName === OPPORTUNITY);
+  if (opportunity?.excludedFields.includes(CONTACT_FIELD)) return 0;
+  return Math.min(opportunities.rows, roles.rows);
 }
 
 /**
@@ -2441,8 +2595,20 @@ export class SyncOrchestrator {
             sum + (object.operation === 'delete' ? object.delete : object.insert + object.update),
           0,
         );
-      const notWritten = writeCheck.total - written;
-      if (notWritten > 0) writeCheck = { ...writeCheck, notWritten };
+      // The roles the platform writes with the opportunities, as the reading
+      // found them, said apart from what the run would hold back or refuse:
+      // the count of the source could say only how many at most.
+      const check: SyncWriteCheck = { ...writeCheck };
+      delete check.rolesByThePlatform;
+      const linkedRoles = objects
+        .filter((object) => measured.has(object.objectApiName))
+        .reduce((sum, object) => sum + (object.writtenByThePlatform ?? 0), 0);
+      const notWritten = writeCheck.total - written - linkedRoles;
+      writeCheck = {
+        ...check,
+        ...(linkedRoles > 0 ? { rolesByThePlatform: linkedRoles } : {}),
+        ...(notWritten > 0 ? { notWritten } : {}),
+      };
     }
     return answer();
   }
@@ -2518,13 +2684,13 @@ export class SyncOrchestrator {
     // The price books and prices as the run writes them: see `pricesSettled`.
     const settled =
       asRead.records.length > 0 ? await this.pricesSettled(objectConfig, asRead, run) : undefined;
-    const prepared = settled ? { ...asRead, ...settled } : asRead;
+    const priced = settled ? { ...asRead, ...settled } : asRead;
 
     // An object the target takes none of: the simulation counted each of its
     // records written, then the run had every one refused, after the objects
     // before it were written.
-    if (refusal && prepared.records.length > 0) {
-      noteSourcesRefused(run.links, objectConfig, prepared.sources);
+    if (refusal && priced.records.length > 0) {
+      noteSourcesRefused(run.links, objectConfig, priced.sources);
       // The prices left out for one of them are refused with it, as the run
       // counts them among the records it leaves out.
       const heldWith = settled ? linkWhatStoodIn(run.links, objectConfig, settled.standsFor) : [];
@@ -2532,20 +2698,25 @@ export class SyncOrchestrator {
         {
           objectApiName: objectConfig.objectApiName,
           operation: objectConfig.operation,
-          read: prepared.read,
+          read: priced.read,
           insert: 0,
           update: 0,
           delete: 0,
-          skipped: prepared.alreadyCopied,
-          ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
-          refused: prepared.records.length + heldWith.length,
+          skipped: priced.alreadyCopied,
+          ...(priced.alreadyCopied > 0 ? { alreadyCopied: priced.alreadyCopied } : {}),
+          refused: priced.records.length + heldWith.length,
           conflicts: 0,
           conflictFields: [],
           notes: [refusal.message],
         },
-        prepared,
+        priced,
       );
     }
+
+    // The roles the platform writes with the run's opportunities, linked as
+    // the run links them, and out of what the write would send.
+    const roles = rolesSimulatedWithTheirOpportunity(objectConfig, priced, run.links);
+    const prepared = roles.prepared;
 
     // What the target lets a write carry, the describe the write reads too.
     let target: TargetWriteFields | null = null;
@@ -2609,6 +2780,18 @@ export class SyncOrchestrator {
           )
         : { refused: new Set<number>(), notes: [] };
     const refusedAt = new Set([...checked.refused].map((position) => writes[position]));
+
+    // Of the records it would write, those a lookup the run did not settle
+    // names an id the target does not hold: the run is refused them, and
+    // sends them again without those lookups. See `lookupsTheTargetLacks`.
+    const lacking = await this.lookupsTheTargetLacks(
+      writes.filter((k) => !refusedAt.has(k)),
+      rows.payloads,
+      rows.settled,
+      target,
+    );
+    const lookups = sentAgainWithoutLookups(lacking, simulated, target);
+    for (const k of lookups.refused) refusedAt.add(k);
 
     // Of the records an insert would create, those a field the target keeps
     // unique refuses: a value it holds already, asked of it as a key is, or
@@ -2680,6 +2863,18 @@ export class SyncOrchestrator {
           run.links.noteWritten(id, id);
         }
       });
+      // The contact each opportunity it would create goes in with, as the
+      // run notes it once written: the platform writes a role of that contact.
+      if (objectConfig.objectApiName === OPPORTUNITY && creates) {
+        for (const k of kept) {
+          const id = idOf(rows.sentAt[k]);
+          const contact = rows.payloads[k]?.[CONTACT_FIELD];
+          if (simulated[k] !== 'insert' || !id || typeof contact !== 'string' || contact === '') {
+            continue;
+          }
+          run.links.noteSentWithContact(id, contact);
+        }
+      }
       // And a price left out for one of them follows it, as in the run.
       if (settled) heldWith = linkWhatStoodIn(run.links, objectConfig, settled.standsFor);
     }
@@ -2699,8 +2894,9 @@ export class SyncOrchestrator {
 
     const withHeld: SyncObjectSimulation = {
       ...outcome,
-      skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied,
+      skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied + roles.linked,
       ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
+      ...(roles.linked > 0 ? { writtenByThePlatform: roles.linked } : {}),
       ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
       ...(recordTypeGiven ? { recordTypeGiven } : {}),
       refused: outcome.refused + rows.held.length + refusedAt.size + heldWith.length,
@@ -2710,6 +2906,7 @@ export class SyncOrchestrator {
         ...describeSettledPrices(settled ? pricesHeldWithTheirs(settled, heldWith) : []).map(
           (sentence) => `${sentence}.`,
         ),
+        ...(roles.linked > 0 ? [rolesLinkedNote(roles.linked)] : []),
         ...outcome.notes,
         ...rows.notes,
         ...(heldWith.length > 0
@@ -2718,6 +2915,7 @@ export class SyncOrchestrator {
         // Said as the command line says them: the simulation's notes are text.
         ...rows.currencies.map((entry) => `${describeCurrencyReplaced(entry)}.`),
         ...checked.notes,
+        ...lookups.notes,
         ...unique.notes,
       ],
     };
@@ -2746,6 +2944,83 @@ export class SyncOrchestrator {
       };
     }
     return { ...withHeld, delta: deltaOutcomeOf(plan, read.rows) };
+  }
+
+  /**
+   * Of the records a simulation would write (`writes`, their places among
+   * `payloads`), those a lookup the run did not settle names an id the target
+   * does not hold, with every lookup the run did not settle among their
+   * fields: the run sends them with those ids as they are — the target may
+   * hold the same ids, a sandbox its source's — learns from the target's
+   * refusal (`INVALID_CROSS_REFERENCE_KEY`) and sends them again without
+   * those lookups (`DataSync.retryRefused`). Asked of the target a statement
+   * per object a lookup names and 200 ids, never a row: one whose answer
+   * fails leaves its ids unsaid, as a simulation that could not ask.
+   *
+   * Not asked, a dry run on a scratch org said "would insert 3" of three
+   * opportunities the run wrote without their account, out of the run, and
+   * their owner.
+   *
+   * @returns Per place, the lookups the run would send the record again without.
+   */
+  private async lookupsTheTargetLacks(
+    writes: readonly number[],
+    payloads: readonly Record<string, unknown>[],
+    settled: readonly ReadonlySet<string>[],
+    target: TargetWriteFields | null,
+  ): Promise<ReadonlyMap<number, string[]>> {
+    const query = this.deps.queryTargetRows;
+    const lacking = new Map<number, string[]>();
+    if (!query || !target?.fields || target.references.size === 0) return lacking;
+    /** Per row, the lookups the run did not settle and the ids they hold. */
+    const unsettled = new Map<number, Array<{ field: string; id: string }>>();
+    /** Per object a lookup names, the ids to ask the target about. */
+    const asked = new Map<string, Set<string>>();
+    for (const k of writes) {
+      const payload = payloads[k] ?? {};
+      const ofRow: Array<{ field: string; id: string }> = [];
+      for (const [field, value] of Object.entries(payload)) {
+        if (field === 'RecordTypeId' || !target.references.has(field)) continue;
+        if (settled[k]?.has(field) || typeof value !== 'string' || !LOOKUP_ID.test(value)) {
+          continue;
+        }
+        ofRow.push({ field, id: value });
+        const named = target.fields.find((f) => f.name === field)?.referenceTo ?? [];
+        for (const object of named) {
+          asked.set(object, (asked.get(object) ?? new Set()).add(value));
+        }
+      }
+      if (ofRow.length > 0) unsettled.set(k, ofRow);
+    }
+    if (unsettled.size === 0) return lacking;
+    const held = new Set<string>();
+    const unread = new Set<string>();
+    for (const [object, ids] of asked) {
+      const all = [...ids];
+      for (const [at, list] of idLists(all, LOOKUP_IDS_PER_STATEMENT).entries()) {
+        try {
+          const found = await query(
+            `SELECT Id FROM ${assertSoqlIdentifier(object)} WHERE Id IN (${list})`,
+          );
+          for (const row of found) {
+            const id = (row as { Id?: unknown }).Id;
+            if (typeof id === 'string') held.add(id.slice(0, 15));
+          }
+        } catch {
+          const from = at * LOOKUP_IDS_PER_STATEMENT;
+          for (const id of all.slice(from, from + LOOKUP_IDS_PER_STATEMENT)) {
+            unread.add(id.slice(0, 15));
+          }
+        }
+      }
+    }
+    for (const [k, ofRow] of unsettled) {
+      const lost = ofRow.some(
+        ({ id }) => !held.has(id.slice(0, 15)) && !unread.has(id.slice(0, 15)),
+      );
+      if (lost) lacking.set(k, ofRow.map(({ field }) => field).sort());
+    }
+    return lacking;
   }
 
   /**

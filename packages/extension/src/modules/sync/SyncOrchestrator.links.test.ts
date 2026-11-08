@@ -412,3 +412,175 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
     expect(asked).toBe(0);
   });
 });
+
+/*
+ * A lookup that names a record the run writes not and the target holds not.
+ * Run on a scratch org, three opportunities whose account was out of the run
+ * were refused on the first insert, `INVALID_CROSS_REFERENCE_KEY`, and written
+ * again without their lookups the run had not settled; the dry run said
+ * "would insert 3". Prices whose product and book name nothing at all would
+ * be refused again, for the required lookups they then lack.
+ */
+describe('SyncOrchestrator — a lookup at a record neither the run nor the target holds', () => {
+  const HELD_OWNER = '005000000000001AAA';
+  const LOST_ACCOUNT = '001000000000099AAA';
+  const LOST_PRODUCT = '01t000000000099AAA';
+  const LOST_BOOK = '01s000000000099AAA';
+  const lookup = (
+    name: string,
+    referenceTo: string,
+    nillable = true,
+    defaultedOnCreate = false,
+  ) => ({
+    name,
+    createable: true,
+    type: 'reference',
+    nillable,
+    defaultedOnCreate,
+    referenceTo: [referenceTo],
+  });
+  const describes: Record<string, TargetWriteFields> = {
+    Opportunity: targetWriteFieldsOf({
+      name: 'Opportunity',
+      fields: [
+        { name: 'Name', createable: true, type: 'string', nillable: false },
+        lookup('AccountId', 'Account'),
+        // Required, and given the running user when left out.
+        lookup('OwnerId', 'User', false, true),
+      ],
+    }),
+    PricebookEntry: targetWriteFieldsOf({
+      name: 'PricebookEntry',
+      fields: [
+        { name: 'UnitPrice', createable: true, type: 'currency', nillable: false },
+        lookup('Product2Id', 'Product2', false),
+        lookup('Pricebook2Id', 'Pricebook2', false),
+      ],
+    }),
+  };
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    Opportunity: [
+      { Id: '006000000000001AAA', Name: 'Deal', AccountId: LOST_ACCOUNT, OwnerId: HELD_OWNER },
+    ],
+    PricebookEntry: [
+      {
+        Id: '01u000000000001AAA',
+        UnitPrice: 5000,
+        Product2Id: LOST_PRODUCT,
+        Pricebook2Id: LOST_BOOK,
+      },
+    ],
+  };
+  /** The ids the target holds: the owner, none of the rest. */
+  const held = new Set([HELD_OWNER]);
+  const required: Record<string, string[]> = {
+    Opportunity: ['Name'],
+    PricebookEntry: ['UnitPrice', 'Product2Id', 'Pricebook2Id'],
+  };
+  const statements: string[] = [];
+  const insert = async (
+    object: string,
+    records: Record<string, unknown>[],
+  ): Promise<OperationOutcome[]> =>
+    records.map((record, at) => {
+      const lost = Object.entries(record).filter(
+        ([field, value]) => field.endsWith('Id') && typeof value === 'string' && !held.has(value),
+      );
+      if (lost.length > 0) {
+        return {
+          success: false,
+          errors: [`INVALID_CROSS_REFERENCE_KEY: invalid cross reference id`],
+        };
+      }
+      const missing = (required[object] ?? []).filter((field) => record[field] === undefined);
+      if (missing.length > 0) {
+        return {
+          success: false,
+          errors: [`REQUIRED_FIELD_MISSING: Required fields are missing: [${missing.join(', ')}]`],
+        };
+      }
+      return { id: `${object.slice(0, 3)}TGT00000000${at}AAA`, success: true, errors: [] };
+    });
+  const orchestrator = () => {
+    const unused = async (): Promise<OperationOutcome[]> => [];
+    const describeTargetFields = async (object: string) => describes[object];
+    return new SyncOrchestrator({
+      dataSync: new DataSync({
+        insert: (object, records) => insert(object, records),
+        update: unused,
+        upsert: unused,
+        delete: unused,
+        describeTargetFields,
+      }),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: async (_org, config) => rows[config.objectApiName],
+      queryTarget: async () => [],
+      queryTargetRows: async (soql) => {
+        statements.push(soql);
+        const ids = [...soql.matchAll(/'([^']*)'/g)].map(([, id]) => id);
+        return ids.filter((id) => held.has(id)).map((Id) => ({ Id }));
+      },
+      describeTargetFields,
+      findInTarget: async () => new Map(),
+    });
+  };
+  const config = (objectApiName: string): SyncConfig => ({
+    id: `config-${objectApiName}`,
+    name: objectApiName,
+    description: '',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    direction: 'source_to_target',
+    mode: 'full',
+    objects: [
+      {
+        objectApiName,
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 0,
+      },
+    ],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  });
+
+  it('simulates the record written without the lookups the run had not settled, as the run writes it', async () => {
+    const run = await orchestrator().execute(config('Opportunity'));
+    statements.length = 0;
+    const simulation = await orchestrator().simulate(config('Opportunity'));
+
+    expect(run.objectResults[0]).toMatchObject({
+      success: 1,
+      failed: 0,
+      lookupsLeftOut: [{ records: 1, fields: ['AccountId', 'OwnerId'], reason: 'notInTarget' }],
+    });
+    const opportunity = simulation.objects[0];
+    expect(opportunity).toMatchObject({ read: 1, insert: 1, refused: 0 });
+    expect(opportunity?.notes).toContain(
+      '1 record(s) would be written without AccountId, OwnerId: a lookup held an id from the ' +
+        'source org that the target does not have, which the run learns from its first refusal ' +
+        'and sends the record again without the lookups it did not settle.',
+    );
+    // Asked of the target a statement an object, never a row.
+    expect(statements).toEqual([
+      `SELECT Id FROM Account WHERE Id IN ('${LOST_ACCOUNT}')`,
+      `SELECT Id FROM User WHERE Id IN ('${HELD_OWNER}')`,
+    ]);
+  });
+
+  it('simulates refused a record whose required lookups name nothing the target holds, as the run is refused it twice', async () => {
+    const run = await orchestrator().execute(config('PricebookEntry'));
+    const simulation = await orchestrator().simulate(config('PricebookEntry'));
+
+    expect(run.objectResults[0]).toMatchObject({ success: 0, failed: 1 });
+    expect(simulation.objects[0]).toMatchObject({ read: 1, insert: 0, refused: 1 });
+  });
+});
