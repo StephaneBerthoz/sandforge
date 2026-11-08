@@ -696,7 +696,13 @@ function frozenRun(user) {
   );
   if (!extracted) return false;
 
-  const dry = step('frozen-load-dry', ['load', '--target', TARGET, '--dry-run']);
+  const dry = step('frozen-load-dry', [
+    'load',
+    '--target',
+    TARGET,
+    '--dry-run',
+    '--accept-automation',
+  ]);
   const plan = postedOf(dry.doc, 'frozen:load:preview:response')?.payload?.plan;
   const preview = frozenPreviewCounts(plan);
   record(
@@ -715,7 +721,7 @@ function frozenRun(user) {
   );
   if (!plan) return false;
 
-  const load = step('frozen-load', ['load', '--target', TARGET, '--yes']);
+  const load = step('frozen-load', ['load', '--target', TARGET, '--yes', '--accept-automation']);
   const report = postedOf(load.doc, 'frozen:load:response')?.payload?.report;
   const mappingFile = readdirSync(sasDir).find((name) =>
     /^referenceid-mapping\..+\.json$/.test(name),
