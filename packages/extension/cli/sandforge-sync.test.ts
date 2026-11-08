@@ -954,6 +954,31 @@ describe('what a run says before its first write', () => {
     );
   });
 
+  it('says of a simulation that would write none of what it counts the count it would not write', () => {
+    // 34 prices whose product and book name nothing the target holds: the
+    // check says nothing to write, total 0, and what it counted.
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'PricebookEntry', rows: 34 }],
+        total: 0,
+        notWritten: 34,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.07, maxMB: 500, remainingMB: 500 },
+        emails: [],
+        verdict: 'nothing',
+      },
+      'TGT',
+    );
+
+    expect(lines.slice(0, 4)).toEqual([
+      'write gate: 0 record(s) to write to TGT, about 0.07 MB of data storage',
+      `  ${'PricebookEntry'.padEnd(42)}${'34'.padStart(8)}`,
+      '  of the 34 a run counts from the source, 34 would not be written: held back or refused, ' +
+        'as each object says; what follows is measured on all of them',
+      '  data storage of TGT: 500 MB left of 500 MB',
+    ]);
+  });
+
   it('says the contact roles the platform may write with the opportunities, counted among the records to write', () => {
     // On a scratch org: "write gate: 4 record(s) … OpportunityContactRole 1",
     // and the run linked that role to the platform's and wrote none.

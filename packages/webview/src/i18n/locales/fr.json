@@ -1641,7 +1641,8 @@
       "verdict": {
         "writes": "L'exécution écrit sans demander.",
         "asks": "L'exécution vous demande confirmation avant d'écrire.",
-        "refused": "L'exécution est refusée avant d'écrire quoi que ce soit."
+        "refused": "L'exécution est refusée avant d'écrire quoi que ce soit.",
+        "nothing": "L'exécution n'écrirait aucun des enregistrements qu'elle compte : chacun est retenu ou refusé, comme son objet le dit."
       },
       "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être.",
       "overwrites_one": "Parmi eux, {{count}} peut écraser un enregistrement que l'org cible détient : ce qu'il contient est d'abord lu et conservé, et supprimer l'exécution le remet en place.",

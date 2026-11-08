@@ -39,6 +39,10 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
   if (!check && unread === undefined && !order) return null;
   const limitWords = (limit: 'SingleEmail' | 'DailyWorkflowEmails'): string =>
     limit === 'SingleEmail' ? t('common.emailLimit.single') : t('common.emailLimit.workflow');
+  // A simulation that would write none of what it counts says 0 as its
+  // total, and what it counted as not written.
+  const notWritten = check?.notWritten ?? 0;
+  const counted = check && check.total > 0 ? check.total : notWritten;
 
   const storageLine = (storage: WriteCheck['storage']): string => {
     const estimate = megabytes(storage.estimateMB);
@@ -90,7 +94,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
           {check && (
             <>
               <p data-testid="sync-write-check-records">
-                {t('sync.writeCheck.records', { count: check.total - (check.notWritten ?? 0) })}
+                {t('sync.writeCheck.records', { count: counted - notWritten })}
                 {check.objects.length > 0 &&
                   ` (${check.objects
                     .map(({ objectApiName, rows }) => `${objectApiName} ${formatNumber(rows)}`)
@@ -99,11 +103,11 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
               {/* Under the count, as the command line says it: what follows it,
                   the storage, the requests and the emails, is measured on all
                   the run counts. Said below them, it spoke of nothing above. */}
-              {(check.notWritten ?? 0) > 0 && (
+              {notWritten > 0 && (
                 <p className="text-text-secondary" data-testid="sync-write-check-not-written">
                   {t('sync.writeCheck.notWritten', {
-                    count: check.notWritten,
-                    total: formatNumber(check.total),
+                    count: notWritten,
+                    total: formatNumber(counted),
                   })}
                 </p>
               )}
@@ -126,7 +130,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   })}
                 </p>
               )}
-              {check.total > 0 && (
+              {counted > 0 && (
                 <p
                   className={check.storage.verdict === 'fits' ? undefined : 'text-status-warning'}
                   data-testid="sync-write-check-storage"
@@ -257,7 +261,9 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   ? t('sync.writeCheck.verdict.refused')
                   : check.verdict === 'asks'
                     ? t('sync.writeCheck.verdict.asks')
-                    : t('sync.writeCheck.verdict.writes')}
+                    : check.verdict === 'nothing'
+                      ? t('sync.writeCheck.verdict.nothing')
+                      : t('sync.writeCheck.verdict.writes')}
               </p>
             </>
           )}

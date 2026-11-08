@@ -1641,7 +1641,8 @@
       "verdict": {
         "writes": "La ejecución escribe sin preguntar.",
         "asks": "La ejecución le pregunta antes de escribir.",
-        "refused": "La ejecución se rechaza antes de escribir nada."
+        "refused": "La ejecución se rechaza antes de escribir nada.",
+        "nothing": "La ejecución no escribiría ninguno de los registros que cuenta: cada uno se retiene o se rechaza, como dice su objeto."
       },
       "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar.",
       "overwrites_one": "De ellos, {{count}} puede sobrescribir un registro que la org de destino contiene: lo que contiene se lee y se conserva antes, y eliminar la ejecución lo restablece.",

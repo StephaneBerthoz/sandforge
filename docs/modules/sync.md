@@ -379,7 +379,10 @@ Before execution, the Review step shows:
   (`writeCheck.notWritten`), those an earlier run copied that it leaves as they
   are, then the data storage, the API requests and the emails the target's
   automation sends, measured on what a run counts, against what the target has
-  left, and whether the run writes, asks first or is refused. It
+  left, and whether the run writes, asks first or is refused. When it would
+  write none of the records a run counts, it says it has nothing to write:
+  with `--json`, `writeCheck.total` is `0` and `writeCheck.verdict` is
+  `nothing`, unless a run would be asked or refused first. It
   reads whether the target delivers those emails as a run does, one or two
   requests, and says so; with **Checkpoint first**
   ticked, what the checkpoint would hold and cost, and the refusal a run would

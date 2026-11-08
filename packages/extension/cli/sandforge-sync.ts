@@ -1084,8 +1084,11 @@ const UNWRITABLE_WORDS: Readonly<
  */
 export function writeCheckLines(check: SyncWriteCheck, target: string): string[] {
   const notWritten = check.notWritten ?? 0;
+  // A simulation that would write none of what it counts says 0 as its
+  // total, and what it counted as not written.
+  const counted = check.total > 0 ? check.total : notWritten;
   const lines = [
-    `write gate: ${check.total - notWritten} record(s) to write to ${target}, about ` +
+    `write gate: ${counted - notWritten} record(s) to write to ${target}, about ` +
       `${formatMB(check.storage.estimateMB)} MB of data storage`,
   ];
   for (const object of check.objects) {
@@ -1093,7 +1096,7 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   }
   if (notWritten > 0) {
     lines.push(
-      `  of the ${check.total} a run counts from the source, ${notWritten} would not be written: ` +
+      `  of the ${counted} a run counts from the source, ${notWritten} would not be written: ` +
         'held back or refused, as each object says; what follows is measured on all of them',
     );
   }

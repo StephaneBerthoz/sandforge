@@ -195,15 +195,19 @@ describe('RewindRun', () => {
     ]);
   });
 
-  it('says a rewind stopped before it answered with what it did, where the org stands, with Rewind again', () => {
+  it('says a rewind stopped before it answered as one stopped before it wrote anything, where the org stands, with Rewind again', () => {
+    // The extension answers CANCELLED only for a rewind stopped before its
+    // first write; one stopped part way answers with its result. The page
+    // said "Stopped part way: … between … and now" of an org nothing was
+    // written to.
     const { onRewindAgain, onDone } = renderRun({
       ...RUNNING,
       loading: false,
-      error: 'The rewind was stopped.',
+      error: 'The rewind was stopped before it wrote anything to the org.',
       errorCode: 'CANCELLED',
     });
     expect(screen.getByTestId('checkpoint-run-stopped').textContent).toBe(
-      'Stopped part way: DEV-SB is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs.',
+      'Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to “Before UAT”.',
     );
     expect(screen.queryByTestId('checkpoint-run-error')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Rewind again' }));

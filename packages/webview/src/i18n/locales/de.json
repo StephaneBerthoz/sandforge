@@ -1641,7 +1641,8 @@
       "verdict": {
         "writes": "Der Lauf schreibt, ohne zu fragen.",
         "asks": "Der Lauf fragt Sie, bevor er schreibt.",
-        "refused": "Der Lauf wird abgelehnt, bevor er etwas schreibt."
+        "refused": "Der Lauf wird abgelehnt, bevor er etwas schreibt.",
+        "nothing": "Der Lauf würde keinen der Datensätze schreiben, die er zählt: Jeder wird zurückgehalten oder abgelehnt, wie sein Objekt sagt."
       },
       "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können.",
       "overwrites_one": "Davon kann {{count}} einen Datensatz überschreiben, den die Ziel-Org enthält: Sein Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",

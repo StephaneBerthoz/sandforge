@@ -2559,6 +2559,18 @@ function residualWords(
   }
 }
 
+/**
+ * What a rewind stopped before its first write says, as the page says it,
+ * whether it was stopped before its operation was listed, answered
+ * `CANCELLED`, or after, answered with its result.
+ */
+function stoppedBeforeWritingWords(orgName: string, checkpointName: string): string {
+  return (
+    `Stopped before it wrote anything: ${orgName} is as it was before this rewind. Rewind ` +
+    `again to rewind it to '${checkpointName}'.`
+  );
+}
+
 /** The lines a rewind prints once it answered, stopped part way included. */
 export function rewindLines(
   orgName: string,
@@ -2587,8 +2599,7 @@ export function rewindLines(
     // nothing between the org and the rewind before it.
     cancelled:
       result.undo === undefined
-        ? `Stopped before it wrote anything: ${orgName} is as it was before this rewind. Rewind ` +
-          `again to rewind it to '${checkpoint.name}'.`
+        ? stoppedBeforeWritingWords(orgName, checkpoint.name)
         : `Stopped part way: ${orgName} is between '${checkpoint.name}' and now. Rewind again to ` +
           `finish: it takes up from what still differs, and undo still returns ${orgName} to how ` +
           'it was before the rewind.',
@@ -3841,7 +3852,15 @@ async function rewind(
         timeoutMs: WRITE_TIMEOUT_MS,
       }),
   );
-  const result = resultOfAnswer(sent, 'The rewind', rewindRefusalWords);
+  // Stopped as it read the org again, a rewind said "The rewind was stopped
+  // before it wrote anything to the org.", and one stopped a moment later
+  // "Stopped before it wrote anything: … is as it was before this rewind":
+  // two sentences for one stop.
+  const result = resultOfAnswer(sent, 'The rewind', (refusal) =>
+    refusal.code === 'CANCELLED'
+      ? { ...refusal, message: stoppedBeforeWritingWords(args.org, checkpoint.name) }
+      : rewindRefusalWords(refusal),
+  );
   for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames)) say(line);
   for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
     say(line);

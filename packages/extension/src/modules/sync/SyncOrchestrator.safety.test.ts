@@ -140,7 +140,12 @@ function gate(answer: SyncGateAnswer = { go: true, asked: false }) {
   const writeGate: SyncWriteGate = {
     measure: async (counted) => {
       measured.push(counted);
-      return { ...check, total: counted.objects.reduce((s, o) => s + o.rows, 0) };
+      // Each object it counted, as a gate's check names them.
+      return {
+        ...check,
+        objects: counted.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+        total: counted.objects.reduce((s, o) => s + o.rows, 0),
+      };
     },
     hold: async (counted) => {
       held.push(counted);

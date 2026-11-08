@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
-import { SyncOrchestrator } from './SyncOrchestrator.js';
+import { SyncOrchestrator, type SyncOrchestratorDeps } from './SyncOrchestrator.js';
+import { syncWriteGate, type SyncWriteMeasures } from './SyncRunGate.js';
 import { DataSync, type OperationOutcome } from './DataSync.js';
 import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields.js';
 import { FieldMappingService } from './FieldMapping.js';
@@ -501,10 +502,11 @@ describe('SyncOrchestrator — a lookup at a record neither the run nor the targ
       }
       return { id: `${object.slice(0, 3)}TGT00000000${at}AAA`, success: true, errors: [] };
     });
-  const orchestrator = () => {
+  const orchestrator = (gated: Pick<SyncOrchestratorDeps, 'countSource' | 'writeGate'> = {}) => {
     const unused = async (): Promise<OperationOutcome[]> => [];
     const describeTargetFields = async (object: string) => describes[object];
     return new SyncOrchestrator({
+      ...gated,
       dataSync: new DataSync({
         insert: (object, records) => insert(object, records),
         update: unused,
@@ -582,5 +584,47 @@ describe('SyncOrchestrator — a lookup at a record neither the run nor the targ
 
     expect(run.objectResults[0]).toMatchObject({ success: 0, failed: 1 });
     expect(simulation.objects[0]).toMatchObject({ read: 1, insert: 0, refused: 1 });
+  });
+
+  it('says at its check that it has nothing to write when the target refuses every record it counts', async () => {
+    // Replayed from a dry run of 34 prices whose product and book name
+    // nothing the target holds: its lines said "write gate: 0 record(s) to
+    // write", and its JSON verdict "writes" and total 34 beside notWritten 34.
+    const measures: SyncWriteMeasures = {
+      readStorage: async () => ({
+        maxMB: 500,
+        remainingMB: 500,
+        dailyApiRequests: { max: 5_000_000, remaining: 4_999_155 },
+      }),
+      readApiBudget: async () => ({ max: 5_000_000, remaining: 4_999_155 }),
+      readAutomation: async () => ({
+        objectsRead: [],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 1,
+      }),
+      readLimits: async () => ({}),
+      readDeliverability: async () => ({ reading: { level: 'withheld' }, requests: 2 }),
+      emails: { target: 'TARGET', accepted: false },
+      confirmAboveRecords: 2_000,
+    };
+    const simulation = await orchestrator({
+      countSource: async () => rows['PricebookEntry'].length,
+      writeGate: syncWriteGate(measures, {
+        policy: 'refuse',
+        org: 'TARGET',
+        orgTier: 'development',
+      }),
+    }).simulate(config('PricebookEntry'));
+
+    expect(simulation.objects[0]).toMatchObject({ read: 1, insert: 0, refused: 1 });
+    expect(simulation.writeCheck).toMatchObject({
+      objects: [{ objectApiName: 'PricebookEntry', rows: 1 }],
+      total: 0,
+      notWritten: 1,
+      verdict: 'nothing',
+    });
   });
 });

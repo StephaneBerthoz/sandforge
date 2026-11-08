@@ -2604,10 +2604,18 @@ export class SyncOrchestrator {
         .filter((object) => measured.has(object.objectApiName))
         .reduce((sum, object) => sum + (object.writtenByThePlatform ?? 0), 0);
       const notWritten = writeCheck.total - written - linkedRoles;
+      // None of what it counts written, it has nothing to write, as its lines
+      // say: of 34 prices whose product and book name nothing the target
+      // holds, its JSON said verdict "writes" and total 34 beside notWritten
+      // 34, under "write gate: 0 record(s) to write". A question or a
+      // refusal the run meets first stays said.
+      const none = writeCheck.total > 0 && written + linkedRoles === 0;
       writeCheck = {
         ...check,
         ...(linkedRoles > 0 ? { rolesByThePlatform: linkedRoles } : {}),
         ...(notWritten > 0 ? { notWritten } : {}),
+        ...(none ? { total: 0 } : {}),
+        ...(none && check.verdict === 'writes' ? { verdict: 'nothing' as const } : {}),
       };
     }
     return answer();

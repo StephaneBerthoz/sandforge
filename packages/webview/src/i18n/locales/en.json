@@ -1641,7 +1641,8 @@
       "verdict": {
         "writes": "The run writes without asking.",
         "asks": "The run asks you before it writes.",
-        "refused": "The run is refused before it writes anything."
+        "refused": "The run is refused before it writes anything.",
+        "nothing": "The run would write none of the records it counts: each is held back or refused, as its object says."
       },
       "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
       "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",

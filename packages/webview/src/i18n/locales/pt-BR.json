@@ -1641,7 +1641,8 @@
       "verdict": {
         "writes": "A execução grava sem perguntar.",
         "asks": "A execução pergunta antes de gravar.",
-        "refused": "A execução é recusada antes de gravar qualquer coisa."
+        "refused": "A execução é recusada antes de gravar qualquer coisa.",
+        "nothing": "A execução não gravaria nenhum dos registros que conta: cada um é retido ou recusado, como seu objeto diz."
       },
       "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados.",
       "overwrites_one": "Deles, {{count}} pode sobrescrever um registro que a org de destino contém: o que ele contém é lido e guardado antes, e remover a execução o restaura.",

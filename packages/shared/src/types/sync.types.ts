@@ -875,6 +875,11 @@ export type SyncUnwritableReason =
 export interface SyncWriteCheck {
   /** Records the run writes, per object, the most first. */
   objects: Array<{ objectApiName: ApiName; rows: number }>;
+  /**
+   * The records of `objects`, which a run is measured by. Of a simulation
+   * that finds the run would write none of them, 0: nothing to write,
+   * `notWritten` saying how many it counted.
+   */
   total: number;
   /** Of the records read, those an earlier run of the configuration copied, left as they are. */
   alreadyCopied: number;
@@ -896,10 +901,12 @@ export interface SyncWriteCheck {
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
   /**
-   * Of a simulation, of `total`: what the run counts from the source that the
-   * simulation found it would not write, held back or refused, as each
-   * object's line says. A run is measured by `total`, so a simulation is too:
-   * what it writes is the difference. Absent when none, and of a run.
+   * Of a simulation, of the records of `objects`: what the run counts from
+   * the source that the simulation found it would not write, held back or
+   * refused, as each object's line says. A run is measured by what it
+   * counts, so a simulation is too: what it writes is `total` less these, and
+   * none when `total` is 0, every record it counted being among these.
+   * Absent when none, and of a run.
    */
   notWritten?: number;
   /** The data storage the records it creates take, against what the target has left. */
@@ -989,9 +996,11 @@ export interface SyncWriteCheck {
    * storage could not be read, past a daily email limit, or when what is
    * left of one, or the target's automation, could not be read — or it is
    * refused, past the storage. A run nobody watches is refused past a daily
-   * email limit too, and the command line past either.
+   * email limit too, and the command line past either. Of a simulation that
+   * finds the run would write none of the records it counts, and would not
+   * be asked or refused first, `nothing`: it said `writes` beside them.
    */
-  verdict: 'writes' | 'asks' | 'refused';
+  verdict: 'writes' | 'asks' | 'refused' | 'nothing';
   /**
    * Why what the checkpoint asked first would hold could not be read, which
    * refuses the run: its verdict alone said refused, with no reason.

@@ -1959,6 +1959,41 @@ describe('sandforge-checkpoint rewind', () => {
     expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
   });
 
+  it('says a rewind stopped before it wrote anything in the words of one stopped before its first write, exit 130', async () => {
+    // Stopped as it read the org again, it said "The rewind was stopped
+    // before it wrote anything to the org.", and stopped before its
+    // operation was listed "Stopped before it wrote anything: … is as it was
+    // before this rewind": two sentences for one stop.
+    const h = harness({
+      sending: (request) => {
+        if (request.type === 'checkpoint:rewind') process.emit('SIGINT');
+        return request;
+      },
+    });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const stopped = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    const said =
+      "Stopped before it wrote anything: DEV-SB is as it was before this rewind. Rewind again to rewind it to 'Before UAT'.";
+    expect(stopped.code).toBe(130);
+    expect(JSON.parse(stopped.stdout)).toEqual({ refusal: { code: 'CANCELLED', message: said } });
+    expect(stopped.stderr).toContain(said);
+    expect(stopped.stderr).not.toContain('The rewind was stopped before it wrote anything');
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
   it('refuses a production org with the guard’s words, exit 1, writing nothing', async () => {
     const options: { production?: boolean } = {};
     const h = harness(options);

@@ -146,6 +146,33 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('says of a simulation that would write none of what it counts that it has nothing to write, and what it counted', () => {
+    // 34 prices whose product and book name nothing the target holds.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          objects: [{ objectApiName: 'PricebookEntry', rows: 34 }],
+          total: 0,
+          notWritten: 34,
+          emails: [],
+          verdict: 'nothing',
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-records').textContent).toBe(
+      '0 records to write (PricebookEntry 34)',
+    );
+    expect(screen.getByTestId('sync-write-check-not-written').textContent).toBe(
+      'Of the 34 a run counts from the source, 34 would not be written: held back or refused, as each object says. What follows is measured on all of them.',
+    );
+    expect(screen.getByTestId('sync-write-check-storage')).toBeTruthy();
+    expect(screen.getByTestId('sync-write-check-verdict').textContent).toBe(
+      'The run would write none of the records it counts: each is held back or refused, as its object says.',
+    );
+  });
+
   it('says what of the count it would not write under the count, above the figures measured on all of it', () => {
     // Said below the storage, the API requests and the emails, "what follows"
     // spoke of the lines above it, read as measured on the records written.
