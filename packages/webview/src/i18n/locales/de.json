@@ -7299,6 +7299,7 @@
         "partialListed": "{{org}} ist wieder so wie vor ihrem letzten Zurücksetzen, bis auf das, was unten aufgeführt ist.",
         "failure": "Das Rückgängigmachen des letzten Zurücksetzens von {{org}} endete, bevor es fertig war: Was es getan hat, ist unten aufgeführt.",
         "cancelled": "Mittendrin gestoppt: Machen Sie das Zurücksetzen in der Liste der Prüfpunkte erneut rückgängig, um fertig zu werden; es fährt dort fort, wo es gestoppt wurde.",
+        "cancelledNothing": "Gestoppt, bevor etwas geschrieben wurde: {{org}} ist so, wie das Zurücksetzen es hinterlassen hat, und das Zurücksetzen kann noch rückgängig gemacht werden.",
         "undeletedTitle": "Was das Zurücksetzen gelöscht hat, aus dem Papierkorb von {{org}} zurückgeholt",
         "restoredTitle": "Was das Zurücksetzen überschrieben hat, mit seinen vorherigen Werten in {{org}}",
         "restoredLine": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Zurücksetzen zurück",

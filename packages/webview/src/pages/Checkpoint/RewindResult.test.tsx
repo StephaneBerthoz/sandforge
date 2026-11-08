@@ -695,6 +695,18 @@ describe('RewindResult', () => {
       'Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.',
     );
   });
+
+  it('says an undo stopped before it wrote anything as nothing written, the rewind still to undo', () => {
+    // Stopped once under way but before its first write, it was said
+    // stopped part way.
+    renderResult(
+      rewindResult({ status: 'cancelled', deleted: [], restored: [], undeleted: [] }),
+      'undo',
+    );
+    expect(headline()).toBe(
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can still be undone.',
+    );
+  });
 });
 
 describe('RewindResult of a rewind limited to some objects', () => {

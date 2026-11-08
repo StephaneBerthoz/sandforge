@@ -9,6 +9,7 @@ import type {
   RewindResult as RewindOutcome,
   RewindUndoCannotReason,
 } from '@sandforge/shared';
+import { rewindWroteNothing } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import {
   RestoredResult,
@@ -594,7 +595,10 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
       result.status === 'success'
         ? t('checkpoint.result.undo.success', { org })
         : result.status === 'cancelled'
-          ? t('checkpoint.result.undo.cancelled', { org })
+          ? // Stopped before its first write, the org is as the rewind left it.
+            rewindWroteNothing(result)
+            ? t('checkpoint.result.undo.cancelledNothing', { org })
+            : t('checkpoint.result.undo.cancelled', { org })
           : result.status === 'failure'
             ? t('checkpoint.result.undo.failure', { org })
             : kept > 0

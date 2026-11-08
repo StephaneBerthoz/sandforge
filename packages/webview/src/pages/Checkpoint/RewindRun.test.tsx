@@ -288,13 +288,20 @@ describe('RewindRun', () => {
     expect(screen.queryByTestId('error-hint')).toBeNull();
   });
 
-  it('says an undo stopped before it answered, and offers no Undo of its own', () => {
+  it('says an undo stopped before it answered as one stopped before it wrote anything, and offers no Undo of its own', () => {
+    // The extension answers CANCELLED only for an undo stopped before its
+    // first write: the page said it stopped part way.
     renderRun(
-      { ...RUNNING, loading: false, error: 'The undo was stopped.', errorCode: 'CANCELLED' },
+      {
+        ...RUNNING,
+        loading: false,
+        error: 'The undo was stopped before it wrote anything to the org.',
+        errorCode: 'CANCELLED',
+      },
       UNDO,
     );
     expect(screen.getByTestId('checkpoint-run-stopped').textContent).toBe(
-      'Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.',
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can still be undone.',
     );
     expect(screen.queryByRole('button', { name: 'Undo this rewind' })).toBeNull();
   });

@@ -190,6 +190,7 @@ export {
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';
 export * from './utils/org-kind.js';
+export * from './utils/rewind-result.js';
 export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';

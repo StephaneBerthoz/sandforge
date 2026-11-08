@@ -7299,6 +7299,7 @@
         "partialListed": "{{org}} est revenue à son état d'avant son dernier retour arrière, sauf ce qui est indiqué ci-dessous.",
         "failure": "L'annulation du dernier retour arrière de {{org}} s'est terminée avant la fin : ce qu'elle a fait est indiqué ci-dessous.",
         "cancelled": "Arrêtée en cours de route : annulez de nouveau le retour arrière depuis la liste des points de contrôle pour finir ; l'annulation reprend là où elle s'est arrêtée.",
+        "cancelledNothing": "Arrêté avant d'avoir rien écrit : {{org}} est tel que le retour arrière l'a laissé, et ce retour arrière peut encore être annulé.",
         "undeletedTitle": "Ce que le retour arrière a supprimé, rétabli depuis la corbeille de {{org}}",
         "restoredTitle": "Ce que le retour arrière a écrasé, qui a retrouvé ses valeurs d'avant dans {{org}}",
         "restoredLine": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs d'avant le retour arrière",

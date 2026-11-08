@@ -1996,6 +1996,21 @@ describe('rewindLines, undoLines and resultJson', () => {
     );
   });
 
+  it('says an undo stopped before it wrote anything as nothing written, the rewind still to undo, and one stopped after it wrote as between', () => {
+    // Stopped once under way but before its first write, at the question
+    // about what it may not delete say, it said "Stopped part way: … is
+    // between the rewind and how it was before it" of an org it had written
+    // nothing to.
+    expect(undoLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can ' +
+        'still be undone.',
+    );
+    expect(undoLines('DEV-SB', checkpoint, resultOf({ ...DID, status: 'cancelled' }))[0]).toBe(
+      'Stopped part way: DEV-SB is between the rewind and how it was before it. Undo again to ' +
+        'finish: it takes up what this one left.',
+    );
+  });
+
   it('says an undo deleted again what the rewind made again, with what went with it, never that it sent it back (live: two accounts and a contact made again, two contacts gone with their account)', () => {
     const removed = (objectApiName: string, deleted: number, alreadyGone: number) => ({
       objectApiName,

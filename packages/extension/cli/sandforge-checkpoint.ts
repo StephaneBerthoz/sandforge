@@ -49,6 +49,7 @@ import {
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
   firedOnRemovalStepsOf,
+  rewindWroteNothing,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
   type CheckpointEmails,
@@ -2693,6 +2694,18 @@ export function rewindLines(
   return lines;
 }
 
+/**
+ * What an undo stopped before its first write says, as the page says it,
+ * whether it was stopped before its operation was listed, answered
+ * `CANCELLED`, or after, answered with its result.
+ */
+function undoStoppedBeforeWritingWords(orgName: string): string {
+  return (
+    `Stopped before it wrote anything: ${orgName} is as the rewind left it, and the rewind ` +
+    'can still be undone.'
+  );
+}
+
 /** The lines an undo prints once it answered, stopped part way included. */
 export function undoLines(
   orgName: string,
@@ -2717,9 +2730,11 @@ export function undoLines(
       `Someone changed records of ${orgName} during the undo: left as they made them, each said ` +
       'below.',
     failure: `Nothing of the undo of ${orgName}'s rewind went through: its reasons are said below.`,
-    cancelled:
-      `Stopped part way: ${orgName} is between the rewind and how it was before it. Undo again ` +
-      'to finish: it takes up what this one left.',
+    // Stopped before its first write, the org is not between: as the rewind left it.
+    cancelled: rewindWroteNothing(result)
+      ? undoStoppedBeforeWritingWords(orgName)
+      : `Stopped part way: ${orgName} is between the rewind and how it was before it. Undo ` +
+        'again to finish: it takes up what this one left.',
   };
   const tallies = talliesOf(result);
   const lines = [head[result.status]];
@@ -4014,7 +4029,14 @@ async function undo(
         timeoutMs: WRITE_TIMEOUT_MS,
       }),
   );
-  const result = resultOfAnswer(sent, 'The undo', undoRefusalWords);
+  // Stopped before its first write, an undo said "The undo was stopped
+  // before it wrote anything to the org." where its result's lines said
+  // nothing of it: one sentence for both.
+  const result = resultOfAnswer(sent, 'The undo', (refusal) =>
+    refusal.code === 'CANCELLED'
+      ? { ...refusal, message: undoStoppedBeforeWritingWords(args.org) }
+      : undoRefusalWords(refusal),
+  );
   for (const line of undoLines(args.org, checkpoint, result)) say(line);
   for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
     say(line);

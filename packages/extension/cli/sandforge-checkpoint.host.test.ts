@@ -2280,6 +2280,55 @@ describe('sandforge-checkpoint undo', () => {
     expect(asked.code).toBe(2);
     expect(asked.stdout).toContain('sends 1 record(s) it brought back to the recycle bin');
   });
+
+  it('says an undo stopped before it wrote anything in one sentence, exit 130, the rewind still to undo', async () => {
+    // Stopped before its first write, it said "The undo was stopped before it
+    // wrote anything to the org.", and the page "Stopped part way".
+    const h = harness({
+      sending: (request) => {
+        if (request.type === 'checkpoint:undo') process.emit('SIGINT');
+        return request;
+      },
+    });
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    clock += 60_000;
+    const afterRewind = stateOf(h.org);
+
+    const stopped = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    const said =
+      'Stopped before it wrote anything: DEV-SB is as the rewind left it, and the rewind can ' +
+      'still be undone.';
+    expect(stopped.code, stopped.stderr).toBe(130);
+    expect(JSON.parse(stopped.stdout)).toEqual({ refusal: { code: 'CANCELLED', message: said } });
+    expect(stopped.stderr).toContain(said);
+    expect(stopped.stderr).not.toContain('The undo was stopped before it wrote anything');
+    expect(stateOf(h.org)).toEqual(afterRewind);
+    expect(
+      (await h.store.read(checkpoint.checkpointId))?.checkpoint?.lastRewind?.undoneAt,
+    ).toBeUndefined();
+  });
 });
 
 describe('sandforge-checkpoint export and import', () => {

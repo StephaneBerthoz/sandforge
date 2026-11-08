@@ -131,12 +131,12 @@ export const RewindRun: React.FC<RewindRunProps> = ({
       <div className="flex flex-col items-start gap-3 text-sm text-text-primary">
         {stopped ? (
           <p role="status" data-testid="checkpoint-run-stopped">
-            {/* Answered CANCELLED, a rewind was stopped before its first
-                write — one stopped part way answers with its result —, and
-                is said as the result of one that wrote nothing is. */}
+            {/* Answered CANCELLED, a rewind or an undo was stopped before its
+                first write — one stopped part way answers with its result —,
+                and is said as the result of one that wrote nothing is. */}
             {kind === 'rewind'
               ? t('checkpoint.result.cancelledNothing', { org: orgName, name: checkpoint.name })
-              : t('checkpoint.result.undo.cancelled', { org: orgName })}
+              : t('checkpoint.result.undo.cancelledNothing', { org: orgName })}
           </p>
         ) : (
           <ErrorBanner

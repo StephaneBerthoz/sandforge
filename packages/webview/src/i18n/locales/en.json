@@ -7299,6 +7299,7 @@
         "partialListed": "{{org}} is back as it was before its last rewind, except what is listed below.",
         "failure": "The undo of the last rewind of {{org}} ended before it was through: what it did is listed below.",
         "cancelled": "Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.",
+        "cancelledNothing": "Stopped before it wrote anything: {{org}} is as the rewind left it, and the rewind can still be undone.",
         "undeletedTitle": "What the rewind deleted, brought back from the recycle bin of {{org}}",
         "restoredTitle": "What the rewind wrote over, given back its values from before in {{org}}",
         "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",

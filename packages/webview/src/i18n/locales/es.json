@@ -7299,6 +7299,7 @@
         "partialListed": "{{org}} ha vuelto a como estaba antes de su último retroceso, salvo lo que se indica abajo.",
         "failure": "Deshacer el último retroceso de {{org}} terminó antes de acabar: lo que hizo se indica abajo.",
         "cancelled": "Detenido a medias: deshaga de nuevo el retroceso desde la lista de puntos de control para terminar; retoma donde se detuvo.",
+        "cancelledNothing": "Detenido antes de escribir nada: {{org}} está como lo dejó el retroceso, y el retroceso aún se puede deshacer.",
         "undeletedTitle": "Lo que el retroceso eliminó, recuperado de la papelera de {{org}}",
         "restoredTitle": "Lo que el retroceso sobrescribió, con sus valores de antes en {{org}}",
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes del retroceso",
